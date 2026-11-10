@@ -172,7 +172,9 @@ export function defineWorkspaceUnlinkRetractionWorkflow() {
                   {
                     change: async () => {
                       const plan = await (async () => {
-                        const none: Awaited<ReturnType<typeof planUnlinkRetraction>> = {
+                        const none: Awaited<
+                          ReturnType<typeof planUnlinkRetraction>
+                        > = {
                           files: [],
                           deletePaths: [],
                           skipped: [],
@@ -187,10 +189,8 @@ export function defineWorkspaceUnlinkRetractionWorkflow() {
                         // keeps its files, also when that entry is invalid for now.
                         // The tip text gives an invalid entry no scope, so a stored
                         // row that still holds the repository also keeps it.
-                        const { sourcesFile, sourceFiles } = await readSourcesTree(
-                          acquired.pack,
-                          read,
-                        )
+                        const { sourcesFile, sourceFiles } =
+                          await readSourcesTree(acquired.pack, read)
                         if (
                           !(await sourcesHaveNoRepository(
                             { text: sourcesFile, sourceFiles },
@@ -228,7 +228,10 @@ export function defineWorkspaceUnlinkRetractionWorkflow() {
                       await persistWriteJobUnchangedFiles(input.jobId, {
                         skipped: plan.skipped,
                       })
-                      return { files: plan.files, deletePaths: plan.deletePaths }
+                      return {
+                        files: plan.files,
+                        deletePaths: plan.deletePaths,
+                      }
                     },
                     subject: { trigger: "unlink_retraction" },
                     createdAt: run.createdAt,

@@ -180,7 +180,9 @@ export const workspaceOpsFolderList = defineWorkflow(
                           paths,
                           // The acquired pack also holds the previous tree.
                           ...(input.previousSha
-                            ? { previousPaths: await pathsAt(input.previousSha) }
+                            ? {
+                                previousPaths: await pathsAt(input.previousSha),
+                              }
                             : {}),
                         })
                       },

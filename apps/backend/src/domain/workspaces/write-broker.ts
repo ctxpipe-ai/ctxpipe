@@ -1101,7 +1101,7 @@ async function findPreparedCommit(
  * metadata, never a file or a Git object.
  *
  * A model can answer differently on a replay, so a replay returns the
- * commit that an earlier execution recorded and pushed (`reuse`): a second
+ * commit that an earlier execution recorded and pushed: a second
  * answer cannot make a second commit. A recorded commit that no push sent is
  * discarded, and `build` runs again. `record` replaces the default record of
  * the commit on the job (a semantic handoff child records on its parent's
@@ -1113,16 +1113,15 @@ export async function prepareRecordedCommit<T>(
   env: Env,
   steps: {
     build: (publish: PublishGitCommit) => Promise<T>
-    reuse: (commit: GitWriteCommit) => T
     record?: (sha: string) => Promise<unknown>
   },
-): Promise<T | "paused"> {
+): Promise<T | GitWriteCommit | "paused"> {
   const record =
     steps.record ??
     ((sha: string) => persistWriteJobPreparedCommit(job.jobId, sha))
-  return prepareWithJobRef(job, env, async (publish) => {
+  return prepareWithJobRef<T | GitWriteCommit>(job, env, async (publish) => {
     const found = await findPreparedCommit(job, parent, env)
-    if (found && "commit" in found) return steps.reuse(found.commit)
+    if (found && "commit" in found) return found.commit
     // A crash between the record and the push, or a run from before the
     // new step names: no step reads the recorded commit.
     if (found) await discardWriteJobPreparedCommit(job.jobId, found.stale)

@@ -28,12 +28,12 @@ import {
 import type { UnbornBootstrapBinding } from "./bootstrap-input.js"
 import { getUnbornBootstrapWorkspace } from "./bootstrap-unborn.js"
 import { generateCommitSubject } from "./commit-subject.js"
+import { connectorMirrorContentSchema } from "./connector-mirror-input.js"
 import type { ConnectorMirrorSource } from "./connector-mirror.js"
 import {
   assertConnectorMirrorBinding,
   assertConnectorMirrorScope,
 } from "./connector-mirror.js"
-import { connectorMirrorContentSchema } from "./connector-mirror-input.js"
 import type { IngestPublishSource } from "./extraction-source.js"
 import { workspaceGitRead } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
@@ -202,9 +202,7 @@ export async function prepareWorkspaceWriteCommit<
     createdAt: Date | string
   },
   env: Env,
-): Promise<
-  GitWriteCommit | Exclude<Change, WriteChange> | null | "paused"
-> {
+): Promise<GitWriteCommit | Exclude<Change, WriteChange> | null | "paused"> {
   // The acquire step proved that `revision.remote` is the bound repository.
   const read = workspaceGitRead({
     orgId: input.orgId,
@@ -222,8 +220,7 @@ export async function prepareWorkspaceWriteCommit<
     {
       build: async (publish) => {
         const change: WriteChange | { stopped: unknown } = await write.change()
-        if ("stopped" in change)
-          return change as Exclude<Change, WriteChange>
+        if ("stopped" in change) return change as Exclude<Change, WriteChange>
         if (!change.files.length && !change.deletePaths.length) return null
         return prepareGitCommit({
           pack,
@@ -241,7 +238,6 @@ export async function prepareWorkspaceWriteCommit<
           publish,
         })
       },
-      reuse: (commit) => commit,
     },
   )
 }
@@ -266,8 +262,10 @@ export async function readSemanticMergeChange(
   input: SemanticMergeCommand,
   read: GitRemoteRead,
 ): Promise<WriteChange> {
-  if (!input.handoff)
-    return { files: input.files ?? [], deletePaths: input.deletePaths ?? [] }
+  // A standalone merge, or a handoff from before CTX-1239, has its files.
+  if (input.files)
+    return { files: input.files, deletePaths: input.deletePaths ?? [] }
+  if (!input.handoff) throw new Error("A semantic merge needs its change")
   const root = workspaceRootPath(input.revision)
   const delta = await readGitCommitChanges(
     writeCommitPack(
@@ -354,7 +352,6 @@ export async function prepareSemanticMergeCommit(
           publish,
         })
       },
-      reuse: (commit) => commit,
       record: (sha) =>
         handoff
           ? validateSemanticHandoff({ ...input, handoff }, sha)
@@ -403,7 +400,6 @@ export async function prepareUnbornWorkspaceCommit(
           publish,
         })
       },
-      reuse: (commit) => commit,
     },
   )
 }

@@ -130,7 +130,10 @@ export const workspaceConnectorMirror = defineWorkflow(
                     return withGitDirectory(
                       revision.sha,
                       async (directory) => {
-                        const tree = await packRootTree(directory, acquired.pack)
+                        const tree = await packRootTree(
+                          directory,
+                          acquired.pack,
+                        )
                         const paths = tree
                           ? (
                               await nativeGit(directory, [
@@ -157,7 +160,9 @@ export const workspaceConnectorMirror = defineWorkflow(
                         }
                         const changed = new Set(filePaths)
                         return {
-                          files: input.files.filter((file) => changed.has(file.path)),
+                          files: input.files.filter((file) =>
+                            changed.has(file.path),
+                          ),
                           deletePaths: input.deletePaths.filter((path) =>
                             paths.includes(path),
                           ),

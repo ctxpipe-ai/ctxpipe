@@ -1,9 +1,9 @@
 import { z } from "zod"
 
 import type { GitFileChange } from "../../services/git/file-change.js"
+import { gitFileChangeSchema } from "../../services/git/file-change.js"
 import type { WithheldFile } from "../ingestion/ingest-refs.js"
 import type { SkippedRetraction } from "../ingestion/unlink-retraction.js"
-import { gitFileChangeSchema } from "../../services/git/file-change.js"
 import type { UnbornBootstrapBinding } from "./bootstrap-input.js"
 import type { ConnectorMirrorSource } from "./connector-mirror-input.js"
 import { connectorMirrorSourceSchema } from "./connector-mirror-input.js"
@@ -26,13 +26,15 @@ export type WriteJobStatus =
 /**
  * A write that lost the push race, for its semantic merge child. The child
  * reads the change from the candidate commit on its job ref (CTX-1239),
- * without `dropPaths`.
+ * without `dropPaths`. A handoff from before CTX-1239 holds the files.
  */
 export type WorkspaceSemanticHandoff = {
   ownerRunId: string
   candidateSha: string
   revision: WorkspaceRevision
   dropPaths?: string[]
+  files?: GitFileChange[]
+  deletePaths?: string[]
 }
 
 export type WorkspaceWritePlanning = {

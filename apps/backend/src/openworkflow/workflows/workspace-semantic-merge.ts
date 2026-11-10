@@ -83,29 +83,34 @@ const semanticMergeCommandSchema = z.object({
   origin: writeOriginSchema,
 })
 
+const handoffSchema = z
+  .object({
+    ownerRunId: z.string().min(1),
+    candidateSha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
+  })
+  .strict()
+
 /**
  * A semantic merge carries its files (a standalone merge), or it is the
  * handoff child of a write that lost the push race. A handoff names the
  * candidate commit of the parent on its job ref, never its files
- * (CTX-1239): the child reads the change from Git.
+ * (CTX-1239): the child reads the change from Git. A handoff child that was
+ * queued before CTX-1239 carries its files, and it still parses.
  */
 export const workspaceSemanticMergeInputSchema = z
   .union([
-    semanticMergeContentSchema.safeExtend(semanticMergeCommandSchema.shape),
+    semanticMergeContentSchema.safeExtend({
+      ...semanticMergeCommandSchema.shape,
+      handoff: handoffSchema.optional(),
+    }),
     semanticMergeCommandSchema
       .extend({
         mirror: connectorMirrorSourceSchema.optional(),
         previousSha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
-        handoff: z
-          .object({
-            ownerRunId: z.string().min(1),
-            candidateSha: z
-              .string()
-              .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
-            /** Paths of the candidate change that stay off the new tip. */
-            dropPaths: z.array(repositoryFilePathSchema).min(1).optional(),
-          })
-          .strict(),
+        handoff: handoffSchema.extend({
+          /** Paths of the candidate change that stay off the new tip. */
+          dropPaths: z.array(repositoryFilePathSchema).min(1).optional(),
+        }),
       })
       .strict(),
   ])
@@ -144,8 +149,8 @@ export const workspaceSemanticMerge = defineWorkflow(
             "Workspace writes require a connected GitHub repository",
           )
         const completed =
-          "handoff" in input
-            ? await validateSemanticHandoff(input)
+          input.handoff
+            ? await validateSemanticHandoff({ ...input, handoff: input.handoff })
             : await completedWorkspaceWrite(input, "semantic_merge", run.id)
         if (completed) return completed
         if ("extraction" in input && input.extraction) {
@@ -164,7 +169,8 @@ export const workspaceSemanticMerge = defineWorkflow(
             commitSha: undefined,
           }
         }
-        if (!("handoff" in input))
+        // A standalone merge has its files and no handoff.
+        if (!input.handoff && "files" in input)
           await step.run({ name: "claim-command" }, () =>
             persistBoundWriteJob({
               id: input.jobId,
@@ -278,7 +284,7 @@ export const workspaceSemanticMerge = defineWorkflow(
                 { idempotencyKey: `${input.jobId}:hydrate` },
               ),
             )
-            if (!("handoff" in input))
+            if (!input.handoff)
               await step.run({ name: "complete-no-op" }, () =>
                 persistWriteJobStatus(input.jobId, "completed"),
               )
@@ -326,7 +332,7 @@ export const workspaceSemanticMerge = defineWorkflow(
               { idempotencyKey: `${input.jobId}:hydrate` },
             )
           })
-          if (!("handoff" in input))
+          if (!input.handoff)
             await step.run({ name: "complete" }, () =>
               completeWorkspaceWrite(
                 { ...input, remote: input.revision.remote },

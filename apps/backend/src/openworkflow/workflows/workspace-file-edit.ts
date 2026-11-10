@@ -181,48 +181,48 @@ export const workspaceFileEdit = defineWorkflow(
                 acquired.pack,
                 {
                   change: async () => {
-                  const named = new Set([
-                    ...input.files.map((file) => file.path),
-                    ...input.deletePaths,
-                  ])
-                  // Root-relative paths below the Workspace root folder.
-                  const existing = new Map(
-                    (
-                      await readGitFiles(
-                        acquired.pack,
-                        (path) => named.has(path),
-                        undefined,
-                        read,
-                      )
-                    ).map((file) => [file.path, file.content]),
-                  )
-                  // The format file changes only in its upgrade setting: a merged
-                  // upgrade pull request can have changed the format after the
-                  // job was queued.
-                  const files = input.files.map((file) => {
-                    if (file.path !== WORKSPACE_FORMAT_PATH) return file
-                    const requested = readWorkspaceFormat(file.content)
-                    const content =
-                      requested.kind === "format"
-                        ? withWorkspaceFormatFields(
-                            existing.get(file.path) ?? null,
-                            { upgrades: requested.upgrades },
-                          )
-                        : null
-                    if (content === null)
-                      throw new Error(
-                        `${WORKSPACE_FORMAT_PATH} is not valid. ctxpipe cannot change its upgrade setting.`,
-                      )
-                    return { path: file.path, content }
-                  })
-                  return {
-                    files: files.filter(
-                      (file) => existing.get(file.path) !== file.content,
-                    ),
-                    deletePaths: input.deletePaths.filter((path) =>
-                      existing.has(path),
-                    ),
-                  }
+                    const named = new Set([
+                      ...input.files.map((file) => file.path),
+                      ...input.deletePaths,
+                    ])
+                    // Root-relative paths below the Workspace root folder.
+                    const existing = new Map(
+                      (
+                        await readGitFiles(
+                          acquired.pack,
+                          (path) => named.has(path),
+                          undefined,
+                          read,
+                        )
+                      ).map((file) => [file.path, file.content]),
+                    )
+                    // The format file changes only in its upgrade setting: a merged
+                    // upgrade pull request can have changed the format after the
+                    // job was queued.
+                    const files = input.files.map((file) => {
+                      if (file.path !== WORKSPACE_FORMAT_PATH) return file
+                      const requested = readWorkspaceFormat(file.content)
+                      const content =
+                        requested.kind === "format"
+                          ? withWorkspaceFormatFields(
+                              existing.get(file.path) ?? null,
+                              { upgrades: requested.upgrades },
+                            )
+                          : null
+                      if (content === null)
+                        throw new Error(
+                          `${WORKSPACE_FORMAT_PATH} is not valid. ctxpipe cannot change its upgrade setting.`,
+                        )
+                      return { path: file.path, content }
+                    })
+                    return {
+                      files: files.filter(
+                        (file) => existing.get(file.path) !== file.content,
+                      ),
+                      deletePaths: input.deletePaths.filter((path) =>
+                        existing.has(path),
+                      ),
+                    }
                   },
                   subject: { trigger: "ui_file_edit" },
                   createdAt: run.createdAt,

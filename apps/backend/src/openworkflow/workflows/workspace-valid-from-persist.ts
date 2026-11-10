@@ -137,7 +137,10 @@ export const workspaceValidFromPersist = defineWorkflow(
                       root: workspaceRootPath(revision),
                     }))
                       if (file.introducingCommitTimestamp)
-                        introduced.set(file.path, file.introducingCommitTimestamp)
+                        introduced.set(
+                          file.path,
+                          file.introducingCommitTimestamp,
+                        )
                     const sourceFiles = await readGitFiles(
                       acquired.pack,
                       (path) => path.endsWith(".md"),

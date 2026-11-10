@@ -327,7 +327,10 @@ export const workspaceBootstrap = defineWorkflow(
                         await withGitDirectory(
                           acquired.pack.sha,
                           async (directory) => {
-                            const tree = await packRootTree(directory, acquired.pack)
+                            const tree = await packRootTree(
+                              directory,
+                              acquired.pack,
+                            )
                             return tree
                               ? listTreeBlobs(
                                   directory,
@@ -345,7 +348,9 @@ export const workspaceBootstrap = defineWorkflow(
                       ...bootstrapWorkspaceFiles({
                         displayName: acquired.displayName,
                         existing,
-                      }).filter((file) => existing.get(file.path) !== file.content),
+                      }).filter(
+                        (file) => existing.get(file.path) !== file.content,
+                      ),
                       ...(isNew ? [workspaceFormatFile()] : []),
                     ]
                     if (
@@ -355,7 +360,9 @@ export const workspaceBootstrap = defineWorkflow(
                           file.path !== WORKSPACE_FORMAT_PATH,
                       )
                     )
-                      throw new Error("Bootstrap path is outside its allowed files")
+                      throw new Error(
+                        "Bootstrap path is outside its allowed files",
+                      )
                     return { files, deletePaths: [] }
                   },
                   subject: { trigger: "bootstrap" },

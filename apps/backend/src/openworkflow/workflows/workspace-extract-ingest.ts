@@ -288,7 +288,8 @@ export function defineWorkspaceExtractIngestWorkflow() {
                               resolve: resolveIngestConflicts,
                               source: { url: source.url, sha: sourceSha },
                               sourcePath,
-                              sourcePathExists: (path) => sourceTree().exists(path),
+                              sourcePathExists: (path) =>
+                                sourceTree().exists(path),
                               readSourceFile: (path) => sourceTree().read(path),
                             },
                           },
@@ -303,26 +304,35 @@ export function defineWorkspaceExtractIngestWorkflow() {
                             // Fixed codes and a count: a path can hold model text.
                             reason: "withheld",
                             rules: [
-                              ...new Set(merged.withheld.flatMap((w) => w.rules)),
+                              ...new Set(
+                                merged.withheld.flatMap((w) => w.rules),
+                              ),
                             ].sort(),
                             withheld: merged.withheld.length,
                           })
                         // Log the validator reasons of the withheld files as the step
                         // rejections log them, with a count and no path (CTX-1099).
                         for (const { rule, reason, files } of withheldReasons)
-                          logIngestEvent("warn", "ingestion-v2.publish-withheld", {
-                            ingestionRunId: ingest.runId,
-                            workspaceId: input.workspaceId,
-                            rule,
-                            reason: capIngestText(reason),
-                            files,
-                          })
+                          logIngestEvent(
+                            "warn",
+                            "ingestion-v2.publish-withheld",
+                            {
+                              ingestionRunId: ingest.runId,
+                              workspaceId: input.workspaceId,
+                              rule,
+                              reason: capIngestText(reason),
+                              files,
+                            },
+                          )
                         // The list of withheld files can be long: the job keeps it,
                         // not the step output (CTX-1239).
                         await persistWriteJobUnchangedFiles(input.jobId, {
                           withheld: output.withheld,
                         })
-                        return { files: output.files, deletePaths: output.deletePaths }
+                        return {
+                          files: output.files,
+                          deletePaths: output.deletePaths,
+                        }
                       } catch (error) {
                         // A refused publish (not a validator rejection of a
                         // merged file, which is withheld): the Workspace is
@@ -359,7 +369,11 @@ export function defineWorkspaceExtractIngestWorkflow() {
                         }
                         throw error
                       } finally {
-                        await releaseIngestSourceTree(ingest.runId, sourceSha, holder)
+                        await releaseIngestSourceTree(
+                          ingest.runId,
+                          sourceSha,
+                          holder,
+                        )
                       }
                     },
                     // A fixed message: the same run makes the same commit.

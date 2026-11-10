@@ -2,15 +2,19 @@ import { createHash } from "node:crypto"
 import { rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
+import { eq, sql } from "drizzle-orm"
 import { expect, it } from "vitest"
 
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
+import { getOrgDb } from "../../db/client.js"
+import { workspaceWriteJobs } from "../../db/schema/workspaces.js"
 import {
   getWriteJobRefState,
   persistBoundWriteJob,
   persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
+import { orgSql } from "../../models/workspace-sql.js"
 import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
@@ -242,7 +246,10 @@ it(
         )
         const outputs = await stepOutputs(f, handle.workflowRun.id)
         expect(outputs.get("prepare-commit")).toMatchObject({ base: f.sha })
-        for (const retired of ["transform-import-key-cleanup", "commit-subject"])
+        for (const retired of [
+          "transform-import-key-cleanup",
+          "commit-subject",
+        ])
           expect(outputs.has(retired)).toBe(false)
         expect(writeRefs(f)).toEqual([])
       } finally {
@@ -516,6 +523,82 @@ it(
         expect(
           f.git("--git-dir", f.remote, "show", `${replayed.sha}:${NOTES}`),
         ).toBe("# Owners\n\nOwners: Erin")
+      },
+    )
+  },
+)
+
+it(
+  "lands a semantic handoff that a parent recorded with its files before the deploy",
+  { timeout: 90_000 },
+  async () => {
+    const resolved = "# Owners\n\nOwners: Bob, Carol\n"
+    await withNativeHydrationFixture(
+      fixture({ files: [{ path: NOTES, content: resolved }] }),
+      async (f) => {
+        const jobId = `wjob_${f.id}_legacy_handoff`
+        const ownerRunId = `run_${jobId}`
+        const files = [{ path: NOTES, content: original.replace("Alice", "Bob") }]
+        // The candidate of the parent: before CTX-1239 it went to no job ref.
+        f.git("reset", "--hard", f.sha)
+        writeFileSync(join(f.directory, NOTES), files[0]?.content ?? "")
+        f.git("commit", "-am", "Candidate from before the deploy")
+        const candidateSha = f.git("rev-parse", "HEAD")
+        const revision = await humanEditsOwners(f)
+        await withOrgIdContext(f.org, () =>
+          persistBoundWriteJob({
+            id: jobId,
+            kind: "ui_file_edit",
+            revision: { ...f.revision, access: "write-default" },
+            workflowRunId: ownerRunId,
+            files,
+            deletePaths: [],
+          }),
+        )
+        // The old `capture-semantic-handoff` step stored the files.
+        await withOrgIdContext(f.org, () =>
+          orgSql(() =>
+            getOrgDb()
+              .update(workspaceWriteJobs)
+              .set({
+                commitSha: candidateSha,
+                payload: sql`jsonb_set(${workspaceWriteJobs.payload}, '{semanticHandoff}', ${JSON.stringify(
+                  { ownerRunId, candidateSha, revision, files, deletePaths: [] },
+                )}::jsonb)`,
+              })
+              .where(eq(workspaceWriteJobs.id, jobId)),
+          ),
+        )
+        const spec = {
+          ...workspaceSemanticMerge.spec,
+          retryPolicy: { maximumAttempts: 1 },
+        }
+        f.runner.implementWorkflow(spec, workspaceSemanticMerge.fn)
+        await f.worker.stop()
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        await worker.start()
+        try {
+          // The child input that the old parent queued.
+          const handle = await f.runner.runWorkflow(spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            jobId,
+            origin: "host",
+            revision,
+            previousSha: f.sha,
+            files,
+            deletePaths: [],
+            handoff: { ownerRunId, candidateSha },
+          })
+          expect(await handle.result({ timeoutMs: 60_000 })).toMatchObject({
+            committed: true,
+          })
+          expect(f.git("--git-dir", f.remote, "show", `main:${NOTES}`)).toBe(
+            resolved.trim(),
+          )
+        } finally {
+          await worker.stop()
+        }
       },
     )
   },

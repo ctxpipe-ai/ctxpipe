@@ -273,6 +273,9 @@ export async function validateSemanticHandoff(
     mirror?: ConnectorMirrorSource
     extraction?: Record<string, unknown>
     handoff: { ownerRunId: string; candidateSha: string; dropPaths?: string[] }
+    /** The files of a handoff from before CTX-1239. */
+    files?: GitFileChange[]
+    deletePaths?: string[]
   },
   preparedSha?: string,
 ) {
@@ -292,6 +295,9 @@ export async function validateSemanticHandoff(
       !isDeepStrictEqual(row.payload?.semanticHandoff, {
         ...input.handoff,
         revision: input.revision,
+        ...(input.files
+          ? { files: input.files, deletePaths: input.deletePaths }
+          : {}),
       })
     )
       throw new Error("Semantic child does not match the admitted handoff")
