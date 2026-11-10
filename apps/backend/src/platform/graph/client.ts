@@ -1,6 +1,12 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
-import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
+import {
+  context,
+  ROOT_CONTEXT,
+  SpanKind,
+  SpanStatusCode,
+  trace,
+} from "@opentelemetry/api"
 import { FalkorDB } from "falkordb"
 import neo4j, { type Driver } from "neo4j-driver"
 
@@ -243,12 +249,16 @@ function attachFalkorDbLifecycle(
   pending: Promise<FalkorDBInstance>,
 ): void {
   db.on("error", (error: unknown) => {
-    log.error({
-      step: "graph.falkordb.connection",
-      message:
-        "FalkorDB connection error; dropping the shared client so the next call reconnects",
-      error: error instanceof Error ? error.message : String(error),
-    })
+    // The socket error fires in the async context of the request that opened
+    // the shared client, maybe hours ago. Log it with no request (CTX-1142).
+    context.with(ROOT_CONTEXT, () =>
+      log.error({
+        step: "graph.falkordb.connection",
+        message:
+          "FalkorDB connection error; dropping the shared client so the next call reconnects",
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    )
     if (databasePerTenantFalkorDb === pending) {
       databasePerTenantFalkorDb = null
     }

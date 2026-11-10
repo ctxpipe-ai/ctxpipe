@@ -44,6 +44,7 @@ const evlogRedact: RedactConfig = {
   patterns: [
     /(?<=\/reset-password\/)[^/?#]+/g,
     /(?<=\/public\/invitations\/)[^/?#]+/g,
+    /(?<=\/sandbox-egress\/)[^/?#]+/g,
     /\r?\nparams:[^\r\n]*/g,
     /(?<=(?:https?:\/\/|(?:^|\s)\/)[^\s?#]*)\?[^#\s]*/g,
   ],
