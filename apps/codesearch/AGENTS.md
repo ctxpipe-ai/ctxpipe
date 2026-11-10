@@ -21,8 +21,12 @@ These instructions supplement the repository-root `AGENTS.md`.
   the shards (`src/domain/store/shardStore.ts`). `zoekt-index` writes to
   `<cold>/.build/<uuid>/`; the pin manager moves the files into cold under the
   per-repo lock. `<cold>/.store/<name>.json` is the local manifest copy: it
-  exists only while the cold shards are the uploaded ones. Unset means local
-  only (Compose, self-host). Tests use `rclone serve s3` (`src/test/s3Server.ts`).
+  exists only while the cold shards are the uploaded ones. A pin of a name
+  with no cold shard fetches it from S3 (the search returns 503 when the fetch
+  does not finish in 8 s; the fetch continues). Below 20% free disk, eviction
+  deletes the least recently pinned names that have a local manifest copy and
+  are not pinned. Unset means local only (Compose, self-host). Tests use
+  `rclone serve s3` (`src/test/s3Server.ts`).
 
 ## Logging (evlog)
 

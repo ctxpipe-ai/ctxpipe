@@ -31,8 +31,8 @@ export function zoektHotDirFromIndexDir(indexDir: string): string {
 export const ZOEKT_HOT_DIR = zoektHotDirFromIndexDir(ZOEKT_INDEX_DIR)
 
 /**
- * Staging directories of Zoekt builds, in `<cold>/.build`: on the cold
- * volume, so the move into cold is a rename.
+ * Staging directories of Zoekt builds and shard store fetches, in
+ * `<cold>/.build`: on the cold volume, so the move into cold is a rename.
  */
 export function zoektStagingDirFromIndexDir(indexDir: string): string {
   return join(indexDir, ".build")

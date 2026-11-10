@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto"
-import { createReadStream } from "node:fs"
+import { createReadStream, createWriteStream } from "node:fs"
 import { stat } from "node:fs/promises"
-import { basename } from "node:path"
+import { basename, join } from "node:path"
+import { Transform } from "node:stream"
 import { pipeline } from "node:stream/promises"
 
 import {
@@ -15,6 +16,7 @@ import {
 import { z } from "zod"
 
 import { log } from "../../observability/logger.js"
+import { mapLimit } from "../../utils/mapLimit.js"
 
 /**
  * The durable copy of the index artifacts in S3 (the design note "S3 cold
@@ -122,26 +124,6 @@ async function fileSha256(path: string): Promise<string> {
   const hash = createHash("sha256")
   await pipeline(createReadStream(path), hash)
   return hash.digest("hex")
-}
-
-/** Runs `fn` on each item, at most `limit` at the same time, in order. */
-async function mapLimit<T, R>(
-  items: readonly T[],
-  limit: number,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = new Array(items.length)
-  let next = 0
-  const worker = async () => {
-    while (next < items.length) {
-      const index = next++
-      results[index] = await fn(items[index] as T)
-    }
-  }
-  await Promise.all(
-    Array.from({ length: Math.min(limit, items.length) }, worker),
-  )
-  return results
 }
 
 /** The current manifest of an address, or null when it has none. */
@@ -269,4 +251,44 @@ export async function publishArtifact(
     })
   }
   return manifest
+}
+
+/**
+ * Downloads the files of a manifest into `dir` (which must exist) and checks
+ * the size and the sha256 of each. Any difference is an error.
+ */
+export async function downloadArtifact(
+  store: ShardStore,
+  address: StoreAddress,
+  manifest: StoreManifest,
+  dir: string,
+): Promise<void> {
+  const prefix = addressPrefix(store, address)
+  await mapLimit(manifest.files, 4, async (file) => {
+    const response = await store.client.send(
+      new GetObjectCommand({
+        Bucket: store.bucket,
+        Key: `${prefix}${manifest.gen}/${file.name}`,
+      }),
+    )
+    if (!response.Body) throw new Error(`S3 sent no body for ${file.name}`)
+    const hash = createHash("sha256")
+    let size = 0
+    await pipeline(
+      response.Body as NodeJS.ReadableStream,
+      new Transform({
+        transform(chunk: Buffer, _encoding, done) {
+          hash.update(chunk)
+          size += chunk.length
+          done(null, chunk)
+        },
+      }),
+      createWriteStream(join(dir, basename(file.name))),
+    )
+    const sha256 = hash.digest("hex")
+    if (size !== file.size || sha256 !== file.sha256)
+      throw new Error(
+        `Downloaded ${file.name} does not match the manifest (size ${size}, expected ${file.size})`,
+      )
+  })
 }

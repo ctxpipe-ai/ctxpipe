@@ -271,6 +271,61 @@ describe("POST /search", () => {
     })
   }, 20_000)
 
+  describe("with a shard store", () => {
+    const s3Base = "http://s3.test"
+    beforeEach(() => {
+      vi.stubEnv("CODESEARCH_SHARD_STORE", "s3://shards/prod")
+      vi.stubEnv("AWS_ENDPOINT_URL_S3", s3Base)
+      vi.stubEnv("AWS_ACCESS_KEY_ID", "test")
+      vi.stubEnv("AWS_SECRET_ACCESS_KEY", "test")
+      vi.stubEnv("AWS_REGION", "us-east-1")
+      vi.stubEnv("AWS_MAX_ATTEMPTS", "1")
+    })
+    afterEach(() => {
+      vi.stubEnv("CODESEARCH_SHARD_STORE", "")
+    })
+
+    it("returns 503 when the shard store fails during the fetch on pin", async () => {
+      server.use(
+        http.get(`${s3Base}/shards/*`, () =>
+          HttpResponse.xml("<Error><Code>InternalError</Code></Error>", {
+            status: 500,
+          }),
+        ),
+      )
+      const db = mockDb([{ ...alpha, zoektRepoId: 1 }])
+      const app = createTestApp(db)
+
+      const res = await app.request("/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ Q: "needle", RepoIDs: [1] }),
+      })
+
+      expect(res.status).toBe(503)
+      expect(lastSearchBody).toBe("")
+    })
+
+    it("returns 503 when the fetch on pin does not finish in the time budget", async () => {
+      server.use(
+        http.get(`${s3Base}/shards/*`, () => new Promise<never>(() => {})),
+      )
+      const db = mockDb([{ ...alpha, zoektRepoId: 1 }])
+      const app = createTestApp(db)
+
+      const res = await app.request("/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ Q: "needle", RepoIDs: [1] }),
+      })
+
+      expect(res.status).toBe(503)
+      await expect(res.json()).resolves.toMatchObject({
+        error: expect.stringContaining("loading from the shard store"),
+      })
+    }, 20_000)
+  })
+
   it("pins same-name repositories with distinct stable identities", async () => {
     const alphaShard = await writeColdShard(zoektRepositoryName(alpha))
     const betaShard = await writeColdShard(zoektRepositoryName(beta))

@@ -45,6 +45,7 @@ import {
   type StoreAddress,
 } from "../store/shardStore.js"
 import {
+  evictColdShards,
   installStagedShards,
   markShardsUploaded,
   type ZoektRepo,
@@ -550,6 +551,7 @@ async function uploadShards(
       durationMs: Date.now() - startMs,
       marked,
     })
+    void evictColdShards()
   } catch (error) {
     tryEmitIndexEvent("codesearch.index.zoekt.upload_failed", {
       durationMs: Date.now() - startMs,

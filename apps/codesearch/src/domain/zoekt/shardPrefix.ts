@@ -18,6 +18,24 @@ export function zoektRepositoryName(identity: ZoektRepositoryIdentity): string {
 }
 
 /**
+ * The identity in a Zoekt repository Name: the inverse of
+ * `zoektRepositoryName`. Gives null for a name of another shape.
+ */
+export function zoektRepositoryIdentity(
+  zoektName: string,
+): Required<ZoektRepositoryIdentity> | null {
+  const match = /^ctxpipe:v1:org:([^:]+):repo:([^:]+)(?::checkout:(.+))?$/.exec(
+    zoektName,
+  )
+  if (!match?.[1] || !match[2]) return null
+  return {
+    orgId: match[1],
+    repoId: match[2],
+    checkoutKey: match[3] ?? "default",
+  }
+}
+
+/**
  * Filename prefix that `zoekt-index` embeds for a repository Name.
  * Upstream uses `url.QueryEscape` on the name before `_{v}{n}.zoekt`
  * (see sourcegraph/zoekt index/shard_builder.go shardName).
