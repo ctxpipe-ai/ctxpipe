@@ -2,6 +2,7 @@ import { z } from "zod"
 
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { mapPool } from "../../lib/mapPool.js"
+import { gatewayCost } from "../../observability/gatewayCost.js"
 import {
   type LangfuseUsageDetails,
   withLangfuseGeneration,
@@ -213,13 +214,7 @@ function usageFromOpenAiCompatible(
   const record = usage as Record<string, unknown>
   const input = nonNegativeInt(record.prompt_tokens)
   const total = nonNegativeInt(record.total_tokens)
-  // OpenRouter: the cost of the call in USD.
-  const cost =
-    typeof record.cost === "number" &&
-    Number.isFinite(record.cost) &&
-    record.cost >= 0
-      ? record.cost
-      : undefined
+  const cost = gatewayCost(record)
   if (input === undefined && total === undefined && cost === undefined) {
     return undefined
   }
@@ -314,7 +309,8 @@ export async function generateEmbeddings(
         embeddingCount: embeddings.length,
         dimensions: EMBEDDING_DIMENSIONS,
       }),
-      usageFromResult: () => usage,
+      // Also when a later batch fails: the batches before it were paid for.
+      usageSoFar: () => usage,
     },
     async () => {
       const providerResult = providerFn(callOpts)

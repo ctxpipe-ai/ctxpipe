@@ -121,6 +121,11 @@ export function withLangfuseGeneration<T>(
     metadata?: Record<string, unknown>
     summarizeOutput?: (result: T) => Record<string, unknown>
     usageFromResult?: (result: T) => LangfuseUsageDetails | undefined
+    /**
+     * The usage of the calls made so far. Recorded also when the operation
+     * fails, so a failed operation keeps the cost of its finished calls.
+     */
+    usageSoFar?: () => LangfuseUsageDetails | undefined
   },
   fn: () => Promise<T>,
 ): Promise<T> {
@@ -138,12 +143,9 @@ export function withLangfuseGeneration<T>(
         if (attrs.model) {
           generation.otelSpan.setAttribute("gen_ai.request.model", attrs.model)
         }
-        try {
-          const result = await fn()
-          const usage = attrs.usageFromResult?.(result)
+        const recordUsage = (usage: LangfuseUsageDetails | undefined) => {
           const usageDetails = usageDetailsOrUndefined(usage)
           generation.update({
-            output: attrs.summarizeOutput?.(result) ?? { status: "ok" },
             ...(usageDetails ? { usageDetails } : {}),
             ...(usage?.cost !== undefined
               ? { costDetails: { total: usage.cost } }
@@ -161,8 +163,16 @@ export function withLangfuseGeneration<T>(
               ? { "gen_ai.usage.cost": usage.cost }
               : {}),
           })
+        }
+        try {
+          const result = await fn()
+          generation.update({
+            output: attrs.summarizeOutput?.(result) ?? { status: "ok" },
+          })
+          recordUsage(attrs.usageFromResult?.(result) ?? attrs.usageSoFar?.())
           return result
         } catch (err) {
+          recordUsage(attrs.usageSoFar?.())
           generation.update({
             level: "ERROR",
             statusMessage: err instanceof Error ? err.message : String(err),

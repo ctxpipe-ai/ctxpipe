@@ -94,6 +94,38 @@ describe("generateEmbeddings Langfuse usage", () => {
     expect(generation?.attributes["gen_ai.usage.input_tokens"]).toBe(8)
   })
 
+  it("keeps the cost of the batches before a failed one", async () => {
+    let calls = 0
+    server.use(
+      http.post("https://api.openai.com/v1/embeddings", async ({ request }) => {
+        calls += 1
+        if (calls > 1)
+          return HttpResponse.text("upstream error", { status: 502 })
+        const body = (await request.json()) as { input: string[] }
+        return HttpResponse.json({
+          object: "list",
+          data: body.input.map((_, index) => ({
+            object: "embedding",
+            index,
+            embedding: Array(2000).fill(0.01),
+          })),
+          model: "text-embedding-3-large",
+          usage: { prompt_tokens: 64, total_tokens: 64, cost: 0.0003 },
+        })
+      }),
+    )
+
+    // 65 texts: one full batch of 64, then a batch of 1 that fails.
+    await expect(
+      generateEmbeddings(Array.from({ length: 65 }, (_, i) => `text ${i}`)),
+    ).rejects.toThrow("Embedding failed: 502")
+    const generation = exporter
+      .getFinishedSpans()
+      .find((span) => span.name === "modelProvider.generateEmbeddings")
+    expect(generation?.attributes["gen_ai.usage.cost"]).toBe(0.0003)
+    expect(generation?.attributes["gen_ai.usage.input_tokens"]).toBe(64)
+  })
+
   it("copies provider prompt and total tokens onto the generation", async () => {
     server.use(
       http.post("https://api.openai.com/v1/embeddings", async ({ request }) => {

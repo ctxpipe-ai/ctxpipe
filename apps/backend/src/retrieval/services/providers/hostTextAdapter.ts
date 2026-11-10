@@ -15,7 +15,7 @@ import type { ProviderCallOpts } from "./providerTypes.js"
 export const STRUCTURED_OUTPUT_TOOL = "structured_output"
 
 /** Token usage, and the cost in USD when the gateway reports it (OpenRouter `usage.cost`). */
-export type HostUsage = TokenUsage & { cost?: number }
+type HostUsage = TokenUsage & { cost?: number }
 
 /**
  * One provider request. With a schema, the provider forces the structured
