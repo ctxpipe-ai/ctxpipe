@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto"
 
-import type { SandboxHandle, SandboxProvider } from "@tanstack/ai-sandbox"
+import type {
+  SandboxHandle,
+  SandboxProcess,
+  SandboxProvider,
+} from "@tanstack/ai-sandbox"
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { type NetworkPolicy, Sandbox } from "@vercel/sandbox"
 import Docker from "dockerode"
@@ -483,7 +487,34 @@ export function dockerIngestSandboxProvider(
 export function agentCoreIngestSandboxProvider(
   input: IngestShardVaultInput & { sessions: SandboxProvider },
 ): SandboxProvider {
-  return vaultedIngestSandboxProvider(input.sessions, input)
+  return vaultedIngestSandboxProvider(input.sessions, input, {
+    afterCreate: assertNoMetadataEndpoint,
+  })
+}
+
+/**
+ * A metadata or credential endpoint must not answer in an ingest sandbox: a
+ * prompt-injected agent could read the runtime role's credentials and write
+ * them into the shard output. Docker hosts drop 169.254.169.254; nothing in
+ * the image does that on AgentCore, so `create` fails closed when one of
+ * these answers without the proxy (the instance metadata service over IPv4
+ * and IPv6, the ECS and EKS credential endpoints).
+ */
+export async function assertNoMetadataEndpoint(handle: {
+  process: Pick<SandboxProcess, "exec">
+}): Promise<void> {
+  const probe = await handle.process.exec(
+    `command -v curl >/dev/null 2>&1 || { echo no-curl; exit 0; }
+for url in http://169.254.169.254/ http://169.254.170.2/ http://169.254.170.23/ 'http://[fd00:ec2::254]/'; do
+  code=$(curl -s --noproxy '*' --connect-timeout 2 -m 4 -o /dev/null -w '%{http_code}' "$url" 2>/dev/null)
+  if [ -n "$code" ] && [ "$code" != "000" ]; then echo "open $url"; exit 0; fi
+done
+echo closed`,
+  )
+  if (probe.stdout.trim() !== "closed")
+    throw new Error(
+      `AgentCore ingest sandboxes must not reach a metadata or credential endpoint; the check found: ${probe.stdout.trim() || probe.stderr.trim()}`,
+    )
 }
 
 /**
