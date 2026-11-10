@@ -98,6 +98,8 @@ export type LangfuseUsageDetails = {
   input?: number
   output?: number
   total?: number
+  /** The cost of the call in USD, as the gateway (OpenRouter) reports it in its usage data. */
+  cost?: number
 }
 
 function usageDetailsOrUndefined(
@@ -133,14 +135,31 @@ export function withLangfuseGeneration<T>(
             ...attrs.metadata,
           },
         })
+        if (attrs.model) {
+          generation.otelSpan.setAttribute("gen_ai.request.model", attrs.model)
+        }
         try {
           const result = await fn()
-          const usageDetails = usageDetailsOrUndefined(
-            attrs.usageFromResult?.(result),
-          )
+          const usage = attrs.usageFromResult?.(result)
+          const usageDetails = usageDetailsOrUndefined(usage)
           generation.update({
             output: attrs.summarizeOutput?.(result) ?? { status: "ok" },
             ...(usageDetails ? { usageDetails } : {}),
+            ...(usage?.cost !== undefined
+              ? { costDetails: { total: usage.cost } }
+              : {}),
+          })
+          // The same keys as the chat and ingestion spans, so the HyperDX LLM dashboard counts every call.
+          generation.otelSpan.setAttributes({
+            ...(usage?.input !== undefined
+              ? { "gen_ai.usage.input_tokens": usage.input }
+              : {}),
+            ...(usage?.output !== undefined
+              ? { "gen_ai.usage.output_tokens": usage.output }
+              : {}),
+            ...(usage?.cost !== undefined
+              ? { "gen_ai.usage.cost": usage.cost }
+              : {}),
           })
           return result
         } catch (err) {

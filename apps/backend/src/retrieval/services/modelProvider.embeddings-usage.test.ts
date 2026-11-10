@@ -69,6 +69,31 @@ describe("generateEmbeddings Langfuse usage", () => {
     trace.disable()
   })
 
+  it("puts the gateway cost of the call on the generation span", async () => {
+    server.use(
+      http.post("https://api.openai.com/v1/embeddings", async ({ request }) => {
+        const body = (await request.json()) as { input: string[] }
+        return HttpResponse.json({
+          object: "list",
+          data: body.input.map((_, index) => ({
+            object: "embedding",
+            index,
+            embedding: Array(2000).fill(0.01),
+          })),
+          model: "text-embedding-3-large",
+          usage: { prompt_tokens: 8, total_tokens: 8, cost: 0.0002 },
+        })
+      }),
+    )
+
+    await generateEmbeddings(["hello"])
+    const generation = exporter
+      .getFinishedSpans()
+      .find((span) => span.name === "modelProvider.generateEmbeddings")
+    expect(generation?.attributes["gen_ai.usage.cost"]).toBe(0.0002)
+    expect(generation?.attributes["gen_ai.usage.input_tokens"]).toBe(8)
+  })
+
   it("copies provider prompt and total tokens onto the generation", async () => {
     server.use(
       http.post("https://api.openai.com/v1/embeddings", async ({ request }) => {

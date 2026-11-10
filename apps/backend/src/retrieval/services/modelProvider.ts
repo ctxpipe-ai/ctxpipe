@@ -213,12 +213,20 @@ function usageFromOpenAiCompatible(
   const record = usage as Record<string, unknown>
   const input = nonNegativeInt(record.prompt_tokens)
   const total = nonNegativeInt(record.total_tokens)
-  if (input === undefined && total === undefined) {
+  // OpenRouter: the cost of the call in USD.
+  const cost =
+    typeof record.cost === "number" &&
+    Number.isFinite(record.cost) &&
+    record.cost >= 0
+      ? record.cost
+      : undefined
+  if (input === undefined && total === undefined && cost === undefined) {
     return undefined
   }
   return {
     ...(input !== undefined ? { input } : {}),
     ...(total !== undefined ? { total } : {}),
+    ...(cost !== undefined ? { cost } : {}),
   }
 }
 
@@ -239,12 +247,14 @@ function addUsage(
   if (!right) return left
   const input = addOptionalCount(left.input, right.input)
   const total = addOptionalCount(left.total, right.total)
-  if (input === undefined && total === undefined) {
+  const cost = addOptionalCount(left.cost, right.cost)
+  if (input === undefined && total === undefined && cost === undefined) {
     return undefined
   }
   return {
     ...(input !== undefined ? { input } : {}),
     ...(total !== undefined ? { total } : {}),
+    ...(cost !== undefined ? { cost } : {}),
   }
 }
 
