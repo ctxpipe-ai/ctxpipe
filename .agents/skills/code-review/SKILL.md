@@ -43,11 +43,13 @@ You cannot close a finding alone. When you think that a blocker or should-fix fi
    - Your dispute is about a rule or about the ticket scope.
    - The arbiter upholds the finding.
    - Another PR disputed the same finding with the same rule. A rule can be missing.
-5. For each of these cases, `factory check` fails and prints `ESCALATED` with the finding, your dispute and its evidence, and the answers of the critic and the arbiter. The finding then holds its hunk: each later `factory check` fails and prints `HELD <id>`, also when the critic does not raise the finding again.
-6. Ask the human in your conversation. Show them that text. Do not ask in a ticket or a PR comment.
-7. When the human accepts the risk, run `factory risk propose --finding <id> --reasons "<their words>" --decider <their role>`. Give the id of the `ESCALATED` line. It opens a PR in the private factory repo and prints the PR link as its last line. Show the human that link, so that they can open it. A ctxpipe developer approves and merges it.
-8. After that PR merges, run `factory check` again. The entry names the finding id, so it ends the hold.
-9. When the human decides that the finding stands, fix it.
+5. For each of these cases, `factory check` fails and prints `ESCALATED` with the finding, your dispute and its evidence, and the answers of the critic and the arbiter. The finding then holds its hunks: each later `factory check` fails and prints `HELD <id>`, also when the critic does not raise the finding again. A finding that names no changed hunk holds only the hunks of its file, also when that file comes into the diff later.
+6. Ask the human in your conversation. Show them that text. Do not ask in a ticket or a PR comment. Record only a decision that the human states there.
+7. A Security finding: the risk register is its only way. When the human accepts the risk, run `factory risk propose --finding <id> --reasons "<their words>" --decider <their role>`. Give the id of the `ESCALATED` line. It opens a PR in the private factory repo and prints the PR link as its last line. Show the human that link, so that they can open it. A ctxpipe developer approves and merges it. After that PR merges, run `factory check` again: the entry ends the hold. When the human decides that the finding stands, fix it.
+8. Any other finding (`factory risk propose` refuses it):
+   - The finding stands: run `factory decide <id> --stands`, fix it, commit, and run `factory check`. The hold ends when the same critic reviews the held hunks and does not raise the finding again.
+   - The finding does not stand: run `factory decide <id> --dismissed --reason "<their words>"`. The hold ends. The reason has 40 to 300 characters in plain words, with no id, key or customer name: the PR comment shows it with the writer.
+9. Run `factory decide` on the host where the finding escalated: only a ruling of the writer of the hold ends it.
 10. Never write, approve or merge a register entry yourself, also when you act for a person. Do not quote the reasons of an entry in a dispute.
 
 ## The rules of each critic
