@@ -55,7 +55,9 @@ const overdueEntries = (stories, today) =>
   stories.filter(
     (entry) =>
       !/^\d{4}-\d{2}-\d{2}$/.test(entry.since ?? "") ||
-      Number.isNaN(Date.parse(entry.since)) ||
+      // A date that does not exist (2026-11-31) is not a date.
+      new Date(Date.parse(entry.since) || 0).toISOString().slice(0, 10) !==
+        entry.since ||
       Date.parse(today) - Date.parse(entry.since) > 7 * 86_400_000,
   )
 
@@ -73,10 +75,11 @@ test("an unstable entry older than 7 days, or without a date, is overdue", () =>
         entry("2026-11-02"),
         entry(undefined),
         entry("soon"),
+        entry("2026-11-31"),
       ],
       "2026-11-10",
     ).map((item) => item.since),
-    ["2026-11-02", undefined, "soon"],
+    ["2026-11-02", undefined, "soon", "2026-11-31"],
   )
 })
 
