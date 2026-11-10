@@ -25,7 +25,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - Access to the state: only the deploy role and the read-only plan role of the account can read the bucket and use the key. Workload roles, for example preview tasks, cannot.
     - High-value secrets stay out of the Pulumi state, so that the plan role can read the state safely. AWS manages the Aurora master password. Secrets Manager generates the application secrets. The guard job writes the tunnel tokens, and Pulumi never reads them.
     - Stacks: each environment is one Pulumi stack. Each preview is one Pulumi stack too.
-    - Projects: `machines/hosted` holds production. `machines/previews` holds all preview infrastructure (decision 21). The edge stack has its own folder.
+    - Projects: `machines/hosted` holds production. `machines/previews` holds all preview infrastructure (decision 21). `machines/observability` holds the observability stack, so that a failed `hosted` update does not block it. The edge stack has its own folder.
     - Configuration:
         - Each stack's `Pulumi.<stack>.yaml` holds its plain values: the account, the region, the sizes and the host names. It holds no secret.
         - The production image digests are in `machines/hosted/Pulumi.production.yaml`. A factory workflow opens the pull request that changes them. It reads the newest digests from the production ECR, where only builds of ctxpipe `main` push. It changes only the `images` key, and a check fails the pull request if it changes another line. The ctxpipe pipeline can only start this workflow. It gets no write access to the factory repo. An agent merges the pull request when the merge gate passes. Thus `main` always holds what runs, and a change to the infrastructure only does not roll back an image.
@@ -112,6 +112,8 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 **Observability**
 
 25. HyperDX (ClickStack) is the only observability tool. Langfuse goes away. Spans keep the prompt text. Traces stay 30 days.
+    - AWS metrics and the logs that only CloudWatch holds come through native paths: CloudWatch Metric Streams and log subscription filters, through Firehose, to the collector. The EC2 hosts send host metrics from the collector's `hostmetrics` receiver. We write no custom poller.
+    - Agent access is a hard requirement. An agent must be able to debug production and previews without a person. It queries HyperDX through its MCP server with an Access service token. It reads AWS state through the read-only audit role. The cutover does not start before an agent on a factory host and an agent on a laptop both pass this test.
 
 ## Alternatives not taken
 
