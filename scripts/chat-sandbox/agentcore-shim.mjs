@@ -1,9 +1,17 @@
 // The AgentCore entry point of the chat sandbox image (CTX-1219; design in
-// the AWS migration epic, CTX-1212). AgentCore sends HTTP to port 8080 only: `GET /ping` and
-// `POST /invocations`. The backend reaches a port in the sandbox (the
-// OpenCode server) through this shim: each invocation carries one HTTP
-// request, and the shim sends it to `127.0.0.1:<port>` and streams the
-// answer back as server-sent events.
+// the AWS migration epic, CTX-1212). AgentCore sends HTTP to port 8080 only:
+// `GET /ping` and `POST /invocations`. Each invocation has one action:
+//
+// - `http`: the backend reaches a port in the sandbox (the OpenCode server)
+//   through the shim. The shim sends the request to `127.0.0.1:<port>` and
+//   streams the answer back as server-sent events.
+// - `put`: the backend stores data for one read by a command in the sandbox
+//   (`GET http://127.0.0.1:8080/blobs/<id>`). AgentCore writes the text of
+//   each command to the runtime's CloudWatch log group, but not an
+//   invocation payload. Thus the scripts and the files that the backend
+//   sends (with proxy sessions and repository content) go through `put`, and
+//   a command holds only the id. A blob is deleted at its first read or
+//   after 5 minutes.
 //
 // The V2 memory snapshot holds this process only. OpenCode starts later, as
 // a command. The shim does not create a secret and does not use Node
@@ -11,13 +19,16 @@
 // random values made in a restored process repeat across sessions (spike
 // CTX-1213, test 3).
 //
-// Request body (JSON):
+// Request bodies (JSON):
 //   { "action": "http", "port": 4096, "method": "GET", "path": "/event",
 //     "headers": { "name": "value" }, "body": "<base64>" }
+//   { "action": "put", "id": "<32 to 64 hex>", "data": "<base64>" }
 // Answer events (`data: <JSON>`), in order:
-//   { "type": "head", "status": 200, "headers": { "name": "value" } }
-//   { "type": "body", "data": "<base64>" }   (zero or more)
-//   { "type": "end" }  or  { "type": "error", "message": "..." }
+//   http: { "type": "head", "status": 200, "headers": { "name": "value" } }
+//         { "type": "body", "data": "<base64>" }   (zero or more)
+//         { "type": "end" }
+//   put:  { "type": "stored" }
+//   both: { "type": "error", "message": "..." } instead, on a failure
 import { createServer, request as httpRequest } from "node:http"
 import { pathToFileURL } from "node:url"
 
@@ -46,15 +57,39 @@ function endToEndHeaders(headers) {
   return result
 }
 
-/** `{ forward }`, or `{ error }` for a body that is not a forward request. */
-function parseForward(text) {
-  let payload
-  try {
-    payload = JSON.parse(text)
-  } catch {
-    return { error: "The request body is not JSON" }
-  }
-  if (payload?.action !== "http") return { error: "The action must be http" }
+/** The blobs of `put`, each until its first read or its expiry. */
+const blobs = new Map()
+/** Blobs are small (scripts, files); the store holds at most this much. */
+const BLOB_STORE_MAX_BYTES = 256 * 1024 * 1024
+
+/** Store a blob; an error message, or undefined when it is stored. */
+function put(payload) {
+  const { id, data } = payload
+  if (typeof id !== "string" || !/^[0-9a-f]{32,64}$/.test(id))
+    return "The id must be 32 to 64 hex characters"
+  if (typeof data !== "string") return "The data must be base64 text"
+  if (blobs.has(id)) return "The id is in use"
+  const bytes = Buffer.from(data, "base64")
+  let stored = bytes.length
+  for (const blob of blobs.values()) stored += blob.bytes.length
+  if (stored > BLOB_STORE_MAX_BYTES) return "The blob store is full"
+  const expiry = setTimeout(() => blobs.delete(id), 5 * 60_000)
+  expiry.unref()
+  blobs.set(id, { bytes, expiry })
+  return undefined
+}
+
+/** The blob of `id`, which is deleted now; undefined when there is none. */
+function take(id) {
+  const blob = blobs.get(id)
+  if (!blob) return undefined
+  blobs.delete(id)
+  clearTimeout(blob.expiry)
+  return blob.bytes
+}
+
+/** `{ forward }`, or `{ error }` for a payload that is not a forward request. */
+function parseForward(payload) {
   const { port, method, path } = payload
   if (!Number.isInteger(port) || port < 1 || port > 65_535 || port === 8080)
     return { error: "The port must be a sandbox port other than 8080" }
@@ -85,7 +120,12 @@ function readBody(request) {
 }
 
 async function invoke(request, response) {
-  const { forward, error } = parseForward(await readBody(request))
+  let payload
+  try {
+    payload = JSON.parse(await readBody(request))
+  } catch {
+    payload = undefined
+  }
   response.writeHead(200, {
     "content-type": "text/event-stream",
     "cache-control": "no-cache",
@@ -99,6 +139,20 @@ async function invoke(request, response) {
     open = false
     response.end()
   }
+  if (payload?.action === "put") {
+    const failed = put(payload)
+    return finish(
+      failed ? { type: "error", message: failed } : { type: "stored" },
+    )
+  }
+  if (payload?.action !== "http")
+    return finish({
+      type: "error",
+      message: payload
+        ? "The action must be http or put"
+        : "The request body is not JSON",
+    })
+  const { forward, error } = parseForward(payload)
   if (error) return finish({ type: "error", message: error })
   const upstream = httpRequest(
     {
@@ -144,7 +198,24 @@ export function shimServer() {
         response.end(JSON.stringify({ status: "Healthy" }))
         return
       }
-      if (request.method === "POST" && request.url?.startsWith("/invocations")) {
+      const blob = /^\/blobs\/([0-9a-f]{32,64})$/.exec(request.url ?? "")
+      if (request.method === "GET" && blob) {
+        const bytes = take(blob[1])
+        if (!bytes) {
+          response.writeHead(404).end()
+          return
+        }
+        response.writeHead(200, {
+          "content-type": "application/octet-stream",
+          "content-length": bytes.length,
+        })
+        response.end(bytes)
+        return
+      }
+      if (
+        request.method === "POST" &&
+        request.url?.startsWith("/invocations")
+      ) {
         invoke(request, response).catch((error) => {
           if (!response.headersSent) response.writeHead(500)
           response.end(String(error))

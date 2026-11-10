@@ -111,7 +111,12 @@ test("the shim stops the request to the port when the backend closes the invocat
     `http://127.0.0.1:${await listen(shim)}/invocations`,
     {
       method: "POST",
-      body: JSON.stringify({ action: "http", port, method: "GET", path: "/event" }),
+      body: JSON.stringify({
+        action: "http",
+        port,
+        method: "GET",
+        path: "/event",
+      }),
       signal: controller.signal,
     },
   )
@@ -128,7 +133,7 @@ test("the shim refuses a request that is not a forward to a sandbox port", async
   t.after(() => shim.close())
   const port = await listen(shim)
   for (const [payload, message] of [
-    [{ action: "exec" }, "The action must be http"],
+    [{ action: "exec" }, "The action must be http or put"],
     [
       { action: "http", port: 8080, method: "GET", path: "/" },
       "The port must be a sandbox port other than 8080",
@@ -167,4 +172,29 @@ test("the shim uses no Node crypto: no import and no global (spike CTX-1213, tes
     .replace(/^\s*\/\/.*$/gm, "")
     .replace(/\/\*[\s\S]*?\*\//g, "")
   assert.doesNotMatch(code, /\bcrypto\b|randomUUID|getRandomValues|randomBytes/)
+})
+
+test("the shim keeps a blob for one read by a command in the sandbox", async (t) => {
+  const shim = shimServer()
+  t.after(() => shim.close())
+  const port = await listen(shim)
+  const id = "a".repeat(32)
+  const data = Buffer.from("export HTTPS_PROXY='https://session@vault:14322'\n")
+  assert.deepEqual(
+    await invoke(port, { action: "put", id, data: data.toString("base64") }),
+    [{ type: "stored" }],
+  )
+  // A second put with the same id does not replace the first.
+  assert.deepEqual(await invoke(port, { action: "put", id, data: "eA==" }), [
+    { type: "error", message: "The id is in use" },
+  ])
+  const first = await fetch(`http://127.0.0.1:${port}/blobs/${id}`)
+  assert.equal(first.status, 200)
+  assert.deepEqual(Buffer.from(await first.arrayBuffer()), data)
+  const second = await fetch(`http://127.0.0.1:${port}/blobs/${id}`)
+  assert.equal(second.status, 404)
+  assert.deepEqual(
+    await invoke(port, { action: "put", id: "short", data: "" }),
+    [{ type: "error", message: "The id must be 32 to 64 hex characters" }],
+  )
 })

@@ -33,6 +33,12 @@ OpenCode port through the shim: each invocation holds one HTTP request, and
 the shim streams the answer back as server-sent events. Commands go through
 `InvokeAgentRuntimeCommand`, not through the shim.
 
+AgentCore writes the text of each command to the runtime's CloudWatch log
+group, but not the payload of an invocation. Thus the backend stores each
+script and each file that it sends in the shim first (the `put` action), and
+the command only reads it once from `http://127.0.0.1:8080/blobs/<id>`. No
+proxy session and no repository content is in a command's text.
+
 The memory snapshot holds the shim only. OpenCode starts later as a command.
 The shim does not create a secret and does not use Node `crypto`, because a value that
 a restored process makes can repeat in each session.
