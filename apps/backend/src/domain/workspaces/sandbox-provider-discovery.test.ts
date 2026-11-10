@@ -28,6 +28,21 @@ afterEach(() => {
   initLogger({ enabled: false })
 })
 
+describe("AgentCore provider selection", () => {
+  it("selects AgentCore when it is locked and its runtime is set, and fails closed without it", async () => {
+    vi.stubEnv("SANDBOX_PROVIDER", "agentcore")
+    vi.stubEnv("AGENTCORE_RUNTIME_ARN", "")
+    await expect(discoverSandboxProvider()).rejects.toThrow(
+      "AgentCore sandboxes are unavailable: AGENTCORE_RUNTIME_ARN is not set",
+    )
+    vi.stubEnv(
+      "AGENTCORE_RUNTIME_ARN",
+      "arn:aws:bedrock-agentcore:us-west-2:111122223333:runtime/ctxpipe-abc",
+    )
+    await expect(discoverSandboxProvider()).resolves.toBe("agentcore")
+  })
+})
+
 describe("sandbox provider selection (real Docker client)", () => {
   it("fails closed when the configured daemon is unreachable, never unsandboxed", async () => {
     vi.stubEnv("DOCKER_HOST", `tcp://127.0.0.1:${await closedPort()}`)

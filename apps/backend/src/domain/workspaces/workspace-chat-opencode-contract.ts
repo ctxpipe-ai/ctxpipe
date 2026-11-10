@@ -228,13 +228,15 @@ export function workspaceChatOpenCodeHomeEnv(
 export function writeWorkspaceChatOpenCodeConfig(input: {
   conversationId: string
   modelBase: string
-  isolation?: "docker" | "unsandboxed" | "vercel"
+  isolation?: "docker" | "unsandboxed" | "vercel" | "agentcore"
 }): { homeEnv: Record<string, string>; configJson: string } {
   const configJson = `${JSON.stringify(
     workspaceChatOpenCodeConfig({
       modelBase: input.modelBase,
       proxyAddsCredentials:
-        input.isolation === "vercel" || input.isolation === "docker",
+        input.isolation === "vercel" ||
+        input.isolation === "docker" ||
+        input.isolation === "agentcore",
     }),
     null,
     2,

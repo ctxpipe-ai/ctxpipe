@@ -303,9 +303,29 @@ export async function listSandboxInstances(input: {
  * Providers whose sandboxes keep running (and cost) until they are stopped.
  * Unsandboxed runs have no sandbox.
  */
-export const RUNNING_SANDBOX_PROVIDERS = ["docker", "vercel"] as const
+export const RUNNING_SANDBOX_PROVIDERS = [
+  "docker",
+  "vercel",
+  "agentcore",
+] as const
 
 export type RunningSandboxProvider = (typeof RUNNING_SANDBOX_PROVIDERS)[number]
+
+/**
+ * The providers that keep a sandbox's files when it stops, and so can hold a
+ * Workspace base. An AgentCore session loses its files when it stops: an idle
+ * one is pushed and deleted, and the next turn starts again from git.
+ */
+export type FileKeepingSandboxProvider = Exclude<
+  RunningSandboxProvider,
+  "agentcore"
+>
+
+export function keepsFilesWhenStopped(
+  provider: RunningSandboxProvider,
+): provider is FileKeepingSandboxProvider {
+  return provider !== "agentcore"
+}
 
 export function isRunningSandboxProvider(
   provider: string | null | undefined,

@@ -32,6 +32,8 @@ import { WORKSPACE_CHAT_FIREWALL_PLACEHOLDER } from "./workspace-chat-opencode-c
  * host routes sandbox traffic back to it, and the tool bridge lives in the
  * replica running the turn, so a shared service name could reach another
  * replica. A backend on several networks (Compose) gets the sandbox one.
+ * AgentCore sandboxes reach the backend only through Agent Vault, so there
+ * it is the address this process reaches Agent Vault from.
  */
 export async function sandboxCallbackHost(
   env: NodeJS.ProcessEnv = process.env,
@@ -39,9 +41,14 @@ export async function sandboxCallbackHost(
 ): Promise<string | undefined> {
   const raw = env.SANDBOX_CALLBACK_HOST?.trim()
   if (!raw) {
-    const daemonHost = remoteDockerHost(env)
-    const address = daemonHost
-      ? await localAddressTowards(daemonHost, network)
+    const routeTarget =
+      remoteDockerHost(env) ??
+      (env.SANDBOX_PROVIDER?.trim() === "agentcore" &&
+      env.AGENT_VAULT_ADDR?.trim()
+        ? new URL(env.AGENT_VAULT_ADDR.trim()).hostname
+        : undefined)
+    const address = routeTarget
+      ? await localAddressTowards(routeTarget, network)
       : undefined
     // Agent Vault rules take host names, not addresses. The AWS stack sets
     // the VPC's DNS suffix, under which every VPC address has a name.

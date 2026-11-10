@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
 import {
+  agentCoreSizeCapCommand,
   WORKSPACE_CHAT_OPENCODE_PORT,
   WORKSPACE_CHAT_RUNTIME,
   WORKSPACE_CHAT_SANDBOX_SETUP,
@@ -161,5 +162,38 @@ describe("workspace chat runtime", () => {
         title: "apply_patch",
       }),
     ).resolves.toBe("once")
+  })
+})
+
+describe("AgentCore repository-size cap", () => {
+  const check = (dir: string, command: string) => {
+    try {
+      execFileSync("sh", ["-c", command], { cwd: dir, encoding: "utf8" })
+      return { exitCode: 0, stdout: "" }
+    } catch (error) {
+      const failed = error as { status: number; stdout: string }
+      return { exitCode: failed.status, stdout: failed.stdout }
+    }
+  }
+
+  it("fails a checkout above the cap with a clear message, and passes one below it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agentcore-cap-"))
+    writeFileSync(join(dir, "data.bin"), Buffer.alloc(3 * 1024 * 1024, 1))
+    const over = check(dir, agentCoreSizeCapCommand(0.001, 0))
+    expect(over.exitCode).toBe(1)
+    expect(over.stdout).toMatch(
+      /^This repository is too large for a hosted sandbox: its checkout uses \d+ MB, and the limit is 0\.001 GB\.$/m,
+    )
+    expect(check(dir, agentCoreSizeCapCommand(1, 0)).exitCode).toBe(0)
+  })
+
+  it("fails when the checkout leaves too little free disk", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agentcore-cap-"))
+    // More free space than any test disk has.
+    expect(check(dir, agentCoreSizeCapCommand(6, 1024 ** 3)).exitCode).toBe(1)
+  })
+
+  it("has a 6 GB cap by default", () => {
+    expect(agentCoreSizeCapCommand()).toContain("-gt 6291456")
   })
 })

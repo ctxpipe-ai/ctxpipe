@@ -101,7 +101,7 @@ the worker.
 
 | Variable | Description |
 |---|---|
-| `SANDBOX_PROVIDER` | `docker`, `vercel`, or `unsandboxed`. Set it to `docker` on a self-hosted deployment; Docker Compose and AWS CDK set it. Without a value, chat uses Docker, but the plain git rules then use the strict hosted rule: they use the self-host rule only when the value is exactly `docker` (see below). If the Docker daemon does not answer, chat returns 503. The backend and worker images refuse `unsandboxed`: it is only for local development. |
+| `SANDBOX_PROVIDER` | `docker`, `vercel`, `agentcore`, or `unsandboxed`. Set it to `docker` on a self-hosted deployment; Docker Compose and AWS CDK set it. Without a value, chat uses Docker, but the plain git rules then use the strict hosted rule: they use the self-host rule only when the value is exactly `docker` (see below). If the Docker daemon does not answer, chat returns 503. The backend and worker images refuse `unsandboxed`: it is only for local development. |
 | `DOCKER_HOST` | Docker API address, for example `tcp://dind:2376`. If you do not set it, the backend uses the local Docker socket. |
 | `DOCKER_TLS_VERIFY`, `DOCKER_CERT_PATH` | Mutual TLS to the Docker API. Set `DOCKER_TLS_VERIFY=1`. `DOCKER_CERT_PATH` is a directory with `ca.pem`, `cert.pem`, and `key.pem`. |
 | `SANDBOX_CHAT_IMAGE` | Chat sandbox image on that daemon. The default is `ctxpipe-chat-sandbox:opencode-<version>`, which is in no registry. On other platforms, build `scripts/chat-sandbox` on that daemon, or use `ghcr.io/ctxpipe-ai/chat-sandbox:<backend commit SHA>` once that package is public. Compose builds `ctxpipe-chat-sandbox:local`. AWS CDK uses `ghcr.io/ctxpipe-ai/chat-sandbox` at the commit SHA tag that the package pins. |
@@ -110,6 +110,7 @@ the worker.
 | `AGENT_VAULT_ADDR` | Required for Docker sandboxes. The Agent Vault API, for example `http://agent-vault:14321`. Without it, or when Agent Vault does not answer, Docker chat returns 503. Compose and AWS CDK set it. |
 | `AGENT_VAULT_OWNER_PASSWORD`, `AGENT_VAULT_OWNER_PASSWORD_FILE` | The Agent Vault owner password, as a value or as a file. Compose and AWS CDK generate it; do not set it there. On other platforms, generate one and keep it: the backend registers it on its first login, and an Agent Vault with an owner refuses another password. |
 | `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` | Required when `SANDBOX_PROVIDER=vercel`. A Vercel access token, and the team and project (slug or id) that own the sandboxes. Hosted ctxpipe uses this provider. |
+| `AGENTCORE_RUNTIME_ARN`, `AGENTCORE_RUNTIME_QUALIFIER` | Required when `SANDBOX_PROVIDER=agentcore` (hosted ctxpipe on AWS; AWS CDK does not support it yet). The ARN of the Amazon Bedrock AgentCore runtime that runs the `agentcore` target of the chat sandbox image, and its endpoint name (default `DEFAULT`). The backend also needs Agent Vault, and `SANDBOX_CALLBACK_DNS_SUFFIX` or `SANDBOX_CALLBACK_HOST`. |
 
 ### Plain git repositories
 

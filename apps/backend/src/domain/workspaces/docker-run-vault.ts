@@ -106,6 +106,11 @@ export async function openDockerRunVault(input: {
   revision: WorkspaceRevision
   /** Defaults to the deployment's (`AGENT_VAULT_ADDR`). */
   access?: AgentVaultAccess
+  /**
+   * What the proxy does with a host that no rule names. `deny` closes the
+   * sandbox's egress to the rules (hosted AgentCore, ADR-049 amendment).
+   */
+  unmatchedHosts?: "passthrough" | "deny"
 }): Promise<RunVault> {
   const access = input.access ?? agentVaultAccess()
   if (!access)
@@ -140,6 +145,7 @@ export async function openDockerRunVault(input: {
       runKey: `${input.conversationId}:${input.label}`,
       ttlSeconds: RUN_VAULT_TTL_SECONDS,
       rules: token ? githubCredentialRules(token) : [],
+      ...(input.unmatchedHosts ? { unmatchedHosts: input.unmatchedHosts } : {}),
     })
     return {
       ...vault,
