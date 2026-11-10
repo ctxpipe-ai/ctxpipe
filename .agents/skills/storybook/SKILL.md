@@ -128,7 +128,7 @@ Mac and Linux render text differently (81 of 86 sample stories differed). So eac
 
 ## Screenshot baselines
 
-Each story has a committed baseline PNG beside its story file: `<story file dir>/screenshots/<storyfile>.<storyname>.<viewport>.screenshot.png`. `<storyfile>` is the story file name without `.stories.tsx`, `<storyname>` is the export name, and `<viewport>` is `desktop` (1440x900) or `mobile` (390x844). Every story has a `desktop` baseline. A page story (the `page` tag) also has a `mobile` baseline.
+Each story has a committed baseline PNG beside its story file: `<story file dir>/screenshots/<storyfile>.<storyname>.<viewport>.screenshot.png`. A named snapshot adds `@<name>` to `<storyname>` (see Screenshot options). `<storyfile>` is the story file name without `.stories.tsx`, `<storyname>` is the export name, and `<viewport>` is `desktop` (1440x900) or `mobile` (390x844). Every story has a `desktop` baseline. A page story (the `page` tag) also has a `mobile` baseline.
 
 - `pnpm visual:check` builds Storybook, captures every story in the container ([`scripts/ci/visual.mjs`](../../../scripts/ci/visual.mjs)) and compares each screenshot with its baseline. It writes `.ci-results/visual/manifest.json` and the images of each story that is not unchanged (`<story id>/<viewport>/`). It never writes a baseline. It fails on each status that is not `unchanged`: `new` (no baseline), `changed`, `removed` (an orphan baseline), `unstable`, `play-failed` or `size-changed`.
 - `pnpm visual:update` writes the baselines (recompressed without loss) and deletes the orphan baselines. `--only <id>,<id>` accepts only those stories. `--failed` accepts only the stories that the last `visual:check` failed. Look at each changed image before you accept it: the baseline is what a reviewer compares with.
@@ -136,6 +136,24 @@ Each story has a committed baseline PNG beside its story file: `<story file dir>
 - The size budget: both commands fail above 60 MB for all baselines, or above 1 MB for one image.
 - A story in `visual-unstable-stories.json` gets no baseline. Both commands report it as skipped, with its ticket. An entry with `"viewport": "mobile"` skips only the mobile screenshot (for example, a play that asserts the desktop layout).
 - The TanStack route generator reads only route files, so a `screenshots/` folder in `src/routes/` does not change the route tree.
+
+## Screenshot options
+
+A story controls its screenshots with `parameters: { visual: { ... } }`, in the story or in the meta of its file. The value of the story wins over the meta, key by key. Each value must be a literal: `checks:list` and `pnpm visual:check` read the story file with the Storybook CSF parser. A value that is not valid stops both commands.
+
+- `skip: "<reason>"`: the story has no screenshot. A reason is necessary.
+- `fullPage: true`: the screenshot holds the full scroll height, not only the viewport.
+- `maxDiffPixels: <n>`: the count of pixels that may differ (default 10). Do not raise it to hide noise.
+- `viewports: ["desktop"]` or `["desktop", "mobile"]`: this list replaces the default viewports (desktop, and mobile for a `page` story). For example, a page story whose play asserts the desktop layout uses `["desktop"]`.
+- `masks: ["<CSS selector>"]`: the capture hides each element that a selector finds. Use it only when you cannot change the source of the element (for example, a library canvas).
+
+**Named snapshots.** To keep a state in the middle of a play, call `await snapshot("<name>")` from [`apps/ui/src/lib/visual-snapshot.ts`](../../../apps/ui/src/lib/visual-snapshot.ts). The baseline is `<storyfile>.<storyname>@<name>.<viewport>.screenshot.png`, beside the baseline of the end state. Write the name as a string literal in kebab case, in the play function of the story itself (not in a shared helper): the commands read the names from the story file. Each name is one time in a play. Outside the capture, `snapshot()` does nothing. The story Testing/Visual options ([`visual-options.stories.tsx`](../../../apps/ui/src/lib/visual-options.stories.tsx)) shows two named snapshots and both kinds of mask.
+
+**Masks.** Put the `data-visual-mask` attribute on content that cannot be deterministic: a canvas that draws each frame, a video, a live clock. Put it on the shared component one time, not in each story. The capture hides the element for the shot (`visibility: hidden`), so its place shows the background and a control above it stays in the shot.
+
+- Mask noise. Do not re-baseline it: a new baseline only resets a flake, and the next run differs again.
+- Do not mask real content that changes often (a count, a list, a status). Make it deterministic with fixture data, or find the cause of the change.
+- Mask the smallest element that holds the noise. A mask on a container hides all of its content.
 
 ## Quick reference (commands)
 

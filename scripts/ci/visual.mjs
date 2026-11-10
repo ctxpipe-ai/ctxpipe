@@ -9,10 +9,14 @@ import { threshold } from "../../packages/visual-review/src/compare/diff.ts"
 import { csfTools } from "../../apps/ui/.storybook/check-modules.mjs"
 import {
   readUnstable,
+  visualOptions,
   visualRecords,
-  visualSkips,
 } from "../checks/visual.mjs"
-import { captureInContainer, viewports } from "./visual-capture.mjs"
+import {
+  captureInContainer,
+  shotKey,
+  viewports,
+} from "./visual-capture.mjs"
 import pin from "./visual-container.json" with { type: "json" }
 
 // `pnpm visual:check` and `pnpm visual:update [--only <id>,<id>... | --failed]`.
@@ -21,7 +25,7 @@ import pin from "./visual-container.json" with { type: "json" }
 // (apps/ui/storybook-static) in the pinned container
 // (scripts/ci/visual-capture.mjs) and compare each screenshot with its
 // committed baseline:
-// <story file dir>/screenshots/<storyfile>.<storyname>.<viewport>.screenshot.png.
+// <story file dir>/screenshots/<storyfile>.<storyname>[@<snapshot>].<viewport>.screenshot.png.
 //
 // - check: writes the run into .ci-results/visual/ (manifest.json, and the
 //   images of each story that is not unchanged). It never writes a baseline.
@@ -38,9 +42,11 @@ import pin from "./visual-container.json" with { type: "json" }
 //   deletes the orphan baselines.
 //
 // The stories in scripts/ci/visual-unstable-stories.json have no baseline
-// yet. Both commands skip them and name their ticket. A story with
-// `parameters.visual.skip` (a reason) has no screenshot; both commands skip
-// it and print the reason. The baseline of a skipped story is an orphan.
+// yet. Both commands skip them and name their ticket. The options of a story
+// (`parameters.visual`, read by visualOptions in scripts/checks/visual.mjs)
+// change its screenshots. A story with `skip` (a reason) has no screenshot;
+// both commands skip it and print the reason. The baseline of a skipped
+// story is an orphan.
 //
 // Usage: node scripts/ci/visual.mjs check [--only <id>,<id>... | --shard <i>/<n>] [--records <dir>]
 //        node scripts/ci/visual.mjs update [--only <id>,<id>... | --failed]
@@ -80,30 +86,40 @@ const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
 const stories = Object.values(index.entries).filter(
   (entry) => entry.type === "story",
 )
-const skipped = visualSkips(stories, (await csfTools()).loadCsf)
-for (const [id, reason] of skipped)
-  process.stdout.write(`skipped: ${id} (parameters.visual.skip: ${reason})\n`)
+const options = visualOptions(stories, (await csfTools()).loadCsf)
+for (const [id, { skip }] of options)
+  if (skip)
+    process.stdout.write(`skipped: ${id} (parameters.visual.skip: ${skip})\n`)
 
 const started = Date.now()
 const result = await runVisual({
   mode,
   root,
   out: join(root, ".ci-results/visual"),
-  stories: stories.filter((story) => !skipped.has(story.id)),
+  stories: stories
+    .filter((story) => !options.get(story.id).skip)
+    .map((story) => ({ ...story, visual: options.get(story.id) })),
   unstable: readUnstable(),
-  capture: async (viewport, ids) => {
+  capture: async (viewport, group) => {
     const dir = join(root, ".ci-results/visual-capture", viewport)
-    const stories = await captureInContainer(ids, dir, viewport)
+    const shots = await captureInContainer(
+      group.map((story) => ({ ...story.visual, id: story.id })),
+      dir,
+      viewport,
+    )
     return new Map(
-      stories.map((story) => [
-        story.id,
-        {
-          ...story,
-          ...(["captured", "unstable"].includes(story.status) && {
-            png: readFileSync(join(dir, `${story.id}.png`)),
-          }),
-        },
-      ]),
+      shots.map((shot) => {
+        const key = shotKey(shot.id, shot.snapshot)
+        return [
+          key,
+          {
+            ...shot,
+            ...(["captured", "unstable"].includes(shot.status) && {
+              png: readFileSync(join(dir, `${key}.png`)),
+            }),
+          },
+        ]
+      }),
     )
   },
   run: {

@@ -1045,8 +1045,8 @@ jobs:
   # Quarantines the screenshots that differed between the two captures of
   # the determinism job: a draft pull request adds them to the unstable list
   # (scripts/ci/visual-unstable-stories.json) and removes their desktop
-  # baselines (an unstable screenshot has none, so a kept one would be an
-  # orphan), so that no screenshot check runs for them until a person fixes
+  # baselines, also of their named snapshots (an unstable screenshot has
+  # none, so a kept one would be an orphan), so that no screenshot check runs for them until a person fixes
   # the cause. It runs
   # only on main, runs no repository script and has no AWS role. When GitHub
   # refuses the pull request, the error annotation names the stories.
@@ -1092,7 +1092,7 @@ jobs:
           else
             git switch -q -c "$branch"
           fi
-          jq -r '.[].baseline' "$RUNNER_TEMP/differing.json" |
+          jq -r '.[].baselines[]' "$RUNNER_TEMP/differing.json" |
             while IFS= read -r baseline; do git rm -q --ignore-unmatch -- "$baseline"; done
           # Each entry needs the ticket that fixes it: the standing ticket
           # CTX-1237 (screenshots quarantined by the nightly run) holds each
@@ -1718,7 +1718,7 @@ jobs:
           "$RUNNER_TEMP/bin/factory" check --repo . --base HEAD^1 --k 3 \
             --manifest "$RUNNER_TEMP/inputs/manifest.json" \
             --toolchain "$RUNNER_TEMP/inputs/toolchain.json" \
-            --include-stochastic --cache-only --json > "$RUNNER_TEMP/raw.json" || code=$?
+            --include-stochastic --cache-only --llm-provider none --json > "$RUNNER_TEMP/raw.json" || code=$?
           # 0: every selected check is a hit. 1: a check must run. 2: the
           # selection failed.
           if [ "$code" -gt 1 ]; then
@@ -1853,7 +1853,7 @@ jobs:
           path: ${{ runner.temp }}/out/
           if-no-files-found: ignore
 
-  # The LLM stage of the selection (`factory check --llm-select`, Claude
+  # The LLM stage of the selection (`factory check` with a model, Claude
   # Haiku 5.5 through OpenRouter) for the select job's run. It holds the
   # model key of the workbench environment and no cloud role. It runs only
   # the selector release of the select job, after it checks the pinned
@@ -1904,26 +1904,26 @@ jobs:
           echo "$sha256  $RUNNER_TEMP/release/factory.tar.gz" | sha256sum --check --strict
           mkdir -p "$RUNNER_TEMP/bin"
           tar -xzf "$RUNNER_TEMP/release/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
-      # A slow model call delays every check job, so the selector has 105
-      # seconds (90 for the model). The plan keeps the deterministic selection when this step
+      # A slow model call delays every check job, so the selector has 170
+      # seconds (150 for the model). The plan keeps the deterministic selection when this step
       # fails or times out.
       - name: Select with the LLM stage
-        timeout-minutes: 2
+        timeout-minutes: 3
         env:
           OPENROUTER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
           XDG_CACHE_HOME: ${{ runner.temp }}/cache
         run: |
           out="$RUNNER_TEMP/out"
-          echo "the selector did not finish in 2 minutes" > "$out/llm-cause.txt"
+          echo "the selector did not finish in 3 minutes" > "$out/llm-cause.txt"
           trace=()
           [ ! -f "$RUNNER_TEMP/selection/trace.json.gz" ] || trace=(--trace "$RUNNER_TEMP/selection/trace.json.gz")
           code=0
-          timeout 105 "$RUNNER_TEMP/bin/factory" check --repo . --base HEAD^1 --k 3 \
+          timeout 170 "$RUNNER_TEMP/bin/factory" check --repo . --base HEAD^1 --k 3 \
             --manifest "$RUNNER_TEMP/inputs/manifest.json" "${trace[@]}" \
-            --include-stochastic --llm-select --llm-provider openrouter \
+            --include-stochastic --llm-provider openrouter \
             --dry-run --json > "$RUNNER_TEMP/raw.json" || code=$?
           if [ "$code" = 124 ]; then
-            echo "the selector did not finish in 105 seconds" > "$out/llm-cause.txt"
+            echo "the selector did not finish in 170 seconds" > "$out/llm-cause.txt"
             exit 1
           fi
           if [ "$code" -gt 1 ]; then

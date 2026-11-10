@@ -117,8 +117,13 @@ test("the committed unstable list is valid", () => {
   assert.ok(readUnstableList(list).length > 0)
 })
 
-test("only a story whose two captures gave different images is quarantined, with its desktop baseline", () => {
-  const run = (status, sha256) => ({ status, ...(sha256 && { sha256 }) })
+test("only a story whose two captures gave different images is quarantined, with its desktop baselines", () => {
+  // Each run gives the shots of a story: the end state, then each named
+  // snapshot of its play.
+  const shot = (status, snapshot) => ({
+    status,
+    ...(snapshot && { snapshot }),
+  })
   const entries = new Map(
     ["a--one", "b--two", "c--three", "d--four"].map((id) => [
       id,
@@ -127,22 +132,34 @@ test("only a story whose two captures gave different images is quarantined, with
   )
   const quarantined = quarantineOf(
     [
-      { id: "a--one", runs: [run("captured", "1"), run("captured", "2")] },
-      { id: "b--two", runs: [run("captured", "1"), run("unstable")] },
+      {
+        id: "a--one",
+        runs: [
+          [shot("captured"), shot("captured", "menu-open")],
+          [shot("captured"), shot("captured", "menu-open")],
+        ],
+      },
+      { id: "b--two", runs: [[shot("captured")], [shot("unstable")]] },
       // A broken story, not an unstable screenshot.
-      { id: "c--three", runs: [run("play-failed"), run("play-failed")] },
-      { id: "d--four", runs: [run("captured", "1"), run("missing")] },
+      { id: "c--three", runs: [[shot("play-failed")], [shot("play-failed")]] },
+      {
+        id: "d--four",
+        runs: [[shot("captured"), shot("not-run", "saved")], [shot("captured")]],
+      },
     ],
     entries,
   )
   assert.deepEqual(quarantined, [
     {
       id: "a--one",
-      baseline: "apps/ui/src/x/screenshots/Card.one.desktop.screenshot.png",
+      baselines: [
+        "apps/ui/src/x/screenshots/Card.one.desktop.screenshot.png",
+        "apps/ui/src/x/screenshots/Card.one@menu-open.desktop.screenshot.png",
+      ],
     },
     {
       id: "b--two",
-      baseline: "apps/ui/src/x/screenshots/Card.two.desktop.screenshot.png",
+      baselines: ["apps/ui/src/x/screenshots/Card.two.desktop.screenshot.png"],
     },
   ])
 })

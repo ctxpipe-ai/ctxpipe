@@ -163,7 +163,7 @@ try {
         process.stdout.write(`PASS ${story.exportName}\n`)
       }
     },
-    trace,
+    { trace },
   )
   await new Promise((resolveClose) => {
     if (!server) {

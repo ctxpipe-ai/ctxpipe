@@ -83,13 +83,18 @@ let shots: Map<string, Captured>
 let captured: string[]
 
 // The pinned container is the environment of the command: the fake gives
-// the PNG of each story from `shots`, and blue for any other story.
-const capture: Capture = async (viewport, ids) => {
-  captured.push(...ids.map((id) => `${id} ${viewport}`))
+// the PNG of each shot (`<id>` or `<id>@<snapshot>`) from `shots`, and blue
+// for any other shot.
+const capture: Capture = async (viewport, stories) => {
+  const keys = stories.flatMap((story) => [
+    story.id,
+    ...(story.visual?.snapshots ?? []).map((name) => `${story.id}@${name}`),
+  ])
+  captured.push(...keys.map((key) => `${key} ${viewport}`))
   return new Map(
-    ids.map((id) => [
-      id,
-      shots.get(`${id} ${viewport}`) ?? { status: "captured", png: blue },
+    keys.map((key) => [
+      key,
+      shots.get(`${key} ${viewport}`) ?? { status: "captured", png: blue },
     ]),
   )
 }
@@ -482,6 +487,113 @@ describe("visual:update", () => {
     expect(Object.keys(await tree())).toContain(homeDesktop)
     expect(Object.keys(await tree())).not.toContain(cardDesktop)
     expect(Object.keys(await tree())).not.toContain(homeMobile)
+  })
+})
+
+describe("the screenshot options of a story", () => {
+  const menu: IndexStory = {
+    id: "features-card--menu",
+    title: "Features/Card",
+    importPath: "./src/features/card/Card.stories.tsx",
+    exportName: "Menu",
+    tags: ["dev"],
+    visual: { snapshots: ["menu-open", "saved"] },
+  }
+  const menuPath = (name: string) =>
+    `apps/ui/src/features/card/screenshots/Card.${name}.desktop.screenshot.png`
+
+  test("a story with two named snapshots gives a baseline for each, beside the end state", async () => {
+    shots.set(`${menu.id}@menu-open desktop`, {
+      status: "captured",
+      png: red,
+    })
+    expect(await visual("update", { stories: [menu] })).toBe(0)
+    expect(captured).toEqual([
+      `${menu.id} desktop`,
+      `${menu.id}@menu-open desktop`,
+      `${menu.id}@saved desktop`,
+    ])
+    expect(decode(await readFile(join(root, menuPath("Menu"))))).toEqual(
+      decode(blue),
+    )
+    expect(
+      decode(await readFile(join(root, menuPath("Menu@menu-open")))),
+    ).toEqual(decode(red))
+    expect(decode(await readFile(join(root, menuPath("Menu@saved"))))).toEqual(
+      decode(blue),
+    )
+    expect(await visual("check", { stories: [menu] })).toBe(0)
+  })
+
+  test("a changed named snapshot fails only its own baseline, and names the snapshot", async () => {
+    await visual("update", { stories: [menu] })
+    shots.set(`${menu.id}@saved desktop`, { status: "captured", png: red })
+    expect(await visual("check", { stories: [menu] })).toBe(1)
+    expect(await statuses()).toEqual({
+      [menuPath("Menu")]: "unchanged",
+      [menuPath("Menu@menu-open")]: "unchanged",
+      [menuPath("Menu@saved")]: "changed",
+    })
+    const story = (await manifest()).stories.find(
+      (entry) => entry.baseline === menuPath("Menu@saved"),
+    )
+    expect(story).toMatchObject({
+      id: menu.id,
+      snapshot: "saved",
+      images: { after: `${menu.id}/@saved/desktop/after.png` },
+    })
+    expect(await visual("update", { stories: [menu], failed: true })).toBe(0)
+    expect(await visual("check", { stories: [menu] })).toBe(0)
+  })
+
+  test("the baseline of a snapshot that the play no longer takes is an orphan", async () => {
+    await visual("update", { stories: [menu] })
+    const fewer = { ...menu, visual: { snapshots: ["saved"] } }
+    expect(await visual("check", { stories: [fewer] })).toBe(1)
+    const orphan = (await manifest()).stories.find(
+      (entry) => entry.status === "removed",
+    )
+    expect(orphan).toMatchObject({
+      baseline: menuPath("Menu@menu-open"),
+      snapshot: "menu-open",
+      componentFile: "apps/ui/src/features/card/Card.stories.tsx",
+    })
+    expect(await visual("update", { stories: [fewer] })).toBe(0)
+    expect(Object.keys(await tree())).not.toContain(menuPath("Menu@menu-open"))
+  })
+
+  test("viewports replaces the default viewports", async () => {
+    const stories = [
+      { ...card, visual: { viewports: ["desktop", "mobile"] } },
+      { ...home, visual: { viewports: ["desktop"] } },
+    ] satisfies IndexStory[]
+    expect(await visual("update", { stories })).toBe(0)
+    expect(captured.sort()).toEqual([
+      `${card.id} desktop`,
+      `${card.id} mobile`,
+      `${home.id} desktop`,
+    ])
+    expect(Object.keys(await tree())).toContain(
+      "apps/ui/src/features/card/screenshots/Card.Plain.mobile.screenshot.png",
+    )
+    expect(Object.keys(await tree())).not.toContain(homeMobile)
+  })
+
+  test("maxDiffPixels sets the tolerance of the story", async () => {
+    // The red box is 20 x 10 pixels: 200 pixels differ from blue.
+    const stories = [{ ...card, visual: { maxDiffPixels: 200 } }, home]
+    await visual("update", { stories })
+    shots.set(`${card.id} desktop`, { status: "captured", png: red })
+    shots.set(`${home.id} desktop`, { status: "captured", png: red })
+    expect(await visual("check", { stories })).toBe(1)
+    expect(await statuses()).toMatchObject({
+      [cardDesktop]: "unchanged",
+      [homeDesktop]: "changed",
+    })
+    const entry = (await manifest()).stories.find(
+      (story) => story.baseline === cardDesktop,
+    )
+    expect(entry).toMatchObject({ maxDiffPixels: 200, diffPixels: 200 })
   })
 })
 
