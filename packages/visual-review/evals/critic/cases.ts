@@ -1,6 +1,9 @@
 // The case manifest of the bake-off: cases.json, beside this file. The
-// images are not in git: each image path is relative to the output folder of
-// `pnpm visual:bakeoff:build`.
+// images are not in git: the manifest holds the SHA-256 of each image, and
+// the image is the asset `<sha256>.png` of a public release (images.ts).
+
+import { readFile } from "node:fs/promises"
+import { join, resolve } from "node:path"
 
 import { z } from "zod"
 
@@ -8,7 +11,8 @@ import { noiseClasses, regressionClasses } from "./mutations.ts"
 
 const count = z.number().int().nonnegative()
 const sha = z.string().regex(/^[0-9a-f]{40}$/)
-const imagePath = z.string().regex(/^cases\/[a-z0-9-]+\/(before|after)\.png$/)
+/** The SHA-256 of a PNG image, in hex. */
+const image = z.string().regex(/^[0-9a-f]{64}$/)
 
 const common = {
   /** A stable id: the kind, the class and a number. */
@@ -22,7 +26,7 @@ const common = {
   }),
   /** The pixels that differ (BlazeDiff, threshold 0.1). */
   diffPixels: count,
-  images: z.object({ before: imagePath, after: imagePath }),
+  images: z.object({ before: image, after: image }),
 }
 /** The commit of a real change and its first parent. */
 const commit = z.object({ sha, parent: sha })
@@ -31,7 +35,8 @@ const region = z.object({ x: count, y: count, width: count, height: count })
 
 /**
  * One case. `kind` says how the builder made it; `label` is the answer that
- * the critic must give, and the owner can change it.
+ * the critic must give, and the owner can change it. The owner can label a
+ * real change `unsure`: the run leaves that case out.
  * - `intended`: a real commit, before and after. The brief is its message.
  * - `regression`: one synthetic change of `class` on a clean render.
  * - `noise`: a change that a person does not see.
@@ -46,7 +51,7 @@ export const caseSchema = z.discriminatedUnion("kind", [
   z.object({
     ...common,
     kind: z.literal("intended"),
-    label: z.enum(["intended", "regression", "noise"]),
+    label: z.enum(["intended", "regression", "noise", "unsure"]),
     class: z.null(),
     brief: z.string().min(1),
     commit,
@@ -89,7 +94,7 @@ export const caseSchema = z.discriminatedUnion("kind", [
     region: region.nullable(),
     diffPixels: z.null(),
     // Strict: a new case that has a before image is not a new case.
-    images: z.strictObject({ after: imagePath }),
+    images: z.strictObject({ after: image }),
   }),
 ])
 export type Case = z.infer<typeof caseSchema>
@@ -152,3 +157,15 @@ export const caseManifestSchema = z
 export type CaseManifest = z.infer<typeof caseManifestSchema>
 
 export const caseManifestJsonSchema = z.toJSONSchema(caseManifestSchema)
+
+/** Read and check the case manifest at `path`, or cases.json beside this file. */
+export async function readManifest(path?: string): Promise<CaseManifest> {
+  return caseManifestSchema.parse(
+    JSON.parse(
+      await readFile(
+        resolve(path ?? join(import.meta.dirname, "cases.json")),
+        "utf8",
+      ),
+    ),
+  )
+}

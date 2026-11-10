@@ -6,10 +6,9 @@ import { caseManifestJsonSchema, caseManifestSchema } from "./cases.ts"
 
 const sha = (digit: string) => digit.repeat(40)
 const viewport = { name: "desktop", width: 1440, height: 900 } as const
-const images = (id: string) => ({
-  before: `cases/${id}/before.png`,
-  after: `cases/${id}/after.png`,
-})
+// The SHA-256 of an image: 64 hex digits.
+const image = (digit: string) => digit.repeat(64)
+const images = () => ({ before: image("1"), after: image("2") })
 
 const manifest = {
   $schema: "./cases.schema.json",
@@ -29,7 +28,7 @@ const manifest = {
       viewport,
       region: null,
       diffPixels: 812,
-      images: images("intended-001"),
+      images: images(),
     },
     {
       id: "regression-padding-01",
@@ -42,7 +41,7 @@ const manifest = {
       viewport,
       region: { x: 98, y: 98, width: 324, height: 44 },
       diffPixels: 2200,
-      images: images("regression-padding-01"),
+      images: images(),
     },
     {
       id: "noise-subpixel-shift-01",
@@ -55,7 +54,7 @@ const manifest = {
       viewport,
       region: null,
       diffPixels: 40,
-      images: images("noise-subpixel-shift-01"),
+      images: images(),
     },
     {
       id: "mixed-01",
@@ -68,7 +67,7 @@ const manifest = {
       viewport,
       region: { x: 10, y: 10, width: 80, height: 24 },
       diffPixels: 900,
-      images: images("mixed-01"),
+      images: images(),
     },
     {
       id: "new-01",
@@ -81,7 +80,7 @@ const manifest = {
       viewport,
       region: null,
       diffPixels: null,
-      images: { after: "cases/new-01/after.png" },
+      images: { after: image("3") },
     },
     {
       id: "new-broken-01",
@@ -94,7 +93,7 @@ const manifest = {
       viewport,
       region: { x: 40, y: 40, width: 300, height: 30 },
       diffPixels: null,
-      images: { after: "cases/new-broken-01/after.png" },
+      images: { after: image("4") },
     },
   ],
 }
@@ -120,7 +119,7 @@ describe("caseManifestSchema", () => {
 
   test("a new case has only an after image and no diff", () => {
     const withBefore = change(4, (entry) => {
-      entry.images = images("new-01")
+      entry.images = images()
     })
     expect(caseManifestSchema.safeParse(withBefore).success).toBe(false)
     const withDiff = change(4, (entry) => {
@@ -175,11 +174,20 @@ describe("caseManifestSchema", () => {
     expect(caseManifestSchema.safeParse(broken).success).toBe(false)
   })
 
-  test("refuses an image path outside the output folder", () => {
+  test("refuses an image that is not a SHA-256", () => {
     const broken = change(0, (entry) => {
-      entry.images.after = "../secret.png"
+      entry.images.after = "cases/intended-001/after.png"
     })
     expect(caseManifestSchema.safeParse(broken).success).toBe(false)
+  })
+
+  test("accepts the owner label unsure on a real change only", () => {
+    const unsure = (index: number) =>
+      change(index, (entry) => {
+        entry.label = "unsure"
+      })
+    expect(caseManifestSchema.safeParse(unsure(0)).success).toBe(true)
+    expect(caseManifestSchema.safeParse(unsure(1)).success).toBe(false)
   })
 })
 
