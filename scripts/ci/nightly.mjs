@@ -77,7 +77,9 @@ export async function nightlyTickets({
     )
     const artifactUrl = (name) => {
       const artifact = artifacts.find((item) => item.name === name)
-      return artifact ? `${runUrl}/artifacts/${artifact.id}` : `${runUrl}#artifacts`
+      return artifact
+        ? `${runUrl}/artifacts/${artifact.id}`
+        : `${runUrl}#artifacts`
     }
     for (const flake of flakes) {
       const lines = [
@@ -143,11 +145,19 @@ function flakyStories(results) {
     const artifact = relative(results, path).split(sep)[0]
     const name = path.split(sep).at(-1)
     if (name === "manifest.json") {
+      // The Unstable screenshots job removes these files with `git rm`, so
+      // only a baseline path of a screenshot is kept.
       for (const story of JSON.parse(readFileSync(path, "utf8")).stories ?? [])
-        baselines.set(
-          story.id,
-          new Set([...(baselines.get(story.id) ?? []), story.baseline]),
+        if (
+          /^apps\/ui\/(?:[\w@.-]+\/)*screenshots\/[\w@.-]+\.screenshot\.png$/.test(
+            story.baseline,
+          ) &&
+          !story.baseline.split("/").includes("..")
         )
+          baselines.set(
+            story.id,
+            new Set([...(baselines.get(story.id) ?? []), story.baseline]),
+          )
       continue
     }
     if (name !== "records.ndjson" && name !== "rerun.ndjson") continue

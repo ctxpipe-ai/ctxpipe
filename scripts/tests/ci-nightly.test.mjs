@@ -53,10 +53,20 @@ test("a new commit on main, or no successful nightly run yet, runs the nightly r
 })
 
 test("an unstable entry older than 7 days, or without a date, is overdue", () => {
-  const entry = (since) => ({ id: `x--${since}`, reason: "r", ticket: "CTX-1", since })
+  const entry = (since) => ({
+    id: `x--${since}`,
+    reason: "r",
+    ticket: "CTX-1",
+    since,
+  })
   assert.deepEqual(
     overdueEntries(
-      [entry("2026-11-03"), entry("2026-11-02"), entry(undefined), entry("soon")],
+      [
+        entry("2026-11-03"),
+        entry("2026-11-02"),
+        entry(undefined),
+        entry("soon"),
+      ],
       "2026-11-10",
     ).map((item) => item.since),
     ["2026-11-02", undefined, "soon"],
@@ -65,7 +75,12 @@ test("an unstable entry older than 7 days, or without a date, is overdue", () =>
 
 // The artifact folders of a nightly run: records of the first run, records
 // of the rerun, and the visual manifest of the first run.
-function results({ visual = [], plays = [], visualRerun = [], playsRerun = [] }) {
+function results({
+  visual = [],
+  plays = [],
+  visualRerun = [],
+  playsRerun = [],
+}) {
   const root = mkdtempSync(join(tmpdir(), "ctxpipe-nightly-"))
   const write = (path, records) => {
     mkdirSync(dirname(join(root, path)), { recursive: true })
@@ -74,26 +89,55 @@ function results({ visual = [], plays = [], visualRerun = [], playsRerun = [] })
       records.map((record) => `${JSON.stringify(record)}\n`).join(""),
     )
   }
-  write("test-results-storybook-visual-1/storybook-visual/records.ndjson", visual)
-  write("test-results-storybook-visual-1/storybook-visual/rerun/rerun.ndjson", visualRerun)
+  write(
+    "test-results-storybook-visual-1/storybook-visual/records.ndjson",
+    visual,
+  )
+  write(
+    "test-results-storybook-visual-1/storybook-visual/rerun/rerun.ndjson",
+    visualRerun,
+  )
   write("storybook-plays-results-2/records.ndjson", plays)
   write("storybook-plays-results-2/rerun/rerun.ndjson", playsRerun)
   mkdirSync(join(root, "test-results-storybook-visual-1/visual-first-run"))
   writeFileSync(
-    join(root, "test-results-storybook-visual-1/visual-first-run/manifest.json"),
+    join(
+      root,
+      "test-results-storybook-visual-1/visual-first-run/manifest.json",
+    ),
     JSON.stringify({
       stories: [
-        { id: "card--empty", baseline: "apps/ui/src/x/screenshots/Card.Empty.desktop.screenshot.png" },
-        { id: "card--empty", baseline: "apps/ui/src/x/screenshots/Card.Empty.mobile.screenshot.png" },
-        { id: "menu--open", baseline: "apps/ui/src/y/screenshots/Menu.Open.desktop.screenshot.png" },
+        {
+          id: "card--empty",
+          baseline:
+            "apps/ui/src/x/screenshots/Card.Empty.desktop.screenshot.png",
+        },
+        {
+          id: "card--empty",
+          baseline:
+            "apps/ui/src/x/screenshots/Card.Empty.mobile.screenshot.png",
+        },
+        {
+          id: "menu--open",
+          baseline:
+            "apps/ui/src/y/screenshots/Menu.Open.desktop.screenshot.png",
+        },
+        // Not a screenshot baseline: the job never removes it.
+        { id: "card--empty", baseline: ".github/workflows/ci.yaml" },
+        {
+          id: "card--empty",
+          baseline: "apps/ui/../../x/screenshots/A.B.desktop.screenshot.png",
+        },
       ],
     }),
   )
   return root
 }
 
-const visualId = (story) => `storybook:visual:apps/ui/src/x/Card.stories.tsx#${story}`
-const playId = (story) => `storybook:plays:apps/ui/src/x/Card.stories.tsx#${story}`
+const visualId = (story) =>
+  `storybook:visual:apps/ui/src/x/Card.stories.tsx#${story}`
+const playId = (story) =>
+  `storybook:plays:apps/ui/src/x/Card.stories.tsx#${story}`
 
 // A run with the given jobs and two artifacts, and a Linear workspace with
 // the team CTX. `open` maps an issue title to an open issue. Records each
@@ -104,13 +148,15 @@ function nightly({ jobs = [], open = {} } = {}) {
     http.get(`https://api.github.com/repos/${repo}/actions/runs/7/jobs`, () =>
       HttpResponse.json({ jobs }),
     ),
-    http.get(`https://api.github.com/repos/${repo}/actions/runs/7/artifacts`, () =>
-      HttpResponse.json({
-        artifacts: [
-          { id: 11, name: "test-results-storybook-visual-1" },
-          { id: 12, name: "storybook-plays-results-2" },
-        ],
-      }),
+    http.get(
+      `https://api.github.com/repos/${repo}/actions/runs/7/artifacts`,
+      () =>
+        HttpResponse.json({
+          artifacts: [
+            { id: 11, name: "test-results-storybook-visual-1" },
+            { id: 12, name: "storybook-plays-results-2" },
+          ],
+        }),
     ),
     http.post("https://api.linear.app/graphql", async ({ request }) => {
       assert.equal(request.headers.get("authorization"), "linear-test-key")
@@ -140,7 +186,9 @@ function nightly({ jobs = [], open = {} } = {}) {
       if (operation === "Open")
         return HttpResponse.json({
           data: {
-            issues: { nodes: open[variables.title] ? [open[variables.title]] : [] },
+            issues: {
+              nodes: open[variables.title] ? [open[variables.title]] : [],
+            },
           },
         })
       if (operation === "Create")
@@ -148,7 +196,10 @@ function nightly({ jobs = [], open = {} } = {}) {
           data: {
             issueCreate: {
               success: true,
-              issue: { identifier: "CTX-9001", url: "https://linear.app/x/CTX-9001" },
+              issue: {
+                identifier: "CTX-9001",
+                url: "https://linear.app/x/CTX-9001",
+              },
             },
           },
         })
@@ -223,7 +274,9 @@ test("a check that fails and then passes in its rerun opens one ticket for each 
 
 test("a second flake of a story comments on its ticket and gives the unstable entry with that ticket", async () => {
   const calls = nightly({
-    open: { "Flaky story card--empty": { id: "issue-1", identifier: "CTX-4242" } },
+    open: {
+      "Flaky story card--empty": { id: "issue-1", identifier: "CTX-4242" },
+    },
   })
   const unstable = await run(
     results({
@@ -255,10 +308,26 @@ test("a second flake of a story comments on its ticket and gives the unstable en
 test("a failed job of the nightly run opens one ticket in Triage", async () => {
   const calls = nightly({
     jobs: [
-      { name: "backend tests (shard 2/4)", conclusion: "failure", html_url: "https://github.com/j/1" },
-      { name: "Trace", conclusion: "failure", html_url: "https://github.com/j/2" },
-      { name: "Tests", conclusion: "success", html_url: "https://github.com/j/3" },
-      { name: "Nightly tickets", conclusion: null, html_url: "https://github.com/j/4" },
+      {
+        name: "backend tests (shard 2/4)",
+        conclusion: "failure",
+        html_url: "https://github.com/j/1",
+      },
+      {
+        name: "Trace",
+        conclusion: "failure",
+        html_url: "https://github.com/j/2",
+      },
+      {
+        name: "Tests",
+        conclusion: "success",
+        html_url: "https://github.com/j/3",
+      },
+      {
+        name: "Nightly tickets",
+        conclusion: null,
+        html_url: "https://github.com/j/4",
+      },
     ],
   })
   assert.deepEqual(await run(results({})), [])
@@ -287,7 +356,11 @@ test("the tickets command without the Linear key gives an error annotation and f
   delete env.LINEAR_API_KEY
   const result = spawnSync(
     process.execPath,
-    [fileURLToPath(new URL("../ci/nightly.mjs", import.meta.url)), "tickets", tmpdir()],
+    [
+      fileURLToPath(new URL("../ci/nightly.mjs", import.meta.url)),
+      "tickets",
+      tmpdir(),
+    ],
     { env, encoding: "utf8" },
   )
   assert.equal(result.status, 1)
