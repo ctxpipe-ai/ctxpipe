@@ -80,7 +80,7 @@ async function startServer(superuser: string): Promise<Server> {
       return { id, url }
     } catch (error) {
       if (attempt > 120) {
-        await docker("rm", "-f", id).catch(() => undefined)
+        await docker("rm", "-f", "-v", id).catch(() => undefined)
         throw error
       }
       await new Promise((resolve) => setTimeout(resolve, 500))
@@ -115,7 +115,7 @@ export async function startPostgresPair(
   const stop = async () => {
     await Promise.all(
       [source.id, target.id].map((id) =>
-        docker("rm", "-f", id).catch(() => undefined),
+        docker("rm", "-f", "-v", id).catch(() => undefined),
       ),
     )
   }
