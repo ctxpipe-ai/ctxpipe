@@ -13,11 +13,11 @@ import { createDrainPipeline, type PipelineDrainFn } from "evlog/pipeline"
 import { getContext } from "hono/context-storage"
 
 import type { AppEnv } from "../app/env.js"
+import { isPreviewDeployment } from "../config/deployment-environment.js"
 import { parseEnv } from "../config/env.js"
 import { applyLogContract } from "./logContract.js"
 import {
   forceFlushOtel,
-  isRailwayPrEnvironment,
   otelDeploymentEnvironment,
   otelServiceName,
 } from "./otel.js"
@@ -187,7 +187,7 @@ export async function withLogger<T>(
       if (workflowLoggerHasMilestoneContent(holder.logger)) {
         holder.logger.emit()
       }
-      if (isRailwayPrEnvironment()) {
+      if (isPreviewDeployment()) {
         await forceFlushOtel()
       }
     }

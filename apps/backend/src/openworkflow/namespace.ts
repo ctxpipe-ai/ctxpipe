@@ -1,13 +1,17 @@
+import { deploymentEnvironment } from "../config/deployment-environment.js"
+
 /**
- * Preserve the historical production namespace while ensuring a duplicated
- * Railway PR environment cannot replay workflow rows copied from production.
+ * Preserve the historical production namespace while ensuring a preview,
+ * whose database is a copy of production, cannot replay the workflow rows
+ * it copied. A preview copies the production variables too, so the
+ * deployment name wins over `OPENWORKFLOW_NAMESPACE_ID`.
  */
 export function openWorkflowNamespaceId(
   env: Record<string, string | undefined> = process.env,
 ): string {
-  const railwayEnvironment = env.RAILWAY_ENVIRONMENT_NAME?.trim()
-  if (railwayEnvironment && /^pr-\d+$/.test(railwayEnvironment)) {
-    return `preview-${railwayEnvironment}`
+  const deployment = deploymentEnvironment(env)
+  if (deployment && /^pr-\d+$/.test(deployment)) {
+    return `preview-${deployment}`
   }
 
   const configured = env.OPENWORKFLOW_NAMESPACE_ID?.trim()

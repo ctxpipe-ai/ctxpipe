@@ -3,11 +3,12 @@ import { context, SpanStatusCode, trace } from "@opentelemetry/api"
 import type { Context, MiddlewareHandler } from "hono"
 import { matchedRoutes } from "hono/route"
 
+import { isPreviewDeployment } from "../config/deployment-environment.js"
 import {
   contextWithAttributionBag,
   copyAttributionToSpan,
 } from "./attribution.js"
-import { forceFlushOtel, isRailwayPrEnvironment } from "./otel.js"
+import { forceFlushOtel } from "./otel.js"
 import { redactSecretPath } from "./secretPath.js"
 
 const REQUEST_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/
@@ -130,7 +131,7 @@ export function backendOtelMiddleware(): MiddlewareHandler {
       })
     })
 
-    if (!untraced && isRailwayPrEnvironment()) {
+    if (!untraced && isPreviewDeployment()) {
       setTimeout(() => {
         void forceFlushOtel()
       }, 0)

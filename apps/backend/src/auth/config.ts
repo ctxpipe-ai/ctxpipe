@@ -21,8 +21,9 @@ import {
 } from "better-auth/plugins/organization/access"
 import { eq } from "drizzle-orm"
 
+import { isPreviewDeployment } from "../config/deployment-environment.js"
 import { parseEnv } from "../config/env.js"
-import { type Db, initDb, isRailwayPrPreview } from "../db/client.js"
+import { type Db, initDb } from "../db/client.js"
 import { schema } from "../db/schema.js"
 import { members, users } from "../db/schema/auth.js"
 import { isValidSlug } from "../domain/workspaces/slug.js"
@@ -154,8 +155,8 @@ export function createBetterAuth() {
   const smtpConfigured = Boolean(
     env.SMTP_CONNECTION_URL && env.EMAIL_FROM_ADDRESS,
   )
-  const requireEmailVerification = smtpConfigured && !isRailwayPrPreview()
-  if (!smtpConfigured && !isRailwayPrPreview()) {
+  const requireEmailVerification = smtpConfigured && !isPreviewDeployment()
+  if (!smtpConfigured && !isPreviewDeployment()) {
     log.warn({
       step: "auth.email_verification",
       message:

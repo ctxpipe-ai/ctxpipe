@@ -5,6 +5,7 @@ import { join } from "node:path"
 import type { SandboxHandle, SandboxProvider } from "@tanstack/ai-sandbox"
 
 import { repositoryRevisionCheckoutKey } from "../../../../../shared/workspace-checkout.js"
+import { deploymentEnvironment } from "../../config/deployment-environment.js"
 import { type Env, parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { listWorkspaceUnitsAtRevision } from "../../models/workspaces.js"
@@ -310,11 +311,11 @@ function ingestIsolation(): "docker" | "vercel" {
 }
 
 /**
- * The Railway environment of hosted sandboxes, for their tags. On Railway,
- * an untagged sandbox would escape the PR-close cleanup.
+ * The deployment environment of hosted sandboxes, for their tags. On
+ * Railway, an untagged sandbox would escape the PR-close cleanup.
  */
 function hostedEnvironment(): string {
-  const environment = process.env.RAILWAY_ENVIRONMENT_NAME?.trim()
+  const environment = deploymentEnvironment()
   if (!environment && process.env.RAILWAY_PROJECT_ID?.trim())
     throw new Error("Hosted ingest needs the Railway environment name")
   return environment || "local"

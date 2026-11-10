@@ -8,6 +8,7 @@ import {
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
+import { deploymentEnvironment } from "../config/deployment-environment.js"
 import { contextWithAttributionBag } from "./attribution.js"
 import {
   runWithLangfuseContext,
@@ -18,7 +19,7 @@ import { LangfuseContextSpanProcessor } from "./langfuseContextProcessor.js"
 
 const exporter = new InMemorySpanExporter()
 const environment =
-  process.env.RAILWAY_ENVIRONMENT_NAME?.trim() ||
+  deploymentEnvironment() ||
   (process.env.NODE_ENV === "production" ? "production" : "development")
 const provider = new NodeTracerProvider({
   resource: resourceFromAttributes({

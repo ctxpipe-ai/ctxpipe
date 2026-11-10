@@ -27,17 +27,17 @@ let runtimeInstrumentation: RuntimeNodeInstrumentation | undefined
 let started = false
 
 /**
- * `RAILWAY_ENVIRONMENT_NAME` if set, else `deployment.environment` from
- * `OTEL_RESOURCE_ATTRIBUTES`, else `production` when NODE_ENV is production,
- * else `development`.
+ * `DEPLOYMENT_ENVIRONMENT` if set (Railway's `RAILWAY_ENVIRONMENT_NAME` is
+ * the fallback), else `deployment.environment` from `OTEL_RESOURCE_ATTRIBUTES`,
+ * else `production` when NODE_ENV is production, else `development`.
  */
 export function codesearchDeploymentEnvironment(
-  railwayEnvironmentName = process.env.RAILWAY_ENVIRONMENT_NAME,
+  deploymentName = configuredDeploymentName(),
   resourceAttributes = process.env.OTEL_RESOURCE_ATTRIBUTES,
   nodeEnv = process.env.NODE_ENV,
 ): string {
-  const railway = railwayEnvironmentName?.trim()
-  if (railway) return railway
+  const deployment = deploymentName?.trim()
+  if (deployment) return deployment
   const fromAttributes = deploymentEnvironmentAttribute(resourceAttributes)
   if (fromAttributes) return fromAttributes
   return nodeEnv === "production" ? "production" : "development"
@@ -64,8 +64,17 @@ function deploymentEnvironmentAttribute(
   return found
 }
 
-function railwayPrEnvironment(): boolean {
-  return /^pr-\d+$/.test(process.env.RAILWAY_ENVIRONMENT_NAME?.trim() ?? "")
+/** The deployment name, or Railway's environment name until Railway goes. */
+function configuredDeploymentName(): string | undefined {
+  return (
+    process.env.DEPLOYMENT_ENVIRONMENT?.trim() ||
+    process.env.RAILWAY_ENVIRONMENT_NAME?.trim() ||
+    undefined
+  )
+}
+
+function previewEnvironment(): boolean {
+  return /^pr-\d+$/.test(configuredDeploymentName() ?? "")
 }
 
 /** `@hono/otel` sets `url.full` when the span starts. Drop its query and fragment. */
@@ -138,7 +147,7 @@ export function initOtel(): void {
 
   const metricsEndpoint =
     process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT?.trim()
-  if (metricsEndpoint && !railwayPrEnvironment()) {
+  if (metricsEndpoint && !previewEnvironment()) {
     meterProvider = new MeterProvider({
       resource,
       readers: [

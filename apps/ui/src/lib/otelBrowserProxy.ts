@@ -92,10 +92,15 @@ function percentDecode(value: string): string {
   }
 }
 
-/** Railway name, else the last `deployment.environment`, else NODE_ENV. */
+/**
+ * `DEPLOYMENT_ENVIRONMENT` (Railway's name is the fallback), else the last
+ * `deployment.environment`, else NODE_ENV.
+ */
 function deploymentEnvironment(): string {
-  const railway = process.env.RAILWAY_ENVIRONMENT_NAME?.trim()
-  if (railway) return railway
+  const deployment =
+    process.env.DEPLOYMENT_ENVIRONMENT?.trim() ||
+    process.env.RAILWAY_ENVIRONMENT_NAME?.trim()
+  if (deployment) return deployment
   const raw = process.env.OTEL_RESOURCE_ATTRIBUTES?.trim()
   if (raw) {
     let named: string | undefined
