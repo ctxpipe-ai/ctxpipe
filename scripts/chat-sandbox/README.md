@@ -36,3 +36,8 @@ the shim streams the answer back as server-sent events. Commands go through
 The memory snapshot holds the shim only. OpenCode starts later as a command.
 The shim does not create a secret and does not use Node `crypto`, because a value that
 a restored process makes can repeat in each session.
+
+AgentCore runs each command as the image user. In the `agentcore` target,
+that user is root, because an ingest sandbox needs root to seal its inputs
+and to run its agent as another user (ADR-052). The backend runs each chat
+command as `node`. `tini` is PID 1 and reaps orphans; the shim runs as `node`.

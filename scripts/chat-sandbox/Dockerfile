@@ -34,11 +34,13 @@ USER root
 RUN apt-get update \
     && apt-get install -y --no-install-recommends tini \
     && rm -rf /var/lib/apt/lists/*
-USER 1000:1000
 COPY agentcore-shim.mjs /usr/local/lib/ctxpipe/agentcore-shim.mjs
 EXPOSE 8080
+# AgentCore runs each command as the image user. Root is that user here,
+# because an ingest sandbox needs root (ADR-052); the backend runs each chat
+# command as `node`. The shim itself runs as `node`.
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["node", "/usr/local/lib/ctxpipe/agentcore-shim.mjs"]
+CMD ["setpriv", "--reuid=1000", "--regid=1000", "--clear-groups", "node", "/usr/local/lib/ctxpipe/agentcore-shim.mjs"]
 
 # The default target: Docker and Compose sandboxes.
 FROM base
