@@ -1,5 +1,5 @@
 # node:24.22.1-bookworm multi-arch index, pinned 2026-10-25.
-FROM node@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4240a
+FROM node@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4240a AS base
 
 # Build-time tools only; a conversation never installs its harness as root.
 # The ingest skills run ast-grep and ripgrep in this image (ADR-052).
@@ -23,3 +23,14 @@ ENV HOME=/home/node
 USER 1000:1000
 WORKDIR /workspace
 CMD ["sh", "-c", "tail -f /dev/null"]
+
+# AgentCore Runtime (`--target agentcore`): the shim on port 8080 is the
+# entry point. The memory snapshot holds the shim only; OpenCode starts later
+# as a command (ADR-061 decision 17).
+FROM base AS agentcore
+COPY agentcore-shim.mjs /usr/local/lib/ctxpipe/agentcore-shim.mjs
+EXPOSE 8080
+CMD ["node", "/usr/local/lib/ctxpipe/agentcore-shim.mjs"]
+
+# The default target: Docker and Compose sandboxes.
+FROM base

@@ -22,3 +22,17 @@ carries plain HTTP. The image loads `node-http-proxy.cjs` through
 `NODE_OPTIONS=--import`: that file sends a plain `http://` request to the proxy
 in absolute form, as curl and Bun do. OpenCode runs on Bun, so this change is
 only for Node processes (for example skill scripts).
+
+## AgentCore target
+
+`docker build --target agentcore scripts/chat-sandbox` builds the image for
+AgentCore Runtime. Its entry point is
+[`agentcore-shim.mjs`](agentcore-shim.mjs) on port 8080. AgentCore sends only
+`GET /ping` and `POST /invocations` to a session. The backend reaches the
+OpenCode port through the shim: each invocation holds one HTTP request, and
+the shim streams the answer back as server-sent events. Commands go through
+`InvokeAgentRuntimeCommand`, not through the shim.
+
+The memory snapshot holds the shim only. OpenCode starts later as a command.
+The shim makes no secret and does not use Node `crypto`, because a value that
+a restored process makes can repeat in each session.

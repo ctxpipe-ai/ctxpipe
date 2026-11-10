@@ -88,6 +88,7 @@ jobs:
       - name: CI command regression tests
         run: |
           node --test scripts/tests/ci-*.test.mjs
+          node --test scripts/tests/chat-sandbox-agentcore-shim.test.mjs
           bash scripts/tests/preview-otel-vars.test.sh
           bash scripts/tests/preview-sandbox-vars.test.sh
           bash scripts/tests/preview-github-app-vars.test.sh
