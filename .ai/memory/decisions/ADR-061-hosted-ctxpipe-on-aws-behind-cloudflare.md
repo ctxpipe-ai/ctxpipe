@@ -79,6 +79,11 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - The clones sit in a separate preview-data VPC of the production account. That VPC has no connection to the production VPC.
     - The preview-data VPC is peered with the preview VPC. Each clone has its own security group, which admits only the tasks of its own preview.
     - The preview workflow creates and deletes the clones itself. It uses a `preview-db` role in the production account, which can act only on resources tagged `env=preview`. The role creates a clone, its instance and its security group. It sets a new master password and deletes the clone. It cannot connect to a database.
+    - Limits of the `preview-db` role:
+        - Only the preview workflow can assume it: the OIDC subject of the factory repo's `preview` environment on `main`. No preview task role can assume it, and the workload boundary denies `sts:AssumeRole` on it.
+        - It sets tags only when it creates a resource. It cannot add, change or remove a tag on an existing resource.
+        - It can use the production cluster only as a clone source, and the production key only through RDS for a clone.
+        - It can put clones only in the preview-data subnet group.
     - The preview's migrate task sets new passwords for the database roles before it runs the migrations.
 21. All preview infrastructure is in `machines/previews`, in three parts:
     - `base`, in the preview account: the network, a router in the preview VPC that sends each host name to its preview, and one preview AgentCore runtime. The preview deploy role deploys it from `main`.
@@ -124,7 +129,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 - The stateful host and the NAT instance are single instances. A loss means up to 4 hours of degraded search and graph, or a short outbound outage. Both have runbooks.
 - Unreviewed preview code runs in the preview account. Its customer data is in its clone in the production account. For AWS resources, the account boundary is the security boundary. It does not cover the copied session and OAuth tokens: decision 22 records that accepted risk. The production account gives the preview account three things, each narrow:
     - a network path from the preview VPC to the preview-data VPC, with one security group for each clone;
-    - the `preview-db` role, which acts only on resources tagged `env=preview`;
+    - the `preview-db` role, which only the preview workflow can assume, and which acts only on resources tagged `env=preview` (decision 20);
     - read access to the codesearch shard prefix and the FalkorDB backups: only the preview FalkorDB and codesearch task roles can read them.
 - Telemetry holds customer prompt content for 30 days. The data map ([CTX-1175](https://linear.app/ctxpipe/issue/CTX-1175)) must say so.
 - Hosted infrastructure does not shape `@ctxpipe/aws-cdk`. A hosted feature goes into the construct only when self-hosters need it too.
