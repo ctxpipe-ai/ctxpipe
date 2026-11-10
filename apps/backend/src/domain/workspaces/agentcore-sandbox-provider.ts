@@ -507,22 +507,17 @@ function agentCoreHandle(
   const run = async (command: string): Promise<ExecResult> => {
     let stdout = ""
     let stderr = ""
-    const id = await stage(
+    const exitCode = await agentCoreImageUserCommand(
       runtime,
       sessionId,
-      stagedScript(`${command}\ncode=$?\n${drainCommand(1, 2)}\nexit $code`),
+      command,
+      (stream, text) => {
+        if (stream === "stdout") stdout += text
+        else stderr += text
+      },
+      { layout: paths },
     )
-    for await (const event of commandEvents(
-      runtime,
-      sessionId,
-      `sh -c ${shellQuote(runStaged(paths, id))}`,
-    )) {
-      if ("exitCode" in event)
-        return { stdout, stderr, exitCode: event.exitCode }
-      stdout += event.stdout ?? ""
-      stderr += event.stderr ?? ""
-    }
-    throw new Error("The AgentCore command stream ended early")
+    return { stdout, stderr, exitCode }
   }
 
   const checked = async (step: string, command: string) => {
@@ -616,6 +611,48 @@ function agentCoreHandle(
   return { handle, run }
 }
 
+/** Where an AgentCore session of the `agentcore` image target keeps its parts. */
+const AGENTCORE_LAYOUT: SessionLayout = {
+  state: "/tmp/ctxpipe",
+  workdir: "/workspace",
+  shim: "/tmp/ctxpipe-shim/blobs.sock",
+}
+
+/**
+ * Run a shell script in a session as the image user (root in the
+ * `agentcore` image target). `onOutput` gets the output as it arrives; the
+ * result is the exit code. With `sessionEnv`, the script first reads the
+ * session env (the run's proxy session), as a Docker container's root
+ * commands see the container env: an ingest sandbox's root commands need it.
+ */
+export async function agentCoreImageUserCommand(
+  runtime: AgentCoreRuntime,
+  sessionId: string,
+  script: string,
+  onOutput: (stream: "stdout" | "stderr", text: string) => void,
+  options: { layout?: SessionLayout; sessionEnv?: boolean } = {},
+): Promise<number> {
+  const layout = options.layout ?? AGENTCORE_LAYOUT
+  const envFile = shellQuote(`${layout.state}/env.sh`)
+  const id = await stage(
+    runtime,
+    sessionId,
+    stagedScript(
+      `${options.sessionEnv ? `[ -r ${envFile} ] && . ${envFile}\n` : ""}${script}\ncode=$?\n${drainCommand(1, 2)}\nexit $code`,
+    ),
+  )
+  for await (const event of commandEvents(
+    runtime,
+    sessionId,
+    `sh -c ${shellQuote(runStaged(layout, id))}`,
+  )) {
+    if ("exitCode" in event) return event.exitCode
+    if (event.stdout) onOutput("stdout", event.stdout)
+    if (event.stderr) onOutput("stderr", event.stderr)
+  }
+  throw new Error("The AgentCore command stream ended early")
+}
+
 async function stopSession(
   runtime: AgentCoreRuntime,
   sessionId: string,
@@ -653,11 +690,7 @@ export function agentCoreSandboxProvider(input: {
   user?: string
 }): SandboxProvider {
   const { runtime } = input
-  const paths = input.paths ?? {
-    state: "/tmp/ctxpipe",
-    workdir: "/workspace",
-    shim: "/tmp/ctxpipe-shim/blobs.sock",
-  }
+  const paths = input.paths ?? AGENTCORE_LAYOUT
   return {
     name: "agentcore",
     capabilities: () => AGENTCORE_CAPS,

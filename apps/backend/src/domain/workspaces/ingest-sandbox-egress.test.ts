@@ -1,4 +1,9 @@
+import { execFile } from "node:child_process"
 import { randomBytes, randomUUID } from "node:crypto"
+import { chmodSync, mkdtempSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { promisify } from "node:util"
 
 import type { NetworkPolicy } from "@vercel/sandbox"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -6,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { INGEST_SHARD_LIMIT_MS } from "./chat-lifecycle.js"
 import { openIngestEgressScope } from "./ingest-egress-proxy.js"
 import {
+  assertNoMetadataEndpoint,
   hostedIngestEgressEnabled,
   INGEST_POLICY_MAX_FORWARD_URL_LENGTH,
   ingestCredentialRules,
@@ -319,5 +325,40 @@ describe("ingestCredentialRules", () => {
       "git.internal:3000",
       "git.internal:3000",
     ])
+  })
+})
+
+describe("assertNoMetadataEndpoint", () => {
+  /** A sandbox shell whose `curl` answers each URL with `code`. */
+  const sandboxWithCurl = (code: string) => {
+    const bin = mkdtempSync(join(tmpdir(), "metadata-curl-"))
+    writeFileSync(join(bin, "curl"), `#!/bin/sh\nprintf '${code}'\n`)
+    chmodSync(join(bin, "curl"), 0o755)
+    return {
+      process: {
+        exec: async (command: string) => {
+          const { stdout, stderr } = await promisify(execFile)(
+            "sh",
+            ["-c", command],
+            {
+              env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+            },
+          )
+          return { stdout, stderr, exitCode: 0 }
+        },
+      },
+    }
+  }
+
+  it("fails closed when a metadata endpoint answers", async () => {
+    await expect(
+      assertNoMetadataEndpoint(sandboxWithCurl("200")),
+    ).rejects.toThrow("open http://169.254.169.254/")
+  })
+
+  it("passes when no metadata endpoint answers", async () => {
+    await expect(
+      assertNoMetadataEndpoint(sandboxWithCurl("000")),
+    ).resolves.toBeUndefined()
   })
 })
