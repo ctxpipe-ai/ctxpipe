@@ -103,7 +103,7 @@ const cases: Case[] = [
 ]
 // A new case has only an after image: two clean renders, and two with a
 // synthetic regression (the wide gray bar).
-const fresh = (id: string, broken: boolean): Case => ({
+const newCase = (id: string, broken: boolean): Case => ({
   ...common(id),
   kind: "new",
   label: broken ? "regression" : "intended",
@@ -115,10 +115,10 @@ const fresh = (id: string, broken: boolean): Case => ({
   images: { after: `cases/${id}/after.png` },
 })
 cases.push(
-  fresh("new-clean-1", false),
-  fresh("new-clean-2", false),
-  fresh("new-broken-1", true),
-  fresh("new-broken-2", true),
+  newCase("new-clean-1", false),
+  newCase("new-clean-2", false),
+  newCase("new-broken-1", true),
+  newCase("new-broken-2", true),
 )
 const labelOf = (id: string) => cases.find((entry) => entry.id === id)?.label
 
@@ -199,7 +199,7 @@ const chat = http.post(`${gateway}/chat/completions`, async ({ request }) => {
     ? "regression"
     : labelOf(id)
   const regression = verdict === "regression"
-  // A new screenshot: the schema of a judgement on one image.
+  // A new screenshot: the schema of a judgment on one image.
   if (story?.text?.includes("New screenshots"))
     return HttpResponse.json({
       choices: [
@@ -521,7 +521,7 @@ test("a dry run judges every case with every arm and selects the cheapest arm th
   // judge of a new screenshot. Recall on the broken ones, false alarms on
   // the clean ones, unsure, errors, cost per story, and the verdicts.
   expect(text).toContain("## New screenshots (4 cases)")
-  const fresh = rows(text, "## New screenshots")
+  const newRows = rows(text, "## New screenshots")
   const right = ["1.00", "0.00", "0.00", "0"]
   for (const arm of [
     "llm:anthropic/claude-test",
@@ -531,15 +531,15 @@ test("a dry run judges every case with every arm and selects the cheapest arm th
     "cascade:anthropic/claude-test",
     "cascade:baseten/elephant-1+anthropic/claude-test",
   ])
-    expect(fresh.get(arm)).toEqual([...right, "$0.0100", "12"])
-  expect(fresh.get("jev")).toEqual([...right, "$0.0010", "12"])
-  expect(fresh.get("decision:baseten/elephant-1")).toEqual([
+    expect(newRows.get(arm)).toEqual([...right, "$0.0100", "12"])
+  expect(newRows.get("jev")).toEqual([...right, "$0.0010", "12"])
+  expect(newRows.get("decision:baseten/elephant-1")).toEqual([
     ...right,
     "$0.0005",
     "12",
   ])
   // The other decision model is never sure.
-  expect(fresh.get("decision:typesafe/other-test")).toEqual([
+  expect(newRows.get("decision:typesafe/other-test")).toEqual([
     "0.00",
     "0.00",
     "1.00",
@@ -548,7 +548,7 @@ test("a dry run judges every case with every arm and selects the cheapest arm th
     "12",
   ])
   // The local judge needs a before image: not applicable, not an error.
-  expect(fresh.get("blazediff-local")).toEqual([
+  expect(newRows.get("blazediff-local")).toEqual([
     "not applicable",
     "",
     "",

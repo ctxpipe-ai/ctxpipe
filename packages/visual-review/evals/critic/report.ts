@@ -290,11 +290,11 @@ function newTable(
       continue
     }
     const own = rows.filter((result) => result.arm === arm)
-    const flagged = (labelled: "regression" | "clean") =>
+    // The share of regression verdicts on the broken or on the clean ones.
+    const flagged = (broken: boolean) =>
       share(
         own.filter(
-          ({ case: id }) =>
-            (label.get(id) === "regression") === (labelled === "regression"),
+          ({ case: id }) => (label.get(id) === "regression") === broken,
         ),
         ({ verdict }) => verdict.verdict === "regression",
       )
@@ -306,8 +306,8 @@ function newTable(
     lines.push(
       `| ${[
         `\`${arm}\``,
-        ratio(flagged("regression")),
-        ratio(flagged("clean")),
+        ratio(flagged(true)),
+        ratio(flagged(false)),
         ratio(share(own, ({ verdict }) => verdict.verdict === "unsure")),
         own.filter(({ verdict }) => verdict.error !== undefined).length,
         cost === undefined ? "unknown" : `$${cost.toFixed(4)}`,
@@ -356,7 +356,7 @@ export function report({
     results.filter(({ case: id }) => !isNew.has(id)),
     arms.length,
   )
-  const fresh = complete(
+  const newRows = complete(
     results.filter(({ case: id }) => isNew.has(id)),
     newArms.length,
   )
@@ -371,7 +371,7 @@ export function report({
   const lines = [
     "# Visual critic bake-off",
     "",
-    `Cases: ${manifest.cases.length} (${[...holdOut].filter((id) => !isNew.has(id)).length} in the hold-out set, ${isNew.size} new screenshots). Runs: ${runs}. Arms: ${arms.length}.`,
+    `Cases: ${manifest.cases.length} (${holdOut.size} in the hold-out set, ${isNew.size} new screenshots). Runs: ${runs}. Arms: ${arms.length}.`,
     `Spend: $${spend.spent.toFixed(2)} of the $${spend.maxCost} cap.${
       stopped
         ? ` The ${stopped === "cost" ? "spend cap" : "time limit"} stopped the run: the tables count only the cases and runs that every arm judged.`
@@ -392,11 +392,11 @@ export function report({
     "",
     table(restMetrics, tasteLabels),
     "",
-    `## New screenshots (${count(fresh)} cases)`,
+    `## New screenshots (${count(newRows)} cases)`,
     "",
     "A new screenshot has no before image: the judge rates it on its own against the rubric. A broken one has a synthetic regression. A false alarm is a regression verdict on a clean one. The hold-out set and the selection rule do not use these cases.",
     "",
-    newTable(arms, newArms, fresh, manifest),
+    newTable(arms, newArms, newRows, manifest),
     "",
     "## Agreement on each quality (hold-out set)",
     "",

@@ -69,6 +69,7 @@ and MODEL_PROVIDER_URL. Exit code: 2 for a usage or input error; else 0.`
 
 /** One case of a change, ready for the judges. */
 type Prepared = {
+  kind: "change"
   entry: Case
   story: StoryInput
   comparison: Comparison
@@ -81,9 +82,9 @@ type Prepared = {
 
 /** One `new` case, ready for the judges of a new screenshot. */
 type PreparedNew = {
+  kind: "new"
   entry: Case
-  fresh: NewStoryInput
-  region: Box | null
+  newStory: NewStoryInput
 }
 
 type Judge = (story: StoryInput, prepared: Prepared) => Promise<Verdict>
@@ -107,15 +108,17 @@ type Arm = {
 }
 
 /**
- * The cases of the hold-out set: 30% of each kind, the first ones in the
- * order of a hash of the seed and the case id. The same seed and the same
- * cases give the same set.
+ * The cases of the hold-out set: 30% of each kind of change, the first ones
+ * in the order of a hash of the seed and the case id. The same seed and the
+ * same cases give the same set. A `new` case is not a change: the selection
+ * rule does not use it, so it is not in the set.
  */
 export function holdOut(manifest: CaseManifest, seed: number): Set<string> {
   const rank = (id: string) =>
     createHash("sha256").update(`${seed}:${id}`).digest("hex")
   const held = new Set<string>()
   for (const kind of new Set(manifest.cases.map(({ kind }) => kind))) {
+    if (kind === "new") continue
     const ofKind = manifest.cases
       .filter((entry) => entry.kind === kind)
       .map(({ id }) => ({ id, rank: rank(id) }))
@@ -363,34 +366,34 @@ async function prepare(
   const prepared: (Prepared | PreparedNew)[] = []
   // The images can come from an archive. A symbolic link in it must not
   // send a file outside the folder to a model provider.
-  const read = async (path: string) => {
-    await realInside(images, path)
-    return readFile(path)
+  const read = async (entry: Case, paths: string[]) => {
+    try {
+      return await Promise.all(
+        paths.map(async (path) => {
+          const file = insideRoot(images, path)
+          await realInside(images, file)
+          return readFile(file)
+        }),
+      )
+    } catch (error) {
+      throw new Error(
+        `Case ${entry.id} has no usable image in ${images}: ${(error as Error).message}`,
+      )
+    }
   }
   for (const entry of manifest.cases) {
     if (entry.kind === "new") {
-      const bytes = await read(insideRoot(images, entry.images.after)).catch(
-        (error: Error) => {
-          throw new Error(
-            `Case ${entry.id} has no usable image in ${images}: ${error.message}`,
-          )
-        },
-      )
-      const size = pngSize(bytes)
+      const [bytes] = await read(entry, [entry.images.after])
+      const size = bytes && pngSize(bytes)
       if (!size)
         throw new Error(`The image of the new case ${entry.id} is not a PNG.`)
       const path = join(work, entry.id, "after.png")
       await mkdir(join(work, entry.id), { recursive: true })
       await writeFile(path, bytes)
       prepared.push({
+        kind: "new",
         entry,
-        region: entry.region && {
-          x: entry.region.x / size.width,
-          y: entry.region.y / size.height,
-          width: entry.region.width / size.width,
-          height: entry.region.height / size.height,
-        },
-        fresh: {
+        newStory: {
           storyId: entry.id,
           // As for a change: each case is judged as a part of the UI.
           scope: "component",
@@ -402,14 +405,8 @@ async function prepare(
     }
     const before = insideRoot(images, entry.images.before)
     const after = insideRoot(images, entry.images.after)
-    const [beforeBytes, afterBytes] = await Promise.all([
-      read(before),
-      read(after),
-    ]).catch((error: Error) => {
-      throw new Error(
-        `Case ${entry.id} has no usable image in ${images}: ${error.message}`,
-      )
-    })
+    const [beforeBytes = Buffer.alloc(0), afterBytes = Buffer.alloc(0)] =
+      await read(entry, [entry.images.before, entry.images.after])
     const comparison = await diff(beforeBytes, afterBytes)
     const { images: written, omittedRegions } = await writeStoryImages(
       { root: work, dir: entry.id },
@@ -423,6 +420,7 @@ async function prepare(
         ? { regions: [], signature: null }
         : comparison
     prepared.push({
+      kind: "change",
       entry,
       comparison,
       before,
@@ -637,18 +635,17 @@ export async function bakeOff(
       arm: Arm,
       cases: readonly (Prepared | PreparedNew)[],
     ) => {
-      // An arm with no judge of a new screenshot gets no new case.
       const queue = Array.from({ length: runs }, (_, run) =>
-        cases
-          .filter((prepared) => !("fresh" in prepared) || arm.judgeNew)
-          .map((prepared) => ({ run: run + 1, prepared })),
+        cases.map((prepared) => ({ run: run + 1, prepared })),
       ).flat()
       const worker = async () => {
         for (let task = queue.shift(); task; task = queue.shift()) {
           const { run, prepared } = task
+          const pending = verdictOf(arm, prepared)
+          if (!pending) continue
           let verdict: Verdict
           try {
-            verdict = await verdictOf(arm, prepared)
+            verdict = await pending
           } catch (error) {
             if (error instanceof Stopped) return
             // The cost of a failed call is not known.
@@ -664,16 +661,14 @@ export async function bakeOff(
       }
       await Promise.all(Array.from({ length: arm.concurrency }, worker))
     }
-    const verdictOf = async (
-      arm: Arm,
-      prepared: Prepared | PreparedNew,
-    ): Promise<Verdict> => {
-      if ("fresh" in prepared) {
-        const judgeNew = arm.judgeNew
-        if (!judgeNew)
-          throw new Error(`Arm ${arm.id} judges no new screenshot.`)
-        return judge(arm, () => judgeNew(prepared.fresh))
-      }
+    // The verdict of `arm` on one case, or undefined when the arm cannot
+    // judge a new screenshot: the report says "not applicable".
+    const verdictOf = (arm: Arm, prepared: Prepared | PreparedNew) => {
+      if (prepared.kind === "change") return verdictOnChange(arm, prepared)
+      const { judgeNew } = arm
+      return judgeNew && judge(arm, () => judgeNew(prepared.newStory))
+    }
+    const verdictOnChange = async (arm: Arm, prepared: Prepared) => {
       const story = arm.input(prepared.story)
       // The free noise step of the critic applies before the judge.
       if (prepared.comparison.status === "unchanged") return unchanged(story)
@@ -701,7 +696,13 @@ export async function bakeOff(
       newArms: arms.filter(({ judgeNew }) => judgeNew).map(({ id }) => id),
       runs,
       results,
-      regions: new Map(prepared.map(({ entry, region }) => [entry.id, region])),
+      regions: new Map(
+        prepared.flatMap((prepared) =>
+          prepared.kind === "change"
+            ? [[prepared.entry.id, prepared.region] as const]
+            : [],
+        ),
+      ),
       stopped,
       spend: { spent, maxCost, unknownCost },
     })

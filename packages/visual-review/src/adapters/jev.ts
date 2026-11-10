@@ -10,7 +10,7 @@ import { z } from "zod"
 import { pngSize, prepareImage, type Prepared } from "../prepare.ts"
 import { buildNewPrompt, buildPrompt } from "../prompt.ts"
 import { areas, qualities } from "../rubric.ts"
-import type { NewStoryInput, StoryImage, StoryInput } from "../story.ts"
+import type { Box, NewStoryInput, StoryImage, StoryInput } from "../story.ts"
 import { parseNewVerdict, parseVerdict, type Verdict } from "../verdict.ts"
 
 type Question =
@@ -86,9 +86,6 @@ export async function judgeWithJev(
   story: StoryInput,
   requestedModel = "typesafe/jev-1.14",
 ): Promise<Verdict> {
-  if (!process.env.MODEL_PROVIDER_API_KEY)
-    throw new Error("Set MODEL_PROVIDER_API_KEY (the OpenRouter key).")
-
   const unsure = (error: string, latencyMs = 0) =>
     noAnswer(story.storyId, requestedModel, error, latencyMs)
   const prepared: (StoryImage & {
@@ -188,7 +185,6 @@ export async function judgeWithJev(
     ...areaResults.map(({ worse }) => worse),
     ...qualityResults.map(({ worse }) => worse),
   )
-  const flagged = strongest >= 0.5
 
   // The box is on the after image or the locator (an overview of it). A
   // finding needs the box, since Jev gives the region only through it.
@@ -201,62 +197,29 @@ export async function judgeWithJev(
       )
 
   // Each worse area is a finding. A worse quality is a regression with no
-  // finding, since a finding names an area. Else a flagged defect that Jev
-  // cannot place in an area, or in a region, stays `unsure`.
+  // finding, since a finding names an area.
   const isWorse = ({ delta, worse }: { delta: string; worse: number }) =>
     delta === "worse" && worse >= 0.5
-  const worseAreas = region ? areaResults.filter(isWorse) : []
-  const worseQualities = qualityResults.filter(isWorse)
-  const outcome =
-    worseAreas.length || worseQualities.length
-      ? "regression"
-      : flagged || unanswered || strongest >= 0.2
-        ? "unsure"
-        : "intended"
-  const worseLabels = [
-    ...worseAreas.map(({ area, worse }) => `${area.id} ${worse.toFixed(2)}`),
-    ...worseQualities.map(({ id, worse }) => `${id} ${worse.toFixed(2)}`),
-  ]
-  const summary = {
-    regression: `Jev filter: defect ${defectProbability.toFixed(2)}; worse: ${worseLabels.join(", ")}.`,
-    intended: `Jev filter found nothing worse: defect ${defectProbability.toFixed(2)}.`,
-    unsure: flagged
-      ? "Jev filter flagged a problem, but it cannot place it in an area and a region."
-      : unanswered
-        ? `Jev filter left ${unanswered} questions without an answer.`
-        : `Jev filter is not sure: the strongest worse probability is ${strongest.toFixed(2)}.`,
-  }[outcome]
-
-  // `parseVerdict` checks the judgement and applies the rules of the prompt.
+  // `parseVerdict` checks the judgment and applies the rules of the prompt.
   return parseVerdict(
     JSON.stringify({
-      observations: [],
-      verdict: outcome,
-      severity:
-        outcome === "regression"
-          ? strongest >= 0.8
-            ? "major"
-            : "minor"
-          : "none",
-      confidence:
-        outcome === "regression"
-          ? strongest
-          : outcome === "unsure"
-            ? 0
-            : 1 - strongest,
-      summary,
+      ...decision({
+        word: "worse",
+        flaggedAreas: areaResults
+          .filter(isWorse)
+          .map(({ area, worse }) => ({ area, probability: worse })),
+        flaggedQualities: qualityResults
+          .filter(isWorse)
+          .map(({ id, worse }) => ({ id, probability: worse })),
+        region,
+        defect: defectProbability,
+        unanswered,
+        strongest,
+      }),
       qualities: qualityResults.map(({ id, delta, probability }) => ({
         name: id,
         delta,
         confidence: probability,
-      })),
-      findings: worseAreas.map(({ area }) => ({
-        kind: area.id,
-        region,
-        evidence: "",
-        rubricRef: `${area.sources[0].file} › ${area.sources[0].section}`,
-        explainedByBrief: false,
-        suggestion: null,
       })),
     }),
     story,
@@ -398,8 +361,6 @@ export async function judgeNewWithJev(
   story: NewStoryInput,
   requestedModel = "typesafe/jev-1.14",
 ): Promise<Verdict> {
-  if (!process.env.MODEL_PROVIDER_API_KEY)
-    throw new Error("Set MODEL_PROVIDER_API_KEY (the OpenRouter key).")
   const unsure = (error: string, latencyMs = 0) =>
     noAnswer(story.storyId, requestedModel, error, latencyMs)
   const prepared: { url: string; content: Prepared["content"] }[] = []
@@ -479,67 +440,103 @@ export async function judgeNewWithJev(
 
   const breaks = ({ probability }: { probability: number }) =>
     probability >= 0.5
-  const brokenAreas = region ? areaResults.filter(breaks) : []
-  const failedQualities = qualityResults.filter(breaks)
-  const outcome =
-    brokenAreas.length || failedQualities.length
-      ? "regression"
-      : unanswered || strongest >= 0.2
-        ? "unsure"
-        : "intended"
-  const labels = [
-    ...brokenAreas.map(
-      ({ area, probability }) => `${area.id} ${probability.toFixed(2)}`,
-    ),
-    ...failedQualities.map(
-      ({ id, probability }) => `${id} ${probability.toFixed(2)}`,
-    ),
-  ]
-  const defectText = (defectProbability ?? 0).toFixed(2)
-  const summary = {
-    regression: `Jev filter: defect ${defectText}; breaks: ${labels.join(", ")}.`,
-    intended: `Jev filter found no broken rule: defect ${defectText}.`,
-    unsure:
-      strongest >= 0.5
-        ? "Jev filter flagged a problem, but it cannot place it in an area and a region."
-        : unanswered
-          ? `Jev filter left ${unanswered} questions without an answer.`
-          : `Jev filter is not sure: the strongest probability is ${strongest.toFixed(2)}.`,
-  }[outcome]
-
   return parseNewVerdict(
     JSON.stringify({
-      observations: [],
-      verdict: outcome,
-      severity:
-        outcome === "regression"
-          ? strongest >= 0.8
-            ? "major"
-            : "minor"
-          : "none",
-      confidence:
-        outcome === "regression"
-          ? strongest
-          : outcome === "unsure"
-            ? 0
-            : 1 - strongest,
-      summary,
+      ...decision({
+        word: "broken",
+        flaggedAreas: areaResults.filter(breaks),
+        flaggedQualities: qualityResults.filter(breaks),
+        region,
+        defect: defectProbability ?? 0,
+        unanswered,
+        strongest,
+      }),
       qualities: qualityResults.map(({ id, probability }) => ({
         name: id,
         rating:
           probability >= 0.5 ? "fails" : probability >= 0.2 ? "weak" : "meets",
         confidence: probability >= 0.5 ? probability : 1 - probability,
       })),
-      findings: brokenAreas.map(({ area }) => ({
-        kind: area.id,
-        region,
-        evidence: "",
-        rubricRef: `${area.sources[0].file} › ${area.sources[0].section}`,
-        explainedByBrief: false,
-        suggestion: null,
-      })),
     }),
     story,
     { model, costUsd, latencyMs },
   )
+}
+
+/**
+ * The parts of a Jev verdict that both judges share. `flaggedAreas` and
+ * `flaggedQualities` hold the areas and qualities that are worse (a change)
+ * or broken (a new screenshot) with a probability of 0.5 or more. Each such
+ * area is a finding in `region`; with no region, it is not placed, and the
+ * verdict stays `unsure`. A flagged quality is a regression with no finding,
+ * since a finding names an area. Else a probability from 0.2 up, or a
+ * question with no answer, is `unsure`, and the rest is `intended`.
+ */
+function decision({
+  word,
+  flaggedAreas,
+  flaggedQualities,
+  region,
+  defect,
+  unanswered,
+  strongest,
+}: {
+  word: "worse" | "broken"
+  flaggedAreas: readonly { area: (typeof areas)[number]; probability: number }[]
+  flaggedQualities: readonly { id: string; probability: number }[]
+  region: Box | undefined
+  defect: number
+  unanswered: number
+  strongest: number
+}) {
+  const placed = region ? flaggedAreas : []
+  const verdict =
+    placed.length || flaggedQualities.length
+      ? "regression"
+      : unanswered || strongest >= 0.2
+        ? "unsure"
+        : "intended"
+  const labels = [
+    ...placed.map(
+      ({ area, probability }) => `${area.id} ${probability.toFixed(2)}`,
+    ),
+    ...flaggedQualities.map(
+      ({ id, probability }) => `${id} ${probability.toFixed(2)}`,
+    ),
+  ]
+  const summary = {
+    regression: `Jev filter: defect ${defect.toFixed(2)}; ${word}: ${labels.join(", ")}.`,
+    intended: `Jev filter found nothing ${word}: defect ${defect.toFixed(2)}.`,
+    unsure:
+      strongest >= 0.5
+        ? "Jev filter flagged a problem, but it cannot place it in an area and a region."
+        : unanswered
+          ? `Jev filter left ${unanswered} questions without an answer.`
+          : `Jev filter is not sure: the strongest ${word} probability is ${strongest.toFixed(2)}.`,
+  }[verdict]
+  return {
+    observations: [],
+    verdict,
+    severity:
+      verdict === "regression"
+        ? strongest >= 0.8
+          ? "major"
+          : "minor"
+        : "none",
+    confidence:
+      verdict === "regression"
+        ? strongest
+        : verdict === "unsure"
+          ? 0
+          : 1 - strongest,
+    summary,
+    findings: placed.map(({ area }) => ({
+      kind: area.id,
+      region,
+      evidence: "",
+      rubricRef: `${area.sources[0].file} › ${area.sources[0].section}`,
+      explainedByBrief: false,
+      suggestion: null,
+    })),
+  }
 }
