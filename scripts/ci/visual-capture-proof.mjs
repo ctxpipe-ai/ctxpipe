@@ -4,7 +4,11 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { readUnstable } from "../checks/visual.mjs"
-import { captureInContainer } from "./visual-capture.mjs"
+import {
+  captureInContainer,
+  capturePlan,
+  shotKey,
+} from "./visual-capture.mjs"
 
 // Proves that the capture container is deterministic: it captures a sample of
 // stories two times in a row and compares the PNGs byte by byte.
@@ -62,28 +66,42 @@ async function prove() {
   const sha = (file) =>
     createHash("sha256").update(readFileSync(file)).digest("hex")
 
+  const plan = await capturePlan(ids)
   const runs = []
   for (const run of [1, 2]) {
     const directory = join(out, `run-${run}`)
-    const stories = await captureInContainer(ids, directory)
-    runs.push({ directory, stories })
+    const shots = await captureInContainer(plan, directory)
+    runs.push({ directory, shots })
   }
 
+  // A story is identical when each of its shots (the end state and each
+  // named snapshot) is.
   const results = ids.map((id) => {
-    const [first, second] = runs.map(({ directory, stories }) => {
-      const story = stories.find((entry) => entry.id === id)
-      return story?.status === "captured"
-        ? { status: "captured", sha256: sha(join(directory, `${id}.png`)) }
-        : { status: story?.status ?? "missing", error: story?.error }
-    })
-    const identical =
-      first.status === "captured" &&
-      second.status === "captured" &&
-      first.sha256 === second.sha256
+    const [first, second] = runs.map(({ directory, shots }) =>
+      shots
+        .filter((shot) => shot.id === id)
+        .map((shot) =>
+          shot.status === "captured"
+            ? {
+                status: "captured",
+                sha256: sha(
+                  join(directory, `${shotKey(id, shot.snapshot)}.png`),
+                ),
+              }
+            : { status: shot.status, error: shot.error },
+        ),
+    )
+    const identical = first.every(
+      (shot, i) =>
+        shot.status === "captured" &&
+        second[i]?.status === "captured" &&
+        shot.sha256 === second[i].sha256,
+    )
     return { id, identical, runs: [first, second] }
   })
 
-  const { skipped, failing } = judgeProof(results, readUnstable())
+  const unstable = readUnstable()
+  const { skipped, failing } = judgeProof(results, unstable)
 
   mkdirSync(out, { recursive: true })
   writeFileSync(
@@ -99,7 +117,7 @@ async function prove() {
     )
   for (const result of failing)
     process.stdout.write(
-      `differs: ${result.id} (${result.runs.map((run) => run.status).join(", ")})\n`,
+      `differs: ${result.id} (${result.runs.map((run) => run.map((shot) => shot.status).join("/")).join(", ")})\n`,
     )
   process.exitCode = failing.length ? 1 : 0
 }

@@ -236,22 +236,24 @@ const settle = async () => {
 }
 
 // Plays each story (an index.json entry) and calls `onStory(story, outcome)`
-// after it. `outcome.error` is set when the story failed. With `trace`,
-// `outcome.coverage` holds the V8 JS coverage of the page (Playwright
-// `page.coverage`), and `outcome.mocks` the headers of the MSW handlers that
-// answered a request (null when the page does not expose them). A trace step
-// that fails leaves its value undefined and never changes the outcome.
-// `afterPlay(page, story, error)` runs once the story has ended and the page
-// is settled, before the page closes (a screenshot of the end state, scripts/ci/visual-capture.mjs).
-// `viewport` replaces the 1440x900 viewport of playContext (the mobile
-// screenshot of a page story).
+// after it. `outcome.error` is set when the story failed. The options:
+// - `trace`: `outcome.coverage` holds the V8 JS coverage of the page
+//   (Playwright `page.coverage`), and `outcome.mocks` the headers of the MSW
+//   handlers that answered a request (null when the page does not expose
+//   them). A trace step that fails leaves its value undefined and never
+//   changes the outcome.
+// - `beforePlay(page, story)` runs before the page opens the story (the
+//   binding of the named snapshots, scripts/ci/visual-capture.mjs).
+// - `afterPlay(page, story, error)` runs once the story has ended and the
+//   page is settled, before the page closes (a screenshot of the end state,
+//   scripts/ci/visual-capture.mjs).
+// - `viewport` replaces the 1440x900 viewport of playContext (the mobile
+//   screenshot).
 export async function playStories(
   storybookUrl,
   stories,
   onStory,
-  trace,
-  afterPlay,
-  viewport,
+  { trace = false, beforePlay, afterPlay, viewport } = {},
 ) {
   const { chromium } = createRequire(join(ui, "package.json"))("playwright")
   // The browser starts with a time zone and a language that no pin uses, so
@@ -307,6 +309,7 @@ export async function playStories(
         // scroll of use-stick-to-bottom).
         time: Date.parse("2026-11-02T12:00:00Z"),
       })
+      await beforePlay?.(page, story)
       if ((story.tags ?? []).includes("reduced-motion"))
         await page.emulateMedia({ reducedMotion: "reduce" })
       let covering = false
