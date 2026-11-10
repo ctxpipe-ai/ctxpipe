@@ -1,4 +1,7 @@
-import { deploymentEnvironment } from "../config/deployment-environment.js"
+import {
+  deploymentEnvironment,
+  isPreviewDeployment,
+} from "../config/deployment-environment.js"
 
 /**
  * Preserve the historical production namespace while ensuring a preview,
@@ -9,10 +12,7 @@ import { deploymentEnvironment } from "../config/deployment-environment.js"
 export function openWorkflowNamespaceId(
   env: Record<string, string | undefined> = process.env,
 ): string {
-  const deployment = deploymentEnvironment(env)
-  if (deployment && /^pr-\d+$/.test(deployment)) {
-    return `preview-${deployment}`
-  }
+  if (isPreviewDeployment(env)) return `preview-${deploymentEnvironment(env)}`
 
   const configured = env.OPENWORKFLOW_NAMESPACE_ID?.trim()
   if (configured) return configured

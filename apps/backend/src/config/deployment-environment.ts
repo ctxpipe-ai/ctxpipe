@@ -1,6 +1,6 @@
 /**
- * The name of this deployment: `production`, `pr-N` for a preview, or
- * `local-<name>`. The platform sets `DEPLOYMENT_ENVIRONMENT`. Railway sets
+ * The name of a hosted deployment: `production`, or `pr-N` for a preview.
+ * The platform sets `DEPLOYMENT_ENVIRONMENT`. Railway sets
  * `RAILWAY_ENVIRONMENT_NAME`, which stays a fallback until the Railway
  * previews are gone. Undefined when neither is set (self-host, local dev).
  */

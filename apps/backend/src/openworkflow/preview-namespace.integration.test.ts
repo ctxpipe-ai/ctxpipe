@@ -59,9 +59,10 @@ it("a preview worker on a copy of production does not run the copied production 
   try {
     // The preview worker runs a run of its own, so it does claim work.
     const own = await ow.runWorkflow(workflow.spec, { origin: "preview" })
+    // A worker claims the oldest pending run of its namespace first. The
+    // copied run is older, so a worker that shared its namespace would run
+    // it before its own run. No extra wait is necessary.
     await expect(own.result({ timeoutMs: 30_000 })).resolves.toBe("preview")
-    // One more poll interval, for a late claim of the copied run.
-    await new Promise((settle) => setTimeout(settle, 1_500))
 
     expect(ran).toEqual(["preview"])
     const row = await production.getWorkflowRun({
@@ -72,6 +73,7 @@ it("a preview worker on a copy of production does not run the copied production 
   } finally {
     await worker.stop()
     await cancelOpenWorkflowRuns(databaseUrl, `preview-${pr}`)
+    await production.cancelWorkflowRun({ workflowRunId: copied.workflowRun.id })
     await preview.stop()
     await production.stop()
   }

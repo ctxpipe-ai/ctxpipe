@@ -70,8 +70,7 @@ export function otelDeploymentEnvironment(
   nodeEnv = process.env.NODE_ENV,
   resourceAttributes = process.env.OTEL_RESOURCE_ATTRIBUTES,
 ): string {
-  const deployment = deploymentName?.trim()
-  if (deployment) return deployment
+  if (deploymentName) return deploymentName
   const fromAttributes = deploymentEnvironmentAttribute(resourceAttributes)
   if (fromAttributes) return fromAttributes
   return nodeEnv === "production" ? "production" : "development"

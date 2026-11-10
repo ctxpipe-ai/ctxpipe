@@ -25,6 +25,7 @@ describe("codesearch resource", () => {
   it("defaults service.name and deployment.environment when unset", () => {
     vi.stubEnv("OTEL_SERVICE_NAME", undefined)
     vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "")
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "")
     vi.stubEnv("NODE_ENV", "production")
     vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "")
     const attributes = codesearchResource().attributes
@@ -58,6 +59,7 @@ describe("codesearch resource", () => {
 
   it("reads deployment.environment from OTEL_RESOURCE_ATTRIBUTES when the deployment name is unset", () => {
     vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "")
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "")
     vi.stubEnv("NODE_ENV", "production")
     vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=staging")
     expect(codesearchDeploymentEnvironment()).toBe("staging")
@@ -68,6 +70,7 @@ describe("codesearch resource", () => {
 
   it("uses the last percent-decoded deployment.environment entry", () => {
     vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "")
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "")
     vi.stubEnv("NODE_ENV", "production")
     vi.stubEnv(
       "OTEL_RESOURCE_ATTRIBUTES",
@@ -81,6 +84,7 @@ describe("codesearch resource", () => {
 
   it("uses development when the deployment name, resource attributes, and production are unset", () => {
     vi.stubEnv("DEPLOYMENT_ENVIRONMENT", "")
+    vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "")
     vi.stubEnv("NODE_ENV", "test")
     vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "")
     expect(codesearchDeploymentEnvironment()).toBe("development")
