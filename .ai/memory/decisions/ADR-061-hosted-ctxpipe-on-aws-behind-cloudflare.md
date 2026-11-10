@@ -46,16 +46,17 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
         - any Cloudflare resource. No normal job holds a Cloudflare token with edit rights. The edge stack holds all DNS records of both zones, the tunnels and Access, and only the guard job runs it;
         - GitHub environments, branch rules and admin settings.
         - the deploy dispatch path: the EventBridge connection, every API destination and rule that can use it, and their target. The target is fixed to the factory digest workflow on `main`;
-    - A separate guard job holds those rights. It runs from `guard.yml` on `main` only. The guard role trusts only that workflow file on `main`. Only the guard role can read the Cloudflare edit token and the production secret values, which are in production Secrets Manager.
+    - A separate guard job holds those rights. It runs from `guard.yml` on `main` only. The guard role trusts only that workflow file on `main`. Only the guard role can read the edge tokens (the Cloudflare edit token and the Google OAuth client secret), which are in production Secrets Manager. The guard role cannot read the production app secrets. A person copies those into Secrets Manager once, at the cutover.
     - A guard change merges on the merge gate, like other code. The guard role and the separate guard state key limit what a guard job can reach.
-    - The guard job runs the edge stack (Access, tunnels, internal DNS) and the preview-data stack (decision 21). It also writes the tunnel tokens. Each of these two stacks has its own state prefix and key, which only the guard role can use. A guard pull request runs the policy rules against an empty stack, with no credentials, and the reviewer reads the code change. The guard job runs `pulumi preview` before `up`, and the policy pack blocks a replace or a delete of a protected resource.
+    - Accepted security risk (the CTO, 2026-11-10): a change that passes the merge gate can change `guard.yml` or the gate scripts and thus use the guard role. It then reaches the Cloudflare edit token, the guard stacks and the deploy dispatch path. The CTO does not treat edge configuration as really sensitive. The nightly audit finds such a change after the merge.
+    - The guard job runs the edge stack (Access, tunnels, internal DNS) and the preview-data stack (decision 21). It also writes the tunnel tokens. Each of these two stacks has its own state prefix and key, which only the guard role can use. A guard pull request runs the policy rules on every resource of these stacks as a create, with no credentials, and the reviewer reads the code change. The guard job runs `pulumi preview` before `up`, and the policy pack blocks a replace or a delete of a protected resource.
     - The phase plans hold the exact guard details: IAM conditions, file lists and token scopes. A security review checks them in each phase pull request.
     - Defaults that close: deny-by-default Access apps on `ctxpipe.dev` and `*.ctxpipe.dev`, and every tunnel's ingress ends with a 404 catch-all.
     - Code owners and a branch rule hold only the files that can change a guardrail, for a person's review (the CTO, 2026-11-10):
         - `machines/aws-core/` and its deploy workflow `aws-core.yml`: the organization, the roles, the permission boundaries and the SCPs;
         - the `CODEOWNERS` file itself;
         - the security risk register (`risk-register.md`).
-    - Everything else merges on the merge gate: `ci.yml` and the gate scripts, the edge stack, `guard.yml`, the deploy workflows, the policy pack and the guard stacks. The nightly audit checks changes to the gate. The permission boundaries in aws-core are the control, because a deploy role cannot change a guard.
+    - Everything else merges on the merge gate: `ci.yml` and the gate scripts, the edge stack, `guard.yml`, the deploy workflows, the policy pack and the guard stacks. The nightly audit checks changes to the gate. The permission boundaries in aws-core keep every role, the guard role too, away from IAM, aws-core and the production app secrets.
     - No GitHub environment holds a long-lived secret, because any workflow on `main` can name an environment. A job gets a long-lived secret from AWS Secrets Manager, through a role that pins its workflow file.
     - The policy pack blocks a replace or a delete of a protected resource.
     - The organization stays in CDK (`machines/aws-core`).
@@ -90,7 +91,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - The preview-data VPC is peered with the preview VPC. Each clone has its own security group, which admits only the tasks of its own preview.
     - The preview workflow creates and deletes the clones itself. It uses a `preview-db` role in the production account, which can act only on resources tagged `env=preview`. The role creates a clone, its instance and its security group. It sets a new master password and deletes the clone. It cannot connect to a database.
     - Limits of the `preview-db` role:
-        - Only the preview workflow can assume it: the OIDC subject of the factory repo's `preview` environment on `main`. No preview task role can assume it, and the workload boundary denies `sts:AssumeRole` on it.
+        - Only the preview workflow can assume it: the OIDC subject of the factory repo's `preview` environment on `main`, and the workflow file `preview.yml`. No preview task role can assume it, and the workload boundary denies `sts:AssumeRole` on it.
         - It sets tags only when it creates a resource. It cannot add, change or remove a tag on an existing resource.
         - It can use the production cluster only as a clone source, and the production key only through RDS for a clone.
         - It can put clones only in the preview-data subnet group.
@@ -110,13 +111,14 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - Each clone gets new passwords for its database roles. The clone copies the production passwords, and a preview does not use them.
     - The `Production` and `Preview` environments never share a token, key or secret.
     - The preview clone is not scrubbed. It keeps the session tokens and the OAuth tokens that it copies from production (`sessions`, `accounts`). The Neon preview branches of today do the same. The design owner accepts this residual risk. Unreviewed PR code can read these tokens. It can replay a copied session token against the production app. It can also use a copied OAuth token against a customer's provider. The account boundary does not stop these two effects. It only keeps PR code away from the AWS resources of the production account, except the network path to its own clone.
-23. Cloudflare Access protects `pr-N.ctxpipe.dev`. Access lets `/mcp`, the OAuth paths and the webhook path through, because those clients cannot do an Access login. The app's own auth protects these paths.
+23. Cloudflare Access protects all of `pr-N.ctxpipe.dev`, `/mcp` and the OAuth paths too. A developer's device passes Access through its WARP identity, so MCP clients and OAuth redirects on that device work without a login page. An agent host uses an Access service token. Only the webhook path skips Access, because GitHub, Slack and Linear cannot log in. The app checks the signature of each webhook.
 24. At most 15 previews exist at a time. A preview is deleted on PR close, or 3 days after the last `preview up`. A warm pool of 1 to 2 paused clones keeps the first `preview up` short. In the spike, a clone and its instance took 8 to 8.5 minutes. An idle preview resumes in about 13 seconds on its first request.
 
 **Observability**
 
 25. HyperDX (ClickStack) is the only observability tool. Langfuse goes away. Spans keep the prompt text. Traces stay 30 days.
     - AWS metrics and the logs that only CloudWatch holds come through native paths: CloudWatch Metric Streams and log subscription filters, through Firehose, to the collector. The EC2 hosts send host metrics from the collector's `hostmetrics` receiver. We write no custom poller.
+    - Accepted security risk (the CTO, 2026-11-10): agents read the content of every production and preview log group, the exported Aurora logs too, through the audit role. They also read HyperDX spans with prompt text. This content reaches the model provider that runs the agent. The paseo-hub app deploys as admin in the factory account, so a change to it can change the audit role.
     - Agent access is a hard requirement. An agent must be able to debug production and previews without a person. It queries HyperDX through its MCP server with an Access service token. It reads AWS state through the read-only audit role. The cutover does not start before an agent on a factory host and an agent on a laptop both pass this test.
 
 ## Alternatives not taken
@@ -143,7 +145,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - a network path from the preview VPC to the preview-data VPC, with one security group for each clone;
     - the `preview-db` role, which only the preview workflow can assume, and which acts only on resources tagged `env=preview` (decision 20);
     - read access to the codesearch shard prefix and the FalkorDB backups: only the preview FalkorDB and codesearch task roles can read them.
-- Telemetry holds customer prompt content for 30 days. The data map ([CTX-1175](https://linear.app/ctxpipe/issue/CTX-1175)) must say so.
+- Telemetry holds customer prompt content for 30 days. The data map ([CTX-1175](https://linear.app/ctxpipe/issue/CTX-1175)) must say so. It must also list the model provider of the agents as a recipient of telemetry and log content.
 - Hosted infrastructure does not shape `@ctxpipe/aws-cdk`. A hosted feature goes into the construct only when self-hosters need it too.
 - A failed Pulumi update does not roll back: the stack stays partial, and we fix forward. Production changes are additive and run in a preview first.
 - After cutover: [ADR-013](ADR-013-switch-infra-from-pulumi-to-terraform.md) (for hosted infrastructure), [ADR-029](ADR-029-railway-us-east-next-to-neon.md), [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md), [ADR-039](ADR-039-production-image-deploys-one-environment.md) and [ADR-054](ADR-054-secrets-sync-from-github-to-railway.md) are superseded. [ADR-048](ADR-048-native-postgres-sandbox-ownership.md) and [ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md) are amended. `infra/`, `ops/infra`, the Railway scripts, `railway-wake.ts`, the Vercel sandbox provider and the Langfuse files are deleted.
