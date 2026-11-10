@@ -262,8 +262,6 @@ async function fetchShardsLocked(
     if (!isZoektShardBasenameForName(file.name, zoektName))
       throw new Error(`The S3 manifest names a foreign file: ${file.name}`)
   const startMs = Date.now()
-  // The disk grows only by fetches and index builds; each makes room first.
-  void evictColdShards({ coldDir })
   const stagingDir = join(zoektStagingDirFromIndexDir(coldDir), randomUUID())
   await mkdir(stagingDir, { recursive: true })
   try {
@@ -310,11 +308,18 @@ export async function pinRepos(
 
   // Each repo has its own lock; a limit keeps a search over many cold repos
   // from starting all of their fetches at once.
-  return mapLimit(repos, 4, (repo) =>
-    withRepoLock(repo.zoektName, () =>
+  return mapLimit(repos, 4, async (repo) => {
+    // A repo with no cold shard can fetch: make room before the download,
+    // outside its lock (eviction takes the locks of other names).
+    if (
+      shardStore() &&
+      (await listDirBasenamesForRepo(repo.zoektName, coldDir)).length === 0
+    )
+      await evictColdShards({ coldDir })
+    return withRepoLock(repo.zoektName, () =>
       pinRepoLocked(repo, coldDir, hotDir, idleTtlMs, "pin"),
-    ),
-  )
+    )
+  })
 }
 
 /** Drop pin state and hot entries for a repo immediately. */
@@ -365,6 +370,13 @@ export function localManifestPath(coldDir: string, zoektName: string): string {
     zoektStoreDirFromIndexDir(coldDir),
     `${encodeURIComponent(zoektName)}.json`,
   )
+}
+
+/** The Zoekt Name of a local manifest copy file name, or null. */
+function zoektNameOfLocalManifest(fileName: string): string | null {
+  return fileName.endsWith(".json")
+    ? decodeURIComponent(fileName.slice(0, -".json".length))
+    : null
 }
 
 /**
@@ -438,6 +450,12 @@ const MIN_FREE_RATIO = 0.2
 
 let eviction: Promise<number> | null = null
 
+type EvictOptions = {
+  coldDir?: string
+  /** The free share of the cold volume (tests replace it). */
+  freeRatio?: () => Promise<number>
+}
+
 /**
  * When less than 20% of the cold volume is free, deletes the cold shards of
  * the least recently pinned names until 20% is free again. It deletes only
@@ -446,12 +464,6 @@ let eviction: Promise<number> | null = null
  * name is not deleted at once); a fetch on the next pin brings them back.
  * One eviction runs at a time. It gives the number of names it evicted.
  */
-type EvictOptions = {
-  coldDir?: string
-  /** The free share of the cold volume (tests replace it). */
-  freeRatio?: () => Promise<number>
-}
-
 export function evictColdShards(options?: EvictOptions): Promise<number> {
   eviction ??= evict(options).finally(() => {
     eviction = null
@@ -471,8 +483,8 @@ async function evict(options?: EvictOptions): Promise<number> {
     if ((await freeRatio()) >= MIN_FREE_RATIO) return 0
     const storeDir = zoektStoreDirFromIndexDir(coldDir)
     const names = (await readdir(storeDir).catch(() => [] as string[]))
-      .filter((name) => name.endsWith(".json"))
-      .map((name) => decodeURIComponent(name.slice(0, -".json".length)))
+      .map(zoektNameOfLocalManifest)
+      .filter((name): name is string => name !== null)
     const byLastPin = await Promise.all(
       names.map(async (zoektName) => ({
         zoektName,
