@@ -5,6 +5,7 @@ import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import {
   githubInstallationReposHandler,
+  orgActivityHandler,
   workspaceActivityHandler,
   workspaceDetailHandler,
   workspaceListHandler,
@@ -955,6 +956,8 @@ export const DeleteLastWorkspaceEmptiesHome: Story = {
               },
             ),
             workspaceActivityHandler(),
+            // With no Workspace left, Home shows the activity of the organization.
+            orgActivityHandler(),
             githubInstallationReposHandler(),
             http.delete(
               ({ request }) =>
@@ -1004,5 +1007,18 @@ export const DeleteLastWorkspaceEmptiesHome: Story = {
     expect(
       canvas.getByRole("button", { name: "Create Workspace" }),
     ).toBeVisible()
+    // The empty activity of the organization is the last part of Home to load.
+    await waitFor(() =>
+      expect(
+        canvas.getByText("No commits on the default branch yet."),
+      ).toBeVisible(),
+    )
+    // The composer takes the focus when the list loads, and the pane scrolls
+    // to it. Where it scrolls depends on which parts of the page have loaded
+    // at that time. Scroll to the empty Home, so that the end is the same on
+    // each host.
+    canvas
+      .getByRole("button", { name: "Create Workspace" })
+      .scrollIntoView({ block: "center" })
   },
 }

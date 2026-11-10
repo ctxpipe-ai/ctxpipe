@@ -114,7 +114,8 @@ test("the committed unstable list is valid", () => {
       "utf8",
     ),
   )
-  assert.ok(readUnstableList(list).length > 0)
+  // An empty list is valid: no story is known to be unstable.
+  assert.ok(Array.isArray(readUnstableList(list)))
 })
 
 test("only a story whose two captures gave different images is quarantined, with its desktop baselines", () => {

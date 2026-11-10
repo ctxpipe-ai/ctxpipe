@@ -76,6 +76,18 @@ export function PagerdutyScopeEditor(props: SourceScopeEditorProps) {
   const loading = useSkeletonHold(servicesQuery.isPending)
   const results = servicesQuery.data?.pages.flatMap((page) => page.items) ?? []
   const inResults = (id: string) => results.some((service) => service.id === id)
+  // Keep the name of an initial id when the results show it. A later search
+  // can hide the service, and the selection must still show its name.
+  const named = selected.map((service) =>
+    service.name
+      ? service
+      : {
+          ...service,
+          name: results.find((result) => result.id === service.id)?.name,
+        },
+  )
+  if (named.some((service, i) => service.name !== selected[i]?.name))
+    setSelected(named)
   const update = (next: Array<{ id: string; name?: string }>) => {
     setSelected(next)
     onChange(pagerdutyServiceIdsToScope(next.map((service) => service.id)))
@@ -156,10 +168,7 @@ export function PagerdutyScopeEditor(props: SourceScopeEditorProps) {
           label="Selected"
           items={selected.map((service) => ({
             id: service.id,
-            name:
-              service.name ??
-              results.find((result) => result.id === service.id)?.name ??
-              service.id,
+            name: service.name ?? service.id,
           }))}
           onRemove={(keys) =>
             update(selected.filter((service) => !keys.has(service.id)))

@@ -846,6 +846,10 @@ export const TreeCollapsed: Story = {
 }
 
 export const Graph: Story = {
+  // With reduced motion the layout runs a fixed number of steps before the
+  // graph shows. With motion, a timer stops it, so the layout differed
+  // between hosts.
+  tags: ["reduced-motion"],
   args: { pane: { kind: "graph" } },
   parameters: {
     storyRoute: {
@@ -859,6 +863,17 @@ export const Graph: Story = {
         page: [workspaceGraphHandler()],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // The graph shows when its layout has stopped. Then the control to
+    // play the layout again shows.
+    await canvas.findByRole(
+      "button",
+      { name: "Play layout" },
+      // The layout runs in WebGL, which is slow on a CPU renderer.
+      { timeout: 30_000 },
+    )
   },
 }
 
