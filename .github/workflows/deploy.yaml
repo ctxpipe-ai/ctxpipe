@@ -185,9 +185,19 @@ jobs:
           merge-multiple: true
       - id: digests
         run: |
+          # Only the first attempt reads the artifacts: in a later attempt,
+          # dependency code of release or terraform from an earlier attempt
+          # could have uploaded one. A rerun of only copy_images_to_ecr keeps
+          # the outputs of the first attempt.
+          if [ "$GITHUB_RUN_ATTEMPT" != 1 ]; then
+            echo "::notice::attempt $GITHUB_RUN_ATTEMPT gives no digests; the next main build copies its images"
+            echo "digests={}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           cd "$RUNNER_TEMP/index"
           for image in *; do
-            [[ "$image" =~ ^[a-z-]+$ && "$(cat "$image")" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::$image holds no image digest" >&2; exit 1; }
+            # The images of the build matrix.
+            [[ "$image" =~ ^(backend|worker|ui|codesearch|chat-sandbox)$ && "$(cat "$image")" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::$image is no production image digest" >&2; exit 1; }
           done
           echo "digests=$(for image in *; do jq -n --arg image "$image" --arg digest "$(cat "$image")" '{($image): $digest}'; done | jq -cs add)" >> "$GITHUB_OUTPUT"
 
@@ -249,13 +259,14 @@ jobs:
           # the same digest, and fails on a tag that holds another digest.
           copy() { # <source>@<digest> <repository> <tag>
             target="$ecr/$2:$3"
+            digest="${1#*@}"
             if existing="$("$crane" digest "$target" 2> /dev/null)"; then
-              [ "$existing" = "${1#*@}" ] || { echo "::error::$target holds $existing, not ${1#*@}"; return 1; }
+              [ "$existing" = "$digest" ] || { echo "::error::$target holds $existing, not $digest"; return 1; }
               echo "$target already holds $existing"
               return 0
             fi
             "$crane" copy "$1" "$target"
-            echo "$target ${1#*@}" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "$target $digest" | tee -a "$GITHUB_STEP_SUMMARY"
           }
           for image in $(jq -r 'keys[]' <<< "$DIGESTS"); do
             copy "ghcr.io/ctxpipe-ai/$image@$(jq -r --arg image "$image" '.[$image]' <<< "$DIGESTS")" "ctxpipe/$image" "$GITHUB_SHA"
