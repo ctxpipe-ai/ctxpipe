@@ -13,7 +13,10 @@ import { dirname, join } from "node:path"
 import { and, eq } from "drizzle-orm"
 
 import type { CheckedPlainGitRemote } from "../../../../../shared/plain-git.js"
-import { ZOEKT_INDEX_DIR } from "../../config/paths.js"
+import {
+  ZOEKT_INDEX_DIR,
+  zoektStagingDirFromIndexDir,
+} from "../../config/paths.js"
 import {
   assertNotInOrgDbContext,
   type Db,
@@ -40,7 +43,11 @@ import {
   shardStore,
   type StoreAddress,
 } from "../store/shardStore.js"
-import { installStagedShards, markShardsUploaded } from "../zoekt/pinManager.js"
+import {
+  installStagedShards,
+  markShardsUploaded,
+  type ZoektRepo,
+} from "../zoekt/pinManager.js"
 import { detectLanguages, type ScipIndexerId } from "./detectLanguages.js"
 import { withIndexerGoLimits } from "./indexerChildEnv.js"
 import { withIndexerProcessSlot } from "./indexerProcessSemaphore.js"
@@ -478,7 +485,10 @@ async function indexRepository(params: {
   const repo = { zoektRepoId: params.zoektRepoId, zoektName: params.zoektName }
   // `zoekt-index` writes to a staging directory on the cold volume, so that
   // the new shards move into cold in one step and the upload knows its files.
-  const stagingDir = join(ZOEKT_INDEX_DIR, ".build", randomUUID())
+  const stagingDir = join(
+    zoektStagingDirFromIndexDir(ZOEKT_INDEX_DIR),
+    randomUUID(),
+  )
   const metaPath = `${stagingDir}.meta.json`
   await mkdir(stagingDir, { recursive: true })
   try {
@@ -516,7 +526,7 @@ async function indexRepository(params: {
  * local manifest copy, so eviction keeps them, and the next index uploads.
  */
 async function uploadShards(
-  repo: { zoektRepoId: number; zoektName: string },
+  repo: ZoektRepo,
   address: StoreAddress,
   shardPaths: readonly string[],
 ): Promise<void> {

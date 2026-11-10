@@ -31,6 +31,19 @@ export function zoektHotDirFromIndexDir(indexDir: string): string {
 export const ZOEKT_HOT_DIR = zoektHotDirFromIndexDir(ZOEKT_INDEX_DIR)
 
 /**
+ * Staging directories of Zoekt builds (and shard store fetches), in
+ * `<cold>/.build`: on the cold volume, so the move into cold is a rename.
+ */
+export function zoektStagingDirFromIndexDir(indexDir: string): string {
+  return join(indexDir, ".build")
+}
+
+/** Local manifest copies of the shard store, in `<cold>/.store`. */
+export function zoektStoreDirFromIndexDir(indexDir: string): string {
+  return join(indexDir, ".store")
+}
+
+/**
  * Zoekt webserver base URL. In Docker Compose this is the service name; in
  * production (Railway) where both processes share a single container it should
  * be overridden to http://localhost:6070 via the ZOEKT_WEBSERVER_URL env var.

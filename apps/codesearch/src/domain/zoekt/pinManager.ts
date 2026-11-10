@@ -10,10 +10,17 @@ import {
 } from "node:fs/promises"
 import { join } from "node:path"
 
-import { ZOEKT_HOT_DIR, ZOEKT_INDEX_DIR } from "../../config/paths.js"
+import {
+  ZOEKT_HOT_DIR,
+  ZOEKT_INDEX_DIR,
+  zoektStoreDirFromIndexDir,
+} from "../../config/paths.js"
 import { log } from "../../observability/logger.js"
 import type { StoreManifest } from "../store/shardStore.js"
 import { isZoektShardBasenameForName } from "./shardPrefix.js"
+
+/** A Zoekt repository: its id in the shards and its Name. */
+export type ZoektRepo = { zoektRepoId: number; zoektName: string }
 
 /** Idle time after last pin before hot symlinks for a repo are removed. */
 const PIN_IDLE_TTL_MS = 5 * 60 * 1000
@@ -300,7 +307,10 @@ export async function purgeZoektShardsForRepo(
  * manifest, so that eviction can delete them and fetch them again.
  */
 function localManifestPath(coldDir: string, zoektName: string): string {
-  return join(coldDir, ".store", `${encodeURIComponent(zoektName)}.json`)
+  return join(
+    zoektStoreDirFromIndexDir(coldDir),
+    `${encodeURIComponent(zoektName)}.json`,
+  )
 }
 
 /**
@@ -310,7 +320,7 @@ function localManifestPath(coldDir: string, zoektName: string): string {
  * new shards have no S3 copy yet. It returns the cold paths of the new shards.
  */
 export async function installStagedShards(
-  repo: { zoektRepoId: number; zoektName: string },
+  repo: ZoektRepo,
   stagingDir: string,
   options?: { coldDir?: string; hotDir?: string; idleTtlMs?: number },
 ): Promise<string[]> {
@@ -344,7 +354,7 @@ export async function installStagedShards(
  * It gives whether it wrote the copy.
  */
 export async function markShardsUploaded(
-  repo: { zoektRepoId: number; zoektName: string },
+  repo: ZoektRepo,
   manifest: StoreManifest,
   options?: { coldDir?: string },
 ): Promise<boolean> {
@@ -354,7 +364,7 @@ export async function markShardsUploaded(
     const uploaded = manifest.files.map((file) => file.name).sort()
     if (cold.join("\n") !== uploaded.join("\n")) return false
     const path = localManifestPath(coldDir, repo.zoektName)
-    await mkdir(join(coldDir, ".store"), { recursive: true })
+    await mkdir(zoektStoreDirFromIndexDir(coldDir), { recursive: true })
     await writeFile(`${path}.tmp`, JSON.stringify(manifest))
     await rename(`${path}.tmp`, path)
     return true

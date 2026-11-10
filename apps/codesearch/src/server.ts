@@ -1,5 +1,4 @@
 import { rm } from "node:fs/promises"
-import { join } from "node:path"
 
 import type { Serve } from "bun"
 
@@ -9,6 +8,7 @@ import {
   CACHE_LAYOUT_MARKER,
   REPO_CACHE_DIR,
   ZOEKT_INDEX_DIR,
+  zoektStagingDirFromIndexDir,
 } from "./config/paths.js"
 import { resetCacheForLayout } from "./domain/repositories/layoutReset.js"
 import { shardStore } from "./domain/store/shardStore.js"
@@ -24,7 +24,10 @@ await resetCacheForLayout({
   dirs: [REPO_CACHE_DIR, ZOEKT_INDEX_DIR],
 })
 // A stopped Zoekt phase leaves its staging directory behind.
-await rm(join(ZOEKT_INDEX_DIR, ".build"), { recursive: true, force: true })
+await rm(zoektStagingDirFromIndexDir(ZOEKT_INDEX_DIR), {
+  recursive: true,
+  force: true,
+})
 // Fails the start on a malformed CODESEARCH_SHARD_STORE.
 shardStore()
 const app = createApp(env)

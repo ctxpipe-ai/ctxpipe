@@ -17,7 +17,8 @@ import { z } from "zod"
 import { log } from "../../observability/logger.js"
 
 /**
- * The durable copy of the index artifacts in S3 (ADR-061 decision 10). The
+ * The durable copy of the index artifacts in S3 (the design note "S3 cold
+ * tier for codesearch" on CTX-1215). The
  * local disk is a cache of it. Keys:
  *
  *   <prefix>/v1/<orgId>/<repoId>/<checkoutKey>/<kind>/manifest.json
@@ -26,7 +27,7 @@ import { log } from "../../observability/logger.js"
  * The manifest PUT is the commit point of a publish. A change of the key
  * layout must change `v1`.
  */
-export type ShardStore = {
+type ShardStore = {
   client: S3Client
   bucket: string
   /** `<prefix>/v1`, or `v1` when the URL has no prefix. */
