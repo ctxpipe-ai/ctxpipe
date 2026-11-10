@@ -229,15 +229,17 @@ const SHIM_FILE = fileURLToPath(
 export async function startFakeAgentCore(qualifier?: string) {
   const root = mkdtempSync(join(tmpdir(), "agentcore-fake-"))
   // The shim is a plain ESM file of the sandbox image.
-  const { shimServer } = (await import(pathToFileURL(SHIM_FILE).href)) as {
-    shimServer: () => Server
+  const { shim: makeShim } = (await import(pathToFileURL(SHIM_FILE).href)) as {
+    shim: () => { invocations: Server; blobs: Server }
   }
-  const shim = shimServer()
-  const shimPort = await listen(shim)
+  const shim = makeShim()
+  const shimPort = await listen(shim.invocations)
+  const socket = join(root, "blobs.sock")
+  await new Promise<void>((resolve) => shim.blobs.listen(socket, resolve))
   const paths = {
     state: join(root, "state"),
     workdir: join(root, "workspace"),
-    shim: `http://127.0.0.1:${shimPort}`,
+    shim: socket,
   }
   const fake = await withFakeEndpoint(
     {
@@ -258,7 +260,8 @@ export async function startFakeAgentCore(qualifier?: string) {
     ...fake,
     paths,
     close() {
-      shim.close()
+      shim.invocations.close()
+      shim.blobs.close()
       fake.server.close()
       rmSync(root, { recursive: true, force: true })
     },
@@ -279,8 +282,8 @@ export async function startContainerAgentCore(image: string) {
     "run",
     "-d",
     "--rm",
-    // tini as PID 1 and root as the user, as in the image's `agentcore`
-    // target. The shim runs as node there; here it is root.
+    // tini as PID 1 and root as the image user, as in the image's
+    // `agentcore` target.
     "--init",
     "--user",
     "0",
@@ -289,6 +292,11 @@ export async function startContainerAgentCore(image: string) {
     "-v",
     `${SHIM_FILE}:${shimPath}:ro`,
     image,
+    // As the image's `agentcore` target: the shim runs as node.
+    "setpriv",
+    "--reuid=1000",
+    "--regid=1000",
+    "--clear-groups",
     "node",
     shimPath,
   ])

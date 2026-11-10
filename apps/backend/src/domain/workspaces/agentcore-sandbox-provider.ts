@@ -85,7 +85,7 @@ const AGENTCORE_CAPS: SandboxCapabilities = {
 
 /**
  * Where a session keeps its marker and its create environment, its
- * workspace, and the shim's address as the session reaches it.
+ * workspace, and the Unix socket where commands read the shim's blobs.
  */
 type SessionLayout = { state: string; workdir: string; shim: string }
 
@@ -173,9 +173,12 @@ async function stage(
   throw new Error("The shim did not store the data")
 }
 
-/** Shell text that reads a staged blob once, to stdout. */
+/**
+ * Shell text that reads a staged blob once, to stdout, from the shim's
+ * socket. Only root and `node` can reach the socket.
+ */
 function readStaged(layout: SessionLayout, id: string): string {
-  return `curl -sSf --noproxy '*' ${q(`${layout.shim}/blobs/${id}`)}`
+  return `curl -sSf --noproxy '*' --unix-socket ${q(layout.shim)} http://shim/blobs/${id}`
 }
 
 /**
@@ -562,7 +565,7 @@ export function agentCoreSandboxProvider(input: {
   const paths = input.paths ?? {
     state: "/tmp/ctxpipe",
     workdir: "/workspace",
-    shim: "http://127.0.0.1:8080",
+    shim: "/tmp/ctxpipe-shim/blobs.sock",
   }
   return {
     name: "agentcore",
