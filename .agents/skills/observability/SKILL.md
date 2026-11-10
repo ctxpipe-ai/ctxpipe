@@ -70,6 +70,8 @@ Logs go through evlog (`getLogger()` or `log` from `observability/logger.ts`). W
 
 Metrics: a gauge for a current level, a counter for a cumulative count.
 
+The worker (`service.name=openworkflow`) reports `openworkflow.queue.depth` (runs that wait for a worker: the autoscaling signal) and `openworkflow.runs.active` (runs that a worker holds) for its namespace. Each worker task reports the same counts, so take the maximum over tasks, not the sum.
+
 Export stays off the request and job path. evlog logs go through `createDrainPipeline` (backend and codesearch), spans through the batch processor, metrics through the periodic reader. Never await a collector call in a handler, middleware, or job; a telemetry relay gets a short upstream timeout. Flush only on shutdown or before a script exits (`flushEvlog()`).
 
 `RAILWAY_ENVIRONMENT_NAME` matching `pr-<digits>` uses flush-on-demand and `forceFlushOtel()` after the response or job. Production uses a 60s reader.

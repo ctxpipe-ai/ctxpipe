@@ -8,6 +8,7 @@ import { createLogger, flushEvlog, log } from "./src/observability/logger.js"
 import { shutdownOtel } from "./src/observability/otel.js"
 import { parseOpenWorkflowConcurrency } from "./src/openworkflow/codesearchCapacity.js"
 import { stopGuardedStepAttempts } from "./src/openworkflow/crash-loop.js"
+import { observeOpenWorkflowQueue } from "./src/openworkflow/queue-depth.js"
 import { connectOpenWorkflowBackend } from "./src/openworkflow/storable-backend.js"
 import { wakeParkedParents } from "./src/openworkflow/wake-parked-parents.js"
 import { scheduleCodesearchCheckoutGc } from "./src/openworkflow/workflows/codesearch-checkout-gc.js"
@@ -19,6 +20,8 @@ import { scheduleUpgradeScansForAllOrgs } from "./src/openworkflow/workflows/wor
 const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error("DATABASE_URL is required for the worker")
 initDb(databaseUrl)
+// Queue depth for the worker autoscaling and the dashboard.
+observeOpenWorkflowQueue()
 // Restart sandbox sweep chains that a failed schedule or crash left behind,
 // and sweep dormant orgs (on Docker each sweep also prunes the host).
 void scheduleSweepsForOrgsNeedingIt().catch((error: unknown) =>
