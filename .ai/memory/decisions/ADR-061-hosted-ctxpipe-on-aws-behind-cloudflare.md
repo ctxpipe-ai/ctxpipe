@@ -25,6 +25,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - Access to the state: only the deploy role and the read-only plan role of the account can read the bucket and use the key. Workload roles, for example preview tasks, cannot.
     - High-value secrets stay out of the Pulumi state, so that the plan role can read the state safely. AWS manages the Aurora master password. Secrets Manager generates the application secrets. The guard job writes the tunnel tokens, and Pulumi never reads them.
     - Stacks: each environment is one Pulumi stack. Each preview is one Pulumi stack too.
+    - Projects: `machines/hosted` holds production. `machines/previews` holds all preview infrastructure (decision 21). The edge stack has its own folder.
     - Deploy roles: each one is scoped to its environment and has a permission boundary. Pulumi calls the AWS APIs with that role.
     - OIDC trust: a deploy role trusts only its GitHub environment (`Production`, or `preview` for `preview-deploy`), and that environment admits only `main`. Only the plan role trusts pull requests.
     - Approvals: the normal path needs no manual approval. `pulumi preview` runs on each pull request with the read-only plan role. An agent merges a pull request when the merge gate passes. `pulumi up` then runs from `main`.
@@ -33,19 +34,19 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - **Rule: normal deploy credentials cannot change a guard.** The normal deploy role, the normal Cloudflare token and the normal GitHub token cannot change:
         - IAM boundaries, role trust to other accounts, or a role without the workload boundary (no path to more rights);
         - aws-core: the organization, identity and SCPs;
-        - cross-account access: the VPC peering, the clone-job role and the bucket policies that the preview account can use;
+        - cross-account access: the VPC peering, the `preview-db` role and the bucket policies that the preview account can use;
         - the tags and the deletion protection of protected resources, or delete such a resource;
         - Cloudflare Access policies, any tunnel and its ingress, and DNS records of `ctxpipe.dev`. A Cloudflare token cannot be scoped to single host names. Thus the normal token has no tunnel right and no DNS edit on `ctxpipe.dev`;
         - GitHub environments, branch rules and admin settings.
     - A separate guard job holds those rights. It runs in its own GitHub environment, `guard`, with required reviewers, and that environment admits only `main`. The guard role trusts only the guard workflow on `main`. Only it holds the Cloudflare edit token, the GitHub admin token and the production secret values.
-    - The guard job runs the edge stack (Access, tunnels, internal DNS) and writes the tunnel tokens. The edge stack's state has its own prefix, and only the guard role can write it.
+    - The guard job runs the edge stack (Access, tunnels, internal DNS) and the preview-data stack (decision 21). It also writes the tunnel tokens. Each of these two stacks has its own state prefix, and only the guard role can write it.
     - The phase plans hold the exact guard details: IAM conditions, file lists and token scopes. A security review checks them in each phase pull request.
     - Defaults that close: deny-by-default Access apps on `ctxpipe.dev` and `*.ctxpipe.dev`, and every tunnel's ingress ends with a 404 catch-all.
     - Code owners and a branch rule hold the guard code for a person's review:
         - the policy pack and the list of protected resources;
         - all of `.github/workflows/`;
         - the `CODEOWNERS` file itself;
-        - every file that the guard job loads. The edge stack lives in its own folder, with its own package manifest and lockfile, and imports no shared module from outside that folder.
+        - every file that the guard job loads. The edge stack and the preview-data stack each have their own folder, package manifest and lockfile. They import no shared module from outside their folder.
     - The policy pack blocks a replace or a delete of a protected resource.
     - The organization stays in CDK (`machines/aws-core`).
     - The public `@ctxpipe/aws-cdk` construct stays CDK, for simple, single-tenant self-hosting. Hosted does not use it. Hosted and self-host share only the container images and the environment contract.
@@ -77,16 +78,16 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 20. Each preview database is a copy-on-write clone of the production cluster, in the production account. Test 9 of the spike showed why: a cross-account clone cannot be cloned again, and an account can hold only one cross-account clone of a clone group.
     - The clones sit in a separate preview-data VPC of the production account. That VPC has no connection to the production VPC.
     - The preview-data VPC is peered with the preview VPC. Each clone has its own security group, which admits only the tasks of its own preview.
-    - A clone job in the production account creates and deletes the clones. The preview workflow starts it through a role that can act only on clones tagged `env=preview`.
-    - After each clone, the job sets new passwords for the database roles.
-21. Shared parts deploy once, from the edge stack (guard job) and the preview-base stack:
-    - the network
-    - one wildcard DNS record and one tunnel rule for the preview host names
-    - the Access apps
-    - a router in the preview VPC that sends each host name to its preview
-    - one preview AgentCore runtime
+    - The preview workflow creates and deletes the clones itself. It uses a `preview-db` role in the production account, which can act only on resources tagged `env=preview`. The role creates a clone, its instance and its security group. It sets a new master password and deletes the clone. It cannot connect to a database.
+    - The preview's migrate task sets new passwords for the database roles before it runs the migrations.
+21. All preview infrastructure is in `machines/previews`, in three parts:
+    - `base`, in the preview account: the network, a router in the preview VPC that sends each host name to its preview, and one preview AgentCore runtime. The preview deploy role deploys it from `main`.
+    - `data`, in the production account: the preview-data VPC, the peering and the `preview-db` role. The guard job deploys it, because it gives the preview account access.
+    - `pr`: one small stack for each preview.
 
-     The router runs its own preview tunnel with its own token. Only the router task can read that token. The preview account never holds the production tunnel token. A preview is one small Pulumi stack with its ECS services, plus one clone that the clone job makes. A preview stack holds no Cloudflare credential. Thus a compromised preview workflow cannot change the production tunnel or the Access policies. The preview workflow runs the stack through the Pulumi Automation API. `factory preview down` destroys the stack.
+     The edge stack holds the Cloudflare parts of previews: one wildcard DNS record, one tunnel rule for the preview host names, and the Access apps.
+
+     The router runs its own preview tunnel with its own token. Only the router task can read that token. The preview account never holds the production tunnel token. A preview is one small Pulumi stack with its ECS services, plus one clone that the preview workflow makes. A preview stack holds no Cloudflare credential. Thus a compromised preview workflow cannot change the production tunnel or the Access policies. The preview workflow runs the stack through the Pulumi Automation API. `factory preview down` destroys the stack.
 22. A preview keeps the isolation that `.github/workflows/pr-deploy.yaml` enforces today:
     - It does not build a PR from a fork.
     - Each preview gets its own `AUTH_SECRET` and its own connection-secret encryption key. Connection secrets that the clone copies from production do not decrypt on a preview.
@@ -123,7 +124,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 - The stateful host and the NAT instance are single instances. A loss means up to 4 hours of degraded search and graph, or a short outbound outage. Both have runbooks.
 - Unreviewed preview code runs in the preview account. Its customer data is in its clone in the production account. For AWS resources, the account boundary is the security boundary. It does not cover the copied session and OAuth tokens: decision 22 records that accepted risk. The production account gives the preview account three things, each narrow:
     - a network path from the preview VPC to the preview-data VPC, with one security group for each clone;
-    - a role that starts the clone job, for clones tagged `env=preview` only;
+    - the `preview-db` role, which acts only on resources tagged `env=preview`;
     - read access to the codesearch shard prefix and the FalkorDB backups: only the preview FalkorDB and codesearch task roles can read them.
 - Telemetry holds customer prompt content for 30 days. The data map ([CTX-1175](https://linear.app/ctxpipe/issue/CTX-1175)) must say so.
 - Hosted infrastructure does not shape `@ctxpipe/aws-cdk`. A hosted feature goes into the construct only when self-hosters need it too.
