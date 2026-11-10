@@ -106,7 +106,8 @@ beforeAll(async () => {
 }, 300_000)
 
 afterAll(async () => {
-  for (const name of containers) await docker("rm", "-f", name).catch(() => "")
+  for (const name of containers)
+    await docker("rm", "-f", "-v", name).catch(() => "")
   await rm(directory, { recursive: true, force: true })
 })
 
