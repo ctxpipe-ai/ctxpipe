@@ -44,6 +44,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
         - the tags and the deletion protection of protected resources, or delete such a resource;
         - any Cloudflare resource. No normal job holds a Cloudflare token with edit rights. The edge stack holds all DNS records of both zones, the tunnels and Access, and only the guard job runs it;
         - GitHub environments, branch rules and admin settings.
+        - the deploy dispatch path: the EventBridge connection, every API destination and rule that can use it, and their target. The target is fixed to the factory digest workflow on `main`;
     - A separate guard job holds those rights. It runs in its own GitHub environment, `guard`, with required reviewers, and that environment admits only `main`. The guard role trusts only the guard workflow on `main`. Only it holds the Cloudflare edit token, the GitHub admin token and the production secret values.
     - The guard job runs the edge stack (Access, tunnels, internal DNS) and the preview-data stack (decision 21). It also writes the tunnel tokens. Each of these two stacks has its own state prefix and key, which only the guard role can use. The guard job runs `pulumi preview` for them before `up`, so the person who approves the run sees the change.
     - The phase plans hold the exact guard details: IAM conditions, file lists and token scopes. A security review checks them in each phase pull request.
