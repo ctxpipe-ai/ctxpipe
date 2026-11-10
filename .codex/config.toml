@@ -34,14 +34,10 @@ command = "npx"
 args = ["-y", "@railway/cli@5.63.1", "mcp", "local"]
 
 [mcp_servers.hyperdx]
-url = "https://hyperdx.ctxpipe.ai/api/mcp"
+url = "https://hyperdx.ctxpipe.dev/api/mcp"
 bearer_token_env_var = "HYPERDX_ACCESS_KEY"
-
-# Langfuse needs "Authorization: Basic <LANGFUSE_AUTH_STRING>". Codex cannot put
-# the "Basic " prefix in front of an env var, so a stdio bridge sends the header.
-[mcp_servers.langfuse]
-command = "bash"
-args = ["-c", "exec npx -y mcp-remote@0.15.2 https://langfuse.ctxpipe.ai/api/public/mcp --header \"Authorization: Basic ${LANGFUSE_AUTH_STRING}\""]
+# The Cloudflare Access service token of agents (ops/observability/USING.md, "MCP").
+env_http_headers = { "CF-Access-Client-Id" = "HYPERDX_CF_ACCESS_CLIENT_ID", "CF-Access-Client-Secret" = "HYPERDX_CF_ACCESS_CLIENT_SECRET" }
 
 [mcp_servers.cloudflare]
 url = "https://mcp.cloudflare.com/mcp"
