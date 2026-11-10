@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises"
 import { extname } from "node:path"
 
 import { prepareImage } from "../prepare.ts"
-import { buildPrompt } from "../prompt.ts"
+import { buildPrompt, type Steps } from "../prompt.ts"
 import type { StoryInput } from "../story.ts"
 import { judgementJsonSchema, parseVerdict, type Verdict } from "../verdict.ts"
 
@@ -101,7 +101,8 @@ const imagePart = async (path: string) => {
  * the cached prefix, the story text, then the images as data URLs, asks for the
  * critic JSON Schema, and denies data collection by the provider. A PNG with
  * a side under 280 or over 1568 px is padded or scaled first (see
- * `prepareImage`).
+ * `prepareImage`). `steps` selects the compare rule of the prompt (see
+ * `Steps`).
  *
  * The verdict carries the measured latency and the cost from `usage.cost`
  * (`null` when the response has none). A reply that is not usable gives the
@@ -112,6 +113,7 @@ export async function judgeWithOpenRouter(
   story: StoryInput,
   model: string,
   env: Record<string, string | undefined>,
+  steps: Steps = "describe-first",
 ): Promise<Verdict> {
   const apiKey = env.MODEL_PROVIDER_API_KEY
   if (!apiKey)
@@ -121,7 +123,7 @@ export async function judgeWithOpenRouter(
   const baseUrl = (
     env.MODEL_PROVIDER_URL || "https://openrouter.ai/api/v1"
   ).replace(/\/+$/, "")
-  const prompt = buildPrompt(story)
+  const prompt = buildPrompt(story, steps)
   const images = await Promise.all(
     prompt.images.map(({ path }) => imagePart(path)),
   )

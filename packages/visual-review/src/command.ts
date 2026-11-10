@@ -268,13 +268,19 @@ function finish(
   return 0
 }
 
-/** The model judge: the explainer `model`, after the Jev filter if asked. */
-async function judgeByModel(
+/**
+ * The model judge: the explainer `model`, after the Jev filter if asked (the
+ * cascade). The bake-off runs the same cascade, also with another decision
+ * model (`filterModel`) as the filter.
+ */
+export async function judgeByModel(
   story: StoryInput,
   model: string,
   filter: "jev" | "none",
+  filterModel?: string,
 ): Promise<Verdict> {
-  const filtered = filter === "jev" ? await judgeWithJev(story) : undefined
+  const filtered =
+    filter === "jev" ? await judgeWithJev(story, filterModel) : undefined
   // Jev says intended only when nothing got worse and a brief or a source
   // diff explains the change: then no explainer is needed.
   if (filtered?.verdict === "intended" && !filtered.error) return filtered

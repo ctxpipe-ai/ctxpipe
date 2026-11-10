@@ -197,6 +197,39 @@ describe("judgeWithJev questions", () => {
   })
 })
 
+describe("judgeWithJev with another decision model", () => {
+  test.each(["baseten/elephant-1", "baseten/mammoth-1"])(
+    "%s gets the same request without the box question, and a worse area gets the largest measured region",
+    async (model) => {
+      const seen = serve((name) =>
+        name === "defect"
+          ? defect(0.9)
+          : name === "area.spacing"
+            ? choice(0.02, 0.08, 0.9)
+            : fine,
+      )
+      const verdict = await judgeWithJev(await story(), model)
+
+      expect(seen.body.model).toBe(model)
+      expect(seen.body.questions["defect-box"]).toBeUndefined()
+      expect(seen.body.questions["defect"]?.type).toBe("noul")
+      expect(seen.body.questions["area.spacing"]?.type).toBe("choice")
+      expect(
+        seen.body.state.filter((part) => typeof part !== "string"),
+      ).toHaveLength(2)
+      expect(verdict.verdict).toBe("regression")
+      expect(
+        verdict.findings.map(({ kind, region }) => ({ kind, region })),
+      ).toEqual([
+        {
+          kind: "spacing",
+          region: { x: 0.1, y: 0.2, width: 0.3, height: 0.1 },
+        },
+      ])
+    },
+  )
+})
+
 describe("judgeWithJev verdict", () => {
   test("a worse area with a defect becomes a regression with a region in fractions of the after image", async () => {
     serve((name) => {
