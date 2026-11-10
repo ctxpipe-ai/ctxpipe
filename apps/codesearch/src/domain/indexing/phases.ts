@@ -35,7 +35,12 @@ import {
   ensureCheckoutWorktree,
   withSharedClone,
 } from "../repositories/worktrees.js"
-import { refreshPinnedRepo } from "../zoekt/pinManager.js"
+import {
+  publishArtifact,
+  shardStore,
+  type StoreAddress,
+} from "../store/shardStore.js"
+import { installStagedShards, markShardsUploaded } from "../zoekt/pinManager.js"
 import { detectLanguages, type ScipIndexerId } from "./detectLanguages.js"
 import { withIndexerGoLimits } from "./indexerChildEnv.js"
 import { withIndexerProcessSlot } from "./indexerProcessSemaphore.js"
@@ -458,9 +463,8 @@ async function indexRepository(params: {
   zoektRepoId: number
   zoektName: string
   repoUrl: string
+  address: StoreAddress
 }): Promise<void> {
-  await mkdir(ZOEKT_INDEX_DIR, { recursive: true })
-  const metaPath = `/tmp/zoekt-meta-${randomUUID()}.json`
   const version = await readGitHead(params.clonePath)
   if (!version)
     throw new Error("Cannot index a repository without an immutable Git HEAD")
@@ -471,14 +475,20 @@ async function indexRepository(params: {
     Source: params.clonePath,
     Branches: [{ Name: "HEAD", Version: version }],
   }
-  await writeFile(metaPath, JSON.stringify(metadata))
+  const repo = { zoektRepoId: params.zoektRepoId, zoektName: params.zoektName }
+  // `zoekt-index` writes to a staging directory on the cold volume, so that
+  // the new shards move into cold in one step and the upload knows its files.
+  const stagingDir = join(ZOEKT_INDEX_DIR, ".build", randomUUID())
+  const metaPath = `${stagingDir}.meta.json`
+  await mkdir(stagingDir, { recursive: true })
   try {
+    await writeFile(metaPath, JSON.stringify(metadata))
     await withIndexerProcessSlot(() =>
       runCommand(
         [
           "zoekt-index",
           "-index",
-          ZOEKT_INDEX_DIR,
+          stagingDir,
           "-parallelism",
           "1",
           "-meta",
@@ -492,13 +502,42 @@ async function indexRepository(params: {
         },
       ),
     )
+    const shardPaths = await installStagedShards(repo, stagingDir)
+    await uploadShards(repo, params.address, shardPaths)
   } finally {
+    await rm(stagingDir, { recursive: true, force: true })
     await rm(metaPath, { force: true })
   }
-  await refreshPinnedRepo({
-    zoektRepoId: params.zoektRepoId,
-    zoektName: params.zoektName,
-  })
+}
+
+/**
+ * Uploads the new shards to the shard store, when one is set. A failed
+ * upload does not fail the Zoekt phase: the shards stay on disk without a
+ * local manifest copy, so eviction keeps them, and the next index uploads.
+ */
+async function uploadShards(
+  repo: { zoektRepoId: number; zoektName: string },
+  address: StoreAddress,
+  shardPaths: readonly string[],
+): Promise<void> {
+  const store = shardStore()
+  if (!store) return
+  const startMs = Date.now()
+  try {
+    const manifest = await publishArtifact(store, address, shardPaths)
+    const marked = await markShardsUploaded(repo, manifest)
+    tryEmitIndexEvent("codesearch.index.zoekt.uploaded", {
+      fileCount: manifest.files.length,
+      bytes: manifest.files.reduce((sum, file) => sum + file.size, 0),
+      durationMs: Date.now() - startMs,
+      marked,
+    })
+  } catch (error) {
+    tryEmitIndexEvent("codesearch.index.zoekt.upload_failed", {
+      durationMs: Date.now() - startMs,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
 }
 
 async function readGitHead(clonePath: string): Promise<string | null> {
@@ -717,6 +756,12 @@ export async function phaseZoekt(ctx: IndexPhaseRepoContext): Promise<void> {
       zoektRepoId: ctx.zoektRepoId,
       zoektName: ctx.zoektName,
       repoUrl: ctx.repoUrl,
+      address: {
+        orgId: ctx.orgId,
+        repoId: ctx.repoId,
+        checkoutKey: ctx.checkoutKey,
+        kind: "zoekt",
+      },
     }),
   )
 }

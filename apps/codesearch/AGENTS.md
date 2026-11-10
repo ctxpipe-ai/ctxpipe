@@ -16,6 +16,13 @@ These instructions supplement the repository-root `AGENTS.md`.
   `src/config/paths.ts` — no separate env var). Bun pins repos by symlink on
   `/search` and unloads after ~5 minutes idle. Do not write real shard files
   into hot.
+- **S3 shard store** (hosted, ADR-061 decision 10): when
+  `CODESEARCH_SHARD_STORE=s3://bucket/prefix` is set, the Zoekt phase uploads
+  the shards (`src/domain/store/shardStore.ts`). `zoekt-index` writes to
+  `<cold>/.build/<uuid>/`; the pin manager moves the files into cold under the
+  per-repo lock. `<cold>/.store/<name>.json` is the local manifest copy: it
+  exists only while the cold shards are the uploaded ones. Unset means local
+  only (Compose, self-host). Tests use `rclone serve s3` (`src/test/s3Server.ts`).
 
 ## Logging (evlog)
 

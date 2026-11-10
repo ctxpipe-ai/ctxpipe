@@ -68,6 +68,7 @@ try {
     "src/domain/indexing/phases.credentials.test.ts",
     "src/domain/indexing/phases.plainGit.test.ts",
     "src/domain/indexing/phases.worktrees.test.ts",
+    "src/domain/indexing/phases.shardStore.test.ts",
   ]
   for (const file of bun)
     if (!files.includes(file)) throw new Error(`Missing Bun contract: ${file}`)

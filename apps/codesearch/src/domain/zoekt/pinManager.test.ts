@@ -2,6 +2,7 @@ import {
   lstat,
   mkdir,
   mkdtemp,
+  readFile,
   readlink,
   rm,
   writeFile,
@@ -12,9 +13,10 @@ import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import {
+  installStagedShards,
   isRepoPinned,
+  markShardsUploaded,
   pinRepos,
-  refreshPinnedRepo,
   resetPinManagerForTests,
   unpinRepo,
 } from "./pinManager.js"
@@ -265,56 +267,104 @@ describe("pinRepos safety", () => {
     expect((await lstat(join(hotDir, basename))).isSymbolicLink()).toBe(true)
     expect(isRepoPinned(6)).toBe(true)
   })
+})
 
-  it("refreshPinnedRepo links newly written cold shards when pinned", async () => {
+async function writeStagedShard(
+  stagingDir: string,
+  zoektName: string,
+  shardNum: number,
+  content: string,
+): Promise<string> {
+  const basename = `${zoektShardFilePrefix(zoektName)}v16.${String(shardNum).padStart(5, "0")}.zoekt`
+  await mkdir(stagingDir, { recursive: true })
+  await writeFile(join(stagingDir, basename), content)
+  return basename
+}
+
+describe("installStagedShards", () => {
+  it("moves staged shards into cold, deletes older shards of the name, and refreshes a pin", async () => {
     const zoektName = testZoektName()
+    const other = await writeColdShard(testZoektName("repo_other"), 0)
     const first = await writeColdShard(zoektName, 0)
+    const stale = await writeColdShard(zoektName, 1)
     await pinRepos([{ zoektRepoId: 8, zoektName }], {
       coldDir,
       hotDir,
       idleTtlMs: 60_000,
     })
-    const second = await writeColdShard(zoektName, 1)
+    const stagingDir = join(coldDir, ".build", "a")
+    await writeStagedShard(stagingDir, zoektName, 0, "new-0")
 
-    await refreshPinnedRepo(
+    const paths = await installStagedShards(
       { zoektRepoId: 8, zoektName },
+      stagingDir,
       { coldDir, hotDir, idleTtlMs: 60_000 },
     )
 
+    expect(paths).toEqual([join(coldDir, first)])
+    expect(await readFile(join(coldDir, first), "utf8")).toBe("new-0")
+    await expect(lstat(join(coldDir, stale))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
+    await expect(lstat(join(hotDir, stale))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
     expect(await readlink(join(hotDir, first))).toBe(join(coldDir, first))
-    expect(await readlink(join(hotDir, second))).toBe(join(coldDir, second))
+    expect(await readFile(join(coldDir, other), "utf8")).toBe("shard-0")
   })
 
-  it("refreshPinnedRepo drops stale hot shards and recreates links", async () => {
+  it("does not pin a repo that is not pinned", async () => {
     const zoektName = testZoektName()
-    const first = await writeColdShard(zoektName, 0)
-    const second = await writeColdShard(zoektName, 1)
-    await pinRepos([{ zoektRepoId: 10, zoektName }], {
+    const stagingDir = join(coldDir, ".build", "b")
+    const basename = await writeStagedShard(stagingDir, zoektName, 0, "x")
+
+    await installStagedShards({ zoektRepoId: 9, zoektName }, stagingDir, {
       coldDir,
       hotDir,
-      idleTtlMs: 60_000,
     })
-    await rm(join(coldDir, second), { force: true })
 
-    await refreshPinnedRepo(
-      { zoektRepoId: 10, zoektName },
-      { coldDir, hotDir, idleTtlMs: 60_000 },
-    )
-
-    expect(await readlink(join(hotDir, first))).toBe(join(coldDir, first))
-    await expect(lstat(join(hotDir, second))).rejects.toMatchObject({
+    expect(isRepoPinned(9)).toBe(false)
+    await expect(lstat(join(hotDir, basename))).rejects.toMatchObject({
       code: "ENOENT",
     })
   })
 
-  it("refreshPinnedRepo is a no-op when the repo is not pinned", async () => {
+  it("deletes the local manifest copy that markShardsUploaded wrote", async () => {
     const zoektName = testZoektName()
-    const basename = await writeColdShard(zoektName)
-    await refreshPinnedRepo(
-      { zoektRepoId: 9, zoektName },
-      { coldDir, hotDir, idleTtlMs: 60_000 },
+    const repo = { zoektRepoId: 11, zoektName }
+    const basename = await writeColdShard(zoektName, 0)
+    const manifest = {
+      gen: "g1",
+      files: [{ name: basename, size: 7, sha256: "0".repeat(64) }],
+    }
+    const copy = join(
+      coldDir,
+      ".store",
+      `${encodeURIComponent(zoektName)}.json`,
     )
-    await expect(lstat(join(hotDir, basename))).rejects.toMatchObject({
+
+    expect(await markShardsUploaded(repo, manifest, { coldDir })).toBe(true)
+    expect(JSON.parse(await readFile(copy, "utf8"))).toEqual(manifest)
+
+    const stagingDir = join(coldDir, ".build", "c")
+    await writeStagedShard(stagingDir, zoektName, 0, "next")
+    await installStagedShards(repo, stagingDir, { coldDir, hotDir })
+    await expect(lstat(copy)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("markShardsUploaded writes no copy when the cold shards differ from the manifest", async () => {
+    const zoektName = testZoektName()
+    await writeColdShard(zoektName, 0)
+    await writeColdShard(zoektName, 1)
+
+    const marked = await markShardsUploaded(
+      { zoektRepoId: 12, zoektName },
+      { gen: "g1", files: [] },
+      { coldDir },
+    )
+
+    expect(marked).toBe(false)
+    await expect(lstat(join(coldDir, ".store"))).rejects.toMatchObject({
       code: "ENOENT",
     })
   })
