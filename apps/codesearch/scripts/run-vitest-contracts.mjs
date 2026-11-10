@@ -66,6 +66,7 @@ try {
     "src/domain/repositories/globFiles.test.ts",
     "src/routes/repo.test.ts",
     "src/domain/indexing/scipIndexers.native.test.ts",
+    "src/domain/indexing/scipIndexers.realIndexers.test.ts",
     "src/domain/indexing/phases.credentials.test.ts",
     "src/domain/indexing/phases.plainGit.test.ts",
     "src/domain/indexing/phases.worktrees.test.ts",

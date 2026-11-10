@@ -3,11 +3,11 @@
 # The language SDKs are copied from their official images and release binaries
 # are downloaded in isolated stages. This keeps package-manager build caches
 # separate from application dependencies. The image builds for linux/amd64 and
-# linux/arm64. The complete indexer matrix needs linux/amd64, because scip-clang
-# and scip-ruby do not publish Linux arm64 binaries. The linux/arm64 image has
-# every other tool, which is enough for the Vitest contracts (their tests run
-# fake scip-clang and scip-ruby commands). Railway pulls linux/amd64, and the
-# AWS hosts pull linux/arm64.
+# linux/arm64 with the complete indexer matrix. Upstream publishes scip-clang
+# and scip-ruby only for x86_64, with a GLIBC that is too new for Bookworm, so
+# apps/codesearch/indexers/Dockerfile builds both for each platform, and
+# release-assets.txt pins the release of that build. Railway pulls
+# linux/amd64, and the AWS hosts pull linux/arm64.
 
 # ── Stage 1: Go toolchain and Zoekt binaries ─────────────────────────────────
 # golang:1.24-bookworm
@@ -90,9 +90,8 @@ RUN --mount=type=bind,source=apps/codesearch/release-assets.txt,target=/release-
   && tar -xzf "scip-${TARGETARCH}.tar.gz" -C /out scip \
   && cp scip-java /out/ \
   && gzip -dc "rust-analyzer-${TARGETARCH}.gz" > /out/rust-analyzer \
-  && if [ "${TARGETARCH}" = amd64 ]; then \
-    cp scip-clang-amd64 /out/scip-clang && cp scip-ruby-amd64 /out/scip-ruby; \
-  fi \
+  && cp "scip-clang-${TARGETARCH}" /out/scip-clang \
+  && cp "scip-ruby-${TARGETARCH}" /out/scip-ruby \
   && unzip -j -q "rclone-${TARGETARCH}.zip" '*/rclone' -d /test-out \
   && chmod +x /out/* /test-out/*
 
@@ -189,9 +188,10 @@ RUN ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet \
   && for binary in \
     go node npm python3 javac mvn rustc cargo clang ruby dotnet dart php \
     scip-go scip-typescript scip-python scip-java \
-    scip-dotnet scip_dart scip-php debian-lsp rust-analyzer ast-grep scip; \
+    scip-dotnet scip_dart scip-php debian-lsp rust-analyzer ast-grep scip \
+    scip-clang scip-ruby; \
     do command -v "${binary}"; done \
-  && if [ "${TARGETARCH}" = amd64 ]; then command -v scip-clang scip-ruby; fi \
+  && scip-clang --version && scip-ruby --version \
   && ! command -v src \
   && ! command -v sourcegraph-cli
 
