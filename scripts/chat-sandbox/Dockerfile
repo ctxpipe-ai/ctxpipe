@@ -28,8 +28,16 @@ CMD ["sh", "-c", "tail -f /dev/null"]
 # entry point. The memory snapshot holds the shim only; OpenCode starts later
 # as a command (CTX-1219).
 FROM base AS agentcore
+# PID 1 must reap orphans: a killed command leaves its children to PID 1, and
+# Node does not reap them. tini does, and it passes signals to the shim.
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tini \
+    && rm -rf /var/lib/apt/lists/*
+USER 1000:1000
 COPY agentcore-shim.mjs /usr/local/lib/ctxpipe/agentcore-shim.mjs
 EXPOSE 8080
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "/usr/local/lib/ctxpipe/agentcore-shim.mjs"]
 
 # The default target: Docker and Compose sandboxes.
