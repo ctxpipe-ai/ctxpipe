@@ -132,6 +132,11 @@ describe("span and db helpers kept for other lanes", () => {
     expect(
       redactSecretPath("/.auth/api/v1/public/invitations/inv_secret"),
     ).toBe("/.auth/api/v1/public/invitations/{invitation}")
+    const token = "ab".repeat(24)
+    expect(redactSecretPath(`http://127.0.0.1:41234/${token}/event?x=1`)).toBe(
+      "http://127.0.0.1:41234/{bridge-token}/event?x=1",
+    )
+    expect(redactSecretPath(`/${token}`)).toBe("/{bridge-token}")
   })
 
   it("drops Drizzle params from the span exception", () => {
