@@ -1,25 +1,34 @@
 import {
   lstat,
   mkdir,
-  mkdtemp,
   readdir,
   readlink,
   rm,
   writeFile,
 } from "node:fs/promises"
-import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 
-vi.mock("../../config/paths.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../config/paths.js")>()),
-  REPO_CACHE_DIR: "",
-  ZOEKT_INDEX_DIR: "",
-  ZOEKT_HOT_DIR: "",
-}))
+// config/paths.js reads these variables when it loads.
+const { root } = await vi.hoisted(async () => {
+  const { mkdtempSync, realpathSync } = await import("node:fs")
+  const { tmpdir } = await import("node:os")
+  const { join } = await import("node:path")
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "purge-test-")))
+  vi.stubEnv("REPO_CACHE_DIR", join(root, "repo-cache"))
+  vi.stubEnv("ZOEKT_INDEX_DIR", join(root, "zoekt-index"))
+  return { root }
+})
 
-import * as paths from "../../config/paths.js"
 import { pinRepos, resetPinManagerForTests } from "../zoekt/pinManager.js"
 import {
   zoektRepositoryName,
@@ -27,10 +36,9 @@ import {
 } from "../zoekt/shardPrefix.js"
 import { purgeRepositoryFromDisk } from "./purge.js"
 
-let tmpDir: string
-let repoCacheDir: string
-let zoektIndexDir: string
-let zoektHotDir: string
+const repoCacheDir = join(root, "repo-cache")
+const zoektIndexDir = join(root, "zoekt-index")
+const zoektHotDir = join(root, "zoekt-hot")
 
 function zoektName(orgId = "org_1", repoId = "repo_abc"): string {
   return zoektRepositoryName({ orgId, repoId })
@@ -38,33 +46,18 @@ function zoektName(orgId = "org_1", repoId = "repo_abc"): string {
 
 beforeEach(async () => {
   resetPinManagerForTests()
-  tmpDir = await mkdtemp(join(tmpdir(), "purge-test-"))
-  repoCacheDir = join(tmpDir, "repo-cache")
-  zoektIndexDir = join(tmpDir, "zoekt-index")
-  zoektHotDir = join(tmpDir, "zoekt-hot")
-  await mkdir(repoCacheDir, { recursive: true })
-  await mkdir(zoektIndexDir, { recursive: true })
-  await mkdir(zoektHotDir, { recursive: true })
-  // oxlint-disable-next-line no-import-assign -- the test replaces a property of the module namespace
-  Object.defineProperty(paths, "REPO_CACHE_DIR", {
-    value: repoCacheDir,
-    writable: true,
-  })
-  // oxlint-disable-next-line no-import-assign -- the test replaces a property of the module namespace
-  Object.defineProperty(paths, "ZOEKT_INDEX_DIR", {
-    value: zoektIndexDir,
-    writable: true,
-  })
-  // oxlint-disable-next-line no-import-assign -- the test replaces a property of the module namespace
-  Object.defineProperty(paths, "ZOEKT_HOT_DIR", {
-    value: zoektHotDir,
-    writable: true,
-  })
+  for (const dir of [repoCacheDir, zoektIndexDir, zoektHotDir]) {
+    await rm(dir, { recursive: true, force: true })
+    await mkdir(dir, { recursive: true })
+  }
 })
 
-afterEach(async () => {
+afterEach(() => {
   resetPinManagerForTests()
-  await rm(tmpDir, { recursive: true, force: true })
+})
+
+afterAll(async () => {
+  await rm(root, { recursive: true, force: true })
 })
 
 describe("purgeRepositoryFromDisk", () => {
