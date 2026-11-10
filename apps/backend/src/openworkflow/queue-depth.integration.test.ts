@@ -6,15 +6,18 @@ import {
   MeterProvider,
 } from "@opentelemetry/sdk-metrics"
 import { sql } from "drizzle-orm"
-import { afterAll, beforeAll, expect, it } from "vitest"
+import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
 import { closeDb, getSystemDb, initDb } from "../db/client.js"
 import { FlushOnDemandMetricReader } from "../observability/flushOnDemandMetricReader.js"
 import { openWorkflowNamespaceId } from "./namespace.js"
-import { observeOpenWorkflowQueue, writeQueueDepthEmf } from "./queue-depth.js"
+import { startQueueDepthReports } from "./queue-depth.js"
 
 const ids: string[] = []
 
+// The test setup gives each file its own OpenWorkflow namespace
+// (`src/test/setup-openworkflow-runs.ts`), so runs of other files do not
+// change these counts.
 beforeAll(async () => {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
   initDb(process.env.DATABASE_URL)
@@ -23,10 +26,10 @@ beforeAll(async () => {
   await insertRun("pending", -5)
   await insertRun("sleeping", -5)
   await insertRun("running", -5)
-  // Active: a running run with a live lease.
+  // Not ready: a running run with a live lease, a scheduled run, a
+  // sleeping run, a finished run, a run past its deadline, and a run of
+  // another namespace.
   await insertRun("running", 60)
-  // Neither: a scheduled run, a sleeping run, a finished run, a run past its
-  // deadline, and a run of another namespace.
   await insertRun("pending", 3_600)
   await insertRun("sleeping", 3_600)
   await insertRun("completed", null)
@@ -62,37 +65,50 @@ async function insertRun(
   `)
 }
 
-async function collect(): Promise<Record<string, number | undefined>> {
+/** Start the reports once, and return the gauge value and the stdout lines. */
+async function report(emf: boolean) {
   const exporter = new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE)
   const provider = new MeterProvider({
     readers: [new FlushOnDemandMetricReader(exporter)],
   })
-  observeOpenWorkflowQueue(provider.getMeter("queue-depth-test"))
+  const lines: string[] = []
+  const write = vi
+    .spyOn(process.stdout, "write")
+    .mockImplementation((chunk: string | Uint8Array) => {
+      lines.push(String(chunk))
+      return true
+    })
+  const reports = startQueueDepthReports(emf, provider.getMeter("test"))
+  try {
+    await reports.firstSample
+  } finally {
+    reports.stop()
+    write.mockRestore()
+  }
   await provider.forceFlush()
-  const values: Record<string, number | undefined> = {}
-  for (const resource of exporter.getMetrics())
-    for (const scope of resource.scopeMetrics)
-      for (const metric of scope.metrics)
-        values[metric.descriptor.name] = metric.dataPoints[0]?.value as number
+  const points = exporter
+    .getMetrics()
+    .flatMap((resource) => resource.scopeMetrics)
+    .flatMap((scope) => scope.metrics)
+    .filter((metric) => metric.descriptor.name === "openworkflow.queue.depth")
+    .flatMap((metric) => metric.dataPoints.map((point) => point.value))
   await provider.shutdown()
-  return values
+  return { points, lines }
 }
 
-it("reports the runs that wait for a worker and the runs a worker holds", async () => {
-  expect(await collect()).toEqual({
-    "openworkflow.queue.depth": 3,
-    "openworkflow.runs.active": 1,
-  })
+it("reports the runs that wait for a worker as a gauge", async () => {
+  const { points, lines } = await report(false)
+
+  expect(points).toEqual([3])
+  expect(lines).toEqual([])
 })
 
-it("writes the depth as one CloudWatch EMF line with no dimensions", async () => {
-  const lines: string[] = []
-  await writeQueueDepthEmf((line) => lines.push(line))
+it("also writes the depth as one CloudWatch EMF line with no dimensions", async () => {
+  const { lines } = await report(true)
 
   expect(lines).toHaveLength(1)
   expect(lines[0]?.endsWith("\n")).toBe(true)
-  const record = JSON.parse(lines[0] ?? "")
-  expect(record).toEqual({
+  expect(JSON.parse(lines[0] ?? "")).toEqual({
     _aws: {
       Timestamp: expect.any(Number),
       CloudWatchMetrics: [
@@ -103,7 +119,6 @@ it("writes the depth as one CloudWatch EMF line with no dimensions", async () =>
         },
       ],
     },
-    // The three ready runs of the setup.
     WorkerQueueDepth: 3,
   })
 })
