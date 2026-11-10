@@ -1,7 +1,6 @@
 import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
-import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { nativeRenameRewriteFiles } from "../../domain/workspaces/native-rename-rewrite.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
@@ -17,24 +16,16 @@ import {
 import {
   acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
+  completeWorkspaceWrite,
+  prepareWorkspaceWriteCommit,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
-import {
-  persistBoundWriteJob,
-  persistWriteJobPreparedCommit,
-} from "../../models/workspace-write-jobs.js"
-import {
-  persistWriteJobCommitSha,
-  persistWriteJobStatus,
-} from "../../models/workspaces.js"
-import {
-  commitGitTree,
-  stageGitFiles,
-  validateGitTree,
-} from "../../services/git/write-tree.js"
+import { persistBoundWriteJob } from "../../models/workspace-write-jobs.js"
+import { persistWriteJobStatus } from "../../models/workspaces.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
@@ -101,13 +92,15 @@ export const workspaceRenameRewrite = defineWorkflow(
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
           >
           for (;;) {
-            const candidate = await step.run({ name: "acquire-revision" }, () =>
-              acquireWorkspaceWriteRevision(
-                input,
-                revision,
-                env,
-                input.previousSha,
-              ),
+            const candidate = await step.run(
+              { name: "acquire-revision-v2" },
+              () =>
+                acquireWorkspaceWriteRevision(
+                  input,
+                  revision,
+                  env,
+                  input.previousSha,
+                ),
             )
             if (candidate) {
               acquired = candidate
@@ -121,12 +114,44 @@ export const workspaceRenameRewrite = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
-          const files = await step.run(
-            { name: "transform-rename-rewrite" },
+          // One step makes the change, commits it, and pushes the commit to
+          // its job ref: no step output holds a file (CTX-1239).
+          const committed = await runJobRefStep(
+            step,
+            input.jobId,
+            { name: "prepare-commit" },
             () =>
-              nativeRenameRewriteFiles(acquired.pack, input.previousSha, read),
+              prepareWorkspaceWriteCommit(
+                input,
+                revision,
+                acquired.pack,
+                {
+                  change: async () => {
+                    const files = await nativeRenameRewriteFiles(
+                      acquired.pack,
+                      input.previousSha,
+                      read,
+                    )
+                    if (
+                      files.some(
+                        (file) =>
+                          file.path === "AGENTS.md" ||
+                          file.path.startsWith(".agents/") ||
+                          !file.path.endsWith(".md"),
+                      )
+                    )
+                      throw new Error(
+                        "Rename repair may only edit knowledge Markdown",
+                      )
+                    return { files, deletePaths: [] }
+                  },
+                  subject: { trigger: "rename_rewrite" },
+                  createdAt: run.createdAt,
+                },
+                env,
+              ),
           )
-          if (!files.length) {
+          if (!committed) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
@@ -142,45 +167,6 @@ export const workspaceRenameRewrite = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
-          const staged = await step.run({ name: "stage" }, () => {
-            if (
-              files.some(
-                (file) =>
-                  file.path === "AGENTS.md" ||
-                  file.path.startsWith(".agents/") ||
-                  !file.path.endsWith(".md"),
-              )
-            )
-              throw new Error("Rename repair may only edit knowledge Markdown")
-            return stageGitFiles(acquired.pack, files, [], read)
-          })
-          await step.run({ name: "validate" }, () =>
-            validateGitTree(
-              staged,
-              files.map((file) => file.path),
-              {},
-              read,
-            ),
-          )
-          const subject = await step.run({ name: "commit-subject" }, () =>
-            generateCommitSubject({
-              repoName: repositoryName.split("/")[1] ?? repositoryName,
-              trigger: "rename_rewrite",
-              fileNames: files.map((file) => file.path),
-            }),
-          )
-          const committed = await step.run({ name: "commit" }, async () => {
-            const pack = await commitGitTree(
-              staged,
-              {
-                subject,
-                createdAt: run.createdAt,
-              },
-              read,
-            )
-            await persistWriteJobPreparedCommit(input.jobId, pack.sha)
-            return pack
-          })
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
             pushed = await step.run(
@@ -198,7 +184,7 @@ export const workspaceRenameRewrite = defineWorkflow(
           }
           if (!pushed.pushed) {
             const handoff = await step.run(
-              { name: "capture-semantic-handoff" },
+              { name: "capture-semantic-handoff-v2" },
               () =>
                 captureSemanticHandoff(input, revision, committed, env, "host"),
             )
@@ -208,9 +194,10 @@ export const workspaceRenameRewrite = defineWorkflow(
               { name: "semantic-merge-child" },
             )
             await step.run({ name: "complete-merged-result" }, () =>
-              persistWriteJobCommitSha(
-                input.jobId,
+              completeWorkspaceWrite(
+                { ...input, remote: input.revision.remote },
                 result.committed ? result.commitSha : null,
+                env,
               ),
             )
             return result
@@ -230,7 +217,11 @@ export const workspaceRenameRewrite = defineWorkflow(
             )
           })
           await step.run({ name: "complete" }, () =>
-            persistWriteJobCommitSha(input.jobId, committed.sha),
+            completeWorkspaceWrite(
+              { ...input, remote: input.revision.remote },
+              committed.sha,
+              env,
+            ),
           )
           return { committed: true as const, commitSha: committed.sha }
         }

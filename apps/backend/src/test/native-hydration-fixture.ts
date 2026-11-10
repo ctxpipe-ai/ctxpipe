@@ -41,6 +41,7 @@ import { workspaceIndex } from "../openworkflow/workflows/workspace-index.js"
 import { workspaceTipCheck } from "../openworkflow/workflows/workspace-tip-check.js"
 import { closeGraphDb } from "../platform/graph/client.js"
 import { listenWithDockerOutsideMsw } from "./docker-outside-msw.js"
+import { expectSmallWriteStepOutputs } from "./write-step-outputs.js"
 
 export type NativeHydrationOptions = {
   namespaceId?: string
@@ -1028,6 +1029,7 @@ export async function withNativeHydrationFixture(
   const fixture = await createNativeHydrationFixture(options)
   try {
     await run(fixture)
+    await expectSmallWriteStepOutputs(fixture.org.id)
   } finally {
     await fixture.cleanup()
   }

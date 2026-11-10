@@ -7,7 +7,6 @@ import {
 } from "../../domain/ingestion/ingestion-v2-config.js"
 import type { SourceFileBlob } from "../../domain/workspace-sources/projection-plan.js"
 import { readSourcesTree } from "../../domain/workspace-sources/source-tree.js"
-import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
   sameWorkspaceRevision,
@@ -24,27 +23,23 @@ import {
 import {
   acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
+  completeWorkspaceWrite,
+  prepareWorkspaceWriteCommit,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import {
   discardWriteJobPreparedCommit,
   persistBoundWriteJob,
-  persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
 import {
   getBindingWorkspaceFormat,
-  persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
-import { readGitFiles } from "../../services/git/pack.js"
-import {
-  commitGitTree,
-  stageGitFiles,
-  validateGitTree,
-} from "../../services/git/write-tree.js"
+import { readGitFiles, writeCommitPack } from "../../services/git/pack.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
@@ -150,8 +145,9 @@ export function defineKnowledgeRewriteWorkflow(options: {
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
           >
           for (;;) {
-            const candidate = await step.run({ name: "acquire-revision" }, () =>
-              acquireWorkspaceWriteRevision(input, revision, env),
+            const candidate = await step.run(
+              { name: "acquire-revision-v2" },
+              () => acquireWorkspaceWriteRevision(input, revision, env),
             )
             if (candidate) {
               acquired = candidate
@@ -165,23 +161,50 @@ export function defineKnowledgeRewriteWorkflow(options: {
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
-          const files = await step.run(
-            { name: `transform-${options.kind.replaceAll("_", "-")}` },
-            async () =>
-              options.transform(
-                await readGitFiles(
-                  acquired.pack,
-                  (path) =>
-                    path.startsWith("knowledge/") && path.endsWith(".md"),
-                  undefined,
-                  read,
-                ),
+          // One step makes the change, commits it, and pushes the commit to
+          // its job ref: no step output holds a file (CTX-1239).
+          const committed = await runJobRefStep(
+            step,
+            input.jobId,
+            { name: "prepare-commit" },
+            () =>
+              prepareWorkspaceWriteCommit(
+                input,
                 revision,
-                (await readSourcesTree(acquired.pack, read)).sourceFiles,
-                input.orgId,
+                acquired.pack,
+                {
+                  change: async () => {
+                    const files = await options.transform(
+                      await readGitFiles(
+                        acquired.pack,
+                        (path) =>
+                          path.startsWith("knowledge/") && path.endsWith(".md"),
+                        undefined,
+                        read,
+                      ),
+                      revision,
+                      (await readSourcesTree(acquired.pack, read)).sourceFiles,
+                      input.orgId,
+                    )
+                    if (
+                      files.some(
+                        (file) =>
+                          !file.path.startsWith("knowledge/") ||
+                          !file.path.endsWith(".md"),
+                      )
+                    )
+                      throw new Error(
+                        "A knowledge rewrite may only edit knowledge Markdown",
+                      )
+                    return { files, deletePaths: [] }
+                  },
+                  subject: { trigger: options.kind },
+                  createdAt: run.createdAt,
+                },
+                env,
               ),
           )
-          if (!files.length) {
+          if (!committed) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
@@ -197,46 +220,6 @@ export function defineKnowledgeRewriteWorkflow(options: {
               reason: "no_changes" as const,
             }
           }
-          const staged = await step.run({ name: "stage" }, () => {
-            if (
-              files.some(
-                (file) =>
-                  !file.path.startsWith("knowledge/") ||
-                  !file.path.endsWith(".md"),
-              )
-            )
-              throw new Error(
-                "A knowledge rewrite may only edit knowledge Markdown",
-              )
-            return stageGitFiles(acquired.pack, files, [], read)
-          })
-          await step.run({ name: "validate" }, () =>
-            validateGitTree(
-              staged,
-              files.map((file) => file.path),
-              {},
-              read,
-            ),
-          )
-          const subject = await step.run({ name: "commit-subject" }, () =>
-            generateCommitSubject({
-              repoName: repositoryName.split("/")[1] ?? repositoryName,
-              trigger: options.kind,
-              fileNames: files.map((file) => file.path),
-            }),
-          )
-          const committed = await step.run({ name: "commit" }, async () => {
-            const pack = await commitGitTree(
-              staged,
-              {
-                subject,
-                createdAt: run.createdAt,
-              },
-              read,
-            )
-            await persistWriteJobPreparedCommit(input.jobId, pack.sha)
-            return pack
-          })
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
             const attempt = await step.run(
@@ -247,7 +230,10 @@ export function defineKnowledgeRewriteWorkflow(options: {
                 if (
                   options.ingestionV2Publish &&
                   workspacePublishPipeline(
-                    await packWorkspaceFormat(committed, read),
+                    await packWorkspaceFormat(
+                      writeCommitPack(committed, read.url),
+                      read,
+                    ),
                   ) !== "v2"
                 ) {
                   // The job publishes nothing, so it keeps no commit.
@@ -288,7 +274,7 @@ export function defineKnowledgeRewriteWorkflow(options: {
           }
           if (!pushed.pushed) {
             const handoff = await step.run(
-              { name: "capture-semantic-handoff" },
+              { name: "capture-semantic-handoff-v2" },
               () =>
                 captureSemanticHandoff(input, revision, committed, env, "host"),
             )
@@ -298,9 +284,10 @@ export function defineKnowledgeRewriteWorkflow(options: {
               { name: "semantic-merge-child" },
             )
             await step.run({ name: "complete-merged-result" }, () =>
-              persistWriteJobCommitSha(
-                input.jobId,
+              completeWorkspaceWrite(
+                { ...input, remote: input.revision.remote },
                 result.committed ? result.commitSha : null,
+                env,
               ),
             )
             return result
@@ -320,7 +307,11 @@ export function defineKnowledgeRewriteWorkflow(options: {
             )
           })
           await step.run({ name: "complete" }, () =>
-            persistWriteJobCommitSha(input.jobId, committed.sha),
+            completeWorkspaceWrite(
+              { ...input, remote: input.revision.remote },
+              committed.sha,
+              env,
+            ),
           )
           return { committed: true as const, commitSha: committed.sha }
         }

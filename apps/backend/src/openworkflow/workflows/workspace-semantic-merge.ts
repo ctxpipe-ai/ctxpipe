@@ -1,7 +1,6 @@
 import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
-import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import {
   connectorMirrorContentSchema,
   connectorMirrorSourceSchema,
@@ -13,7 +12,6 @@ import {
 } from "../../domain/workspaces/revision.js"
 import {
   assertWriteOriginAllowed,
-  resolveSemanticConflicts,
   writeOriginSchema,
 } from "../../domain/workspaces/semantic-merge.js"
 import {
@@ -24,34 +22,26 @@ import {
 import {
   acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
+  completeWorkspaceWrite,
+  prepareSemanticMergeCommit,
+  readSemanticMergeChange,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import {
   discardWriteJobPreparedCommit,
   persistBoundWriteJob,
-  persistWriteJobPreparedCommit,
   validateSemanticHandoff,
 } from "../../models/workspace-write-jobs.js"
-import {
-  persistWriteJobCommitSha,
-  persistWriteJobStatus,
-} from "../../models/workspaces.js"
+import { persistWriteJobStatus } from "../../models/workspaces.js"
 import {
   gitFileChangeSchema,
   repositoryFilePathSchema,
 } from "../../services/git/file-change.js"
-import {
-  mergeGitFiles,
-  resolveGitMergeTree,
-} from "../../services/git/merge-tree.js"
 import { readGitFiles } from "../../services/git/pack.js"
-import {
-  commitGitTree,
-  validateGitTree,
-} from "../../services/git/write-tree.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
 export const semanticMergeContentSchema = z
@@ -85,21 +75,45 @@ export const semanticMergeContentSchema = z
     "Connector handoff must retain its managed paths",
   )
 
-export const workspaceSemanticMergeInputSchema = semanticMergeContentSchema
-  .safeExtend({
-    orgId: z.string().min(1),
-    workspaceId: z.string().min(1),
-    jobId: z.string().min(1),
-    revision: workspaceRevisionSchema,
-    origin: writeOriginSchema,
-    handoff: z
-      .object({
-        ownerRunId: z.string().min(1),
-        candidateSha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
-      })
-      .strict()
-      .optional(),
+const semanticMergeCommandSchema = z.object({
+  orgId: z.string().min(1),
+  workspaceId: z.string().min(1),
+  jobId: z.string().min(1),
+  revision: workspaceRevisionSchema,
+  origin: writeOriginSchema,
+})
+
+const handoffSchema = z
+  .object({
+    ownerRunId: z.string().min(1),
+    candidateSha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
   })
+  .strict()
+
+/**
+ * A semantic merge carries its files (a standalone merge), or it is the
+ * handoff child of a write that lost the push race. A handoff names the
+ * candidate commit of the parent on its job ref, never its files
+ * (CTX-1239): the child reads the change from Git. A handoff child that was
+ * queued before CTX-1239 carries its files, and it still parses.
+ */
+export const workspaceSemanticMergeInputSchema = z
+  .union([
+    semanticMergeContentSchema.safeExtend({
+      ...semanticMergeCommandSchema.shape,
+      handoff: handoffSchema.optional(),
+    }),
+    semanticMergeCommandSchema
+      .extend({
+        mirror: connectorMirrorSourceSchema.optional(),
+        previousSha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
+        handoff: handoffSchema.extend({
+          /** Paths of the candidate change that stay off the new tip. */
+          dropPaths: z.array(repositoryFilePathSchema).min(1).optional(),
+        }),
+      })
+      .strict(),
+  ])
   .refine(
     (input) =>
       input.workspaceId === input.revision.workspaceId &&
@@ -138,7 +152,7 @@ export const workspaceSemanticMerge = defineWorkflow(
           ? await validateSemanticHandoff({ ...input, handoff: input.handoff })
           : await completedWorkspaceWrite(input, "semantic_merge", run.id)
         if (completed) return completed
-        if (input.extraction) {
+        if ("extraction" in input && input.extraction) {
           // The old pipeline is gone: no ingestion writes to a
           // Workspace below format 3. A handoff that it queued ends here.
           await step.run({ name: "complete-retired" }, () =>
@@ -154,7 +168,8 @@ export const workspaceSemanticMerge = defineWorkflow(
             commitSha: undefined,
           }
         }
-        if (!input.handoff)
+        // A standalone merge has its files and no handoff.
+        if (!input.handoff && "files" in input)
           await step.run({ name: "claim-command" }, () =>
             persistBoundWriteJob({
               id: input.jobId,
@@ -173,7 +188,10 @@ export const workspaceSemanticMerge = defineWorkflow(
           >
           for (;;) {
             const candidate = await step.run(
-              { name: "acquire-revision", retryPolicy: { maximumAttempts: 3 } },
+              {
+                name: "acquire-revision-v2",
+                retryPolicy: { maximumAttempts: 3 },
+              },
               () =>
                 acquireWorkspaceWriteRevision(
                   input,
@@ -203,7 +221,8 @@ export const workspaceSemanticMerge = defineWorkflow(
                 retryPolicy: { maximumAttempts: 1 },
               },
               async () => {
-                const paths = new Set(input.files.map((file) => file.path))
+                const change = await readSemanticMergeChange(input, read)
+                const paths = new Set(change.files.map((file) => file.path))
                 const current = new Map(
                   (
                     await readGitFiles(
@@ -216,24 +235,36 @@ export const workspaceSemanticMerge = defineWorkflow(
                 )
                 assertWriteOriginAllowed({
                   origin: input.origin,
-                  files: input.files,
-                  deletePaths: input.deletePaths,
+                  ...change,
                   current,
                 })
               },
             )
-          const merged = await step.run(
-            { name: "transform-semantic-merge" },
+          const committed = await runJobRefStep(
+            step,
+            input.jobId,
+            {
+              name: "prepare-merge-commit",
+              // A provider error fails the step. Wait longer before each
+              // new attempt, so that a short outage does not fail the
+              // write (CTX-958).
+              retryPolicy: {
+                maximumAttempts: 4,
+                initialInterval: "30s",
+                backoffCoefficient: 2,
+                maximumInterval: "120s",
+              },
+            },
             () =>
-              mergeGitFiles({
-                pack: acquired.pack,
-                previousSha: input.previousSha,
-                files: input.files,
-                deletePaths: input.deletePaths,
-                read,
-              }),
+              prepareSemanticMergeCommit(
+                input,
+                revision,
+                acquired.pack,
+                run.createdAt,
+                env,
+              ),
           )
-          if (!merged) {
+          if (!committed) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
@@ -261,93 +292,6 @@ export const workspaceSemanticMerge = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
-          const resolved = merged.conflicts.length
-            ? await step.run(
-                {
-                  name: "resolve-semantic-conflicts",
-                  // A provider error fails the step. Wait longer before each
-                  // new attempt, so that a short outage does not fail the
-                  // write (CTX-958).
-                  retryPolicy: {
-                    maximumAttempts: 4,
-                    initialInterval: "30s",
-                    backoffCoefficient: 2,
-                    maximumInterval: "120s",
-                  },
-                },
-                () =>
-                  // A Markdown file that the model cannot resolve keeps both
-                  // versions in conflict markers, so the write is not lost
-                  // (CTX-958). Hydrate skips it and tells the user.
-                  resolveSemanticConflicts(merged.conflicts, {
-                    origin: input.origin,
-                    flagUnresolved: true,
-                  }),
-              )
-            : null
-          const staged = await step.run({ name: "stage" }, () =>
-            resolved
-              ? resolveGitMergeTree(merged, resolved, read)
-              : merged.staged,
-          )
-          const changed = await step.run({ name: "validate" }, () =>
-            validateGitTree(
-              staged,
-              merged.paths,
-              { allowNoChanges: true },
-              read,
-            ),
-          )
-          if (!changed.length) {
-            const refreshed = await step.run(
-              { name: "confirm-resolved-no-op" },
-              () => refreshWorkspaceWriteRevision(input, revision, env),
-            )
-            if (!sameWorkspaceRevision(refreshed, revision)) {
-              revision = refreshed
-              continue
-            }
-            await step.run({ name: "enqueue-resolved-no-op-hydrate" }, () =>
-              runWorkflowWithWorkerWake(
-                workspaceHydrate.spec,
-                {
-                  orgId: input.orgId,
-                  workspaceId: input.workspaceId,
-                  revision,
-                },
-                { idempotencyKey: `${input.jobId}:hydrate` },
-              ),
-            )
-            if (!input.handoff)
-              await step.run({ name: "complete-resolved-no-op" }, () =>
-                persistWriteJobCommitSha(input.jobId, null),
-              )
-            return { committed: false as const, reason: "no_changes" as const }
-          }
-          const subject = await step.run({ name: "commit-subject" }, () =>
-            generateCommitSubject({
-              repoName: repositoryName.split("/")[1] ?? repositoryName,
-              trigger: "semantic_merge",
-              fileNames: changed,
-            }),
-          )
-          const committed = await step.run({ name: "commit" }, async () => {
-            const pack = await commitGitTree(
-              staged,
-              {
-                subject,
-                createdAt: run.createdAt,
-              },
-              read,
-            )
-            if (input.handoff)
-              await validateSemanticHandoff(
-                { ...input, handoff: input.handoff },
-                pack.sha,
-              )
-            else await persistWriteJobPreparedCommit(input.jobId, pack.sha)
-            return pack
-          })
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
             const attempt = await step.run(
@@ -389,7 +333,11 @@ export const workspaceSemanticMerge = defineWorkflow(
           })
           if (!input.handoff)
             await step.run({ name: "complete" }, () =>
-              persistWriteJobCommitSha(input.jobId, committed.sha),
+              completeWorkspaceWrite(
+                { ...input, remote: input.revision.remote },
+                committed.sha,
+                env,
+              ),
             )
           return { committed: true as const, commitSha: committed.sha }
         }

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { mergeGitFiles } from "./merge-tree.js"
+import { prepareGitMerge } from "./merge-tree.js"
 import {
   captureGitPack,
   type GitPack,
@@ -12,9 +12,10 @@ import {
   readGitFiles,
   withGitDirectory,
 } from "./pack.js"
-import { stageUnbornGitFiles, validateUnbornGitTree } from "./unborn-tree.js"
+import { prepareUnbornGitCommit } from "./unborn-tree.js"
 import {
   commitGitTree,
+  prepareGitCommit,
   readGitCommitChanges,
   stageGitFiles,
   validateGitTree,
@@ -55,9 +56,49 @@ beforeEach(async () => {
   }
 })
 
+const remotes: string[] = []
+
 afterEach(async () => {
   await rm(directory, { recursive: true, force: true })
+  for (const remote of remotes.splice(0))
+    await rm(remote, { recursive: true, force: true })
 })
+
+/** A bare repository that a publisher pushes to, with the seed commit. */
+async function bareRemote(): Promise<string> {
+  const remote = await mkdtemp(join(tmpdir(), "ctxpipe-write-remote-"))
+  remotes.push(remote)
+  await nativeGit(remote, ["init", "-q", "--bare"])
+  await nativeGit(directory, [
+    "push",
+    "-q",
+    remote,
+    `${base.sha}:refs/heads/main`,
+  ])
+  return remote
+}
+
+/** Commit `src/app.ts` (and any other change in the work tree) on the seed: the new tip. */
+async function commitOutside(app: string): Promise<GitPack> {
+  await writeFile(join(directory, "src/app.ts"), app)
+  await nativeGit(directory, [
+    "-c",
+    "user.name=ctxpipe",
+    "-c",
+    "user.email=ctxpipe@example.invalid",
+    "commit",
+    "-q",
+    "-am",
+    "tip",
+  ])
+  const sha = (await nativeGit(directory, ["rev-parse", "HEAD"]))
+    .toString()
+    .trim()
+  return {
+    ...(await captureGitPack(directory, sha, null, [base.sha])),
+    root: "docs/context",
+  }
+}
 
 function treePaths(pack: GitPack): Promise<string[]> {
   return withGitDirectory(
@@ -103,7 +144,6 @@ describe("a pack with a Workspace root folder", () => {
       await validateGitTree(
         staged,
         ["knowledge/services/a.md", "knowledge/services/b.md"],
-        undefined,
         null,
       ),
     ).toEqual(["knowledge/services/a.md", "knowledge/services/b.md"])
@@ -162,44 +202,184 @@ describe("a pack with a Workspace root folder", () => {
     ])
   })
 
-  it("stages an unborn tree below the root folder", async () => {
-    const tree = await stageUnbornGitFiles(
-      [{ path: "AGENTS.md", content: "# Context\n" }],
-      "docs/context",
-    )
+  it("prepares a commit in one step, publishes it, and returns only its identity", async () => {
+    const remote = await bareRemote()
+    const published: string[] = []
+    const prepare = () =>
+      prepareGitCommit({
+        pack: base,
+        files: [{ path: "knowledge/services/b.md", content: "# B\n" }],
+        deletePaths: ["knowledge/services/a.md"],
+        subject: "Change",
+        createdAt: "2026-01-01T00:00:00Z",
+        read: null,
+        publish: async (dir, sha) => {
+          published.push(sha)
+          await nativeGit(dir, [
+            "push",
+            "-q",
+            remote,
+            `${sha}:refs/ctxpipe/write/wjob_1/${sha}`,
+          ])
+        },
+      })
+    const committed = await prepare()
+    expect(Object.keys(committed).sort()).toEqual([
+      "base",
+      "root",
+      "sha",
+      "tree",
+    ])
+    expect(committed).toMatchObject({ root: "docs/context", base: base.sha })
+    // A replay makes the same commit and pushes the same ref again.
+    expect(await prepare()).toEqual(committed)
+    expect(published).toEqual([committed.sha, committed.sha])
+    expect(
+      (await nativeGit(remote, ["ls-tree", "-r", "--name-only", committed.sha]))
+        .toString()
+        .trim()
+        .split("\n"),
+    ).toEqual([
+      "README.md",
+      "docs/context/AGENTS.md",
+      "docs/context/knowledge/services/b.md",
+      "src/app.ts",
+    ])
+    expect(
+      (await nativeGit(remote, ["rev-parse", `${committed.sha}^{tree}`]))
+        .toString()
+        .trim(),
+    ).toBe(committed.tree)
+  })
+
+  it("prepares no commit for a change that changes nothing", async () => {
     await expect(
-      validateUnbornGitTree(tree, ["AGENTS.md"], "docs/context"),
-    ).resolves.toBeUndefined()
-    await expect(validateUnbornGitTree(tree, ["AGENTS.md"])).rejects.toThrow()
+      prepareGitCommit({
+        pack: base,
+        files: [{ path: "AGENTS.md", content: "# Context\n" }],
+        deletePaths: [],
+        subject: "Change",
+        createdAt: "2026-01-01T00:00:00Z",
+        read: null,
+        publish: () => Promise.reject(new Error("not reached")),
+      }),
+    ).rejects.toThrow("Invalid write tree")
+  })
+
+  it("prepares an unborn commit below the root folder and refuses a path outside its allowed paths", async () => {
+    const remote = await bareRemote()
+    const committed = await prepareUnbornGitCommit({
+      files: [{ path: "AGENTS.md", content: "# Context\n" }],
+      root: "docs/context",
+      allowedPaths: ["AGENTS.md"],
+      subject: "Bootstrap",
+      createdAt: "2026-01-01T00:00:00Z",
+      publish: (dir, sha) =>
+        nativeGit(dir, [
+          "push",
+          "-q",
+          remote,
+          `${sha}:refs/ctxpipe/write/wjob_1/${sha}`,
+        ]).then(() => undefined),
+    })
+    expect(committed).toMatchObject({ root: "docs/context", base: null })
+    expect(
+      (await nativeGit(remote, ["ls-tree", "-r", "--name-only", committed.sha]))
+        .toString()
+        .trim(),
+    ).toBe("docs/context/AGENTS.md")
+    await expect(
+      prepareUnbornGitCommit({
+        files: [{ path: "AGENTS.md", content: "# Context\n" }],
+        root: "docs/context",
+        allowedPaths: ["README.md"],
+        subject: "Bootstrap",
+        createdAt: "2026-01-01T00:00:00Z",
+        publish: () => Promise.reject(new Error("not reached")),
+      }),
+    ).rejects.toThrow("Invalid bootstrap root tree")
   })
 
   it("merges a change below the root folder onto a tip that changed other folders", async () => {
-    await writeFile(join(directory, "src/app.ts"), "export const moved = 1\n")
-    await nativeGit(directory, [
-      "-c",
-      "user.name=ctxpipe",
-      "-c",
-      "user.email=ctxpipe@example.invalid",
-      "commit",
-      "-q",
-      "-am",
-      "outside",
-    ])
-    const tipSha = (await nativeGit(directory, ["rev-parse", "HEAD"]))
-      .toString()
-      .trim()
-    const tip = {
-      ...(await captureGitPack(directory, tipSha, null)),
-      root: "docs/context",
-    }
-    const merged = await mergeGitFiles({
+    const tip = await commitOutside("export const moved = 1\n")
+    const remote = await bareRemote()
+    const committed = await prepareGitMerge({
       pack: tip,
       previousSha: base.sha,
-      read: null,
       files: [{ path: "knowledge/services/b.md", content: "# B\n" }],
       deletePaths: [],
+      resolve: () => Promise.reject(new Error("no conflict expected")),
+      subject: "Merge",
+      createdAt: "2026-01-01T00:00:00Z",
+      read: null,
+      publish: (dir, sha) =>
+        nativeGit(dir, [
+          "push",
+          "-q",
+          remote,
+          `${sha}:refs/ctxpipe/write/wjob_1/${sha}`,
+        ]).then(() => undefined),
     })
-    expect(merged?.paths).toEqual(["knowledge/services/b.md"])
-    expect(merged?.conflicts).toEqual([])
+    expect(committed).toMatchObject({ root: "docs/context", base: tip.sha })
+    expect(
+      (
+        await nativeGit(remote, [
+          "diff-tree",
+          "-r",
+          "--name-only",
+          "--no-commit-id",
+          tip.sha,
+          committed?.sha ?? "",
+        ])
+      )
+        .toString()
+        .trim(),
+    ).toBe("docs/context/knowledge/services/b.md")
+  })
+
+  it("asks the resolver for a conflict and commits only its resolution", async () => {
+    await writeFile(join(directory, "docs/context/AGENTS.md"), "# Tip\n")
+    const tip = await commitOutside("export {}\n")
+    let asked: unknown
+    const committed = await prepareGitMerge({
+      pack: tip,
+      previousSha: base.sha,
+      files: [{ path: "AGENTS.md", content: "# Incoming\n" }],
+      deletePaths: [],
+      resolve: async (conflicts) => {
+        asked = conflicts
+        return [{ path: "AGENTS.md", content: "# Resolved\n" }]
+      },
+      subject: "Merge",
+      createdAt: "2026-01-01T00:00:00Z",
+      read: null,
+      publish: async () => {},
+    })
+    expect(asked).toEqual([
+      {
+        path: "AGENTS.md",
+        base: "# Context\n",
+        current: "# Tip\n",
+        incoming: "# Incoming\n",
+      },
+    ])
+    expect(committed?.base).toBe(tip.sha)
+    // A resolution for a path that the merge does not change is refused.
+    await expect(
+      prepareGitMerge({
+        pack: tip,
+        previousSha: base.sha,
+        files: [{ path: "AGENTS.md", content: "# Incoming\n" }],
+        deletePaths: [],
+        resolve: async () => [
+          { path: "AGENTS.md", content: "# Resolved\n" },
+          { path: "knowledge/services/a.md", content: "# Changed\n" },
+        ],
+        subject: "Merge",
+        createdAt: "2026-01-01T00:00:00Z",
+        read: null,
+        publish: async () => {},
+      }),
+    ).rejects.toThrow("Invalid write tree")
   })
 })

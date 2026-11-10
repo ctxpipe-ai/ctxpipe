@@ -2,22 +2,17 @@ import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
 import { unbornBootstrapBindingSchema } from "../../domain/workspaces/bootstrap-input.js"
-import {
-  getUnbornBootstrapWorkspace,
-  revisionHasCtxpipeContent,
-} from "../../domain/workspaces/bootstrap-unborn.js"
+import { revisionHasCtxpipeContent } from "../../domain/workspaces/bootstrap-unborn.js"
 import {
   BOOTSTRAP_SKILL_PATH,
   bootstrapWorkspaceFiles,
 } from "../../domain/workspaces/bootstrap.js"
-import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
   sameWorkspaceRevision,
   type WorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
-import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import {
   CTXPIPE_CONTENT_FOLDERS,
   hasCtxpipeContent,
@@ -34,6 +29,9 @@ import {
 import {
   acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
+  completeWorkspaceWrite,
+  prepareUnbornWorkspaceCommit,
+  prepareWorkspaceWriteCommit,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { isBootstrapAllowedPath } from "../../domain/workspaces/write-jobs.js"
@@ -42,30 +40,17 @@ import {
   adoptInitializedBootstrapRevision,
   persistBoundWriteJob,
   persistUnbornBootstrapJob,
-  persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
-import {
-  persistWriteJobCommitSha,
-  persistWriteJobStatus,
-} from "../../models/workspaces.js"
+import { persistWriteJobStatus } from "../../models/workspaces.js"
 import {
   listTreeBlobs,
   packRootTree,
   readGitFiles,
   withGitDirectory,
 } from "../../services/git/pack.js"
-import {
-  commitUnbornGitTree,
-  stageUnbornGitFiles,
-  validateUnbornGitTree,
-} from "../../services/git/unborn-tree.js"
-import {
-  commitGitTree,
-  stageGitFiles,
-  validateGitTree,
-} from "../../services/git/write-tree.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
@@ -139,64 +124,32 @@ export const workspaceBootstrap = defineWorkflow(
                 : { committed: false as const, reason: "no_changes" as const },
             }
           }
-          const files = await step.run(
-            { name: "transform-unborn" },
-            async () => {
-              const workspace = await getUnbornBootstrapWorkspace(
-                queued.bootstrapBinding,
-              )
-              // A new repository gets the format file in its bootstrap
-              // commit (ADR-053).
-              return [
-                ...bootstrapWorkspaceFiles({
-                  displayName: workspace.displayName,
-                  existing: new Map(),
-                }),
-                workspaceFormatFile(),
-              ]
-            },
-          )
-          const staged = await step.run({ name: "stage-unborn" }, () =>
-            stageUnbornGitFiles(
-              files,
-              workspaceRootPath(queued.bootstrapBinding),
-            ),
-          )
-          await step.run({ name: "validate-unborn" }, () =>
-            validateUnbornGitTree(
-              staged,
-              files
-                .filter(
-                  (file) =>
-                    isBootstrapAllowedPath(file.path) ||
-                    file.path === WORKSPACE_FORMAT_PATH,
-                )
-                .map((file) => file.path),
-              workspaceRootPath(queued.bootstrapBinding),
-            ),
-          )
-          const subject = await step.run(
-            { name: "commit-subject-unborn" },
+          // One step makes the first commit and pushes it to its job ref: no
+          // step output holds a file (CTX-1239).
+          const committed = await runJobRefStep(
+            step,
+            queued.jobId,
+            { name: "prepare-commit-unborn" },
             () =>
-              generateCommitSubject({
-                repoName:
-                  githubRepoFullNameFromWorkspaceUrl(
-                    queued.bootstrapBinding.remote.url,
-                  )?.split("/")[1] ?? queued.bootstrapBinding.remote.url,
-                trigger: "bootstrap",
-                fileNames: files.map((file) => file.path),
-              }),
-          )
-          const committed = await step.run(
-            { name: "commit-unborn" },
-            async () => {
-              const pack = await commitUnbornGitTree(staged, {
-                subject,
-                createdAt: run.createdAt,
-              })
-              await persistWriteJobPreparedCommit(queued.jobId, pack.sha)
-              return pack
-            },
+              prepareUnbornWorkspaceCommit(
+                queued,
+                {
+                  // A new repository gets the format file in its bootstrap
+                  // commit (ADR-053).
+                  files: (displayName) => [
+                    ...bootstrapWorkspaceFiles({
+                      displayName,
+                      existing: new Map(),
+                    }),
+                    workspaceFormatFile(),
+                  ],
+                  allowedPath: (path) =>
+                    isBootstrapAllowedPath(path) ||
+                    path === WORKSPACE_FORMAT_PATH,
+                  createdAt: run.createdAt,
+                },
+                env,
+              ),
           )
           for (;;) {
             const pushed = await step.run(
@@ -262,7 +215,11 @@ export const workspaceBootstrap = defineWorkflow(
             )
           })
           await step.run({ name: "complete-unborn" }, () =>
-            persistWriteJobCommitSha(queued.jobId, committed.sha),
+            completeWorkspaceWrite(
+              { ...queued, remote: queued.bootstrapBinding.remote },
+              committed.sha,
+              env,
+            ),
           )
           return {
             kind: "completed" as const,
@@ -322,8 +279,9 @@ export const workspaceBootstrap = defineWorkflow(
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
           >
           for (;;) {
-            const candidate = await step.run({ name: "acquire-revision" }, () =>
-              acquireWorkspaceWriteRevision(input, revision, env),
+            const candidate = await step.run(
+              { name: "acquire-revision-v2" },
+              () => acquireWorkspaceWriteRevision(input, revision, env),
             )
             if (candidate) {
               acquired = candidate
@@ -337,52 +295,83 @@ export const workspaceBootstrap = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
-          const files = await step.run(
-            { name: "transform-bootstrap" },
-            async () => {
-              const existing = new Map(
-                (
-                  await readGitFiles(
-                    acquired.pack,
-                    (path) =>
-                      ["AGENTS.md", BOOTSTRAP_SKILL_PATH].includes(path),
-                    undefined,
-                    read,
-                  )
-                ).map((file) => [file.path, file.content]),
-              )
-              // A repository with no ctxpipe content is new, so the bootstrap
-              // commit writes the format file. A repository with ctxpipe
-              // content keeps its format (ADR-053).
-              const isNew = !hasCtxpipeContent(
-                (
-                  await withGitDirectory(
-                    acquired.pack.sha,
-                    async (directory) => {
-                      const tree = await packRootTree(directory, acquired.pack)
-                      return tree
-                        ? listTreeBlobs(
-                            directory,
-                            tree,
-                            CTXPIPE_CONTENT_FOLDERS,
-                          )
-                        : []
-                    },
-                    acquired.pack,
-                    read,
-                  )
-                ).map((blob) => blob.path),
-              )
-              return [
-                ...bootstrapWorkspaceFiles({
-                  displayName: acquired.displayName,
-                  existing,
-                }).filter((file) => existing.get(file.path) !== file.content),
-                ...(isNew ? [workspaceFormatFile()] : []),
-              ]
-            },
+          // One step makes the change, commits it, and pushes the commit to
+          // its job ref: no step output holds a file (CTX-1239).
+          const committed = await runJobRefStep(
+            step,
+            input.jobId,
+            { name: "prepare-commit" },
+            () =>
+              prepareWorkspaceWriteCommit(
+                input,
+                revision,
+                acquired.pack,
+                {
+                  change: async () => {
+                    const existing = new Map(
+                      (
+                        await readGitFiles(
+                          acquired.pack,
+                          (path) =>
+                            ["AGENTS.md", BOOTSTRAP_SKILL_PATH].includes(path),
+                          undefined,
+                          read,
+                        )
+                      ).map((file) => [file.path, file.content]),
+                    )
+                    // A repository with no ctxpipe content is new, so the bootstrap
+                    // commit writes the format file. A repository with ctxpipe
+                    // content keeps its format (ADR-053).
+                    const isNew = !hasCtxpipeContent(
+                      (
+                        await withGitDirectory(
+                          acquired.pack.sha,
+                          async (directory) => {
+                            const tree = await packRootTree(
+                              directory,
+                              acquired.pack,
+                            )
+                            return tree
+                              ? listTreeBlobs(
+                                  directory,
+                                  tree,
+                                  CTXPIPE_CONTENT_FOLDERS,
+                                )
+                              : []
+                          },
+                          acquired.pack,
+                          read,
+                        )
+                      ).map((blob) => blob.path),
+                    )
+                    const files = [
+                      ...bootstrapWorkspaceFiles({
+                        displayName: acquired.displayName,
+                        existing,
+                      }).filter(
+                        (file) => existing.get(file.path) !== file.content,
+                      ),
+                      ...(isNew ? [workspaceFormatFile()] : []),
+                    ]
+                    if (
+                      files.some(
+                        (file) =>
+                          !isBootstrapAllowedPath(file.path) &&
+                          file.path !== WORKSPACE_FORMAT_PATH,
+                      )
+                    )
+                      throw new Error(
+                        "Bootstrap path is outside its allowed files",
+                      )
+                    return { files, deletePaths: [] }
+                  },
+                  subject: { trigger: "bootstrap" },
+                  createdAt: run.createdAt,
+                },
+                env,
+              ),
           )
-          if (!files.length) {
+          if (!committed) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
@@ -398,44 +387,6 @@ export const workspaceBootstrap = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
-          const staged = await step.run({ name: "stage" }, () => {
-            if (
-              files.some(
-                (file) =>
-                  !isBootstrapAllowedPath(file.path) &&
-                  file.path !== WORKSPACE_FORMAT_PATH,
-              )
-            )
-              throw new Error("Bootstrap path is outside its allowed files")
-            return stageGitFiles(acquired.pack, files, [], read)
-          })
-          await step.run({ name: "validate" }, () =>
-            validateGitTree(
-              staged,
-              files.map((file) => file.path),
-              {},
-              read,
-            ),
-          )
-          const subject = await step.run({ name: "commit-subject" }, () =>
-            generateCommitSubject({
-              repoName: repositoryName.split("/")[1] ?? repositoryName,
-              trigger: "bootstrap",
-              fileNames: files.map((file) => file.path),
-            }),
-          )
-          const committed = await step.run({ name: "commit" }, async () => {
-            const pack = await commitGitTree(
-              staged,
-              {
-                subject,
-                createdAt: run.createdAt,
-              },
-              read,
-            )
-            await persistWriteJobPreparedCommit(input.jobId, pack.sha)
-            return pack
-          })
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
             pushed = await step.run(
@@ -453,7 +404,7 @@ export const workspaceBootstrap = defineWorkflow(
           }
           if (!pushed.pushed) {
             const handoff = await step.run(
-              { name: "capture-semantic-handoff" },
+              { name: "capture-semantic-handoff-v2" },
               () =>
                 captureSemanticHandoff(
                   input,
@@ -476,9 +427,10 @@ export const workspaceBootstrap = defineWorkflow(
               { name: "semantic-merge-child" },
             )
             await step.run({ name: "complete-merged-result" }, () =>
-              persistWriteJobCommitSha(
-                input.jobId,
+              completeWorkspaceWrite(
+                { ...input, remote: input.revision.remote },
                 result.committed ? result.commitSha : null,
+                env,
               ),
             )
             return result
@@ -498,7 +450,11 @@ export const workspaceBootstrap = defineWorkflow(
             )
           })
           await step.run({ name: "complete" }, () =>
-            persistWriteJobCommitSha(input.jobId, committed.sha),
+            completeWorkspaceWrite(
+              { ...input, remote: input.revision.remote },
+              committed.sha,
+              env,
+            ),
           )
           return { committed: true as const, commitSha: committed.sha }
         }

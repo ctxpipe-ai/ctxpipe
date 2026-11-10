@@ -1,7 +1,6 @@
 import { z } from "zod"
 
 import { parseEnv } from "../../config/env.js"
-import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { connectorMirrorContentSchema } from "../../domain/workspaces/connector-mirror-input.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
@@ -17,30 +16,22 @@ import {
 import {
   acquireWorkspaceWriteRevision,
   completedWorkspaceWrite,
+  completeWorkspaceWrite,
+  prepareWorkspaceWriteCommit,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
-import {
-  persistBoundWriteJob,
-  persistWriteJobPreparedCommit,
-} from "../../models/workspace-write-jobs.js"
-import {
-  persistWriteJobCommitSha,
-  persistWriteJobStatus,
-} from "../../models/workspaces.js"
+import { persistBoundWriteJob } from "../../models/workspace-write-jobs.js"
+import { persistWriteJobStatus } from "../../models/workspaces.js"
 import { gitFileBytes } from "../../services/git/file-change.js"
 import {
   nativeGit,
   packRootTree,
   withGitDirectory,
 } from "../../services/git/pack.js"
-import {
-  commitGitTree,
-  stageGitFiles,
-  validateGitTree,
-} from "../../services/git/write-tree.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
@@ -107,8 +98,9 @@ export const workspaceConnectorMirror = defineWorkflow(
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
           >
           for (;;) {
-            const candidate = await step.run({ name: "acquire-revision" }, () =>
-              acquireWorkspaceWriteRevision(input, revision, env),
+            const candidate = await step.run(
+              { name: "acquire-revision-v2" },
+              () => acquireWorkspaceWriteRevision(input, revision, env),
             )
             if (candidate) {
               acquired = candidate
@@ -122,49 +114,68 @@ export const workspaceConnectorMirror = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
-          const changes = await step.run(
-            { name: "transform-connector-mirror" },
+          // One step makes the change, commits it, and pushes the commit to
+          // its job ref: no step output holds a file (CTX-1239).
+          const committed = await runJobRefStep(
+            step,
+            input.jobId,
+            { name: "prepare-commit" },
             () =>
-              withGitDirectory(
-                revision.sha,
-                async (directory) => {
-                  const tree = await packRootTree(directory, acquired.pack)
-                  const paths = tree
-                    ? (
-                        await nativeGit(directory, [
-                          "ls-tree",
-                          "-r",
-                          "--name-only",
-                          "-z",
-                          tree,
-                        ])
-                      )
-                        .toString()
-                        .split("\0")
-                    : []
-                  const files: typeof input.files = []
-                  for (const file of input.files) {
-                    const existing = paths.includes(file.path)
-                      ? await nativeGit(directory, [
-                          "show",
-                          `${tree}:${file.path}`,
-                        ])
-                      : null
-                    if (!existing?.equals(gitFileBytes(file))) files.push(file)
-                  }
-                  return {
-                    files,
-                    deletePaths: input.deletePaths.filter((path) =>
-                      paths.includes(path),
-                    ),
-                  }
-                },
+              prepareWorkspaceWriteCommit(
+                input,
+                revision,
                 acquired.pack,
-                read,
+                {
+                  change: async () => {
+                    return withGitDirectory(
+                      revision.sha,
+                      async (directory) => {
+                        const tree = await packRootTree(
+                          directory,
+                          acquired.pack,
+                        )
+                        const paths = tree
+                          ? (
+                              await nativeGit(directory, [
+                                "ls-tree",
+                                "-r",
+                                "--name-only",
+                                "-z",
+                                tree,
+                              ])
+                            )
+                              .toString()
+                              .split("\0")
+                          : []
+                        const files: typeof input.files = []
+                        for (const file of input.files) {
+                          const existing = paths.includes(file.path)
+                            ? await nativeGit(directory, [
+                                "show",
+                                `${tree}:${file.path}`,
+                              ])
+                            : null
+                          if (!existing?.equals(gitFileBytes(file)))
+                            files.push(file)
+                        }
+                        return {
+                          files,
+                          deletePaths: input.deletePaths.filter((path) =>
+                            paths.includes(path),
+                          ),
+                        }
+                      },
+                      acquired.pack,
+                      read,
+                    )
+                  },
+                  subject: { trigger: "connector_mirror" },
+                  createdAt: run.createdAt,
+                },
+                env,
               ),
           )
-          const files = changes.files
-          if (!files.length && !changes.deletePaths.length) {
+          if (!committed) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
@@ -180,39 +191,6 @@ export const workspaceConnectorMirror = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
-          const staged = await step.run({ name: "stage" }, () =>
-            stageGitFiles(acquired.pack, files, changes.deletePaths, read),
-          )
-          await step.run({ name: "validate" }, () =>
-            validateGitTree(
-              staged,
-              [...files.map((file) => file.path), ...changes.deletePaths],
-              {},
-              read,
-            ),
-          )
-          const subject = await step.run({ name: "commit-subject" }, () =>
-            generateCommitSubject({
-              repoName: repositoryName.split("/")[1] ?? repositoryName,
-              trigger: "connector_mirror",
-              fileNames: [
-                ...files.map((file) => file.path),
-                ...changes.deletePaths,
-              ],
-            }),
-          )
-          const committed = await step.run({ name: "commit" }, async () => {
-            const pack = await commitGitTree(
-              staged,
-              {
-                subject,
-                createdAt: run.createdAt,
-              },
-              read,
-            )
-            await persistWriteJobPreparedCommit(input.jobId, pack.sha)
-            return pack
-          })
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
             pushed = await step.run(
@@ -230,7 +208,7 @@ export const workspaceConnectorMirror = defineWorkflow(
           }
           if (!pushed.pushed) {
             const handoff = await step.run(
-              { name: "capture-semantic-handoff" },
+              { name: "capture-semantic-handoff-v2" },
               () =>
                 captureSemanticHandoff(input, revision, committed, env, "host"),
             )
@@ -240,9 +218,10 @@ export const workspaceConnectorMirror = defineWorkflow(
               { name: "semantic-merge-child" },
             )
             await step.run({ name: "complete-merged-result" }, () =>
-              persistWriteJobCommitSha(
-                input.jobId,
+              completeWorkspaceWrite(
+                { ...input, remote: input.revision.remote },
                 result.committed ? result.commitSha : null,
+                env,
               ),
             )
             return result
@@ -262,7 +241,11 @@ export const workspaceConnectorMirror = defineWorkflow(
             )
           })
           await step.run({ name: "complete" }, () =>
-            persistWriteJobCommitSha(input.jobId, committed.sha),
+            completeWorkspaceWrite(
+              { ...input, remote: input.revision.remote },
+              committed.sha,
+              env,
+            ),
           )
           return { committed: true as const, commitSha: committed.sha }
         }

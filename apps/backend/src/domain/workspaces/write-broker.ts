@@ -1,29 +1,43 @@
 import type { Env } from "../../config/env.js"
 import { getRepoWriteCloneToken } from "../../models/github-installation.js"
 import { ingestionRunStates } from "../../models/ingestion-runs.js"
-import { persistSemanticHandoff } from "../../models/workspace-write-jobs.js"
 import {
+  discardWriteJobPreparedCommit,
+  getWriteJobRefState,
+  listWriteJobStatuses,
+  persistSemanticHandoff,
+  persistWriteJobPreparedCommit,
+} from "../../models/workspace-write-jobs.js"
+import {
+  getWorkspaceById,
   getWorkspaceWriteAdmission,
   persistWriteStatus,
 } from "../../models/workspaces.js"
+import { getLogger } from "../../observability/logger.js"
 import {
   gitRemoteEnvironment,
   resolveGitRemoteTip,
 } from "../../services/git/clone-tree.js"
 import {
-  type GitPack,
+  fetchGitCommits,
+  type GitWriteCommit,
   nativeGit,
+  type PublishGitCommit,
+  readCommitHeader,
   readGitPackFromRemote,
   withGitDirectory,
+  writeCommitPack,
 } from "../../services/git/pack.js"
 import { readUnbornRemoteBranch } from "../../services/git/unborn-tree.js"
 import {
   cleanUpIngestRefs,
+  deleteRemoteRefs,
   deleteRunIngestRefs,
   findStepCommit,
   IngestRefRefusedError,
   type IngestRemote,
   ingestRunRefTip,
+  listRemoteRefs,
   listStepFiles,
   mergeIngestPublish,
   type PushIngestStepInput,
@@ -41,7 +55,6 @@ import {
 import {
   resolveRepositoryReadCredential,
   resolveWorkspaceReadRevision,
-  workspaceGitRead,
 } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 import {
@@ -97,7 +110,7 @@ export async function pushWorkspaceCommit(
     mirror?: ConnectorMirrorSource
   },
   revision: WorkspaceRevision,
-  committed: GitPack,
+  committed: GitWriteCommit,
   env: Env,
 ): Promise<void> {
   const repositoryName = githubRepoFullNameFromWorkspaceUrl(revision.remote.url)
@@ -119,7 +132,7 @@ export async function pushWorkspaceCommit(
   })
   if (tip?.branch !== revision.defaultBranch)
     throw new Error("Default branch changed before push")
-  if (await remoteContainsCommit(revision, committed, tip.sha, readToken))
+  if (await remoteContainsCommit(revision, committed.sha, tip.sha, readToken))
     return
   if (workspace.writeStatus !== "writable")
     throw new WorkspaceWriteAccessUnavailableError()
@@ -132,7 +145,7 @@ export async function pushWorkspaceCommit(
     await assertConnectorMirrorBinding(input.orgId, input.mirror, revision)
     await assertConnectorMirrorScope(
       input.mirror,
-      { ...committed, sha: revision.sha },
+      { ...writeCommitPack(committed, revision.remote.url), sha: revision.sha },
       read,
     )
   }
@@ -204,7 +217,8 @@ export async function pushWorkspaceCommit(
         throw error
       })
     },
-    committed,
+    // The commit comes from its job ref (CTX-1235).
+    writeCommitPack(committed, revision.remote.url),
     read,
   )
 }
@@ -223,39 +237,44 @@ function sameWriteBinding(
   )
 }
 
+/**
+ * Whether the history of the remote tip holds `sha`, a commit on top of
+ * `revision.sha`. The directory first gets `revision.sha` at depth 1, so the
+ * fetch of the tip brings only the commits between the two, and exactly the
+ * commits that the tip reaches: `sha` need not be on the remote.
+ */
 async function remoteContainsCommit(
   revision: { remote: WorkspaceRevision["remote"]; sha: string | null },
-  committed: GitPack,
+  sha: string,
   tipSha: string,
   token: string | undefined,
 ): Promise<boolean> {
-  if (tipSha === committed.sha) return true
+  if (tipSha === sha) return true
   if (tipSha === revision.sha) return false
   return withGitDirectory(
-    committed.sha,
+    tipSha,
     async (directory) => {
+      if (revision.sha)
+        await fetchGitCommits(directory, {
+          url: revision.remote.url,
+          shas: [revision.sha],
+          token,
+        })
       await nativeGit(
         directory,
         ["fetch", "--", revision.remote.url, tipSha],
         undefined,
         gitRemoteEnvironment({ url: revision.remote.url, token }),
       )
-      try {
-        await nativeGit(directory, [
-          "merge-base",
-          "--is-ancestor",
-          committed.sha,
-          tipSha,
-        ])
-        return true
-      } catch (error) {
-        if ((error as { code?: number }).code === 1) return false
-        throw error
-      }
+      const found = await nativeGit(
+        directory,
+        ["cat-file", "--batch-check=%(objecttype)"],
+        `${sha}\n`,
+      )
+      return found.toString().trim() === "commit"
     },
-    committed,
-    // The caller checked that `revision` has the bound remote.
-    { url: revision.remote.url, token: async () => token },
+    undefined,
+    null,
   )
 }
 
@@ -266,7 +285,7 @@ export async function publishWorkspaceWriteRevision(
     mirror?: ConnectorMirrorSource
   },
   revision: WorkspaceRevision,
-  committed: GitPack,
+  committed: GitWriteCommit,
   env: Env,
 ): Promise<WorkspaceRevision> {
   // A webhook or another writer may have advanced desired state after our push.
@@ -283,7 +302,7 @@ export async function publishWorkspaceWriteRevision(
   if (
     !(await remoteContainsCommit(
       revision,
-      committed,
+      committed.sha,
       resolved.revision.sha,
       resolved.token,
     ))
@@ -373,7 +392,11 @@ export async function attemptWorkspaceCommit(
   }
 }
 
-/** Capture the unpushed native delta and current binding as an immutable child command. */
+/**
+ * Capture the unpushed write and the current binding as an immutable child
+ * command. The child input names the candidate commit on its job ref, never
+ * its files (CTX-1239): the child reads the change from Git.
+ */
 export async function captureSemanticHandoff(
   input: {
     orgId: string
@@ -382,37 +405,20 @@ export async function captureSemanticHandoff(
     mirror?: ConnectorMirrorSource
   },
   revision: WorkspaceRevision,
-  committed: GitPack,
+  committed: GitWriteCommit,
   env: Env,
   origin: WriteOrigin,
-  /** Paths of the delta that must not go onto the new tip. */
+  /** Paths of the change that must not go onto the new tip. */
   dropPaths?: (nextRevision: WorkspaceRevision) => Promise<string[]>,
 ) {
-  const { readGitCommitChanges } =
-    await import("../../services/git/write-tree.js")
-  // The refresh comes first: it proves that the remote is the bound
-  // repository before the delta read sends it a credential.
   const nextRevision = await refreshWorkspaceWriteRevision(input, revision, env)
-  const delta = await readGitCommitChanges(
-    committed,
-    revision.sha,
-    workspaceGitRead({
-      orgId: input.orgId,
-      env,
-      remote: nextRevision.remote,
-    }),
-  )
-  const dropped = new Set(dropPaths ? await dropPaths(nextRevision) : [])
-  const changes = {
-    files: delta.files.filter((file) => !dropped.has(file.path)),
-    deletePaths: delta.deletePaths.filter((path) => !dropped.has(path)),
-  }
+  const dropped = dropPaths ? await dropPaths(nextRevision) : []
   const handoff = await persistSemanticHandoff({
     jobId: input.jobId,
     revision,
     nextRevision,
     candidateSha: committed.sha,
-    ...changes,
+    ...(dropped.length ? { dropPaths: dropped } : {}),
     mirror: input.mirror,
   })
   return {
@@ -423,11 +429,10 @@ export async function captureSemanticHandoff(
     handoff: {
       ownerRunId: handoff.ownerRunId,
       candidateSha: handoff.candidateSha,
+      ...(handoff.dropPaths ? { dropPaths: handoff.dropPaths } : {}),
     },
     revision: handoff.revision,
     previousSha: revision.sha,
-    files: handoff.files,
-    deletePaths: handoff.deletePaths,
     ...(input.mirror ? { mirror: input.mirror } : {}),
   }
 }
@@ -444,7 +449,7 @@ export async function pushUnbornWorkspaceCommit(
     workspaceId: string
     bootstrapBinding: UnbornBootstrapBinding
   },
-  committed: GitPack,
+  committed: GitWriteCommit,
   env: Env,
 ): Promise<UnbornPushResult> {
   const binding = input.bootstrapBinding
@@ -467,7 +472,7 @@ export async function pushUnbornWorkspaceCommit(
     if (
       await remoteContainsCommit(
         { remote: binding.remote, sha: null },
-        committed,
+        committed.sha,
         tip.sha,
         readToken,
       )
@@ -550,8 +555,9 @@ export async function pushUnbornWorkspaceCommit(
         )
         return { kind: "pushed" }
       },
-      committed,
-      null,
+      // The commit comes from its job ref (CTX-1235).
+      writeCommitPack(committed, binding.remote.url),
+      { url: binding.remote.url, token: async () => readToken },
     )
   } catch (error) {
     const reason =
@@ -645,9 +651,15 @@ async function admitIngestJob(
   }
 }
 
-async function ingestWriteRemote(
+/** A connected GitHub repository that an admission names. */
+type BrokerRemote = Pick<
+  AdmittedIngestRemote,
+  "url" | "connectionId" | "repositoryName"
+>
+
+async function brokerWriteRemote(
   orgId: string,
-  remote: AdmittedIngestRemote,
+  remote: BrokerRemote,
   env: Env,
 ): Promise<IngestRemote> {
   const token = await getRepoWriteCloneToken(orgId, env, {
@@ -668,9 +680,9 @@ async function ingestWriteRemote(
   }
 }
 
-async function ingestReadRemote(
+async function brokerReadRemote(
   orgId: string,
-  remote: AdmittedIngestRemote,
+  remote: BrokerRemote,
   env: Env,
 ): Promise<IngestRemote> {
   const token = await resolveRepositoryReadCredential({
@@ -697,7 +709,7 @@ export async function pushWorkspaceIngestStep(
     input.job.workspaceId,
     input.job,
   )
-  const remote = await ingestWriteRemote(input.orgId, admitted, env)
+  const remote = await brokerWriteRemote(input.orgId, admitted, env)
   // The root folder comes from the Workspace, never from the caller.
   return pushIngestStep({
     ...input,
@@ -720,7 +732,7 @@ export async function mergeWorkspaceIngestPublish(
   env: Env,
 ) {
   const admitted = await admitIngestJob(input.orgId, input.workspaceId)
-  const remote = await ingestReadRemote(input.orgId, admitted, env)
+  const remote = await brokerReadRemote(input.orgId, admitted, env)
   return mergeIngestPublish({ ...input, remote })
 }
 
@@ -737,7 +749,7 @@ export async function pushWorkspaceIngestAssemble(
     input.job.workspaceId,
     input.job,
   )
-  const remote = await ingestWriteRemote(input.orgId, admitted, env)
+  const remote = await brokerWriteRemote(input.orgId, admitted, env)
   return pushIngestAssemble({ ...input, rootPath: admitted.rootPath, remote })
 }
 
@@ -759,7 +771,7 @@ async function ingestRefReadRemote(
     input.job.workspaceId,
     input.job,
   )
-  return ingestReadRemote(input.orgId, admitted, env)
+  return brokerReadRemote(input.orgId, admitted, env)
 }
 
 /**
@@ -824,7 +836,7 @@ export async function listWorkspaceIngestStepFiles(
     input.job,
   )
   return listStepFiles({
-    remote: await ingestReadRemote(input.orgId, admitted, env),
+    remote: await brokerReadRemote(input.orgId, admitted, env),
     runId: input.job.runId,
     pinnedRevision: input.pinnedRevision,
     tip: input.tip,
@@ -842,7 +854,7 @@ export async function deleteWorkspaceIngestRefs(
     input.job,
   )
   return deleteRunIngestRefs({
-    remote: await ingestWriteRemote(input.orgId, admitted, env),
+    remote: await brokerWriteRemote(input.orgId, admitted, env),
     runId: input.job.runId,
     workspaceId: input.job.workspaceId,
   })
@@ -858,10 +870,325 @@ export async function cleanUpWorkspaceIngestRefs(
 ): Promise<string[]> {
   const admitted = await admitIngestJob(input.orgId, input.workspaceId)
   const { deleted } = await cleanUpIngestRefs({
-    remote: await ingestReadRemote(input.orgId, admitted, env),
-    pushRemote: () => ingestWriteRemote(input.orgId, admitted, env),
+    remote: await brokerReadRemote(input.orgId, admitted, env),
+    pushRemote: () => brokerWriteRemote(input.orgId, admitted, env),
     now: input.now,
     runStates: (runIds) => ingestionRunStates(input.orgId, runIds),
   })
   return deleted
+}
+
+const WRITE_REF_ROOT = "refs/ctxpipe/write/"
+const WRITE_JOB_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
+const FULL_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
+
+/**
+ * The job ref of a Workspace write commit: `refs/ctxpipe/write/<jobId>/<sha>`
+ * (CTX-1235). The SHA is in the name, so the ref never moves: a replay
+ * pushes the same ref again, and a second execution of the run cannot
+ * replace it. The GitHub webhook ignores `refs/ctxpipe/*`.
+ */
+export function writeJobRef(jobId: string, sha: string): string {
+  if (!WRITE_JOB_ID.test(jobId) || !FULL_SHA.test(sha))
+    throw new Error("A write job ref needs a plain job id and a full SHA")
+  return `${WRITE_REF_ROOT}${jobId}/${sha}`
+}
+
+function parseWriteJobRef(name: string): { jobId: string; sha: string } | null {
+  if (!name.startsWith(WRITE_REF_ROOT)) return null
+  const [jobId = "", sha = "", ...rest] = name
+    .slice(WRITE_REF_ROOT.length)
+    .split("/")
+  return !rest.length && WRITE_JOB_ID.test(jobId) && FULL_SHA.test(sha)
+    ? { jobId, sha }
+    : null
+}
+
+/** A write job: its org, its Workspace, and the remote that its run reads. */
+type WriteJob = {
+  orgId: string
+  workspaceId: string
+  jobId: string
+  remote: { url: string; connectionId: string | null }
+}
+
+/**
+ * The checks that a job ref push of a write job needs before any content
+ * leaves the worker. `guard` adds the checks of the job kind (the binding and
+ * the scope of a connector mirror).
+ */
+type WriteJobPush = WriteJob & { guard?: () => Promise<void> }
+
+/**
+ * Admission of the job refs of a write job, before any credential
+ * (CTX-1235). The job names a Workspace, never a URL: the URL comes from the
+ * Workspace row, so a job reaches only the Workspace repository. The job must
+ * be a job of that Workspace in the org, and the Workspace must still be
+ * bound to the remote that the run reads.
+ */
+async function admitWriteJob(job: WriteJob) {
+  const state = await getWriteJobRefState(job.jobId)
+  if (!state || state.workspaceId !== job.workspaceId)
+    throw new Error("The write job is not a job of the Workspace")
+  const workspace = await getWorkspaceById(job.workspaceId, job.orgId)
+  if (
+    !workspace ||
+    workspace.workspaceRepositoryUrl !== job.remote.url ||
+    workspace.githubConnectionId !== job.remote.connectionId
+  )
+    throw new Error("Workspace write binding changed")
+  const remote = workspaceBrokerRemote(workspace)
+  if (!remote)
+    throw new Error("Write job refs require a connected GitHub repository")
+  return { state, workspace, remote }
+}
+
+/** The connected GitHub repository of a Workspace row, or null. */
+function workspaceBrokerRemote(workspace: {
+  workspaceRepositoryUrl: string
+  githubConnectionId: string | null
+}): BrokerRemote | null {
+  const repositoryName = githubRepoFullNameFromWorkspaceUrl(
+    workspace.workspaceRepositoryUrl,
+  )
+  return repositoryName && workspace.githubConnectionId
+    ? {
+        url: workspace.workspaceRepositoryUrl,
+        connectionId: workspace.githubConnectionId,
+        repositoryName,
+      }
+    : null
+}
+
+/**
+ * Run a write step that pushes its commit to a job ref (CTX-1235). `prepare`
+ * gets the publisher: the broker is the only pusher, and the credential never
+ * leaves it. When the Workspace has no write access, the result is `paused`,
+ * as for `attemptWorkspaceCommit`; a denial that GitHub names makes the
+ * Workspace read-only.
+ */
+async function prepareWithJobRef<T>(
+  job: WriteJobPush,
+  env: Env,
+  prepare: (publish: PublishGitCommit) => Promise<T>,
+): Promise<T | "paused"> {
+  const admitActive = async () => {
+    const admitted = await admitWriteJob(job)
+    if (
+      admitted.state.status !== "running" &&
+      admitted.state.status !== "paused"
+    )
+      throw new Error("The write job is not active")
+    if (admitted.workspace.writeStatus !== "writable")
+      throw new WorkspaceWriteAccessUnavailableError()
+    return admitted
+  }
+  const publish: PublishGitCommit = async (directory, sha) => {
+    const admitted = await admitActive()
+    const remote = await brokerWriteRemote(job.orgId, admitted.remote, env)
+    await job.guard?.()
+    // A detach, a relink, or a lost write access can come while GitHub
+    // issues the credential or while the guard reads: check again last,
+    // before any content leaves.
+    await admitActive()
+    await nativeGit(
+      directory,
+      [
+        "push",
+        "--porcelain",
+        "--",
+        remote.url,
+        `${sha}:${writeJobRef(job.jobId, sha)}`,
+      ],
+      undefined,
+      remote.env,
+    ).catch((error: unknown) => {
+      const reason = writeAccessDenialReason(error)
+      if (reason) throw new WorkspaceWriteAccessUnavailableError(reason)
+      throw error
+    })
+  }
+  try {
+    return await prepare(publish)
+  } catch (error) {
+    if (!(error instanceof WorkspaceWriteAccessUnavailableError)) throw error
+    const workspace = error.readOnlyReason
+      ? await getWorkspaceById(job.workspaceId, job.orgId)
+      : null
+    if (workspace && error.readOnlyReason)
+      await persistWriteStatus(
+        workspace,
+        { writeStatus: "read_only", readOnlyReason: error.readOnlyReason },
+        job.orgId,
+      )
+    return "paused"
+  }
+}
+
+/**
+ * The commit that an earlier execution of a prepare step recorded for the job
+ * (CTX-1235, CTX-1239). The step records its commit on the job before the
+ * push to the job ref, so each pushed commit is recorded. A recorded commit
+ * that the default branch has is the result too (a run that pushed before
+ * its steps got new names). Else the recorded commit was never pushed, and
+ * `stale` names it. `candidateSha` is the commit of a parent run that a
+ * handoff child starts from; it is not a result. `parent` is the commit that
+ * the step writes on, or null for the first commit of an unborn repository.
+ */
+async function findPreparedCommit(
+  job: WriteJob & { candidateSha?: string },
+  parent: { sha: string | null; root: string },
+  env: Env,
+): Promise<{ commit: GitWriteCommit } | { stale: string } | null> {
+  const admitted = await admitWriteJob(job)
+  const recorded = admitted.state.commitSha
+  if (!recorded || recorded === job.candidateSha) return null
+  const token = await resolveRepositoryReadCredential({
+    orgId: job.orgId,
+    env,
+    remote: job.remote,
+  })
+  const ref = writeJobRef(job.jobId, recorded)
+  const onRef = (
+    await listRemoteRefs(
+      {
+        url: job.remote.url,
+        env: gitRemoteEnvironment({ url: job.remote.url, token }),
+      },
+      ref,
+    )
+  ).some((listed) => listed.name === ref && listed.sha === recorded)
+  const tip = onRef
+    ? null
+    : await resolveGitRemoteTip({ url: job.remote.url, token })
+  if (
+    !onRef &&
+    !(
+      tip &&
+      (await remoteContainsCommit(
+        { remote: job.remote, sha: parent.sha },
+        recorded,
+        tip.sha,
+        token,
+      ))
+    )
+  )
+    return { stale: recorded }
+  const commit: GitWriteCommit = {
+    sha: recorded,
+    tree: "",
+    ...(parent.root ? { root: parent.root } : {}),
+    base: parent.sha,
+  }
+  const { tree, parents } = await withGitDirectory(
+    recorded,
+    (directory) => readCommitHeader(directory, recorded),
+    writeCommitPack(commit, job.remote.url),
+    { url: job.remote.url, token: async () => token },
+  )
+  if (parents.join() !== (parent.sha ?? ""))
+    throw new Error(
+      "The recorded commit of the write job is not a commit on its revision",
+    )
+  return { commit: { ...commit, tree } }
+}
+
+/**
+ * Run the prepare step of a Workspace write (CTX-1235, CTX-1239): the step
+ * makes the content of the write (a transform, a merge, or a model answer),
+ * commits it, records the commit on the job, and pushes it to its job ref.
+ * The step output is the result of `build`: a commit identity and small
+ * metadata, never a file or a Git object.
+ *
+ * A model can answer differently on a replay, so a replay returns the
+ * commit that an earlier execution recorded and pushed: a second
+ * answer cannot make a second commit. A recorded commit that no push sent is
+ * discarded, and `build` runs again. `record` replaces the default record of
+ * the commit on the job (a semantic handoff child records on its parent's
+ * job).
+ */
+export async function prepareRecordedCommit<T>(
+  job: WriteJobPush & { candidateSha?: string },
+  parent: { sha: string | null; root: string },
+  env: Env,
+  build: (publish: PublishGitCommit) => Promise<T>,
+  record: (sha: string) => Promise<unknown> = (sha) =>
+    persistWriteJobPreparedCommit(job.jobId, sha),
+): Promise<T | GitWriteCommit | "paused"> {
+  return prepareWithJobRef<T | GitWriteCommit>(job, env, async (publish) => {
+    const found = await findPreparedCommit(job, parent, env)
+    if (found && "commit" in found) return found.commit
+    // A crash between the record and the push, or a run from before the
+    // new step names: no step reads the recorded commit.
+    if (found) await discardWriteJobPreparedCommit(job.jobId, found.stale)
+    // Record the commit before its push: a commit on a job ref is always
+    // the recorded one, so a replay finds it and asks no model again.
+    return build(async (directory, sha) => {
+      await record(sha)
+      await publish(directory, sha)
+    })
+  })
+}
+
+/**
+ * Deletes the job refs of a write job (the `complete` step). A failure only
+ * logs: the tip check deletes the refs later.
+ */
+export async function deleteWriteJobRefs(job: WriteJob, env: Env) {
+  try {
+    const admitted = await admitWriteJob(job)
+    const refs = await listRemoteRefs(
+      await brokerReadRemote(job.orgId, admitted.remote, env),
+      `${WRITE_REF_ROOT}${job.jobId}/`,
+    )
+    if (refs.length)
+      await deleteRemoteRefs(
+        await brokerWriteRemote(job.orgId, admitted.remote, env),
+        refs,
+      )
+  } catch (error) {
+    getLogger().warn("The job refs of a write job were not deleted", {
+      step: "workspace.write_job_ref_cleanup",
+      workspaceId: job.workspaceId,
+      jobId: job.jobId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+/**
+ * The stale write job ref clean-up of the Workspace tip check (CTX-1235): the
+ * refs of a completed or a failed job of the org. An active job keeps its
+ * refs, and so does a ref of an unknown job: a repository can hold the refs
+ * of a Workspace of another org, and the age of a commit does not tell if
+ * its job is active. It lists with the read credential and asks for the
+ * write credential only to delete.
+ */
+export async function cleanUpWorkspaceWriteRefs(
+  input: { orgId: string; workspaceId: string },
+  env: Env,
+): Promise<string[]> {
+  const workspace = await getWorkspaceById(input.workspaceId, input.orgId)
+  const remote = workspace ? workspaceBrokerRemote(workspace) : null
+  if (!remote) return []
+  const read = await brokerReadRemote(input.orgId, remote, env)
+  const refs = (await listRemoteRefs(read, WRITE_REF_ROOT)).map((ref) => ({
+    ...ref,
+    target: parseWriteJobRef(ref.name),
+  }))
+  if (!refs.length) return []
+  const statuses = await listWriteJobStatuses([
+    ...new Set(refs.flatMap((ref) => (ref.target ? [ref.target.jobId] : []))),
+  ])
+  const stale = refs.filter((ref) => {
+    const status = ref.target ? statuses.get(ref.target.jobId) : undefined
+    return status === "completed" || status === "failed"
+  })
+  if (!stale.length) return []
+  return (
+    await deleteRemoteRefs(
+      await brokerWriteRemote(input.orgId, remote, env),
+      stale,
+    )
+  ).deleted
 }

@@ -144,7 +144,6 @@ async function commitChange(
   await validateGitTree(
     staged,
     [...change.writes.map((write) => write.path), ...change.deletes],
-    undefined,
     null,
   )
   return commitGitTree(staged, input, null)

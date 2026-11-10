@@ -282,7 +282,7 @@ it.each(["valid", "out-of-scope", "empty"] as const)(
             })
           ).data
           const resolveAttempts = attempts.filter(
-            (step) => step.stepName === "resolve-semantic-conflicts",
+            (step) => step.stepName === "prepare-merge-commit",
           )
           const pushed = attempts.find(
             (step) => step.stepName === "broker-push",
@@ -503,9 +503,11 @@ it.each([
                   `${index ? humanTips[index - 1] : f.sha}) git update-ref "$1" ${sha} "$2" ;;`,
               )
               .join("\n")
+            // The hook acts only on the default branch: a job ref push
+            // (CTX-1235) comes before it.
             writeFileSync(
               join(f.remote, "hooks/update"),
-              `#!/bin/sh\nset -e\ncase "$2" in\n${cases}\n*) rm -- "$0" ;;\nesac\n`,
+              `#!/bin/sh\nset -e\n[ "$1" = refs/heads/main ] || exit 0\ncase "$2" in\n${cases}\n*) rm -- "$0" ;;\nesac\n`,
               { mode: 0o755 },
             )
           }
@@ -584,11 +586,16 @@ it.each([
               reconcileWorkspaceWriteJob(`${command.jobId}:semantic`),
             ),
           ).toBeNull()
-          expect(
-            runs.filter(
-              (run) => run.workflowName === "workspace-write-semantic-merge",
-            ),
-          ).toHaveLength(1)
+          const children = runs.filter(
+            (run) => run.workflowName === "workspace-write-semantic-merge",
+          )
+          expect(children).toHaveLength(1)
+          // The child input names the candidate commit on its job ref, not
+          // its files (CTX-1239).
+          expect(children[0]?.input).toMatchObject({
+            handoff: { candidateSha: expect.stringMatching(/^[0-9a-f]{40}$/) },
+          })
+          expect(children[0]?.input).not.toHaveProperty("files")
           const replay = await f.runner.runWorkflow(
             workspaceFileEdit.spec,
             command,
