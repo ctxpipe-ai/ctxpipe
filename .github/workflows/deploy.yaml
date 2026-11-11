@@ -236,12 +236,12 @@ jobs:
       AWS_ACCOUNT: "213102790567"
       ECR_REGION: us-west-2
     steps:
-      # Until aws-core deploys the push role, this login fails. Then the copy
-      # step only checks the sources (a dry run) and warns, so a main deploy
-      # does not fail. After the role exists, the copies start without a
-      # change here.
-      - id: aws
-        continue-on-error: true
+      # The repository variable ECR_MIRROR turns the copy on. A person sets
+      # it to `enabled` after aws-core deploys the push role. Until then, the
+      # copy step only checks the sources (a dry run) and warns. With the
+      # variable set, a failed login or copy fails the job: an ECR push
+      # starts the production deploys, so a failure must show.
+      - if: vars.ECR_MIRROR == 'enabled'
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT }}:role/github-actions-ctxpipe-ecr-push
@@ -258,7 +258,7 @@ jobs:
         env:
           DIGESTS: ${{ needs.ecr_digests.outputs.digests }}
           GH_TOKEN: ${{ github.token }}
-          PUSH: ${{ steps.aws.outcome == 'success' }}
+          PUSH: ${{ vars.ECR_MIRROR == 'enabled' }}
         run: |
           # A late rerun of an older run must not make an older build the
           # newest tagged image, so each attempt checks the head of main.
@@ -273,7 +273,7 @@ jobs:
           if [ "$PUSH" = true ]; then
             aws ecr get-login-password | "$crane" auth login "$ecr" -u AWS --password-stdin
           else
-            echo "::warning::The push role github-actions-ctxpipe-ecr-push could not be assumed: a dry run checks the sources and copies nothing."
+            echo "::warning::The repository variable ECR_MIRROR is not enabled: a dry run checks the sources and copies nothing."
           fi
           # The tags are immutable. A rerun skips a tag that already holds
           # the same digest, and fails on a tag that holds another digest.
