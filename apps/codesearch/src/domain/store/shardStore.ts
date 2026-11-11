@@ -110,8 +110,24 @@ function segment(value: string): string {
   return value
 }
 
+/** `<root>/<orgId>/<repoId>/`: every artifact of a repository. */
+function repositoryPrefix(
+  store: ShardStore,
+  repo: { orgId: string; repoId: string },
+): string {
+  return `${store.root}/${segment(repo.orgId)}/${segment(repo.repoId)}/`
+}
+
+/** `<root>/<orgId>/<repoId>/<checkoutKey>/`: every artifact of a checkout. */
+function checkoutPrefix(
+  store: ShardStore,
+  checkout: { orgId: string; repoId: string; checkoutKey: string },
+): string {
+  return `${repositoryPrefix(store, checkout)}${segment(checkout.checkoutKey)}/`
+}
+
 function addressPrefix(store: ShardStore, address: StoreAddress): string {
-  return `${store.root}/${segment(address.orgId)}/${segment(address.repoId)}/${segment(address.checkoutKey)}/${address.kind}/`
+  return `${checkoutPrefix(store, address)}${address.kind}/`
 }
 
 /** A new generation id. It sorts by time, so a listing shows the newest last. */
@@ -146,8 +162,12 @@ export async function readManifest(
   }
 }
 
-async function listKeys(store: ShardStore, prefix: string): Promise<string[]> {
-  const keys: string[] = []
+/** Every object under a prefix, with the time it was written. */
+async function listObjects(
+  store: ShardStore,
+  prefix: string,
+): Promise<Array<{ key: string; modifiedMs: number }>> {
+  const objects: Array<{ key: string; modifiedMs: number }> = []
   let token: string | undefined
   do {
     const page = await store.client.send(
@@ -158,10 +178,18 @@ async function listKeys(store: ShardStore, prefix: string): Promise<string[]> {
       }),
     )
     for (const object of page.Contents ?? [])
-      if (object.Key) keys.push(object.Key)
+      if (object.Key)
+        objects.push({
+          key: object.Key,
+          modifiedMs: object.LastModified?.getTime() ?? Date.now(),
+        })
     token = page.IsTruncated ? page.NextContinuationToken : undefined
   } while (token)
-  return keys
+  return objects
+}
+
+async function listKeys(store: ShardStore, prefix: string): Promise<string[]> {
+  return (await listObjects(store, prefix)).map((object) => object.key)
 }
 
 /** Deletes the keys. Any key that S3 does not delete is an error. */
@@ -291,4 +319,52 @@ export async function downloadArtifact(
         `Downloaded ${file.name} does not match the manifest (size ${size}, expected ${file.size})`,
       )
   })
+}
+
+/**
+ * Deletes every object under a prefix, then lists the prefix again: the S3
+ * copies are customer data, so a key that stays is an error (fail-closed).
+ */
+async function deletePrefix(store: ShardStore, prefix: string): Promise<void> {
+  await deleteKeys(store, await listKeys(store, prefix))
+  const left = await listKeys(store, prefix)
+  if (left.length > 0)
+    throw new Error(`${left.length} S3 objects stay after the delete`)
+}
+
+/** Deletes all artifacts of a repository: each checkout key and each kind. */
+export async function deleteRepositoryArtifacts(
+  store: ShardStore,
+  repo: { orgId: string; repoId: string },
+): Promise<void> {
+  await deletePrefix(store, repositoryPrefix(store, repo))
+}
+
+/** Deletes all artifacts of one checkout key of a repository. */
+export async function deleteCheckoutArtifacts(
+  store: ShardStore,
+  checkout: { orgId: string; repoId: string; checkoutKey: string },
+): Promise<void> {
+  await deletePrefix(store, checkoutPrefix(store, checkout))
+}
+
+/**
+ * The checkout keys of a repository that have artifacts in S3, each with the
+ * time of its newest object.
+ */
+export async function listCheckoutArtifacts(
+  store: ShardStore,
+  repo: { orgId: string; repoId: string },
+): Promise<Map<string, number>> {
+  const prefix = repositoryPrefix(store, repo)
+  const newest = new Map<string, number>()
+  for (const { key, modifiedMs } of await listObjects(store, prefix)) {
+    const checkoutKey = key.slice(prefix.length).split("/")[0]
+    if (checkoutKey)
+      newest.set(
+        checkoutKey,
+        Math.max(newest.get(checkoutKey) ?? 0, modifiedMs),
+      )
+  }
+  return newest
 }
