@@ -75,8 +75,7 @@ type Databases = {
    * OpenWorkflow driver (the postgres package) sends each unknown URL
    * parameter to the server, which refuses `sslrootcert`.
    */
-  copySourceUrl: string
-  copyTargetUrl: string
+  copy: { sourceUrl: string; targetUrl: string }
   remove: () => Promise<void>
 }
 
@@ -122,8 +121,7 @@ async function localDatabases(workRoot: string): Promise<Databases> {
     sourceUrl: pair.sourceUrl,
     sourceSuperUrl: pair.sourceSuperUrl,
     targetUrl: pair.targetUrl("ctxpipe"),
-    copySourceUrl: pair.sourceUrl,
-    copyTargetUrl: pair.targetUrl("ctxpipe"),
+    copy: { sourceUrl: pair.sourceUrl, targetUrl: pair.targetUrl("ctxpipe") },
     remove: async () => {
       await pair.stop()
       await rm(workRoot, { recursive: true, force: true })
@@ -206,8 +204,7 @@ async function remoteDatabases(host: string, user: string): Promise<Databases> {
     sourceUrl: url(source),
     sourceSuperUrl: url(source),
     targetUrl: url(target),
-    copySourceUrl: copyUrl(source),
-    copyTargetUrl: copyUrl(target),
+    copy: { sourceUrl: copyUrl(source), targetUrl: copyUrl(target) },
     remove,
   }
 }
@@ -346,8 +343,7 @@ async function main(argv: string[]): Promise<number> {
 
     const report = await timed(setup, "copy", () =>
       copyDatabase({
-        sourceUrl: databases.copySourceUrl,
-        targetUrl: databases.copyTargetUrl,
+        ...databases.copy,
         workDir: join(workRoot, "copy"),
         jobs,
       }),

@@ -16,14 +16,6 @@ const bundle = readFileSync(
   "utf8",
 )
 
-function certificates(pem: string): X509Certificate[] {
-  return (
-    pem.match(
-      /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g,
-    ) ?? []
-  ).map((block) => new X509Certificate(block))
-}
-
 describe("RDS CA bundle", () => {
   it("is the global bundle of https://truststore.pki.rds.amazonaws.com", () => {
     expect(createHash("sha256").update(bundle).digest("hex")).toBe(
@@ -32,7 +24,12 @@ describe("RDS CA bundle", () => {
   })
 
   it("holds only Amazon RDS CA certificates, with the us-west-2 roots", () => {
-    const all = certificates(bundle)
+    // The sanity check of a new download: the pin above fixes the bytes.
+    const all = (
+      bundle.match(
+        /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g,
+      ) ?? []
+    ).map((block) => new X509Certificate(block))
 
     expect(all.length).toBeGreaterThan(0)
     for (const certificate of all) {
