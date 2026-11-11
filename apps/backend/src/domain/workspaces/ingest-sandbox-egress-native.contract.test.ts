@@ -831,6 +831,7 @@ describe("the AgentCore ingest sandbox has closed egress", () => {
           const logged = microVm.commandTexts.join("\n")
           expect(logged).not.toContain(fixture.gitToken)
           expect(logged).not.toContain("ingest-capability-")
+          expect(logged).not.toContain("bridge-")
           expect(logged).not.toContain("HTTPS_PROXY")
         } finally {
           microVm.close()
