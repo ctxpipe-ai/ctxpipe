@@ -4,7 +4,7 @@
 # The factory preview workflow (`factory preview up <N>`) takes them by digest, only from a successful run of this
 # workflow for the PR's head commit (factory machines/previews/pr, `images`).
 #
-# - Only pull requests from this repo: the role trusts no fork.
+# - Only pull requests from this repo (the role trusts no fork) into main.
 # - Two jobs. `build` runs the PR's code (the Dockerfile steps) and holds no credential and no OIDC token: it hands the
 #   image on as an artifact. `push` runs no code of the PR (no checkout, no local action, pinned actions only), gets
 #   the role, and pushes that image. The role (`github-actions-ctxpipe-pr-ecr-push`, factory aws-core) can only push
@@ -12,13 +12,15 @@
 # - The image is the PR's head commit, not the merge commit, so the tag names the code it holds.
 # - Provenance: every same-repo pull request has the role, so another PR could push a tag first. The tag names this
 #   run and attempt, and the tags are immutable: a tag that is there already fails the push, and with it the run. The
-#   factory uses only the images of a run that succeeded, of this workflow, for the PR's head commit; so an image
-#   that another job pushed under this run's tag is never used.
+#   factory uses only the images of a run that succeeded, of this workflow, at the PR's head commit, whose only pull
+#   request is that PR into main, and only those pushed while the run ran; so an image that another job pushed under
+#   this run's tag is never used.
 name: PR preview images
 
 on:
   pull_request:
     types: [opened, reopened, synchronize]
+    branches: [main]
 
 permissions:
   contents: read
