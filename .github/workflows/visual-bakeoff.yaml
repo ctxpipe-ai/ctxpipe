@@ -3,13 +3,25 @@ name: Visual critic bake-off
 # The bake-off of the visual critic (CTX-1202): each arm (a judge with its
 # settings) judges each case of packages/visual-review/evals/critic/cases.json,
 # and the job writes the report (packages/visual-review/evals/critic/README.md).
-# A model call costs money, so the workflow runs only by hand. Two limits keep
-# the spend below the budget of $100: the runner starts no paid call when the
-# known cost reaches max_cost, and the model key of the workbench environment
-# has its own spend cap.
+# With `panel`, the job runs the judge panel (CTX-1249) instead: it labels the
+# cases, and the artifact holds the new cases.json to commit. A model call
+# costs money, so the workflow runs only by hand. Two limits keep the spend
+# below the budget of $100: the runner starts no paid call when the known
+# cost reaches max_cost, and the model key of the workbench environment has
+# its own spend cap.
 on:
   workflow_dispatch:
     inputs:
+      panel:
+        description: "Run the judge panel, not the bake-off. The panel uses panel_models and max_cost only."
+        required: false
+        type: boolean
+        default: false
+      panel_models:
+        description: "The judge panel, comma-separated (see the README)."
+        required: false
+        type: string
+        default: "anthropic/claude-opus-5.5,openai/gpt-6.1-sol,google/gemini-4-argon"
       arms:
         description: "The arms, comma-separated (see the README)."
         required: false
@@ -71,14 +83,35 @@ jobs:
       # packages and the model weights), so it is not a dependency of the
       # repository. It goes into its own folder.
       - name: Install the local judge of BlazeDiff
-        if: contains(inputs.arms, 'blazediff-local')
+        if: ${{ !inputs.panel && contains(inputs.arms, 'blazediff-local') }}
         run: |
           npm install --prefix "$RUNNER_TEMP/blazediff-agent" --no-audit --no-fund \
             @blazediff/agent@0.13.2 @huggingface/transformers@4.3.2
-      # The runner gets the image of a case from the release
-      # visual-bakeoff-images only when the case runs, and checks it against
-      # the SHA-256 of the manifest.
+      # The panel and the runner get the image of a case from the release
+      # visual-bakeoff-images only when the case runs, and check it against
+      # the SHA-256 of the manifest. The panel writes its votes into
+      # cases.json. The artifact holds it, to commit in a pull request.
+      - name: Run the judge panel
+        if: ${{ inputs.panel }}
+        env:
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+          PANEL_MODELS: ${{ inputs.panel_models }}
+          MAX_COST: ${{ inputs.max_cost }}
+        run: |
+          out="$RUNNER_TEMP/visual-bakeoff-report"
+          mkdir -p "$out"
+          status=0
+          pnpm --silent visual:bakeoff:panel \
+            --models "$PANEL_MODELS" \
+            --max-cost "$MAX_COST" \
+            --images "$RUNNER_TEMP/visual-bakeoff-images" \
+            > "$out/report.md" || status=$?
+          cat "$out/report.md"
+          # The votes so far, also after an image error.
+          cp packages/visual-review/evals/critic/cases.json "$out/"
+          exit "$status"
       - name: Run the bake-off
+        if: ${{ !inputs.panel }}
         env:
           MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
           ARMS: ${{ inputs.arms }}

@@ -216,6 +216,7 @@ const ratio = (value: number | undefined) =>
 function table(
   metrics: ReadonlyMap<string, Metrics>,
   tasteLabels: boolean,
+  name: (arm: string) => string,
 ): string {
   const lines = [
     "| Arm | Recall | Precision | Unsure | Errors | Severity agreement | Quality agreement | Region overlap | Consistency | Cost per story | p50 ms | p95 ms | Taste win rate | Verdicts |",
@@ -224,7 +225,7 @@ function table(
   for (const [arm, m] of metrics)
     lines.push(
       `| ${[
-        `\`${arm}\``,
+        name(arm),
         ratio(m.recall),
         ratio(m.precision),
         ratio(m.unsure),
@@ -281,6 +282,7 @@ function newTable(
   newArms: readonly string[],
   rows: readonly Result[],
   manifest: CaseManifest,
+  name: (arm: string) => string,
 ): string {
   const label = new Map(manifest.cases.map(({ id, label }) => [id, label]))
   const lines = [
@@ -289,7 +291,7 @@ function newTable(
   ]
   for (const arm of arms) {
     if (!newArms.includes(arm)) {
-      lines.push(`| \`${arm}\` | not applicable | | | | | |`)
+      lines.push(`| ${name(arm)} | not applicable | | | | | |`)
       continue
     }
     const own = rows.filter((result) => result.arm === arm)
@@ -308,7 +310,7 @@ function newTable(
     )
     lines.push(
       `| ${[
-        `\`${arm}\``,
+        name(arm),
         ratio(flagged(true)),
         ratio(flagged(false)),
         ratio(share(own, ({ verdict }) => verdict.verdict === "unsure")),
@@ -370,6 +372,13 @@ export function report({
   const restMetrics = measure(arms, rest, manifest, regions, runs)
   const count = (rows: readonly Result[]) =>
     new Set(rows.map(({ case: id }) => id)).size
+  // An arm that uses a model of the judge panel (CTX-1249) is marked: the
+  // panel labels of the real changes can favor it.
+  const panel = manifest.panelModels ?? []
+  const name = (arm: string) =>
+    arm.split(/[:+]/).some((part) => panel.includes(part))
+      ? `\`${arm}\` (panel)`
+      : `\`${arm}\``
 
   const lines = [
     "# Visual critic bake-off",
@@ -384,22 +393,25 @@ export function report({
         ? ` ${spend.unknownCost} calls gave no cost: the spend counts each one as the most expensive call so far, and at least $0.10; the cost per story leaves them out.`
         : ""
     }`,
+    panel.length
+      ? `The labels of the real changes come from the judge panel (${panel.join(", ")}). An arm marked (panel) uses a model of the panel, so the labels can favor it.`
+      : "The real changes have no panel labels yet (pnpm visual:bakeoff:panel), so they do not count.",
     "",
     `## Hold-out set (${count(held)} cases)`,
     "",
-    table(heldMetrics, tasteLabels),
+    table(heldMetrics, tasteLabels, name),
     "",
     select(heldMetrics),
     "",
     `## Other cases (${count(rest)} cases)`,
     "",
-    table(restMetrics, tasteLabels),
+    table(restMetrics, tasteLabels, name),
     "",
     `## New screenshots (${count(newRows)} cases)`,
     "",
     "A new screenshot has no before image: the judge rates it on its own against the rubric. A broken one has a synthetic regression. A false alarm is a regression verdict on a clean one. The hold-out set and the selection rule do not use these cases.",
     "",
-    newTable(arms, newArms, newRows, manifest),
+    newTable(arms, newArms, newRows, manifest, name),
     "",
     "## Agreement on each quality (hold-out set)",
     "",
@@ -407,7 +419,7 @@ export function report({
     `| --- | ${qualities.map(() => "---:").join(" | ")} |`,
     ...[...heldMetrics].map(
       ([arm, m]) =>
-        `| \`${arm}\` | ${qualities.map(({ id }) => ratio(m.byQuality.get(id))).join(" | ")} |`,
+        `| ${name(arm)} | ${qualities.map(({ id }) => ratio(m.byQuality.get(id))).join(" | ")} |`,
     ),
   ]
   return lines.join("\n")

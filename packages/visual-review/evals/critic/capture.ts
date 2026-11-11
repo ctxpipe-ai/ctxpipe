@@ -16,7 +16,10 @@ import {
   type IndexStory,
   type PlayPage,
 } from "../../../../scripts/ci/storybook-play.mjs"
-import { shootUntilSteady } from "../../../../scripts/ci/visual-capture.mjs"
+import {
+  shootUntilSteady,
+  viewports,
+} from "../../../../scripts/ci/visual-capture.mjs"
 import type { PixelBox } from "../../src/compare/diff.ts"
 import {
   applyMutation,
@@ -38,8 +41,15 @@ export type StoryJob = {
   mutated?: { file: string; mutation: MutationClass; seed: number }
 }
 
-/** The stories of one Storybook build, a folder from the repository root. */
-export type Job = { build: string; stories: StoryJob[] }
+/**
+ * The stories of one Storybook build, a folder from the repository root, at
+ * one viewport of the visual check.
+ */
+export type Job = {
+  build: string
+  viewport: keyof typeof viewports
+  stories: StoryJob[]
+}
 
 export type ShotResult = {
   file: string
@@ -118,6 +128,7 @@ async function run(jobs: Job[]) {
             results.push(...failed(story, "play-failed", "Not in the build."))
         }
         await playStories(url, [...jobOf.keys()], () => undefined, {
+          viewport: viewports[job.viewport],
           afterPlay: async (page, entry, error) => {
             const story = jobOf.get(entry)
             if (!story) return

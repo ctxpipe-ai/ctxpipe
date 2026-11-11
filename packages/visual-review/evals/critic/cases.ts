@@ -14,19 +14,55 @@ const sha = z.string().regex(/^[0-9a-f]{40}$/)
 /** The SHA-256 of a PNG image, in hex. */
 const image = z.string().regex(/^[0-9a-f]{64}$/)
 
+/**
+ * The labels of the judge panel (CTX-1249): the after image is as good or
+ * better and shows a real change, it breaks the rubric, or it shows no change
+ * that a user sees.
+ */
+export const panelLabels = ["improvement", "regression", "no-change"] as const
+export type PanelLabel = (typeof panelLabels)[number]
+
+/**
+ * The votes of the judge panel on a case, and the label that the agreement
+ * rule gives (panel.ts), or null when the members do not agree. A vote with
+ * an error has no label.
+ */
+const panel = z.object({
+  label: z.enum(panelLabels).nullable(),
+  votes: z.array(
+    z.object({
+      model: z.string(),
+      label: z.enum(panelLabels).nullable(),
+      reason: z.string(),
+      error: z.string().optional(),
+    }),
+  ),
+})
+export type Panel = z.infer<typeof panel>
+
 const common = {
-  /** A stable id: the kind, the class and a number. */
+  /** A stable id: the kind, the class and a hash. */
   id: z.string().regex(/^[a-z0-9-]+$/),
   /** The Storybook story id. */
   storyId: z.string().min(1),
-  viewport: z.object({
-    name: z.literal("desktop"),
-    width: z.literal(1440),
-    height: z.literal(900),
-  }),
+  /** A viewport of the visual check. A page story has both. */
+  viewport: z.union([
+    z.object({
+      name: z.literal("desktop"),
+      width: z.literal(1440),
+      height: z.literal(900),
+    }),
+    z.object({
+      name: z.literal("mobile"),
+      width: z.literal(390),
+      height: z.literal(844),
+    }),
+  ]),
   /** The pixels that differ (BlazeDiff, threshold 0.1). */
   diffPixels: count,
   images: z.object({ before: image, after: image }),
+  /** Absent until the panel judges the case. */
+  panel: panel.optional(),
 }
 /** The commit of a real change and its first parent. */
 const commit = z.object({ sha, parent: sha })
@@ -35,9 +71,10 @@ const region = z.object({ x: count, y: count, width: count, height: count })
 
 /**
  * One case. `kind` says how the builder made it; `label` is the answer that
- * the critic must give, and the owner can change it. The owner can label a
- * real change `unsure`: the run leaves that case out.
+ * the critic must give. A case with the label `unsure` does not run.
  * - `intended`: a real commit, before and after. The brief is its message.
+ *   The label is `unsure` until the judge panel agrees on one (panel.ts), or
+ *   the owner labels the case in the queue (queue.ts).
  * - `regression`: one synthetic change of `class` on a clean render.
  * - `noise`: a change that a person does not see.
  * - `mixed`: a real commit, with a synthetic regression of `class` hidden in
@@ -109,6 +146,10 @@ export const caseManifestSchema = z
     until: sha,
     /** The capture image, with its digest. */
     container: z.string(),
+    /** All stories are page stories (the `page` tag). */
+    scope: z.literal("page"),
+    /** The models of the judge panel, after a run of panel.ts. */
+    panelModels: z.array(z.string()).optional(),
     cases: z.array(caseSchema),
     /**
      * The blind pairwise picks of the owner (CTX-1201): for one case, the

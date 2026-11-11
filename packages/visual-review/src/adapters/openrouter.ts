@@ -127,7 +127,7 @@ export async function judgeWithOpenRouter(
   env: Record<string, string | undefined>,
   steps: Steps = "describe-first",
 ): Promise<Verdict> {
-  const { content, run } = await complete(
+  const { content, run } = await askOpenRouter(
     buildPrompt(story, steps),
     judgementJsonSchema,
     model,
@@ -145,7 +145,7 @@ export async function judgeNewWithOpenRouter(
   model: string,
   env: Record<string, string | undefined>,
 ): Promise<Verdict> {
-  const { content, run } = await complete(
+  const { content, run } = await askOpenRouter(
     buildNewPrompt(story),
     newJudgementJsonSchema,
     model,
@@ -154,10 +154,14 @@ export async function judgeNewWithOpenRouter(
   return parseNewVerdict(content, story, run)
 }
 
-/** One chat call: the reply text and its run facts, or it throws. */
-async function complete(
+/**
+ * One chat call with `prompt`, which asks for a reply that matches the JSON
+ * Schema `schema`: the reply text and its run facts, or it throws. The judge
+ * panel of the bake-off (evals/critic/panel.ts) uses it with its own prompt.
+ */
+export async function askOpenRouter(
   prompt: Prompt,
-  schema: typeof judgementJsonSchema | typeof newJudgementJsonSchema,
+  schema: Record<string, unknown>,
   model: string,
   env: Record<string, string | undefined>,
 ): Promise<{ content: string; run: RunFacts }> {
