@@ -13,8 +13,9 @@
 # - Provenance: every same-repo pull request has the role, so another PR can push and tag in `ctxpipe-pr/*`, and
 #   neither a tag nor a push time says which run pushed an image. So each push job reports the digest it pushed as
 #   one notice `preview-image` on its own check run, and the factory takes only those digests: of a run that
-#   succeeded, of this workflow, at the PR's head commit, whose only pull request is that PR into main. The tag names
-#   this run and attempt and is immutable, so a tag that is there already fails the push, and with it the run.
+#   succeeded, of this workflow, at the PR's head commit, whose only pull request is that PR into main. A PR's run
+#   runs the PR's own version of this file, so the factory gives no preview to a PR whose copy differs from main's.
+#   The tag names this run and attempt and is immutable, so a tag that is there already fails the push and the run.
 name: PR preview images
 
 on:
