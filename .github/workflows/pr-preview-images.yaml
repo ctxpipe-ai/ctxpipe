@@ -1,7 +1,8 @@
 # The images of a pull request for its AWS preview (ADR-061 decisions 5 and 19 to 24; factory CTX-1218). On each push
 # to a pull request from this repo, this builds the linux/arm64 images that a preview runs on Graviton (backend,
-# worker, ui) and pushes them to the preview account's ECR as `ctxpipe-pr/<image>:pr-<N>-<head sha>`. The factory
-# preview workflow (`factory preview up <N>`) takes them from there by digest.
+# worker, ui) and pushes them to the preview account's ECR as `ctxpipe-pr/<image>:pr-<N>-<head sha>-<run>-<attempt>`.
+# The factory preview workflow (`factory preview up <N>`) takes them by digest, only from a successful run of this
+# workflow for the PR's head commit (factory machines/previews/pr, `images`).
 #
 # - Only pull requests from this repo: the role trusts no fork.
 # - Two jobs. `build` runs the PR's code (the Dockerfile steps) and holds no credential and no OIDC token: it hands the
@@ -9,9 +10,10 @@
 #   the role, and pushes that image. The role (`github-actions-ctxpipe-pr-ecr-push`, factory aws-core) can only push
 #   to `ctxpipe-pr/*` in the preview account.
 # - The image is the PR's head commit, not the merge commit, so the tag names the code it holds.
-# - The tags are immutable. A tag that is there already (a run again for the same commit) stays, and the job says so.
-#   Every same-repo pull request has the role, so a team member's PR could push another PR's tag first; the role
-#   allows that, and this workflow cannot stop it.
+# - Provenance: every same-repo pull request has the role, so another PR could push a tag first. The tag names this
+#   run and attempt, and the tags are immutable: a tag that is there already fails the push, and with it the run. The
+#   factory uses only the images of a run that succeeded, of this workflow, for the PR's head commit; so an image
+#   that another job pushed under this run's tag is never used.
 name: PR preview images
 
 on:
@@ -77,7 +79,7 @@ jobs:
         image: [backend, worker, ui]
     env:
       REGISTRY: 573018602187.dkr.ecr.us-west-2.amazonaws.com
-      TAG: pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+      TAG: pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -93,12 +95,7 @@ jobs:
         run: |
           set -euo pipefail
           target="$REGISTRY/ctxpipe-pr/$IMAGE:$TAG"
-          # A tag that is there already stays (immutable): a run again for the same commit.
-          if digest=$(aws ecr describe-images --repository-name "ctxpipe-pr/$IMAGE" --image-ids "imageTag=$TAG" \
-              --query 'imageDetails[0].imageDigest' --output text 2> /dev/null); then
-            echo "$target is there already ($digest)" | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
+          # The tag is this run's own: one that is there already fails the push (immutable), and with it the run.
           docker load --input "$RUNNER_TEMP/image/image.tar"
           aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
           docker tag "preview/$IMAGE:local" "$target"
