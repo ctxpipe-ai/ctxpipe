@@ -192,13 +192,14 @@ jobs:
           # could have uploaded one. A rerun of only copy_images_to_ecr keeps
           # the outputs of the first attempt.
           if [ "$GITHUB_RUN_ATTEMPT" != 1 ]; then
-            echo "::notice::attempt $GITHUB_RUN_ATTEMPT gives no digests; the next main build copies its images"
+            echo "::warning::attempt $GITHUB_RUN_ATTEMPT gives no digests, so this build is not copied to the ECR; the next main build copies its images"
             echo "digests={}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           cd "$RUNNER_TEMP/index"
-          # Only the images of the build matrix go to the ECR. Another name
-          # is skipped, so a new image does not stop the Railway deploy.
+          # The ECR repositories that exist (factory #99, ctxpipe/*). An image
+          # without one is skipped with a notice: release and terraform wait
+          # for this job, so a failure here would stop the Railway deploy.
           for image in *; do
             digest="$(cat "$image")"
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::$image holds no image digest" >&2; exit 1; }
@@ -260,6 +261,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PUSH: ${{ vars.ECR_MIRROR == 'enabled' }}
         run: |
+          set -o pipefail
           # A late rerun of an older run must not make an older build the
           # newest tagged image, so each attempt checks the head of main.
           main="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
@@ -281,8 +283,8 @@ jobs:
             target="$ecr/$2:$3"
             digest="${1#*@}"
             if [ "$PUSH" != true ]; then
-              platforms="$("$crane" manifest "$1" | jq -r '[.manifests[].platform | select(.os != "unknown") | "\(.os)/\(.architecture)"] | join(",")')"
-              echo "dry run: $1 ($platforms) -> $target" | tee -a "$GITHUB_STEP_SUMMARY"
+              [ "$("$crane" digest "$1")" = "$digest" ]
+              echo "dry run: $1 -> $target" | tee -a "$GITHUB_STEP_SUMMARY"
               return 0
             fi
             if existing="$("$crane" digest "$target" 2> /dev/null)"; then
@@ -293,6 +295,7 @@ jobs:
             "$crane" copy "$1" "$target"
             echo "$target $digest" | tee -a "$GITHUB_STEP_SUMMARY"
           }
+          [ "$DIGESTS" != "{}" ] || echo "::warning::ecr_digests gave no image digests, so this build is not copied to the ECR" | tee -a "$GITHUB_STEP_SUMMARY"
           while read -r image digest; do
             copy "ghcr.io/ctxpipe-ai/$image@$digest" "ctxpipe/$image" "$GITHUB_SHA"
           done < <(jq -r 'to_entries[] | "\(.key) \(.value)"' <<< "$DIGESTS")
