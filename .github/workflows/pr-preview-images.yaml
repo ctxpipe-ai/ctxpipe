@@ -1,8 +1,8 @@
 # The images of a pull request for its AWS preview (ADR-061 decisions 5 and 19 to 24; factory CTX-1218). On each push
 # to a pull request from this repo, this builds the linux/arm64 images that a preview runs on Graviton (backend,
 # worker, ui) and pushes them to the preview account's ECR as `ctxpipe-pr/<image>:pr-<N>-<head sha>-<run>-<attempt>`.
-# The factory preview workflow (`factory preview up <N>`) takes them by digest, only from a successful run of this
-# workflow for the PR's head commit (factory machines/previews/pr, `images`).
+# The factory preview workflow (`factory preview up <N>`) takes them by the digests that a successful run of this
+# workflow reported for the PR's head commit (factory machines/previews/pr, `images`).
 #
 # - Only pull requests from this repo (the role trusts no fork) into main.
 # - Two jobs. `build` runs the PR's code (the Dockerfile steps) and holds no credential and no OIDC token: it hands the
@@ -10,11 +10,11 @@
 #   the role, and pushes that image. The role (`github-actions-ctxpipe-pr-ecr-push`, factory aws-core) can only push
 #   to `ctxpipe-pr/*` in the preview account.
 # - The image is the PR's head commit, not the merge commit, so the tag names the code it holds.
-# - Provenance: every same-repo pull request has the role, so another PR could push a tag first. The tag names this
-#   run and attempt, and the tags are immutable: a tag that is there already fails the push, and with it the run. The
-#   factory uses only the images of a run that succeeded, of this workflow, at the PR's head commit, whose only pull
-#   request is that PR into main, and only those pushed while the run ran; so an image that another job pushed under
-#   this run's tag is never used.
+# - Provenance: every same-repo pull request has the role, so another PR can push and tag in `ctxpipe-pr/*`, and
+#   neither a tag nor a push time says which run pushed an image. So each push job reports the digest it pushed as
+#   one notice `preview-image` on its own check run, and the factory takes only those digests: of a run that
+#   succeeded, of this workflow, at the PR's head commit, whose only pull request is that PR into main. The tag names
+#   this run and attempt and is immutable, so a tag that is there already fails the push, and with it the run.
 name: PR preview images
 
 on:
@@ -102,4 +102,9 @@ jobs:
           aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
           docker tag "preview/$IMAGE:local" "$target"
           docker push "$target"
-          echo "Pushed $target" >> "$GITHUB_STEP_SUMMARY"
+          # The digest the factory takes: one notice on this job's check run (factory previews/pr, runDigests).
+          digest=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$target" \
+            | sed -n "s|^$REGISTRY/ctxpipe-pr/$IMAGE@||p")
+          [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::No digest for $target"; exit 1; }
+          echo "::notice title=preview-image::$IMAGE $digest"
+          echo "Pushed $target ($digest)" >> "$GITHUB_STEP_SUMMARY"
