@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net"
 import { promisify } from "node:util"
 
 import { OpenAPIHono } from "@hono/zod-openapi"
+import type { SandboxHandle, SandboxProvider } from "@tanstack/ai-sandbox"
 import { and, eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
@@ -69,7 +70,7 @@ import {
   INGESTION_V2_WORKFLOW_NAME,
   type IngestionV2RunInput,
 } from "../ingestion/ingestion-run.js"
-import { setRunVaultRules } from "./agent-vault.js"
+import { type AgentVaultAccess, setRunVaultRules } from "./agent-vault.js"
 import { agentCoreSandboxProvider } from "./agentcore-sandbox-provider.js"
 import { ingestSandboxThreadId } from "./chat-lifecycle.js"
 import { workspaceChatDockerImage } from "./chat-runtime.js"
@@ -260,52 +261,66 @@ function streamedAnswer(): Response {
   )
 }
 
-describe("the Docker ingest sandbox has closed egress", () => {
-  it(
-    "reaches only the model proxy, the tool bridge and Git fetch; destroy deletes the vault and always revokes the token",
-    { timeout: 300_000 },
-    async () => {
-      // The AWS sandbox host (DOCKER-USER rules) and DinD (the mangle rules
-      // of scripts/sandbox-dind/entrypoint.sh) drop each direct connection.
-      // Here the provider moves the sandbox to an internal network that
-      // reaches only the proxy port, which has the same effect.
-      await withAgentVault({ image, closed: true }, async (fixture) => {
-        gitToken = fixture.gitToken
-        const base = `http://${fixture.upstream}:8080`
-        const plain = `https://${fixture.upstream}`
-        const runId = `run_${crypto.randomUUID()}`
-        const egress = (
-          step: number,
-          repositories: IngestEgress["repositories"] = [
-            { fullName: "git/repo", githubConnectionId: connectionId },
-            // A public plain git source: fetch with no credential, over
-            // HTTPS on 443, only while prepare fetches it (CTX-815).
-            {
-              kind: "git",
-              host: fixture.upstream,
-              path: "/public/repo.git",
-            },
-          ],
-        ): IngestEgress => ({
-          repositories,
-          gitHost: `${fixture.upstream}:8080`,
-          modelProxyUrl: `${base}/echo/model/v1`,
-          capability: `ingest-capability-${step}`,
-          bridge: { url: `${base}/echo/bridge`, token: `bridge-${step}` },
-        })
-        const shard = { orgId, runId, shard: 0, access: fixture.access }
-        const provider = dockerIngestSandboxProvider({
-          ...shard,
-          image,
-          egress: egress(1),
-          network: fixture.sandboxNetwork,
-        })
-        const handle = await provider.create({})
-        let destroyed = false
-        try {
-          const output = await run(
-            handle.id,
-            `echo "== model"
+/** How a closed-egress scenario makes, uses and checks one sandbox. */
+type ScenarioSandbox = {
+  provider: (
+    shard: {
+      orgId: string
+      runId: string
+      shard: number
+      access: AgentVaultAccess
+    },
+    egress: IngestEgress,
+  ) => SandboxProvider
+  /** Runs a script in the sandbox; the stdout. */
+  exec: (handle: SandboxHandle, script: string) => Promise<string>
+  /** Whether the sandbox still exists after a destroy. */
+  exists: (handle: SandboxHandle) => Promise<boolean>
+}
+
+/**
+ * The closed-egress contract of an ingest sandbox, the same for each
+ * provider: it reaches only the model proxy, the tool bridge and Git fetch
+ * through Agent Vault; a refresh rotates the step's credentials; destroy
+ * deletes the vault and always revokes the token.
+ */
+async function closedEgressScenario(
+  fixture: Parameters<Parameters<typeof withAgentVault>[1]>[0],
+  sandbox: ScenarioSandbox,
+): Promise<void> {
+  log.minted.length = 0
+  log.revoked.length = 0
+  gitToken = fixture.gitToken
+  const base = `http://${fixture.upstream}:8080`
+  const plain = `https://${fixture.upstream}`
+  const runId = `run_${crypto.randomUUID()}`
+  const egress = (
+    step: number,
+    repositories: IngestEgress["repositories"] = [
+      { fullName: "git/repo", githubConnectionId: connectionId },
+      // A public plain git source: fetch with no credential, over
+      // HTTPS on 443, only while prepare fetches it (CTX-815).
+      {
+        kind: "git",
+        host: fixture.upstream,
+        path: "/public/repo.git",
+      },
+    ],
+  ): IngestEgress => ({
+    repositories,
+    gitHost: `${fixture.upstream}:8080`,
+    modelProxyUrl: `${base}/echo/model/v1`,
+    capability: `ingest-capability-${step}`,
+    bridge: { url: `${base}/echo/bridge`, token: `bridge-${step}` },
+  })
+  const shard = { orgId, runId, shard: 0, access: fixture.access }
+  const provider = sandbox.provider(shard, egress(1))
+  const handle = await provider.create({})
+  let destroyed = false
+  try {
+    const output = await sandbox.exec(
+      handle,
+      `echo "== model"
 curl -sS -m 20 -X POST ${base}/echo/model/v1/chat/completions
 echo
 echo "== models"
@@ -356,124 +371,139 @@ echo "== direct"
 ${code("--noproxy '*' https://example.com/")}
 echo
 `,
-          )
-          const result = sections(output)
-          expect(
-            JSON.parse(result.model ?? "{}").headers?.authorization,
-            output,
-          ).toBe("Bearer ingest-capability-1")
-          expect(
-            JSON.parse(result.models ?? "{}").headers?.authorization,
-            output,
-          ).toBe("Bearer ingest-capability-1")
-          expect(
-            JSON.parse(result.bridge ?? "{}").headers?.authorization,
-            output,
-          ).toBe("Bearer bridge-1")
-          expect(result.fetch, output).toBe("seed")
-          // The vault refuses the push; the Git server would take it.
-          expect(result.push, output).toContain("403")
-          expect(result.push, output).toContain("REFUSED")
-          expect(result["github-push"], output).toContain("REFUSED")
-          // The plain git source: only Git fetch of its own path, with no
-          // credential. The Git server would take the push with no auth.
-          expect(result["plain-fetch"], output).toBe("refs/heads/main")
-          expect(result["plain-other-path"], output).toBe("403")
-          // The rule matches only port 443: the HTTP server on 8080 serves
-          // the same path, and the vault refuses it.
-          expect(result["plain-other-port"], output).toBe("403")
-          expect(result["plain-other-host"], output).toBe("403")
-          expect(result["plain-push"], output).toContain("REFUSED")
-          for (const name of [
-            "github-receive-pack",
-            "github-api",
-            "example",
-            "example-http",
-            "other-path",
-          ])
-            expect(result[name], `${name}\n${output}`).toBe("403")
-          expect(result.direct, output).toBe("000")
-          // GitHub minted one read token for the installation's repository.
-          expect(log.minted).toEqual([
-            { installationId: 333, repositories: ["repo"] },
-          ])
-          // No credential is in the sandbox's environment.
-          const environ = await run(handle.id, "env")
-          expect(environ).not.toContain(fixture.gitToken)
-          expect(environ).not.toContain("ingest-capability-1")
-          expect(environ).not.toContain("bridge-1")
+    )
+    const result = sections(output)
+    expect(
+      JSON.parse(result.model ?? "{}").headers?.authorization,
+      output,
+    ).toBe("Bearer ingest-capability-1")
+    expect(
+      JSON.parse(result.models ?? "{}").headers?.authorization,
+      output,
+    ).toBe("Bearer ingest-capability-1")
+    expect(
+      JSON.parse(result.bridge ?? "{}").headers?.authorization,
+      output,
+    ).toBe("Bearer bridge-1")
+    expect(result.fetch, output).toBe("seed")
+    // The vault refuses the push; the Git server would take it.
+    expect(result.push, output).toContain("403")
+    expect(result.push, output).toContain("REFUSED")
+    expect(result["github-push"], output).toContain("REFUSED")
+    // The plain git source: only Git fetch of its own path, with no
+    // credential. The Git server would take the push with no auth.
+    expect(result["plain-fetch"], output).toBe("refs/heads/main")
+    expect(result["plain-other-path"], output).toBe("403")
+    // The rule matches only port 443: the HTTP server on 8080 serves
+    // the same path, and the vault refuses it.
+    expect(result["plain-other-port"], output).toBe("403")
+    expect(result["plain-other-host"], output).toBe("403")
+    expect(result["plain-push"], output).toContain("REFUSED")
+    for (const name of [
+      "github-receive-pack",
+      "github-api",
+      "example",
+      "example-http",
+      "other-path",
+    ])
+      expect(result[name], `${name}\n${output}`).toBe("403")
+    expect(result.direct, output).toBe("000")
+    // GitHub minted one read token for the installation's repository.
+    expect(log.minted).toEqual([
+      { installationId: 333, repositories: ["repo"] },
+    ])
+    // No credential is in the sandbox's environment.
+    const environ = await sandbox.exec(handle, "env")
+    expect(environ).not.toContain(fixture.gitToken)
+    expect(environ).not.toContain("ingest-capability-1")
+    expect(environ).not.toContain("bridge-1")
 
-          // The next step gets its own capability; the first one is gone.
-          await refreshIngestSandboxEgress({ ...shard, egress: egress(2) })
-          const next = await run(
-            handle.id,
-            `curl -sS -m 20 -X POST ${base}/echo/model/v1/chat/completions`,
-          )
-          expect(JSON.parse(next).headers?.authorization).toBe(
-            "Bearer ingest-capability-2",
-          )
-          // One token per 50-minute window: the refresh reused it.
-          expect(log.minted).toHaveLength(1)
-          // A step after prepare cannot reach the plain git host: no GET,
-          // and no POST that could carry Workspace content out.
-          const stepPlain = sections(
-            await run(
-              handle.id,
-              `echo "== get"
+    // The next step gets its own capability; the first one is gone.
+    await refreshIngestSandboxEgress({ ...shard, egress: egress(2) })
+    const next = await sandbox.exec(
+      handle,
+      `curl -sS -m 20 -X POST ${base}/echo/model/v1/chat/completions`,
+    )
+    expect(JSON.parse(next).headers?.authorization).toBe(
+      "Bearer ingest-capability-2",
+    )
+    // One token per 50-minute window: the refresh reused it.
+    expect(log.minted).toHaveLength(1)
+    // A step after prepare cannot reach the plain git host: no GET,
+    // and no POST that could carry Workspace content out.
+    const stepPlain = sections(
+      await sandbox.exec(
+        handle,
+        `echo "== get"
 ${code(`${plain}/public/repo.git/info/refs?service=git-upload-pack`)}
 echo
 echo "== post"
 ${code(`-X POST --data-binary 'Workspace content' -H 'content-type: application/x-git-upload-pack-request' ${plain}/public/repo.git/git-upload-pack`)}
 echo`,
-            ),
-          )
-          expect(stepPlain.get).toBe("403")
-          expect(stepPlain.post).toBe("403")
+      ),
+    )
+    expect(stepPlain.get).toBe("403")
+    expect(stepPlain.post).toBe("403")
 
-          // A step that lists no repository cannot fetch one.
-          await refreshIngestSandboxEgress({ ...shard, egress: egress(3, []) })
-          const fetchAfter = await run(
-            handle.id,
-            `git -C /tmp/clone fetch -q origin 2>&1 && echo FETCHED || echo REFUSED`,
-          )
-          expect(fetchAfter).toContain("REFUSED")
+    // A step that lists no repository cannot fetch one.
+    await refreshIngestSandboxEgress({ ...shard, egress: egress(3, []) })
+    const fetchAfter = await sandbox.exec(
+      handle,
+      `git -C /tmp/clone fetch -q origin 2>&1 && echo FETCHED || echo REFUSED`,
+    )
+    expect(fetchAfter).toContain("REFUSED")
 
-          await provider.destroy({ id: handle.id })
-          destroyed = true
-          expect(await containerExists(handle.id)).toBe(false)
-          expect(log.revoked).toEqual([fixture.gitToken])
-          const store = sandboxGitTokenStore(orgId, parseEnv(process.env))
-          expect(
-            await store.list(`${ingestSandboxThreadId(runId, 0)}:`),
-          ).toEqual([])
-          // The vault is gone: a later step cannot set rules on it.
-          await expect(
-            setRunVaultRules(
-              fixture.access,
-              ingestSandboxThreadId(runId, 0),
-              ingestCredentialRules(egress(4), []),
-            ),
-          ).rejects.toBeTruthy()
-        } finally {
-          if (!destroyed)
-            await provider.destroy({ id: handle.id }).catch(() => undefined)
-        }
+    await provider.destroy({ id: handle.id })
+    destroyed = true
+    expect(await sandbox.exists(handle)).toBe(false)
+    expect(log.revoked).toEqual([fixture.gitToken])
+    const store = sandboxGitTokenStore(orgId, parseEnv(process.env))
+    expect(await store.list(`${ingestSandboxThreadId(runId, 0)}:`)).toEqual([])
+    // The vault is gone: a later step cannot set rules on it.
+    await expect(
+      setRunVaultRules(
+        fixture.access,
+        ingestSandboxThreadId(runId, 0),
+        ingestCredentialRules(egress(4), []),
+      ),
+    ).rejects.toBeTruthy()
+  } finally {
+    if (!destroyed)
+      await provider.destroy({ id: handle.id }).catch(() => undefined)
+  }
 
-        // Destroy revokes the token also when the vault delete fails.
-        log.revoked.length = 0
-        const second = dockerIngestSandboxProvider({
-          ...shard,
-          shard: 1,
-          image,
-          egress: egress(1),
-          network: fixture.sandboxNetwork,
-        })
-        const kept = await second.create({})
-        await fixture.stopAgentVault()
-        await expect(second.destroy({ id: kept.id })).rejects.toBeTruthy()
-        expect(await containerExists(kept.id)).toBe(false)
-        expect(log.revoked).toEqual([fixture.gitToken])
-      })
+  // Destroy revokes the token also when the vault delete fails.
+  log.revoked.length = 0
+  const second = sandbox.provider({ ...shard, shard: 1 }, egress(1))
+  const kept = await second.create({})
+  await fixture.stopAgentVault()
+  await expect(second.destroy({ id: kept.id })).rejects.toBeTruthy()
+  expect(await sandbox.exists(kept)).toBe(false)
+  expect(log.revoked).toEqual([fixture.gitToken])
+}
+
+describe("the Docker ingest sandbox has closed egress", () => {
+  it(
+    "reaches only the model proxy, the tool bridge and Git fetch; destroy deletes the vault and always revokes the token",
+    { timeout: 300_000 },
+    async () => {
+      // The AWS sandbox host (DOCKER-USER rules) and DinD (the mangle rules
+      // of scripts/sandbox-dind/entrypoint.sh) drop each direct connection.
+      // Here the provider moves the sandbox to an internal network that
+      // reaches only the proxy port, which has the same effect.
+      await withAgentVault({ image, closed: true }, (fixture) =>
+        closedEgressScenario(fixture, {
+          provider: (shard, egress) =>
+            dockerIngestSandboxProvider({
+              ...shard,
+              image,
+              egress,
+              network: fixture.sandboxNetwork,
+            }),
+          exec: (handle, script) => run(handle.id, script),
+          exists: (handle) => containerExists(handle.id),
+        }),
+      )
     },
   )
 
@@ -770,108 +800,38 @@ git push ${source} HEAD:refs/heads/plain-push 2>&1 && echo PUSHED || echo REFUSE
 
 describe("the AgentCore ingest sandbox has closed egress", () => {
   it(
-    "reaches only the model proxy, the tool bridge and Git fetch through Agent Vault; destroy deletes the vault and revokes the token",
+    "reaches only the model proxy, the tool bridge and Git fetch; destroy deletes the vault and always revokes the token",
     { timeout: 300_000 },
     async () => {
       // The microVM is a container of the chat image on the closed network,
       // as AgentCore sandbox subnets have no internet route; the backend
       // reaches it only through the fake AgentCore API.
       await withAgentVault({ image, closed: true }, async (fixture) => {
-        gitToken = fixture.gitToken
-        log.minted.length = 0
-        log.revoked.length = 0
         const microVm = await startContainerAgentCore(image, {
           network: fixture.sandboxNetwork,
         })
         try {
-          const base = `http://${fixture.upstream}:8080`
-          const runId = `run_${crypto.randomUUID()}`
-          const egress: IngestEgress = {
-            repositories: [
-              { fullName: "git/repo", githubConnectionId: connectionId },
-            ],
-            gitHost: `${fixture.upstream}:8080`,
-            modelProxyUrl: `${base}/echo/model/v1`,
-            capability: "ingest-capability-1",
-            bridge: { url: `${base}/echo/bridge`, token: "bridge-1" },
-          }
-          const provider = agentCoreIngestSandboxProvider({
-            orgId,
-            runId,
-            shard: 0,
-            access: fixture.access,
-            egress,
-            sessions: agentCoreSandboxProvider({
-              runtime: microVm.runtime,
-              user: "node",
-            }),
+          await closedEgressScenario(fixture, {
+            provider: (shard, egress) =>
+              agentCoreIngestSandboxProvider({
+                ...shard,
+                egress,
+                sessions: agentCoreSandboxProvider({
+                  runtime: microVm.runtime,
+                  user: "node",
+                }),
+              }),
+            exec: async (handle, script) =>
+              (await handle.process.exec(script)).stdout,
+            exists: async (handle) => microVm.running.has(handle.id),
           })
-          // Create checks that direct connections and the metadata
-          // endpoints are refused.
-          const handle = await provider.create({})
-          let destroyed = false
-          try {
-            const output = (
-              await handle.process.exec(
-                `echo "== model"
-curl -sS -m 20 -X POST ${base}/echo/model/v1/chat/completions
-echo
-echo "== bridge"
-curl -sS -m 20 ${base}/echo/bridge
-echo
-echo "== fetch"
-git clone -q ${base}/git/repo.git /tmp/clone 2>&1 && git -C /tmp/clone log --format=%s
-echo "== push"
-cd /tmp/clone && git -c user.name=t -c user.email=t@t commit -q --allow-empty -m change
-git push origin HEAD:refs/heads/exfil 2>&1 && echo PUSHED || echo REFUSED
-cd /
-echo "== example"
-${code("https://example.com/")}
-echo
-echo "== direct"
-${code("--noproxy '*' https://example.com/")}
-echo
-`,
-              )
-            ).stdout
-            const result = sections(output)
-            expect(
-              JSON.parse(result.model ?? "{}").headers?.authorization,
-              output,
-            ).toBe("Bearer ingest-capability-1")
-            expect(
-              JSON.parse(result.bridge ?? "{}").headers?.authorization,
-              output,
-            ).toBe("Bearer bridge-1")
-            expect(result.fetch, output).toBe("seed")
-            expect(result.push, output).toContain("REFUSED")
-            expect(result.example, output).toBe("403")
-            expect(result.direct, output).toBe("000")
-            // No credential is in the sandbox's environment, and no command
-            // text that AgentCore logs holds the proxy session.
-            const environ = (await handle.process.exec("env")).stdout
-            expect(environ).not.toContain(fixture.gitToken)
-            expect(environ).not.toContain("ingest-capability-1")
-            expect(environ).not.toContain("bridge-1")
-            const proxy = /HTTPS_PROXY=(\S+)/.exec(environ)?.[1] ?? ""
-            expect(proxy).not.toBe("")
-            expect(microVm.commandTexts.join("\n")).not.toContain(proxy)
-
-            await provider.destroy({ id: handle.id })
-            destroyed = true
-            expect(log.revoked).toEqual([fixture.gitToken])
-            // The vault is gone: a later step cannot set rules on it.
-            await expect(
-              setRunVaultRules(
-                fixture.access,
-                ingestSandboxThreadId(runId, 0),
-                ingestCredentialRules(egress, []),
-              ),
-            ).rejects.toBeTruthy()
-          } finally {
-            if (!destroyed)
-              await provider.destroy({ id: handle.id }).catch(() => undefined)
-          }
+          // AgentCore writes each command's text to CloudWatch: none holds
+          // a credential (the scenario puts the git token and each
+          // capability in the vault; the proxy session is staged).
+          const logged = microVm.commandTexts.join("\n")
+          expect(logged).not.toContain(fixture.gitToken)
+          expect(logged).not.toContain("ingest-capability-")
+          expect(logged).not.toContain("HTTPS_PROXY")
         } finally {
           microVm.close()
         }
