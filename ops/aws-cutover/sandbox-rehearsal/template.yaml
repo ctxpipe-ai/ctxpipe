@@ -10,14 +10,6 @@ Parameters:
     Type: String
     Description: The backend image (linux/arm64), pinned by digest, built from a main that has cutoverRehearsal.ts.
     AllowedPattern: "^[a-z0-9./-]+@sha256:[0-9a-f]{64}$"
-  EngineVersion:
-    Type: String
-    Default: "17.5"
-    Description: The Aurora PostgreSQL version (the version of the hosted plan, CTX-1215 H3).
-  MaxCapacity:
-    Type: Number
-    Default: 8
-    Description: The maximum ACUs of the writer.
   DefaultRows:
     Type: Number
     Default: 20000
@@ -103,7 +95,8 @@ Resources:
     UpdateReplacePolicy: Delete
     Properties:
       Engine: aurora-postgresql
-      EngineVersion: !Ref EngineVersion
+      # The version of the hosted plan (CTX-1215 H3).
+      EngineVersion: "17.5"
       MasterUsername: ctxpipe
       # AWS keeps the password in Secrets Manager; it is in no template or log.
       ManageMasterUserPassword: true
@@ -114,7 +107,7 @@ Resources:
       VpcSecurityGroupIds: [!Ref DatabaseGroup]
       ServerlessV2ScalingConfiguration:
         MinCapacity: 0.5
-        MaxCapacity: !Ref MaxCapacity
+        MaxCapacity: 8
   Writer:
     Type: AWS::RDS::DBInstance
     DeletionPolicy: Delete
@@ -141,13 +134,17 @@ Resources:
           - Effect: Allow
             Principal: { Service: ecs-tasks.amazonaws.com }
             Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      # The image comes from public GHCR, so the role gets no ECR rights:
+      # only the log streams of this stack and the master password.
       Policies:
-        - PolicyName: master-password
+        - PolicyName: rehearsal-task
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                # The ARN of the log group ends in `:*`, so it includes its streams.
+                Resource: !GetAtt Logs.Arn
               - Effect: Allow
                 Action: secretsmanager:GetSecretValue
                 Resource: !GetAtt Cluster.MasterUserSecret.SecretArn

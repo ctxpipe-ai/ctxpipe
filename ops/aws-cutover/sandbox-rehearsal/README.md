@@ -13,14 +13,17 @@ rehearsal of the runbook reads a Neon branch.
 1. Sign in: `aws sso login --sso-session ctxpipe` (the profile `ctxpipe-selfhost-sandbox`).
 2. Take a backend image of `main` that has `apps/backend/src/scripts/cutoverRehearsal.ts`, for linux/arm64, by digest
    (`ghcr.io/ctxpipe-ai/backend@sha256:…`).
-3. Run, with the selfhost-sandbox account id from the factory repo (`machines/aws-core/stacks/org/config.ts`):
+3. Run (the AWS CLI and `jq` must be installed):
 
    ```sh
-   ops/aws-cutover/sandbox-rehearsal/run.sh <account id> ghcr.io/ctxpipe-ai/backend@sha256:<digest> [rows per table]
+   ops/aws-cutover/sandbox-rehearsal/run.sh ghcr.io/ctxpipe-ai/backend@sha256:<digest> [rows per table] [--keep]
    ```
 
-The script refuses any other account. It deploys the stack (about 10 minutes for Aurora), runs the task, prints its
-log and its JSON report, and deletes the stack, also after a failure. `KEEP=1` keeps the stack.
+The script holds the selfhost-sandbox account id (from the factory repo, `machines/aws-core/stacks/org/config.ts`). It
+stops when the profile is in a different account. It deploys the stack (about 10 minutes for Aurora), runs the task,
+prints its log and its JSON report, and deletes the stack, also after a failure. It stops the wait after 90 minutes,
+and also when a call to ECS fails. `--keep` keeps the stack. The template sets 20000 rows per table when you give no
+row count.
 
 ## What the stack holds
 

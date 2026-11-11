@@ -2,15 +2,16 @@
  * The rehearsal of the cutover database copy (CTX-1217), with synthetic rows
  * of production's shape (no customer data). It migrates a source database,
  * fills it, copies it with copyDatabase, runs migrate on the copy, and
- * prints the time of each phase as JSON.
+ * prints the time of each phase as JSON on stdout. The progress goes to the
+ * log.
  *
  *   bun run src/scripts/cutoverRehearsal.ts --print-shape-query
  *     The read-only query that gives the shape: run it on the source with
  *     `psql -At`, and keep its output as the shape file. It reads only the
  *     table names, the row estimates and the sizes.
  *
- *   bun run src/scripts/cutoverRehearsal.ts [--shape shape.json]
- *     [--scale 0.1] [--default-rows 1000] [--jobs 8] [--keep]
+ *   bun run src/scripts/cutoverRehearsal.ts [--shape shape.json [--scale 0.1]]
+ *     [--default-rows 1000] [--jobs 8]
  *     Local: a Neon-like and an Aurora-like Postgres 17 in Docker. The work
  *     directory is under `node_modules/.cache`, because a Docker VM (Colima)
  *     shares only the home directory.
@@ -20,40 +21,42 @@
  *     Remote: one server, for example an Aurora cluster of the sandbox
  *     account (`ops/aws-cutover/sandbox-rehearsal`). It makes the databases
  *     `cutover_rehearsal_source` and `cutover_rehearsal_target` as the master
- *     login, and drops them at the end. For an RDS host it fetches the RDS CA
- *     bundle, so that each connection checks the certificate.
+ *     login, and drops them at the end. Each connection to a host that is
+ *     not loopback uses TLS with a certificate check: the RDS CA bundle for an
+ *     RDS host, else the system roots.
  *
- * `--scale` multiplies each row count of the shape. Then the report also
- * gives the window at full size, at the same speed. `--keep` leaves the
- * containers or the databases.
+ * `--scale` multiplies each row count and each size of the shape. A table
+ * that is not in the shape gets `--default-rows`.
  */
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { initLogger } from "evlog"
+import pg from "pg"
 import { z } from "zod"
 
 import { copyDatabase } from "../db/copy-database.js"
 import { runMigrations } from "../db/run-migrations.js"
-import {
-  clientToolsDirectory,
-  rows,
-  sql,
-  startPostgresPair,
-} from "../test/postgres-pair.js"
-import {
-  fillSyntheticRows,
-  SHAPE_QUERY,
-  type TableShape,
-} from "../test/synthetic-rows.js"
+import { flushEvlog, initEvlog, log } from "../observability/logger.js"
+import { flag } from "./cli-args.js"
+import { fillSyntheticRows, type TableShape } from "./cutover/synthetic-rows.js"
 
-const shapeFile = z.array(
-  z.object({
-    table: z.string(),
-    rows: z.coerce.number().int().nonnegative(),
-    bytes: z.coerce.number().int().nonnegative().optional(),
-  }),
-)
+// The log goes to stderr as JSON lines: stdout holds only the report.
+try {
+  initEvlog({ stderr: true })
+} catch {
+  // A one-off task and a local run give no app env (AUTH_SECRET). The evlog
+  // defaults would write to stdout, so the log gets the same stderr output
+  // here, without the OTLP drain.
+  initLogger({
+    pretty: false,
+    silent: true,
+    drain: (ctx) => {
+      process.stderr.write(`${JSON.stringify(ctx.event)}\n`)
+    },
+  })
+}
 
 type Phase = { name: string; ms: number }
 
@@ -68,14 +71,18 @@ type Databases = {
   remove: () => Promise<void>
 }
 
-function flag(argv: string[], name: string): string | undefined {
-  const index = argv.indexOf(name)
-  const next = index >= 0 ? argv[index + 1] : undefined
-  return next !== undefined && !next.startsWith("--") ? next : undefined
-}
-
-function progress(message: string): void {
-  process.stderr.write(`[rehearsal] ${message}\n`)
+async function query<T extends pg.QueryResultRow>(
+  url: string,
+  statement: string,
+  values: unknown[] = [],
+): Promise<T[]> {
+  const client = new pg.Client({ connectionString: url })
+  await client.connect()
+  try {
+    return (await client.query<T>(statement, values)).rows
+  } finally {
+    await client.end()
+  }
 }
 
 async function timed<T>(
@@ -84,29 +91,41 @@ async function timed<T>(
   fn: () => Promise<T>,
 ): Promise<T> {
   const started = Date.now()
-  progress(`${name}…`)
+  log.info({ step: "cutover-rehearsal", message: `[rehearsal] ${name}` })
   const result = await fn()
-  phases.push({ name, ms: Date.now() - started })
-  progress(`${name}: ${Date.now() - started} ms`)
+  const ms = Date.now() - started
+  phases.push({ name, ms })
+  log.info({ step: "cutover-rehearsal", message: `[rehearsal] ${name}`, ms })
   return result
 }
 
-/** Docker containers with the role models of Neon and Aurora. */
+/**
+ * Docker containers with the role models of Neon and Aurora. The container
+ * helper loads the CI image pins, which the backend image does not hold, so
+ * it loads only in this mode.
+ */
 async function localDatabases(workRoot: string): Promise<Databases> {
+  const { clientToolsDirectory, startPostgresPair } =
+    await import("../test/postgres-pair.js")
   process.env.PATH = `${await clientToolsDirectory(workRoot)}:${process.env.PATH ?? ""}`
   const pair = await startPostgresPair(["ctxpipe"])
   return {
     sourceUrl: pair.sourceUrl,
     sourceSuperUrl: pair.sourceSuperUrl,
     targetUrl: pair.targetUrl("ctxpipe"),
-    remove: pair.stop,
+    remove: async () => {
+      await pair.stop()
+      await rm(workRoot, { recursive: true, force: true })
+    },
   }
 }
 
 /**
  * Two new databases on one server, as its master login. On Aurora the
  * master login (`rds_superuser`) can set `session_replication_role`, so it
- * is the owner and the filler of the source.
+ * is the owner and the filler of the source. Each connection to a host that
+ * is not loopback uses TLS with a certificate check. node-postgres reads
+ * `sslrootcert` as a file, so the system roots get no `sslrootcert`.
  */
 async function remoteDatabases(
   host: string,
@@ -115,33 +134,53 @@ async function remoteDatabases(
 ): Promise<Databases> {
   const password = process.env.PGPASSWORD
   if (!password) throw new Error("Set PGPASSWORD to the master password.")
+  let server: URL
+  try {
+    server = new URL(`postgresql://${host}`)
+  } catch {
+    throw new Error("--host must be <host> or <host>:<port>.")
+  }
+  if (server.username || server.pathname || server.search)
+    throw new Error("--host must be <host> or <host>:<port>.")
   const params = new URLSearchParams()
-  if (host.endsWith(".rds.amazonaws.com")) {
-    const bundle = join(workDir, "rds-global-bundle.pem")
-    const response = await fetch(
-      "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem",
-    )
-    if (!response.ok)
-      throw new Error(`The RDS CA bundle gave HTTP ${response.status}.`)
-    await writeFile(bundle, await response.text())
-    params.set("sslrootcert", bundle)
+  if (!["localhost", "127.0.0.1", "[::1]"].includes(server.hostname)) {
+    params.set("sslmode", "verify-full")
+    if (server.hostname.endsWith(".rds.amazonaws.com")) {
+      const bundle = join(workDir, "rds-global-bundle.pem")
+      const response = await fetch(
+        "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem",
+      )
+      if (!response.ok)
+        throw new Error(`The RDS CA bundle gave HTTP ${response.status}.`)
+      await writeFile(bundle, await response.text())
+      params.set("sslrootcert", bundle)
+    }
   }
   const url = (database: string) =>
-    `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host.includes(":") ? host : `${host}:5432`}/${database}?${params}`
-  const names = ["cutover_rehearsal_source", "cutover_rehearsal_target"]
-  for (const name of names)
-    await sql(url("postgres"), `CREATE DATABASE ${name}`)
+    `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${server.hostname}:${server.port || "5432"}/${database}?${params}`
+  const source = "cutover_rehearsal_source"
+  const target = "cutover_rehearsal_target"
+  // FORCE ends the sessions of a run that stopped before its cleanup.
+  const remove = async () => {
+    for (const name of [source, target])
+      await query(
+        url("postgres"),
+        `DROP DATABASE IF EXISTS ${name} WITH (FORCE)`,
+      )
+  }
+  await remove()
+  try {
+    for (const name of [source, target])
+      await query(url("postgres"), `CREATE DATABASE ${name}`)
+  } catch (error) {
+    await remove()
+    throw error
+  }
   return {
-    sourceUrl: url(names[0] as string),
-    sourceSuperUrl: url(names[0] as string),
-    targetUrl: url(names[1] as string),
-    remove: async () => {
-      for (const name of names)
-        await sql(
-          url("postgres"),
-          `DROP DATABASE IF EXISTS ${name} WITH (FORCE)`,
-        )
-    },
+    sourceUrl: url(source),
+    sourceSuperUrl: url(source),
+    targetUrl: url(target),
+    remove,
   }
 }
 
@@ -152,7 +191,7 @@ async function remoteDatabases(
  * use it.
  */
 async function newAppRolePassword(url: string): Promise<string | undefined> {
-  const found = await rows(
+  const found = await query(
     url,
     "SELECT 1 FROM pg_roles WHERE rolname = 'ctxpipe_app'",
   )
@@ -161,9 +200,23 @@ async function newAppRolePassword(url: string): Promise<string | undefined> {
 
 async function main(argv: string[]): Promise<number> {
   if (argv.includes("--print-shape-query")) {
-    process.stdout.write(`${SHAPE_QUERY};\n`)
+    // Read-only: one JSON array with the name, the row estimate and the size
+    // of each table. No row data. `reltuples` is the estimate of the last
+    // ANALYZE, and -1 when the table has none. The counts of
+    // `pg_stat_user_tables` restart when a Neon compute suspends.
+    process.stdout.write(`SELECT json_agg(t ORDER BY t.bytes DESC) FROM (
+  SELECT format('%I.%I', s.schemaname, s.relname) AS "table",
+         greatest(c.reltuples, 0)::bigint AS rows,
+         pg_table_size(s.relid) AS bytes
+  FROM pg_stat_user_tables s
+  JOIN pg_class c ON c.oid = s.relid
+  WHERE s.schemaname IN ('public', 'openworkflow')
+) t;\n`)
     return 0
   }
+  const path = flag(argv, "--shape")
+  if (argv.includes("--scale") && !path)
+    throw new Error("--scale applies to the shape: give --shape too.")
   const scale = Number(flag(argv, "--scale") ?? 1)
   const jobs = Number(flag(argv, "--jobs") ?? 8)
   const defaultRows = Number(flag(argv, "--default-rows") ?? 1000)
@@ -171,9 +224,15 @@ async function main(argv: string[]): Promise<number> {
     throw new Error(
       "--scale must be above 0, and --jobs a whole number of 1 or more.",
     )
-  const path = flag(argv, "--shape")
   const shape: Record<string, TableShape> = {}
-  if (path)
+  if (path) {
+    const shapeFile = z.array(
+      z.object({
+        table: z.string(),
+        rows: z.coerce.number().int().nonnegative(),
+        bytes: z.coerce.number().int().nonnegative().optional(),
+      }),
+    )
     for (const table of shapeFile.parse(
       JSON.parse(await readFile(path, "utf8")),
     ))
@@ -183,6 +242,7 @@ async function main(argv: string[]): Promise<number> {
           ? {}
           : { bytes: Math.round(table.bytes * scale) }),
       }
+  }
 
   const host = flag(argv, "--host")
   const workRoot =
@@ -213,10 +273,31 @@ async function main(argv: string[]): Promise<number> {
         shape,
         defaultRows,
         (table) => {
-          if (table.error) progress(`${table.table}: ${table.error}`)
+          if (table.error)
+            log.error({
+              step: "cutover-rehearsal",
+              message: "[rehearsal] a table refused the synthetic rows",
+              table: table.table,
+              error: table.error,
+            })
         },
       ),
     )
+    // The size that each table of the shape has after the fill. A table of
+    // the shape that the schema does not have gets no size.
+    const sizes = await query<{ table: string; bytes: string | null }>(
+      databases.sourceSuperUrl,
+      `SELECT t AS "table", pg_table_size(to_regclass(t)) AS bytes
+       FROM unnest($1::text[]) AS t`,
+      [Object.keys(shape)],
+    )
+    const shaped = sizes.map(({ table, bytes }) => ({
+      table,
+      requestedRows: shape[table]?.rows,
+      rows: filled.find((result) => result.table === table)?.rows,
+      requestedBytes: shape[table]?.bytes,
+      bytes: bytes === null ? undefined : Number(bytes),
+    }))
     // Production is in the state of its last migrate.
     await timed(setup, "migrate source again", () =>
       runMigrations({
@@ -243,7 +324,6 @@ async function main(argv: string[]): Promise<number> {
     const window = [...report.phases, ...migrate].filter(
       (phase) => phase.name !== "preflight",
     )
-    const windowMs = window.reduce((sum, phase) => sum + phase.ms, 0)
     const summary = {
       ok: report.ok && filled.every((table) => !table.error),
       mode: host ? "remote" : "local",
@@ -254,32 +334,29 @@ async function main(argv: string[]): Promise<number> {
       extensions: report.preflight.extensions,
       rows: filled.reduce((sum, table) => sum + table.rows, 0),
       window,
-      windowMs,
-      ...(scale !== 1
-        ? { fullSizeWindowMs: Math.round(windowMs / scale) }
-        : {}),
+      windowMs: window.reduce((sum, phase) => sum + phase.ms, 0),
       setup,
+      shaped,
       fillErrors: filled.filter((table) => table.error),
       verifyProblems: report.verify.problems,
     }
     process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`)
     return summary.ok ? 0 : 1
   } finally {
-    if (argv.includes("--keep")) progress("databases kept")
-    else {
-      await databases.remove()
-      if (!host) await rm(workRoot, { recursive: true, force: true })
-    }
+    await databases.remove()
   }
 }
 
-main(process.argv.slice(2)).then(
-  (code) => process.exit(code),
-  (error: unknown) => {
-    // No URL in the message: copyDatabase and the pg client name no password.
-    process.stderr.write(
-      `${error instanceof Error ? error.message : String(error)}\n`,
-    )
-    process.exit(1)
-  },
-)
+let exitCode = 1
+try {
+  exitCode = await main(process.argv.slice(2))
+} catch (error) {
+  // No URL in the message: copyDatabase and the pg client name no password.
+  log.error({
+    step: "cutover-rehearsal",
+    message: "[rehearsal] failed",
+    error: error instanceof Error ? error.message : String(error),
+  })
+}
+await flushEvlog()
+process.exit(exitCode)

@@ -5,7 +5,8 @@ import pg from "pg"
  * rehearsal and the copy test (CTX-1217). No row holds customer data: each
  * value comes from the row number. The rows follow a shape: the row count
  * and the size of each table, for example from the shape query on production
- * (`SHAPE_QUERY`), which reads only table names and sizes.
+ * (`cutoverRehearsal.ts --print-shape-query`), which reads only table names,
+ * row estimates and sizes.
  *
  * Each value is a function of its table, its column and the row number, so a
  * foreign key can name the value of the row that it refers to. The restore
@@ -13,18 +14,6 @@ import pg from "pg"
  * superuser: it turns off the foreign-key triggers of its session
  * (`session_replication_role = replica`), so the tables fill in any order.
  */
-
-/**
- * Read-only: one JSON array with the name, the row estimate and the size of
- * each table. No row data. Its output is a shape file of the rehearsal.
- */
-export const SHAPE_QUERY = `SELECT json_agg(t ORDER BY t.bytes DESC) FROM (
-  SELECT format('%I.%I', schemaname, relname) AS "table",
-         n_live_tup AS rows,
-         pg_table_size(relid) AS bytes
-  FROM pg_stat_user_tables
-  WHERE schemaname IN ('public', 'openworkflow')
-) t`
 
 export type TableShape = { rows: number; bytes?: number }
 
@@ -51,16 +40,23 @@ type Column = {
   refColumn: string | null
   /** Another table's foreign key refers to this column. */
   referenced: boolean
+  /** In an index, for example a primary key. */
+  indexed: boolean
 }
 
 type Table = {
   name: string
   rows: number
-  pad: number
+  /** The size of one row in the shape. */
+  rowBytes: number
   columns: Column[]
 }
 
 const BATCH = 200_000
+/** The length of one md5 string in hex. */
+const MD5_HEX_LENGTH = 32
+/** The size of one row when the shape gives no size. */
+const DEFAULT_ROW_BYTES = 200
 
 async function readColumns(client: pg.Client): Promise<Column[]> {
   const { rows } = await client.query<Column>(
@@ -82,7 +78,10 @@ async function readColumns(client: pg.Client): Promise<Column[]> {
             f."refTable", f."refColumn",
             EXISTS (SELECT 1 FROM pg_constraint k
               WHERE k.confrelid = a.attrelid AND k.contype = 'f' AND a.attnum = ANY (k.confkey)
-            ) AS referenced
+            ) AS referenced,
+            EXISTS (SELECT 1 FROM pg_index i
+              WHERE i.indrelid = a.attrelid AND a.attnum = ANY (i.indkey)
+            ) AS indexed
      FROM pg_attribute a
      JOIN pg_class c ON c.oid = a.attrelid
      JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -115,6 +114,25 @@ function written(column: Column): boolean {
 }
 
 /**
+ * True for a column that holds the bulk of a row: text with no length
+ * limit, JSON or bytea, with no key, no foreign key, no index and no check.
+ * Its value gets `pad` different md5 strings, so that the size of the table
+ * follows the shape and compression does not make it smaller. A key gets
+ * none, so a foreign key needs no padding to match it.
+ */
+function payload(column: Column): boolean {
+  if (!written(column) || column.indexed || column.referenced) return false
+  if (column.refTable || column.check || column.nullInCheck) return false
+  if (["text", "json", "jsonb", "bytea"].includes(column.type)) return true
+  return column.type === "character varying"
+}
+
+/** `pad` different md5 strings of row `g`, in one hex string. */
+function padding(column: Column, g: string, pad: number): string {
+  return `(SELECT string_agg(md5((${g})::text || ':' || k::text || ${literal(column.name)}), '') FROM generate_series(1, ${pad}) AS k)`
+}
+
+/**
  * A SQL expression for one column of row `g` (a SQL expression for the row
  * number). The value of a row depends only on the table, the column and
  * the row number, so a foreign key can name the value of another row.
@@ -133,7 +151,7 @@ function value(
     // A nullable foreign key stays empty, unless a check needs a value in it.
     if (!column.notNull && !column.check) return `NULL::${type}`
     if (target && ref && target.rows > 0)
-      return `(${value(ref, `((${g} - 1) % ${target.rows} + 1)`, tables, target.pad)})::${type}`
+      return `(${value(ref, `((${g} - 1) % ${target.rows} + 1)`, tables, 0)})::${type}`
   }
   // A check such as `status = ANY (ARRAY['a'::text, …])` allows only listed
   // values: use the first one.
@@ -141,17 +159,21 @@ function value(
     ? /ARRAY\['((?:[^']|'')*)'::/.exec(column.check)?.[1]
     : undefined
   if (allowed !== undefined) return `${literal(allowed)}::${type}`
-  const text = `${literal(`${column.table}.${column.name}:`)} || (${g}) || ':' || repeat(md5((${g})::text), ${pad})`
+  const padded = pad > 0 && payload(column)
+  const text = `${literal(`${column.table}.${column.name}:`)} || (${g})${padded ? ` || ':' || ${padding(column, g, pad)}` : ""}`
   if (column.typtype === "e")
     return `(enum_range(NULL::${type}))[1 + (${g}) % array_length(enum_range(NULL::${type}), 1)]`
   if (column.category === "A") return `'{}'::${type}`
   if (type === "uuid") return `md5(${literal(column.table)} || (${g}))::uuid`
   if (type === "boolean") return `(${g}) % 2 = 0`
   if (type === "smallint") return `((${g}) % 32000)::smallint`
+  // A hex digit is half a byte: twice the md5 strings give the same size.
   if (type === "bytea")
-    return `decode(repeat(md5((${g})::text), ${pad + 1}), 'hex')`
+    return `decode(md5((${g})::text)${padded ? ` || ${padding(column, g, pad * 2)}` : ""}, 'hex')`
   if (type === "json" || type === "jsonb")
-    return `jsonb_build_object('n', ${g}, 'pad', repeat(md5((${g})::text), ${pad}))::${type}`
+    return padded
+      ? `jsonb_build_object('n', ${g}, 'pad', ${padding(column, g, pad)})::${type}`
+      : `jsonb_build_object('n', ${g})::${type}`
   if (type.startsWith("vector"))
     return `array_fill(((${g}) % 1000)::real / 1000, ARRAY[${column.dims ?? 3}])::${type}`
   if (type === "interval") return `(${g}) * interval '1 second'`
@@ -195,25 +217,38 @@ export async function fillSyntheticRows(
         table = {
           name: column.table,
           rows: kept ? 0 : target.rows,
-          pad: 0,
+          rowBytes:
+            target.bytes && target.rows
+              ? target.bytes / target.rows
+              : DEFAULT_ROW_BYTES,
           columns: [],
         }
-        const rowBytes =
-          target.bytes && target.rows ? target.bytes / target.rows : 200
-        table.pad = Math.round(rowBytes / 4 / 32)
         tables.set(column.table, table)
       }
       table.columns.push(column)
     }
-
     const results: FillResult[] = []
     for (const table of tables.values()) {
       const result: FillResult = { table: table.name, rows: 0 }
       try {
         const list = table.columns.filter(written)
         const names = list.map((column) => `"${column.name}"`).join(", ")
+        // The payload columns share the part of the row size of the shape
+        // that the other columns (for example an embedding) do not fill.
+        const payloads = list.filter(payload).length
+        let pad = 0
+        if (payloads > 0) {
+          const sample = await client.query<{ bytes: number }>(
+            `SELECT pg_column_size(ROW(${list.map((column) => value(column, "g", tables, 0)).join(", ")})) AS bytes FROM generate_series(1, 1) AS g`,
+          )
+          const fixed = sample.rows[0]?.bytes ?? 0
+          pad = Math.max(
+            0,
+            Math.round((table.rowBytes - fixed) / payloads / MD5_HEX_LENGTH),
+          )
+        }
         const values = list
-          .map((column) => value(column, "g", tables, table.pad))
+          .map((column) => value(column, "g", tables, pad))
           .join(", ")
         const overriding = list.some((column) => column.identity)
           ? " OVERRIDING SYSTEM VALUE"

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url"
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
+import { fillSyntheticRows } from "../scripts/cutover/synthetic-rows.js"
 import {
   clientToolsDirectory,
   type PostgresPair,
@@ -11,7 +12,6 @@ import {
   sql,
   startPostgresPair,
 } from "../test/postgres-pair.js"
-import { fillSyntheticRows } from "../test/synthetic-rows.js"
 import { copyDatabase, verifyDatabaseCopy } from "./copy-database.js"
 import { runMigrations } from "./run-migrations.js"
 
