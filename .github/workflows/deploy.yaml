@@ -139,13 +139,170 @@ jobs:
       - name: Tag the multi-platform image
         env:
           IMAGE: ghcr.io/ctxpipe-ai/${{ matrix.image }}
+          INDEX: ${{ runner.temp }}/index/${{ matrix.image }}
         run: |
-          docker buildx imagetools create \
+          set -o pipefail
+          docker buildx imagetools create --progress plain \
             --tag "$IMAGE:$GITHUB_SHA" \
             --tag "$IMAGE:latest" \
             "$IMAGE@$(cat "$RUNNER_TEMP/digest/amd64")" \
-            "$IMAGE@$(cat "$RUNNER_TEMP/digest/arm64")"
-          docker buildx imagetools inspect "$IMAGE:$GITHUB_SHA"
+            "$IMAGE@$(cat "$RUNNER_TEMP/digest/arm64")" 2>&1 | tee "$RUNNER_TEMP/create.log"
+          # The digest of the list that this job pushed, from the push and not
+          # from a later read of the tag. copy_images_to_ecr copies it.
+          mkdir -p "$(dirname "$INDEX")"
+          grep -oE 'pushing sha256:[0-9a-f]{64} to ' "$RUNNER_TEMP/create.log" | sort -u | cut -d' ' -f2 > "$INDEX"
+          [ "$(wc -l < "$INDEX")" -eq 1 ]
+          docker buildx imagetools inspect "$IMAGE@$(cat "$INDEX")"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: index-${{ matrix.image }}
+          path: ${{ runner.temp }}/index/${{ matrix.image }}
+          if-no-files-found: error
+
+  # Gives copy_images_to_ecr the manifest-list digests that publish_images
+  # pushed in this run. The copy job holds an AWS token, so it downloads no
+  # artifact (check-secret-jobs). This job holds no token: it reads the
+  # artifacts as data and lets only sha256 digests through. release and
+  # terraform run pnpm install, so they wait for this job: while it reads the
+  # artifacts, no job of the run that runs dependency code can upload one.
+  ecr_digests:
+    timeout-minutes: 5
+    name: Digests for the production ECR
+    if: github.event_name != 'workflow_dispatch'
+    needs:
+      - publish_images
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    permissions:
+      contents: read
+    outputs:
+      digests: ${{ steps.digests.outputs.digests }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: github.run_attempt == 1
+        with:
+          pattern: index-*
+          path: ${{ runner.temp }}/index
+          merge-multiple: true
+      - id: digests
+        run: |
+          set -o pipefail
+          # Only the first attempt reads the artifacts: in a later attempt,
+          # dependency code of release or terraform from an earlier attempt
+          # could have uploaded one. A rerun of only copy_images_to_ecr keeps
+          # the outputs of the first attempt.
+          if [ "$GITHUB_RUN_ATTEMPT" != 1 ]; then
+            echo "::warning::attempt $GITHUB_RUN_ATTEMPT gives no digests, so this build is not copied to the ECR; the next main build copies its images"
+            echo "digests={}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          cd "$RUNNER_TEMP/index"
+          # The ECR repositories that exist (factory #99, ctxpipe/*). An image
+          # without one is skipped with a notice: release and terraform wait
+          # for this job, so a failure here would stop the Railway deploy.
+          for image in *; do
+            digest="$(cat "$image")"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::$image holds no image digest" >&2; exit 1; }
+            if [[ ! "$image" =~ ^(backend|worker|ui|codesearch|chat-sandbox)$ ]]; then
+              echo "::notice::$image is not on the ECR list of this job; it is not copied" >&2
+              continue
+            fi
+            echo "$image $digest"
+          done | jq -Rcs 'split("\n") | map(select(. != "") | split(" ") | {(.[0]): .[1]}) | add // {}' | sed 's/^/digests=/' >> "$GITHUB_OUTPUT"
+
+  # Copies each production image, and the cloudflared image that the edge
+  # stack pins, to the production ECR (CTX-1215 X2). crane copies the
+  # manifest list by digest, so the ECR digest equals the GHCR digest. It
+  # writes the per-platform images first and the tagged list last, so the
+  # newest tagged image is always complete. Each push starts the factory
+  # digest workflow through EventBridge; this repo holds no factory
+  # credential. Railway deploys from GHCR (the terraform job) until the
+  # cutover, so no job waits for this one.
+  copy_images_to_ecr:
+    timeout-minutes: 15
+    name: Copy images to the production ECR
+    if: github.event_name != 'workflow_dispatch'
+    needs:
+      - ecr_digests
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    # Only this job names the environment, and the environment admits only
+    # main. The push role trusts only the OIDC subject of this environment,
+    # so no other job of this repo can push to the ECR.
+    environment: ecr-push
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
+    env:
+      AWS_ACCOUNT: "213102790567"
+      ECR_REGION: us-west-2
+    steps:
+      # The repository variable ECR_MIRROR turns the copy on. A person sets
+      # it to `enabled` after aws-core deploys the push role. Until then, the
+      # copy step only checks the sources (a dry run) and warns. With the
+      # variable set, a failed login or copy fails the job: an ECR push
+      # starts the production deploys, so a failure must show.
+      - if: vars.ECR_MIRROR == 'enabled'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT }}:role/github-actions-ctxpipe-ecr-push
+          aws-region: ${{ env.ECR_REGION }}
+
+      - name: Install crane
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/crane.tar.gz" \
+            https://github.com/google/go-containerregistry/releases/download/v0.22.1/go-containerregistry_Linux_arm64.tar.gz
+          echo "898c0cff975f898a33e8c4580bdafb0e7c02c7faa33374e946762f97c4ab7110  $RUNNER_TEMP/crane.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/crane.tar.gz" -C "$RUNNER_TEMP" crane
+
+      - name: Copy the images by digest
+        env:
+          DIGESTS: ${{ needs.ecr_digests.outputs.digests }}
+          GH_TOKEN: ${{ github.token }}
+          PUSH: ${{ vars.ECR_MIRROR == 'enabled' }}
+        run: |
+          set -o pipefail
+          # A late rerun of an older run must not make an older build the
+          # newest tagged image, so each attempt checks the head of main.
+          main="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          if [ "$main" != "$GITHUB_SHA" ]; then
+            echo "::notice::main is at $main, not at $GITHUB_SHA: the run of that commit copies its images"
+            exit 0
+          fi
+          crane="$RUNNER_TEMP/crane"
+          ecr="$AWS_ACCOUNT.dkr.ecr.$ECR_REGION.amazonaws.com"
+          echo "$GH_TOKEN" | "$crane" auth login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          if [ "$PUSH" = true ]; then
+            aws ecr get-login-password | "$crane" auth login "$ecr" -u AWS --password-stdin
+          else
+            echo "::warning::The repository variable ECR_MIRROR is not enabled: a dry run checks the sources and copies nothing."
+          fi
+          # The tags are immutable. A rerun skips a tag that already holds
+          # the same digest, and fails on a tag that holds another digest.
+          copy() { # <source>@<digest> <repository> <tag>
+            target="$ecr/$2:$3"
+            digest="${1#*@}"
+            if [ "$PUSH" != true ]; then
+              [ "$("$crane" digest "$1")" = "$digest" ]
+              echo "dry run: $1 -> $target" | tee -a "$GITHUB_STEP_SUMMARY"
+              return 0
+            fi
+            if existing="$("$crane" digest "$target" 2> /dev/null)"; then
+              [ "$existing" = "$digest" ] || { echo "::error::$target holds $existing, not $digest"; return 1; }
+              echo "$target already holds $existing"
+              return 0
+            fi
+            "$crane" copy "$1" "$target"
+            echo "$target $digest" | tee -a "$GITHUB_STEP_SUMMARY"
+          }
+          [ "$DIGESTS" != "{}" ] || echo "::warning::ecr_digests gave no image digests, so this build is not copied to the ECR" | tee -a "$GITHUB_STEP_SUMMARY"
+          while read -r image digest; do
+            copy "ghcr.io/ctxpipe-ai/$image@$digest" "ctxpipe/$image" "$GITHUB_SHA"
+          done < <(jq -r 'to_entries[] | "\(.key) \(.value)"' <<< "$DIGESTS")
+          # cloudflared 2026.10.7 (multi-platform index), the version of the
+          # edge stack and the backend sidecar. Its tag is its version, so a
+          # new tag comes only with a new pin.
+          copy docker.io/cloudflare/cloudflared@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba ctxpipe/cloudflared 2026.10.7
 
   release:
     timeout-minutes: 20
@@ -154,6 +311,7 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     needs:
       - publish_images
+      - ecr_digests
     permissions:
       contents: write
       pull-requests: write
@@ -210,6 +368,7 @@ jobs:
     environment: production
     needs:
       - publish_images
+      - ecr_digests
     defaults:
       run:
         working-directory: infra
