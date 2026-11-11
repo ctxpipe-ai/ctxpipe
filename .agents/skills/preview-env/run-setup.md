@@ -10,7 +10,7 @@ Shared by every [preview-env](SKILL.md) run and every area. Complete it before t
 | --- | --- | --- |
 | `local` | `https://app.ctxpipe.localhost` or `https://<branch>.app.ctxpipe.localhost` (linked worktree) | `pnpm dev` per the root AGENTS.md runbook; Docker infra up; migrations applied |
 | `preview` | `https://backend-pr-<N>.up.railway.app` | Railway PR environment `pr-<N>`; its database is a **copy of production** |
-| `aws` | `https://cutover.ctxpipe.dev` | The AWS production stack before the go/no-go of [CTX-1217](https://linear.app/ctxpipe/issue/CTX-1217), with rehearsal secrets and an empty database or a rehearsal copy. Cloudflare Access protects it: the agent host uses WARP, or the browser and the MCP client send the Access service token. After the go/no-go, the stack serves `app.ctxpipe.ai`, and this mode is closed |
+| `aws` | `https://cutover.ctxpipe.dev` | The AWS production stack before the go/no-go G4 of [CTX-1217](https://linear.app/ctxpipe/issue/CTX-1217), with rehearsal secrets and an empty database or a rehearsal copy. In this phase, `AUTH_BASE_URL` and `AUTH_ALLOWED_ORIGINS` name `https://cutover.ctxpipe.dev`, so sign-in and the OAuth callbacks stay on this host. In the cutover window, `AUTH_BASE_URL` is `https://app.ctxpipe.ai`: then only `validateTarget` runs against that origin, and the sweep does not run. Cloudflare Access protects the host: the agent host uses WARP, or the requests send the Access service token (see the [harness](harness.md#1-wake) and the [browser driver](harness.md#browser-driver)). The guard admits this host only before G4. At G4, the edge stack removes the `cutover.ctxpipe.dev` route |
 
 Any other host, including `app.ctxpipe.ai`, is a **harness FAIL**: stop before opening a browser. A raw UI host or port misses the session cookie; always drive the backend origin.
 
@@ -118,12 +118,12 @@ A `local` run exports to the hosted collector so every flow is debuggable in Hyp
 
 ## Verify backend side effects
 
-| Side effect | `local` | `preview` |
-| --- | --- | --- |
-| Database row | read-only `SELECT` against `DATABASE_URL` in `apps/backend/.env.local` | Neon MCP (read-only) |
-| Git commit or PR | `gh api repos/{GH_TEST_ORG}/{repo}/commits`, `gh pr view` | same |
-| Workflow run | HyperDX `SpanName = workflow_run.execute` in `local-<name>`, `openworkflow.run.id` | HyperDX `SpanName = workflow_run.execute`, `openworkflow.run.id` |
-| Sandbox | `workspace_sandbox_instances` row; Docker container | same row plus the Vercel sandbox tagged with the environment |
+| Side effect | `local` | `preview` | `aws` |
+| --- | --- | --- | --- |
+| Database row | read-only `SELECT` against `DATABASE_URL` in `apps/backend/.env.local` | Neon MCP (read-only) | no database access from outside the AWS VPC: assert through the API response, the UI, and the HyperDX span |
+| Git commit or PR | `gh api repos/{GH_TEST_ORG}/{repo}/commits`, `gh pr view` | same | same |
+| Workflow run | HyperDX `SpanName = workflow_run.execute` in `local-<name>`, `openworkflow.run.id` | HyperDX `SpanName = workflow_run.execute`, `openworkflow.run.id` | the same span in the `DeploymentEnvironment` of the AWS stack |
+| Sandbox | `workspace_sandbox_instances` row; Docker container | same row plus the Vercel sandbox tagged with the environment | the sandbox spans in the `DeploymentEnvironment` of the AWS stack |
 
 Tables the flows name: `users`, `sessions`, `accounts`, `organizations`, `members`, `invitations`, `apikeys`, `org_onboarding`, `connections`, `workspaces`, `workspace_linked_repositories`, `workspace_knowledge_units`, `workspace_write_jobs`, `workspace_repository_commits`, `workspace_commit_projections`, `conversations`, `conversation_messages`, `chat_threads`, `chat_runs`, `workspace_sandbox_instances`, `workspace_sandbox_git_tokens`. Run `\d <table>` before asserting a column; assert on presence, count, and state, not on exact schema.
 
@@ -134,5 +134,5 @@ Tables the flows name: `users`, `sessions`, `accounts`, `organizations`, `member
 - Provider OAuth through to a config PR needs flag `live-oauth`, a named provider, and a human checkpoint.
 - Restarting or redeploying target services (flag `restart-ok`) is allowed on `local` and on the `pr-280` preview only; on any other preview the flows that need it are `SKIP(gated-restart-ok)`. Waking a `SLEEPING` service in the [harness](harness.md#1-wake) is not a restart.
 - Invite only `TEST_EMAIL_DOMAIN` addresses.
-- On a preview the database is a production copy: read only rows this run created; never open or quote another org's data.
+- On a preview, and on `aws` with a rehearsal copy, the database is a production copy: read only rows this run created; never open or quote another org's data.
 - Delete a Workspace only if this run created it and the flow says so.

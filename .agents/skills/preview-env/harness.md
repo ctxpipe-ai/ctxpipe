@@ -16,9 +16,13 @@ Body must be JSON with `status` equal to `"ok"`.
 
 `local` only: Docker infra and codesearch are up (`pnpm dev:infra`, `pnpm dev`); a missing codesearch container is a harness FAIL for the areas above. Trace export is on ([local trace export](run-setup.md#local-trace-export)): send `curl -fsS -H "x-request-id: pe-{run-id}-wake" "$BASE_URL/.status"`, then find `SpanAttributes['request.id'] = 'pe-{run-id}-wake'` in HyperDX under `local-<name>` within a minute. No span is a harness FAIL.
 
-`aws` only: every request sends the Access service token (`-H "CF-Access-Client-Id: …" -H "CF-Access-Client-Secret: …"`), unless the agent host uses WARP. From `apps/backend`, run `bun run src/scripts/validateTarget.ts "$BASE_URL"` with `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` set. A failed check is a harness FAIL.
+`aws` only: each request sends the Access service token (`-H "CF-Access-Client-Id: …" -H "CF-Access-Client-Secret: …"`), unless the agent host uses WARP. From `apps/backend`, run `bun run src/scripts/validateTarget.ts "$BASE_URL" --no-mcp-read` with `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` set. A failed check is a harness FAIL. Before the sweep, the database has no test org, so this step skips the `mcp read` check. The [mcp](mcp/SKILL.md) area tests MCP with the account of this run. In the cutover window, the runbook runs the script against `https://app.ctxpipe.ai` without `--no-mcp-read`, with `VALIDATE_API_KEY` set to a personal API key of a test org. Without that key, the `mcp read` check fails.
 
-**Done when:** `/.status` is ok, and (if those areas run) worker and codesearch have a deploy timestamp newer than the wake call or are already `RUNNING` with a recent timestamp (`preview`), or the local stack answers and its wake request is in HyperDX (`local`), or each `validateTarget` check passed (`aws`).
+**Done when:** `/.status` is ok, and:
+
+- `preview`: if those areas run, worker and codesearch have a deploy timestamp newer than the wake call, or they are `RUNNING` with a recent timestamp.
+- `local`: the local stack answers, and its wake request is in HyperDX.
+- `aws`: each `validateTarget` check passed.
 
 ## 2. UI canary
 
@@ -45,6 +49,7 @@ Any driver works (Cursor computer use, T3 Code preview tools, Playwright, anothe
 - Click visible labels: `Home`, `Connectors`, `Files`, `Graph`, `Settings`, `Create PR`, `Show PR`, `Try again`, and the sidebar **+** (`aria-label` "Add Workspace").
 - Record only the area's working path. Split recordings if setup sits between flows.
 - Use one desktop viewport unless the prompt names mobile.
+- `aws` without WARP: add the two Access headers only to requests for the `BASE_URL` origin, for example with a `page.route` handler on that host. Never add them to each request of the context (for example with `extraHTTPHeaders`): the sweep also opens GitHub and provider pages.
 
 ## Flow failure
 
