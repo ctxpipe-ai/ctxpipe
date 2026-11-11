@@ -8,26 +8,11 @@
       "type": "streamable-http",
       "url": "http://127.0.0.1:6006/mcp"
     },
-    "neon": {
-      "type": "streamable-http",
-      "url": "https://mcp.neon.tech/mcp?readonly=true"
-    },
-    "railway": {
-      "type": "streamable-http",
-      "url": "https://mcp.railway.com"
-    },
     "hyperdx": {
       "type": "streamable-http",
       "url": "https://hyperdx.ctxpipe.ai/api/mcp",
       "headers": {
         "Authorization": "Bearer ${env:HYPERDX_ACCESS_KEY}"
-      }
-    },
-    "langfuse": {
-      "type": "streamable-http",
-      "url": "https://langfuse.ctxpipe.ai/api/public/mcp",
-      "headers": {
-        "Authorization": "Basic ${env:LANGFUSE_AUTH_STRING}"
       }
     },
     "cloudflare": {

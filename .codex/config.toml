@@ -25,23 +25,9 @@ env_http_headers = { "x-api-key" = "CTXPIPE_API_KEY" }
 [mcp_servers.ctxpipe-storybook]
 url = "http://127.0.0.1:6006/mcp"
 
-[mcp_servers.neon]
-url = "https://mcp.neon.tech/mcp?readonly=true"
-bearer_token_env_var = "NEON_API_KEY"
-
-[mcp_servers.railway]
-command = "npx"
-args = ["-y", "@railway/cli@5.63.1", "mcp", "local"]
-
 [mcp_servers.hyperdx]
 url = "https://hyperdx.ctxpipe.ai/api/mcp"
 bearer_token_env_var = "HYPERDX_ACCESS_KEY"
-
-# Langfuse needs "Authorization: Basic <LANGFUSE_AUTH_STRING>". Codex cannot put
-# the "Basic " prefix in front of an env var, so a stdio bridge sends the header.
-[mcp_servers.langfuse]
-command = "bash"
-args = ["-c", "exec npx -y mcp-remote@0.15.2 https://langfuse.ctxpipe.ai/api/public/mcp --header \"Authorization: Basic ${LANGFUSE_AUTH_STRING}\""]
 
 [mcp_servers.cloudflare]
 url = "https://mcp.cloudflare.com/mcp"

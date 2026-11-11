@@ -25,8 +25,7 @@ Claude Code and Codex read keys from environment variables. Only `ctxpipe` can f
 **Ops debugging / logs (preference order):** Follow [`.agents/skills/observability/SKILL.md`](.agents/skills/observability/SKILL.md) and [ops/observability/USING.md](ops/observability/USING.md).
 
 1. **HyperDX MCP** (`hyperdx`) — logs, traces, metrics. Filter `DeploymentEnvironment` (`production`, `pr-N`, `observability`, `local-<name>`).
-2. **Langfuse MCP** (`langfuse`) — LLM traces and prompt text (HyperDX stores those spans with prompt attributes removed).
-3. **Railway MCP** (`railway`) — deploy status and runtime stdout when the process never exported.
+2. **AWS reads** through the read-only audit role (`factory-audit`) — deploy state, ECS events, and the CloudWatch stdout of a process that never exported.
 
 For Storybook conventions and tools, read [.agents/skills/storybook/SKILL.md](.agents/skills/storybook/SKILL.md) with [apps/ui/AGENTS.md](apps/ui/AGENTS.md).
 
