@@ -210,7 +210,7 @@ jobs:
             echo "$image $digest"
           done | jq -Rcs 'split("\n") | map(select(. != "") | split(" ") | {(.[0]): .[1]}) | add // {}' | sed 's/^/digests=/' >> "$GITHUB_OUTPUT"
 
-  # Copies each production image, and the cloudflared image that the edge
+  # Copies each production image, and the upstream images that the hosted
   # stack pins, to the production ECR (CTX-1215 X2). crane copies the
   # manifest list by digest, so the ECR digest equals the GHCR digest. It
   # writes the per-platform images first and the tagged list last, so the
@@ -299,10 +299,25 @@ jobs:
           while read -r image digest; do
             copy "ghcr.io/ctxpipe-ai/$image@$digest" "ctxpipe/$image" "$GITHUB_SHA"
           done < <(jq -r 'to_entries[] | "\(.key) \(.value)"' <<< "$DIGESTS")
-          # cloudflared 2026.10.7 (multi-platform index), the version of the
-          # edge stack and the backend sidecar. Its tag is its version, so a
-          # new tag comes only with a new pin.
-          copy docker.io/cloudflare/cloudflared@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba ctxpipe/cloudflared 2026.10.7
+          # Upstream images that the hosted stack runs, each pinned by its
+          # multi-platform index digest; the copy keeps that digest. Change a
+          # pin here and in the hosted stack file (hosted:repositories) in one
+          # reviewed edit. The tag is the upstream version, so a new tag comes
+          # only with a new pin. The hosted stack makes a repository with the
+          # service that uses it, so a pin whose repository does not exist yet
+          # is skipped with a warning; any other error fails the job.
+          while read -r repository tag source; do
+            if [ "$PUSH" = true ] && ! error="$(aws ecr describe-images --repository-name "$repository" --image-ids imageTag="$tag" 2>&1 > /dev/null)" && [[ "$error" == *RepositoryNotFoundException* ]]; then
+              echo "::warning::$repository does not exist yet: $source is not copied" | tee -a "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            copy "$source" "$repository" "$tag"
+          done <<'PINS'
+          ctxpipe/cloudflared 2026.10.7 docker.io/cloudflare/cloudflared@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
+          ctxpipe/falkordb v4.20.7 docker.io/falkordb/falkordb@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
+          ctxpipe/otel-collector-contrib 0.155.0 docker.io/otel/opentelemetry-collector-contrib@sha256:4935caa35e9a4cb387e35732e8fb22b2b5759af8d12e7043357f03837f6e8df5
+          ctxpipe/busybox 1.37 docker.io/library/busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+          PINS
 
   release:
     timeout-minutes: 20
