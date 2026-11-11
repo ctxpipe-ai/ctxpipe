@@ -211,7 +211,7 @@ jobs:
           done | jq -Rcs 'split("\n") | map(select(. != "") | split(" ") | {(.[0]): .[1]}) | add // {}' | sed 's/^/digests=/' >> "$GITHUB_OUTPUT"
 
   # Copies each production image, and the upstream images that the hosted
-  # stack pins, to the production ECR (CTX-1215 X2). crane copies the
+  # and observability stacks pin, to the production ECR (CTX-1215 X2). crane copies the
   # manifest list by digest, so the ECR digest equals the GHCR digest. It
   # writes the per-platform images first and the tagged list last, so the
   # newest tagged image is always complete. Each push starts the factory
@@ -299,11 +299,11 @@ jobs:
           while read -r image digest; do
             copy "ghcr.io/ctxpipe-ai/$image@$digest" "ctxpipe/$image" "$GITHUB_SHA"
           done < <(jq -r 'to_entries[] | "\(.key) \(.value)"' <<< "$DIGESTS")
-          # Upstream images that the hosted stack runs, each pinned by its
-          # multi-platform index digest; the copy keeps that digest. Change a
-          # pin here and in the hosted stack file (hosted:repositories) in one
-          # reviewed edit. The tag is the upstream version, so a new tag comes
-          # only with a new pin. The hosted stack makes a repository with the
+          # Upstream images that the hosted and observability stacks run, each
+          # pinned by its multi-platform index digest; the copy keeps that
+          # digest. Change a pin here and in the stack that uses it in one
+          # reviewed edit. The tag is the exact upstream version (not a moving
+          # tag such as mongo:7), so a new pin always gets a new tag. The hosted stack makes a repository with the
           # service that uses it, so a pin whose repository does not exist yet
           # is skipped with a warning; any other error fails the job.
           while read -r repository tag source; do
@@ -317,6 +317,10 @@ jobs:
           ctxpipe/falkordb v4.20.7 docker.io/falkordb/falkordb@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
           ctxpipe/otel-collector-contrib 0.155.0 docker.io/otel/opentelemetry-collector-contrib@sha256:4935caa35e9a4cb387e35732e8fb22b2b5759af8d12e7043357f03837f6e8df5
           ctxpipe/busybox 1.37 docker.io/library/busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+          ctxpipe/clickhouse-server 26.8.36.3-alpine docker.io/clickhouse/clickhouse-server@sha256:f5443f9ffa48f0154cdd50cab39fed732201762574a27f04f1f564bbba81832d
+          ctxpipe/clickstack-otel-collector 2.39.1 docker.io/clickhouse/clickstack-otel-collector@sha256:fb71cb46bfc11413e9b96b056118f66293262579cec42927d7f1ca38d3732146
+          ctxpipe/hyperdx 2.39.1 docker.io/hyperdx/hyperdx@sha256:619783ca66d6c81f72a0106f4013d65865ac42e064491b19c0019ffec268f316
+          ctxpipe/mongo 7.0.45 docker.io/library/mongo@sha256:8bb4442761a63a8dda452744082cdac9644b429807eb977b42324a63cef59ca4
           PINS
 
   release:
