@@ -35,6 +35,7 @@ import { sandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceChatOpenaiRoutes } from "../../routes/v1/workspace-chat-openai.js"
 import { withAgentVault } from "../../test/agent-vault-fixture.js"
+import { startContainerAgentCore } from "../../test/agentcore-fake.js"
 import { listenWithDockerOutsideMsw } from "../../test/docker-outside-msw.js"
 import {
   contextStorage,
@@ -69,9 +70,11 @@ import {
   type IngestionV2RunInput,
 } from "../ingestion/ingestion-run.js"
 import { setRunVaultRules } from "./agent-vault.js"
+import { agentCoreSandboxProvider } from "./agentcore-sandbox-provider.js"
 import { ingestSandboxThreadId } from "./chat-lifecycle.js"
 import { workspaceChatDockerImage } from "./chat-runtime.js"
 import {
+  agentCoreIngestSandboxProvider,
   dockerIngestSandboxProvider,
   type IngestEgress,
   ingestCredentialRules,
@@ -760,6 +763,118 @@ git push ${source} HEAD:refs/heads/plain-push 2>&1 && echo PUSHED || echo REFUSE
             ),
           ),
         ).rejects.toBeTruthy()
+      })
+    },
+  )
+})
+
+describe("the AgentCore ingest sandbox has closed egress", () => {
+  it(
+    "reaches only the model proxy, the tool bridge and Git fetch through Agent Vault; destroy deletes the vault and revokes the token",
+    { timeout: 300_000 },
+    async () => {
+      // The microVM is a container of the chat image on the closed network,
+      // as AgentCore sandbox subnets have no internet route; the backend
+      // reaches it only through the fake AgentCore API.
+      await withAgentVault({ image, closed: true }, async (fixture) => {
+        gitToken = fixture.gitToken
+        log.minted.length = 0
+        log.revoked.length = 0
+        const microVm = await startContainerAgentCore(image, {
+          network: fixture.sandboxNetwork,
+        })
+        try {
+          const base = `http://${fixture.upstream}:8080`
+          const runId = `run_${crypto.randomUUID()}`
+          const egress: IngestEgress = {
+            repositories: [
+              { fullName: "git/repo", githubConnectionId: connectionId },
+            ],
+            gitHost: `${fixture.upstream}:8080`,
+            modelProxyUrl: `${base}/echo/model/v1`,
+            capability: "ingest-capability-1",
+            bridge: { url: `${base}/echo/bridge`, token: "bridge-1" },
+          }
+          const provider = agentCoreIngestSandboxProvider({
+            orgId,
+            runId,
+            shard: 0,
+            access: fixture.access,
+            egress,
+            sessions: agentCoreSandboxProvider({
+              runtime: microVm.runtime,
+              user: "node",
+            }),
+          })
+          // Create checks that direct connections and the metadata
+          // endpoints are refused.
+          const handle = await provider.create({})
+          let destroyed = false
+          try {
+            const output = (
+              await handle.process.exec(
+                `echo "== model"
+curl -sS -m 20 -X POST ${base}/echo/model/v1/chat/completions
+echo
+echo "== bridge"
+curl -sS -m 20 ${base}/echo/bridge
+echo
+echo "== fetch"
+git clone -q ${base}/git/repo.git /tmp/clone 2>&1 && git -C /tmp/clone log --format=%s
+echo "== push"
+cd /tmp/clone && git -c user.name=t -c user.email=t@t commit -q --allow-empty -m change
+git push origin HEAD:refs/heads/exfil 2>&1 && echo PUSHED || echo REFUSED
+cd /
+echo "== example"
+${code("https://example.com/")}
+echo
+echo "== direct"
+${code("--noproxy '*' https://example.com/")}
+echo
+`,
+              )
+            ).stdout
+            const result = sections(output)
+            expect(
+              JSON.parse(result.model ?? "{}").headers?.authorization,
+              output,
+            ).toBe("Bearer ingest-capability-1")
+            expect(
+              JSON.parse(result.bridge ?? "{}").headers?.authorization,
+              output,
+            ).toBe("Bearer bridge-1")
+            expect(result.fetch, output).toBe("seed")
+            expect(result.push, output).toContain("REFUSED")
+            expect(result.example, output).toBe("403")
+            expect(result.direct, output).toBe("000")
+            // No credential is in the sandbox's environment, and no command
+            // text that AgentCore logs holds the proxy session.
+            const environ = (await handle.process.exec("env")).stdout
+            expect(environ).not.toContain(fixture.gitToken)
+            expect(environ).not.toContain("ingest-capability-1")
+            expect(environ).not.toContain("bridge-1")
+            const proxy = /HTTPS_PROXY=(\S+)/.exec(environ)?.[1] ?? ""
+            expect(proxy).not.toBe("")
+            expect(microVm.commandTexts.join("\n")).not.toContain(proxy)
+
+            await provider.destroy({ id: handle.id })
+            destroyed = true
+            expect(log.revoked).toEqual([fixture.gitToken])
+            // The vault is gone: a later step cannot set rules on it.
+            await expect(
+              setRunVaultRules(
+                fixture.access,
+                ingestSandboxThreadId(runId, 0),
+                ingestCredentialRules(egress, []),
+              ),
+            ).rejects.toBeTruthy()
+          } finally {
+            if (!destroyed)
+              await provider.destroy({ id: handle.id }).catch(() => undefined)
+          }
+        } finally {
+          microVm.close()
+        }
       })
     },
   )
