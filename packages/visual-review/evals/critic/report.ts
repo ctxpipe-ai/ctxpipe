@@ -395,7 +395,7 @@ export function report({
     }`,
     panel.length
       ? `The labels of the real changes come from the judge panel (${panel.join(", ")}). An arm marked (panel) uses a model of the panel, so the labels can favor it.`
-      : "The real changes have no panel labels yet (pnpm visual:bakeoff:panel), so they do not count.",
+      : "The real changes have no panel labels yet (node packages/visual-review/evals/critic/panel.ts), so they do not count.",
     "",
     `## Hold-out set (${count(held)} cases)`,
     "",

@@ -6,7 +6,7 @@
 // the owner queue (queue.ts). A synthetic case keeps its known label: the
 // panel result on it measures the panel. See README.md beside this file.
 //
-// Usage: pnpm visual:bakeoff:panel [--models <list>] [--max-cost 40]
+// Usage: node packages/visual-review/evals/critic/panel.ts [--models <list>] [--max-cost 40]
 //          [--concurrency 4] [--images <dir>] [--cases <path>]
 
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
@@ -38,7 +38,7 @@ const defaultModels = [
   "google/gemini-4-argon",
 ]
 
-const usage = `Usage: pnpm visual:bakeoff:panel [--models <list>] [--max-cost 40] [--concurrency 4] [--images <dir>] [--cases <path>]
+const usage = `Usage: node packages/visual-review/evals/critic/panel.ts [--models <list>] [--max-cost 40] [--concurrency 4] [--images <dir>] [--cases <path>]
 
   --models       The panel, comma-separated OpenRouter ids, at least 3.
                  Default: ${defaultModels.join(",")}
@@ -141,7 +141,7 @@ async function vote(
 }
 
 /**
- * Run `pnpm visual:bakeoff:panel` with the command-line arguments `args`.
+ * Run `node packages/visual-review/evals/critic/panel.ts` with the command-line arguments `args`.
  * `print` gets the output. Returns the exit code: 2 for a usage or input
  * error, also a missing or changed image.
  */

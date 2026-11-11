@@ -25,7 +25,6 @@
     "test:storybook-required": "node scripts/ci/storybook-plays.mjs",
     "visual:bakeoff:build": "node packages/visual-review/evals/critic/build.ts",
     "visual:bakeoff:run": "node packages/visual-review/evals/critic/run.ts",
-    "visual:bakeoff:panel": "node packages/visual-review/evals/critic/panel.ts",
     "visual:bakeoff:publish": "node packages/visual-review/evals/critic/publish.ts",
     "visual:bakeoff:queue": "node packages/visual-review/evals/critic/queue.ts",
     "visual:check": "pnpm --filter @ctxpipe/ui build-storybook && node scripts/ci/visual.mjs check",

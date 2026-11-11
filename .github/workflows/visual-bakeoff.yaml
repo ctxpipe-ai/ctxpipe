@@ -101,7 +101,7 @@ jobs:
           out="$RUNNER_TEMP/visual-bakeoff-report"
           mkdir -p "$out"
           status=0
-          pnpm --silent visual:bakeoff:panel \
+          node packages/visual-review/evals/critic/panel.ts \
             --models "$PANEL_MODELS" \
             --max-cost "$MAX_COST" \
             --images "$RUNNER_TEMP/visual-bakeoff-images" \

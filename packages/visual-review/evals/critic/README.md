@@ -24,7 +24,9 @@ The builder keeps only the pairs that differ by more than the tolerance of the v
 
 - `cases.json`: the case manifest. It is in git. Its schema is `cases.schema.json`, from `cases.ts`.
 - `build.ts`: the builder (`pnpm visual:bakeoff:build`).
+- `panel.ts`: the judge panel that labels the real changes (`node packages/visual-review/evals/critic/panel.ts`).
 - `run.ts`: the runner (`pnpm visual:bakeoff:run`).
+- `spend.ts`: the spend cap of the runner and of the panel.
 - `report.ts`: the metrics, the report tables and the selection rule.
 - `images.ts`: the case images. Each image is one asset of the release `visual-bakeoff-images`, named by its SHA-256.
 - `publish.ts`: the publish step of the images (`pnpm visual:bakeoff:publish`).
@@ -58,7 +60,7 @@ A new build writes a new `cases.json`. It does not keep the panel votes, the lab
 The judge panel labels the real changes ([CTX-1249](https://linear.app/ctxpipe/issue/CTX-1249)). Run the command from the repository root, after a build. It uses `MODEL_PROVIDER_API_KEY` (and `MODEL_PROVIDER_URL`).
 
 ```sh
-pnpm visual:bakeoff:panel [--models <list>] [--max-cost 40] [--concurrency 4] [--images .ci-results/visual-bakeoff/images] [--cases <path>]
+node packages/visual-review/evals/critic/panel.ts [--models <list>] [--max-cost 40] [--concurrency 4] [--images .ci-results/visual-bakeoff/images] [--cases <path>]
 ```
 
 - **Members.** The default panel is `anthropic/claude-opus-5.5`, `openai/gpt-6.1-sol` and `google/gemini-4-argon`: one strong vision model of each of three families, through OpenRouter. `--models` gives another panel of 3 or more models.
