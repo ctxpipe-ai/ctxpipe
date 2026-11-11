@@ -23,6 +23,7 @@ import { exportIndexes, exportVolume } from "./exportIndexes.js"
 import { importIndexes } from "./importIndexes.js"
 import { seedShardStore } from "./seedShardStore.js"
 import {
+  startTar,
   type TransferManifest,
   transferFromUrl,
   uploadStream,
@@ -234,6 +235,36 @@ describe("export-indexes and import-indexes", () => {
     await expect(stat(target.falkordbDataFile)).rejects.toMatchObject({
       code: "ENOENT",
     })
+  })
+})
+
+describe("startTar", () => {
+  it("gives the exit code and the kind of a tar error, without the member names", async () => {
+    const dir = join(root, "tar-error")
+    await mkdir(join(dir, "in/a secret-word"), { recursive: true })
+    await writeFile(join(dir, "in/a secret-word/x.txt"), "x")
+    // With -k, tar refuses to replace a file that is there already.
+    await mkdir(join(dir, "out/a secret-word"), { recursive: true })
+    await writeFile(join(dir, "out/a secret-word/x.txt"), "old")
+    const archive = await exec(
+      "tar",
+      ["-cf", "-", "-C", join(dir, "in"), "."],
+      {
+        encoding: "buffer",
+      },
+    )
+    const tar = startTar(["-xkvf", "-", "-C", join(dir, "out")], "stdout")
+
+    tar.child.stdin.end(archive.stdout)
+
+    const error = await tar.done.then(
+      () => new Error("tar did not fail"),
+      (thrown: Error) => thrown,
+    )
+    expect(error.message).toMatch(
+      /^tar -xkvf exited with 2: Cannot open; other messages: \d+$/,
+    )
+    expect(error.message).not.toContain("secret-word")
   })
 })
 

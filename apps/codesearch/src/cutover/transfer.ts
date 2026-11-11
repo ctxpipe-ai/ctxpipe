@@ -195,13 +195,16 @@ export async function uploadStream(
 }
 
 /**
- * Downloads an object into `write` and checks its size and sha256 against
- * `expected`. It throws on a difference, after `write` took all the bytes.
+ * Downloads an object into `target` and checks its size and sha256 against
+ * `expected`. It throws on a difference, after `target` took all the bytes.
+ * When `target` is full, it waits for a drain, or for `stopped` (the end of
+ * the process or of the file that `target` writes).
  */
 export async function downloadChecked(
   transfer: Transfer,
   expected: TransferObject,
-  write: (chunk: Uint8Array) => Promise<void>,
+  target: Writable,
+  stopped: Promise<unknown>,
 ): Promise<void> {
   const response = await transfer.client.send(
     new GetObjectCommand({
@@ -214,7 +217,8 @@ export async function downloadChecked(
   for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
     hash.update(chunk)
     size += chunk.length
-    await write(chunk)
+    if (!target.write(chunk))
+      await Promise.race([once(target, "drain"), stopped])
   }
   const sha256 = hash.digest("hex")
   if (size !== expected.size || sha256 !== expected.sha256)
@@ -228,7 +232,9 @@ export async function downloadChecked(
  * and symlinks (a directory ends with `/`), and the `.zoekt` shards. With
  * `-f -`, tar lists them on stderr when it writes the archive, and on stdout
  * when it reads one. The names start with `./`. `done` fails when tar exits
- * with an error.
+ * with an error. The error gives the exit code and the known kinds of the
+ * tar messages, not the messages: a member name can hold ids or the private
+ * file names of a customer.
  */
 export function startTar(
   args: string[],
@@ -240,33 +246,46 @@ export function startTar(
   const child = spawn("tar", args, { stdio: ["pipe", "pipe", "pipe"] })
   // A tar that stops early closes its input. `done` reports why.
   child.stdin.on("error", () => undefined)
-  // The member names hold organization and repository ids: keep only the
-  // kind of each tar error.
-  const errors: string[] = []
-  const addError = (text: string) =>
-    errors.push(text.replace(/\.\/\S*/g, "./…"))
-  const counts = (async () => {
-    let files = 0
-    let shards = 0
-    for await (const line of createInterface({ input: child[listing] }))
-      if (!line.startsWith("./")) addError(line)
-      else if (!line.endsWith("/")) {
-        files++
-        const shard = parseZoektShardBasename(basename(line))
-        if (shard && !shard.temporary && line.endsWith(".zoekt")) shards++
-      }
-    return { files, shards }
-  })()
-  if (listing === "stdout")
-    child.stderr.on("data", (chunk: Buffer) => addError(String(chunk)))
+  const kinds = new Set<string>()
+  let others = 0
+  const classify = (line: string) => {
+    const kind = [
+      "No space left on device",
+      "Permission denied",
+      "Read-only file system",
+      "Not a directory",
+      "Unexpected EOF in archive",
+      "This does not look like a tar archive",
+      "file changed as we read it",
+      "Cannot open",
+      "Cannot write",
+      "Cannot stat",
+    ].find((text) => line.includes(text))
+    if (kind) kinds.add(kind)
+    else others++
+  }
+  const counts = { files: 0, shards: 0 }
+  const listed = (line: string) => {
+    if (!line.startsWith("./")) classify(line)
+    else if (!line.endsWith("/")) {
+      counts.files++
+      const shard = parseZoektShardBasename(basename(line))
+      if (shard && !shard.temporary && line.endsWith(".zoekt")) counts.shards++
+    }
+  }
+  const read = async (input: Readable, onLine: (line: string) => void) => {
+    for await (const line of createInterface({ input })) onLine(line)
+  }
+  const reads = [read(child[listing], listed)]
+  if (listing === "stdout") reads.push(read(child.stderr, classify))
   const done = (async () => {
     const [code] = (await once(child, "close")) as [number | null]
-    const result = await counts
+    await Promise.all(reads)
     if (code !== 0)
       throw new Error(
-        `tar ${args[0]} exited with ${code}: ${errors.join("\n").slice(-2000)}`,
+        `tar ${args[0]} exited with ${code}: ${[...kinds, `other messages: ${others}`].join("; ")}`,
       )
-    return result
+    return counts
   })()
   // The caller awaits `done` after the stream that failed.
   done.catch(() => undefined)
@@ -310,11 +329,19 @@ export function graphTotals(graphs: { nodes: number; edges: number }[]) {
   }
 }
 
-/** The message of a thrown value, with each `hidden` text replaced. */
-export function errorMessage(error: unknown, hidden: string[] = []): string {
-  let message = error instanceof Error ? error.message : String(error)
-  for (const text of hidden) if (text) message = message.replaceAll(text, "…")
-  return message
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * The name and the code of a thrown value, without its message: a file
+ * system or S3 message can hold a path or a key with ids.
+ */
+export function errorKind(error: unknown): string {
+  if (!(error instanceof Error)) return "unknown"
+  return "code" in error && typeof error.code === "string"
+    ? `${error.name} ${error.code}`
+    : error.name
 }
 
 /**

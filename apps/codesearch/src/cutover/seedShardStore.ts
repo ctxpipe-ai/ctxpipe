@@ -19,7 +19,7 @@ import {
 } from "../domain/zoekt/shardPrefix.js"
 import { log } from "../observability/logger.js"
 import { mapLimit } from "../utils/mapLimit.js"
-import { errorMessage, runCli } from "./transfer.js"
+import { errorKind, runCli } from "./transfer.js"
 
 /*
  * seed-shard-store (CTX-1217): on AWS, after import-indexes, before the
@@ -63,25 +63,17 @@ export async function seedShardStore(options: { coldDir: string }) {
           { ...identity, kind: "zoekt" },
           files.map((name) => join(options.coldDir, name)),
         )
-        // markShardsUploaded locks by the Name. It does not use the id.
-        const marked = await markShardsUploaded(
-          { zoektRepoId: 0, zoektName },
-          manifest,
-          { coldDir: options.coldDir },
-        )
-        if (!marked)
-          throw new Error("The cold shards changed during the upload")
-        return "published" as const
+        const marked = await markShardsUploaded({ zoektName }, manifest, {
+          coldDir: options.coldDir,
+        })
+        if (marked) return "published" as const
+        log.error({ step: "codesearch.cutover.seed.changed_during_upload" })
+        return "failed" as const
       } catch (error) {
+        // Only the kind: the message can hold a path or a key with the ids.
         log.error({
           step: "codesearch.cutover.seed.failed",
-          // A store key holds the ids. "default" is not an id.
-          error: errorMessage(error, [
-            zoektName,
-            identity.orgId,
-            identity.repoId,
-            identity.checkoutKey === "default" ? "" : identity.checkoutKey,
-          ]),
+          error: errorKind(error),
         })
         return "failed" as const
       }

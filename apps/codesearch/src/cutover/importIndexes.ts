@@ -1,4 +1,3 @@
-import { once } from "node:events"
 import { createWriteStream } from "node:fs"
 import { mkdir, readdir, rename, rm, stat } from "node:fs/promises"
 import { dirname, join } from "node:path"
@@ -121,9 +120,7 @@ async function writeDataFile(
   const closed = finished(file)
   closed.catch(() => undefined)
   try {
-    await downloadChecked(transfer, rdb, async (chunk) => {
-      if (!file.write(chunk)) await Promise.race([once(file, "drain"), closed])
-    })
+    await downloadChecked(transfer, rdb, file, closed)
     file.end()
     await closed
     await rename(temporary, path)
@@ -147,10 +144,7 @@ async function extract(
   const tar = startTar(["-xvf", "-", "-C", dir], "stdout")
   const stdin = tar.child.stdin
   try {
-    await downloadChecked(transfer, archive, async (chunk) => {
-      if (!stdin.write(chunk))
-        await Promise.race([once(stdin, "drain"), tar.done])
-    })
+    await downloadChecked(transfer, archive, stdin, tar.done)
   } catch (error) {
     stdin.destroy()
     await tar.done.catch(() => undefined)
