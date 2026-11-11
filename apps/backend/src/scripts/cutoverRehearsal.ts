@@ -29,7 +29,7 @@
  * that is not in the shape gets `--default-rows`. The run fails when a table
  * of the shape stays much smaller than its size in the shape.
  */
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -69,6 +69,14 @@ type Databases = {
   sourceSuperUrl: string
   /** The login that owns the restored objects (the Aurora master user). */
   targetUrl: string
+  /**
+   * The URLs for copyDatabase. pg_dump and pg_restore (libpq) need the CA
+   * file in `sslrootcert`. The other URLs must not carry it: the
+   * OpenWorkflow driver (the postgres package) sends each unknown URL
+   * parameter to the server, which refuses `sslrootcert`.
+   */
+  copySourceUrl: string
+  copyTargetUrl: string
   remove: () => Promise<void>
 }
 
@@ -114,6 +122,8 @@ async function localDatabases(workRoot: string): Promise<Databases> {
     sourceUrl: pair.sourceUrl,
     sourceSuperUrl: pair.sourceSuperUrl,
     targetUrl: pair.targetUrl("ctxpipe"),
+    copySourceUrl: pair.sourceUrl,
+    copyTargetUrl: pair.targetUrl("ctxpipe"),
     remove: async () => {
       await pair.stop()
       await rm(workRoot, { recursive: true, force: true })
@@ -126,14 +136,10 @@ async function localDatabases(workRoot: string): Promise<Databases> {
  * master login. The master login (`rds_superuser`) can set
  * `session_replication_role`, so it is the owner and the filler of the
  * source. Each connection uses TLS with a check of the certificate against
- * the RDS CA bundle, so the host name that the script checks is the server
- * that it reaches.
+ * the RDS CA bundle of NODE_EXTRA_CA_CERTS, so the host name that the script
+ * checks is the server that it reaches.
  */
-async function remoteDatabases(
-  host: string,
-  user: string,
-  workDir: string,
-): Promise<Databases> {
+async function remoteDatabases(host: string, user: string): Promise<Databases> {
   const password = process.env.PGPASSWORD
   if (!password) throw new Error("Set PGPASSWORD to the master password.")
   let server: URL
@@ -155,20 +161,18 @@ async function remoteDatabases(
     throw new Error(
       "--host must be the cluster endpoint of the sandbox rehearsal stack.",
     )
-  const bundle = join(workDir, "rds-global-bundle.pem")
-  const response = await fetch(
-    "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem",
-  )
-  if (!response.ok)
-    throw new Error(`The RDS CA bundle gave HTTP ${response.status}.`)
-  await writeFile(bundle, await response.text())
-  // node-postgres reads `sslrootcert` as a file.
-  const params = new URLSearchParams({
-    sslmode: "verify-full",
-    sslrootcert: bundle,
-  })
-  const url = (database: string) =>
-    `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${server.hostname}:${server.port || "5432"}/${database}?${params}`
+  // The backend image trusts the RDS CA bundle through NODE_EXTRA_CA_CERTS,
+  // so each driver of this process verifies the Aurora certificate.
+  const bundle = process.env.NODE_EXTRA_CA_CERTS
+  if (!bundle)
+    throw new Error(
+      "Set NODE_EXTRA_CA_CERTS to the RDS CA bundle (the backend image sets it).",
+    )
+  const base = (database: string) =>
+    `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${server.hostname}:${server.port || "5432"}/${database}`
+  const url = (database: string) => `${base(database)}?sslmode=verify-full`
+  const copyUrl = (database: string) =>
+    `${base(database)}?${new URLSearchParams({ sslmode: "verify-full", sslrootcert: bundle })}`
   const source = "cutover_rehearsal_source"
   const target = "cutover_rehearsal_target"
   // FORCE ends the sessions of a run that stopped before its cleanup.
@@ -202,6 +206,8 @@ async function remoteDatabases(
     sourceUrl: url(source),
     sourceSuperUrl: url(source),
     targetUrl: url(target),
+    copySourceUrl: copyUrl(source),
+    copyTargetUrl: copyUrl(target),
     remove,
   }
 }
@@ -279,7 +285,7 @@ async function main(argv: string[]): Promise<number> {
   const setup: Phase[] = []
   const databases = await timed(setup, "make databases", () =>
     host
-      ? remoteDatabases(host, flag(argv, "--user") ?? "postgres", workRoot)
+      ? remoteDatabases(host, flag(argv, "--user") ?? "postgres")
       : localDatabases(workRoot),
   )
   try {
@@ -340,8 +346,8 @@ async function main(argv: string[]): Promise<number> {
 
     const report = await timed(setup, "copy", () =>
       copyDatabase({
-        sourceUrl: databases.sourceUrl,
-        targetUrl: databases.targetUrl,
+        sourceUrl: databases.copySourceUrl,
+        targetUrl: databases.copyTargetUrl,
         workDir: join(workRoot, "copy"),
         jobs,
       }),
