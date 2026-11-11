@@ -13,6 +13,7 @@ import {
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
+import { Writable } from "node:stream"
 import { promisify } from "node:util"
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
@@ -23,6 +24,7 @@ import { exportIndexes, exportVolume } from "./exportIndexes.js"
 import { importIndexes } from "./importIndexes.js"
 import { seedShardStore } from "./seedShardStore.js"
 import {
+  downloadChecked,
   startTar,
   type TransferManifest,
   transferFromUrl,
@@ -235,6 +237,26 @@ describe("export-indexes and import-indexes", () => {
     await expect(stat(target.falkordbDataFile)).rejects.toMatchObject({
       code: "ENOENT",
     })
+  })
+})
+
+describe("downloadChecked", () => {
+  it("throws when the target stops before the end of the download", async () => {
+    server.stubEnv("prod")
+    const transfer = transferFromUrl(`s3://${server.bucket}/transfer/stopped`)
+    const object = await uploadStream(
+      transfer,
+      "data.bin",
+      (async function* () {
+        yield randomBytes(64 * 1024)
+      })(),
+    )
+    // A target that takes no bytes: its buffer stays full.
+    const target = new Writable({ highWaterMark: 1, write: () => undefined })
+
+    await expect(
+      downloadChecked(transfer, object, target, Promise.resolve()),
+    ).rejects.toThrow(/stopped before the end/)
   })
 })
 

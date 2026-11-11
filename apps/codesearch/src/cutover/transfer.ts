@@ -197,8 +197,8 @@ export async function uploadStream(
 /**
  * Downloads an object into `target` and checks its size and sha256 against
  * `expected`. It throws on a difference, after `target` took all the bytes.
- * When `target` is full, it waits for a drain, or for `stopped` (the end of
- * the process or of the file that `target` writes).
+ * When `target` is full, it waits for a drain. It throws when `stopped` (the
+ * end of the process or of the file that `target` writes) comes first.
  */
 export async function downloadChecked(
   transfer: Transfer,
@@ -212,13 +212,16 @@ export async function downloadChecked(
       Key: `${transfer.prefix}${expected.key}`,
     }),
   )
+  const stop = stopped.then(() => {
+    throw new Error(`The target of ${expected.key} stopped before the end`)
+  })
+  stop.catch(() => undefined)
   const hash = createHash("sha256")
   let size = 0
   for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
     hash.update(chunk)
     size += chunk.length
-    if (!target.write(chunk))
-      await Promise.race([once(target, "drain"), stopped])
+    if (!target.write(chunk)) await Promise.race([once(target, "drain"), stop])
   }
   const sha256 = hash.digest("hex")
   if (size !== expected.size || sha256 !== expected.sha256)
