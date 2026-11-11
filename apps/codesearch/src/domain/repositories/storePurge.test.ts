@@ -26,7 +26,11 @@ const { cacheRoot } = await vi.hoisted(async () => {
   return { cacheRoot: root }
 })
 
-import { publishArtifact, shardStore } from "../store/shardStore.js"
+import {
+  isShardStoreReadOnly,
+  publishArtifact,
+  shardStore,
+} from "../store/shardStore.js"
 import { resetPinManagerForTests } from "../zoekt/pinManager.js"
 import {
   zoektRepositoryName,
@@ -231,6 +235,29 @@ describe("read-only shard store (a preview)", () => {
 
     expect(await server.keys()).toEqual(before)
     // The published checkout is missing on disk, as in each preview.
+    expect(result.publishedMissing).toBe(false)
+  })
+})
+
+describe("CODESEARCH_SHARD_STORE_READ_ONLY", () => {
+  it("refuses a value other than true, false or unset", () => {
+    vi.stubEnv("CODESEARCH_SHARD_STORE_READ_ONLY", "True")
+    expect(() => isShardStoreReadOnly()).toThrow(/true, false or unset/)
+  })
+
+  it("means read-only without a shard store too, so a sweep never asks for a rebuild", async () => {
+    vi.stubEnv("CODESEARCH_SHARD_STORE", "")
+    vi.stubEnv("CODESEARCH_SHARD_STORE_READ_ONLY", "true")
+
+    const result = await sweepRepositoryDisk({
+      orgId: ORG,
+      repoId: "repo_ro_no_store",
+      rowKeys: new Set(),
+      publishedCheckoutKey: "default",
+      minAgeMs: 0,
+    })
+
+    expect(isShardStoreReadOnly()).toBe(true)
     expect(result.publishedMissing).toBe(false)
   })
 })

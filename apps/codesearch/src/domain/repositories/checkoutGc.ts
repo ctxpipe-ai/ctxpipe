@@ -200,5 +200,6 @@ export async function sweepRepositoryDisk(input: {
     result.deletedEntries += 1
     result.deletedBytes += size
   }
+
   return result
 }
