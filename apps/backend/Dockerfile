@@ -22,7 +22,9 @@ ENV PATH="/usr/local/bin:${PATH}"
 # GNU find: TanStack sandbox watch on Linux exec-polls with `find -printf`.
 # OpenCode: `opencodeText` spawns `opencode serve` in the local-process sandbox.
 # git: clone-tree and paste-URL hydrate/explorer spawn the git CLI.
-RUN apk add --no-cache findutils git
+# postgresql17-client: the cutover copy (src/scripts/copyDatabase.ts) runs
+# pg_dump and pg_restore in a one-off task of this image.
+RUN apk add --no-cache findutils git postgresql17-client
 COPY --from=opencode /usr/local/bin/ /usr/local/bin/
 COPY --from=opencode /usr/local/lib/node_modules/ /usr/local/lib/node_modules/
 COPY --from=deps /app/node_modules ./node_modules
