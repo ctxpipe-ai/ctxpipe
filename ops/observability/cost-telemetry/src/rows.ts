@@ -1,6 +1,6 @@
 export type CostRow = {
   day: string
-  provider: "openrouter" | "github" | "railway" | "neon" | "blacksmith" | "cloudflare" | "aws"
+  provider: "openrouter" | "github" | "blacksmith" | "cloudflare" | "aws"
   sku: string
   scope: string
   usage: number
