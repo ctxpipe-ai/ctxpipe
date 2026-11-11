@@ -30,7 +30,6 @@ const PRODUCT_APP = {
   "LINEAR_WEBHOOK_SECRET": "LINEAR_WEBHOOK_SECRET",
   "PAGERDUTY_CLIENT_ID": "PAGERDUTY_CLIENT_ID",
   "PAGERDUTY_CLIENT_SECRET": "PAGERDUTY_CLIENT_SECRET",
-  "VERCEL_TOKEN": "VERCEL_ACCESS_TOKEN",
   "OTEL_EXPORTER_OTLP_HEADERS": "OBSERVABILITY_OTLP_HEADERS",
   "BETTER_AUTH_API_KEY": "BETTER_AUTH_API_KEY",
   "CONFLUENCE_FORGE_INSTALL_URL": "CONFLUENCE_FORGE_INSTALL_URL",
@@ -117,14 +116,13 @@ const RETIRED = new Set([
 // --preview, the values come from the GitHub Environment `Preview`, and each
 // empty one is deleted, so no production value stays. The preview scripts own
 // these names (a value made for each preview, the preview GitHub App, the
-// preview Vercel project, the OTLP header):
+// OTLP header):
 const PREVIEW_OWNED = new Set([
   "AUTH_SECRET",
   "CONNECTION_SECRETS_ENCRYPTION_KEY",
   "GITHUB_PRIVATE_KEY",
   "GITHUB_CLIENT_SECRET",
   "GITHUB_WEBHOOK_SECRET",
-  "VERCEL_TOKEN",
   "OTEL_EXPORTER_OTLP_HEADERS",
 ])
 // A preview cannot start without these.

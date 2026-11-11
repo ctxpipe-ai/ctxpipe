@@ -9,7 +9,6 @@ import {
   withNetworkOrgContext,
 } from "../../auth/withAuth.js"
 import { ingestToolBridgeRoutes } from "../../domain/ingestion/ingest-tools.js"
-import { workspaceChatToolBridgeRoutes } from "../../domain/workspaces/workspace-chat-callback.js"
 import { atlassianOauthCallbackRoutes } from "./atlassian-oauth-callback.js"
 import { orgCapabilitiesRoutes } from "./capabilities.js"
 import { atlassianConnectorRoutes } from "./connectors-atlassian.js"
@@ -221,8 +220,6 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>): OrgScopedV1Rpc {
   const nonOrgScopedV1 = createUserScopedV1()
 
   app.route("/", workspaceChatOpenai)
-  // Per-run tool bridges for remote (Vercel) sandboxes; bearer token per run.
-  app.route("/", workspaceChatToolBridgeRoutes)
   // The ingest tool bridge; the run-scoped token holds its checkouts.
   app.route("/", ingestToolBridgeRoutes)
   app.route("/", orgScopedMounted)

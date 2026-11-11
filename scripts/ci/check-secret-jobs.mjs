@@ -17,8 +17,7 @@
 // - GitHub environments: `workbench` is for checks, evals, proofs and live
 //   contracts that call outside services, with spend-capped or test-scoped
 //   keys. `Production` is the production deploy.
-//   A job that runs untrusted code and reads MODEL_PROVIDER_API_KEY
-//   or VERCEL_ACCESS_TOKEN uses
+//   A job that runs untrusted code and reads MODEL_PROVIDER_API_KEY uses
 //   `environment: workbench`. To add a paid or outside check, put the job in
 //   `workbench`: this guard enforces it.
 // - RAILWAY_WORKSPACE_TOKEN and NEON_API_KEY never go to a job in `workbench`.
@@ -92,8 +91,7 @@ const productionJobs = new Map(
 )
 
 // Secrets that need `environment: workbench` in a job with untrusted code.
-const checkSecrets =
-  /(?<![\w./-])secrets\s*\.\s*(MODEL_PROVIDER_API_KEY|VERCEL_ACCESS_TOKEN)\b/
+const checkSecrets = /(?<![\w./-])secrets\s*\.\s*(MODEL_PROVIDER_API_KEY)\b/
 
 // Scripts that a job with a secret may run or source. Each runs no package
 // manager; the check reads each one to keep that true.
@@ -105,8 +103,6 @@ const reviewedScripts = new Set([
 // to a job without the secret. Each entry names the only secrets it may hold.
 const exceptions = new Map(
   Object.entries({
-    // Tests the sandbox provider against the preview Vercel project.
-    "ci.yaml:vercel-sandbox": ["VERCEL_ACCESS_TOKEN"],
     // Evaluates the product MCP with real models.
     // The job uses the workbench environment: its model key is the
     // spend-capped CI key, not the production key.
@@ -317,12 +313,6 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     // It downloads by the artifact ids that the Storybook shards give, so
     // another job of the run cannot replace them.
     "ci.yaml:nightly-tickets",
-    // The job reads plan.json of the merge gate plan job only as data: the
-    // check ids that selected.mjs runs. It downloads the artifact by the id
-    // that the plan job gives, so another job of the run cannot replace it.
-    // Before, the plan job gave the same ids in its outputs. The job already
-    // runs PR code with the token (pnpm install and the selected tests).
-    "ci.yaml:vercel-sandbox",
   ])
   for (const job of jobs) {
     // A job has an OIDC token when it asks for one, or when the workflow

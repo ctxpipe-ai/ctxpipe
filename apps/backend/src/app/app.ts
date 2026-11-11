@@ -12,7 +12,6 @@ import type { ContentfulStatusCode } from "hono/utils/http-status"
 import { requestSession } from "../auth/withAuth.js"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
-import { hostedIngestEgressEnabled } from "../domain/workspaces/ingest-sandbox-egress.js"
 import { httpWideEventMessage } from "../domain/workspaces/opencode-chat-stream.js"
 import { backendOtelMiddleware } from "../observability/http.js"
 import { log } from "../observability/logger.js"
@@ -20,10 +19,6 @@ import { registerAuthRoutes } from "../routes/auth.js"
 import { registerMcpBrandAssetRoute } from "../routes/mcp-brand-asset.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
 import { registerOpenapiRoutes } from "../routes/openapi.js"
-import {
-  registerSandboxEgressRoute,
-  sandboxEgressGuard,
-} from "../routes/sandbox-egress.js"
 import { registerStatusRoutes } from "../routes/status"
 import { registerUiRoutes } from "../routes/ui.js"
 import { registerV1Routes } from "../routes/v1/index.js"
@@ -69,9 +64,6 @@ export function createApp() {
   )
 
   const app = new OpenAPIHono<AppEnv>()
-
-  // First: a sandbox-forwarded request must not reach any other route.
-  app.use("*", sandboxEgressGuard())
 
   // Hosted only: www.app.ctxpipe.ai redirects before auth and routing.
   app.use("*", wwwRedirect())
@@ -160,9 +152,6 @@ export function createApp() {
 
   // GitHub App webhooks (no session auth; HMAC verified)
   registerWebhookRoutes(app)
-
-  // Hosted ingest sandbox egress (no session auth; Vercel OIDC and a sealed scope)
-  if (hostedIngestEgressEnabled()) registerSandboxEgressRoute(app)
 
   // /:orgSlug/api/v1 routes
   const v1 = registerV1Routes(app)

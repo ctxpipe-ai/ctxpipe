@@ -17,16 +17,12 @@ import {
   listSandboxInstances,
   ownershipOf,
   persistSandboxInstance,
-  type FileKeepingSandboxProvider,
   type SandboxInstanceRecord,
   updateBuildingBase,
 } from "../../models/workspaces.js"
 import { getLogger, log } from "../../observability/logger.js"
 import { ORG_RUNNING_SANDBOX_LIMIT } from "./chat-lifecycle.js"
-import {
-  WORKSPACE_CHAT_DOCKER_SETUP,
-  WORKSPACE_CHAT_VERCEL_SETUP,
-} from "./chat-runtime.js"
+import { WORKSPACE_CHAT_DOCKER_SETUP } from "./chat-runtime.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
 import { sameWorkspaceBinding, type WorkspaceRevision } from "./revision.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
@@ -173,22 +169,15 @@ export function startingFromBase(input: {
   }
 }
 
-/** What the base builder runs: the stock clone, then the provider's setup. */
-function workspaceBaseDefinition(input: {
-  provider: FileKeepingSandboxProvider
-  revision: WorkspaceRevision
-}) {
-  // No token: Agent Vault (Docker) or the firewall (Vercel) adds it.
+/** What the base builder runs: the stock clone, then the Docker setup. */
+function workspaceBaseDefinition(revision: WorkspaceRevision) {
+  // No token: Agent Vault adds it.
   return defineWorkspace({
     source: gitSource({
-      url: originUrlWithoutCredentials(input.revision.remote.url),
-      ref: input.revision.defaultBranch,
+      url: originUrlWithoutCredentials(revision.remote.url),
+      ref: revision.defaultBranch,
     }),
-    setup: [
-      ...(input.provider === "docker"
-        ? WORKSPACE_CHAT_DOCKER_SETUP
-        : WORKSPACE_CHAT_VERCEL_SETUP),
-    ],
+    setup: [...WORKSPACE_CHAT_DOCKER_SETUP],
   })
 }
 
@@ -270,14 +259,13 @@ export async function reserveWorkspaceBaseBuild(input: {
  * lease does and the row still names this builder: recording the builder,
  * then recording the capture and publishing it (state `live`) together. So
  * a lapsed or deleted lease stops the build, and it deletes what it made.
- * However the attempt ends, its builder is removed (Docker), or deleted and
- * its token revoked (Vercel). A crash between the capture and its UPDATE
- * leaves a Docker image labeled with this row's id that the row does not
- * name (the host prune removes it once the lease lapsed) or a snapshot
- * under the Vercel builder (deleted with it).
+ * However the attempt ends, its builder is removed. A crash between the
+ * capture and its UPDATE leaves a Docker image labeled with this row's id
+ * that the row does not name (the host prune removes it once the lease
+ * lapsed).
  * It runs once: a failure deletes what it made and marks the row
- * `destroy_failed`. A published row returns its image or snapshot.
- * Returns the image or snapshot id, or null when the lease is gone.
+ * `destroy_failed`. A published row returns its image.
+ * Returns the image id, or null when the lease is gone.
  */
 export async function runWorkspaceBaseBuild(input: {
   orgId: string
@@ -362,13 +350,7 @@ export async function runWorkspaceBaseBuild(input: {
     if (!(await write(null, { providerSandboxId: build.builderId })))
       return await lapsed()
     const started = Date.now()
-    await bootstrapWorkspace(
-      build.handle,
-      workspaceBaseDefinition({
-        provider,
-        revision,
-      }),
-    )
+    await bootstrapWorkspace(build.handle, workspaceBaseDefinition(revision))
     const head = await build.handle.process.exec("git rev-parse HEAD")
     const sha = head.stdout.trim()
     if (head.exitCode !== 0 || !sha) {
@@ -387,7 +369,7 @@ export async function runWorkspaceBaseBuild(input: {
     made.latestSnapshotId = ref
     // Under the Workspace lock, which a create holds while it chooses its
     // base and records its sandbox: a sandbox that chose the old base is
-    // recorded before this base supersedes it (Vercel retention reads that).
+    // recorded before this base supersedes it.
     const published = await postgresSandboxLocks(orgId).withLock(
       `workspace-sandboxes:${row.workspaceId}`,
       () =>
@@ -395,9 +377,8 @@ export async function runWorkspaceBaseBuild(input: {
           state: "live",
           latestSnapshotId: ref,
           revision: { ...revision, sha },
-          // Docker's builder is gone once captured; the image is the base. A
-          // Vercel builder owns its snapshot and is kept.
-          providerSandboxId: provider === "docker" ? null : build.builderId,
+          // The builder is gone once captured; the image is the base.
+          providerSandboxId: null,
         }),
     )
     if (!published) return await lapsed()
@@ -409,8 +390,7 @@ export async function runWorkspaceBaseBuild(input: {
     })
     return ref
   } catch (error) {
-    // Nothing of this build is kept. A Vercel builder that failed mid-setup
-    // is deleted here, not left running. The row ends its lease at once
+    // Nothing of this build is kept. The row ends its lease at once
     // (`destroy_failed`: no lease, no slot); the sweep deletes it, and the
     // next window's first start requests a new build.
     await deleteWorkspaceBaseArtifacts(made)

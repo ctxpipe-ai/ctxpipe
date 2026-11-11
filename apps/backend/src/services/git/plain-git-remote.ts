@@ -63,7 +63,7 @@ export function plainGitRefusalReason(
 }
 
 /** A DNS lookup of all addresses of a host name. */
-export type PlainGitLookup = (
+type PlainGitLookup = (
   host: string,
 ) => Promise<ReadonlyArray<{ address: string }>>
 
@@ -126,8 +126,7 @@ export function plainGitFetchLimits(): PlainGitFetchLimits {
  * of the host must be public. In each mode, no address can be a cloud
  * metadata or link-local address ({@link isMetadataAddress}). Returns the
  * URL and the addresses that the check saw. A caller that must keep the
- * strict rule in each mode (the hosted egress proxy) gives the hosted
- * policy.
+ * strict rule in each mode gives the hosted policy.
  */
 export async function resolvePlainGitRemote(
   raw: string,

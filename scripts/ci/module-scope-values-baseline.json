@@ -92,9 +92,6 @@
     "STRONG_QUERY_MATCH",
     "UNDATED_RECENCY"
   ],
-  "apps/backend/src/domain/workspaces/ingest-egress-proxy.ts": [
-    "OIDC_TOKEN_HEADER"
-  ],
   "apps/backend/src/domain/workspaces/knowledge-search.ts": ["RRF_K"],
   "apps/backend/src/domain/workspaces/mask-credentials.ts": [
     "HOLD_MAX",
@@ -114,9 +111,6 @@
   "apps/backend/src/domain/workspaces/semantic-merge.ts": ["MERGE_DEADLINE_MS"],
   "apps/backend/src/domain/workspaces/tanstack-workspace-chat.ts": [
     "KEPT_TURN_SNAPSHOTS"
-  ],
-  "apps/backend/src/domain/workspaces/vercel-sandbox-provider.ts": [
-    "GIT_TOKEN_REVOKE_GRACE_MS"
   ],
   "apps/backend/src/domain/workspaces/workspace-chat-agui.ts": [
     "WORKSPACE_CHAT_RENAME_EVENT"

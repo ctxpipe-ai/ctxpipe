@@ -423,8 +423,8 @@ const selection = (overrides = {}) => ({
       reason: { kind: "changed" },
     },
     {
-      id: "vitest:vercel:apps/backend/src/d.contract.test.ts",
-      lane: "vercel",
+      id: "vitest:contracts:apps/backend/src/d.contract.test.ts",
+      lane: "contracts",
       file: "apps/backend/src/d.contract.test.ts",
       reason: { kind: "input", input: "package.json", chain: [] },
     },
@@ -463,7 +463,7 @@ const selection = (overrides = {}) => ({
     shared: true,
     hits: [
       hit("storybook:required:apps/ui/src/c.stories.tsx#c--one", "ci", "ci"),
-      hit("vitest:vercel:apps/backend/src/d.contract.test.ts", "agent"),
+      hit("vitest:contracts:apps/backend/src/d.contract.test.ts", "agent"),
       hit("lint:oxlint:.oxlintrc.json", "agent"),
     ],
     misses: [
@@ -491,7 +491,6 @@ const needs = (overrides = {}) =>
       "storybook-required": "success",
       "storybook-plays": "success",
       codesearch: "success",
-      "vercel-sandbox": "success",
       migrate: "success",
       "upgrade-from-previous-release": "success",
       ...overrides,
@@ -500,7 +499,10 @@ const needs = (overrides = {}) =>
 
 const records = [
   { id: "vitest:ui:apps/ui/src/a.test.tsx", status: "passed" },
-  { id: "vitest:vercel:apps/backend/src/d.contract.test.ts", status: "passed" },
+  {
+    id: "vitest:contracts:apps/backend/src/d.contract.test.ts",
+    status: "passed",
+  },
   { id: "typecheck:ui:apps/ui/tsconfig.json", status: "passed" },
   { id: "vitest:backend:apps/backend/src/b.test.ts", status: "failed" },
   { id: "vitest:backend:apps/backend/src/f.test.ts", status: "failed" },
@@ -558,17 +560,14 @@ test("the gated verdict needs one accepted result for each selected check", () =
     [
       ["vitest:ui:apps/ui/src/a.test.tsx", "passed"],
       ["vitest:backend:apps/backend/src/b.test.ts", "failed"],
-      // An agent hit of the vercel lane is refused: its job sets lane
-      // variables that the toolchain record does not hold.
-      ["vitest:vercel:apps/backend/src/d.contract.test.ts", "passed"],
       ["typecheck:ui:apps/ui/tsconfig.json", "passed"],
     ],
   )
-  assert.equal(decision.ran[2].refused, "agent")
   assert.deepEqual(
     decision.hits.map(({ id, class: kind }) => [id, kind]),
     [
       ["storybook:required:apps/ui/src/c.stories.tsx#c--one", "ci"],
+      ["vitest:contracts:apps/backend/src/d.contract.test.ts", "agent"],
       ["lint:oxlint:.oxlintrc.json", "agent"],
     ],
   )
@@ -824,7 +823,6 @@ test("the cost compares the measured full run with the estimated gated run", () 
     "database",
     "node",
     "project",
-    "vercel",
   ])
   assert.ok(cost.gatedRunMinutes < cost.fullRunMinutes)
   assert.equal(cost.fullRunWallMinutes, 12)

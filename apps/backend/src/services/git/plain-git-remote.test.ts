@@ -270,7 +270,7 @@ describe("the plain git policy of the deployment mode (SANDBOX_PROVIDER)", () =>
   })
 
   it.each([
-    ["vercel", "vercel"],
+    ["agentcore", "agentcore"],
     ["unset", undefined],
   ])(
     "%s: refuses a private host and http, and never allows http in git",
@@ -300,7 +300,7 @@ describe("the plain git policy of the deployment mode (SANDBOX_PROVIDER)", () =>
     },
   )
 
-  it("docker: the hosted policy, as the hosted egress proxy gives it, stays strict", async () => {
+  it("docker: the hosted policy, when a caller gives it, stays strict", async () => {
     vi.stubEnv("SANDBOX_PROVIDER", "docker")
     await expect(
       resolvePlainGitRemote(
@@ -355,7 +355,7 @@ describe("a self-host plain git read over http with real git", () => {
   })
 
   it("does not connect in hosted mode", async () => {
-    vi.stubEnv("SANDBOX_PROVIDER", "vercel")
+    vi.stubEnv("SANDBOX_PROVIDER", "agentcore")
     const before = requests.length
     await expect(
       resolvePlainGitTip(`http://127.0.0.1:${port}/team/app.git`),

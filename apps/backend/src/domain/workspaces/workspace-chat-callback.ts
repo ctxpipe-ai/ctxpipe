@@ -5,18 +5,12 @@ import { networkInterfaces } from "node:os"
 
 import { defineChatMiddleware } from "@tanstack/ai"
 import {
-  BRIDGED_MCP_SERVER_NAME,
-  createToolBridgeCore,
-  handleBridgeJsonRpc,
   nodeHttpBridgeProvisioner,
   provideToolBridgeProvisioner,
   startHostToolBridge,
-  type ToolBridgeCore,
   type ToolBridgeProvisioner,
   ToolBridgeProvisionerCapability,
-  timingSafeBearerEqual,
 } from "@tanstack/ai-sandbox"
-import { Hono } from "hono"
 
 import type { RunVault } from "./agent-vault.js"
 import { parseSandboxCallbackHost } from "./sandbox-callback-host.js"
@@ -159,50 +153,6 @@ async function localCallbackBindAddress(callbackHost: string): Promise<string> {
   return local.address
 }
 
-/** Bridges served by this process for runs in remote (Vercel) sandboxes. */
-const publicBridges = new Map<string, { core: ToolBridgeCore; token: string }>()
-
-/** The path of a run's tool bridge on the backend's public origin. */
-export function workspaceChatToolBridgePath(bridgeId: string): string {
-  return `/api/v1/workspace-chat/tool-bridge/${bridgeId}`
-}
-
-/**
- * Hosted sandboxes reach the backend's public origin, so each run's tool
- * bridge is served from a route there instead of its own port. The bridge
- * lives in the process running the turn (production runs one backend
- * replica; during a rolling deploy a call can land on the other one and fail).
- * The id and token are set before the run, so the firewall can add the
- * token; the sandbox gets a placeholder only.
- */
-export function publicRouteBridgeProvisioner(
-  publicBaseUrl: string,
-  bridge: { id: string; token: string },
-): ToolBridgeProvisioner {
-  return {
-    async provision(tools, options) {
-      const { provider: _provider, ...core } = options
-      const { id, token } = bridge
-      publicBridges.set(id, { core: createToolBridgeCore(tools, core), token })
-      options.signal?.addEventListener(
-        "abort",
-        () => publicBridges.delete(id),
-        {
-          once: true,
-        },
-      )
-      return {
-        name: BRIDGED_MCP_SERVER_NAME,
-        url: `${publicBaseUrl.replace(/\/$/, "")}${workspaceChatToolBridgePath(id)}`,
-        token: WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
-        close: async () => {
-          publicBridges.delete(id)
-        },
-      }
-    },
-  }
-}
-
 /**
  * The OpenCode MCP configuration in the sandbox gets a placeholder; the run's
  * vault holds the bridge token, and Agent Vault adds it to bridge calls.
@@ -223,41 +173,16 @@ function withBridgeTokenInVault(
   }
 }
 
-/** Stateless MCP over HTTP: JSON-RPC in, JSON out, per-run bearer token. */
-export const workspaceChatToolBridgeRoutes = new Hono()
-  .post("/api/v1/workspace-chat/tool-bridge/:bridgeId", async (c) => {
-    const bridge = publicBridges.get(c.req.param("bridgeId"))
-    if (
-      !bridge ||
-      !timingSafeBearerEqual(c.req.header("authorization"), bridge.token)
-    )
-      return c.text("unauthorized", 401)
-    let message: unknown
-    try {
-      message = await c.req.json()
-    } catch {
-      return c.text("invalid JSON body", 400)
-    }
-    const response = await handleBridgeJsonRpc(bridge.core, message)
-    return response === null ? c.body(null, 202) : c.json(response)
-  })
-  .get("/api/v1/workspace-chat/tool-bridge/:bridgeId", (c) =>
-    c.text("method not allowed", 405),
-  )
-
 /** Provide explicit remote routing, while retaining TanStack's local default. */
 export function workspaceChatCallbackMiddleware(
   callbackHost?: string,
-  hosted?: { publicBaseUrl: string; bridge: { id: string; token: string } },
-  /** Docker: the run's vault, which holds the bridge token. */
+  /** Docker and AgentCore: the run's vault, which holds the bridge token. */
   vault?: Pick<RunVault, "addRules">,
 ) {
   const provisioner = withBridgeTokenInVault(
-    hosted
-      ? publicRouteBridgeProvisioner(hosted.publicBaseUrl, hosted.bridge)
-      : callbackHost
-        ? workspaceChatToolBridgeProvisioner(callbackHost)
-        : nodeHttpBridgeProvisioner,
+    callbackHost
+      ? workspaceChatToolBridgeProvisioner(callbackHost)
+      : nodeHttpBridgeProvisioner,
     vault,
   )
   return defineChatMiddleware({

@@ -322,23 +322,6 @@ describe("workspaceChatOpenCodeContract", () => {
     )
   })
 
-  it("gives a hosted OpenCode config a placeholder key, not a credential reference", () => {
-    // The firewall sets the Authorization header on the model proxy path.
-    const written = writeWorkspaceChatOpenCodeConfig({
-      conversationId: "conv_vercel_key",
-      modelBase: "test/model-fast",
-      isolation: "vercel",
-    })
-    const options = JSON.parse(written.configJson).provider.ctxpipe.options
-    expect(options.apiKey).toBe(WORKSPACE_CHAT_FIREWALL_PLACEHOLDER)
-    expect(written.configJson).not.toContain("CTXPIPE_OPENCODE_RUN_TOKEN")
-    // The hosted network is open: the agent may read web pages. Web search
-    // stays off: OpenCode's search service is not ours.
-    const permission = JSON.parse(written.configJson).permission
-    expect(permission.webfetch).toBe("allow")
-    expect(permission.websearch).toBe("deny")
-  })
-
   it("lets a Docker agent read web pages through Agent Vault, but not an unsandboxed one", () => {
     const permission = (isolation: "docker" | "unsandboxed") =>
       JSON.parse(
@@ -354,20 +337,6 @@ describe("workspaceChatOpenCodeContract", () => {
     expect(permission("docker").websearch).toBe("deny")
     // Unsandboxed runs share the backend's network.
     expect(permission("unsandboxed").webfetch).toBe("deny")
-  })
-
-  it("keeps the Vercel runtime's Node on PATH next to the agent CLI", () => {
-    // Vercel's node26 image has Node and npm only under /vercel/runtimes, so a
-    // PATH without it leaves the agent's commands without `node` or `npm`.
-    process.env.PATH = "/backend/private/bin"
-    const written = writeWorkspaceChatOpenCodeConfig({
-      conversationId: "conv_vercel",
-      modelBase: "test/model-fast",
-      isolation: "vercel",
-    })
-    expect(written.homeEnv.PATH).toBe(
-      "/home/vercel-sandbox/.local/bin:/vercel/runtimes/node26/bin:/usr/local/bin:/usr/bin:/bin",
-    )
   })
 
   it("writes OpenCode config next to that home, not as cwd opencode.json", () => {

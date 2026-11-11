@@ -701,7 +701,6 @@ test("each job of the plan needs the plan job, starts only with its output, and 
     "storybook-plays",
     "storybook-visual",
     "codesearch",
-    "vercel-sandbox",
     "upgrade-from-previous-release",
   ]
   for (const name of outputs) {
@@ -736,7 +735,6 @@ test("each job of the plan needs the plan job, starts only with its output, and 
     "packages",
     "storybook-plays",
     "storybook-visual",
-    "vercel-sandbox",
   ]) {
     const text = job(name)
     assert.ok(
@@ -850,8 +848,8 @@ test("a gated step has the setup of its full-run step and of the prerequisites o
     }
   }
   // typecheck, test-shards, package-tests, packages, storybook-plays (for its
-  // own stories and the required ones), vercel-sandbox.
-  assert.ok(compared >= 6, `${compared} gated steps compared`)
+  // own stories and the required ones).
+  assert.ok(compared >= 5, `${compared} gated steps compared`)
 })
 
 test("a failed plan job gives a full run, and the merge gate reports its verdict", () => {

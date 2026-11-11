@@ -364,14 +364,6 @@
       }
     },
     {
-      "files": [
-        "apps/backend/src/domain/workspaces/vercel-sandbox-provider.ts"
-      ],
-      "rules": {
-        "promise/no-nesting": "off"
-      }
-    },
-    {
       "files": ["apps/ui/src/components/ui/Button.test.tsx"],
       "rules": {
         "react/button-has-type": "off"

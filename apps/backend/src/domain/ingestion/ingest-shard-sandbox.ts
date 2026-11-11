@@ -4,7 +4,6 @@ import { join } from "node:path"
 
 import type { SandboxHandle, SandboxProvider } from "@tanstack/ai-sandbox"
 
-import { deploymentEnvironment } from "../../../../../shared/deployment-environment.js"
 import { repositoryRevisionCheckoutKey } from "../../../../../shared/workspace-checkout.js"
 import { type Env, parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -13,20 +12,14 @@ import { gitRemoteEnvironment } from "../../services/git/clone-tree.js"
 import { resolvePlainGitRemote } from "../../services/git/plain-git-remote.js"
 import { agentCoreRuntime } from "../workspaces/agentcore-sandbox-provider.js"
 import { ingestSandboxThreadId } from "../workspaces/chat-lifecycle.js"
+import { workspaceChatDockerImage } from "../workspaces/chat-runtime.js"
 import {
-  VERCEL_INGEST_AGENT_PATH,
-  workspaceChatDockerImage,
-} from "../workspaces/chat-runtime.js"
-import {
-  assertHostedIngestEgress,
   agentCoreIngestSandboxProvider,
   dockerIngestSandboxProvider,
   type IngestEgress,
   type IngestRepository,
-  ingestSandboxTags,
   refreshIngestSandboxEgress,
   revokeIngestGitTokens,
-  vercelIngestSandboxProvider,
 } from "../workspaces/ingest-sandbox-egress.js"
 import { ingestSandbox } from "../workspaces/ingest-sandbox.js"
 import { resolveRepositoryReadCredential } from "../workspaces/resolve-revision.js"
@@ -36,13 +29,6 @@ import {
   configuredAgentCoreProvider,
   lockedSandboxProvider,
 } from "../workspaces/sandbox-provider.js"
-import {
-  type ConversationFirewall,
-  type HostedTurnCredentials,
-  turnAgentPassword,
-  vercelAgentSnapshot,
-  vercelCredentials,
-} from "../workspaces/vercel-sandbox-provider.js"
 import { workspaceChatCompletionsPath } from "../workspaces/workspace-chat-model-proxy.js"
 import { workspaceChatOpenCodeContract } from "../workspaces/workspace-chat-opencode-contract.js"
 import {
@@ -93,12 +79,8 @@ import { runGit } from "./run-git.js"
  * step's model and tool-bridge capabilities with the lock owner, gives the
  * sandbox's egress those credentials, and then runs the shard commands.
  *
- * Docker: the shard's Agent Vault adds each credential, and the provider
- * refuses a host where traffic is not forced through the vault. Vercel: the
- * sandbox firewall forwards each request to the backend egress proxy
- * (T03b), and the step's credentials are in the sealed scope of the
- * firewall policy only while the step runs. The Vercel provider refuses to
- * start until the live T12 proof (`VERCEL_INGEST_EGRESS_PROVEN`).
+ * Docker and AgentCore: the shard's Agent Vault adds each credential, and
+ * the provider refuses a host where traffic is not forced through the vault.
  */
 
 /** Model names for the tiers that the skill plan uses. */
@@ -233,13 +215,11 @@ export async function ingestShardStepEgress(input: {
   lockOwner: string
   step: string
   env?: Env
-  /** Hosted: the public API origin; defaults to the callback origin. */
-  origin?: string
 }): Promise<IngestEgress> {
   const { spec } = input
   const env = input.env ?? parseEnv(process.env)
   const org = await ingestionOrg(spec.orgId)
-  const origin = input.origin ?? ingestCallbackOrigin(env)
+  const origin = ingestCallbackOrigin(env)
   const modelProxyUrl = `${origin}${workspaceChatCompletionsPath(org.slug)}`
   const claims = {
     authSecret: env.AUTH_SECRET,
@@ -312,54 +292,17 @@ function withShardLock<T>(
   )
 }
 
-/** The deployment's ingest provider: Docker (the default), Vercel or AgentCore. */
-function ingestIsolation(): "docker" | "vercel" | "agentcore" {
+/** The deployment's ingest provider: Docker (the default) or AgentCore. */
+function ingestIsolation(): "docker" | "agentcore" {
   const isolation = lockedSandboxProvider(process.env) ?? "docker"
   assertIngestProvider(isolation)
-  return isolation === "vercel" || isolation === "agentcore"
-    ? isolation
-    : "docker"
-}
-
-/**
- * The deployment environment of hosted sandboxes, for their tags. On
- * Railway, an untagged sandbox would escape the PR-close cleanup.
- */
-function hostedEnvironment(): string {
-  const environment = deploymentEnvironment(process.env)
-  if (!environment && process.env.RAILWAY_PROJECT_ID?.trim())
-    throw new Error("Hosted ingest needs the Railway environment name")
-  return environment || "local"
-}
-
-/** The public API origin, which a hosted sandbox reaches through its firewall. */
-function publicOrigin(): string {
-  return new URL(parseEnv(process.env).AUTH_BASE_URL).origin
-}
-
-/** One step's credentials as the hosted firewall adds them (a "turn"). */
-function hostedStepCredentials(egress: IngestEgress): HostedTurnCredentials {
-  return {
-    modelProxyPath: new URL(egress.modelProxyUrl).pathname,
-    modelCapability: egress.capability,
-    bridgePath: new URL(egress.bridge.url).pathname,
-    bridgeToken: egress.bridge.token,
-  }
+  return isolation === "agentcore" ? isolation : "docker"
 }
 
 type ShardBox = {
   sandbox: ReturnType<typeof ingestSandbox>
   /** Root commands in the sandbox `id`. */
   root: (id: string) => Promise<RootExec>
-  /** Hosted: the firewall that holds a step's credentials. */
-  firewall?: ConversationFirewall
-  /** Hosted: the agent's PATH (the sandbox's own PATH has no tools). */
-  agentPath?: string
-}
-
-type ShardOptions = {
-  /** Only the hosted contract test sets it (see `vercelIngestSandboxProvider`). */
-  hostedEgressProven?: boolean
 }
 
 /** The shard's sandbox; without `egress` it can only attach and destroy. */
@@ -370,7 +313,7 @@ async function shardSandbox(
     shard: number
     workspaceId: string
   },
-  options: ShardOptions & { egress?: IngestEgress; signal?: AbortSignal },
+  options: { egress?: IngestEgress; signal?: AbortSignal } = {},
 ): Promise<ShardBox> {
   const { egress, signal } = options
   const isolation = ingestIsolation()
@@ -385,31 +328,6 @@ async function shardSandbox(
       image,
       ...(signal ? { signal } : {}),
     })
-  if (isolation === "vercel") {
-    const credentials = await vercelCredentials()
-    const environment = hostedEnvironment()
-    const hosted = vercelIngestSandboxProvider({
-      orgId: target.orgId,
-      runId: target.runId,
-      shard: target.shard,
-      // Destroy only: no repository, and no token is minted.
-      repositories: egress?.repositories ?? [],
-      backendHost: new URL(publicOrigin()).hostname,
-      credentials,
-      agentPassword: turnAgentPassword(),
-      tags: ingestSandboxTags(environment),
-      agentSnapshot: () => vercelAgentSnapshot({ credentials, environment }),
-      ...(options.hostedEgressProven ? { proven: true } : {}),
-    })
-    return {
-      // One fixed value, as for chat: the sandbox key does not change with
-      // the agent snapshot.
-      sandbox: sandboxFor(hosted.provider, "vercel-agent"),
-      root: hosted.root,
-      firewall: hosted.firewall,
-      agentPath: VERCEL_INGEST_AGENT_PATH,
-    }
-  }
   if (isolation === "agentcore") {
     // The same path as Docker: the shard's vault adds each credential.
     const runtime = agentCoreRuntime()
@@ -446,10 +364,7 @@ async function shardSandbox(
   }
 }
 
-function shardRuntime(
-  spec: IngestShardSpec,
-  options: ShardOptions = {},
-): IngestShardRuntime {
+function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
   const firstWorkspace = spec.destinations[0]?.workspaceId
   if (!firstWorkspace) throw new Error("An ingest shard needs a destination")
   const target = {
@@ -496,20 +411,8 @@ function shardRuntime(
     return withShardLock(
       target,
       async (lockOwner, lockSignal) => {
-        const hosted = ingestIsolation() === "vercel"
-        // The hosted gate, before any capability or sandbox call of the step.
-        if (hosted) assertHostedIngestEgress(options.hostedEgressProven)
-        const egress = await ingestShardStepEgress({
-          spec,
-          lockOwner,
-          step,
-          ...(hosted ? { origin: publicOrigin() } : {}),
-        })
-        const box = await shardSandbox(target, {
-          ...options,
-          egress,
-          signal: lockSignal,
-        })
+        const egress = await ingestShardStepEgress({ spec, lockOwner, step })
+        const box = await shardSandbox(target, { egress, signal: lockSignal })
         const existing = await box.sandbox.ensureExisting()
         const existingRoot = existing ? await box.root(existing.id) : null
         // A process of an earlier step must not get this step's credentials.
@@ -517,8 +420,6 @@ function shardRuntime(
         return withShardStep({
           existingRoot,
           plainGitSource: spec.source.kind === "git",
-          firewall: box.firewall,
-          credentials: hostedStepCredentials(egress),
           refresh: (fetchSource) =>
             refreshIngestSandboxEgress({
               orgId: spec.orgId,
@@ -532,7 +433,6 @@ function shardRuntime(
             const root = existingRoot ?? (await box.root(handle.id))
             const agentEnv = await ingestAgentEnv(root, {
               modelProxyUrl: egress.modelProxyUrl,
-              ...(box.agentPath ? { path: box.agentPath } : {}),
             })
             return { handle, root, agentEnv }
           },
@@ -623,18 +523,15 @@ function shardRuntime(
 }
 
 /** Delete the shard's sandbox and revoke each GitHub token of the shard. */
-async function destroyShard(
-  target: {
-    orgId: string
-    runId: string
-    shard: number
-    workspaceId: string
-  },
-  options: ShardOptions = {},
-): Promise<void> {
+async function destroyShard(target: {
+  orgId: string
+  runId: string
+  shard: number
+  workspaceId: string
+}): Promise<void> {
   await withShardLock(target, async () => {
     try {
-      await (await shardSandbox(target, options)).sandbox.destroy()
+      await (await shardSandbox(target)).sandbox.destroy()
     } finally {
       // Also when no sandbox row is left. A token that is left is logged;
       // the sweep revokes it after the run.
@@ -643,24 +540,9 @@ async function destroyShard(
   })
 }
 
-/**
- * The shard runtime factory. Production uses {@link sandboxIngestShardRuntime};
- * only the hosted contract test passes `hostedEgressProven`, to prove the
- * path that the hosted gate waits for.
- */
-export function ingestShardRuntimeFactory(
-  options: ShardOptions = {},
-): IngestShardRuntimeFactory {
-  return Object.assign((spec: IngestShardSpec) => shardRuntime(spec, options), {
-    // Destroy makes no sandbox and mints no credential.
-    destroy: (target: {
-      orgId: string
-      runId: string
-      shard: number
-      workspaceId: string
-    }) => destroyShard(target, options),
-  })
-}
-
+/** The production shard runtime factory. */
 export const sandboxIngestShardRuntime: IngestShardRuntimeFactory =
-  ingestShardRuntimeFactory()
+  Object.assign(shardRuntime, {
+    // Destroy makes no sandbox and mints no credential.
+    destroy: destroyShard,
+  })

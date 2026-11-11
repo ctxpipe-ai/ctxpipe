@@ -50,7 +50,6 @@ import {
 import {
   collectUnusedWorkspaceBases,
   destroyUnusedSandbox,
-  workspaceBaseHeldUntil,
 } from "./workspace-sandbox-cleanup.js"
 
 /**
@@ -317,7 +316,6 @@ async function stopSandboxRow(
       return true
     }
     await stopDetachedProviderSandbox({
-      orgId,
       provider: row.provider,
       providerSandboxId: row.providerSandboxId,
     })
@@ -615,10 +613,9 @@ export async function sweepConversationSandboxes(
   }
   // Each base left schedules the org's next sweep, so a dormant org's
   // bases still go: a live base at its retention end, a build at its lease
-  // end, a failed delete at the next retry. A Vercel base kept for a
-  // conversation sandbox that may use it waits for that sandbox's expiry. A
-  // time already past (a lapsed lease, a skipped cleanup) becomes the next
-  // retry: sweeps are keyed by minute, so a past time would not run again.
+  // end, a failed delete at the next retry. A time already past (a lapsed
+  // lease, a skipped cleanup) becomes the next retry: sweeps are keyed by
+  // minute, so a past time would not run again.
   const left = bases.length
     ? await withOrgDbContext(orgId, () => listSandboxInstances({}))
     : []
@@ -632,12 +629,7 @@ export async function sweepConversationSandboxes(
           : base.state === "destroy_failed"
             ? retryAt
             : null
-    const held = workspaceBaseHeldUntil(
-      base,
-      left.filter((row) => row.workspaceId === base.workspaceId),
-    )
-    const due = own === null ? null : Math.max(own, held ?? own)
-    if (due !== null) dueAt(Math.max(due, retryAt))
+    if (own !== null) dueAt(Math.max(own, retryAt))
   }
   if (stopped || deleted)
     log.info({

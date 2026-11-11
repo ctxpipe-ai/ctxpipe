@@ -26,9 +26,9 @@ export type RunGitTokenStore = SandboxGitTokenStore & {
 }
 
 /**
- * Encrypted GitHub read tokens for one organization: one per hosted sandbox
- * (keyed by the sandbox name), and the run tokens of Docker and local
- * conversations (keyed `run:<conversation>:…`, see `run-git-tokens.ts`).
+ * Encrypted GitHub read tokens for one organization: the run tokens of
+ * conversations (keyed `run:<conversation>:…`) and ingest shards (keyed
+ * `ingest:<run>:<shard>:…`), see `run-git-tokens.ts`.
  */
 export function sandboxGitTokenStore(
   orgId: string,

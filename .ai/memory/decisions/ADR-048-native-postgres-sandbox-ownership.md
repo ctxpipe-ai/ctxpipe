@@ -1,6 +1,6 @@
 # ADR-048: Conversation sandboxes: stock providers, Postgres ownership, git as durable state
 
-**Status:** Accepted (revised 2026-10-02; amended 2026-10-13 by [ADR-051](ADR-051-mcp-read-surface.md) and [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md); amended 2026-11-10 for AgentCore, see the end) | **Date:** 2026-09-09 | **Tags:** tanstack, postgres, sandbox, chat
+**Status:** Accepted (revised 2026-10-02; amended 2026-10-13 by [ADR-051](ADR-051-mcp-read-surface.md) and [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md); amended 2026-11-10 for AgentCore and 2026-11-12 for the removal of Vercel, see the end) | **Date:** 2026-09-09 | **Tags:** tanstack, postgres, sandbox, chat
 
 ## Context
 
@@ -127,3 +127,7 @@ Hosted ctxpipe moves to AWS. The AWS design (ADR-061, in review) replaces Vercel
 - **Ingest shards** ([ADR-052](ADR-052-ingestion-sandbox-skills-patches.md)) use the Docker ingest path with an AgentCore session: the shard's vault denies each host that has no rule, and the sandbox subnets have no internet route. AgentCore runs each command as the image user, so the `agentcore` image target keeps root as that user: the root commands of a shard run directly, and the backend runs chat and handle commands as `node` (`runuser`). Before a shard uses a new sandbox, a check fails closed when a metadata or credential endpoint (169.254.169.254, 169.254.170.2, 169.254.170.23, fd00:ec2::254) answers without the proxy: Docker hosts drop the metadata address, and nothing in the image does that on AgentCore. The runtime's execution role holds only ECR pull and log rights, so a credential that leaks gives no data access.
 - **The runtime idle timeout must be longer than the sweep's 5-minute idle stop**, so that the sweep can push before AgentCore ends a session. The runtime configuration in the factory repo sets it.
 
+
+## Amendment 2026-11-12: Vercel Sandbox removed (CTX-1220)
+
+Hosted ctxpipe runs every chat and ingest sandbox on AgentCore (ADR-061). The code has no Vercel path now: no Vercel provider, no agent snapshot, no hosted Workspace base, no hosted ingest egress proxy, and no preview sandbox cleanup. `SANDBOX_PROVIDER=vercel` is an unknown value, so a process with it does not start. The running providers are Docker and AgentCore. The Vercel parts of this ADR above are history. A sandbox row with the provider `vercel` is not a running sandbox for the sweep or the slot count.

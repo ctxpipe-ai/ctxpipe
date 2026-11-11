@@ -303,11 +303,7 @@ export async function listSandboxInstances(input: {
  * Providers whose sandboxes keep running (and cost) until they are stopped.
  * Unsandboxed runs have no sandbox.
  */
-export const RUNNING_SANDBOX_PROVIDERS = [
-  "docker",
-  "vercel",
-  "agentcore",
-] as const
+export const RUNNING_SANDBOX_PROVIDERS = ["docker", "agentcore"] as const
 
 export type RunningSandboxProvider = (typeof RUNNING_SANDBOX_PROVIDERS)[number]
 

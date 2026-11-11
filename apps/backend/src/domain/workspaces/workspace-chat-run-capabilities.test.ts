@@ -7,23 +7,12 @@ const mint = async (purpose: string) => `capability-for-${purpose}`
 const proxyUrl =
   "http://backend.sandbox.ctxpipe.internal:3000/acme/api/v1/workspace-chat/openai/v1"
 
-it("gives a hosted sandbox no capability: its firewall adds them", async () => {
-  expect(
-    await workspaceChatRunCapabilities("vercel", undefined, proxyUrl, mint),
-  ).toEqual({})
-})
-
 it("gives an unsandboxed run only the model capability", async () => {
-  expect(
-    await workspaceChatRunCapabilities(
-      "unsandboxed",
-      undefined,
-      proxyUrl,
-      mint,
-    ),
-  ).toEqual({
-    CTXPIPE_OPENCODE_RUN_TOKEN: "capability-for-workspace-chat-model",
-  })
+  expect(await workspaceChatRunCapabilities(undefined, proxyUrl, mint)).toEqual(
+    {
+      CTXPIPE_OPENCODE_RUN_TOKEN: "capability-for-workspace-chat-model",
+    },
+  )
 })
 
 it("keeps a Docker run's model capability in its vault and gives the sandbox none", async () => {
@@ -31,12 +20,7 @@ it("keeps a Docker run's model capability in its vault and gives the sandbox non
   const vault = {
     addRules: async (added: RunVaultRule[]) => void rules.push(...added),
   }
-  const env = await workspaceChatRunCapabilities(
-    "docker",
-    vault,
-    proxyUrl,
-    mint,
-  )
+  const env = await workspaceChatRunCapabilities(vault, proxyUrl, mint)
   expect(env).toEqual({})
   const base = "backend.sandbox.ctxpipe.internal:3000"
   const path = "/acme/api/v1/workspace-chat/openai/v1"

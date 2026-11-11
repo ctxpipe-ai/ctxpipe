@@ -46,11 +46,11 @@ export function ingestOpenCodeConfig(input: {
   models: readonly string[]
   /** Skill names from the bundle. Each other skill is denied. */
   skills: readonly string[]
-  /** Hosted and Docker sandboxes: the firewall or Agent Vault adds the key. */
+  /** Docker and AgentCore sandboxes: Agent Vault adds the key. */
   proxyAddsCredentials: boolean
   /**
-   * The step's tool bridge (T04), as the `tanstack` MCP server. The firewall
-   * or Agent Vault replaces the placeholder token with the step's token.
+   * The step's tool bridge (T04), as the `tanstack` MCP server. Agent Vault
+   * replaces the placeholder token with the step's token.
    */
   toolBridgeUrl: string
 }) {

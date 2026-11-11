@@ -23,7 +23,7 @@ it(
   "links the repository of a merged plain git source and starts its first ingestion",
   { timeout: 120_000 },
   async () => {
-    vi.stubEnv("SANDBOX_PROVIDER", "vercel")
+    vi.stubEnv("SANDBOX_PROVIDER", "agentcore")
     try {
       await withNativeHydrationFixture(
         { github: true, githubWriteView: "writable" },
