@@ -1,6 +1,8 @@
 # ADR-054: Secrets go from GitHub Environments straight to Railway
 
-**Status:** Accepted | **Date:** 2026-10-22 | **Tags:** secrets, railway, terraform, github-actions, observability
+**Status:** Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) | **Date:** 2026-10-22 | **Tags:** secrets, railway, terraform, github-actions, observability
+
+> **Superseded (AWS cutover).** Hosted secrets live in AWS Secrets Manager ([ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md), decisions 5 and 12). No secret goes to Railway, and the sync script is deleted.
 
 ## Context
 

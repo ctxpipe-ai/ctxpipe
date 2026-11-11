@@ -1,6 +1,8 @@
 # ADR-013: Terraform as our IAC
 
-**Status:** Accepted | **Date:** 2026-03-17 | **Tags:** infra, pulumi, terraform, railway, neon
+**Status:** Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) for hosted infrastructure | **Date:** 2026-03-17 | **Tags:** infra, pulumi, terraform, railway, neon
+
+> **Superseded (AWS cutover).** Hosted ctxpipe runs on AWS, and Pulumi in the factory repo manages it ([ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md), decision 5). The Railway and Neon Terraform in `infra/` is deleted. Self-host keeps `@ctxpipe/aws-cdk` (CDK), so this ADR no longer decides any infrastructure tool.
 
 ## Context
 
