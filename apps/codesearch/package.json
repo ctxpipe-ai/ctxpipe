@@ -9,7 +9,11 @@
     "start": "bun run dist/server.js",
     "test": "bash scripts/run-vitest-docker.sh",
     "test:manual:kubernetes-memory": "bash scripts/manual-kubernetes-ingest-memory.sh",
-    "test:vitest": "node scripts/run-vitest-contracts.mjs"
+    "test:vitest": "node scripts/run-vitest-contracts.mjs",
+    "cutover:export-indexes": "bun src/cutover/exportIndexes.ts",
+    "cutover:import-indexes": "bun src/cutover/importIndexes.ts",
+    "cutover:verify-graph": "bun src/cutover/verifyGraph.ts",
+    "cutover:seed-shard-store": "bun src/cutover/seedShardStore.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1157.0",

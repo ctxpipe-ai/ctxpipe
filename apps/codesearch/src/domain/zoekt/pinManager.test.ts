@@ -358,7 +358,7 @@ describe("installStagedShards", () => {
     await writeColdShard(zoektName, 1)
 
     const marked = await markShardsUploaded(
-      { zoektRepoId: 12, zoektName },
+      { zoektName },
       { gen: "g1", files: [] },
       { coldDir },
     )

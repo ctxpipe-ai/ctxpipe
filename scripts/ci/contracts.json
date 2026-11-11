@@ -106,6 +106,7 @@
     "src/domain/workspaces/sandbox-process-guards-native.contract.test.ts",
     "src/domain/workspaces/workspace-chat-unsandboxed-env.test.ts",
     "src/openworkflow/enqueue-follow-up-native.contract.test.ts",
+    "src/platform/graph/falkordb-transfer.contract.test.ts",
     "src/test/docker-outside-msw.test.ts",
     "src/db/copy-database.contract.test.ts"
   ]

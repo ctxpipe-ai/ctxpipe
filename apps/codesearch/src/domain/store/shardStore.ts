@@ -60,6 +60,11 @@ const manifestSchema = z.object({
 
 export type StoreManifest = z.infer<typeof manifestSchema>
 
+/** Parses a manifest of the store, or a local manifest copy of one. */
+export function parseStoreManifest(text: string): StoreManifest {
+  return manifestSchema.parse(JSON.parse(text))
+}
+
 let cached: { key: string; store: ShardStore | null } | undefined
 
 /**
@@ -70,8 +75,7 @@ let cached: { key: string; store: ShardStore | null } | undefined
  */
 export function shardStore(): ShardStore | null {
   const url = process.env["CODESEARCH_SHARD_STORE"] || undefined
-  const endpoint =
-    process.env["AWS_ENDPOINT_URL_S3"] || process.env["AWS_ENDPOINT_URL"]
+  const endpoint = s3Endpoint()
   const key = `${url}|${endpoint}`
   if (cached?.key === key) return cached.store
   cached = { key, store: url ? storeFromUrl(url, endpoint) : null }
@@ -79,28 +83,55 @@ export function shardStore(): ShardStore | null {
 }
 
 function storeFromUrl(url: string, endpoint: string | undefined): ShardStore {
-  const match = /^s3:\/\/([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])(?:\/(.*))?$/.exec(
-    url,
-  )
-  const bucket = match?.[1]
-  if (!bucket)
+  const location = parseS3Url(url)
+  if (!location)
     throw new Error(
       "CODESEARCH_SHARD_STORE must have the form s3://bucket or s3://bucket/prefix",
     )
-  const prefix = (match[2] ?? "").replace(/^\/+|\/+$/g, "")
   return {
-    client: new S3Client({
-      // The manifest holds a sha256 for each file, and a fetch checks it.
-      // The SDK's default CRC trailers need aws-chunked uploads, which
-      // S3-compatible servers often refuse.
-      requestChecksumCalculation: "WHEN_REQUIRED",
-      responseChecksumValidation: "WHEN_REQUIRED",
-      // An S3-compatible server on a custom endpoint has no bucket DNS names.
-      forcePathStyle: Boolean(endpoint),
-    }),
-    bucket,
-    root: prefix ? `${prefix}/v1` : "v1",
+    client: s3Client(endpoint),
+    bucket: location.bucket,
+    root: location.prefix ? `${location.prefix}/v1` : "v1",
   }
+}
+
+/**
+ * The bucket and the prefix of `s3://bucket/prefix`, or null when the URL
+ * has another form. The prefix has no `/` at the start or at the end, and
+ * it is empty when the URL has no prefix.
+ */
+export function parseS3Url(
+  url: string,
+): { bucket: string; prefix: string } | null {
+  const match = /^s3:\/\/([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])(?:\/(.*))?$/.exec(
+    url,
+  )
+  if (!match?.[1]) return null
+  return {
+    bucket: match[1],
+    prefix: (match[2] ?? "").replace(/^\/+|\/+$/g, ""),
+  }
+}
+
+/** The custom S3 endpoint of an S3-compatible server, or undefined for AWS. */
+function s3Endpoint(): string | undefined {
+  return process.env["AWS_ENDPOINT_URL_S3"] || process.env["AWS_ENDPOINT_URL"]
+}
+
+/**
+ * An S3 client for the store and for the cutover transfer prefix. The
+ * credentials and the region come from the SDK default chain.
+ */
+export function s3Client(endpoint = s3Endpoint()): S3Client {
+  return new S3Client({
+    // The manifest holds a sha256 for each file, and a fetch checks it.
+    // The SDK's default CRC trailers need aws-chunked uploads, which
+    // S3-compatible servers often refuse.
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
+    // An S3-compatible server on a custom endpoint has no bucket DNS names.
+    forcePathStyle: Boolean(endpoint),
+  })
 }
 
 /** One key segment: no `/`, and not `.` or `..`. */
@@ -136,7 +167,7 @@ function newGen(): string {
   return `${time}-${randomUUID().slice(0, 8)}`
 }
 
-async function fileSha256(path: string): Promise<string> {
+export async function fileSha256(path: string): Promise<string> {
   const hash = createHash("sha256")
   await pipeline(createReadStream(path), hash)
   return hash.digest("hex")
@@ -154,8 +185,7 @@ export async function readManifest(
         Key: `${addressPrefix(store, address)}manifest.json`,
       }),
     )
-    const text = (await response.Body?.transformToString()) ?? ""
-    return manifestSchema.parse(JSON.parse(text))
+    return parseStoreManifest((await response.Body?.transformToString()) ?? "")
   } catch (error) {
     if (error instanceof NoSuchKey) return null
     throw error

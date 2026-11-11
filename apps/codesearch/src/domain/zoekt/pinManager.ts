@@ -420,7 +420,7 @@ export async function installStagedShards(
  * It gives whether it wrote the copy.
  */
 export async function markShardsUploaded(
-  repo: ZoektRepo,
+  repo: Pick<ZoektRepo, "zoektName">,
   manifest: StoreManifest,
   options?: { coldDir?: string },
 ): Promise<boolean> {
