@@ -21,12 +21,14 @@
  *     Remote: one server, for example an Aurora cluster of the sandbox
  *     account (`ops/aws-cutover/sandbox-rehearsal`). It makes the databases
  *     `cutover_rehearsal_source` and `cutover_rehearsal_target` as the master
- *     login, and drops them at the end. Each connection to a host that is
+ *     login, and drops them at the end. It refuses a server that holds other
+ *     databases. Each connection to a host that is
  *     not loopback uses TLS with a certificate check: the RDS CA bundle for an
  *     RDS host, else the system roots.
  *
  * `--scale` multiplies each row count and each size of the shape. A table
- * that is not in the shape gets `--default-rows`.
+ * that is not in the shape gets `--default-rows`. The run fails when a table
+ * of the shape stays much smaller than its size in the shape.
  */
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
@@ -168,6 +170,18 @@ async function remoteDatabases(
         `DROP DATABASE IF EXISTS ${name} WITH (FORCE)`,
       )
   }
+  // The script makes and drops databases and runs migrate: it refuses a
+  // server that holds any other database, for example production.
+  const others = await query<{ datname: string }>(
+    url("postgres"),
+    `SELECT datname FROM pg_database
+     WHERE NOT datistemplate AND datname <> ALL ($1::text[])`,
+    [["postgres", "rdsadmin", source, target]],
+  )
+  if (others.length > 0)
+    throw new Error(
+      `The server at --host holds other databases (${others.length}). Use an empty server, such as the sandbox cluster.`,
+    )
   await remove()
   try {
     for (const name of [source, target])
@@ -298,6 +312,16 @@ async function main(argv: string[]): Promise<number> {
       requestedBytes: shape[table]?.bytes,
       bytes: bytes === null ? undefined : Number(bytes),
     }))
+    // A table that stays much smaller than its shape makes the window too
+    // short, so the run fails. The margin of 1 MiB keeps small tables out:
+    // an empty table of the shape has a size of one page.
+    const undersized = shaped.filter(
+      ({ requestedBytes, bytes }) =>
+        requestedBytes !== undefined &&
+        bytes !== undefined &&
+        bytes < requestedBytes * 0.8 &&
+        requestedBytes - bytes > 1024 * 1024,
+    )
     // Production is in the state of its last migrate.
     await timed(setup, "migrate source again", () =>
       runMigrations({
@@ -325,7 +349,10 @@ async function main(argv: string[]): Promise<number> {
       (phase) => phase.name !== "preflight",
     )
     const summary = {
-      ok: report.ok && filled.every((table) => !table.error),
+      ok:
+        report.ok &&
+        filled.every((table) => !table.error) &&
+        undersized.length === 0,
       mode: host ? "remote" : "local",
       scale,
       jobs,
@@ -337,6 +364,7 @@ async function main(argv: string[]): Promise<number> {
       windowMs: window.reduce((sum, phase) => sum + phase.ms, 0),
       setup,
       shaped,
+      undersized: undersized.map(({ table }) => table),
       fillErrors: filled.filter((table) => table.error),
       verifyProblems: report.verify.problems,
     }

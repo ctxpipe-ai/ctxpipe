@@ -53,10 +53,6 @@ type Table = {
 }
 
 const BATCH = 200_000
-/** The length of one md5 string in hex. */
-const MD5_HEX_LENGTH = 32
-/** The size of one row when the shape gives no size. */
-const DEFAULT_ROW_BYTES = 200
 
 async function readColumns(client: pg.Client): Promise<Column[]> {
   const { rows } = await client.query<Column>(
@@ -202,6 +198,10 @@ export async function fillSyntheticRows(
   defaultRows: number,
   onTable?: (result: FillResult) => void,
 ): Promise<FillResult[]> {
+  /** The length of one md5 string in hex. */
+  const MD5_HEX_LENGTH = 32
+  /** The size of one row when the shape gives no size. */
+  const DEFAULT_ROW_BYTES = 200
   const client = new pg.Client({ connectionString: superUrl })
   await client.connect()
   try {
