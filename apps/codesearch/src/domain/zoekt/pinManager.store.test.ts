@@ -342,6 +342,35 @@ describe("evictColdShards", () => {
     expect((await coldShards(name)).length).toBe(1)
   })
 
+  it("runs an eviction for each cold directory, even while another one runs", async () => {
+    const otherDir = join(root, "other-zoekt-index")
+    await mkdir(otherDir, { recursive: true })
+    let releaseFirst!: () => void
+    const firstChecked = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    const first = evictColdShards({
+      coldDir,
+      freeRatio: async () => {
+        await firstChecked
+        return 0.9
+      },
+    })
+    let otherChecked = false
+
+    await evictColdShards({
+      coldDir: otherDir,
+      freeRatio: async () => {
+        otherChecked = true
+        return 0.9
+      },
+    })
+    releaseFirst()
+    await first
+
+    expect(otherChecked).toBe(true)
+  })
+
   it("does nothing while enough of the volume is free", async () => {
     const name = await coldName("repo_kept", 1_000)
 

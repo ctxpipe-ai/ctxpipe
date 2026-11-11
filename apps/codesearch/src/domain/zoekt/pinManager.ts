@@ -448,7 +448,8 @@ async function writeLocalManifest(
 /** Eviction starts when less than this share of the cold volume is free. */
 const MIN_FREE_RATIO = 0.2
 
-let eviction: Promise<number> | null = null
+/** The eviction that runs now, for each cold directory. */
+const evictions = new Map<string, Promise<number>>()
 
 type EvictOptions = {
   coldDir?: string
@@ -462,13 +463,18 @@ type EvictOptions = {
  * names that have a local manifest copy (an S3 copy), that are not pinned,
  * and that no pin, fetch or upload touched in the last idle time (so a new
  * name is not deleted at once); a fetch on the next pin brings them back.
- * One eviction runs at a time. It gives the number of names it evicted.
+ * One eviction runs at a time for each cold directory. It gives the number
+ * of names it evicted.
  */
 export function evictColdShards(options?: EvictOptions): Promise<number> {
-  eviction ??= evict(options).finally(() => {
-    eviction = null
+  const coldDir = options?.coldDir ?? ZOEKT_INDEX_DIR
+  const running = evictions.get(coldDir)
+  if (running) return running
+  const next = evict({ ...options, coldDir }).finally(() => {
+    evictions.delete(coldDir)
   })
-  return eviction
+  evictions.set(coldDir, next)
+  return next
 }
 
 async function evict(options?: EvictOptions): Promise<number> {
