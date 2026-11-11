@@ -4,11 +4,14 @@
 # preview workflow (`factory preview up <N>`) takes them from there by digest.
 #
 # - Only pull requests from this repo: the role trusts no fork.
-# - The build runs before the job has any AWS credential, and BuildKit runs the Dockerfile steps in containers that do
-#   not see the runner's environment. The role (`github-actions-ctxpipe-pr-ecr-push`, factory aws-core) can only push
-#   to `ctxpipe-pr/*` in the preview account, where preview code runs anyway.
-# - The tags are immutable: a run again for the same commit finds its images there and goes on.
-# - Off until the repository variable PREVIEW_ECR_PUSH is `enabled` (after factory aws-core made the role).
+# - Two jobs. `build` runs the PR's code (the Dockerfile steps) and holds no credential and no OIDC token: it hands the
+#   image on as an artifact. `push` runs no code of the PR (no checkout, no local action, pinned actions only), gets
+#   the role, and pushes that image. The role (`github-actions-ctxpipe-pr-ecr-push`, factory aws-core) can only push
+#   to `ctxpipe-pr/*` in the preview account.
+# - The image is the PR's head commit, not the merge commit, so the tag names the code it holds.
+# - The tags are immutable. A tag that is there already (a run again for the same commit) stays, and the job says so.
+#   Every same-repo pull request has the role, so a team member's PR could push another PR's tag first; the role
+#   allows that, and this workflow cannot stop it.
 name: PR preview images
 
 on:
@@ -23,14 +26,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  images:
-    name: Preview image (${{ matrix.image }})
-    if: vars.PREVIEW_ECR_PUSH == 'enabled' && github.event.pull_request.head.repo.full_name == github.repository
+  build:
+    name: Build preview image (${{ matrix.image }})
+    if: github.event.pull_request.head.repo.full_name == github.repository
     timeout-minutes: 45
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     permissions:
       contents: read
-      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -41,23 +43,46 @@ jobs:
             dockerfile: apps/backend/Dockerfile.worker
           - image: ui
             dockerfile: apps/ui/Dockerfile
-    env:
-      REGISTRY: 573018602187.dkr.ecr.us-west-2.amazonaws.com
-      TAG: pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
-      - uses: ./.github/actions/setup-buildx
-      # No credential yet: the image is built into the local Docker only.
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
           platforms: linux/arm64
-          load: true
-          push: false
           tags: preview/${{ matrix.image }}:local
+          outputs: type=docker,dest=${{ runner.temp }}/image.tar
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: preview-image-${{ matrix.image }}
+          path: ${{ runner.temp }}/image.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  push:
+    name: Push preview image (${{ matrix.image }})
+    needs: build
+    timeout-minutes: 20
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [backend, worker, ui]
+    env:
+      REGISTRY: 573018602187.dkr.ecr.us-west-2.amazonaws.com
+      TAG: pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: preview-image-${{ matrix.image }}
+          path: ${{ runner.temp }}/image
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: arn:aws:iam::573018602187:role/github-actions-ctxpipe-pr-ecr-push
@@ -67,12 +92,15 @@ jobs:
           IMAGE: ${{ matrix.image }}
         run: |
           set -euo pipefail
-          aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
           target="$REGISTRY/ctxpipe-pr/$IMAGE:$TAG"
-          docker tag "preview/$IMAGE:local" "$target"
-          if ! out=$(docker push "$target" 2>&1); then
-            # A run again for the same commit: the immutable tag is there already.
-            grep -q 'already exists' <<< "$out" || { echo "$out"; exit 1; }
-            echo "$target is there already"
+          # A tag that is there already stays (immutable): a run again for the same commit.
+          if digest=$(aws ecr describe-images --repository-name "ctxpipe-pr/$IMAGE" --image-ids "imageTag=$TAG" \
+              --query 'imageDetails[0].imageDigest' --output text 2> /dev/null); then
+            echo "$target is there already ($digest)" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
+          docker load --input "$RUNNER_TEMP/image/image.tar"
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
+          docker tag "preview/$IMAGE:local" "$target"
+          docker push "$target"
           echo "Pushed $target" >> "$GITHUB_STEP_SUMMARY"
