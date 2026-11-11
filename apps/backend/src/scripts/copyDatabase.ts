@@ -24,18 +24,13 @@
  */
 import { copyDatabase, preflight } from "../db/copy-database.js"
 import { flushEvlog, initEvlog, log } from "../observability/logger.js"
+import { flag } from "./cli-args.js"
 
 try {
   initEvlog()
 } catch {
   // A one-off task gives no app env (AUTH_SECRET). Logs then keep the evlog
   // defaults, as in migrate.ts.
-}
-
-function flag(argv: string[], name: string): string | undefined {
-  const index = argv.indexOf(name)
-  const next = index >= 0 ? argv[index + 1] : undefined
-  return next !== undefined && !next.startsWith("--") ? next : undefined
 }
 
 function required(name: string): string {
