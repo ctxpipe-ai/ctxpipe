@@ -211,10 +211,10 @@ jobs:
           done | jq -Rcs 'split("\n") | map(select(. != "") | split(" ") | {(.[0]): .[1]}) | add // {}' | sed 's/^/digests=/' >> "$GITHUB_OUTPUT"
 
   # Copies each production image, and the upstream images that the hosted
-  # and observability stacks pin, to the production ECR (CTX-1215 X2). crane copies the
-  # manifest list by digest, so the ECR digest equals the GHCR digest. It
-  # writes the per-platform images first and the tagged list last, so the
-  # newest tagged image is always complete. Each push starts the factory
+  # and observability stacks pin, to the production ECR (CTX-1215 X2).
+  # crane copies the manifest list by digest, so the ECR digest equals the
+  # source digest. It writes the per-platform images first and the tagged
+  # list last, so the newest tagged image is always complete. Each push starts the factory
   # digest workflow through EventBridge; this repo holds no factory
   # credential. Railway deploys from GHCR (the terraform job) until the
   # cutover, so no job waits for this one.
@@ -299,13 +299,14 @@ jobs:
           while read -r image digest; do
             copy "ghcr.io/ctxpipe-ai/$image@$digest" "ctxpipe/$image" "$GITHUB_SHA"
           done < <(jq -r 'to_entries[] | "\(.key) \(.value)"' <<< "$DIGESTS")
-          # Upstream images that the hosted and observability stacks run, each
-          # pinned by its multi-platform index digest; the copy keeps that
+          # The hosted and observability stacks run these upstream images. Each
+          # pin is a multi-platform index digest, and the copy keeps that
           # digest. Change a pin here and in the stack that uses it in one
-          # reviewed edit. The tag is the exact upstream version (not a moving
-          # tag such as mongo:7), so a new pin always gets a new tag. The hosted stack makes a repository with the
-          # service that uses it, so a pin whose repository does not exist yet
-          # is skipped with a warning; any other error fails the job.
+          # reviewed edit. The tag is the exact upstream version, not a moving
+          # tag such as mongo:7, so a new pin always gets a new tag. A stack
+          # makes a repository with the service that uses it. Thus a pin whose
+          # repository does not exist yet is skipped with a warning. Another
+          # lookup error goes on to the copy, and a failed copy fails the job.
           while read -r repository tag source; do
             if [ "$PUSH" = true ] && ! error="$(aws ecr describe-images --repository-name "$repository" --image-ids imageTag="$tag" 2>&1 > /dev/null)" && [[ "$error" == *RepositoryNotFoundException* ]]; then
               echo "::warning::$repository does not exist yet: $source is not copied" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -316,7 +317,7 @@ jobs:
           ctxpipe/cloudflared 2026.10.7 docker.io/cloudflare/cloudflared@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
           ctxpipe/falkordb v4.20.7 docker.io/falkordb/falkordb@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
           ctxpipe/otel-collector-contrib 0.155.0 docker.io/otel/opentelemetry-collector-contrib@sha256:4935caa35e9a4cb387e35732e8fb22b2b5759af8d12e7043357f03837f6e8df5
-          ctxpipe/busybox 1.37 docker.io/library/busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+          ctxpipe/busybox 1.37.0 docker.io/library/busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
           ctxpipe/clickhouse-server 26.8.36.3-alpine docker.io/clickhouse/clickhouse-server@sha256:f5443f9ffa48f0154cdd50cab39fed732201762574a27f04f1f564bbba81832d
           ctxpipe/clickstack-otel-collector 2.39.1 docker.io/clickhouse/clickstack-otel-collector@sha256:fb71cb46bfc11413e9b96b056118f66293262579cec42927d7f1ca38d3732146
           ctxpipe/hyperdx 2.39.1 docker.io/hyperdx/hyperdx@sha256:619783ca66d6c81f72a0106f4013d65865ac42e064491b19c0019ffec268f316
