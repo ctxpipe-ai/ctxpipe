@@ -245,7 +245,7 @@ verification.
 
 ## Observability
 
-Telemetry is off until you set it. ctxpipe does not ship a collector, Langfuse, or
+Telemetry is off until you set it. ctxpipe does not ship a collector or
 ClickStack in the Compose `deploy` profile or in `@ctxpipe/aws-cdk`. Unset
 values keep logs on stdout and do not start trace or metric export. Empty
 values count as unset.
@@ -270,7 +270,7 @@ OTEL_EXPORTER_OTLP_HEADERS=Authorization=Bearer xxx
 | `OTEL_RESOURCE_ATTRIBUTES` | Extra resource attributes, for example `deployment.environment=production`. |
 
 The `deployment.environment` value applies to backend traces, metrics, and logs,
-to the Langfuse environment tag, to codesearch, and to the UI relay. It is
+to codesearch, and to the UI relay. It is
 `DEPLOYMENT_ENVIRONMENT` when that is set. Hosted ctxpipe sets this variable;
 a self-hosted install leaves it unset, because a `pr-N` value turns on preview
 behavior (no email verification). Otherwise it is
@@ -279,11 +279,12 @@ behavior (no email verification). Otherwise it is
 and codesearch also set `service.namespace=ctxpipe`. Codesearch always exports `service.name`
 `codesearch`.
 
-LLM spans are OpenTelemetry spans. The apps do not read `LANGFUSE_PUBLIC_KEY`,
-`LANGFUSE_SECRET_KEY`, or `LANGFUSE_HOST`. A Langfuse project accepts traces at
-`https://<your-langfuse>/api/public/otel/v1/traces` with
-`Authorization=Basic <base64(publicKey:secretKey)>` in
-`OTEL_EXPORTER_OTLP_HEADERS`. `@ctxpipe/aws-cdk` takes one base `otel.endpoint`
+LLM spans are OpenTelemetry spans with the GenAI semantic conventions:
+`gen_ai.operation.name`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`,
+`gen_ai.usage.output_tokens`, and `gen_ai.usage.cost` (USD, when the model
+gateway reports it). A span also holds the prompt and the output text in
+`gen_ai.input.messages` and `gen_ai.output.messages`. The backend logs never
+hold them. `@ctxpipe/aws-cdk` takes one base `otel.endpoint`
 and appends `/v1/traces`, `/v1/logs`, and `/v1/metrics`. See
 [AWS](/docs/self-hosting/deployment/aws).
 

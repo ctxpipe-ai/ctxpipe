@@ -45,8 +45,6 @@
     "@hono/otel": "^1.1.2",
     "@hono/zod-openapi": "^1.2.2",
     "@infisical/agent-vault-sdk": "^0.7.0",
-    "@langfuse/core": "5.9.1",
-    "@langfuse/tracing": "5.9.1",
     "@linear/sdk": "^89.0.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@octokit/webhooks": "^14.2.0",

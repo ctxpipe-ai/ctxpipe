@@ -21,7 +21,7 @@ const envKeysTouchedByTests = [
   "AUTH_SECRET",
   "JWT_SECRET",
   "OTEL_EXPORTER_OTLP_HEADERS",
-  "LANGFUSE_SECRET_KEY",
+  "MODEL_PROVIDER_API_KEY",
   "OPENAI_API_KEY",
   "UNRELATED_FLAG",
 ] as const
@@ -120,7 +120,7 @@ describe("withIndexerGoLimits", () => {
     process.env.AUTH_SECRET = "a".repeat(32)
     process.env.JWT_SECRET = "jwt-secret"
     process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=Bearer telemetry"
-    process.env.LANGFUSE_SECRET_KEY = "lf-secret"
+    process.env.MODEL_PROVIDER_API_KEY = "model-secret"
     process.env.OPENAI_API_KEY = "sk-secret"
     process.env.UNRELATED_FLAG = "should-not-pass"
 
@@ -146,7 +146,7 @@ describe("withIndexerGoLimits", () => {
       "AUTH_SECRET",
       "JWT_SECRET",
       "OTEL_EXPORTER_OTLP_HEADERS",
-      "LANGFUSE_SECRET_KEY",
+      "MODEL_PROVIDER_API_KEY",
       "OPENAI_API_KEY",
       "UNRELATED_FLAG",
     ]) {

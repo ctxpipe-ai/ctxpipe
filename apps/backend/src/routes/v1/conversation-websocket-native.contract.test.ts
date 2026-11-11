@@ -7,7 +7,7 @@ import { modelMessagesToUIMessages, type StreamChunk } from "@tanstack/ai"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
 import { workspaceChatPersistence } from "../../domain/workspaces/workspace-chat-persistence.js"
-import { LangfuseContextSpanProcessor } from "../../observability/langfuseContextProcessor.js"
+import { AttributionUrlSpanProcessor } from "../../observability/otel.js"
 import { withNativeChatFixture } from "../../test/native-chat-fixture.js"
 import {
   bunSocketToWebSocketLike,
@@ -17,7 +17,7 @@ import {
 const exporter = new InMemorySpanExporter()
 const provider = new NodeTracerProvider({
   spanProcessors: [
-    new LangfuseContextSpanProcessor(),
+    new AttributionUrlSpanProcessor(),
     new SimpleSpanProcessor(exporter),
   ],
 })
@@ -31,7 +31,7 @@ afterAll(async () => {
 })
 
 it(
-  "puts a UI turn on the WebSocket in the conversation's Langfuse session, with its user and source tag",
+  "attributes a UI turn on the WebSocket to its conversation, its user, and its source",
   { timeout: 90_000 },
   async () => {
     await withNativeChatFixture(async (f) => {
@@ -98,12 +98,15 @@ it(
         return spans
       })
       for (const span of turnSpans) {
-        expect(span.attributes["session.id"]).toBe(f.conversationId)
-        expect(span.attributes["user.id"]).toBe(f.userId)
-        expect(span.attributes["langfuse.trace.tags"]).toEqual(
-          expect.arrayContaining(["ui"]),
+        expect(span.attributes["ctxpipe.conversation.id"]).toBe(
+          f.conversationId,
         )
+        expect(span.attributes["enduser.id"]).toBe(f.userId)
       }
+      expect(
+        turnSpans.find((span) => span.name === "workspace-chat.turn")
+          ?.attributes["workspace_chat.source"],
+      ).toBe("ui")
     })
   },
 )

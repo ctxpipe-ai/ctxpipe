@@ -8,4 +8,4 @@ Compose mounts this `config.yaml` into `otel/opentelemetry-collector-contrib:0.1
 
 To watch local spans, follow the container logs. App endpoints: [USING.md](../../ops/observability/USING.md#localhost-telemetry).
 
-Hosted HyperDX and Langfuse stay opt-in on the app (`https://telemetry.ctxpipe.ai`), not through this collector.
+Hosted HyperDX stays opt-in on the app (`https://telemetry.ctxpipe.ai`), not through this collector.

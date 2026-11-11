@@ -2,14 +2,11 @@ import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace-base"
 
 import { log } from "./logger.js"
 
-/**
- * Prompt and output keys. They go only to Langfuse; logs never carry them.
- * The collector `transform/redact_llm_content` rule uses the same pattern.
- */
-export const LLM_CONTENT_KEY =
-  /^(langfuse\.observation\.(input|output)$|gen_ai\.(prompt|completion|input\.messages|output\.messages))/
+/** Prompt and output keys. Spans keep them (ADR-061); logs never carry them. */
+const LLM_CONTENT_KEY =
+  /^gen_ai\.(prompt|completion|input\.messages|output\.messages)/
 
-/** Compact evlog dump of workspace-chat spans when OTLP/Langfuse is off or alongside it. */
+/** Compact evlog dump of workspace-chat spans, with or without OTLP export. */
 export class EvlogSpanExporter implements SpanExporter {
   export(
     spans: ReadableSpan[],

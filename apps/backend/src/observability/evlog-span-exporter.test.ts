@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs"
-
 import { trace } from "@opentelemetry/api"
 import {
   InMemorySpanExporter,
@@ -9,7 +7,7 @@ import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { initLogger } from "evlog"
 import { afterAll, beforeAll, expect, it } from "vitest"
 
-import { EvlogSpanExporter, LLM_CONTENT_KEY } from "./evlog-span-exporter.js"
+import { EvlogSpanExporter } from "./evlog-span-exporter.js"
 
 const memory = new InMemorySpanExporter()
 const provider = new NodeTracerProvider({
@@ -42,8 +40,8 @@ it("logs a generation span without its prompt and output", async () => {
       attributes: {
         "gen_ai.request.model": "openai/gpt-5.6-terra",
         "gen_ai.usage.input_tokens": 12,
-        "langfuse.observation.input": "SECRET_PROMPT",
-        "langfuse.observation.output": "SECRET_OUTPUT",
+        "gen_ai.input.messages": "SECRET_PROMPT",
+        "gen_ai.output.messages": "SECRET_OUTPUT",
         "gen_ai.prompt.0.content": "SECRET_PROMPT",
         "gen_ai.completion.0.content": "SECRET_OUTPUT",
       },
@@ -58,18 +56,4 @@ it("logs a generation span without its prompt and output", async () => {
     "gen_ai.usage.input_tokens": 12,
   })
   expect(JSON.stringify(events)).not.toMatch(/SECRET_(PROMPT|OUTPUT)/)
-})
-
-it("uses the same key rule as the collector redaction", () => {
-  const config = readFileSync(
-    new URL(
-      "../../../../ops/observability/collector/config.yaml",
-      import.meta.url,
-    ),
-    "utf8",
-  )
-  const yamlPattern = LLM_CONTENT_KEY.source.replaceAll("\\", "\\\\")
-  expect(config).toContain(
-    `delete_matching_keys(span.attributes, "${yamlPattern}")`,
-  )
 })

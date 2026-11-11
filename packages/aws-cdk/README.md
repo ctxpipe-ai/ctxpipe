@@ -135,7 +135,7 @@ modelProvider: {
 
 - `connectorSecrets`: deployment-wide connector settings for GitHub, Atlassian, Slack, Linear, Notion, and PagerDuty. Omit for first boot if connectors are not configured yet. Linear uses `linearClientId`, `linearClientSecret`, optional `linearRedirectUri`, and `linearWebhookSecret`; Notion uses `notionClientId`, `notionClientSecret`, and `notionWebhookSecret`; Slack uses `slackClientId`, `slackClientSecret`, and `slackSigningSecret`; PagerDuty uses `pagerdutyClientId`, `pagerdutyClientSecret`, and optional `pagerdutyRedirectUri` (no shared webhook secret).
 - `size`: deployment capacity profile (`small`, `medium`, `large`). Defaults to `small` when omitted.
-- `otel`: optional OTLP export to your collector. Omit it and the tasks get no `OTEL_*` environment. The construct does not deploy a collector, Langfuse, or ClickStack.
+- `otel`: optional OTLP export to your collector. Omit it and the tasks get no `OTEL_*` environment. The construct does not deploy a collector or ClickStack.
 - `sandboxHost`: optional `instanceType` and `dockerVolumeSizeGiB` for the chat sandbox host, and `agentVaultNetworkAllowlist` for a private git server. The host is always created; see [Chat sandbox host](#chat-sandbox-host).
 
 ## Chat sandbox host
@@ -254,7 +254,7 @@ Networking note:
 - Public ALB routing to backend only (UI/codesearch remain internal-only).
 - One EC2 Docker host for Workspace chat sandboxes (see [Chat sandbox host](#chat-sandbox-host)).
 - Outputs for app URL, key secret ARNs, and the sandbox host group.
-- No OpenTelemetry collector, Langfuse, or ClickStack. Telemetry export is the optional `otel` prop.
+- No OpenTelemetry collector or ClickStack. Telemetry export is the optional `otel` prop.
 - Backup defaults enabled for Aurora, Neptune, and EFS.
 
 Runtime defaults injected by the construct include:
