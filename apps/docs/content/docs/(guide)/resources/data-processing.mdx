@@ -38,14 +38,20 @@ ctxpipe reads nothing that you did not connect.
 - If you stop using ctxpipe, your Workspace repositories stay with you, with
   their full history.
 
+## Where your data is
+
+Hosted ctxpipe runs in one AWS region: **us-west-2** (Oregon, United States).
+The database, the indexes, the sandboxes, and our own observability are all in
+that region.
+
 ## Sub-processors
 
 | Provider | Purpose |
 | --- | --- |
-| Railway | Compute and hosting, and our own observability (logs, traces, and model traces) |
-| Neon | Postgres database |
+| Amazon Web Services (AWS) | Compute, the Postgres database, storage, and the isolated sandboxes (microVMs) for Workspace chat and for ingestion. A sandbox holds a copy of the Workspace repository, or of the linked repository that it ingests. AWS also runs our own observability (logs, traces, and model traces). |
+| Cloudflare | The network edge: DNS, TLS, protection against attacks, and the private connection to AWS. Requests to ctxpipe go through Cloudflare. |
 | OpenRouter | Model routing, only to zero data retention endpoints |
-| Vercel | Isolated sandboxes (microVMs) for Workspace chat and for ingestion. A sandbox holds a copy of the Workspace repository, or of the linked repository that it ingests. |
+| Vercel | The ctxpipe marketing site and this documentation only. Vercel does not process your data. |
 
 ## How ctxpipe uses models
 
@@ -69,10 +75,19 @@ not store your prompts or train on them. See the
 
 ## Retention
 
-We do not publish fixed retention periods for indexed data yet. One exception:
-ctxpipe deletes the saved sandbox files of a Workspace chat conversation 29 days
-after the last use of the conversation. The branch of the conversation in your
-repository stays. For deletion times, export, or a DPA,
+We do not publish fixed retention periods for indexed data yet. Two exceptions:
+
+- ctxpipe deletes the saved sandbox files of a Workspace chat conversation 29
+  days after the last use of the conversation. The branch of the conversation
+  in your repository stays.
+- Our own observability keeps logs and traces for 30 days. A trace of a model
+  call holds the prompt and the output of that call.
+
+The ctxpipe team uses AI agents to operate and debug the service. These agents
+read logs and traces, so this content also goes to the model provider of the
+agents (Anthropic).
+
+For deletion times, export, or a DPA,
 [get in touch](/docs/getting-started/get-in-touch).
 
 ## What we do not do

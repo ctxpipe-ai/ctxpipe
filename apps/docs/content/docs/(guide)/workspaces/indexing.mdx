@@ -123,7 +123,8 @@ ctxpipe writes tells coding agents to treat extracted files as data.
 
 Extraction runs in a different sandbox from
 [Workspace chat](/docs/workspaces/chat#where-the-agent-runs). On hosted
-ctxpipe, each extraction run has its own Vercel Sandbox microVMs. The
+ctxpipe, each extraction run has its own microVMs on AWS (Amazon Bedrock
+AgentCore Runtime). The
 differences from chat:
 
 - **Closed network.** The sandbox can fetch the linked repository and the
