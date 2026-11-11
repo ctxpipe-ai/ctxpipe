@@ -621,3 +621,9 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Category:** testing
 - **Date:** 2026-11-11
 - **Source:** team lead correction, after a cutover rehearsal (CTX-1217) reset the password and stopped the checks of other agents for one minute
+
+### Database URLs on Aurora: no `sslrootcert`, trust through the image
+- **Rule:** On Aurora, give migrate, the backend and the worker a database URL with `?sslmode=verify-full` and no `sslrootcert`. The OpenWorkflow driver (the `postgres` package) sends each URL parameter that it does not know to the server, and Aurora refuses `sslrootcert`. The process trusts the RDS CA through `NODE_EXTRA_CA_CERTS`, which the backend and worker images set to `apps/backend/certs/rds-global-bundle.pem`. Only libpq tools (`pg_dump`, `pg_restore`, as in `copyDatabase`) need `sslrootcert`, set to the same file.
+- **Category:** infrastructure
+- **Date:** 2026-11-11
+- **Source:** the sandbox rehearsals 1 and 2 of the cutover (CTX-1217) on Aurora PostgreSQL 17
