@@ -45,7 +45,7 @@ const story = "storybook:required:apps/ui/src/d.stories.tsx#d--one"
 const lint = "lint:oxlint:.oxlintrc.json"
 const image = "build:image-ui:apps/ui/Dockerfile"
 const evalCase = "eval:mcp:apps/backend/evals/mcp/cases.ts#stale-cursor"
-const deploy = "deploy:preview:.github/workflows/pr-deploy.yaml"
+const addedCase = "eval:mcp:apps/backend/evals/mcp/cases.ts#added-case"
 const omitted = "vitest:backend:apps/backend/src/e.test.ts"
 
 const check = (id, reason = { kind: "changed" }) => ({
@@ -90,10 +90,10 @@ const selectRecord = () => ({
 })
 
 // The record of the LLM job (`--llm-provider openrouter --dry-run`): it dropped the
-// backend test and added the preview deployment.
+// backend test and added an eval case.
 const llmRecord = () => ({
   ...selectRecord(),
-  selected: [ui, contract, story, lint, image, evalCase, deploy].map((id) =>
+  selected: [ui, contract, story, lint, image, evalCase, addedCase].map((id) =>
     check(id),
   ),
   omitted: [
@@ -112,7 +112,7 @@ const llmRecord = () => ({
     behaviors: ["UI renders the prop"],
     kept: [{ id: ui, reason: "observes the prop" }],
     dropped: [{ id: backend, reason: "same path" }],
-    added: [{ id: deploy, reason: "deploy config" }],
+    added: [{ id: addedCase, reason: "eval case" }],
     floor: 0,
   },
 })
@@ -145,7 +145,6 @@ const planOf = (options = {}) =>
     }),
     needs,
     store: options.store ?? store(),
-    fork: options.fork ?? false,
   })
 
 test("the plan takes the LLM selection with the cache lookup of the select job", () => {
@@ -153,7 +152,7 @@ test("the plan takes the LLM selection with the cache lookup of the select job",
   assert.equal(planned.mode, "gate")
   assert.deepEqual(
     planned.selection.selected.map(({ id }) => id),
-    [ui, contract, story, lint, image, evalCase, deploy],
+    [ui, contract, story, lint, image, evalCase, addedCase],
   )
   // The hits of the select job stay; the dropped check has no lookup.
   assert.deepEqual(
@@ -163,10 +162,8 @@ test("the plan takes the LLM selection with the cache lookup of the select job",
       [lint, "agent"],
     ],
   )
-  assert.deepEqual(planned.ran, [ui, contract, image, evalCase, deploy])
+  assert.deepEqual(planned.ran, [ui, contract, image, evalCase, addedCase])
   assert.equal(planned.selection.llm.change, "renames a UI prop")
-  // The LLM added the deployment, so the merge gate starts PR Deploy.
-  assert.equal(planned.deploy, true)
 })
 
 test("a failed LLM job, an invalid LLM record or a provider fallback keeps the deterministic selection", () => {
@@ -196,7 +193,7 @@ test("a failed LLM job, an invalid LLM record or a provider fallback keeps the d
     // The run stays gated, with the selection of the select job.
     assert.equal(kept.mode, "gate", cause)
     assert.ok(kept.ran.includes(backend), cause)
-    assert.ok(!kept.ran.includes(deploy), cause)
+    assert.ok(!kept.ran.includes(addedCase), cause)
     assert.ok(
       kept.selection.notes.includes(
         `llm job: ${cause}; the deterministic selection stays`,
@@ -237,8 +234,7 @@ test("each planned check goes to the job that runs it, and a job without one doe
     { name: "ui", dockerfile: "apps/ui/Dockerfile" },
   ])
   // A lint or policy check is a step of the Lint and format job, which runs
-  // on each run. Evals, the Terraform plan and the deployment run in their
-  // own workflows.
+  // on each run. Evals and the Terraform plan run in their own workflows.
   assert.deepEqual(placeOf(lint), { job: "lint" })
   assert.match(placeOf(evalCase).workflow, /mcp-evals\.yaml/)
   // The Terraform plan runs in its own workflow, not in the Lint and format
@@ -247,7 +243,6 @@ test("each planned check goes to the job that runs it, and a job without one doe
     placeOf("policy:terraform-plan:infra/main.tf").workflow,
     /terraform-plan-pr\.yaml/,
   )
-  assert.match(placeOf(deploy).workflow, /pr-deploy\.yaml/)
   // Every Storybook play runs in the plays shards, after the build.
   const stories = planOf({
     files: {
@@ -284,7 +279,6 @@ test("shadow mode, a fork and a failed selector give a full run", () => {
   assert.deepEqual(shadow.outputs, {})
   assert.deepEqual(shadow.jobs, {})
   assert.deepEqual(shadow.shards, {})
-  assert.equal(shadow.deploy, false)
   // The shadow job still reads the combined selection.
   assert.ok(shadow.selection.llm)
   const failed = plan({
@@ -296,23 +290,16 @@ test("shadow mode, a fork and a failed selector give a full run", () => {
     }),
     needs: { ...needs, "merge-gate-select": { result: "failure" } },
     store: store(),
-    fork: false,
   })
   assert.equal(failed.mode, "full")
   assert.match(failed.reason, /does not match the pinned SHA-256/)
-  // In gate mode a push does not start PR Deploy, so a full run starts it.
-  assert.equal(failed.deploy, true)
   const fork = plan({
     config: config(),
     inputs: inputs({ "mode.json": { mode: "full", reason: "fork PR" } }),
     needs,
     store: store(),
-    fork: true,
   })
-  assert.deepEqual(
-    [fork.mode, fork.reason, fork.deploy],
-    ["full", "fork PR", false],
-  )
+  assert.deepEqual([fork.mode, fork.reason], ["full", "fork PR"])
 })
 
 test("a pass of an earlier run of the PR is a hit, and a quarantined key is not", () => {
@@ -348,7 +335,6 @@ test("a pass of an earlier run of the PR is a hit, and a quarantined key is not"
     }),
     needs,
     store: passes,
-    fork: false,
   })
   assert.ok(refused.ran.includes(ui))
   assert.deepEqual(refused.rerun, [ui])
@@ -441,7 +427,7 @@ test("the gated verdict needs a result for each planned check of CI", () => {
   // The other workflows report their own status.
   assert.deepEqual(
     decision.external.map(({ id }) => id),
-    [evalCase, deploy],
+    [evalCase, addedCase],
   )
   // Each check that passed under a key goes to the PR store.
   assert.deepEqual(
@@ -478,7 +464,6 @@ test("a failed check with a stored pass runs again, and a second failure quarant
         }),
         needs,
         store: passes,
-        fork: false,
       }),
       records: [
         { id: ui, status: "passed" },
@@ -575,8 +560,6 @@ test("the CLI plans a gated run and fails the merge gate on a failed verdict", (
     join(directory, "needs.json"),
     "--store",
     join(directory, "no-store.json"),
-    "--fork",
-    "false",
     "--out",
     directory,
     "--github-output",
@@ -585,7 +568,6 @@ test("the CLI plans a gated run and fails the merge gate on a failed verdict", (
   assert.equal(planned.status, 0, planned.stderr)
   const lines = readFileSync(output, "utf8").split("\n").filter(Boolean)
   assert.ok(lines.includes("mode=gate"))
-  assert.ok(lines.includes("deploy=true"))
   assert.ok(lines.includes("package-tests=1"))
   const results = join(directory, "results", "test-results-selected-1")
   mkdirSync(results, { recursive: true })
@@ -656,8 +638,6 @@ test("a check that fails in a full run loses its stored pass: gated, full, gated
       join(at, "needs.json"),
       "--store",
       store,
-      "--fork",
-      "false",
       "--out",
       at,
     ])
@@ -830,12 +810,6 @@ test("each job of the plan needs the plan job, starts only with its output, and 
     /download-artifact[^\n]*\n\s+with:\n\s+name:/,
   )
   assert.match(terraformWorkflow, /^ {2}workflow_dispatch:/m)
-  // A failed plan job gives no mode: the run is full, so PR Deploy starts.
-  assert.ok(
-    job("merge-gate-deploy").includes(
-      "needs.merge-gate-plan.outputs.mode == ''",
-    ),
-  )
 })
 
 test("a gated step has the setup of its full-run step and of the prerequisites of its checks", () => {
@@ -1097,8 +1071,6 @@ test("a PR that selects every check gives the Merge gate job a needs value under
       join(directory, "needs.json"),
       "--store",
       join(directory, "store.json"),
-      "--fork",
-      "false",
       "--out",
       join(directory, "plan"),
       "--github-output",

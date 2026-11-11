@@ -146,7 +146,6 @@ test("only a same-repo pull_request without gate input changes runs the selector
     })
   for (const path of [
     ".github/workflows/deploy.yaml",
-    ".github/workflows/pr-deploy.yaml",
     ".github/workflows/observability.yaml",
     ".github/workflows/terraform-plan-pr.yaml",
     "scripts/checks/README.md",
