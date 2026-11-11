@@ -234,15 +234,9 @@ test("each planned check goes to the job that runs it, and a job without one doe
     { name: "ui", dockerfile: "apps/ui/Dockerfile" },
   ])
   // A lint or policy check is a step of the Lint and format job, which runs
-  // on each run. Evals and the Terraform plan run in their own workflows.
+  // on each run. Evals run in their own workflow.
   assert.deepEqual(placeOf(lint), { job: "lint" })
   assert.match(placeOf(evalCase).workflow, /mcp-evals\.yaml/)
-  // The Terraform plan runs in its own workflow, not in the Lint and format
-  // job that runs the other policy checks.
-  assert.match(
-    placeOf("policy:terraform-plan:infra/main.tf").workflow,
-    /terraform-plan-pr\.yaml/,
-  )
   // Every Storybook play runs in the plays shards, after the build.
   const stories = planOf({
     files: {
@@ -403,7 +397,6 @@ const decide = (options = {}) => {
     needs: {
       ...needs,
       lint: { result: "success" },
-      "terraform-validate": { result: "success" },
       migrate: { result: options.migrate ?? "success" },
     },
     jobs: jobs(options.jobs ?? {}),
@@ -774,42 +767,6 @@ test("each job of the plan needs the plan job, starts only with its output, and 
   assert.match(gate, /\n {4}name: Merge gate\n/)
   assert.doesNotMatch(gate, /\n {4}continue-on-error:/)
   assert.match(gate, /\n {4}if: \|\n {6}always\(\) && /)
-  // The Terraform plan workflow has no pull_request trigger: the merge gate
-  // calls it as a reusable workflow, so the PR author stays the actor. It
-  // does so for a same-repository PR that changes a file under infra/,
-  // whatever the mode or the selection.
-  const changes = job("merge-gate-terraform-changes")
-  assert.doesNotMatch(changes, /\n {4}needs:/)
-  assert.doesNotMatch(changes, /merge-gate-plan/)
-  assert.ok(changes.includes("head.repo.full_name == github.repository"))
-  assert.ok(changes.includes("github.event.action != 'ready_for_review'"))
-  assert.doesNotMatch(changes, /actions\/checkout/)
-  const terraform = job("merge-gate-terraform-plan")
-  assert.match(terraform, /\n {4}needs: merge-gate-terraform-changes\n/)
-  assert.ok(terraform.includes("outputs.plan == 'true'"))
-  assert.match(
-    terraform,
-    /\n {4}uses: \.\/\.github\/workflows\/terraform-plan-pr\.yaml\n/,
-  )
-  assert.doesNotMatch(terraform, /merge-gate-plan/)
-  const terraformWorkflow = readFileSync(
-    join(root, ".github/workflows/terraform-plan-pr.yaml"),
-    "utf8",
-  )
-  assert.doesNotMatch(terraformWorkflow, /^ {2}pull_request:/m)
-  assert.match(terraformWorkflow, /^ {2}workflow_call:/m)
-  // The plan job takes the code by artifact id: a reusable workflow shares the
-  // artifact names of the run, and other jobs of the run execute PR code.
-  assert.match(
-    terraformWorkflow,
-    /artifact-ids: \$\{\{ needs\.resolve\.outputs\.artifact_id \}\}/,
-  )
-  assert.match(terraformWorkflow, /artifact_id != ''/)
-  assert.doesNotMatch(
-    terraformWorkflow,
-    /download-artifact[^\n]*\n\s+with:\n\s+name:/,
-  )
-  assert.match(terraformWorkflow, /^ {2}workflow_dispatch:/m)
 })
 
 test("a gated step has the setup of its full-run step and of the prerequisites of its checks", () => {
