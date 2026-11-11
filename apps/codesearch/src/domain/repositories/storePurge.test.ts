@@ -178,3 +178,25 @@ describe("sweepRepositoryDisk with a shard store", () => {
     expect(result.deletedEntries).toBe(1)
   })
 })
+
+describe("sweepRepositoryDisk when S3 does not answer", () => {
+  it("fails before it deletes a local file", async () => {
+    await mkdir(zoektDir, { recursive: true })
+    const name = `${zoektShardFilePrefix(zoektRepositoryName({ orgId: ORG, repoId: "repo_sweep_down", checkoutKey: revB }))}v16.00000.zoekt`
+    await writeFile(join(zoektDir, name), "shard")
+    vi.stubEnv("AWS_ENDPOINT_URL_S3", "http://127.0.0.1:1")
+    vi.stubEnv("AWS_MAX_ATTEMPTS", "1")
+
+    await expect(
+      sweepRepositoryDisk({
+        orgId: ORG,
+        repoId: "repo_sweep_down",
+        rowKeys: new Set(),
+        publishedCheckoutKey: "default",
+        minAgeMs: 0,
+      }),
+    ).rejects.toThrow()
+
+    expect(await readdir(zoektDir)).toContain(name)
+  })
+})

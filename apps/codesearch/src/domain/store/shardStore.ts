@@ -110,8 +110,24 @@ function segment(value: string): string {
   return value
 }
 
+/** `<root>/<orgId>/<repoId>/`: every artifact of a repository. */
+function repositoryPrefix(
+  store: ShardStore,
+  repo: { orgId: string; repoId: string },
+): string {
+  return `${store.root}/${segment(repo.orgId)}/${segment(repo.repoId)}/`
+}
+
+/** `<root>/<orgId>/<repoId>/<checkoutKey>/`: every artifact of a checkout. */
+function checkoutPrefix(
+  store: ShardStore,
+  checkout: { orgId: string; repoId: string; checkoutKey: string },
+): string {
+  return `${repositoryPrefix(store, checkout)}${segment(checkout.checkoutKey)}/`
+}
+
 function addressPrefix(store: ShardStore, address: StoreAddress): string {
-  return `${store.root}/${segment(address.orgId)}/${segment(address.repoId)}/${segment(address.checkoutKey)}/${address.kind}/`
+  return `${checkoutPrefix(store, address)}${address.kind}/`
 }
 
 /** A new generation id. It sorts by time, so a listing shows the newest last. */
@@ -146,8 +162,12 @@ export async function readManifest(
   }
 }
 
-async function listKeys(store: ShardStore, prefix: string): Promise<string[]> {
-  const keys: string[] = []
+/** Every object under a prefix, with the time it was written. */
+async function listObjects(
+  store: ShardStore,
+  prefix: string,
+): Promise<Array<{ key: string; modifiedMs: number }>> {
+  const objects: Array<{ key: string; modifiedMs: number }> = []
   let token: string | undefined
   do {
     const page = await store.client.send(
@@ -158,10 +178,18 @@ async function listKeys(store: ShardStore, prefix: string): Promise<string[]> {
       }),
     )
     for (const object of page.Contents ?? [])
-      if (object.Key) keys.push(object.Key)
+      if (object.Key)
+        objects.push({
+          key: object.Key,
+          modifiedMs: object.LastModified?.getTime() ?? Date.now(),
+        })
     token = page.IsTruncated ? page.NextContinuationToken : undefined
   } while (token)
-  return keys
+  return objects
+}
+
+async function listKeys(store: ShardStore, prefix: string): Promise<string[]> {
+  return (await listObjects(store, prefix)).map((object) => object.key)
 }
 
 /** Deletes the keys. Any key that S3 does not delete is an error. */
@@ -309,10 +337,7 @@ export async function deleteRepositoryArtifacts(
   store: ShardStore,
   repo: { orgId: string; repoId: string },
 ): Promise<void> {
-  await deletePrefix(
-    store,
-    `${store.root}/${segment(repo.orgId)}/${segment(repo.repoId)}/`,
-  )
+  await deletePrefix(store, repositoryPrefix(store, repo))
 }
 
 /** Deletes all artifacts of one checkout key of a repository. */
@@ -320,10 +345,7 @@ export async function deleteCheckoutArtifacts(
   store: ShardStore,
   checkout: { orgId: string; repoId: string; checkoutKey: string },
 ): Promise<void> {
-  await deletePrefix(
-    store,
-    `${store.root}/${segment(checkout.orgId)}/${segment(checkout.repoId)}/${segment(checkout.checkoutKey)}/`,
-  )
+  await deletePrefix(store, checkoutPrefix(store, checkout))
 }
 
 /**
@@ -334,24 +356,15 @@ export async function listCheckoutArtifacts(
   store: ShardStore,
   repo: { orgId: string; repoId: string },
 ): Promise<Map<string, number>> {
-  const prefix = `${store.root}/${segment(repo.orgId)}/${segment(repo.repoId)}/`
+  const prefix = repositoryPrefix(store, repo)
   const newest = new Map<string, number>()
-  let token: string | undefined
-  do {
-    const page = await store.client.send(
-      new ListObjectsV2Command({
-        Bucket: store.bucket,
-        Prefix: prefix,
-        ContinuationToken: token,
-      }),
-    )
-    for (const object of page.Contents ?? []) {
-      const key = object.Key?.slice(prefix.length).split("/")[0]
-      if (!key) continue
-      const time = object.LastModified?.getTime() ?? Date.now()
-      newest.set(key, Math.max(newest.get(key) ?? 0, time))
-    }
-    token = page.IsTruncated ? page.NextContinuationToken : undefined
-  } while (token)
+  for (const { key, modifiedMs } of await listObjects(store, prefix)) {
+    const checkoutKey = key.slice(prefix.length).split("/")[0]
+    if (checkoutKey)
+      newest.set(
+        checkoutKey,
+        Math.max(newest.get(checkoutKey) ?? 0, modifiedMs),
+      )
+  }
   return newest
 }

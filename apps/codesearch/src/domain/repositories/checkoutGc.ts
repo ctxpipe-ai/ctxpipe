@@ -119,6 +119,17 @@ export async function sweepRepositoryDisk(input: {
     const info = await lstat(path).catch(() => null)
     return Boolean(info && now - info.mtimeMs >= input.minAgeMs)
   }
+  // The S3 copies of keys with no row go first, with the same age rule, as
+  // in the purge: a failed S3 delete fails the sweep before a local delete.
+  const store = shardStore()
+  if (store) {
+    const artifacts = await listCheckoutArtifacts(store, input)
+    for (const [key, newestMs] of artifacts) {
+      if (keep(key) || now - newestMs < input.minAgeMs) continue
+      await deleteCheckoutArtifacts(store, { ...input, checkoutKey: key })
+      result.deletedEntries += 1
+    }
+  }
   const sharedPath = repoSharedClonePath(input.orgId, input.repoId)
   const checkoutsDir = repoCheckoutsDir(input.orgId, input.repoId)
   await withSharedClone(sharedPath, async () => {
@@ -185,15 +196,5 @@ export async function sweepRepositoryDisk(input: {
     result.deletedBytes += size
   }
 
-  // The S3 copies of keys with no row, with the same age rule.
-  const store = shardStore()
-  if (store) {
-    const artifacts = await listCheckoutArtifacts(store, input)
-    for (const [key, newestMs] of artifacts) {
-      if (keep(key) || now - newestMs < input.minAgeMs) continue
-      await deleteCheckoutArtifacts(store, { ...input, checkoutKey: key })
-      result.deletedEntries += 1
-    }
-  }
   return result
 }
