@@ -28,7 +28,8 @@ import { TOOL_ERROR_META_KEY } from "./framework/tool-result.js"
  * them from `_meta` and from `x-ctxpipe-*` headers. Each value is a short
  * opaque token, or the server ignores it. ClickHouse derives a session and a
  * turn for each connection key when the client sends no ids
- * (`ops/observability/clickhouse/schema/mcp-call-correlation.sql`).
+ * (the ClickHouse schema `mcp-call-correlation.sql` of the observability
+ * stack in the factory repo).
  */
 
 type CorrelationSource = "meta" | "header" | "baggage" | "openai" | "codex"

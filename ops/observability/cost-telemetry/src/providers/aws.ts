@@ -25,7 +25,7 @@ const FETCH_HOUR_UTC = 12
  * - sku is USAGE_TYPE, scope is `{account}/{SERVICE}`. One point per day+sku+scope (sumRows).
  * - LINKED_ACCOUNT is this sandbox id, not an env var: it is a fixed internal test
  *   account (root AGENTS.md: no new env for values that do not differ by environment).
- * - Auth is the standard AWS env keys on Railway for a read-only ce:GetCostAndUsage
+ * - Auth is the standard AWS credential chain of the process, for a read-only ce:GetCostAndUsage
  *   principal. This package does not create credentials or IAM.
  * - Cost Explorer API: $0.01 per paginated request (AWS Cost Explorer pricing).
  * - HTTP uses official FetchHttpHandler (not Node HTTPS) so Bun and MSW see the
