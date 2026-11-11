@@ -7,7 +7,7 @@ import {
   revokeSlackConnectionByTeamId,
 } from "../../../models/slack-connector.js"
 import { getLogger } from "../../../observability/logger.js"
-import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
+import { enqueueWorkflow } from "../../../openworkflow/client.js"
 import { slackMentionAgent } from "../../../openworkflow/workflows/slack-mention-agent.js"
 import {
   publishSlackMentionStatus,
@@ -170,7 +170,7 @@ export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
     // Slack Events must ACK within ~3s. Awaiting OpenWorkflow + Neon on a PR
     // preview overruns that; Slack returns 499, retries, and each retry wakes a
     // new openworkflow deploy that kills the previous worker. Enqueue after 200.
-    void runWorkflowWithWorkerWake(
+    void enqueueWorkflow(
       slackMentionAgent.spec,
       {
         orgId: connection.orgId,

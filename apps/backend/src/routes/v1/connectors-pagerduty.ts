@@ -32,7 +32,7 @@ import {
   upsertPagerdutyConnectionFromOAuth,
 } from "../../models/pagerduty-connector.js"
 import { getLogger } from "../../observability/logger.js"
-import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
+import { enqueueWorkflow } from "../../openworkflow/client.js"
 import { pagerdutySyncConfig } from "../../openworkflow/workflows/pagerduty-sync-config.js"
 import { pagerdutySyncContent } from "../../openworkflow/workflows/pagerduty-sync-content.js"
 import { getPullRequestHeadBranch } from "../../services/github/installation-write-client.js"
@@ -980,7 +980,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
     const configPrEnqueued = Boolean(previousConfigPrState)
     if (previousConfigPrState && body.services !== undefined) {
       try {
-        await runWorkflowWithWorkerWake(pagerdutySyncConfig.spec, {
+        await enqueueWorkflow(pagerdutySyncConfig.spec, {
           orgId,
           orgSlug,
           connectionId: installed.connection.id,
@@ -1024,7 +1024,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
         )
       }
       try {
-        await runWorkflowWithWorkerWake(pagerdutySyncContent.spec, {
+        await enqueueWorkflow(pagerdutySyncContent.spec, {
           orgId,
           connectionId: installed.connection.id,
         })
@@ -1131,7 +1131,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
       )
     }
     try {
-      await runWorkflowWithWorkerWake(pagerdutySyncConfig.spec, {
+      await enqueueWorkflow(pagerdutySyncConfig.spec, {
         orgId,
         orgSlug,
         connectionId: installed.connection.id,
@@ -1202,7 +1202,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
       )
     }
     try {
-      await runWorkflowWithWorkerWake(pagerdutySyncContent.spec, {
+      await enqueueWorkflow(pagerdutySyncContent.spec, {
         orgId,
         connectionId: installed.connection.id,
       })

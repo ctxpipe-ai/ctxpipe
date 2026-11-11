@@ -7,7 +7,7 @@ import {
 } from "../../domain/workspaces/conversation-sandbox-lifecycle.js"
 import { discoverSandboxProvider } from "../../domain/workspaces/sandbox-provider.js"
 import { getLogger, log } from "../../observability/logger.js"
-import { runWorkflowWithWorkerWake } from "../client.js"
+import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { requestDockerSandboxHostPrune } from "./docker-sandbox-host-prune.js"
 
@@ -69,7 +69,7 @@ export async function scheduleConversationSandboxSweep(
   at: Date,
 ): Promise<void> {
   const minute = Math.ceil(at.getTime() / 60_000) * 60_000
-  await runWorkflowWithWorkerWake(
+  await enqueueWorkflow(
     conversationSandboxSweep.spec,
     { orgId },
     {

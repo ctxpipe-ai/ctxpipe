@@ -34,7 +34,7 @@ vi.mock("../../../models/notion-connector.js", () => ({
   persistNotionWebhookSecret: persistSecretMock,
 }))
 vi.mock("../../../openworkflow/client.js", () => ({
-  runWorkflowWithWorkerWake: runWorkflowMock,
+  enqueueWorkflow: runWorkflowMock,
 }))
 vi.mock("../../../openworkflow/workflows/notion-sync-entity.js", () => ({
   notionSyncEntity: { spec: { name: "notion-sync-entity" } },

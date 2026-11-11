@@ -31,7 +31,7 @@ import { persistWriteJobStatus } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { repositoryFilePathSchema } from "../../services/git/file-change.js"
 import { readGitFiles } from "../../services/git/pack.js"
-import { runWorkflowWithWorkerWake } from "../client.js"
+import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
@@ -287,7 +287,7 @@ export const workspaceFileEdit = defineWorkflow(
             publishWorkspaceWriteRevision(input, revision, committed, env),
           )
           await step.run({ name: "enqueue-hydrate" }, async () => {
-            await runWorkflowWithWorkerWake(
+            await enqueueWorkflow(
               workspaceHydrate.spec,
               {
                 orgId: input.orgId,

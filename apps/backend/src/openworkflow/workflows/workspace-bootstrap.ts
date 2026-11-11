@@ -48,7 +48,7 @@ import {
   readGitFiles,
   withGitDirectory,
 } from "../../services/git/pack.js"
-import { runWorkflowWithWorkerWake } from "../client.js"
+import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
@@ -171,7 +171,7 @@ export const workspaceBootstrap = defineWorkflow(
                 }),
               )
               await step.run({ name: "hydrate-initialized-revision" }, () =>
-                runWorkflowWithWorkerWake(
+                enqueueWorkflow(
                   workspaceHydrate.spec,
                   {
                     orgId: queued.orgId,
@@ -204,7 +204,7 @@ export const workspaceBootstrap = defineWorkflow(
             ),
           )
           await step.run({ name: "hydrate-unborn" }, async () => {
-            await runWorkflowWithWorkerWake(
+            await enqueueWorkflow(
               workspaceHydrate.spec,
               {
                 orgId: queued.orgId,
@@ -439,7 +439,7 @@ export const workspaceBootstrap = defineWorkflow(
             publishWorkspaceWriteRevision(input, revision, committed, env),
           )
           await step.run({ name: "enqueue-hydrate" }, async () => {
-            await runWorkflowWithWorkerWake(
+            await enqueueWorkflow(
               workspaceHydrate.spec,
               {
                 orgId: input.orgId,

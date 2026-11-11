@@ -19,7 +19,7 @@ import {
 setDefaultResultOrder("ipv4first")
 
 function createDrizzleDb(connectionString: string) {
-  // An idle preview sleeps (Railway Serverless) or pauses (Aurora) only when
+  // An idle preview database pauses (Aurora auto-pause) only when
   // no connection stays open, so a preview lets idle connections end.
   const client = new Pool({
     connectionString,

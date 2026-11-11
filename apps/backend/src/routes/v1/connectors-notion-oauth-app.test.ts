@@ -51,7 +51,7 @@ vi.mock("../../services/notion/config-from-repo.js", () => ({
 }))
 
 vi.mock("../../openworkflow/client.js", () => ({
-  runWorkflowWithWorkerWake: vi.fn(),
+  enqueueWorkflow: vi.fn(),
 }))
 
 vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({

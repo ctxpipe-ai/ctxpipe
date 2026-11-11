@@ -43,8 +43,7 @@ import {
   type WorkspaceWriteProbeBinding,
 } from "../models/workspaces.js"
 import { listMarkdownFilesAtGitSha } from "../services/git/clone-tree.js"
-import { runWorkflowWithWorkerWake } from "./client.js"
-import { scheduleEnsureWorkerRunning } from "./railway-wake.js"
+import { enqueueWorkflow } from "./client.js"
 import { workspaceBootstrap } from "./workflows/workspace-bootstrap.js"
 import { workspaceClaimsUpgrade } from "./workflows/workspace-claims-upgrade.js"
 import {
@@ -320,7 +319,7 @@ export async function enqueueWriteJob(
             admissionStatus,
           })
           bound = true
-          await runWorkflowWithWorkerWake(
+          await enqueueWorkflow(
             workspaceBootstrap.spec,
             {
               orgId: input.orgId,
@@ -433,7 +432,7 @@ export async function enqueueWriteJob(
           deletePaths: "deletePaths" in command ? command.deletePaths : [],
         })
         bound = true
-        await runWorkflowWithWorkerWake(workspaceSemanticMerge.spec, command, {
+        await enqueueWorkflow(workspaceSemanticMerge.spec, command, {
           idempotencyKey: jobId,
         })
         return { started: true }
@@ -458,11 +457,9 @@ export async function enqueueWriteJob(
           deletePaths: command.deletePaths,
         })
         bound = true
-        await runWorkflowWithWorkerWake(
-          workspaceConnectorMirror.spec,
-          command,
-          { idempotencyKey: jobId },
-        )
+        await enqueueWorkflow(workspaceConnectorMirror.spec, command, {
+          idempotencyKey: jobId,
+        })
         return { started: true }
       }
       if (input.kind === "rename_rewrite") {
@@ -481,7 +478,7 @@ export async function enqueueWriteJob(
           previousSha: command.previousSha,
         })
         bound = true
-        await runWorkflowWithWorkerWake(workspaceRenameRewrite.spec, command, {
+        await enqueueWorkflow(workspaceRenameRewrite.spec, command, {
           idempotencyKey: jobId,
         })
         return { started: true }
@@ -504,11 +501,9 @@ export async function enqueueWriteJob(
           retractSourcePath: command.retractSourcePath,
         })
         bound = true
-        await runWorkflowWithWorkerWake(
-          workspaceUnlinkRetraction.spec,
-          command,
-          { idempotencyKey: jobId },
-        )
+        await enqueueWorkflow(workspaceUnlinkRetraction.spec, command, {
+          idempotencyKey: jobId,
+        })
         return { started: true }
       }
       if (input.kind === "ui_file_edit") {
@@ -529,7 +524,7 @@ export async function enqueueWriteJob(
           deletePaths: command.deletePaths,
         })
         bound = true
-        await runWorkflowWithWorkerWake(workspaceFileEdit.spec, command, {
+        await enqueueWorkflow(workspaceFileEdit.spec, command, {
           idempotencyKey: jobId,
         })
         return { started: true }
@@ -558,11 +553,11 @@ export async function enqueueWriteJob(
       })
       bound = true
       if (input.kind === "bootstrap")
-        await runWorkflowWithWorkerWake(workspaceBootstrap.spec, command, {
+        await enqueueWorkflow(workspaceBootstrap.spec, command, {
           idempotencyKey: jobId,
         })
       else if (snapshotWorkflow)
-        await runWorkflowWithWorkerWake(snapshotWorkflow.spec, command, {
+        await enqueueWorkflow(snapshotWorkflow.spec, command, {
           idempotencyKey: jobId,
         })
       return { started: true }
@@ -570,7 +565,6 @@ export async function enqueueWriteJob(
       if (bound) {
         try {
           if (await reconcileWriteJobAdmission(jobId)) {
-            scheduleEnsureWorkerRunning()
             return { started: true }
           }
         } catch (statusError) {

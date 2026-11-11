@@ -92,7 +92,7 @@ vi.mock("../../../services/confluence/config-from-repo.js", () => ({
 // Opens the OpenWorkflow Postgres backend on import.
 vi.mock("../../../openworkflow/client.js", () => ({
   ow: { runWorkflow: runWorkflowMock },
-  runWorkflowWithWorkerWake: (...args: unknown[]) => runWorkflowMock(...args),
+  enqueueWorkflow: (...args: unknown[]) => runWorkflowMock(...args),
 }))
 
 import { confluenceSyncSpace } from "../../../openworkflow/workflows/confluence-sync-space.js"

@@ -2,7 +2,7 @@ import { z } from "zod"
 
 import { enqueueDailySourcesSyncs } from "../../domain/workspace-sources/enqueue.js"
 import { hasDailySourcesSyncRun } from "../../models/workspace-sources.js"
-import { runWorkflowWithWorkerWake } from "../client.js"
+import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 
 /**
@@ -43,7 +43,7 @@ export const workspaceSourcesDailySync = defineWorkflow(
 export async function scheduleDailySourcesSync(at: Date): Promise<void> {
   const day = at.toISOString().slice(0, 10)
   if (await hasDailySourcesSyncRun(day)) return
-  await runWorkflowWithWorkerWake(
+  await enqueueWorkflow(
     workspaceSourcesDailySync.spec,
     { day },
     {

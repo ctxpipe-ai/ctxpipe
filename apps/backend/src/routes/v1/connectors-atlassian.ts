@@ -25,7 +25,7 @@ import {
 import { forgeConnectionIsInstalled } from "../../models/connection-status.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import { getLogger } from "../../observability/logger.js"
-import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
+import { enqueueWorkflow } from "../../openworkflow/client.js"
 import { forgeProvision } from "../../openworkflow/workflows/forge-provision.js"
 
 const ErrorResponseSchema = z
@@ -853,7 +853,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       confluenceSiteHost: host,
       workflowName: forgeProvision.spec.name,
     })
-    void runWorkflowWithWorkerWake(forgeProvision.spec, {
+    void enqueueWorkflow(forgeProvision.spec, {
       orgId,
       orgSlug,
       connectionId: inst.id,

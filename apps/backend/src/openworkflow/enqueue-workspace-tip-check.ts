@@ -1,5 +1,5 @@
 import { assertNotInOrgDbContext } from "../db/client.js"
-import { runWorkflowWithWorkerWake } from "./client.js"
+import { enqueueWorkflow } from "./client.js"
 import { workspaceTipCheck } from "./workflows/workspace-tip-check.js"
 
 /**
@@ -15,7 +15,7 @@ export async function enqueueWorkspaceTipCheck(
   assertNotInOrgDbContext()
   const { hour, ...runOptions } = options ?? {}
   try {
-    const handle = await runWorkflowWithWorkerWake(
+    const handle = await enqueueWorkflow(
       workspaceTipCheck.spec,
       { orgId, ...(hour ? { hour } : {}) },
       runOptions,

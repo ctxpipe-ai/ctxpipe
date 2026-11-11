@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
+import { enqueueWorkflow } from "../../../openworkflow/client.js"
 import {
   type GithubSyncPullRequestCandidate,
   githubSyncPullRequest,
@@ -74,7 +74,7 @@ function enqueueMirror(input: {
   version: string | undefined
 }): Promise<void> {
   return enqueueForLinkingWorkspaces(input, (target) =>
-    runWorkflowWithWorkerWake(
+    enqueueWorkflow(
       githubSyncPullRequest.spec,
       {
         ...target,

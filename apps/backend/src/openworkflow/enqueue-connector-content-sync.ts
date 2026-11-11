@@ -5,7 +5,7 @@ import {
   findConnectorSyncOwner,
   prepareConnectorSync,
 } from "../models/connector-content-sync.js"
-import { runWorkflowWithWorkerWake } from "./client.js"
+import { enqueueWorkflow } from "./client.js"
 import { confluenceSyncContent } from "./workflows/confluence-sync-content.js"
 import { linearSyncContent } from "./workflows/linear-sync-content.js"
 import { notionSyncContent } from "./workflows/notion-sync-content.js"
@@ -42,7 +42,7 @@ export async function enqueueConnectorContentSync(
   let workflowRunId: string
   try {
     if (input.provider === "linear") {
-      const handle = await runWorkflowWithWorkerWake(
+      const handle = await enqueueWorkflow(
         linearSyncContent.spec,
         workflowInput,
         { idempotencyKey },
@@ -53,12 +53,12 @@ export async function enqueueConnectorContentSync(
         throw new Error("Organization slug missing for content sync")
       const handle =
         input.provider === "notion"
-          ? await runWorkflowWithWorkerWake(
+          ? await enqueueWorkflow(
               notionSyncContent.spec,
               { ...workflowInput, orgSlug: input.orgSlug },
               { idempotencyKey },
             )
-          : await runWorkflowWithWorkerWake(
+          : await enqueueWorkflow(
               confluenceSyncContent.spec,
               { ...workflowInput, orgSlug: input.orgSlug },
               { idempotencyKey },

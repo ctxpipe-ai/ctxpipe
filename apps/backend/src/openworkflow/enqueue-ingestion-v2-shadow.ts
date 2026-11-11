@@ -10,7 +10,7 @@ import { resolveIngestionV2Run } from "../domain/ingestion/ingestion-v2-resolve.
 import { checkPlainGitUrl } from "../domain/workspace-sources/providers/git.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../domain/workspaces/write-status.js"
-import { runWorkflowWithWorkerWake } from "./client.js"
+import { enqueueWorkflow } from "./client.js"
 import { repositoryIngestionV2 } from "./workflows/repository-ingestion-v2.js"
 
 type IngestionV2ShadowStart =
@@ -111,7 +111,7 @@ async function startIngestionV2Run(
     if (resolved.skipped || !resolved.destinations.length)
       return { started: false, reason: "no_v2_destination" }
   }
-  const handle = await runWorkflowWithWorkerWake(
+  const handle = await enqueueWorkflow(
     repositoryIngestionV2.spec,
     {
       orgId: input.orgId,

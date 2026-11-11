@@ -8,7 +8,7 @@ SET
 --> statement-breakpoint
 -- Keep this column list aligned with OpenWorkflow 0.8.0's
 -- BackendPostgres.insertWorkflowRun (the implementation behind ow.runWorkflow).
--- This direct SQL enqueue cannot call runWorkflowWithWorkerWake, so Railway must
+-- This direct SQL enqueue cannot call enqueueWorkflow, so Railway must
 -- already have an active worker (or be woken separately) to consume these runs.
 -- When the OpenWorkflow schema has not been migrated yet, repositories remain
 -- queued for the UI and must be re-enqueued later by an operator/worker path.

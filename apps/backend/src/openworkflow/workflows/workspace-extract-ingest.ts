@@ -55,7 +55,7 @@ import {
   readGitFiles,
   writeCommitPack,
 } from "../../services/git/pack.js"
-import { runWorkflowWithWorkerWake } from "../client.js"
+import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { runJobRefStep } from "../write-steps.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
@@ -485,7 +485,7 @@ export function defineWorkspaceExtractIngestWorkflow() {
               publishWorkspaceWriteRevision(input, revision, committed, env),
             )
             await step.run({ name: "enqueue-hydrate" }, async () => {
-              await runWorkflowWithWorkerWake(
+              await enqueueWorkflow(
                 workspaceHydrate.spec,
                 {
                   orgId: input.orgId,

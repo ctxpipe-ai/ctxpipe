@@ -51,7 +51,7 @@ import {
   parseGithubPullNumberFromUrl,
   updatePullRequestText,
 } from "../../services/github/installation-write-client.js"
-import { runWorkflowWithWorkerWake } from "../client.js"
+import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
 
@@ -445,7 +445,7 @@ export async function enqueueWorkspaceUpgrade(input: {
   key: string
   approvedAt: string
 }): Promise<void> {
-  await runWorkflowWithWorkerWake(
+  await enqueueWorkflow(
     workspaceUpgrade.spec,
     { orgId: input.orgId, workspaceId: input.workspaceId, key: input.key },
     {

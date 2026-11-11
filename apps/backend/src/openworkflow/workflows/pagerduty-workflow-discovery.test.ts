@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url"
 import { describe, expect, it, vi } from "vitest"
 
 vi.mock("../client.js", () => ({
-  runWorkflowWithWorkerWake: vi.fn(),
+  enqueueWorkflow: vi.fn(),
 }))
 
 describe("PagerDuty workflow discovery", () => {

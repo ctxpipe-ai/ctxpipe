@@ -81,7 +81,7 @@ vi.mock("../../openworkflow/workflows/confluence-sync-content.js", () => ({
 
 vi.mock("../../openworkflow/client.js", () => ({
   ow: { runWorkflow: runWorkflowMock },
-  runWorkflowWithWorkerWake: (...args: unknown[]) => runWorkflowMock(...args),
+  enqueueWorkflow: (...args: unknown[]) => runWorkflowMock(...args),
 }))
 
 vi.mock("../../openworkflow/enqueue-connector-config-sync.js", () => ({
