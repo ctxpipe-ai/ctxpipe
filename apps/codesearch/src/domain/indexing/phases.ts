@@ -45,6 +45,7 @@ import {
   type StoreAddress,
 } from "../store/shardStore.js"
 import {
+  evictColdShards,
   installStagedShards,
   markShardsUploaded,
   type ZoektRepo,
@@ -522,6 +523,8 @@ async function indexRepository(params: {
       const shardPaths = await installStagedShards(repo, stagingDir)
       await uploadShards(repo, params.address, shardPaths)
     })
+    // The disk grows only by index builds and fetches; each makes room after.
+    void evictColdShards()
   } finally {
     await rm(stagingDir, { recursive: true, force: true })
     await rm(metaPath, { force: true })

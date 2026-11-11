@@ -65,22 +65,11 @@ mkdir -p "${SCIP_DIR}" "${ZOEKT_DIR}" "${ZOEKT_HOT_DIR}" "${WORK_DIR}/go-build" 
 # into zoekt-hot during index).
 printf 'unrelated-cold-shard\n' >"${ZOEKT_DIR}/other%2Frepo_v16.00000.zoekt"
 
-git init --quiet "${CHECKOUT_DIR}"
-git -C "${CHECKOUT_DIR}" remote add origin "${KUBERNETES_REPOSITORY}"
-git -C "${CHECKOUT_DIR}" fetch --quiet --depth=1 origin "${KUBERNETES_SHA}"
-git -C "${CHECKOUT_DIR}" checkout --quiet --detach FETCH_HEAD
-actual_sha="$(git -C "${CHECKOUT_DIR}" rev-parse HEAD)"
-if [[ "${actual_sha}" != "${KUBERNETES_SHA}" ]]; then
-  echo "manual-kubernetes-memory: expected ${KUBERNETES_SHA}, got ${actual_sha}" >&2
-  exit 1
-fi
-
-# Keep the service's refresh fetch shallow and narrowly scoped to the stable tag.
-git -C "${CHECKOUT_DIR}" config remote.origin.fetch \
-  "+refs/tags/v1.36.3:refs/tags/v1.36.3"
+# The clone phase makes the shared clone and the checkout worktree (cache
+# layout 2), with a shallow fetch of the pinned commit.
 
 cat >"${WORK_DIR}/run-ingest.ts" <<EOF
-import { INDEXER_PROCESS_CONCURRENCY } from "/app/apps/codesearch/src/domain/indexing/indexerProcessSemaphore.ts"
+import { getIndexerProcessConcurrency } from "/app/apps/codesearch/src/domain/indexing/capacityEnv.ts"
 import { withIndexerGoLimits } from "/app/apps/codesearch/src/domain/indexing/indexerChildEnv.ts"
 import {
   phaseCloneCheckout,
@@ -93,7 +82,7 @@ import {
 } from "/app/apps/codesearch/src/domain/indexing/phases.ts"
 import { zoektRepositoryName } from "/app/apps/codesearch/src/domain/zoekt/shardPrefix.ts"
 import { repositoryRevisionCheckoutKey } from "/app/shared/workspace-checkout.ts"
-import { repoCheckoutPath, scipIndexPath } from "/app/apps/codesearch/src/domain/repositories/paths.ts"
+import { repoCheckoutPath, repoSharedClonePath, scipIndexPath } from "/app/apps/codesearch/src/domain/repositories/paths.ts"
 const checkoutKey = repositoryRevisionCheckoutKey("${KUBERNETES_SHA}")
 
 import { createDb, withOrgDbContext } from "/app/apps/codesearch/src/db/client.ts"
@@ -106,7 +95,6 @@ await db.\$client.query(
   "insert into organizations (id, name, slug, created_at) values (\$1, \$1, \$1, now())",
   [orgId],
 )
-try {
 const indexedCheckout = await withOrgDbContext(db, orgId, async (tx) => {
   await tx.insert(repositories).values({
     id: orgId + "_repo", orgId, name: "Kubernetes memory gate", gitUrl: "${KUBERNETES_REPOSITORY}",
@@ -118,10 +106,10 @@ const indexedCheckout = await withOrgDbContext(db, orgId, async (tx) => {
   return checkout
 })
 
-if (INDEXER_PROCESS_CONCURRENCY !== 2) {
+if (getIndexerProcessConcurrency() !== 2) {
   throw new Error(
-    "Memory gate requires INDEXER_PROCESS_CONCURRENCY===2; configured " +
-      INDEXER_PROCESS_CONCURRENCY,
+    "Memory gate requires an indexer process concurrency of 2; configured " +
+      getIndexerProcessConcurrency(),
   )
 }
 
@@ -141,7 +129,11 @@ const ctx: IndexPhaseRepoContext = {
   orgId: "${GATE_ORG_ID}",
   repoId: orgId + "_repo",
   repoGitUrl: "${KUBERNETES_REPOSITORY}",
+  // A public HTTPS remote: codesearch clones only with a GitHub token or a
+  // plain git remote that the backend checked (CTX-815).
+  plainGit: { url: "${KUBERNETES_REPOSITORY}", http: false },
   clonePath: repoCheckoutPath(orgId, orgId + "_repo", checkoutKey),
+  sharedClonePath: repoSharedClonePath(orgId, orgId + "_repo"),
   scipIndexPath: scipIndexPath(orgId, orgId + "_repo", checkoutKey),
   zoektRepoId: indexedCheckout.zoektRepoId,
   zoektName: zoektRepositoryName({
@@ -210,10 +202,9 @@ cat >"${WORK_DIR}/run-with-memory-sampler.sh" <<'EOF'
 #!/usr/bin/env bash
 set -uo pipefail
 
-# Host clone is bind-mounted into the container. Git 2.35+ refuses that
-# directory when the owner uid differs from the container user (root).
-git config --global --add safe.directory \
-  /gate/data/repo-cache/org_manual/repo_kubernetes/checkouts/default
+# The repository cache is bind-mounted into the container. Git 2.35+ refuses
+# a directory whose owner uid differs from the container user (root).
+git config --global --add safe.directory '*'
 
 read_memory_bytes() {
   if [[ -r /sys/fs/cgroup/memory.current ]]; then
