@@ -49,7 +49,7 @@ Any driver works (Cursor computer use, T3 Code preview tools, Playwright, anothe
 - Click visible labels: `Home`, `Connectors`, `Files`, `Graph`, `Settings`, `Create PR`, `Show PR`, `Try again`, and the sidebar **+** (`aria-label` "Add Workspace").
 - Record only the area's working path. Split recordings if setup sits between flows.
 - Use one desktop viewport unless the prompt names mobile.
-- `aws` without WARP: add the two Access headers only to requests for the `BASE_URL` origin, for example with a `page.route` handler on that host. Never add them to each request of the context (for example with `extraHTTPHeaders`): the sweep also opens GitHub and provider pages.
+- `aws` without WARP: never add the Access service-token headers in the browser. A header that a route handler adds also goes to each redirect, for example to a provider OAuth page. Instead, send one request with the service token to `BASE_URL` (`curl -D -`), and add its `CF_Authorization` cookie to the context for the `BASE_URL` host only. If the response sets no such cookie, use WARP.
 
 ## Flow failure
 
