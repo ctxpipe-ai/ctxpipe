@@ -74,6 +74,10 @@ describe("findSuspectedSecret on values that look like code or test data", () =>
     ["an AWS key id and a suffix", `${aws}-x`],
     ["a dictionary word and digits", "DB_PASSWORD=Password12345678"],
     ["a dictionary word and 4 digits", "API_TOKEN=secret123456"],
+    [
+      "an upper-case value that only ends like a name",
+      `API_TOKEN=${"Q9F3KD8L"}_${"MZ2XT7PW"}_TOKENX`,
+    ],
   ])("finds %s", (_, line) => {
     expect(found(line)).not.toBeNull()
   })
@@ -109,6 +113,10 @@ describe("findSuspectedSecret on values that look like code or test data", () =>
       "ghs_2_repository_owner_total_count",
     ],
     ["a short word and digits", "DB_PASSWORD=password123"],
+    [
+      "the name of the variable that holds the value",
+      '"CF-Access-Client-Secret" = "HYPERDX_CF_ACCESS_CLIENT_SECRET"',
+    ],
   ])("does not find %s", (_, line) => {
     expect(found(line)).toBeNull()
   })

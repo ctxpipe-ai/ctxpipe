@@ -417,6 +417,14 @@ function secretValue(value: string, strength: "strong" | "weak"): boolean {
     return false
   // A dotted name is a reference to the value: process.env.API_KEY.
   if (/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/.test(value)) return false
+  // An upper snake-case name that ends in a secret word names the variable that
+  // holds the value (a Codex `env_http_headers` entry): CLIENT_SECRET.
+  if (
+    /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*_(?:SECRET|TOKEN|KEY|PASSWORD|PAT)$/.test(
+      value,
+    )
+  )
+    return false
   const classes =
     Number(/[a-z]/.test(value)) +
     Number(/[A-Z]/.test(value)) +
