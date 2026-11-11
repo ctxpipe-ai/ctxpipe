@@ -29,6 +29,20 @@ describe("ingestSandboxUnavailable", () => {
     expect(ingestSandboxUnavailable({ SANDBOX_PROVIDER: "docker" })).toBeNull()
   })
 
+  it("lets re-ingestion run on AgentCore only with its runtime, and names the missing setting", () => {
+    const agentcore = { SANDBOX_PROVIDER: "agentcore" }
+    expect(
+      ingestSandboxUnavailable({
+        ...agentcore,
+        AGENTCORE_RUNTIME_ARN:
+          "arn:aws:bedrock-agentcore:us-west-2:111122223333:runtime/ctxpipe-abc",
+      }),
+    ).toBeNull()
+    expect(ingestSandboxUnavailable(agentcore)).toContain(
+      "AGENTCORE_RUNTIME_ARN",
+    )
+  })
+
   it("blocks an unsandboxed deployment", () => {
     expect(
       ingestSandboxUnavailable({ SANDBOX_PROVIDER: "unsandboxed" }),

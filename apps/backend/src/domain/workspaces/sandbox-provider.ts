@@ -5,13 +5,28 @@ import type {
 import Docker from "dockerode"
 
 import { assertNotInOrgDbContext } from "../../db/client.js"
-import type { RunningSandboxProvider } from "../../models/workspace-sandboxes.js"
+import type {
+  FileKeepingSandboxProvider,
+  RunningSandboxProvider,
+} from "../../models/workspace-sandboxes.js"
 import { log } from "../../observability/logger.js"
 import { writeProxyCa } from "./agent-vault.js"
+import {
+  agentCoreRuntime,
+  agentCoreSandboxProvider,
+} from "./agentcore-sandbox-provider.js"
 import { wrapSandboxHandles } from "./sandbox-process-guards.js"
 
-/** Hosted runs Vercel, self-host runs Docker; unsandboxed is explicit only. */
-export const SANDBOX_PROVIDERS = ["docker", "vercel", "unsandboxed"] as const
+/**
+ * Hosted runs Vercel (AgentCore after the AWS cutover), self-host runs
+ * Docker; unsandboxed is explicit only.
+ */
+export const SANDBOX_PROVIDERS = [
+  "docker",
+  "vercel",
+  "agentcore",
+  "unsandboxed",
+] as const
 
 export type SandboxProvider = (typeof SANDBOX_PROVIDERS)[number]
 
@@ -64,6 +79,10 @@ export async function discoverSandboxProvider(
 ): Promise<SandboxProvider> {
   const provider = lockedSandboxProvider(env) ?? "docker"
   warnIfUnsandboxed(env)
+  if (provider === "agentcore") {
+    configuredAgentCoreProvider(env)
+    return provider
+  }
   if (provider !== "docker") return provider
   // docker-modem accepts a connection deadline beyond Dockerode's declarations.
   const docker = new Docker({ timeout: 2_000, connectionTimeout: 2_000 } as {
@@ -183,6 +202,22 @@ export async function dockerImageId(
   return (await docker.getImage(image).inspect()).Id
 }
 
+/**
+ * The deployment's AgentCore sandboxes. Throws when the runtime is not set,
+ * so an AgentCore deployment without it fails closed.
+ */
+export function configuredAgentCoreProvider(
+  env: Record<string, string | undefined> = process.env,
+) {
+  const runtime = agentCoreRuntime(env)
+  if (!runtime)
+    throw new Error(
+      "AgentCore sandboxes are unavailable: AGENTCORE_RUNTIME_ARN is not set",
+    )
+  // The image user is root; the agent runs as node, as in a Docker sandbox.
+  return agentCoreSandboxProvider({ runtime, user: "node" })
+}
+
 export async function destroyDetachedProviderSandbox(input: {
   /** Required for Vercel, whose token record is org-scoped. */
   orgId?: string
@@ -199,6 +234,10 @@ export async function destroyDetachedProviderSandbox(input: {
       providerSandboxId: input.providerSandboxId,
       snapshotId: input.snapshotId,
     })
+    return
+  }
+  if (input.provider === "agentcore") {
+    await configuredAgentCoreProvider().destroy({ id: input.providerSandboxId })
     return
   }
   if (input.provider === "vercel") {
@@ -265,6 +304,12 @@ export async function attachProviderSandbox(input: {
       removeOnDestroy: false,
     })
   }
+  // A session that ended gives null; a stopped one does not exist.
+  if (input.provider === "agentcore")
+    return configuredAgentCoreProvider().resume({
+      id: input.providerSandboxId,
+      ...(input.signal ? { signal: input.signal } : {}),
+    })
   const { attachVercelSandbox } = await import("./vercel-sandbox-provider.js")
   return attachVercelSandbox(
     await vercelSandboxTarget(input.orgId, input.providerSandboxId),
@@ -276,11 +321,12 @@ export async function attachProviderSandbox(input: {
  * Stop a sandbox and keep its files: Docker stops the container (the stock
  * provider's `resume` starts it again); Vercel saves its state and revokes
  * its GitHub token. A sandbox that is already stopped or gone counts as
- * stopped; the next turn resumes or recreates it.
+ * stopped; the next turn resumes or recreates it. AgentCore cannot keep the
+ * files, so the lifecycle deletes such a sandbox instead.
  */
 export async function stopDetachedProviderSandbox(input: {
   orgId: string
-  provider: RunningSandboxProvider
+  provider: FileKeepingSandboxProvider
   providerSandboxId: string
 }): Promise<void> {
   if (input.provider === "docker") {

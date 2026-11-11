@@ -98,6 +98,10 @@ const AGENTCORE_CAPS: SandboxCapabilities = {
  */
 type SessionLayout = { state: string; workdir: string; shim: string }
 
+/** What a command that filled the sandbox disk also reports. */
+export const AGENTCORE_DISK_FULL =
+  "The sandbox ran out of disk space. A hosted sandbox holds repositories of up to 6 GB on disk."
+
 /** POSIX single-quote escape for `sh -c`. */
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
@@ -489,28 +493,31 @@ function agentCoreHandle(
       collect(job.stderr),
       job.wait(),
     ])
+    // A full disk gets a clear line in both streams: a setup error shows
+    // stdout, a caller may show stderr.
+    if (exitCode !== 0 && /No space left on device/.test(stdout + stderr))
+      return {
+        stdout: `${stdout}${AGENTCORE_DISK_FULL}\n`,
+        stderr: `${stderr}${AGENTCORE_DISK_FULL}\n`,
+        exitCode,
+      }
     return { stdout, stderr, exitCode }
   }
 
   const run = async (command: string): Promise<ExecResult> => {
     let stdout = ""
     let stderr = ""
-    const id = await stage(
+    const exitCode = await agentCoreImageUserCommand(
       runtime,
       sessionId,
-      stagedScript(`${command}\ncode=$?\n${drainCommand(1, 2)}\nexit $code`),
+      command,
+      (stream, text) => {
+        if (stream === "stdout") stdout += text
+        else stderr += text
+      },
+      { layout: paths },
     )
-    for await (const event of commandEvents(
-      runtime,
-      sessionId,
-      `sh -c ${shellQuote(runStaged(paths, id))}`,
-    )) {
-      if ("exitCode" in event)
-        return { stdout, stderr, exitCode: event.exitCode }
-      stdout += event.stdout ?? ""
-      stderr += event.stderr ?? ""
-    }
-    throw new Error("The AgentCore command stream ended early")
+    return { stdout, stderr, exitCode }
   }
 
   const checked = async (step: string, command: string) => {
@@ -533,7 +540,23 @@ function agentCoreHandle(
     workspaceRoot: paths.workdir,
     capabilities: AGENTCORE_CAPS,
     process: processApi,
-    git: createExecBackedGit(processApi, paths.workdir),
+    git: createExecBackedGit(
+      {
+        ...processApi,
+        // The stock clone does not check git's exit code. A clone that
+        // fills the disk fails here with the clear message.
+        exec: async (command, options) => {
+          const result = await exec(command, options)
+          if (
+            /\bclone\b/.test(command) &&
+            result.stderr.includes(AGENTCORE_DISK_FULL)
+          )
+            throw new Error(AGENTCORE_DISK_FULL)
+          return result
+        },
+      },
+      paths.workdir,
+    ),
     fs: {
       read: async (path) => (await readBytes(path)).toString("utf8"),
       readBytes: async (path) => new Uint8Array(await readBytes(path)),
@@ -588,6 +611,48 @@ function agentCoreHandle(
   return { handle, run }
 }
 
+/** Where an AgentCore session of the `agentcore` image target keeps its parts. */
+const AGENTCORE_LAYOUT: SessionLayout = {
+  state: "/tmp/ctxpipe",
+  workdir: "/workspace",
+  shim: "/tmp/ctxpipe-shim/blobs.sock",
+}
+
+/**
+ * Run a shell script in a session as the image user (root in the
+ * `agentcore` image target). `onOutput` gets the output as it arrives; the
+ * result is the exit code. With `sessionEnv`, the script first reads the
+ * session env (the run's proxy session), as a Docker container's root
+ * commands see the container env: an ingest sandbox's root commands need it.
+ */
+export async function agentCoreImageUserCommand(
+  runtime: AgentCoreRuntime,
+  sessionId: string,
+  script: string,
+  onOutput: (stream: "stdout" | "stderr", text: string) => void,
+  options: { layout?: SessionLayout; sessionEnv?: boolean } = {},
+): Promise<number> {
+  const layout = options.layout ?? AGENTCORE_LAYOUT
+  const envFile = shellQuote(`${layout.state}/env.sh`)
+  const id = await stage(
+    runtime,
+    sessionId,
+    stagedScript(
+      `${options.sessionEnv ? `[ -r ${envFile} ] && . ${envFile}\n` : ""}${script}\ncode=$?\n${drainCommand(1, 2)}\nexit $code`,
+    ),
+  )
+  for await (const event of commandEvents(
+    runtime,
+    sessionId,
+    `sh -c ${shellQuote(runStaged(layout, id))}`,
+  )) {
+    if ("exitCode" in event) return event.exitCode
+    if (event.stdout) onOutput("stdout", event.stdout)
+    if (event.stderr) onOutput("stderr", event.stderr)
+  }
+  throw new Error("The AgentCore command stream ended early")
+}
+
 async function stopSession(
   runtime: AgentCoreRuntime,
   sessionId: string,
@@ -625,11 +690,7 @@ export function agentCoreSandboxProvider(input: {
   user?: string
 }): SandboxProvider {
   const { runtime } = input
-  const paths = input.paths ?? {
-    state: "/tmp/ctxpipe",
-    workdir: "/workspace",
-    shim: "/tmp/ctxpipe-shim/blobs.sock",
-  }
+  const paths = input.paths ?? AGENTCORE_LAYOUT
   return {
     name: "agentcore",
     capabilities: () => AGENTCORE_CAPS,

@@ -98,6 +98,8 @@ export type LangfuseUsageDetails = {
   input?: number
   output?: number
   total?: number
+  /** The cost of the call in USD, as the gateway (OpenRouter) reports it in its usage data. */
+  cost?: number
 }
 
 function usageDetailsOrUndefined(
@@ -119,6 +121,11 @@ export function withLangfuseGeneration<T>(
     metadata?: Record<string, unknown>
     summarizeOutput?: (result: T) => Record<string, unknown>
     usageFromResult?: (result: T) => LangfuseUsageDetails | undefined
+    /**
+     * The usage of the calls made so far. Recorded also when the operation
+     * fails, so a failed operation keeps the cost of its finished calls.
+     */
+    usageSoFar?: () => LangfuseUsageDetails | undefined
   },
   fn: () => Promise<T>,
 ): Promise<T> {
@@ -133,17 +140,39 @@ export function withLangfuseGeneration<T>(
             ...attrs.metadata,
           },
         })
+        if (attrs.model) {
+          generation.otelSpan.setAttribute("gen_ai.request.model", attrs.model)
+        }
+        const recordUsage = (usage: LangfuseUsageDetails | undefined) => {
+          const usageDetails = usageDetailsOrUndefined(usage)
+          generation.update({
+            ...(usageDetails ? { usageDetails } : {}),
+            ...(usage?.cost !== undefined
+              ? { costDetails: { total: usage.cost } }
+              : {}),
+          })
+          // The same keys as the chat and ingestion spans, so the HyperDX LLM dashboard counts every call.
+          generation.otelSpan.setAttributes({
+            ...(usage?.input !== undefined
+              ? { "gen_ai.usage.input_tokens": usage.input }
+              : {}),
+            ...(usage?.output !== undefined
+              ? { "gen_ai.usage.output_tokens": usage.output }
+              : {}),
+            ...(usage?.cost !== undefined
+              ? { "gen_ai.usage.cost": usage.cost }
+              : {}),
+          })
+        }
         try {
           const result = await fn()
-          const usageDetails = usageDetailsOrUndefined(
-            attrs.usageFromResult?.(result),
-          )
           generation.update({
             output: attrs.summarizeOutput?.(result) ?? { status: "ok" },
-            ...(usageDetails ? { usageDetails } : {}),
           })
+          recordUsage(attrs.usageFromResult?.(result) ?? attrs.usageSoFar?.())
           return result
         } catch (err) {
+          recordUsage(attrs.usageSoFar?.())
           generation.update({
             level: "ERROR",
             statusMessage: err instanceof Error ? err.message : String(err),

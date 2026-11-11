@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto"
 
-import type { SandboxHandle, SandboxProvider } from "@tanstack/ai-sandbox"
+import type {
+  SandboxHandle,
+  SandboxProcess,
+  SandboxProvider,
+} from "@tanstack/ai-sandbox"
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
 import { type NetworkPolicy, Sandbox } from "@vercel/sandbox"
 import Docker from "dockerode"
@@ -284,7 +288,7 @@ function requireAccess(access: AgentVaultAccess | undefined): AgentVaultAccess {
   const resolved = access ?? agentVaultAccess()
   if (!resolved)
     throw new AgentVaultUnavailableError(
-      "Docker ingest sandboxes need Agent Vault (AGENT_VAULT_ADDR is not set)",
+      "Ingest sandboxes need Agent Vault (AGENT_VAULT_ADDR is not set)",
     )
   return resolved
 }
@@ -295,8 +299,9 @@ const INGEST_VAULT_TTL_SECONDS = INGEST_SHARD_LIMIT_MS / 1000 + 15 * 60
 /**
  * A direct connection (not through the proxy) must fail: HTTP and HTTPS to
  * a public IPv4 address, and HTTP to a public IPv6 address. The DinD and AWS
- * sandbox hosts drop it with iptables; an internal Docker network has no
- * route. Only these hosts are supported; host dev is refused.
+ * sandbox hosts drop it with iptables; an internal Docker network and the
+ * AgentCore sandbox subnets have no route. Only these hosts are supported;
+ * host dev is refused.
  */
 async function assertEgressForcedThroughProxy(
   handle: SandboxHandle,
@@ -310,7 +315,7 @@ echo closed`,
   )
   if (probe.stdout.trim() !== "closed")
     throw new Error(
-      `Docker ingest sandboxes need a host that forces each connection through Agent Vault (the DinD or AWS sandbox host, or an internal network); a direct connection was not refused (${probe.stdout.trim() || probe.stderr.trim()})`,
+      `Ingest sandboxes need a host that forces each connection through Agent Vault (the DinD or AWS sandbox host, an internal network, or AgentCore sandbox subnets with no internet route); a direct connection was not refused (${probe.stdout.trim() || probe.stderr.trim()})`,
     )
 }
 
@@ -343,20 +348,11 @@ export function dockerHostError(error: unknown): unknown {
     : error
 }
 
-/**
- * The Docker provider of one ingest shard. `create` opens the shard's vault
- * with `unmatchedHosts: "deny"`: the proxy forwards only the rules of
- * {@link ingestCredentialRules} and refuses each other request. The
- * container gets the vault's proxy session in its environment, and the
- * proxy CA. Then `create` refuses a host where a direct connection is not
- * refused. `destroy` deletes the container and the vault, and always
- * revokes the shard's GitHub tokens.
- */
-export function dockerIngestSandboxProvider(input: {
+/** What an ingest shard's provider needs for its vault. */
+type IngestShardVaultInput = {
   orgId: string
   runId: string
   shard: number
-  image: string
   /**
    * The egress of the step that creates the sandbox. Absent: the provider
    * can only resume and destroy (the end of a shard).
@@ -364,24 +360,31 @@ export function dockerIngestSandboxProvider(input: {
   egress?: IngestEgress
   /** Defaults to the deployment's (`AGENT_VAULT_ADDR`). */
   access?: AgentVaultAccess
-  /**
-   * An internal Docker network: the container moves there from the default
-   * bridge after create. Without it, the sandbox host must drop direct
-   * connections (DinD, AWS).
-   */
-  network?: string
-  /** Ports to publish, for example the OpenCode server's (T09). */
-  publishPorts?: number[]
-}): SandboxProvider {
-  const docker = dockerSandbox({
-    image: input.image,
-    dockerodeOptions: { timeout: 120_000 },
-    ...(input.publishPorts ? { publishPorts: input.publishPorts } : {}),
-  })
+}
+
+/**
+ * An ingest shard's provider around `inner`. `create` opens the shard's
+ * vault with `unmatchedHosts: "deny"`: the proxy forwards only the rules of
+ * {@link ingestCredentialRules} and refuses each other request. The sandbox
+ * gets the vault's proxy session in its create environment, and the proxy
+ * CA. Then `create` refuses a host where a direct connection is not
+ * refused. `destroy` deletes the sandbox and the vault, and always revokes
+ * the shard's GitHub tokens.
+ */
+function vaultedIngestSandboxProvider(
+  inner: SandboxProvider,
+  input: IngestShardVaultInput,
+  hooks: {
+    /** The error of a failed create, with an action for the operator. */
+    createError?: (error: unknown) => unknown
+    /** Runs after create, before the CA and the egress check. */
+    afterCreate?: (handle: SandboxHandle) => Promise<void>
+  } = {},
+): SandboxProvider {
   const runKey = ingestSandboxThreadId(input.runId, input.shard)
   return {
-    name: docker.name,
-    capabilities: () => docker.capabilities(),
+    name: inner.name,
+    capabilities: () => inner.capabilities(),
     async create(createInput) {
       const access = requireAccess(input.access)
       const egress = input.egress
@@ -404,33 +407,27 @@ export function dockerIngestSandboxProvider(input: {
           rules: ingestCredentialRules(egress, git, { fetchSource: true }),
           unmatchedHosts: "deny",
         })
-        handle = await docker
+        handle = await inner
           .create({ ...createInput, env: { ...createInput.env, ...vault.env } })
           .catch((error: unknown) => {
-            throw dockerHostError(error)
+            throw hooks.createError ? hooks.createError(error) : error
           })
-        if (input.network) {
-          const daemon = new Docker({ timeout: 30_000 })
-          await daemon
-            .getNetwork(input.network)
-            .connect({ Container: handle.id })
-          await daemon.getNetwork("bridge").disconnect({ Container: handle.id })
-        }
+        await hooks.afterCreate?.(handle)
         await writeProxyCa(handle, vault.caPem)
         await assertEgressForcedThroughProxy(handle)
         return handle
       } catch (error) {
         if (handle)
-          await docker.destroy({ id: handle.id }).catch(() => undefined)
+          await inner.destroy({ id: handle.id }).catch(() => undefined)
         await vault?.close()
         await revokeIngestGitTokens(input)
         throw error
       }
     },
-    resume: (resumeInput) => docker.resume(resumeInput),
+    resume: (resumeInput) => inner.resume(resumeInput),
     async destroy(destroyInput) {
       try {
-        await docker.destroy(destroyInput)
+        await inner.destroy(destroyInput)
       } finally {
         try {
           await deleteRunVault(
@@ -444,6 +441,80 @@ export function dockerIngestSandboxProvider(input: {
       }
     },
   }
+}
+
+/** The Docker provider of one ingest shard; see {@link vaultedIngestSandboxProvider}. */
+export function dockerIngestSandboxProvider(
+  input: IngestShardVaultInput & {
+    image: string
+    /**
+     * An internal Docker network: the container moves there from the
+     * default bridge after create. Without it, the sandbox host must drop
+     * direct connections (DinD, AWS).
+     */
+    network?: string
+  },
+): SandboxProvider {
+  const { network } = input
+  return vaultedIngestSandboxProvider(
+    dockerSandbox({
+      image: input.image,
+      dockerodeOptions: { timeout: 120_000 },
+    }),
+    input,
+    {
+      createError: dockerHostError,
+      ...(network
+        ? {
+            afterCreate: async (handle: SandboxHandle) => {
+              const daemon = new Docker({ timeout: 30_000 })
+              await daemon.getNetwork(network).connect({ Container: handle.id })
+              await daemon
+                .getNetwork("bridge")
+                .disconnect({ Container: handle.id })
+            },
+          }
+        : {}),
+    },
+  )
+}
+
+/**
+ * The AgentCore provider of one ingest shard; see
+ * {@link vaultedIngestSandboxProvider}. The sandbox subnets have no internet
+ * route, so Agent Vault is the only way out.
+ */
+export function agentCoreIngestSandboxProvider(
+  input: IngestShardVaultInput & { sessions: SandboxProvider },
+): SandboxProvider {
+  return vaultedIngestSandboxProvider(input.sessions, input, {
+    afterCreate: assertNoMetadataEndpoint,
+  })
+}
+
+/**
+ * A metadata or credential endpoint must not answer in an ingest sandbox: a
+ * prompt-injected agent could read the runtime role's credentials and write
+ * them into the shard output. Docker hosts drop 169.254.169.254; nothing in
+ * the image does that on AgentCore, so `create` fails closed when one of
+ * these answers without the proxy (the instance metadata service over IPv4
+ * and IPv6, the ECS and EKS credential endpoints).
+ */
+export async function assertNoMetadataEndpoint(handle: {
+  process: Pick<SandboxProcess, "exec">
+}): Promise<void> {
+  const probe = await handle.process.exec(
+    `command -v curl >/dev/null 2>&1 || { echo no-curl; exit 0; }
+for url in http://169.254.169.254/ http://169.254.170.2/ http://169.254.170.23/ 'http://[fd00:ec2::254]/'; do
+  code=$(curl -s --noproxy '*' --connect-timeout 2 -m 4 -o /dev/null -w '%{http_code}' "$url" 2>/dev/null)
+  if [ -n "$code" ] && [ "$code" != "000" ]; then echo "open $url"; exit 0; fi
+done
+echo closed`,
+  )
+  if (probe.stdout.trim() !== "closed")
+    throw new Error(
+      `AgentCore ingest sandboxes must not reach a metadata or credential endpoint; the check found: ${probe.stdout.trim() || probe.stderr.trim()}`,
+    )
 }
 
 /**

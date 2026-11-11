@@ -66,7 +66,9 @@ const envSchema = z.object({
     z.string().url().optional(),
   ),
 
-  // Email (SMTP)
+  // Email: SMTP (the default), or the SES v2 API with the AWS credentials
+  // of the process (for example an ECS task role) and its AWS_REGION.
+  EMAIL_TRANSPORT: z.enum(["smtp", "ses"]).default("smtp"),
   SMTP_CONNECTION_URL: z.string().url().optional(),
   EMAIL_FROM_ADDRESS: z.string().email().optional(),
 

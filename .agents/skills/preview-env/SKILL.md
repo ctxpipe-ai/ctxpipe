@@ -2,7 +2,8 @@
 name: preview-env
 description: >-
   preview-env critical-flow sweep of local host dev (https://app.ctxpipe.localhost)
-  or a Railway PR preview (backend-pr-N.up.railway.app), starting from a fresh
+  or a Railway PR preview (backend-pr-N.up.railway.app), or the AWS stack
+  before its cutover (cutover.ctxpipe.dev), starting from a fresh
   registration. Use for the full browser + MCP suite, or one area: onboarding,
   auth, org-home, workspaces, hydrate, graph, chat, files-publish, connectors,
   mcp, resilience.
@@ -19,7 +20,7 @@ Every run **starts from registration**: it creates its own accounts, organizatio
 | Input | Example |
 | --- | --- |
 | `BASE_URL` | `https://app.ctxpipe.localhost` or `https://backend-pr-280.up.railway.app` |
-| `mode` | `local` or `preview`, derived from `BASE_URL` in [run-setup](run-setup.md#target-guard) |
+| `mode` | `local`, `preview` or `aws`, derived from `BASE_URL` in [run-setup](run-setup.md#target-guard) |
 | `run-id` | UTC `YYYYMMDD-HHMMSS`, minted once per run |
 | `GH_TEST_ORG` | `ctxpipe-ai` |
 | `TEST_EMAIL_DOMAIN` | `ctxpipe.dev` unless the prompt names another; see [run-setup](run-setup.md#test-data) |

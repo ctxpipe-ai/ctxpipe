@@ -11,6 +11,7 @@ import { withOrgDbContext } from "../../db/client.js"
 import { listWorkspaceUnitsAtRevision } from "../../models/workspaces.js"
 import { gitRemoteEnvironment } from "../../services/git/clone-tree.js"
 import { resolvePlainGitRemote } from "../../services/git/plain-git-remote.js"
+import { agentCoreRuntime } from "../workspaces/agentcore-sandbox-provider.js"
 import { ingestSandboxThreadId } from "../workspaces/chat-lifecycle.js"
 import {
   VERCEL_INGEST_AGENT_PATH,
@@ -18,6 +19,7 @@ import {
 } from "../workspaces/chat-runtime.js"
 import {
   assertHostedIngestEgress,
+  agentCoreIngestSandboxProvider,
   dockerIngestSandboxProvider,
   type IngestEgress,
   type IngestRepository,
@@ -30,7 +32,10 @@ import { ingestSandbox } from "../workspaces/ingest-sandbox.js"
 import { resolveRepositoryReadCredential } from "../workspaces/resolve-revision.js"
 import { sandboxFetchUrl } from "../workspaces/sandbox-credential-rules.js"
 import { postgresSandboxLocks } from "../workspaces/sandbox-lock-store.js"
-import { lockedSandboxProvider } from "../workspaces/sandbox-provider.js"
+import {
+  configuredAgentCoreProvider,
+  lockedSandboxProvider,
+} from "../workspaces/sandbox-provider.js"
 import {
   type ConversationFirewall,
   type HostedTurnCredentials,
@@ -53,7 +58,11 @@ import {
   collectIngestStep,
   stopIngestAgentProcesses,
 } from "./ingest-prepare.js"
-import { dockerRootExec, type RootExec } from "./ingest-root.js"
+import {
+  agentCoreRootExec,
+  dockerRootExec,
+  type RootExec,
+} from "./ingest-root.js"
 import {
   discoverIngestRoots,
   ingestAgentEnv,
@@ -303,11 +312,13 @@ function withShardLock<T>(
   )
 }
 
-/** The deployment's ingest provider: Docker (the default) or Vercel. */
-function ingestIsolation(): "docker" | "vercel" {
+/** The deployment's ingest provider: Docker (the default), Vercel or AgentCore. */
+function ingestIsolation(): "docker" | "vercel" | "agentcore" {
   const isolation = lockedSandboxProvider(process.env) ?? "docker"
   assertIngestProvider(isolation)
-  return isolation === "vercel" ? "vercel" : "docker"
+  return isolation === "vercel" || isolation === "agentcore"
+    ? isolation
+    : "docker"
 }
 
 /**
@@ -397,6 +408,26 @@ async function shardSandbox(
       root: hosted.root,
       firewall: hosted.firewall,
       agentPath: VERCEL_INGEST_AGENT_PATH,
+    }
+  }
+  if (isolation === "agentcore") {
+    // The same path as Docker: the shard's vault adds each credential.
+    const runtime = agentCoreRuntime()
+    if (!runtime)
+      throw new Error("AgentCore ingest sandboxes need AGENTCORE_RUNTIME_ARN")
+    return {
+      // One fixed value, as for chat.
+      sandbox: sandboxFor(
+        agentCoreIngestSandboxProvider({
+          orgId: target.orgId,
+          runId: target.runId,
+          shard: target.shard,
+          sessions: configuredAgentCoreProvider(),
+          ...(egress ? { egress } : {}),
+        }),
+        "agentcore-agent",
+      ),
+      root: async (id) => agentCoreRootExec(runtime, id),
     }
   }
   const image = workspaceChatDockerImage()

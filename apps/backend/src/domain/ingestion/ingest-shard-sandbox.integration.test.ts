@@ -32,7 +32,10 @@ import {
 import { ingestSandboxThreadId } from "../workspaces/chat-lifecycle.js"
 import { refreshIngestSandboxEgress } from "../workspaces/ingest-sandbox-egress.js"
 import { postgresSandboxLocks } from "../workspaces/sandbox-lock-store.js"
-import { ingestShardStepEgress } from "./ingest-shard-sandbox.js"
+import {
+  ingestShardStepEgress,
+  sandboxIngestShardRuntime,
+} from "./ingest-shard-sandbox.js"
 import { INGESTION_V2_WORKFLOW_NAME } from "./ingestion-run.js"
 
 /*
@@ -254,5 +257,21 @@ describe("shard step egress", () => {
     expect(vaultCredentials.slice(sentFirst).join("\n")).not.toContain(
       first.capability,
     )
+  })
+})
+
+// Last in the file: `afterAll` removes the env stubs.
+describe("AgentCore ingest shards", () => {
+  it("fail closed without the runtime ARN, before any sandbox call", async () => {
+    vi.stubEnv("SANDBOX_PROVIDER", "agentcore")
+    vi.stubEnv("AGENTCORE_RUNTIME_ARN", "")
+    await expect(
+      sandboxIngestShardRuntime.destroy({
+        orgId,
+        runId: generateObjectId("run"),
+        shard: 0,
+        workspaceId: generateObjectId("ws"),
+      }),
+    ).rejects.toThrow("AgentCore ingest sandboxes need AGENTCORE_RUNTIME_ARN")
   })
 })

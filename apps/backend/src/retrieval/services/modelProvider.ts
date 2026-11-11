@@ -2,6 +2,7 @@ import { z } from "zod"
 
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { mapPool } from "../../lib/mapPool.js"
+import { gatewayCost } from "../../observability/gatewayCost.js"
 import {
   type LangfuseUsageDetails,
   withLangfuseGeneration,
@@ -213,12 +214,14 @@ function usageFromOpenAiCompatible(
   const record = usage as Record<string, unknown>
   const input = nonNegativeInt(record.prompt_tokens)
   const total = nonNegativeInt(record.total_tokens)
-  if (input === undefined && total === undefined) {
+  const cost = gatewayCost(record)
+  if (input === undefined && total === undefined && cost === undefined) {
     return undefined
   }
   return {
     ...(input !== undefined ? { input } : {}),
     ...(total !== undefined ? { total } : {}),
+    ...(cost !== undefined ? { cost } : {}),
   }
 }
 
@@ -239,12 +242,14 @@ function addUsage(
   if (!right) return left
   const input = addOptionalCount(left.input, right.input)
   const total = addOptionalCount(left.total, right.total)
-  if (input === undefined && total === undefined) {
+  const cost = addOptionalCount(left.cost, right.cost)
+  if (input === undefined && total === undefined && cost === undefined) {
     return undefined
   }
   return {
     ...(input !== undefined ? { input } : {}),
     ...(total !== undefined ? { total } : {}),
+    ...(cost !== undefined ? { cost } : {}),
   }
 }
 
@@ -304,7 +309,8 @@ export async function generateEmbeddings(
         embeddingCount: embeddings.length,
         dimensions: EMBEDDING_DIMENSIONS,
       }),
-      usageFromResult: () => usage,
+      // Also when a later batch fails: the batches before it were paid for.
+      usageSoFar: () => usage,
     },
     async () => {
       const providerResult = providerFn(callOpts)

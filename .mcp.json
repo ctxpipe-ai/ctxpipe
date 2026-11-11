@@ -36,6 +36,13 @@
       "headers": {
         "Authorization": "Basic ${LANGFUSE_AUTH_STRING:-}"
       }
+    },
+    "cloudflare": {
+      "type": "http",
+      "url": "https://mcp.cloudflare.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${CLOUDFLARE_API_TOKEN_READONLY:-}"
+      }
     }
   }
 }

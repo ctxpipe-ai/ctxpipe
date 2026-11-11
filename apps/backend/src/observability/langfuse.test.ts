@@ -157,6 +157,33 @@ describe("Langfuse context attributes", () => {
     )
   })
 
+  it("puts the gateway cost and the tokens on the generation span, under the gen_ai keys", async () => {
+    await withLangfuseGeneration(
+      {
+        name: "modelProvider.chat",
+        model: "openai/gpt-test",
+        input: { messages: [] },
+        usageFromResult: () => ({
+          input: 10,
+          output: 5,
+          total: 15,
+          cost: 0.0123,
+        }),
+      },
+      async () => "ok",
+    )
+    const [generation] = generations()
+    expect(generation?.attributes["gen_ai.request.model"]).toBe(
+      "openai/gpt-test",
+    )
+    expect(generation?.attributes["gen_ai.usage.cost"]).toBe(0.0123)
+    expect(generation?.attributes["gen_ai.usage.input_tokens"]).toBe(10)
+    expect(generation?.attributes["gen_ai.usage.output_tokens"]).toBe(5)
+    const costDetails =
+      generation?.attributes["langfuse.observation.cost_details"]
+    expect(JSON.parse(String(costDetails))).toEqual({ total: 0.0123 })
+  })
+
   it("copies org tags and metadata onto an embedding generation from the bag", async () => {
     const { context: withBag, bag } = contextWithAttributionBag(ROOT_CONTEXT)
     await context.with(withBag, async () => {

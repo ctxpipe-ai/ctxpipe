@@ -5,6 +5,10 @@ import type { ExecResult } from "@tanstack/ai-sandbox"
 import Docker from "dockerode"
 
 import {
+  type AgentCoreRuntime,
+  agentCoreImageUserCommand,
+} from "../workspaces/agentcore-sandbox-provider.js"
+import {
   OPENCODE_ERROR,
   OPENCODE_STEP_FINISH,
 } from "./ingest-opencode-usage.js"
@@ -12,8 +16,9 @@ import {
 /*
  * Root commands for an ingest sandbox. Only root prepares /ctxpipe and starts
  * agent commands (as the agent user, through `runuser`). Docker runs an exec
- * as uid 0 in the container; Vercel uses the SDK's `sudo` option. Both run
- * the same scripts.
+ * as uid 0 in the container; Vercel uses the SDK's `sudo` option; AgentCore
+ * runs each command as the image user, which is root. All run the same
+ * scripts.
  */
 
 /**
@@ -182,6 +187,31 @@ export function vercelRootExec(sandbox: VercelCommandSandbox): RootExec {
     for await (const line of finished.logs()) output.add(line.stream, line.data)
     return { ...output.result(), exitCode: finished.exitCode ?? -1 }
   })
+}
+
+/**
+ * Root in an AgentCore session: the image user of the `agentcore` image
+ * target is root, and AgentCore runs each command as that user.
+ */
+export function agentCoreRootExec(
+  runtime: AgentCoreRuntime,
+  sessionId: string,
+): RootExec {
+  return signalledRootExec(async (cmd) => {
+    const output = boundedRootOutput()
+    const exitCode = await agentCoreImageUserCommand(
+      runtime,
+      sessionId,
+      cmd.map(shellQuote).join(" "),
+      (stream, text) => output.add(stream, text),
+      { sessionEnv: true },
+    )
+    return { ...output.result(), exitCode }
+  })
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`
 }
 
 /** The stdout that a root command keeps from its start, up to this cap. */

@@ -1,6 +1,6 @@
 # ADR-048: Conversation sandboxes: stock providers, Postgres ownership, git as durable state
 
-**Status:** Accepted (revised 2026-10-02; amended 2026-10-13 by [ADR-051](ADR-051-mcp-read-surface.md) and [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md)) | **Date:** 2026-09-09 | **Tags:** tanstack, postgres, sandbox, chat
+**Status:** Accepted (revised 2026-10-02; amended 2026-10-13 by [ADR-051](ADR-051-mcp-read-surface.md) and [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md); amended 2026-11-10 for AgentCore, see the end) | **Date:** 2026-09-09 | **Tags:** tanstack, postgres, sandbox, chat
 
 ## Context
 
@@ -115,3 +115,15 @@ Hosted needs CPU billed only while busy (an agent mostly waits on the model), a 
 - **sbx.** Parked: it adds a second runtime without a need stock policy leaves unmet. See [ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md).
 - **Moving a sandbox between SHA-keyed records (the patched transition hooks).** Rejected in favor of option D, which needs no patch.
 - **Pinning a conversation to its start commit.** Rejected: the agent would read stale knowledge.
+
+## Amendment 2026-11-10: AgentCore sandboxes (CTX-1219)
+
+Hosted ctxpipe moves to AWS. The AWS design (ADR-061, in review) replaces Vercel Sandbox with Amazon Bedrock AgentCore Runtime. Until the cutover, Vercel stays the hosted default. `SANDBOX_PROVIDER=agentcore` selects the new provider (`agentcore-sandbox-provider.ts`).
+
+- **Provider.** One AgentCore runtime session (a microVM) is one sandbox. The backend reaches it only through the AgentCore API on the VPC endpoint. Commands, files and git go through `InvokeAgentRuntimeCommand`. The OpenCode port goes through a shim in the image (`scripts/chat-sandbox/agentcore-shim.mjs`), one `InvokeAgentRuntime` call for each HTTP request.
+- **Files do not survive a stop.** A session ends when it is idle too long or reaches its lifetime limit, and a stopped session keeps nothing. Thus the idle sweep does not stop an AgentCore sandbox: it pushes the committed work and deletes the sandbox. The next turn makes a new sandbox from git (the Workspace commit, then the conversation's session branch). A marker file tells `resume` whether the microVM is still the sandbox's.
+- **No Workspace base.** Hosted ctxpipe on AgentCore makes no Workspace base. Docker keeps the Docker Workspace base for self-host.
+- **Repository-size cap.** The last setup step (after the clone, the fetch of the desired commit and the session branch) fails the setup with a clear message when the checkout uses more than 6 GB or leaves less than 512 MB free. A session has a 9.8 GB disk with about 7 GB free. A command that fills the disk first, also the clone, fails with a clear disk-full message from the provider.
+- **Ingest shards** ([ADR-052](ADR-052-ingestion-sandbox-skills-patches.md)) use the Docker ingest path with an AgentCore session: the shard's vault denies each host that has no rule, and the sandbox subnets have no internet route. AgentCore runs each command as the image user, so the `agentcore` image target keeps root as that user: the root commands of a shard run directly, and the backend runs chat and handle commands as `node` (`runuser`). Before a shard uses a new sandbox, a check fails closed when a metadata or credential endpoint (169.254.169.254, 169.254.170.2, 169.254.170.23, fd00:ec2::254) answers without the proxy: Docker hosts drop the metadata address, and nothing in the image does that on AgentCore. The runtime's execution role holds only ECR pull and log rights, so a credential that leaks gives no data access.
+- **The runtime idle timeout must be longer than the sweep's 5-minute idle stop**, so that the sweep can push before AgentCore ends a session. The runtime configuration in the factory repo sets it.
+

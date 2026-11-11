@@ -27,6 +27,7 @@ import { type Db, initDb } from "../db/client.js"
 import { schema } from "../db/schema.js"
 import { members, users } from "../db/schema/auth.js"
 import { isValidSlug } from "../domain/workspaces/slug.js"
+import { emailTransport } from "../email/configured.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import { apiKeyLifecycleEvents } from "./api-key-events.js"
@@ -150,18 +151,16 @@ export function createBetterAuth() {
     .map((value) => value.trim())
     .filter(Boolean)
   // Email/password accounts verify their address before signing in. Not on
-  // PR previews (throwaway test accounts), and not without SMTP, where mail
-  // is only logged and nobody could verify.
-  const smtpConfigured = Boolean(
-    env.SMTP_CONNECTION_URL && env.EMAIL_FROM_ADDRESS,
-  )
+  // PR previews (throwaway test accounts), and not without an email
+  // transport, where mail is only logged and nobody could verify.
+  const canSendEmail = emailTransport(env) !== undefined
   const requireEmailVerification =
-    smtpConfigured && !isPreviewDeployment(process.env)
-  if (!smtpConfigured && !isPreviewDeployment(process.env)) {
+    canSendEmail && !isPreviewDeployment(process.env)
+  if (!canSendEmail && !isPreviewDeployment(process.env)) {
     log.warn({
       step: "auth.email_verification",
       message:
-        "Email verification is off: SMTP_CONNECTION_URL or EMAIL_FROM_ADDRESS is not set",
+        "Email verification is off: EMAIL_FROM_ADDRESS is not set, or SMTP_CONNECTION_URL is not set and EMAIL_TRANSPORT is not ses",
     })
   }
 
