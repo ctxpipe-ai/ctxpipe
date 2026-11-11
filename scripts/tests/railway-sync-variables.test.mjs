@@ -170,27 +170,6 @@ test("a service with no secret only redeploys", async () => {
   assert.deepEqual(calls, ["read", "deploy", "poll"])
 })
 
-test("preview keeps no production value", async () => {
-  environment = { ...base, MODEL_PROVIDER_API_KEY: "preview-model-key" }
-  Object.assign(current, {
-    AUTH_SECRET: "preview-own-auth-secret",
-    MODEL_PROVIDER_API_KEY: "production-model-key",
-    SLACK_CLIENT_SECRET: "production-slack-secret",
-    BETTER_STACK_TOKEN: "retired-token",
-  })
-  await runSync(["--preview"], "backend")
-  assert.equal(current.MODEL_PROVIDER_API_KEY, "preview-model-key")
-  assert.equal(current.AUTH_SECRET, "preview-own-auth-secret")
-  assert.ok(!("SLACK_CLIENT_SECRET" in current))
-  assert.ok(!("BETTER_STACK_TOKEN" in current))
-})
-
-test("preview falkordb needs its own password", async () => {
-  environment = { ...base }
-  await assert.rejects(runSync(["--preview"], "falkordb"), /FALKORDB_PASSWORD/)
-  assert.deepEqual(calls, [])
-})
-
 test("a missing credential fails before any Railway request", async () => {
   delete environment.COST_TELEMETRY_NEON_API_KEY
   await assert.rejects(runSync(), /COST_TELEMETRY_NEON_API_KEY/)

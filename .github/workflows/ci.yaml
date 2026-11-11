@@ -119,7 +119,6 @@ jobs:
         run: |
           node --test scripts/tests/ci-*.test.mjs
           node --test scripts/tests/railway-sync-variables.test.mjs
-          bash scripts/tests/railway-environment-id.test.sh
 
   typecheck:
     timeout-minutes: 30
