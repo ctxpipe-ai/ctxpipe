@@ -46,7 +46,7 @@ describe("copy-database (two Postgres 17 containers)", () => {
       connectionString: pair.sourceUrl,
       appRolePassword: "app-password",
     })
-    const filled = await fillSyntheticRows(pair.sourceSuperUrl, 30)
+    const filled = await fillSyntheticRows(pair.sourceSuperUrl, {}, 30)
     expect(filled.filter((table) => table.error)).toEqual([])
     // Production is in the state of its last migrate: the backfills and the
     // directory reconcile have run on its rows.

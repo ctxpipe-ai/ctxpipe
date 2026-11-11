@@ -615,3 +615,9 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Category:** docs
 - **Date:** 2026-10-19
 - **Source:** CTO correction during the README update for PR 280
+
+### The shared `ctxpipe_app` role on the host Postgres
+- **Rule:** Do not change the password or the attributes of `ctxpipe_app` on the shared host Postgres (port 5433). The role belongs to the whole server, not to one database, and each worktree and each agent logs in with `ctxpipe_app:ctxpipe`. Migrate with a new `DATABASE_APP_PASSWORD` changes that password, so do not run it against this server. A rehearsal or a test that needs its own app role uses its own containers, its own role, or its own server.
+- **Category:** testing
+- **Date:** 2026-11-11
+- **Source:** team lead correction, after a cutover rehearsal (CTX-1217) reset the password and stopped the checks of other agents for one minute
