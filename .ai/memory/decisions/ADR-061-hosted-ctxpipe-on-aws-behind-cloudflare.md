@@ -22,7 +22,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - Scope: AWS (production, previews, observability), Cloudflare (DNS, tunnels, Access, WARP). The CTO manages the GitHub environments, branch rules and admin settings by hand, so no pipeline holds a GitHub admin token.
     - State: each account keeps its Pulumi state in its own S3 bucket. We do not use Pulumi Cloud.
     - Secrets in the state: the `awskms://` secrets provider encrypts them, with a key of that account. The guard stack (edge) uses a separate key.
-    - Access to the state: the deploy role and the read-only plan role of the account can read the bucket and use the state key. Only the guard role can read or write the prefix of the guard stack and use its key. The plan role cannot. Workload roles, for example preview tasks, can read no state.
+    - Access to the state: the deploy role of the account can read and write the state and use the state key; the read-only plan role can only read it. Only the guard role can read or write the prefix of the guard stack and use its key. The plan role cannot. Workload roles, for example preview tasks, can read no state.
     - High-value secrets stay out of the Pulumi state, so that the plan role can read the state safely. AWS manages the Aurora master password. The production application secrets keep their current values (decision 12): a person copies them into Secrets Manager once, at the cutover. Secrets Manager generates only the secrets of new resources and of previews. The guard job writes the tunnel tokens, and Pulumi never reads them.
     - Stacks: each environment is one Pulumi stack. Each preview is one Pulumi stack too.
     - Projects: `machines/hosted` holds production. `machines/previews` holds the preview stacks `base` and `pr`, and `machines/aws-core` holds the preview-data part (decision 21). `machines/observability` holds the observability stack, so that a failed `hosted` update does not block it. The edge stack has its own folder.
@@ -98,7 +98,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - The preview's migrate task sets new passwords for the database roles before it runs the migrations.
 21. The preview infrastructure has three parts. `machines/previews` holds `base` and `pr`, and `machines/aws-core` holds `data`:
     - `base`, in the preview account: the network, a router in the preview VPC that sends each host name to its preview, and one preview AgentCore runtime. The preview deploy role deploys it from `main`.
-    - `data`, in the production account: the preview-data VPC, the peering and the `preview-db` role. It is part of aws-core (`machines/aws-core`, code-owned), because it is the path from unreviewed preview code to production customer data.
+    - `data`, in the production account: the preview-data VPC, the peering, the `preview-db` role, and the bucket policies that give the preview account read access to the codesearch shard prefix and the FalkorDB backups. It is part of aws-core (`machines/aws-core`, code-owned), because it is the path from unreviewed preview code to production customer data.
     - `pr`: one small stack for each preview.
 
      The edge stack holds the Cloudflare parts of previews: one wildcard DNS record, one tunnel rule for the preview host names, and the Access apps.
@@ -138,7 +138,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
 
 ## Consequences
 
-- Sub-processors become AWS, Cloudflare and OpenRouter, plus Vercel for the marketing site and docs only.
+- Sub-processors become AWS, Cloudflare and OpenRouter, plus Vercel for the marketing site and docs only. The model provider of the team's agents also receives log and span content (decision 25).
 - Production costs about $300 a month, plus AgentCore usage. Previews cost about $40 to $45 a month fixed, plus about $8 for each 3-day preview. The aws-core budgets change to match, with a new preview budget.
 - The stateful host and the NAT instance are single instances. A loss means up to 4 hours of degraded search and graph, or a short outbound outage. Both have runbooks.
 - Unreviewed preview code runs in the preview account. Its customer data is in its clone in the production account. For AWS resources, the account boundary is the security boundary. It does not cover the copied session and OAuth tokens: decision 22 records that accepted risk. The production account gives the preview account three things, each narrow:
