@@ -95,6 +95,8 @@ Resources:
     UpdateReplacePolicy: Delete
     Properties:
       Engine: aurora-postgresql
+      # cutoverRehearsal.ts accepts only the endpoint of this cluster name.
+      DBClusterIdentifier: ctx-1217-cutover-rehearsal
       # The version of the hosted plan (CTX-1215 H3).
       EngineVersion: "17.5"
       MasterUsername: ctxpipe

@@ -18,13 +18,12 @@
  *
  *   PGPASSWORD=… bun run src/scripts/cutoverRehearsal.ts --host <host[:port]>
  *     --user <master login> --work-dir <dir> [the options above]
- *     Remote: one server, for example an Aurora cluster of the sandbox
- *     account (`ops/aws-cutover/sandbox-rehearsal`). It makes the databases
+ *     Remote: the Aurora cluster of the sandbox stack
+ *     (`ops/aws-cutover/sandbox-rehearsal`) only. It makes the databases
  *     `cutover_rehearsal_source` and `cutover_rehearsal_target` as the master
- *     login, and drops them at the end. It refuses a server that holds other
- *     databases. Each connection to a host that is
- *     not loopback uses TLS with a certificate check: the RDS CA bundle for an
- *     RDS host, else the system roots.
+ *     login, and drops them at the end. It refuses a different host and a
+ *     server that holds other databases. Each connection uses TLS with a
+ *     certificate check against the RDS CA bundle.
  *
  * `--scale` multiplies each row count and each size of the shape. A table
  * that is not in the shape gets `--default-rows`. The run fails when a table
@@ -123,11 +122,12 @@ async function localDatabases(workRoot: string): Promise<Databases> {
 }
 
 /**
- * Two new databases on one server, as its master login. On Aurora the
- * master login (`rds_superuser`) can set `session_replication_role`, so it
- * is the owner and the filler of the source. Each connection to a host that
- * is not loopback uses TLS with a certificate check. node-postgres reads
- * `sslrootcert` as a file, so the system roots get no `sslrootcert`.
+ * Two new databases on the Aurora cluster of the sandbox stack, as its
+ * master login. The master login (`rds_superuser`) can set
+ * `session_replication_role`, so it is the owner and the filler of the
+ * source. Each connection uses TLS with a check of the certificate against
+ * the RDS CA bundle, so the host name that the script checks is the server
+ * that it reaches.
  */
 async function remoteDatabases(
   host: string,
@@ -144,20 +144,29 @@ async function remoteDatabases(
   }
   if (server.username || server.pathname || server.search)
     throw new Error("--host must be <host> or <host>:<port>.")
-  const params = new URLSearchParams()
-  if (!["localhost", "127.0.0.1", "[::1]"].includes(server.hostname)) {
-    params.set("sslmode", "verify-full")
-    if (server.hostname.endsWith(".rds.amazonaws.com")) {
-      const bundle = join(workDir, "rds-global-bundle.pem")
-      const response = await fetch(
-        "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem",
-      )
-      if (!response.ok)
-        throw new Error(`The RDS CA bundle gave HTTP ${response.status}.`)
-      await writeFile(bundle, await response.text())
-      params.set("sslrootcert", bundle)
-    }
-  }
+  // The script makes and drops databases and runs migrate, so it accepts
+  // only the cluster of the sandbox stack (`DBClusterIdentifier` in
+  // ops/aws-cutover/sandbox-rehearsal/template.yaml), never production.
+  if (
+    !/^ctx-1217-cutover-rehearsal\.cluster-[a-z0-9]+\.us-west-2\.rds\.amazonaws\.com$/.test(
+      server.hostname,
+    )
+  )
+    throw new Error(
+      "--host must be the cluster endpoint of the sandbox rehearsal stack.",
+    )
+  const bundle = join(workDir, "rds-global-bundle.pem")
+  const response = await fetch(
+    "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem",
+  )
+  if (!response.ok)
+    throw new Error(`The RDS CA bundle gave HTTP ${response.status}.`)
+  await writeFile(bundle, await response.text())
+  // node-postgres reads `sslrootcert` as a file.
+  const params = new URLSearchParams({
+    sslmode: "verify-full",
+    sslrootcert: bundle,
+  })
   const url = (database: string) =>
     `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${server.hostname}:${server.port || "5432"}/${database}?${params}`
   const source = "cutover_rehearsal_source"
@@ -170,8 +179,7 @@ async function remoteDatabases(
         `DROP DATABASE IF EXISTS ${name} WITH (FORCE)`,
       )
   }
-  // The script makes and drops databases and runs migrate: it refuses a
-  // server that holds any other database, for example production.
+  // A second guard: the stack's cluster holds no other database.
   const others = await query<{ datname: string }>(
     url("postgres"),
     `SELECT datname FROM pg_database
@@ -180,7 +188,7 @@ async function remoteDatabases(
   )
   if (others.length > 0)
     throw new Error(
-      `The server at --host holds other databases (${others.length}). Use an empty server, such as the sandbox cluster.`,
+      `The server at --host holds other databases (${others.length}). Use a new sandbox stack.`,
     )
   await remove()
   try {
@@ -312,15 +320,15 @@ async function main(argv: string[]): Promise<number> {
       requestedBytes: shape[table]?.bytes,
       bytes: bytes === null ? undefined : Number(bytes),
     }))
-    // A table that stays much smaller than its shape makes the window too
-    // short, so the run fails. The margin of 1 MiB keeps small tables out:
-    // an empty table of the shape has a size of one page.
+    // A table that is missing or stays much smaller than its shape makes
+    // the window too short, so the run fails. The margin of 1 MiB keeps
+    // small tables out: an empty table of the shape has a size of one page.
     const undersized = shaped.filter(
       ({ requestedBytes, bytes }) =>
-        requestedBytes !== undefined &&
-        bytes !== undefined &&
-        bytes < requestedBytes * 0.8 &&
-        requestedBytes - bytes > 1024 * 1024,
+        bytes === undefined ||
+        (requestedBytes !== undefined &&
+          bytes < requestedBytes * 0.8 &&
+          requestedBytes - bytes > 1024 * 1024),
     )
     // Production is in the state of its last migrate.
     await timed(setup, "migrate source again", () =>

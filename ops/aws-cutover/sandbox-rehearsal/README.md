@@ -31,7 +31,9 @@ row count.
   the RDS CA bundle; its security group admits no inbound traffic. Aurora is not publicly accessible and admits only
   the task.
 - Aurora PostgreSQL 17 Serverless v2, writer only, 0.5 to 8 ACU, encrypted, with an AWS-managed master password.
-  No deletion protection and no final snapshot: the data is synthetic.
+  No deletion protection and no final snapshot: the data is synthetic. The cluster name is
+  `ctx-1217-cutover-rehearsal`. `cutoverRehearsal.ts` accepts only the endpoint of that cluster, and only when it holds
+  no other database.
 - One Fargate task (arm64, 2 vCPU, 4 GB, 60 GiB of ephemeral storage for the dump) with the master password from
   Secrets Manager as `PGPASSWORD`.
 - A log group that keeps 1 day.
