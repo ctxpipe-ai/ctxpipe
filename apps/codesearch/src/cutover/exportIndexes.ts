@@ -1,3 +1,4 @@
+import { basename } from "node:path"
 import { PassThrough } from "node:stream"
 import { parseArgs } from "node:util"
 
@@ -6,7 +7,12 @@ import {
   fetchRdb,
   readGraphSnapshot,
 } from "../../../../shared/falkordb-transfer.js"
-import { REPO_CACHE_DIR, ZOEKT_INDEX_DIR } from "../config/paths.js"
+import {
+  REPO_CACHE_DIR,
+  ZOEKT_INDEX_DIR,
+  zoektStagingDirFromIndexDir,
+  zoektStoreDirFromIndexDir,
+} from "../config/paths.js"
 import { log } from "../observability/logger.js"
 import {
   manifestSummary,
@@ -26,18 +32,18 @@ import {
  * transfer prefix, and writes `manifest.json` last. The three copies run at
  * the same time.
  *
- *   bun run cutover:export-indexes --to s3://<bucket>/<prefix>/<run-id> \
- *     --falkordb "$GRAPH_DB_URI"
+ *   bun run cutover:export-indexes --to s3://<bucket>/<prefix>/<run-id>
+ *
+ * It reads the source FalkorDB URL from GRAPH_DB_URI, so that the password
+ * is not in the command line. `--falkordb` replaces it.
  */
 
-type Options = {
+type VolumeDirs = { zoektIndexDir: string; repoCacheDir: string }
+
+type Options = VolumeDirs & {
   to: string
-  /** The source FalkorDB, `redis://user:password@host:port`. Without it, no RDB. */
-  falkordb?: string
-  zoektIndexDir: string
-  repoCacheDir: string
-  /** The multipart part size. Tests make it small. */
-  partSize?: number
+  /** The source FalkorDB, `redis://user:password@host:port`. */
+  falkordb: string
 }
 
 export async function exportIndexes(
@@ -49,28 +55,15 @@ export async function exportIndexes(
       `${options.to} has a manifest already. Export to a new run id.`,
     )
   const start = Date.now()
-  const upload = { partSize: options.partSize }
-  const [falkordb, zoektIndex, repoCache] = await Promise.all([
-    options.falkordb
-      ? exportGraphs(transfer, options.falkordb, upload)
-      : Promise.resolve(null),
-    // `.build` holds unfinished Zoekt builds. `.store` holds the local
-    // manifest copies of another shard store; seed-shard-store writes new ones.
-    archive(
-      transfer,
-      "zoekt-index.tar",
-      options.zoektIndexDir,
-      ["./.build", "./.store"],
-      upload,
-    ),
-    archive(transfer, "repo-cache.tar", options.repoCacheDir, [], upload),
+  const [falkordb, volume] = await Promise.all([
+    exportGraphs(transfer, options.falkordb),
+    exportVolume(transfer, options),
   ])
   const manifest: TransferManifest = {
     version: 1,
     createdAt: new Date().toISOString(),
     falkordb,
-    zoektIndex,
-    repoCache,
+    ...volume,
     ms: Date.now() - start,
   }
   await writeTransferManifest(transfer, manifest)
@@ -84,16 +77,10 @@ export async function exportIndexes(
 async function exportGraphs(
   transfer: Transfer,
   url: string,
-  upload: { partSize?: number },
-): Promise<NonNullable<TransferManifest["falkordb"]>> {
+): Promise<TransferManifest["falkordb"]> {
   const start = Date.now()
   const before = await readGraphSnapshot(url)
-  const rdb = await uploadStream(
-    transfer,
-    "falkordb.rdb",
-    fetchRdb(url),
-    upload,
-  )
+  const rdb = await uploadStream(transfer, "falkordb.rdb", fetchRdb(url))
   const changed = compareGraphSnapshots(before, await readGraphSnapshot(url))
   if (changed.length > 0)
     throw new Error(
@@ -101,6 +88,33 @@ async function exportGraphs(
     )
   log.info({ step: "codesearch.cutover.export.falkordb", bytes: rdb.size })
   return { ...before, rdb, ms: Date.now() - start }
+}
+
+/**
+ * The two archives of the codesearch volume. The cold Zoekt directory goes
+ * without its staging directory (unfinished builds) and its store directory
+ * (the local manifest copies of another shard store; seed-shard-store writes
+ * new ones). Tests give a small multipart part size.
+ */
+export async function exportVolume(
+  transfer: Transfer,
+  dirs: VolumeDirs,
+  upload: { partSize?: number } = {},
+): Promise<Pick<TransferManifest, "zoektIndex" | "repoCache">> {
+  const cold = dirs.zoektIndexDir
+  const [zoektIndex, repoCache] = await Promise.all([
+    archive(
+      transfer,
+      "zoekt-index.tar",
+      cold,
+      [zoektStagingDirFromIndexDir(cold), zoektStoreDirFromIndexDir(cold)].map(
+        (dir) => `./${basename(dir)}`,
+      ),
+      upload,
+    ),
+    archive(transfer, "repo-cache.tar", dirs.repoCacheDir, [], upload),
+  ])
+  return { zoektIndex, repoCache }
 }
 
 /** A tar archive of `dir`, without the `excluded` members. */
@@ -153,13 +167,14 @@ if (import.meta.main) {
     },
   })
   runCli(async () => {
-    if (!values.to)
+    const falkordb = values.falkordb ?? process.env["GRAPH_DB_URI"]
+    if (!values.to || !falkordb)
       throw new Error(
-        "Usage: export-indexes --to s3://bucket/prefix/run-id [--falkordb redis://…] [--zoekt-index-dir …] [--repo-cache-dir …]",
+        "Usage: GRAPH_DB_URI=redis://… export-indexes --to s3://bucket/prefix/run-id [--falkordb redis://…] [--zoekt-index-dir …] [--repo-cache-dir …]",
       )
     const manifest = await exportIndexes({
       to: values.to,
-      falkordb: values.falkordb,
+      falkordb,
       zoektIndexDir: values["zoekt-index-dir"],
       repoCacheDir: values["repo-cache-dir"],
     })

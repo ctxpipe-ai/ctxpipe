@@ -9,6 +9,7 @@ import { REPO_CACHE_DIR, ZOEKT_INDEX_DIR } from "../config/paths.js"
 import { log } from "../observability/logger.js"
 import {
   downloadChecked,
+  errorMessage,
   manifestSummary,
   readTransferManifest,
   runCli,
@@ -32,8 +33,8 @@ type Options = {
   from: string
   zoektIndexDir: string
   repoCacheDir: string
-  /** Where FalkorDB reads its RDB at start. Necessary when the export has one. */
-  falkordbDataFile?: string
+  /** Where FalkorDB reads its RDB at start. */
+  falkordbDataFile: string
   /** Deletes the contents of a target that is not empty. */
   force: boolean
 }
@@ -45,18 +46,13 @@ export async function importIndexes(options: Options) {
     throw new Error(
       `${options.from} has no manifest: the export did not finish.`,
     )
-  const dataFile = manifest.falkordb ? options.falkordbDataFile : undefined
-  if (manifest.falkordb && !dataFile)
-    throw new Error("The export has an RDB. Give --falkordb-data-file.")
   // Check each target before the first download.
   await emptyTarget(options.zoektIndexDir, options.force)
   await emptyTarget(options.repoCacheDir, options.force)
-  if (dataFile) await freeDataFile(dataFile, options.force)
+  await freeDataFile(options.falkordbDataFile, options.force)
   const start = Date.now()
   const [falkordbMs, zoektIndex, repoCache] = await Promise.all([
-    manifest.falkordb && dataFile
-      ? writeDataFile(transfer, manifest.falkordb.rdb, dataFile)
-      : Promise.resolve(null),
+    writeDataFile(transfer, manifest.falkordb.rdb, options.falkordbDataFile),
     extract(transfer, manifest.zoektIndex, options.zoektIndexDir),
     extract(transfer, manifest.repoCache, options.repoCacheDir),
   ])
@@ -159,7 +155,7 @@ async function extract(
     stdin.destroy()
     await tar.done.catch(() => undefined)
     throw new Error(
-      `${error instanceof Error ? error.message : String(error)}. ${dir} holds a part of the archive: import again with --force.`,
+      `${errorMessage(error)}. ${dir} holds a part of the archive: import again with --force.`,
     )
   }
   stdin.end()
@@ -183,13 +179,14 @@ if (import.meta.main) {
     },
   })
   runCli(async () => {
-    if (!values.from)
+    const dataFile = values["falkordb-data-file"]
+    if (!values.from || !dataFile)
       throw new Error(
-        "Usage: import-indexes --from s3://bucket/prefix/run-id [--falkordb-data-file …] [--zoekt-index-dir …] [--repo-cache-dir …] [--force]",
+        "Usage: import-indexes --from s3://bucket/prefix/run-id --falkordb-data-file … [--zoekt-index-dir …] [--repo-cache-dir …] [--force]",
       )
     return importIndexes({
       from: values.from,
-      falkordbDataFile: values["falkordb-data-file"],
+      falkordbDataFile: dataFile,
       zoektIndexDir: values["zoekt-index-dir"],
       repoCacheDir: values["repo-cache-dir"],
       force: values.force,

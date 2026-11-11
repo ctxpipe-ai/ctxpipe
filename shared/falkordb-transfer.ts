@@ -7,7 +7,8 @@ import { connect, type Socket } from "node:net"
  * tools (`apps/codesearch/src/cutover/`). The backend contract test starts
  * real FalkorDB containers for it, because the codesearch test image has no
  * FalkorDB. This module imports only Node built-ins, so both apps (Node and
- * Bun) can import it.
+ * Bun) can import it. Its errors and problems give no graph name (an
+ * organization id) and no URL (it holds the password).
  */
 
 /** The versions and the graph counts of one FalkorDB server. */
@@ -34,7 +35,13 @@ type Connection = {
 
 /** Opens a connection and authenticates with the password of the URL. */
 async function open(url: string): Promise<Connection> {
-  const parsed = new URL(url)
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    // The URL error of Bun quotes the input, with the password.
+    throw new Error("The FalkorDB URL is not valid")
+  }
   if (parsed.protocol !== "redis:")
     throw new Error("The FalkorDB URL must have the form redis://host:port")
   const socket: Socket = await new Promise((resolve, reject) => {
@@ -140,20 +147,23 @@ function checked(reply: Reply, what: string): Reply {
   return reply
 }
 
-/** The count in the first cell of a `GRAPH.RO_QUERY` result. */
+/**
+ * The count in the first cell of a `GRAPH.RO_QUERY` result. `position` is
+ * the 1-based position of the graph in the sorted list.
+ */
 async function count(
   connection: Connection,
-  graph: string,
+  graph: { name: string; position: number },
   query: string,
 ): Promise<number> {
+  const what = `GRAPH.RO_QUERY of graph ${graph.position}`
   const result = checked(
-    await connection.command("GRAPH.RO_QUERY", graph, query),
-    `GRAPH.RO_QUERY ${graph}`,
+    await connection.command("GRAPH.RO_QUERY", graph.name, query),
+    what,
   )
   const rows = Array.isArray(result) ? result[1] : undefined
   const cell = Array.isArray(rows) && Array.isArray(rows[0]) ? rows[0][0] : null
-  if (typeof cell !== "number")
-    throw new Error(`GRAPH.RO_QUERY ${graph} gave no count`)
+  if (typeof cell !== "number") throw new Error(`${what} gave no count`)
   return cell
 }
 
@@ -182,16 +192,18 @@ export async function readGraphSnapshot(url: string): Promise<GraphSnapshot> {
       throw new Error("The server has no graph module (not FalkorDB)")
     const names = checked(await connection.command("GRAPH.LIST"), "GRAPH.LIST")
     const graphs: GraphSnapshot["graphs"] = []
-    for (const name of (Array.isArray(names) ? names : []).map(String).sort())
+    for (const name of (Array.isArray(names) ? names : []).map(String).sort()) {
+      const graph = { name, position: graphs.length + 1 }
       graphs.push({
         name,
-        nodes: await count(connection, name, "MATCH (n) RETURN count(n)"),
+        nodes: await count(connection, graph, "MATCH (n) RETURN count(n)"),
         edges: await count(
           connection,
-          name,
+          graph,
           "MATCH ()-[r]->() RETURN count(r)",
         ),
       })
+    }
     return { redisVersion, moduleVersion, graphs }
   } finally {
     connection.close()
@@ -202,7 +214,8 @@ export async function readGraphSnapshot(url: string): Promise<GraphSnapshot> {
  * The differences between the snapshot of the export and a server: a graph
  * that one side does not have, a different node or edge count, and a module
  * version below the version of the export (an older module may not load the
- * RDB). An empty list means that the copy is complete.
+ * RDB). An empty list means that the copy is complete. A problem gives a
+ * graph by its 1-based position in the sorted list of its side.
  */
 export function compareGraphSnapshots(
   expected: GraphSnapshot,
@@ -213,18 +226,20 @@ export function compareGraphSnapshots(
     problems.push(
       `module version ${actual.moduleVersion} is below the source version ${expected.moduleVersion}`,
     )
-  const found = new Map(actual.graphs.map((graph) => [graph.name, graph]))
-  for (const graph of expected.graphs) {
+  const found = new Map(
+    actual.graphs.map((graph, index) => [graph.name, { ...graph, index }]),
+  )
+  for (const [index, graph] of expected.graphs.entries()) {
     const other = found.get(graph.name)
     found.delete(graph.name)
-    if (!other) problems.push(`graph ${graph.name} is missing`)
+    if (!other) problems.push(`graph ${index + 1} of the export is missing`)
     else if (other.nodes !== graph.nodes || other.edges !== graph.edges)
       problems.push(
-        `graph ${graph.name} has ${other.nodes} nodes and ${other.edges} edges, expected ${graph.nodes} and ${graph.edges}`,
+        `graph ${index + 1} of the export has ${other.nodes} nodes and ${other.edges} edges, expected ${graph.nodes} and ${graph.edges}`,
       )
   }
-  for (const name of found.keys())
-    problems.push(`graph ${name} is not expected`)
+  for (const other of found.values())
+    problems.push(`graph ${other.index + 1} of the server is not in the export`)
   return problems
 }
 

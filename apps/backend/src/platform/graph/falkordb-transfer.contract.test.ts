@@ -141,7 +141,7 @@ describe("FalkorDB RDB transfer", () => {
     300_000,
   )
 
-  it("names each difference to the snapshot of the export", async () => {
+  it("gives each difference to the snapshot of the export without a graph name", async () => {
     const actual = await readGraphSnapshot(source.url)
     const expected: GraphSnapshot = {
       ...actual,
@@ -154,10 +154,18 @@ describe("FalkorDB RDB transfer", () => {
 
     expect(compareGraphSnapshots(expected, actual)).toEqual([
       `module version ${actual.moduleVersion} is below the source version ${actual.moduleVersion + 1}`,
-      "graph org_alpha has 5 nodes and 3 edges, expected 5 and 4",
-      "graph org_gamma is missing",
-      "graph org_beta is not expected",
+      "graph 1 of the export has 5 nodes and 3 edges, expected 5 and 4",
+      "graph 2 of the export is missing",
+      "graph 2 of the server is not in the export",
     ])
+  })
+
+  it("refuses a URL that does not parse, without the URL in the error", async () => {
+    const url = `redis://default:${password}@[::1`
+
+    await expect(readGraphSnapshot(url)).rejects.toThrow(
+      /^The FalkorDB URL is not valid$/,
+    )
   })
 
   it("refuses a wrong password", async () => {

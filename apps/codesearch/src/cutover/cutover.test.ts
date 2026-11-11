@@ -19,11 +19,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { zoektRepositoryName } from "../domain/zoekt/shardPrefix.js"
 import { startS3Server } from "../test/s3Server.js"
-import { exportIndexes } from "./exportIndexes.js"
+import { exportIndexes, exportVolume } from "./exportIndexes.js"
 import { importIndexes } from "./importIndexes.js"
 import { seedShardStore } from "./seedShardStore.js"
 import {
-  readTransferManifest,
+  type TransferManifest,
   transferFromUrl,
   uploadStream,
   writeTransferManifest,
@@ -34,7 +34,8 @@ import {
  * shards, GNU tar and a real S3-compatible server: export the volume, import
  * it into empty directories, then seed the shard store from the imported
  * cold directory. The FalkorDB part has real FalkorDB containers in the
- * backend contracts lane (shared/falkordb-transfer.ts).
+ * backend contracts lane (shared/falkordb-transfer.ts). This test gives the
+ * export a made-up RDB, so it does not run the RDB fetch and verify-graph.
  */
 
 const exec = promisify(execFile)
@@ -114,120 +115,125 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true })
 })
 
+/**
+ * The export of the volume, with a made-up RDB in place of the FalkorDB
+ * part: the test image has no FalkorDB.
+ */
+async function writeExport(url: string) {
+  const transfer = transferFromUrl(url)
+  const volume = await exportVolume(transfer, source, { partSize })
+  const rdbBytes = randomBytes(1024)
+  const rdb = await uploadStream(
+    transfer,
+    "falkordb.rdb",
+    (async function* () {
+      yield rdbBytes
+    })(),
+  )
+  const manifest: TransferManifest = {
+    version: 1,
+    createdAt: new Date().toISOString(),
+    falkordb: {
+      redisVersion: "8.0.0",
+      moduleVersion: 42007,
+      graphs: [{ name: "graph_a", nodes: 2, edges: 1 }],
+      rdb,
+      ms: 1,
+    },
+    ...volume,
+    ms: 1,
+  }
+  await writeTransferManifest(transfer, manifest)
+  return { transfer, manifest, rdbBytes }
+}
+
+/** The import targets below `root/name`. */
+const targets = (name: string) => ({
+  zoektIndexDir: join(root, name, "zoekt-index"),
+  repoCacheDir: join(root, name, "repo-cache"),
+  falkordbDataFile: join(root, name, "falkordb/dump.rdb"),
+})
+
 describe("export-indexes and import-indexes", () => {
-  it("copies the volume through the transfer prefix", async () => {
+  it("copies the volume and the RDB through the transfer prefix", async () => {
     server.stubEnv("prod")
     const url = `s3://${server.bucket}/transfer/run-1`
 
-    const manifest = await exportIndexes({ to: url, ...source, partSize })
+    const { manifest, rdbBytes } = await writeExport(url)
 
     expect(await server.keys()).toEqual([
+      "transfer/run-1/falkordb.rdb",
       "transfer/run-1/manifest.json",
       "transfer/run-1/repo-cache.tar",
       "transfer/run-1/zoekt-index.tar",
     ])
-    expect(manifest.falkordb).toBeNull()
     expect(manifest.zoektIndex.shards).toBe(2)
     expect(manifest.repoCache.size).toBeGreaterThan(partSize)
-    const targets = {
-      zoektIndexDir: join(root, "target/zoekt-index"),
-      repoCacheDir: join(root, "target/repo-cache"),
-    }
+    const target = targets("target")
 
-    const report = await importIndexes({ from: url, ...targets, force: false })
+    const report = await importIndexes({ from: url, ...target, force: false })
 
     expect(report).toMatchObject({ ok: true, problems: [] })
-    expect(await tree(targets.repoCacheDir)).toEqual(
+    expect(await tree(target.repoCacheDir)).toEqual(
       await tree(source.repoCacheDir),
     )
     const sourceShards = await tree(source.zoektIndexDir, [".build", ".store"])
     expect(Object.keys(sourceShards)).toHaveLength(manifest.zoektIndex.files)
-    expect(await tree(targets.zoektIndexDir)).toEqual(sourceShards)
+    expect(await tree(target.zoektIndexDir)).toEqual(sourceShards)
+    expect(await readFile(target.falkordbDataFile)).toEqual(rdbBytes)
   })
 
   it("refuses an export to a run id that has a manifest", async () => {
     server.stubEnv("prod")
 
     await expect(
-      exportIndexes({ to: `s3://${server.bucket}/transfer/run-1`, ...source }),
+      exportIndexes({
+        to: `s3://${server.bucket}/transfer/run-1`,
+        falkordb: "redis://127.0.0.1:1",
+        ...source,
+      }),
     ).rejects.toThrow(/has a manifest already/)
   })
 
   it("refuses a target that is not empty, and replaces it with --force", async () => {
     server.stubEnv("prod")
     const url = `s3://${server.bucket}/transfer/run-1`
-    const targets = {
-      zoektIndexDir: join(root, "full/zoekt-index"),
-      repoCacheDir: join(root, "full/repo-cache"),
-    }
-    await mkdir(targets.repoCacheDir, { recursive: true })
-    await writeFile(join(targets.repoCacheDir, "stale.txt"), "stale")
+    const target = targets("full")
+    await mkdir(target.repoCacheDir, { recursive: true })
+    await writeFile(join(target.repoCacheDir, "stale.txt"), "stale")
 
     await expect(
-      importIndexes({ from: url, ...targets, force: false }),
+      importIndexes({ from: url, ...target, force: false }),
     ).rejects.toThrow(/is not empty/)
-    const report = await importIndexes({ from: url, ...targets, force: true })
+    const report = await importIndexes({ from: url, ...target, force: true })
 
     expect(report.ok).toBe(true)
-    expect(await tree(targets.repoCacheDir)).toEqual(
+    expect(await tree(target.repoCacheDir)).toEqual(
       await tree(source.repoCacheDir),
     )
   })
 
-  it("writes the RDB as the FalkorDB data file, and refuses a changed one", async () => {
+  it("refuses an RDB with a different sha256, and keeps no data file", async () => {
     server.stubEnv("prod")
     const url = `s3://${server.bucket}/transfer/run-rdb`
-    const transfer = transferFromUrl(url)
-    const exported = await exportIndexes({ to: url, ...source })
-    const bytes = randomBytes(1024)
-    const rdb = await uploadStream(
-      transfer,
-      "falkordb.rdb",
-      (async function* () {
-        yield bytes
-      })(),
-    )
-    const graphs = [{ name: "graph_a", nodes: 2, edges: 1 }]
-    const falkordb = {
-      redisVersion: "8.0.0",
-      moduleVersion: 42007,
-      graphs,
-      rdb,
-      ms: 1,
-    }
-    await writeTransferManifest(transfer, { ...exported, falkordb })
-    const dataFile = join(root, "rdb/data/dump.rdb")
-    const targets = (name: string) => ({
-      zoektIndexDir: join(root, name, "zoekt-index"),
-      repoCacheDir: join(root, name, "repo-cache"),
-    })
-
-    await expect(
-      importIndexes({ from: url, ...targets("rdb-none"), force: false }),
-    ).rejects.toThrow(/--falkordb-data-file/)
-    await importIndexes({
-      from: url,
-      ...targets("rdb"),
-      falkordbDataFile: dataFile,
-      force: false,
-    })
-    expect(await readFile(dataFile)).toEqual(bytes)
-
+    const { transfer, manifest } = await writeExport(url)
+    const { rdb } = manifest.falkordb
     await writeTransferManifest(transfer, {
-      ...exported,
-      falkordb: { ...falkordb, rdb: { ...rdb, sha256: "0".repeat(64) } },
+      ...manifest,
+      falkordb: {
+        ...manifest.falkordb,
+        rdb: { ...rdb, sha256: "0".repeat(64) },
+      },
     })
-    const changedFile = join(root, "rdb-changed/data/dump.rdb")
+    const target = targets("rdb-changed")
+
     await expect(
-      importIndexes({
-        from: url,
-        ...targets("rdb-changed"),
-        falkordbDataFile: changedFile,
-        force: false,
-      }),
+      importIndexes({ from: url, ...target, force: false }),
     ).rejects.toThrow(/sha256/)
-    await expect(stat(changedFile)).rejects.toMatchObject({ code: "ENOENT" })
-    expect(await readTransferManifest(transfer)).not.toBeNull()
+
+    await expect(stat(target.falkordbDataFile)).rejects.toMatchObject({
+      code: "ENOENT",
+    })
   })
 })
 
@@ -257,5 +263,22 @@ describe("seed-shard-store", () => {
 
     expect(second).toMatchObject({ ok: true, published: 0, skipped: 2 })
     expect(await server.keys()).toEqual(keys)
+  })
+
+  it("publishes again a Name whose shard changed without a change of size", async () => {
+    server.stubEnv("store")
+    const coldDir = join(root, "target/zoekt-index")
+    const shard = (await readdir(coldDir)).find((name) =>
+      name.endsWith(".zoekt"),
+    )
+    if (!shard) throw new Error("The cold directory has no shard")
+    const path = join(coldDir, shard)
+    const bytes = await readFile(path)
+    bytes[bytes.length - 1] = (bytes.at(-1) ?? 0) ^ 0xff
+    await writeFile(path, bytes)
+
+    const report = await seedShardStore({ coldDir })
+
+    expect(report).toMatchObject({ ok: true, published: 1, skipped: 1 })
   })
 })

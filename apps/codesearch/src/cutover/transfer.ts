@@ -17,9 +17,9 @@ import {
 } from "@aws-sdk/client-s3"
 import { z } from "zod"
 
-import { s3Client } from "../domain/store/shardStore.js"
+import { parseS3Url, s3Client } from "../domain/store/shardStore.js"
 import { parseZoektShardBasename } from "../domain/zoekt/shardPrefix.js"
-import { log } from "../observability/logger.js"
+import { flushEvlog, initEvlog, log } from "../observability/logger.js"
 
 /*
  * The transfer prefix of the cutover index copy (CTX-1217): `export-indexes`
@@ -32,12 +32,14 @@ export type Transfer = { client: S3Client; bucket: string; prefix: string }
 
 /** The transfer of `s3://bucket/prefix`. The SDK default chain gives the credentials. */
 export function transferFromUrl(url: string): Transfer {
-  const match = /^s3:\/\/([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])\/(.*[^/])\/?$/.exec(
-    url,
-  )
-  if (!match?.[1] || !match[2])
+  const location = parseS3Url(url)
+  if (!location?.prefix)
     throw new Error("The transfer URL must have the form s3://bucket/prefix")
-  return { client: s3Client(), bucket: match[1], prefix: `${match[2]}/` }
+  return {
+    client: s3Client(),
+    bucket: location.bucket,
+    prefix: `${location.prefix}/`,
+  }
 }
 
 const objectSchema = z.object({
@@ -52,24 +54,22 @@ const archiveSchema = objectSchema.extend({
   ms: z.number(),
 })
 
-export const manifestSchema = z.object({
+const manifestSchema = z.object({
   version: z.literal(1),
   createdAt: z.string(),
-  falkordb: z
-    .object({
-      redisVersion: z.string(),
-      moduleVersion: z.number().int(),
-      graphs: z.array(
-        z.object({
-          name: z.string(),
-          nodes: z.number().int(),
-          edges: z.number().int(),
-        }),
-      ),
-      rdb: objectSchema,
-      ms: z.number(),
-    })
-    .nullable(),
+  falkordb: z.object({
+    redisVersion: z.string(),
+    moduleVersion: z.number().int(),
+    graphs: z.array(
+      z.object({
+        name: z.string(),
+        nodes: z.number().int(),
+        edges: z.number().int(),
+      }),
+    ),
+    rdb: objectSchema,
+    ms: z.number(),
+  }),
   zoektIndex: archiveSchema.extend({
     /** The `.zoekt` shard files (no `.meta` sidecars). */
     shards: z.number().int().nonnegative(),
@@ -116,18 +116,17 @@ export async function writeTransferManifest(
 }
 
 /**
- * Uploads a stream of unknown length as a multipart upload, with at most
- * `inFlight` parts at the same time, and gives its size and sha256. S3 takes
- * at most 10,000 parts, so a part of 64 MiB limits an object to 640 GiB.
+ * Uploads a stream of unknown length as a multipart upload, with at most 2
+ * parts at the same time, and gives its size and sha256. S3 takes at most
+ * 10,000 parts, so a part of 64 MiB limits an object to 640 GiB.
  */
 export async function uploadStream(
   transfer: Transfer,
   key: string,
   source: AsyncIterable<Uint8Array>,
-  options: { partSize?: number; inFlight?: number } = {},
+  options: { partSize?: number } = {},
 ): Promise<TransferObject> {
   const partSize = options.partSize ?? 64 * 1024 * 1024
-  const limit = options.inFlight ?? 2
   const target = { Bucket: transfer.bucket, Key: `${transfer.prefix}${key}` }
   const { UploadId } = await transfer.client.send(
     new CreateMultipartUploadCommand(target),
@@ -157,7 +156,7 @@ export async function uploadStream(
       )
       .finally(() => running.delete(upload))
     running.add(upload)
-    while (running.size >= limit) await Promise.race(running)
+    while (running.size >= 2) await Promise.race(running)
     if (failure) throw failure
   }
   try {
@@ -241,12 +240,16 @@ export function startTar(
   const child = spawn("tar", args, { stdio: ["pipe", "pipe", "pipe"] })
   // A tar that stops early closes its input. `done` reports why.
   child.stdin.on("error", () => undefined)
+  // The member names hold organization and repository ids: keep only the
+  // kind of each tar error.
   const errors: string[] = []
+  const addError = (text: string) =>
+    errors.push(text.replace(/\.\/\S*/g, "./…"))
   const counts = (async () => {
     let files = 0
     let shards = 0
     for await (const line of createInterface({ input: child[listing] }))
-      if (!line.startsWith("./")) errors.push(line)
+      if (!line.startsWith("./")) addError(line)
       else if (!line.endsWith("/")) {
         files++
         const shard = parseZoektShardBasename(basename(line))
@@ -255,7 +258,7 @@ export function startTar(
     return { files, shards }
   })()
   if (listing === "stdout")
-    child.stderr.on("data", (chunk: Buffer) => errors.push(String(chunk)))
+    child.stderr.on("data", (chunk: Buffer) => addError(String(chunk)))
   const done = (async () => {
     const [code] = (await once(child, "close")) as [number | null]
     const result = await counts
@@ -277,12 +280,10 @@ export function startTar(
 export function manifestSummary(manifest: TransferManifest) {
   const graph = manifest.falkordb
   return {
-    falkordb: graph && {
+    falkordb: {
       redisVersion: graph.redisVersion,
       moduleVersion: graph.moduleVersion,
-      graphs: graph.graphs.length,
-      nodes: graph.graphs.reduce((sum, item) => sum + item.nodes, 0),
-      edges: graph.graphs.reduce((sum, item) => sum + item.edges, 0),
+      ...graphTotals(graph.graphs),
       bytes: graph.rdb.size,
       ms: graph.ms,
     },
@@ -300,22 +301,46 @@ export function manifestSummary(manifest: TransferManifest) {
   }
 }
 
+/** The number of graphs, and their total nodes and edges. */
+export function graphTotals(graphs: { nodes: number; edges: number }[]) {
+  return {
+    graphs: graphs.length,
+    nodes: graphs.reduce((sum, graph) => sum + graph.nodes, 0),
+    edges: graphs.reduce((sum, graph) => sum + graph.edges, 0),
+  }
+}
+
+/** The message of a thrown value, with each `hidden` text replaced. */
+export function errorMessage(error: unknown, hidden: string[] = []): string {
+  let message = error instanceof Error ? error.message : String(error)
+  for (const text of hidden) if (text) message = message.replaceAll(text, "…")
+  return message
+}
+
 /**
  * Runs a cutover tool: prints its JSON report to stdout, and exits 1 when
- * the report has `ok: false` or the tool throws.
+ * the report has `ok: false` or the tool throws. It sends the log events
+ * before the exit.
  */
 export function runCli(work: () => Promise<Record<string, unknown>>): void {
-  work().then(
-    (report) => {
+  try {
+    initEvlog()
+  } catch {
+    // A task without the service env (AUTH_SECRET) keeps the evlog defaults.
+  }
+  void (async () => {
+    let code = 1
+    try {
+      const report = await work()
       process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
-      process.exit(report["ok"] === false ? 1 : 0)
-    },
-    (error: unknown) => {
+      code = report["ok"] === false ? 1 : 0
+    } catch (error) {
       log.error({
         step: "codesearch.cutover.failed",
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       })
-      process.exit(1)
-    },
-  )
+    }
+    await flushEvlog()
+    process.exit(code)
+  })()
 }

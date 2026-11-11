@@ -4,7 +4,9 @@ import { parseArgs } from "node:util"
 
 import { ZOEKT_INDEX_DIR } from "../config/paths.js"
 import {
+  fileSha256,
   mapLimit,
+  parseStoreManifest,
   publishArtifact,
   shardStore,
 } from "../domain/store/shardStore.js"
@@ -17,15 +19,16 @@ import {
   zoektRepositoryIdentity,
 } from "../domain/zoekt/shardPrefix.js"
 import { log } from "../observability/logger.js"
-import { runCli } from "./transfer.js"
+import { errorMessage, runCli } from "./transfer.js"
 
 /*
  * seed-shard-store (CTX-1217): on AWS, after import-indexes, before the
  * backend starts. It publishes the cold shards of each Zoekt Name to the
  * shard store that `CODESEARCH_SHARD_STORE` names, and writes the local
  * manifest copy, as the Zoekt phase does after an upload. A Name whose local
- * manifest copy matches its cold shards is skipped, so a second run
- * publishes only what the first did not.
+ * manifest copy matches its cold shards (each name, size and sha256) is
+ * skipped, so a second run publishes only what the first did not. The logs
+ * and the report hold no Zoekt Name: it has organization and repository ids.
  *
  *   bun run cutover:seed-shard-store
  */
@@ -53,7 +56,7 @@ export async function seedShardStore(options: { coldDir: string }) {
     async ({ name: zoektName, files, index }) => {
       const identity = zoektRepositoryIdentity(zoektName)
       if (!identity) {
-        log.warn({ step: "codesearch.cutover.seed.unknown_name", zoektName })
+        log.warn({ step: "codesearch.cutover.seed.unknown_name" })
         return "unknown" as const
       }
       if (await localCopyMatches(options.coldDir, zoektName, files))
@@ -76,8 +79,13 @@ export async function seedShardStore(options: { coldDir: string }) {
       } catch (error) {
         log.error({
           step: "codesearch.cutover.seed.failed",
-          zoektName,
-          error: error instanceof Error ? error.message : String(error),
+          // A store key holds the ids. "default" is not an id.
+          error: errorMessage(error, [
+            zoektName,
+            identity.orgId,
+            identity.repoId,
+            identity.checkoutKey === "default" ? "" : identity.checkoutKey,
+          ]),
         })
         return "failed" as const
       }
@@ -101,21 +109,25 @@ export async function seedShardStore(options: { coldDir: string }) {
   }
 }
 
-/** True when the local manifest copy lists the cold files, with their sizes. */
+/**
+ * True when the local manifest copy lists the cold files, with their sizes
+ * and their sha256.
+ */
 async function localCopyMatches(
   coldDir: string,
   zoektName: string,
   files: string[],
 ): Promise<boolean> {
   try {
-    const copy = JSON.parse(
+    const copy = parseStoreManifest(
       await readFile(localManifestPath(coldDir, zoektName), "utf8"),
-    ) as { files: { name: string; size: number }[] }
+    )
     if (copy.files.length !== files.length) return false
     for (const file of copy.files) {
       if (!files.includes(file.name)) return false
-      if ((await stat(join(coldDir, file.name))).size !== file.size)
-        return false
+      const path = join(coldDir, file.name)
+      if ((await stat(path)).size !== file.size) return false
+      if ((await fileSha256(path)) !== file.sha256) return false
     }
     return true
   } catch {
