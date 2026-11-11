@@ -91,9 +91,9 @@ Each conversation runs in its own isolated sandbox, with a copy of the
 Workspace repository. The first message can take longer while the sandbox
 starts (**Setting up sandbox**). Later messages use the same sandbox.
 
-On hosted ctxpipe, each conversation gets its own microVM on AWS
-([Amazon Bedrock AgentCore Runtime](https://aws.amazon.com/bedrock/agentcore/)).
-No other conversation or organization shares it.
+On hosted ctxpipe, each conversation gets its own
+[Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) microVM. No other
+conversation or organization shares it.
 
 - **Your files stay.** A sandbox stops after 5 minutes without use and keeps
   its files. Your next message starts it again, with the files where the agent
