@@ -52,6 +52,7 @@ that region.
 | Cloudflare | The network edge: DNS, TLS, protection against attacks, and the private connection to AWS. Requests to ctxpipe go through Cloudflare. |
 | OpenRouter | Model routing, only to zero data retention endpoints |
 | Vercel | The ctxpipe marketing site and this documentation only. Vercel does not process your data. |
+| Anthropic and OpenAI | The model providers of the AI agents that the ctxpipe team uses to operate and debug the service. These agents read our logs and traces, which can hold the prompts and outputs of model calls. See [Retention](#retention). |
 
 ## How ctxpipe uses models
 
@@ -67,7 +68,7 @@ that region.
 ctxpipe does not send a whole repository to a model in one request. Retrieval
 and tools select the context.
 
-On hosted ctxpipe, each model call goes through OpenRouter to
+On hosted ctxpipe, each model call of the product goes through OpenRouter to
 [zero data retention (ZDR)](https://openrouter.ai/docs/guides/features/zdr)
 endpoints only. Our OpenRouter account enforces this, so the model providers do
 not store your prompts or train on them. See the
@@ -84,8 +85,10 @@ We do not publish fixed retention periods for indexed data yet. Two exceptions:
   call holds the prompt and the output of that call.
 
 The ctxpipe team uses AI agents to operate and debug the service. These agents
-read logs and traces, so this content also goes to the model provider of the
-agents (Anthropic).
+read logs and traces, so this content also goes to the model providers of the
+agents (Anthropic and OpenAI). These calls do not go through OpenRouter, so the
+zero data retention rule above does not apply to them. The retention terms of
+the API of each provider apply.
 
 For deletion times, export, or a DPA,
 [get in touch](/docs/getting-started/get-in-touch).
