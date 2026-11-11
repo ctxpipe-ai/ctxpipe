@@ -71,9 +71,29 @@ export async function uploadScipIndex(
 export async function ensureScipIndex(
   checkout: Checkout,
   scipPath: string,
+  options?: { timeoutMs?: number },
 ): Promise<void> {
   const store = shardStore()
   if (!store || (await exists(scipPath))) return
+  const fetching = fetchScipIndex(store, checkout, scipPath)
+  // A graph read waits at most as long as a search does for Zoekt shards (a
+  // merge can hold the lock, or the file can be large). Then it answers with
+  // no index, and the fetch continues for the next read.
+  let timer: ReturnType<typeof setTimeout> | undefined
+  await Promise.race([
+    fetching,
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, options?.timeoutMs ?? 8_000)
+    }),
+  ])
+  clearTimeout(timer)
+}
+
+async function fetchScipIndex(
+  store: NonNullable<ReturnType<typeof shardStore>>,
+  checkout: Checkout,
+  scipPath: string,
+): Promise<void> {
   try {
     await scipLock.run(scipPath, async () => {
       if (await exists(scipPath)) return

@@ -23,7 +23,7 @@ import {
 } from "vitest"
 
 import { startS3Server } from "../../test/s3Server.js"
-import { ensureScipIndex, uploadScipIndex } from "./scipStore.js"
+import { ensureScipIndex, uploadScipIndex, withScipLock } from "./scipStore.js"
 import { shardStore } from "./shardStore.js"
 
 /*
@@ -137,5 +137,27 @@ describe("merged SCIP index in the shard store", () => {
     await expect(readFile(scipPathOf("repo_foreign"))).rejects.toMatchObject({
       code: "ENOENT",
     })
+  })
+
+  it("answers with no index when a merge holds the lock longer than the limit, and fetches after it", async () => {
+    const path = await writeScip("repo_busy", "merged")
+    await uploadScipIndex(checkout("repo_busy"), path)
+    await rm(path)
+    let releaseMerge!: () => void
+    const merge = withScipLock(
+      path,
+      () =>
+        new Promise<void>((resolve) => {
+          releaseMerge = resolve
+        }),
+    )
+
+    await ensureScipIndex(checkout("repo_busy"), path, { timeoutMs: 50 })
+    await expect(readFile(path)).rejects.toMatchObject({ code: "ENOENT" })
+
+    releaseMerge()
+    await merge
+    await ensureScipIndex(checkout("repo_busy"), path)
+    expect(await readFile(path, "utf8")).toBe("merged")
   })
 })
