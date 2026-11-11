@@ -5,7 +5,6 @@ import { parseArgs } from "node:util"
 import { ZOEKT_INDEX_DIR } from "../config/paths.js"
 import {
   fileSha256,
-  mapLimit,
   parseStoreManifest,
   publishArtifact,
   shardStore,
@@ -19,6 +18,7 @@ import {
   zoektRepositoryIdentity,
 } from "../domain/zoekt/shardPrefix.js"
 import { log } from "../observability/logger.js"
+import { mapLimit } from "../utils/mapLimit.js"
 import { errorMessage, runCli } from "./transfer.js"
 
 /*
@@ -47,13 +47,9 @@ export async function seedShardStore(options: { coldDir: string }) {
     ])
   }
   const outcomes = await mapLimit(
-    [...byName.entries()].map(([name, files], index) => ({
-      name,
-      files,
-      index,
-    })),
+    [...byName.entries()],
     8,
-    async ({ name: zoektName, files, index }) => {
+    async ([zoektName, files]) => {
       const identity = zoektRepositoryIdentity(zoektName)
       if (!identity) {
         log.warn({ step: "codesearch.cutover.seed.unknown_name" })
@@ -67,9 +63,9 @@ export async function seedShardStore(options: { coldDir: string }) {
           { ...identity, kind: "zoekt" },
           files.map((name) => join(options.coldDir, name)),
         )
-        // The lock id only orders the work of this process on one Name.
+        // markShardsUploaded locks by the Name. It does not use the id.
         const marked = await markShardsUploaded(
-          { zoektRepoId: index + 1, zoektName },
+          { zoektRepoId: 0, zoektName },
           manifest,
           { coldDir: options.coldDir },
         )
