@@ -13,8 +13,20 @@ import {
 
 type Checkout = { orgId: string; repoId: string; checkoutKey: string }
 
-/** One upload or fetch at a time for each merged SCIP file. */
+/** One merge write, upload or fetch at a time for each merged SCIP file. */
 const scipLock = keyedMutex<string>()
+
+/**
+ * Runs `fn` under the lock of one merged SCIP file. The merge holds it from
+ * its local write through its upload, so a fetch of an older index cannot
+ * replace the new file or come back after the merge removed it.
+ */
+export function withScipLock<T>(
+  scipPath: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  return scipLock.run(scipPath, fn)
+}
 
 const exists = (path: string) =>
   stat(path).then(
@@ -25,8 +37,8 @@ const exists = (path: string) =>
 /**
  * Uploads the merged SCIP index of a checkout to the shard store, or
  * an empty manifest when the merge wrote no file, so a reader never gets an
- * older index. A failure does not fail the merge: it is logged, and the next
- * merge uploads again.
+ * older index. The caller holds `withScipLock`. A failure does not fail the
+ * merge: it is logged, and the next merge uploads again.
  */
 export async function uploadScipIndex(
   checkout: Checkout,
@@ -36,10 +48,8 @@ export async function uploadScipIndex(
   if (!store) return
   const startMs = Date.now()
   try {
-    await scipLock.run(scipPath, async () => {
-      const paths = (await exists(scipPath)) ? [scipPath] : []
-      await publishArtifact(store, { ...checkout, kind: "scip" }, paths)
-    })
+    const paths = (await exists(scipPath)) ? [scipPath] : []
+    await publishArtifact(store, { ...checkout, kind: "scip" }, paths)
     log.info({
       step: "codesearch.store.scip_uploaded",
       durationMs: Date.now() - startMs,

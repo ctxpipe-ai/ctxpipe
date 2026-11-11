@@ -39,7 +39,7 @@ import {
   ensureCheckoutWorktree,
   withSharedClone,
 } from "../repositories/worktrees.js"
-import { uploadScipIndex } from "../store/scipStore.js"
+import { uploadScipIndex, withScipLock } from "../store/scipStore.js"
 import {
   publishArtifact,
   shardStore,
@@ -876,41 +876,52 @@ export async function phaseMergeScip(
     params.languagesToMerge !== undefined
       ? [...params.languagesToMerge]
       : detected
+  const checkout = {
+    orgId: ctx.orgId,
+    repoId: ctx.repoId,
+    checkoutKey: ctx.checkoutKey,
+  }
   try {
     await writeStep("merging_intelligence", detected)
-    return await withPhase("scip_merge", async () => {
-      const shardPaths = languagesToMerge.map((indexerId) =>
-        scipLangShardPath(ctx.orgId, ctx.repoId, indexerId, ctx.checkoutKey),
-      )
-      if (
-        params.languagesToMerge !== undefined &&
-        languagesToMerge.length === 0
-      ) {
-        await discardScipShardFiles(
-          detected.map((indexerId) =>
-            scipLangShardPath(
-              ctx.orgId,
-              ctx.repoId,
-              indexerId,
-              ctx.checkoutKey,
-            ),
-          ),
+    return await withPhase("scip_merge", () =>
+      // The local write and the upload under one lock: a graph fetch of an
+      // older index cannot replace the new file.
+      withScipLock(ctx.scipIndexPath, async () => {
+        const shardPaths = languagesToMerge.map((indexerId) =>
+          scipLangShardPath(ctx.orgId, ctx.repoId, indexerId, ctx.checkoutKey),
         )
-      }
-      const result = await publishMergedScipIndex({
-        detectedLanguages: detected,
-        shardPaths,
-        outputPath: ctx.scipIndexPath,
-        checkoutPath: ctx.clonePath,
-      })
-      await uploadScipIndex(
-        { orgId: ctx.orgId, repoId: ctx.repoId, checkoutKey: ctx.checkoutKey },
-        ctx.scipIndexPath,
-      )
-      return result
-    })
+        if (
+          params.languagesToMerge !== undefined &&
+          languagesToMerge.length === 0
+        ) {
+          await discardScipShardFiles(
+            detected.map((indexerId) =>
+              scipLangShardPath(
+                ctx.orgId,
+                ctx.repoId,
+                indexerId,
+                ctx.checkoutKey,
+              ),
+            ),
+          )
+        }
+        const result = await publishMergedScipIndex({
+          detectedLanguages: detected,
+          shardPaths,
+          outputPath: ctx.scipIndexPath,
+          checkoutPath: ctx.clonePath,
+        })
+        await uploadScipIndex(checkout, ctx.scipIndexPath)
+        return result
+      }),
+    )
   } catch (error) {
-    await rm(ctx.scipIndexPath, { force: true })
+    // No index then, locally or in S3: an empty manifest replaces the older
+    // copy, so a graph read does not fetch it back.
+    await withScipLock(ctx.scipIndexPath, async () => {
+      await rm(ctx.scipIndexPath, { force: true })
+      await uploadScipIndex(checkout, ctx.scipIndexPath)
+    })
     throw error
   }
 }

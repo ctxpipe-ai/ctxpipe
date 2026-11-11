@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import {
   mkdir,
   mkdtemp,
@@ -93,9 +94,10 @@ describe("merged SCIP index in the shard store", () => {
     await expect(readFile(path)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
-  it("keeps a local index and does not read S3 for it", async () => {
-    const path = await writeScip("repo_local", "local")
-    vi.stubEnv("AWS_ENDPOINT_URL_S3", "http://127.0.0.1:1")
+  it("keeps a local index and does not replace it with the S3 copy", async () => {
+    const path = await writeScip("repo_local", "uploaded")
+    await uploadScipIndex(checkout("repo_local"), path)
+    await writeFile(path, "local")
 
     await ensureScipIndex(checkout("repo_local"), path)
 
@@ -111,8 +113,22 @@ describe("merged SCIP index in the shard store", () => {
         Key: `prod/v1/org_scip/repo_foreign/${key}/scip/manifest.json`,
         Body: JSON.stringify({
           gen: "g1",
-          files: [{ name: "other.scip", size: 1, sha256: "0".repeat(64) }],
+          files: [
+            {
+              name: "other.scip",
+              size: 1,
+              sha256: createHash("sha256").update("x").digest("hex"),
+            },
+          ],
         }),
+      }),
+    )
+    // The object exists and matches, so only the name check stops the fetch.
+    await store.client.send(
+      new PutObjectCommand({
+        Bucket: server.bucket,
+        Key: `prod/v1/org_scip/repo_foreign/${key}/scip/g1/other.scip`,
+        Body: "x",
       }),
     )
 
