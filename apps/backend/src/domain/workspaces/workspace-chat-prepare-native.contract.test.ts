@@ -110,6 +110,50 @@ it(
 )
 
 it(
+  "fails closed on AgentCore for a Workspace repository that is not on GitHub",
+  { timeout: 30_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      vi.stubEnv("SANDBOX_PROVIDER", "agentcore")
+      vi.stubEnv(
+        "AGENTCORE_RUNTIME_ARN",
+        "arn:aws:bedrock-agentcore:us-west-2:111122223333:runtime/ctxpipe-abc",
+      )
+      try {
+        const result = await warmTanstackWorkspaceChat({
+          conversationId: f.conversationId,
+          orgId: f.orgId,
+          orgSlug: f.orgSlug,
+          workspaceId: f.workspaceId,
+          desiredUrl: f.directory,
+          desiredSha: f.sha,
+          defaultBranch: "main",
+          writeStatus: "read_only",
+          prompt: "prepare",
+        })
+        expect(result).toEqual({
+          ok: false,
+          status: 503,
+          error:
+            "AgentCore sandboxes need a GitHub Workspace repository with a GitHub connection: their proxy reaches only GitHub, the model proxy and the tool bridge",
+        })
+        expect(f.modelRequests).toHaveLength(0)
+        expect(
+          await withOrgDbContext(f.orgId, () =>
+            listSandboxInstances({
+              conversationId: f.conversationId,
+              kind: "chat",
+            }),
+          ),
+        ).toEqual([])
+      } finally {
+        vi.unstubAllEnvs()
+      }
+    })
+  },
+)
+
+it(
   "fails closed on Railway when the environment name is missing",
   { timeout: 30_000 },
   async () => {
