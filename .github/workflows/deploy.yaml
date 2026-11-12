@@ -245,7 +245,8 @@ jobs:
           tar -xzf "$RUNNER_TEMP/crane.tar.gz" -C "$RUNNER_TEMP" crane
 
       # Each target has its own repository variable. A person sets it to
-      # `enabled` after aws-core deploys the push role of that account.
+      # `enabled` after the push role of that account exists: aws-core makes
+      # the production role, and factory previews/base makes the preview role.
       # Until then, the copy step only checks the sources of that target (a
       # dry run) and warns. With the variable set, a failed login or copy
       # fails the job: an ECR push starts deploys, so a failure must show.
@@ -264,7 +265,7 @@ jobs:
       - if: vars.ECR_MIRROR_PREVIEW == 'enabled'
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: arn:aws:iam::573018602187:role/github-actions-ctxpipe-mirror-ecr-push
+          role-to-assume: arn:aws:iam::573018602187:role/ctxpipe/preview-mirror-push
           aws-region: us-west-2
       - if: vars.ECR_MIRROR_PREVIEW == 'enabled'
         run: |
