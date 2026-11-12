@@ -2,6 +2,7 @@
 // and on the other cases, the selection rule, and the agreement on each
 // quality. See README.md beside this file for the definitions.
 
+import { openRouterModelId } from "../../src/adapters/openrouter.ts"
 import { qualities } from "../../src/rubric.ts"
 import type { Box } from "../../src/story.ts"
 import type { Verdict } from "../../src/verdict.ts"
@@ -374,9 +375,12 @@ export function report({
     new Set(rows.map(({ case: id }) => id)).size
   // An arm that uses a model of the judge panel (CTX-1249) is marked: the
   // panel labels of the real changes can favor it.
-  const panel = manifest.panelModels ?? []
+  // The ids go through openRouterModelId, as the adapter sends them.
+  const id = (model: string) =>
+    model.includes("/") ? openRouterModelId(model) : model
+  const panel = (manifest.panelModels ?? []).map(id)
   const name = (arm: string) =>
-    arm.split(/[:+]/).some((part) => panel.includes(part))
+    arm.split(/[:+]/).some((part) => panel.includes(id(part)))
       ? `\`${arm}\` (panel)`
       : `\`${arm}\``
 

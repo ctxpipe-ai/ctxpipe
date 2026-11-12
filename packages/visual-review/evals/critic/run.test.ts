@@ -942,7 +942,7 @@ test("the report marks an arm whose model is on the judge panel", async () => {
     "--cases",
     manifest,
     "--arms",
-    "jev,llm:anthropic/claude-test,cascade:anthropic/claude-test",
+    "jev,llm:anthropic/claude-test,cascade:anthropic/claude-test,llm-no-facts:openrouter/anthropic/claude-test",
     "--runs",
     "1",
   ])
@@ -955,6 +955,8 @@ test("the report marks an arm whose model is on the judge panel", async () => {
     "jev",
     "llm:anthropic/claude-test (panel)",
     "cascade:anthropic/claude-test (panel)",
+    // The same model, as the adapter sends it.
+    "llm-no-facts:openrouter/anthropic/claude-test (panel)",
   ])
 })
 

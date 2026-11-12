@@ -279,10 +279,20 @@ test("a dry run labels each change case with the panel, and leaves the disagreem
   expect(text).toContain("6 cases judged, $0.36 of the $40 cap.")
 })
 
-test("a second run judges again only the cases with a failed vote", async () => {
+test("a second run judges again only the cases with a failed vote, and keeps a label of the owner", async () => {
   calls = []
   server.use(chat)
   const { path } = await run()
+  // The owner labeled the real change without agreement. It also has a
+  // failed vote now.
+  const written = JSON.parse(readFileSync(path, "utf8")) as {
+    cases: { id: string; label: string; panel: { votes: object[] } }[]
+  }
+  const split = written.cases.find(({ id }) => id === "intended-split")
+  if (!split) throw new Error("No case.")
+  split.label = "regression"
+  split.panel.votes[2] = { ...split.panel.votes[2], label: null, error: "500" }
+  writeFileSync(path, JSON.stringify(written))
   calls = []
 
   const { code, manifest } = await run([], path)
@@ -294,6 +304,9 @@ test("a second run judges again only the cases with a failed vote", async () => 
   expect(
     manifest.cases.find(({ id }) => id === "intended-agree")?.panel?.label,
   ).toBe("improvement")
+  expect(manifest.cases.find(({ id }) => id === "intended-split")?.label).toBe(
+    "regression",
+  )
 })
 
 test("the spend cap stops the panel before a call, and a case without all votes gets no panel", async () => {

@@ -643,7 +643,9 @@ async function main() {
   const pick = (kind: Case["kind"], mutation: MutationClass | null) =>
     kept.filter((entry) => entry.kind === kind && entry.mutation === mutation)
   // Each candidate has its own seeded rank. So a candidate that one run
-  // loses (a story that is not steady) changes only its own place.
+  // loses (a story that is not steady) changes only its own place. The salt
+  // "mixed" is older than the other kinds that use the rank: it stays, so
+  // that the same seed gives the same cases.
   const rank = (entry: Kept) =>
     derive(
       seed,

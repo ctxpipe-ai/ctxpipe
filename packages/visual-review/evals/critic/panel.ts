@@ -51,8 +51,8 @@ const usage = `Usage: node packages/visual-review/evals/critic/panel.ts [--model
 
 The panel judges each case that has a before image and no panel votes yet,
 or a failed vote, 4 cases at the same time. It writes the votes and the
-labels into the manifest. The key and the
-endpoint come from MODEL_PROVIDER_API_KEY and MODEL_PROVIDER_URL.`
+labels into the manifest. The key and the endpoint come from
+MODEL_PROVIDER_API_KEY and MODEL_PROVIDER_URL.`
 
 /** The reply of one member: the reason first, then the label. */
 const replySchema = z.object({
@@ -213,11 +213,18 @@ export async function judgePanel(
   // A new case has no before image, so the panel does not judge it: its
   // label stays the one of the builder. A case with a failed vote (an outage,
   // a reply that is not usable) is judged again, so that a short outage does
-  // not fill the owner queue.
+  // not fill the owner queue. A real change that the owner labeled after the
+  // panel did not agree keeps that label: the panel does not judge it again.
   const queue = manifest.cases.filter(
     (entry) =>
       entry.kind !== "new" &&
-      (!entry.panel || entry.panel.votes.some(({ error }) => error)),
+      (!entry.panel ||
+        (entry.panel.votes.some(({ error }) => error) &&
+          !(
+            entry.kind === "intended" &&
+            entry.panel.label === null &&
+            entry.label !== "unsure"
+          ))),
   )
   try {
     await Promise.all(
