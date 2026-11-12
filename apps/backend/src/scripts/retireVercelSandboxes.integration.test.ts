@@ -2,8 +2,8 @@ import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { config } from "dotenv"
-import { initLogger } from "evlog"
 import { eq } from "drizzle-orm"
+import { initLogger } from "evlog"
 import { HttpResponse, http } from "msw"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 

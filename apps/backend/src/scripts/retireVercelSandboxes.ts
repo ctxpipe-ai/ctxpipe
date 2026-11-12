@@ -54,9 +54,9 @@ async function vercelSandboxRows(
   // Row-level security shows the sandboxes of an org only in its own context.
   for (const orgId of ids)
     rows.push(
-      ...(
-        await withOrgDbContext(orgId, () => listSandboxInstances({}))
-      ).filter((row) => row.provider === "vercel"),
+      ...(await withOrgDbContext(orgId, () => listSandboxInstances({}))).filter(
+        (row) => row.provider === "vercel",
+      ),
     )
   return rows
 }
@@ -130,7 +130,9 @@ export async function retireVercelSandboxes(input: {
         message: `Retiring a sandbox failed (kind ${row.kind})`,
         kind: row.kind,
         status:
-          error instanceof APIError ? error.response.status : "not-an-api-error",
+          error instanceof APIError
+            ? error.response.status
+            : "not-an-api-error",
       })
     }
   }
