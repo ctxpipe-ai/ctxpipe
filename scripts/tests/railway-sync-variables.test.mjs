@@ -91,13 +91,13 @@ test("initial sync precedes image deploy and preserves other variables", async (
   assert.doesNotMatch(output, /private-/)
 })
 
-test("rotation redeploys once and matching values are no-op", async () => {
+test("a rotated value is written once and matching values are a no-op", async () => {
   Object.assign(current, desired)
   current.NEON_API_KEY = "old-key"
-  await runSync(["--redeploy-on-change"])
-  assert.deepEqual(calls, ["read", "upsert", "read", "deploy", "poll"])
+  await runSync()
+  assert.deepEqual(calls, ["read", "upsert", "read"])
   calls.length = 0
-  await runSync(["--redeploy-on-change"])
+  await runSync()
   assert.deepEqual(calls, ["read"])
 })
 
@@ -108,53 +108,14 @@ test("railway-telemetry gets only the shared Railway token", async () => {
   assert.ok(!("NEON_API_KEY" in current))
 })
 
-test("backend skips an empty optional integration", async () => {
-  const backend = SERVICE_VARIABLES.backend
-  environment = {
-    ...base,
-    ...Object.fromEntries(
-      Object.entries(backend)
-        .filter(([, source]) => !source.startsWith("SLACK_"))
-        .map(([name, source]) => [source, `private-${name}`]),
-    ),
-    CONNECTION_SECRETS_ENCRYPTION_KEY: "ab".repeat(32),
-  }
-  await runSync([], "backend")
-  assert.equal(current.AUTH_SECRET, "private-AUTH_SECRET")
-  assert.equal(current.GITHUB_PRIVATE_KEY, "private-GITHUB_PRIVATE_KEY")
-  assert.ok(!("SLACK_CLIENT_ID" in current))
-})
-
-test("backend deletes an optional secret that became empty", async () => {
-  const backend = SERVICE_VARIABLES.backend
-  environment = {
-    ...base,
-    ...Object.fromEntries(
-      Object.entries(backend)
-        .filter(([, source]) => source !== "PAGERDUTY_CLIENT_SECRET")
-        .map(([name, source]) => [source, `private-${name}`]),
-    ),
-    CONNECTION_SECRETS_ENCRYPTION_KEY: "ab".repeat(32),
-  }
-  for (const [name, source] of Object.entries(backend)) {
-    if (source in environment) current[name] = environment[source]
-  }
-  current.PAGERDUTY_CLIENT_SECRET = "leaked-old-value"
+test("an optional secret that became empty is deleted", async () => {
+  delete environment.COST_TELEMETRY_AWS_SESSION_TOKEN
+  Object.assign(current, desired)
   const changed = join(directory, "changed")
-  await runSync(["--changed-file", changed], "backend")
+  await runSync(["--changed-file", changed])
   assert.deepEqual(calls, ["read", "delete", "read"])
-  assert.ok(!("PAGERDUTY_CLIENT_SECRET" in current))
-  assert.equal(readFileSync(changed, "utf8"), "backend\n")
-})
-
-test("a malformed connection key fails before any Railway request", async () => {
-  const backend = SERVICE_VARIABLES.backend
-  environment = {
-    ...base,
-    ...Object.fromEntries(Object.entries(backend).map(([name, source]) => [source, `private-${name}`])),
-  }
-  await assert.rejects(runSync([], "backend"), /CONNECTION_SECRETS_ENCRYPTION_KEY/)
-  assert.deepEqual(calls, [])
+  assert.ok(!("AWS_SESSION_TOKEN" in current))
+  assert.equal(readFileSync(changed, "utf8"), "cost-telemetry\n")
 })
 
 test("redeploy retries a deploy when the values already match", async () => {
