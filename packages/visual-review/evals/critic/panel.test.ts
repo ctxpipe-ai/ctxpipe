@@ -71,6 +71,7 @@ const cases: Case[] = [
   real("intended-agree"),
   real("intended-split"),
   real("intended-majority"),
+  real("intended-two-one"),
   {
     ...common("regression-1"),
     kind: "regression",
@@ -133,6 +134,7 @@ const script: Record<string, (PanelLabel | null)[]> = {
   "intended-agree": ["improvement", "improvement", "improvement"],
   "intended-split": ["improvement", "regression", "no-change"],
   "intended-majority": ["improvement", "no-change", "no-change"],
+  "intended-two-one": ["regression", "regression", "no-change"],
   "regression-1": ["regression", "regression", "regression"],
   "noise-1": ["no-change", "no-change", "improvement"],
   "mixed-1": ["regression", "regression", null],
@@ -230,7 +232,7 @@ test("a dry run labels each change case with the panel, and leaves the disagreem
   expect(code).toBe(0)
   // Each member judges each change case once. A new case has no before
   // image, so the panel does not judge it.
-  expect(calls).toHaveLength(3 * 6)
+  expect(calls).toHaveLength(3 * 7)
   expect(calls.some(({ story }) => story.includes("new-1"))).toBe(false)
   // The same prompt for each member, with the scope, the brief and the
   // rubric, and the images of the compare engine. No member sees a vote.
@@ -262,6 +264,9 @@ test("a dry run labels each change case with the panel, and leaves the disagreem
   })
   expect(byId.get("intended-agree")?.label).toBe("intended")
   expect(byId.get("intended-majority")?.label).toBe("noise")
+  // Two against one: a plain majority labels the real change a regression.
+  expect(byId.get("intended-two-one")?.panel?.label).toBe("regression")
+  expect(byId.get("intended-two-one")?.label).toBe("regression")
   // No agreement: the case leaves the scored set, for the owner queue.
   expect(byId.get("intended-split")?.panel?.label).toBeNull()
   expect(byId.get("intended-split")?.label).toBe("unsure")
@@ -273,13 +278,13 @@ test("a dry run labels each change case with the panel, and leaves the disagreem
   expect(byId.get("new-1")?.panel).toBeUndefined()
 
   expect(text).toContain(
-    "Real changes: 2 labeled (1 improvement, 0 regression, 1 no-change), 1 without agreement, for the owner queue: intended-split.",
+    "Real changes: 3 labeled (1 improvement, 1 regression, 1 no-change), 1 without agreement, for the owner queue: intended-split.",
   )
   expect(text).toContain(
     "Known labels: the panel label is right on 3 of 3 synthetic cases.",
   )
   expect(text).toContain("- vendor-c/judge: 1 of 3 votes right; 1 errors.")
-  expect(text).toContain("6 cases judged, $0.36 of the $40 cap.")
+  expect(text).toContain("7 cases judged, $0.42 of the $40 cap.")
 })
 
 test("a second run judges again only the cases with a failed vote, and keeps a label of the owner", async () => {

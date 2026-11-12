@@ -125,7 +125,11 @@ function pairsOf(
   return pairs.sort((x, y) => (x.trace < y.trace ? -1 : 1)).slice(0, count)
 }
 
-/** The brief, the images and the panel votes of a case, as Markdown. */
+/**
+ * The brief and the images of a case, as Markdown. A real change without
+ * panel agreement also shows the votes. A blind pick shows no votes: they name
+ * the models.
+ */
 function shown(entry: Case) {
   const image = (name: string, sha256: string) => {
     const url = `${releaseUrl}/${imageFile(sha256)}`
@@ -134,7 +138,7 @@ function shown(entry: Case) {
   return [
     `**Story:** \`${entry.storyId}\` (${entry.viewport.name})`,
     `**Brief:**\n\n${entry.brief ?? "(none)"}`,
-    ...(entry.panel
+    ...(entry.kind === "intended" && entry.panel?.label === null
       ? [
           `**Judge panel (no agreement):**\n\n${entry.panel.votes
             .map(
