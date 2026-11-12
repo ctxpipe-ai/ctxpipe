@@ -1,6 +1,7 @@
 # The images of a pull request for its AWS preview (ADR-061 decisions 5 and 19 to 24; factory CTX-1218). On each push
 # to a pull request from this repo, this builds the linux/arm64 images that a preview runs on Graviton (backend,
-# worker, ui) and pushes them to the preview account's ECR as `ctxpipe-pr/<image>:pr-<N>-<head sha>-<run>-<attempt>`.
+# worker, ui, codesearch) and pushes them to the preview account's ECR as
+# `ctxpipe-pr/<image>:pr-<N>-<head sha>-<run>-<attempt>`.
 # The factory preview workflow (`factory preview up <N>`) takes them by the digests that a successful run of this
 # workflow reported for the PR's head commit (factory machines/previews/pr, `images`).
 #
@@ -48,6 +49,8 @@ jobs:
             dockerfile: apps/backend/Dockerfile.worker
           - image: ui
             dockerfile: apps/ui/Dockerfile
+          - image: codesearch
+            dockerfile: apps/codesearch/Dockerfile
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -81,7 +84,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [backend, worker, ui]
+        image: [backend, worker, ui, codesearch]
     env:
       REGISTRY: 573018602187.dkr.ecr.us-west-2.amazonaws.com
       TAG: pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
