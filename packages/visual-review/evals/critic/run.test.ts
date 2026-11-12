@@ -821,12 +821,29 @@ test("a run that the spend cap stops before its first call gets no image", async
   expect(calls).toEqual([])
 })
 
-test("a capped run with workers at the same time gets only the images of the calls that it starts", async () => {
+test("a capped run with workers at the same time lets the calls in flight finish, and starts no call above the cap", async () => {
+  // Each call waits until all four workers made their call. Thus the four
+  // calls are in flight together, and no worker sees the cost of another
+  // call first. The result does not depend on the timing of the workers.
+  let arrive = () => {}
+  const allInFlight = new Promise<void>((done) => {
+    let arrived = 0
+    arrive = () => {
+      if (++arrived === 4) done()
+    }
+  })
+  const together = http.post(`${gateway}/chat/completions`, async () => {
+    arrive()
+    await allInFlight
+    // No response: msw gives the request to the next handler (`chat`).
+  })
   server.use(chat, releaseOf())
+  server.use(together)
   const cache = mkdtempSync(join(folder, "cache-"))
 
-  // Four workers start at $0.00. After their four calls, the spend of
-  // $0.04 is at the cap, so no other case starts and gets its images.
+  // Four workers start at $0.00 and their four calls finish. The spend of
+  // $0.04 is then above the cap of $0.03, so no other call starts and no
+  // other case gets its images.
   const { code, text } = await fromRelease(cache, [
     "--arms",
     "llm:anthropic/claude-test",
