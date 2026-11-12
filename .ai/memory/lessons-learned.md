@@ -616,6 +616,12 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Date:** 2026-10-19
 - **Source:** CTO correction during the README update for PR 280
 
+### A critic fix must not give up a requirement the owner chose
+- **Rule:** Sometimes a fix for a review finding would give up a requirement that the owner chose, for example continuous deployment, speed, or a simple workflow. Do not make that trade alone. Find a fix that keeps the requirement. If no such fix exists, state the trade-off and ask the owner. Example: a broad token that starts any workflow was first "fixed" with a cron job for deploys. The fix that kept continuous deployment was an ECR push event. It starts the workflow through an EventBridge API destination, and AWS holds the token as a guard.
+- **Category:** workflow
+- **Date:** 2026-11-10
+- **Source:** CTO correction during the ADR-061 review rounds
+
 ### The shared `ctxpipe_app` role on the host Postgres
 - **Rule:** Do not change the password or the attributes of `ctxpipe_app` on the shared host Postgres (port 5433). The role belongs to the whole server, not to one database, and each worktree and each agent logs in with `ctxpipe_app:ctxpipe`. When migrate runs with a new `DATABASE_APP_PASSWORD`, it changes that password. Do not run it against this server. A rehearsal or a test that needs its own app role uses its own containers, its own role, or its own server.
 - **Category:** testing
