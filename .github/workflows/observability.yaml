@@ -50,30 +50,8 @@ jobs:
       - name: Typecheck cost-telemetry
         run: pnpm --filter cost-telemetry typecheck
 
-  tags:
-    name: Observability image tags
-    if: github.repository == 'ctxpipe-ai/ctxpipe' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
-    timeout-minutes: 10
-    outputs:
-      cost-telemetry: ${{ steps.tags.outputs['cost-telemetry'] }}
-    steps:
-      - name: Checkout repository
-        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
-        with:
-          persist-credentials: false
-
-      - name: Image tags
-        id: tags
-        run: |
-          for service in cost-telemetry; do
-            sha="$(git rev-parse "HEAD:ops/observability/${service}")"
-            echo "${service}=ghcr.io/ctxpipe-ai/obs-${service}:${sha}" >> "$GITHUB_OUTPUT"
-          done
-
-  images:
-    name: Build observability images
-    needs: tags
+  image:
+    name: Build the cost-telemetry image
     if: github.repository == 'ctxpipe-ai/ctxpipe' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     # amd64: preserve image targets and run the amd64 Blacksmith cost-telemetry CLI.
     runs-on: blacksmith-4vcpu-ubuntu-2404
@@ -81,15 +59,15 @@ jobs:
     permissions:
       contents: read
       packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        service: [cost-telemetry]
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
         with:
           persist-credentials: false
+
+      - name: Image tag
+        id: tag
+        run: echo "image=ghcr.io/ctxpipe-ai/obs-cost-telemetry:$(git rev-parse HEAD:ops/observability/cost-telemetry)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Blacksmith Builder
         uses: useblacksmith/setup-docker-builder@v1
@@ -104,7 +82,7 @@ jobs:
       - name: Build and push image
         uses: useblacksmith/build-push-action@v2
         with:
-          context: ops/observability/${{ matrix.service }}
-          file: ops/observability/${{ matrix.service }}/Dockerfile
+          context: ops/observability/cost-telemetry
+          file: ops/observability/cost-telemetry/Dockerfile
           push: true
-          tags: ${{ needs.tags.outputs[matrix.service] }}
+          tags: ${{ steps.tag.outputs.image }}
