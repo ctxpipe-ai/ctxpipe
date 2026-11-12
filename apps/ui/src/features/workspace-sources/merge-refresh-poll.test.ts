@@ -173,6 +173,51 @@ describe("refresh after a source pull request merges", () => {
     })
   })
 
+  // The merge step of a setup dialog reads the list with its own poll
+  // (PullRequestsToMerge). It sees the pull request open, then the merge. The
+  // user closes the dialog and opens Workspace settings, which reads the
+  // same list. The app keeps a read fresh for 60 s, so the page does not read
+  // again on mount: only the poll can show the merged source.
+  it("polls the Sources list that opens after the setup dialog saw the merge", async () => {
+    let hits = 0
+    server.use(
+      http.get(
+        "http://localhost:3000/acme/api/v1/workspaces/context/sources",
+        () => {
+          hits += 1
+          return HttpResponse.json(sources(afterMerge(hits)))
+        },
+      ),
+    )
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] })
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: 60_000 } },
+    })
+    try {
+      const dialog = new QueryObserver(queryClient, {
+        ...workspaceSourcesOptions("acme", "context"),
+        refetchInterval: false,
+      })
+      const closeDialog = dialog.subscribe(() => {})
+      await vi.waitFor(() => expect(hits).toBe(1))
+      await dialog.refetch()
+      expect(hits).toBe(2)
+      closeDialog()
+
+      const settings = new QueryObserver(
+        queryClient,
+        workspaceSourcesOptions("acme", "context"),
+      )
+      const closeSettings = settings.subscribe(() => {})
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(hits).toBe(3)
+      closeSettings()
+    } finally {
+      queryClient.clear()
+      vi.useRealTimers()
+    }
+  })
+
   it("polls when one of two open pull requests merges", async () => {
     await observe(
       usedIn,
