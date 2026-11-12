@@ -16,10 +16,8 @@
 #   `env:`. A job with a secret installs no package: the Railway CLI is the
 #   pinned release binary, checked against the sha256 in this file.
 # - scripts/ci/check-secret-jobs.mjs keeps these rules true. The token never
-#   goes into a preview service variable. The preview backend wakes its
-#   worker with a Railway project token that the deploy creates for the
-#   preview environment only (scripts/preview-own-secrets.sh), and that the
-#   PR-close cleanup revokes.
+#   goes into a preview service variable, and no other Railway token does
+#   either (scripts/preview-own-secrets.sh).
 #   Limit: GitHub runs this file from the branch, so a person who can push a
 #   branch can change this file. Required reviewers on `Preview` would be
 #   the control for that case.

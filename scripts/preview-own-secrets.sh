@@ -8,9 +8,8 @@
 #   backend, worker, ui and codesearch (codesearch checks backend JWTs with
 #   AUTH_SECRET). Connection secrets copied from production do not decrypt on
 #   the preview.
-# - RAILWAY_TOKEN on the backend (worker wake): a Railway project token that
-#   Railway scopes to this preview environment only. The script never writes
-#   the workspace token RAILWAY_API_TOKEN into a service variable.
+# - No Railway token goes into a service variable: the backend has no use for
+#   one (the worker no longer needs a wake), and branch code runs there.
 #
 # - The `jwkss` rows: the Neon branch copies the production JWKS keys, whose
 #   private keys the production AUTH_SECRET encrypted. The step deletes them in
@@ -36,7 +35,7 @@ preview_own_secrets_mask() {
 }
 
 sync_preview_own_secrets() {
-  local name marker auth_secret connection_key wake_token
+  local name marker auth_secret connection_key
   for name in RAILWAY_PROJECT_ID ENV_ID PR_ENV BACKEND_SERVICE_ID WORKER_SERVICE_ID UI_SERVICE_ID CODESEARCH_SERVICE_ID; do
     if [[ -z "${!name:-}" ]]; then
       echo "preview-own-secrets: $name is required" >&2
@@ -46,7 +45,7 @@ sync_preview_own_secrets() {
   marker="$(service_vars "$ENV_ID" "$BACKEND_SERVICE_ID" PREVIEW_OWN_SECRETS \
     | jq -r '.PREVIEW_OWN_SECRETS // ""')" || return 1
   if [[ "$marker" == "v1" ]]; then
-    echo "Preview $PR_ENV keeps its own AUTH_SECRET, connection-secrets key and wake token"
+    echo "Preview $PR_ENV keeps its own AUTH_SECRET and connection-secrets key"
     return 0
   fi
 
@@ -54,17 +53,6 @@ sync_preview_own_secrets() {
   connection_key="$(openssl rand -hex 32)"
   preview_own_secrets_mask "$auth_secret"
   preview_own_secrets_mask "$connection_key"
-  wake_token="$(railway_graphql \
-    'mutation projectTokenCreate($input: ProjectTokenCreateInput!) { projectTokenCreate(input: $input) }' \
-    "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg name "$PR_ENV worker wake" \
-      '{input:{projectId:$project, environmentId:$env, name:$name}}')" \
-    | jq -r '.data.projectTokenCreate // empty')" || wake_token=""
-  if [[ -z "$wake_token" ]]; then
-    echo "preview-own-secrets: Railway did not create a project token for $PR_ENV (projectTokenCreate)." >&2
-    echo "preview-own-secrets: the backend must not wake the worker with the workspace token RAILWAY_API_TOKEN, so the deploy stops." >&2
-    return 1
-  fi
-  preview_own_secrets_mask "$wake_token"
 
   if [[ -n "${OWNER_DB_URL:-}" ]]; then
     psql "$OWNER_DB_URL" -v ON_ERROR_STOP=1 -qc 'DELETE FROM jwkss' >/dev/null || {
@@ -80,9 +68,9 @@ sync_preview_own_secrets() {
     "$(jq -nc --arg auth "$auth_secret" --arg key "$connection_key" \
       '{AUTH_SECRET:$auth, CONNECTION_SECRETS_ENCRYPTION_KEY:$key}')" \
     "$WORKER_SERVICE_ID" "$UI_SERVICE_ID" "$CODESEARCH_SERVICE_ID" || return 1
-  upsert_service_vars "own AUTH_SECRET, connection-secrets key and environment-scoped wake token" \
-    "$(jq -nc --arg auth "$auth_secret" --arg key "$connection_key" --arg token "$wake_token" \
-      '{AUTH_SECRET:$auth, CONNECTION_SECRETS_ENCRYPTION_KEY:$key, RAILWAY_TOKEN:$token, PREVIEW_OWN_SECRETS:"v1"}')" \
+  upsert_service_vars "own AUTH_SECRET and connection-secrets key" \
+    "$(jq -nc --arg auth "$auth_secret" --arg key "$connection_key" \
+      '{AUTH_SECRET:$auth, CONNECTION_SECRETS_ENCRYPTION_KEY:$key, PREVIEW_OWN_SECRETS:"v1"}')" \
     "$BACKEND_SERVICE_ID" || return 1
   echo "Preview $PR_ENV now has its own AUTH_SECRET and connection-secrets key. Connection secrets copied from production do not decrypt on it."
 }

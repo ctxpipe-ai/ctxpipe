@@ -67,8 +67,7 @@ for secret in scoped-token-value account-token-value production-auth; do
   fi
 done
 printf '%s' "$out" | grep -Fq "do not decrypt" || fail "sync should say that production connection secrets do not decrypt"
-jq -e '.input == {projectId:"proj_test", environmentId:"env_preview", name:"pr-7 worker wake"}' "$tmp/new/mints" >/dev/null \
-  || fail "the wake token must be scoped to the preview environment"
+[[ ! -s "$tmp/new/mints" ]] || fail "sync must not mint a Railway project token"
 jq -se '
   map(.input) as $rows
   | ($rows | map(.serviceId)) == ["svc_worker", "svc_ui", "svc_codesearch", "svc_backend"]
@@ -79,10 +78,10 @@ jq -se '
   and ($rows[0].variables.CONNECTION_SECRETS_ENCRYPTION_KEY | test("^[0-9a-f]{64}$"))
   and $rows[0].variables.AUTH_SECRET != $rows[0].variables.CONNECTION_SECRETS_ENCRYPTION_KEY
   and ($rows[0:3] | all(.variables | keys == ["AUTH_SECRET", "CONNECTION_SECRETS_ENCRYPTION_KEY"]))
-  and $rows[3].variables.RAILWAY_TOKEN == "scoped-token-value"
+  and ($rows[3].variables | has("RAILWAY_TOKEN") | not)
   and $rows[3].variables.PREVIEW_OWN_SECRETS == "v1"
 ' "$tmp/new/upserts" >/dev/null \
-  || fail "every service should get one new AUTH_SECRET and key; the backend last, with the scoped token and the marker"
+  || fail "every service should get one new AUTH_SECRET and key; the backend last, with the marker and no Railway token"
 if grep -Fq "account-token-value" "$tmp/new/upserts"; then
   fail "the workspace token must never reach a service variable"
 fi
@@ -99,11 +98,6 @@ out="$(MARKER=v1 TOKEN=scoped-token-value DB_URL=postgresql://owner@preview-bran
 [[ ! -s "$tmp/kept/upserts" && ! -s "$tmp/kept/mints" && ! -s "$tmp/kept/psql" ]] \
   || fail "a preview that has its own secrets keeps them for its life"
 
-if out="$(MARKER="" TOKEN="" run_sync "$tmp/no-token" 2>&1)"; then
-  fail "sync should fail when Railway does not create the scoped token"
-fi
-printf '%s' "$out" | grep -Fq "projectTokenCreate" || fail "the error should name projectTokenCreate: $out"
-[[ ! -s "$tmp/no-token/upserts" ]] || fail "nothing should be written without the scoped token"
 
 # The deploy job must not give the workspace token to steps that run branch code
 # (pnpm install, migrations), and must not write it into a service variable.
