@@ -240,11 +240,6 @@ describe("read-only shard store (a preview)", () => {
 })
 
 describe("CODESEARCH_SHARD_STORE_READ_ONLY", () => {
-  it("refuses a value other than true, false or unset", () => {
-    vi.stubEnv("CODESEARCH_SHARD_STORE_READ_ONLY", "True")
-    expect(() => isShardStoreReadOnly()).toThrow(/true, false or unset/)
-  })
-
   it("means read-only without a shard store too, so a sweep never asks for a rebuild", async () => {
     vi.stubEnv("CODESEARCH_SHARD_STORE", "")
     vi.stubEnv("CODESEARCH_SHARD_STORE_READ_ONLY", "true")

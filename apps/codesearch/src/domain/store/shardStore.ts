@@ -89,9 +89,11 @@ export function shardStore(): ShardStore | null {
  * or sweeps in S3.
  *
  * This flag is not the security boundary: a preview runs code that nobody
- * reviewed yet. The boundary is the IAM role of the preview task, which may
- * only get and list objects under the production prefix (no put, no delete).
- * The flag only keeps a preview from trying writes that its role refuses.
+ * reviewed yet. On AWS (ADR-061), the boundary is the preview codesearch task
+ * role, which may only get and list objects under the production prefix (no
+ * put, no delete). The flag only keeps a preview from trying writes that its
+ * role refuses. Railway previews copy the production variables, so the store
+ * is not for Railway: do not set it or AWS keys on a Railway codesearch.
  */
 export function writableShardStore(): ShardStore | null {
   return isShardStoreReadOnly() ? null : shardStore()
@@ -100,7 +102,8 @@ export function writableShardStore(): ShardStore | null {
 /**
  * True when `CODESEARCH_SHARD_STORE_READ_ONLY=true` (a preview). Any value
  * other than `true`, `false` or unset stops the start (fail-closed): a typo
- * must not make a preview writable.
+ * must not make a preview writable. An empty value is unset, as in
+ * `parseEnv` (a cleared Railway variable is an empty string).
  */
 export function isShardStoreReadOnly(): boolean {
   const value = process.env["CODESEARCH_SHARD_STORE_READ_ONLY"] || "false"

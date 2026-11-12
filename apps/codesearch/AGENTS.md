@@ -31,8 +31,9 @@ These instructions supplement the repository-root `AGENTS.md`.
   (previews) fetches but never uploads, deletes or sweeps in S3, the sweep
   never reports `publishedMissing`, and shards built in the preview are never
   evicted. Any other value than `true`, `false` or unset stops the start. The
-  flag is not the security boundary: the preview task role may only get and
-  list objects. Unset means local only (Compose, self-host). Tests use
+  flag is not the security boundary: on AWS (ADR-061) the preview codesearch
+  task role may only get and list objects. Railway previews copy production
+  variables, so do not set the store or AWS keys on a Railway codesearch. Unset means local only (Compose, self-host). Tests use
   `rclone serve s3` (`src/test/s3Server.ts`).
 
 ## Logging (evlog)
