@@ -250,6 +250,11 @@ if OBSERVABILITY_OTLP_HEADERS="CF-Access-Client-Secret = prod-secret , CF-Access
   run_sync "$same" "$tmp/reordered" >/dev/null 2>&1; then
   fail "sync should fail when the Preview headers hold production's secret in another order"
 fi
+# A duplicate header could hide production's secret behind a different first value.
+if OBSERVABILITY_OTLP_HEADERS="CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret,CF-Access-Client-Secret=prod-secret" \
+  run_sync "$same" "$tmp/duplicate" >/dev/null 2>&1; then
+  fail "sync should fail when the Preview headers repeat a header"
+fi
 # A production backend without the headers: nothing to compare with, so fail closed.
 if OBSERVABILITY_OTLP_HEADERS="CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret" \
   run_sync "" "$tmp/no-prod-headers" >/dev/null 2>&1; then

@@ -27,12 +27,11 @@ preview_otel_vars_build() {
   }'
 }
 
-# One header's value from an OTLP header list (`Name=value,Name=value`), by name, trimmed.
-otlp_header_value() {
+# Every value of one header in an OTLP header list (`Name=value,Name=value`), by name, trimmed, one per line.
+otlp_header_values() {
   local headers="$1" name="$2"
   printf '%s' "$headers" | jq -Rr --arg name "$name" '
-    [split(",")[] | capture("^\\s*(?<k>[^=]+?)\\s*=\\s*(?<v>.*?)\\s*$")? | select((.k | ascii_downcase) == ($name | ascii_downcase)) | .v]
-    | first // ""'
+    split(",")[] | capture("^\\s*(?<k>[^=]+?)\\s*=\\s*(?<v>.*?)\\s*$")? | select((.k | ascii_downcase) == ($name | ascii_downcase)) | .v'
 }
 
 # A missing Preview secret falls back to a repository secret of the same name, so the token is compared with
@@ -40,19 +39,25 @@ otlp_header_value() {
 # without the headers, or one that cannot be read fails the deploy. It reads only OTEL_EXPORTER_OTLP_HEADERS of the
 # production backend and prints no value.
 check_preview_otel_differs_from_production() {
-  local prod prod_headers name prod_value same=""
+  local prod prod_headers name prod_value preview_values same=""
   if ! prod="$(production_backend_vars OTEL_EXPORTER_OTLP_HEADERS)"; then
     echo "preview-otel-vars: cannot read the production OTEL headers to compare." >&2
     return 1
   fi
   prod_headers="$(printf '%s' "$prod" | jq -r '.OTEL_EXPORTER_OTLP_HEADERS // ""')"
   for name in CF-Access-Client-Id CF-Access-Client-Secret; do
-    prod_value="$(otlp_header_value "$prod_headers" "$name")"
+    prod_value="$(otlp_header_values "$prod_headers" "$name" | head -1)"
     if [[ -z "$prod_value" ]]; then
       echo "preview-otel-vars: the production backend has no $name in its OTEL headers, so the deploy cannot prove that the Preview token is different." >&2
       return 1
     fi
-    [[ "$(otlp_header_value "${OBSERVABILITY_OTLP_HEADERS:-}" "$name")" == "$prod_value" ]] && same+=" $name"
+    preview_values="$(otlp_header_values "${OBSERVABILITY_OTLP_HEADERS:-}" "$name")"
+    # One value per header: a second one could carry production's token behind a different first one.
+    if (($(printf '%s' "$preview_values" | grep -c '') > 1)); then
+      echo "preview-otel-vars: the Preview OBSERVABILITY_OTLP_HEADERS has $name more than once." >&2
+      return 1
+    fi
+    [[ "$preview_values" == "$prod_value" ]] && same+=" $name"
   done
   if [[ -n "$same" ]]; then
     echo "preview-otel-vars: the Preview OBSERVABILITY_OTLP_HEADERS has production's token:${same}." >&2
