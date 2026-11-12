@@ -25,7 +25,7 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - Access to the state: the deploy role of the account can read and write the state and use the state key; the read-only plan role can only read it. Only the guard role can read or write the prefix of the guard stack and use its key. The plan role cannot. Workload roles, for example preview tasks, can read no state.
     - High-value secrets stay out of the Pulumi state, so that the plan role can read the state safely. AWS manages the Aurora master password. The production application secrets keep their current values (decision 12): a person copies them into Secrets Manager once, at the cutover. Secrets Manager generates only the secrets of new resources and of previews. The guard job writes the tunnel tokens, and Pulumi never reads them.
     - Stacks: each environment is one Pulumi stack. Each preview is one Pulumi stack too.
-    - Projects: `machines/hosted` holds production. `machines/previews` holds every preview stack: `base`, `pr` and `data` (decision 21). aws-core holds only the core of the organization (the CTO, 2026-11-12). The code-owned list of decision 7 names it. Every other resource inside an account lives in a Pulumi machine. `machines/observability` holds the observability stack, so that a failed `hosted` update does not block it. The edge stack has its own folder.
+    - Projects: `machines/hosted` holds production. `machines/previews` holds every preview stack: `base`, `pr` and `data` (decision 21). aws-core holds only the core of the organization (the CTO, 2026-11-12). The code-owner list of decision 5 names it. aws-core also keeps the governance of the management account: the org CloudTrail, Access Analyzer, the budgets and the cost monitor. Every other resource inside an account lives in a Pulumi machine. `machines/observability` holds the observability stack, so that a failed `hosted` update does not block it. The edge stack has its own folder.
     - Configuration:
         - Each stack's `Pulumi.<stack>.yaml` holds its plain values: the account, the region, the sizes and the host names. It holds no secret.
         - The production image digests are in `machines/hosted/Pulumi.production.yaml`. Deploys are continuous and event-driven, with no polling. A build of ctxpipe `main` pushes an image to the production ECR. An EventBridge rule on that push then calls GitHub's `workflow_dispatch` for the factory digest workflow, through an EventBridge API destination. That workflow opens the pull request that changes the digests. It changes only the `images` key, and a check fails the pull request if it changes another line. The digest workflow ignores digests in its dispatch input: it reads each digest from the production ECR. The GitHub token of the API destination has only `actions:write` on the factory repo. It lives in the EventBridge connection in the production account, the guard job writes it, and no repo code can read it. The ctxpipe repo holds no credential for the factory repo. An agent merges the pull request when the merge gate passes. Thus `main` always holds what runs, and a change to the infrastructure only does not roll back an image.
@@ -97,17 +97,24 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
         - It can put clones only in the preview-data subnet group.
     - The preview's migrate task sets new passwords for the database roles before it runs the migrations.
 21. The preview infrastructure has three parts, all in `machines/previews` (the CTO, 2026-11-12: "preview should never be in aws-core"; "previews should be in pulumi in its own machine"):
-    - `base`, in the preview account: the network, a router in the preview VPC that sends each host name to its preview, and one preview AgentCore runtime. The preview deploy role deploys it from `main`.
+    - `base`, in the preview account: the network, a router in the preview VPC that sends each host name to its preview, and one preview AgentCore runtime.
     - `data`, in the production account: the preview-data VPC, the production side of the peering, the `preview-db` role, and the bucket policies that give the preview account read access to the codesearch shard prefix and the FalkorDB backups.
-    - A previews role in each of the production and preview accounts deploys `base` and `data` from `main`. aws-core makes these roles. Each has its own boundary, and that boundary is the hard limit. It allows only these cross-account actions:
-        - the peering between the preview-data VPC and the preview VPC, and no other peering;
-        - the `preview-db` role, only with the trust and the limits of decision 20;
-        - bucket policies only on the shard and dump buckets, with read only, on the named prefixes, for the preview account's named roles.
+    - The `previews` role deploys `base` and `data` from `main`. aws-core makes one `previews` role in the production account and one in the preview account. In the preview account, it is the `preview-deploy` role of decision 19.
+    - OIDC trust of each `previews` role: only the `preview` environment on `main`, and only the named previews workflow files (`job_workflow_ref`), as for the deploy roles.
+    - State of each `previews` role: only the `previews/` prefix of its account's state bucket. It cannot read the state of `hosted` or of a guard stack.
+    - The boundary of each `previews` role limits which resources it can change. It allows the cross-account actions only on these resources:
+        - a peering whose accepter VPC carries the previews tag;
+        - roles under `role/ctxpipe/preview-`, with the workload boundary;
+        - bucket policies on the shard and dump buckets only.
+    - IAM cannot limit the content of a trust policy or a bucket policy. These limits hold the content:
+        - A resource control policy (RCP) of the organization denies S3 access and role assumption to principals outside the organization. So no grant can reach an outside account.
+        - The policy pack checks the content against the forms of decisions 20 and 21: the `preview-db` trust and limits, and read only on the named prefixes for the preview account's named roles.
+        - The nightly audit compares the deployed policies with these forms.
     - The normal deploy role keeps its deny on all cross-account actions.
     - `data` finds the buckets and the cluster of `hosted` by their fixed names (decision 5). The preview VPC id comes from a fixed value in `Pulumi.data.yaml`. `data` requests the peering, and `base` accepts it in the preview account.
     - `data` keeps its state in the production account's state bucket. `base` and `pr` keep theirs in the preview account. No preview stack reads the outputs of `data`.
     - The policy pack also checks each cross-account statement against the same forms.
-    - Accepted design (the CTO, 2026-11-12): a change to `machines/previews` merges on the merge gate. Within the previews boundary, such a change can change the path from preview code to production customer data. The nightly audit checks it.
+    - Accepted design (the CTO, 2026-11-12): a change to `machines/previews` merges on the merge gate. Such a change can replace the policy pack. It can then widen the path from preview code to production customer data, but only inside the organization (the RCP) and only on the resources that the `previews` boundary names. The nightly audit finds such a change after the merge.
     - `pr`: one small stack for each preview.
 
      The edge stack holds the Cloudflare parts of previews: one wildcard DNS record, one tunnel rule for the preview host names, and the Access apps.
