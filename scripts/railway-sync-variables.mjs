@@ -9,42 +9,7 @@ import { parseArgs } from "node:util"
 import { pathToFileURL } from "node:url"
 
 // Railway variable -> GitHub Environment secret, for each Railway service.
-const PRODUCT_APP = {
-  "AUTH_SECRET": "BETTER_AUTH_SECRET",
-  "CONNECTION_SECRETS_ENCRYPTION_KEY": "CONNECTION_SECRETS_ENCRYPTION_KEY",
-  "MODEL_PROVIDER_API_KEY": "MODEL_PROVIDER_API_KEY",
-  "SMTP_CONNECTION_URL": "SMTP_CONNECTION_URL",
-  "GITHUB_PRIVATE_KEY": "GH_PRIVATE_KEY",
-  "GITHUB_CLIENT_SECRET": "GH_CLIENT_SECRET",
-  "GITHUB_WEBHOOK_SECRET": "GH_WEBHOOK_SECRET",
-  "ATLASSIAN_CLIENT_ID": "ATLASSIAN_CLIENT_ID",
-  "ATLASSIAN_CLIENT_SECRET": "ATLASSIAN_CLIENT_SECRET",
-  "NOTION_CLIENT_ID": "NOTION_CLIENT_ID",
-  "NOTION_CLIENT_SECRET": "NOTION_CLIENT_SECRET",
-  "NOTION_WEBHOOK_SECRET": "NOTION_WEBHOOK_SECRET",
-  "SLACK_CLIENT_ID": "SLACK_CLIENT_ID",
-  "SLACK_CLIENT_SECRET": "SLACK_CLIENT_SECRET",
-  "SLACK_SIGNING_SECRET": "SLACK_SIGNING_SECRET",
-  "LINEAR_CLIENT_ID": "LINEAR_CLIENT_ID",
-  "LINEAR_CLIENT_SECRET": "LINEAR_CLIENT_SECRET",
-  "LINEAR_WEBHOOK_SECRET": "LINEAR_WEBHOOK_SECRET",
-  "PAGERDUTY_CLIENT_ID": "PAGERDUTY_CLIENT_ID",
-  "PAGERDUTY_CLIENT_SECRET": "PAGERDUTY_CLIENT_SECRET",
-  "VERCEL_TOKEN": "VERCEL_ACCESS_TOKEN",
-  "OTEL_EXPORTER_OTLP_HEADERS": "OBSERVABILITY_OTLP_HEADERS",
-  "BETTER_AUTH_API_KEY": "BETTER_AUTH_API_KEY",
-  "CONFLUENCE_FORGE_INSTALL_URL": "CONFLUENCE_FORGE_INSTALL_URL",
-}
 export const SERVICE_VARIABLES = {
-  // Product project (GitHub Environment `production`).
-  backend: PRODUCT_APP,
-  openworkflow: PRODUCT_APP,
-  codesearch: {
-    "AUTH_SECRET": "BETTER_AUTH_SECRET",
-    "OTEL_EXPORTER_OTLP_HEADERS": "OBSERVABILITY_OTLP_HEADERS",
-  },
-  ui: {"OTEL_EXPORTER_OTLP_HEADERS": "OBSERVABILITY_OTLP_HEADERS"},
-  falkordb: {"FALKORDB_PASSWORD": "FALKORDB_PASSWORD"},
   // Observability project (GitHub Environment `observability`).
   clickhouse: {
     "CLICKHOUSE_OTEL_PASSWORD": "CLICKHOUSE_OTEL_PASSWORD",
@@ -89,20 +54,7 @@ export const SERVICE_VARIABLES = {
 // Secrets that may be empty. An empty one is deleted from the service, so the
 // service turns that integration off and an old value does not stay live.
 const OPTIONAL = new Set([
-  "SLACK_CLIENT_ID",
-  "SLACK_CLIENT_SECRET",
-  "SLACK_SIGNING_SECRET",
-  "LINEAR_CLIENT_ID",
-  "LINEAR_CLIENT_SECRET",
-  "LINEAR_WEBHOOK_SECRET",
-  "PAGERDUTY_CLIENT_ID",
-  "PAGERDUTY_CLIENT_SECRET",
   "COST_TELEMETRY_AWS_SESSION_TOKEN",
-  "BETTER_AUTH_API_KEY",
-  "CONFLUENCE_FORGE_INSTALL_URL",
-  // Optional for now: production has no value yet. Without it, the backend
-  // refuses each Notion webhook that has no stored verification token.
-  "NOTION_WEBHOOK_SECRET",
 ])
 // Variables that no code uses any more. The sync deletes them from each
 // service it writes.
@@ -115,7 +67,6 @@ const RETIRED = new Set([
 ])
 // Checked before any write, so a bad value never reaches a service.
 const FORMATS = {
-  CONNECTION_SECRETS_ENCRYPTION_KEY: /^[0-9a-fA-F]{64}$/,
   LANGFUSE_ENCRYPTION_KEY: /^[0-9a-fA-F]{64}$/,
 }
 
@@ -171,7 +122,6 @@ export async function main(
   const { values: args } = parseArgs({
     args: argv,
     options: {
-      "redeploy-on-change": { type: "boolean" },
       // Redeploys even when no value changed: a re-run, after an attempt that
       // wrote the values but whose redeploy failed.
       redeploy: { type: "boolean" },
@@ -250,8 +200,8 @@ export async function main(
     )
   }
   // variableDelete has no skipDeploys, so a delete can redeploy the service
-  // on its current image. It happens when an optional connector is turned
-  // off. The service then starts without it.
+  // on its current image. It happens when an optional secret is turned off.
+  // The service then starts without it.
   for (const name of removed) {
     await graphql(
       "mutation variableDelete($input: VariableDeleteInput!) { variableDelete(input: $input) }",
@@ -276,7 +226,7 @@ export async function main(
     }
   }
 
-  if (!(args.redeploy || (args["redeploy-on-change"] && (changedCount || removed.length)))) {
+  if (!args.redeploy) {
     return
   }
   let data = await graphql(
