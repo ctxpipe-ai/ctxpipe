@@ -127,7 +127,7 @@ export async function retireVercelSandboxes(input: {
       // The error text can hold a snapshot id: log only the kind and status.
       log.warn({
         step: "retire-vercel-sandboxes",
-        message: `Retiring a ${row.kind} sandbox failed`,
+        message: `Retiring a sandbox failed (kind ${row.kind})`,
         kind: row.kind,
         status:
           error instanceof APIError ? error.response.status : "not-an-api-error",
