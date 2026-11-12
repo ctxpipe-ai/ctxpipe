@@ -1680,7 +1680,9 @@ jobs:
     # The Nightly change job before the manifest job is skipped on a PR. A job
     # whose condition has no status function then is skipped too, so the
     # condition starts with !cancelled().
-    if: "!cancelled() && needs.merge-gate-manifest.outputs.mode == 'select'"
+    if: |
+      !cancelled() &&
+      needs.merge-gate-manifest.outputs.mode == 'select'
     continue-on-error: true
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     permissions:
@@ -1902,7 +1904,9 @@ jobs:
     name: Merge gate LLM selection
     needs: merge-gate-select
     # !cancelled(): the Nightly change job is skipped on a PR (see the select job).
-    if: "!cancelled() && needs.merge-gate-select.result == 'success'"
+    if: |
+      !cancelled() &&
+      needs.merge-gate-select.result == 'success'
     continue-on-error: true
     environment: workbench
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
