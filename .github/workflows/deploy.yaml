@@ -601,8 +601,11 @@ jobs:
   # Once, when production switches to the new collector (CTX-1216): roll each
   # open preview on the images of its deployed head, so its OTEL sync compares
   # its token with production's and sets its variables. Each roll is
-  # pr-preview-roll-existing.yaml, run from the PR branch as a person would.
-  # The job holds no secret: the GitHub token dispatches the rolls.
+  # pr-preview-roll-existing.yaml run from main: main's reviewed workflow and
+  # scripts hold the Preview secrets, and the PR's head selects only the
+  # images. A branch's own older scripts could copy production's new OTEL
+  # token into its preview. The job holds no secret: the GitHub token
+  # dispatches the rolls.
   roll_previews_onto_collector:
     timeout-minutes: 10
     name: Roll open previews onto the new collector
@@ -631,8 +634,8 @@ jobs:
                 echo "PR #$number: no successful PR Deploy of its head; skipped"
                 continue
               fi
-              gh workflow run pr-preview-roll-existing.yaml --repo "$REPO" --ref "$ref" \
-                -f pr_number="$number" -f head_sha="$sha"
+              gh workflow run pr-preview-roll-existing.yaml --repo "$REPO" --ref "$GITHUB_REF_NAME" \
+                -f pr_number="$number" -f head_sha="$sha" -f pr_branch="$ref"
               echo "PR #$number: roll dispatched"
             done
 

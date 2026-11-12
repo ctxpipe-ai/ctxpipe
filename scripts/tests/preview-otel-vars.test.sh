@@ -317,8 +317,14 @@ if printf '%s' "$out" | grep -Eq 'old-ingest-key|prod-secret'; then fail "the sw
 deploy_workflow="$root/.github/workflows/deploy.yaml"
 grep -Fq 'production_otel_switches_to_access "$OBSERVABILITY_OTLP_HEADERS"' "$deploy_workflow" \
   || fail "deploy.yaml must check whether production switches to the Access token"
-grep -Fq 'gh workflow run pr-preview-roll-existing.yaml' "$deploy_workflow" \
-  || fail "deploy.yaml must roll the open previews after the switch"
+grep -Fq 'gh workflow run pr-preview-roll-existing.yaml --repo "$REPO" --ref "$GITHUB_REF_NAME"' "$deploy_workflow" \
+  || fail "deploy.yaml must roll the open previews from main after the switch, never with a branch's own scripts"
+grep -Fq -- '-f pr_branch="$ref"' "$deploy_workflow" || fail "deploy.yaml must name the PR branch of each roll"
+roll_workflow="$root/.github/workflows/pr-preview-roll-existing.yaml"
+grep -Fq 'group: pr-deploy-${{ inputs.pr_branch || github.ref_name }}' "$roll_workflow" \
+  || fail "a roll from main must hold the concurrency group of the PR branch"
+grep -Fq '"$(jq -r .head.sha <<<"$pr_json")" != "$HEAD_SHA"' "$roll_workflow" \
+  || fail "a roll from main must take only the PR's head as its images"
 switch_line="$(grep -n 'production_otel_switches_to_access' "$deploy_workflow" | head -1 | cut -d: -f1)"
 sync_line="$(grep -n 'name: Sync production secrets to Railway' "$deploy_workflow" | cut -d: -f1)"
 ((switch_line < sync_line)) || fail "deploy.yaml must read production's headers before the sync changes them"
