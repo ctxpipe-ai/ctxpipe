@@ -1,5 +1,13 @@
 import { eq } from "drizzle-orm"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 
 import {
   closeDb,
@@ -15,6 +23,7 @@ import {
 } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
 import { getSandboxInstance } from "../../models/workspaces.js"
+import { sweepConversationSandboxes } from "./conversation-sandbox-lifecycle.js"
 import {
   collectUnusedWorkspaceBases,
   destroyWorkspaceSandbox,
@@ -34,6 +43,9 @@ beforeAll(() => {
 })
 afterAll(async () => {
   await closeDb()
+})
+afterEach(() => {
+  vi.unstubAllEnvs()
 })
 
 /** An org with one Workspace, one conversation, and old Vercel rows. */
@@ -131,7 +143,25 @@ describe("old Vercel sandbox rows (Postgres)", () => {
     })
   })
 
-  it("deletes a failed Vercel Workspace base row at the sweep, so it does not come back", async () => {
+  it("deletes a failed Vercel Workspace base row at the hosted sweep, where AgentCore has no bases", async () => {
+    vi.stubEnv("SANDBOX_PROVIDER", "agentcore")
+    vi.stubEnv(
+      "AGENTCORE_RUNTIME_ARN",
+      "arn:aws:bedrock-agentcore:us-west-2:111122223333:runtime/ctxpipe-abc",
+    )
+    await withVercelRows(async ({ orgId, baseId }) => {
+      const now = new Date()
+      const { nextSweepAt } = await sweepConversationSandboxes(orgId, now)
+      expect(await getSandboxInstance(baseId, orgId)).toBeNull()
+      // The base schedules no retry: the next sweep is the conversation
+      // sandbox's own delete time, days away.
+      expect(
+        nextSweepAt?.getTime() ?? Number.POSITIVE_INFINITY,
+      ).toBeGreaterThan(now.getTime() + 24 * 60 * 60_000)
+    })
+  })
+
+  it("deletes a failed Vercel Workspace base row at the base cleanup, so it does not come back", async () => {
     await withVercelRows(async ({ orgId, workspaceId, baseId }) => {
       expect(
         await collectUnusedWorkspaceBases({
