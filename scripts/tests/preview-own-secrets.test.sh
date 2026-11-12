@@ -21,6 +21,7 @@ run_sync() {
   : >"$tmp/psql"
   : >"$tmp/revokes"
   : >"$tmp/deletes"
+  : >"$tmp/order"
   (
     # shellcheck disable=SC1090
     source "$script"
@@ -40,10 +41,12 @@ run_sync() {
           fi
           ;;
         *projectTokenDelete*)
+          echo revoke >>"$tmp/order"
           printf '%s\n' "$2" >>"$tmp/revokes"
           echo '{"data":{"projectTokenDelete":true}}'
           ;;
         *variableDelete*)
+          echo delete >>"$tmp/order"
           printf '%s\n' "$2" >>"$tmp/deletes"
           echo '{"data":{"variableDelete":true}}'
           ;;
@@ -53,6 +56,7 @@ run_sync() {
           jq -nc --arg t "$TOKEN" '{data:{projectTokenCreate:$t}}'
           ;;
         *variableCollectionUpsert*)
+          echo upsert >>"$tmp/order"
           printf '%s\n' "$2" >>"$tmp/upserts"
           echo '{"data":{"variableCollectionUpsert":true}}'
           ;;
@@ -131,6 +135,8 @@ jq -se 'map(.id) == ["tok_preview"]' "$tmp/legacy/revokes" >/dev/null \
 jq -e '.input.name == "RAILWAY_TOKEN" and .input.serviceId == "svc_backend"' "$tmp/legacy/deletes" >/dev/null \
   || fail "an unmarked preview should also lose RAILWAY_TOKEN"
 grep -q "PREVIEW_OWN_SECRETS" "$tmp/legacy/upserts" || fail "an unmarked preview still gets its own secrets"
+[[ "$(head -1 "$tmp/legacy/order")" == "revoke" && "$(tail -1 "$tmp/legacy/order")" == "delete" ]] \
+  || fail "revoke first, and delete RAILWAY_TOKEN (which redeploys) only after the own secrets: $(tr '\n' ' ' <"$tmp/legacy/order")"
 
 
 # The deploy job must not give the workspace token to steps that run branch code
