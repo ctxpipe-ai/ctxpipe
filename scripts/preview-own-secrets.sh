@@ -43,8 +43,9 @@ drop_preview_wake_token() {
   local has_token token_ids id after page
   has_token="$(service_vars "$ENV_ID" "$BACKEND_SERVICE_ID" RAILWAY_TOKEN \
     | jq -r 'has("RAILWAY_TOKEN")')" || return 1
-  PREVIEW_HAD_WAKE_TOKEN=false
-  [[ "$has_token" == "true" ]] || return 0
+  # The variable decides only the delete: a token of this environment is
+  # revoked even when an earlier run already deleted the variable.
+  PREVIEW_HAD_WAKE_TOKEN="$has_token"
   # Read every page of project tokens, so no token of this environment stays.
   token_ids="" after="" page=""
   while :; do
@@ -61,7 +62,6 @@ drop_preview_wake_token() {
       "$(jq -nc --arg id "$id" '{id:$id}')" >/dev/null || return 1
     echo "Revoked Railway project token $id of $PR_ENV"
   done
-  PREVIEW_HAD_WAKE_TOKEN=true
 }
 
 # delete_preview_wake_token_var: delete RAILWAY_TOKEN from the backend after

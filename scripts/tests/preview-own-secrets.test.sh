@@ -117,8 +117,10 @@ out="$(MARKER="" TOKEN=scoped-token-value run_sync "$tmp/no-db" 2>&1)" || fail "
 [[ ! -s "$tmp/no-db/psql" ]] || fail "without OWNER_DB_URL, sync must not run psql"
 
 out="$(MARKER=v1 TOKEN=scoped-token-value DB_URL=postgresql://owner@preview-branch/neondb run_sync "$tmp/kept" 2>&1)" || fail "a marked preview should pass: $out"
-[[ ! -s "$tmp/kept/upserts" && ! -s "$tmp/kept/mints" && ! -s "$tmp/kept/psql" && ! -s "$tmp/kept/revokes" && ! -s "$tmp/kept/deletes" ]] \
-  || fail "a preview that has its own secrets and no old token is left as it is"
+[[ ! -s "$tmp/kept/upserts" && ! -s "$tmp/kept/mints" && ! -s "$tmp/kept/psql" && ! -s "$tmp/kept/deletes" ]] \
+  || fail "a preview that has its own secrets and no old variable keeps them"
+jq -se 'map(.id) == ["tok_preview"]' "$tmp/kept/revokes" >/dev/null \
+  || fail "a project token of the environment is revoked even when the variable is already gone"
 
 out="$(MARKER=v1 OLD_TOKEN=old-wake-token run_sync "$tmp/old" 2>&1)" || fail "a marked preview with an old token should pass: $out"
 printf '%s' "$out" | grep -Fq "old-wake-token" && fail "sync must not print the old token"
