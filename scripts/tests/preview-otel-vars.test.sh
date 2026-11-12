@@ -123,9 +123,9 @@ do
   assert_workflow_syntax "$workflow"
 done
 
+# The sync never reads production: a production query is an unexpected query, which fails the sync.
 run_sync() {
-  local mock_prod_vars_json="$1"
-  local tmp="$2"
+  local tmp="$1"
   mkdir -p "$tmp"
   : >"$tmp/queries"
   : >"$tmp/upserts"
@@ -139,13 +139,6 @@ run_sync() {
       local variables="$2"
       printf '%s\n' "$query" >>"$tmp/queries"
       case "$query" in
-        *environments*)
-          jq -n '{data:{project:{environments:{edges:[{node:{id:"env_prod",name:"production"}}]}}}}'
-          ;;
-        *"query variables"*)
-          printf '%s\n' "$variables" >"$tmp/prod_read"
-          jq -nc --argjson vars "$mock_prod_vars_json" '{data:{variables:$vars}}'
-          ;;
         *variableCollectionUpsert*)
           printf '%s\n' "$variables" >>"$tmp/upserts"
           echo '{"data":{"variableCollectionUpsert":true}}'
@@ -216,63 +209,30 @@ PY
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-prod_complete="$(jq -nc '{
-  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://otel.ctxpipe.dev/v1/traces",
-  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "https://otel.ctxpipe.dev/v1/logs",
-  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "https://otel.ctxpipe.dev/v1/metrics",
-  OTEL_EXPORTER_OTLP_HEADERS: "CF-Access-Client-Id=prod-id,CF-Access-Client-Secret=prod-secret",
-  DATABASE_URL: "postgresql://should-not-copy"
-}')"
 out="$(
   OBSERVABILITY_OTLP_HEADERS="CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret" \
-    run_sync "$prod_complete" "$tmp/own-token" 2>&1
-)" || fail "sync should succeed with the Preview token"
+    run_sync "$tmp/own-token" 2>&1
+)" || fail "sync should succeed with the Preview token, without reading production"
 printf '%s' "$out" | grep -Fq "from the Preview OBSERVABILITY_OTLP_HEADERS" \
   || fail "sync should report the Preview token as its source"
-if printf '%s' "$out" | grep -Eq 'prod-secret|preview-secret|postgresql://should-not-copy'; then
-  fail "orchestration must not print OTEL headers or DATABASE_URL"
-fi
-# A preview never sends with production's token, and never reads production's variables for it.
-assert_four_upserts "$tmp/own-token/upserts" "CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret"
-[[ ! -e "$tmp/own-token/prod_read" ]] || fail "sync must not read production's exporter variables"
-
-prod_missing='{}'
-out="$(
-  OBSERVABILITY_OTLP_HEADERS="CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret" \
-    run_sync "$prod_missing" "$tmp/from-secret" 2>&1
-)" || fail "sync should build from the Preview OBSERVABILITY_OTLP_HEADERS"
-if printf '%s' "$out" | grep -Fq "CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret"; then
+if printf '%s' "$out" | grep -Fq 'preview-secret'; then
   fail "sync must not print OBSERVABILITY_OTLP_HEADERS"
 fi
-assert_four_upserts "$tmp/from-secret/upserts" "CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret"
+# A preview sends with its own token, to the default collector.
+assert_four_upserts "$tmp/own-token/upserts" "CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret"
 jq -e '
   .input.variables.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT == "https://otel.ctxpipe.dev/v1/traces"
-' "$tmp/from-secret/upserts" >/dev/null || fail "sync should build the default collector traces URL"
+' "$tmp/own-token/upserts" >/dev/null || fail "sync should build the default collector traces URL"
 
-if OBSERVABILITY_OTLP_HEADERS="" run_sync '{}' "$tmp/empty-secret" >/dev/null 2>&1; then
+if OBSERVABILITY_OTLP_HEADERS="" run_sync "$tmp/empty-secret" >/dev/null 2>&1; then
   fail "sync should fail when OBSERVABILITY_OTLP_HEADERS is empty"
 fi
 
-if (
-  set -euo pipefail
-  # shellcheck disable=SC1091
-  source "$script"
-  curl() { fail "orchestration must not call curl; mock railway_graphql instead"; }
-  railway_graphql() {
-    case "$1" in
-      *environments*) echo '{"data":{"project":{"environments":{"edges":[]}}}}' ;;
-      *) echo "unexpected query $1" >&2; return 1 ;;
-    esac
-  }
-  export RAILWAY_PROJECT_ID=proj_test ENV_ID=env_preview
-  export BACKEND_SERVICE_ID=svc_backend WORKER_SERVICE_ID=svc_worker
-  export UI_SERVICE_ID=svc_ui CODESEARCH_SERVICE_ID=svc_codesearch
-  export OBSERVABILITY_OTLP_HEADERS="CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret"
-  sync_preview_otel_variables
-) >/dev/null 2>&1; then
-  fail "sync should fail when the production Railway environment cannot be resolved"
-fi
-
+# production_backend_vars stays for the GitHub App guard: it returns only the named variables that exist.
+prod_complete="$(jq -nc '{
+  OTEL_EXPORTER_OTLP_HEADERS: "CF-Access-Client-Id=prod-id,CF-Access-Client-Secret=prod-secret",
+  DATABASE_URL: "postgresql://should-not-copy"
+}')"
 narrow="$(
   set -euo pipefail
   # shellcheck disable=SC1091
