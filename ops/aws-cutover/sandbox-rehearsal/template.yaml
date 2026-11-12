@@ -1,0 +1,204 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  CTX-1217 cutover rehearsal in the selfhost-sandbox account. One Aurora
+  PostgreSQL 17 Serverless v2 cluster and one Fargate task that runs
+  cutoverRehearsal.ts of the backend image against it, with synthetic data
+  only. run.sh deploys it, runs the task and deletes the stack.
+
+Parameters:
+  Image:
+    Type: String
+    Description: The backend image (linux/arm64), pinned by digest, built from a main that has cutoverRehearsal.ts.
+    AllowedPattern: "^[a-z0-9./-]+@sha256:[0-9a-f]{64}$"
+  DefaultRows:
+    Type: Number
+    Default: 20000
+    Description: The synthetic rows of each table.
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.77.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+  Gateway:
+    Type: AWS::EC2::InternetGateway
+  GatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref Gateway
+  Routes:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachment
+    Properties:
+      RouteTableId: !Ref Routes
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref Gateway
+  # Two subnets in two zones, because a DB subnet group needs two. The task
+  # gets a public IP to pull the image from GHCR and to fetch the RDS CA
+  # bundle. Its security group admits no inbound traffic, and Aurora is not
+  # publicly accessible.
+  SubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.77.0.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+  SubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.77.1.0/24
+      AvailabilityZone: !Select [1, !GetAZs ""]
+  SubnetARoutes:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetA
+      RouteTableId: !Ref Routes
+  SubnetBRoutes:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetB
+      RouteTableId: !Ref Routes
+
+  TaskGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: The rehearsal task. No inbound traffic.
+      VpcId: !Ref Vpc
+  DatabaseGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Aurora. Postgres from the rehearsal task only.
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref TaskGroup
+
+  DatabaseSubnets:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: The rehearsal Aurora cluster.
+      SubnetIds: [!Ref SubnetA, !Ref SubnetB]
+  Cluster:
+    Type: AWS::RDS::DBCluster
+    # Synthetic data only: no snapshot when the stack goes away.
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      Engine: aurora-postgresql
+      # cutoverRehearsal.ts accepts only the endpoint of this cluster name.
+      DBClusterIdentifier: ctx-1217-cutover-rehearsal
+      # The version of the hosted plan (CTX-1215 H3).
+      EngineVersion: "17.5"
+      MasterUsername: ctxpipe
+      # AWS keeps the password in Secrets Manager; it is in no template or log.
+      ManageMasterUserPassword: true
+      StorageEncrypted: true
+      DeletionProtection: false
+      BackupRetentionPeriod: 1
+      DBSubnetGroupName: !Ref DatabaseSubnets
+      VpcSecurityGroupIds: [!Ref DatabaseGroup]
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: 0.5
+        MaxCapacity: 8
+  Writer:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      Engine: aurora-postgresql
+      DBClusterIdentifier: !Ref Cluster
+      DBInstanceClass: db.serverless
+      PubliclyAccessible: false
+
+  Logs:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    Properties:
+      RetentionInDays: 1
+  Tasks:
+    Type: AWS::ECS::Cluster
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ecs-tasks.amazonaws.com }
+            Action: sts:AssumeRole
+      # The image comes from public GHCR, so the role gets no ECR rights:
+      # only the log streams of this stack and the master password.
+      Policies:
+        - PolicyName: rehearsal-task
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                # The ARN of the log group ends in `:*`, so it includes its streams.
+                Resource: !GetAtt Logs.Arn
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !GetAtt Cluster.MasterUserSecret.SecretArn
+  Rehearsal:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: "2048"
+      Memory: "4096"
+      RuntimePlatform:
+        CpuArchitecture: ARM64
+        OperatingSystemFamily: LINUX
+      EphemeralStorage:
+        SizeInGiB: 60
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: rehearsal
+          Image: !Ref Image
+          Essential: true
+          Command:
+            - bun
+            - run
+            - apps/backend/src/scripts/cutoverRehearsal.ts
+            - --host
+            - !GetAtt Cluster.Endpoint.Address
+            - --user
+            - ctxpipe
+            - --work-dir
+            - /tmp/rehearsal
+            - --default-rows
+            - !Ref DefaultRows
+            - --jobs
+            - "8"
+          Secrets:
+            - Name: PGPASSWORD
+              ValueFrom: !Sub "${Cluster.MasterUserSecret.SecretArn}:password::"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref Logs
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: rehearsal
+
+Outputs:
+  TaskCluster:
+    Value: !Ref Tasks
+  TaskDefinition:
+    Value: !Ref Rehearsal
+  Subnet:
+    Value: !Ref SubnetA
+  TaskSecurityGroup:
+    Value: !Ref TaskGroup
+  LogGroup:
+    Value: !Ref Logs

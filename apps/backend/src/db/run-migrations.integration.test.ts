@@ -86,7 +86,7 @@ describe("runMigrations", () => {
         roleName,
       }),
     ).rejects.toThrow(
-      /does not exist and DATABASE_APP_PASSWORD is not set[\s\S]*Docker Compose[\s\S]*AWS CDK[\s\S]*terraform apply -target=module\.ctxpipe\.random_password\.app_database/,
+      /does not exist and DATABASE_APP_PASSWORD is not set[\s\S]*Docker Compose[\s\S]*AWS CDK[\s\S]*Hosted \(AWS\)[\s\S]*Secrets Manager/,
     )
     expect(await tableExists("public.organizations")).toBe(false)
     expect(await tableExists("drizzle.__drizzle_migrations")).toBe(false)

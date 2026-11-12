@@ -42,3 +42,7 @@ bearer_token_env_var = "HYPERDX_ACCESS_KEY"
 [mcp_servers.langfuse]
 command = "bash"
 args = ["-c", "exec npx -y mcp-remote@0.15.2 https://langfuse.ctxpipe.ai/api/public/mcp --header \"Authorization: Basic ${LANGFUSE_AUTH_STRING}\""]
+
+[mcp_servers.cloudflare]
+url = "https://mcp.cloudflare.com/mcp"
+bearer_token_env_var = "CLOUDFLARE_API_TOKEN_READONLY"

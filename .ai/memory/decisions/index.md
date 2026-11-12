@@ -49,7 +49,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-039](ADR-039-production-image-deploys-one-environment.md) | Production image deploys stay on one Railway environment | Accepted |
 | [ADR-040](ADR-040-pierre-files-pane-chrome.md) | Pierre trees/diffs as Workspace Files explorer chrome | Accepted |
 | [ADR-041](ADR-041-short-org-sql-unique-sandbox-rows.md) | Short org SQL transactions, no held connections | Accepted |
-| [ADR-042](ADR-042-postgres-rls-app-role.md) | Postgres RLS with a non-owner app role | Accepted (revised 2026-10-17: one migrate entry point, role modes, SQL-made hosted role, owner URL kept for rollback, directory reconcile) |
+| [ADR-042](ADR-042-postgres-rls-app-role.md) | Postgres RLS with a non-owner app role | Accepted (revised 2026-10-17: one migrate entry point, role modes, SQL-made hosted role, owner URL kept for rollback, directory reconcile; revised 2026-11-10: hosted AWS app role from Secrets Manager, cutover copy without roles) |
 | [ADR-043](ADR-043-workspace-chat-keep-alive-serve.md) | In-sandbox keep-alive OpenCode serve | Superseded by [ADR-044](ADR-044-workspace-chat-stock-tanstack.md) |
 | [ADR-044](ADR-044-workspace-chat-stock-tanstack.md) | Stock TanStack workspace chat | Accepted |
 | [ADR-045](ADR-045-required-recovery-ci.md) | CI proves what ran | Accepted |
@@ -67,6 +67,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-057](ADR-057-buildkite-connector-sources-only.md) | Buildkite connector, Workspace sources only | Accepted |
 | [ADR-059](ADR-059-plain-connector-sources-only.md) | Plain connector, Workspace sources only | Accepted |
 | [ADR-060](ADR-060-typecheck-with-bun-check.md) | The Typecheck check runs `bun check`: TypeScript 6 stays the dependency, allowances compare file, code, and count | Accepted |
+| [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) | Hosted ctxpipe on AWS (us-west-2) behind Cloudflare: Pulumi for hosted IaC, tunnel-only ingress, Aurora, AgentCore sandboxes, preview clones, HyperDX only | Proposed |
 | [ADR-062](ADR-062-checks-run-before-merge-not-on-main.md) | Checks run before the merge (`factory check`, then the merge gate); a push to `main` runs no check; a thin nightly run of `main` audits the proof: it skips an unchanged `main`, makes a ticket of each flake and failure, traces only the checks whose inputs changed, and audits a random sample of agent passes | Accepted (revised 2026-11-10) |
 
-Numbers 035 and 036 are unused. ADR-058 is reserved for the Zendesk connector. ADR-061 is reserved for hosted ctxpipe on AWS (draft PR 632). The next new ADR is 063.
+Numbers 035 and 036 are unused. ADR-058 is reserved for the Zendesk connector. The next new ADR is 063.

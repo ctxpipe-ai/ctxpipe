@@ -21,8 +21,21 @@ These instructions supplement the repository-root `AGENTS.md`.
   the shards (`src/domain/store/shardStore.ts`). `zoekt-index` writes to
   `<cold>/.build/<uuid>/`; the pin manager moves the files into cold under the
   per-repo lock. `<cold>/.store/<name>.json` is the local manifest copy: it
-  exists only while the cold shards are the uploaded ones. Unset means local
-  only (Compose, self-host). Tests use `rclone serve s3` (`src/test/s3Server.ts`).
+  exists only while the cold shards are the uploaded ones. A pin of a name
+  with no cold shard fetches it from S3 (the search returns 503 when the fetch
+  does not finish in 8 s; the fetch continues). Below 20% free disk, eviction
+  deletes the least recently pinned names that have a local manifest copy and
+  are not pinned. The merged SCIP index uses the same store (kind `scip`,
+  `src/domain/store/scipStore.ts`): `/merge-scip` uploads it, and a graph
+  read fetches it when it is missing. `CODESEARCH_SHARD_STORE_READ_ONLY=true`
+  (previews) fetches but never uploads, deletes or sweeps in S3, the sweep
+  never reports `publishedMissing`, and shards built in the preview are never
+  evicted. Any other value than `true`, `false` or unset stops the start. The
+  flag is not the security boundary: on AWS (ADR-061) the preview codesearch
+  task role may only get and list objects. Railway previews copy production
+  variables, so do not set the store or AWS keys on a Railway codesearch.
+  Unset means local only (Compose, self-host). Tests use `rclone serve s3`
+  (`src/test/s3Server.ts`).
 
 ## Logging (evlog)
 
@@ -68,3 +81,7 @@ These instructions supplement the repository-root `AGENTS.md`.
   gate after hot/cold or ingest changes and update the ceiling from the
   printed peak before raising it — do not treat 5670m as a new-model
   calibration until that re-run lands.
+- Re-run of 2026-11-10 (the S3 cold tier, CTX-1215): the gate passed (exit 0,
+  no OOM kill, hot empty), but the cgroup peak reached the 5670m ceiling
+  (page cache counts), so it gives no new calibration. The ceiling stays
+  provisional.

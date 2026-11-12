@@ -1315,6 +1315,19 @@ async function buildWorkspaceChatSandbox(
       error: error instanceof Error ? error.message : String(error),
     }
   }
+  // An AgentCore sandbox reaches only the hosts of its vault's rules
+  // (ADR-049 amendment): GitHub needs a connection that mints the token.
+  if (
+    selectedProvider === "agentcore" &&
+    (!githubRepoFullNameFromWorkspaceUrl(desiredUrl) ||
+      !input.githubConnectionId)
+  )
+    return {
+      ok: false as const,
+      status: 503 as const,
+      error:
+        "AgentCore sandboxes need a GitHub Workspace repository with a GitHub connection: their proxy reaches only GitHub, the model proxy and the tool bridge",
+    }
   // An AgentCore session reaches the backend only by its private name.
   if (selectedProvider === "agentcore" && !callbackHost)
     return {

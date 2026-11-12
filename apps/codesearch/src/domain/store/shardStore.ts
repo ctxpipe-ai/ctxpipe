@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto"
-import { createReadStream } from "node:fs"
+import { createReadStream, createWriteStream } from "node:fs"
 import { stat } from "node:fs/promises"
-import { basename } from "node:path"
+import { basename, join } from "node:path"
+import { Transform } from "node:stream"
 import { pipeline } from "node:stream/promises"
 
 import {
@@ -15,6 +16,7 @@ import {
 import { z } from "zod"
 
 import { log } from "../../observability/logger.js"
+import { mapLimit } from "../../utils/mapLimit.js"
 
 /**
  * The durable copy of the index artifacts in S3 (the design note "S3 cold
@@ -38,7 +40,7 @@ export type StoreAddress = {
   orgId: string
   repoId: string
   checkoutKey: string
-  kind: "zoekt"
+  kind: "zoekt" | "scip"
 }
 
 const manifestSchema = z.object({
@@ -58,6 +60,11 @@ const manifestSchema = z.object({
 
 export type StoreManifest = z.infer<typeof manifestSchema>
 
+/** Parses a manifest of the store, or a local manifest copy of one. */
+export function parseStoreManifest(text: string): StoreManifest {
+  return manifestSchema.parse(JSON.parse(text))
+}
+
 let cached: { key: string; store: ShardStore | null } | undefined
 
 /**
@@ -68,37 +75,95 @@ let cached: { key: string; store: ShardStore | null } | undefined
  */
 export function shardStore(): ShardStore | null {
   const url = process.env["CODESEARCH_SHARD_STORE"] || undefined
-  const endpoint =
-    process.env["AWS_ENDPOINT_URL_S3"] || process.env["AWS_ENDPOINT_URL"]
+  const endpoint = s3Endpoint()
   const key = `${url}|${endpoint}`
   if (cached?.key === key) return cached.store
   cached = { key, store: url ? storeFromUrl(url, endpoint) : null }
   return cached.store
 }
 
+/**
+ * The store for writes (upload and delete), or null when no store is set
+ * or `CODESEARCH_SHARD_STORE_READ_ONLY=true`. A preview reads the production
+ * store in read-only mode: it fetches shards, and it never uploads, deletes
+ * or sweeps in S3.
+ *
+ * This flag is not the security boundary: a preview runs code that nobody
+ * reviewed yet. On AWS (ADR-061), the boundary is the preview codesearch task
+ * role, which may only get and list objects under the production prefix (no
+ * put, no delete). The flag only keeps a preview from trying writes that its
+ * role refuses. Railway previews copy the production variables, so the store
+ * is not for Railway: do not set it or AWS keys on a Railway codesearch.
+ */
+export function writableShardStore(): ShardStore | null {
+  return isShardStoreReadOnly() ? null : shardStore()
+}
+
+/**
+ * True when `CODESEARCH_SHARD_STORE_READ_ONLY=true` (a preview). Any value
+ * other than `true`, `false` or unset stops the start (fail-closed): a typo
+ * must not make a preview writable. An empty value is unset, as in
+ * `parseEnv` (a cleared Railway variable is an empty string).
+ */
+export function isShardStoreReadOnly(): boolean {
+  const value = process.env["CODESEARCH_SHARD_STORE_READ_ONLY"] || "false"
+  if (value !== "true" && value !== "false")
+    throw new Error(
+      "CODESEARCH_SHARD_STORE_READ_ONLY must be true, false or unset",
+    )
+  return value === "true"
+}
+
 function storeFromUrl(url: string, endpoint: string | undefined): ShardStore {
-  const match = /^s3:\/\/([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])(?:\/(.*))?$/.exec(
-    url,
-  )
-  const bucket = match?.[1]
-  if (!bucket)
+  const location = parseS3Url(url)
+  if (!location)
     throw new Error(
       "CODESEARCH_SHARD_STORE must have the form s3://bucket or s3://bucket/prefix",
     )
-  const prefix = (match[2] ?? "").replace(/^\/+|\/+$/g, "")
   return {
-    client: new S3Client({
-      // The manifest holds a sha256 for each file, and a fetch checks it.
-      // The SDK's default CRC trailers need aws-chunked uploads, which
-      // S3-compatible servers often refuse.
-      requestChecksumCalculation: "WHEN_REQUIRED",
-      responseChecksumValidation: "WHEN_REQUIRED",
-      // An S3-compatible server on a custom endpoint has no bucket DNS names.
-      forcePathStyle: Boolean(endpoint),
-    }),
-    bucket,
-    root: prefix ? `${prefix}/v1` : "v1",
+    client: s3Client(endpoint),
+    bucket: location.bucket,
+    root: location.prefix ? `${location.prefix}/v1` : "v1",
   }
+}
+
+/**
+ * The bucket and the prefix of `s3://bucket/prefix`, or null when the URL
+ * has another form. The prefix has no `/` at the start or at the end, and
+ * it is empty when the URL has no prefix.
+ */
+export function parseS3Url(
+  url: string,
+): { bucket: string; prefix: string } | null {
+  const match = /^s3:\/\/([a-z0-9][a-z0-9.-]{1,61}[a-z0-9])(?:\/(.*))?$/.exec(
+    url,
+  )
+  if (!match?.[1]) return null
+  return {
+    bucket: match[1],
+    prefix: (match[2] ?? "").replace(/^\/+|\/+$/g, ""),
+  }
+}
+
+/** The custom S3 endpoint of an S3-compatible server, or undefined for AWS. */
+function s3Endpoint(): string | undefined {
+  return process.env["AWS_ENDPOINT_URL_S3"] || process.env["AWS_ENDPOINT_URL"]
+}
+
+/**
+ * An S3 client for the store and for the cutover transfer prefix. The
+ * credentials and the region come from the SDK default chain.
+ */
+export function s3Client(endpoint = s3Endpoint()): S3Client {
+  return new S3Client({
+    // The manifest holds a sha256 for each file, and a fetch checks it.
+    // The SDK's default CRC trailers need aws-chunked uploads, which
+    // S3-compatible servers often refuse.
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
+    // An S3-compatible server on a custom endpoint has no bucket DNS names.
+    forcePathStyle: Boolean(endpoint),
+  })
 }
 
 /** One key segment: no `/`, and not `.` or `..`. */
@@ -108,8 +173,24 @@ function segment(value: string): string {
   return value
 }
 
+/** `<root>/<orgId>/<repoId>/`: every artifact of a repository. */
+function repositoryPrefix(
+  store: ShardStore,
+  repo: { orgId: string; repoId: string },
+): string {
+  return `${store.root}/${segment(repo.orgId)}/${segment(repo.repoId)}/`
+}
+
+/** `<root>/<orgId>/<repoId>/<checkoutKey>/`: every artifact of a checkout. */
+function checkoutPrefix(
+  store: ShardStore,
+  checkout: { orgId: string; repoId: string; checkoutKey: string },
+): string {
+  return `${repositoryPrefix(store, checkout)}${segment(checkout.checkoutKey)}/`
+}
+
 function addressPrefix(store: ShardStore, address: StoreAddress): string {
-  return `${store.root}/${segment(address.orgId)}/${segment(address.repoId)}/${segment(address.checkoutKey)}/${address.kind}/`
+  return `${checkoutPrefix(store, address)}${address.kind}/`
 }
 
 /** A new generation id. It sorts by time, so a listing shows the newest last. */
@@ -118,30 +199,10 @@ function newGen(): string {
   return `${time}-${randomUUID().slice(0, 8)}`
 }
 
-async function fileSha256(path: string): Promise<string> {
+export async function fileSha256(path: string): Promise<string> {
   const hash = createHash("sha256")
   await pipeline(createReadStream(path), hash)
   return hash.digest("hex")
-}
-
-/** Runs `fn` on each item, at most `limit` at the same time, in order. */
-async function mapLimit<T, R>(
-  items: readonly T[],
-  limit: number,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = new Array(items.length)
-  let next = 0
-  const worker = async () => {
-    while (next < items.length) {
-      const index = next++
-      results[index] = await fn(items[index] as T)
-    }
-  }
-  await Promise.all(
-    Array.from({ length: Math.min(limit, items.length) }, worker),
-  )
-  return results
 }
 
 /** The current manifest of an address, or null when it has none. */
@@ -156,16 +217,19 @@ export async function readManifest(
         Key: `${addressPrefix(store, address)}manifest.json`,
       }),
     )
-    const text = (await response.Body?.transformToString()) ?? ""
-    return manifestSchema.parse(JSON.parse(text))
+    return parseStoreManifest((await response.Body?.transformToString()) ?? "")
   } catch (error) {
     if (error instanceof NoSuchKey) return null
     throw error
   }
 }
 
-async function listKeys(store: ShardStore, prefix: string): Promise<string[]> {
-  const keys: string[] = []
+/** Every object under a prefix, with the time it was written. */
+async function listObjects(
+  store: ShardStore,
+  prefix: string,
+): Promise<Array<{ key: string; modifiedMs: number }>> {
+  const objects: Array<{ key: string; modifiedMs: number }> = []
   let token: string | undefined
   do {
     const page = await store.client.send(
@@ -176,10 +240,18 @@ async function listKeys(store: ShardStore, prefix: string): Promise<string[]> {
       }),
     )
     for (const object of page.Contents ?? [])
-      if (object.Key) keys.push(object.Key)
+      if (object.Key)
+        objects.push({
+          key: object.Key,
+          modifiedMs: object.LastModified?.getTime() ?? Date.now(),
+        })
     token = page.IsTruncated ? page.NextContinuationToken : undefined
   } while (token)
-  return keys
+  return objects
+}
+
+async function listKeys(store: ShardStore, prefix: string): Promise<string[]> {
+  return (await listObjects(store, prefix)).map((object) => object.key)
 }
 
 /** Deletes the keys. Any key that S3 does not delete is an error. */
@@ -269,4 +341,92 @@ export async function publishArtifact(
     })
   }
   return manifest
+}
+
+/**
+ * Downloads the files of a manifest into `dir` (which must exist) and checks
+ * the size and the sha256 of each. Any difference is an error.
+ */
+export async function downloadArtifact(
+  store: ShardStore,
+  address: StoreAddress,
+  manifest: StoreManifest,
+  dir: string,
+): Promise<void> {
+  const prefix = addressPrefix(store, address)
+  await mapLimit(manifest.files, 4, async (file) => {
+    const response = await store.client.send(
+      new GetObjectCommand({
+        Bucket: store.bucket,
+        Key: `${prefix}${manifest.gen}/${file.name}`,
+      }),
+    )
+    if (!response.Body) throw new Error(`S3 sent no body for ${file.name}`)
+    const hash = createHash("sha256")
+    let size = 0
+    await pipeline(
+      response.Body as NodeJS.ReadableStream,
+      new Transform({
+        transform(chunk: Buffer, _encoding, done) {
+          hash.update(chunk)
+          size += chunk.length
+          done(null, chunk)
+        },
+      }),
+      createWriteStream(join(dir, basename(file.name))),
+    )
+    const sha256 = hash.digest("hex")
+    if (size !== file.size || sha256 !== file.sha256)
+      throw new Error(
+        `Downloaded ${file.name} does not match the manifest (size ${size}, expected ${file.size})`,
+      )
+  })
+}
+
+/**
+ * Deletes every object under a prefix, then lists the prefix again: the S3
+ * copies are customer data, so a key that stays is an error (fail-closed).
+ */
+async function deletePrefix(store: ShardStore, prefix: string): Promise<void> {
+  await deleteKeys(store, await listKeys(store, prefix))
+  const left = await listKeys(store, prefix)
+  if (left.length > 0)
+    throw new Error(`${left.length} S3 objects stay after the delete`)
+}
+
+/** Deletes all artifacts of a repository: each checkout key and each kind. */
+export async function deleteRepositoryArtifacts(
+  store: ShardStore,
+  repo: { orgId: string; repoId: string },
+): Promise<void> {
+  await deletePrefix(store, repositoryPrefix(store, repo))
+}
+
+/** Deletes all artifacts of one checkout key of a repository. */
+export async function deleteCheckoutArtifacts(
+  store: ShardStore,
+  checkout: { orgId: string; repoId: string; checkoutKey: string },
+): Promise<void> {
+  await deletePrefix(store, checkoutPrefix(store, checkout))
+}
+
+/**
+ * The checkout keys of a repository that have artifacts in S3, each with the
+ * time of its newest object.
+ */
+export async function listCheckoutArtifacts(
+  store: ShardStore,
+  repo: { orgId: string; repoId: string },
+): Promise<Map<string, number>> {
+  const prefix = repositoryPrefix(store, repo)
+  const newest = new Map<string, number>()
+  for (const { key, modifiedMs } of await listObjects(store, prefix)) {
+    const checkoutKey = key.slice(prefix.length).split("/")[0]
+    if (checkoutKey)
+      newest.set(
+        checkoutKey,
+        Math.max(newest.get(checkoutKey) ?? 0, modifiedMs),
+      )
+  }
+  return newest
 }

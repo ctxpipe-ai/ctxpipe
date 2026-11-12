@@ -12,6 +12,7 @@ import {
 } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { PassThrough, type Readable } from "node:stream"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { BedrockAgentCoreClient } from "@aws-sdk/client-bedrock-agentcore"
@@ -60,8 +61,11 @@ type MicroVm = {
   run: (command: string) => ChildProcessWithoutNullStreams
   /** Empties the microVM, as a new session would find it. */
   reset: () => void
-  /** The shim's port 8080 as this host reaches it. */
-  shimPort: number
+  /**
+   * Sends one invocation body to the shim's port 8080 and gives its answer
+   * stream; `close` ends the call, as a caller that leaves does.
+   */
+  invoke: (body: Buffer) => { answer: Readable; close: () => void }
 }
 
 /**
@@ -115,20 +119,10 @@ function fakeAgentCoreServer(microVm: MicroVm) {
       freshMicroVm(sessionId)
       if (api === "invocations") {
         // The microVM's port 8080: the real shim of the image.
-        const upstream = httpRequest(
-          {
-            host: "127.0.0.1",
-            port: microVm.shimPort,
-            method: "POST",
-            path: "/invocations",
-          },
-          (answer) => {
-            response.writeHead(200, { "content-type": "text/event-stream" })
-            answer.pipe(response)
-          },
-        )
-        response.on("close", () => upstream.destroy())
-        upstream.end(body)
+        const { answer, close } = microVm.invoke(body)
+        response.writeHead(200, { "content-type": "text/event-stream" })
+        answer.pipe(response)
+        response.on("close", close)
         return
       }
       const { command } = JSON.parse(body.toString()) as { command: string }
@@ -243,7 +237,21 @@ export async function startFakeAgentCore(qualifier?: string) {
   }
   const fake = await withFakeEndpoint(
     {
-      shimPort,
+      invoke: (body) => {
+        const answer = new PassThrough()
+        const upstream = httpRequest(
+          {
+            host: "127.0.0.1",
+            port: shimPort,
+            method: "POST",
+            path: "/invocations",
+          },
+          (shimAnswer) => shimAnswer.pipe(answer),
+        )
+        upstream.on("error", (error) => answer.destroy(error))
+        upstream.end(body)
+        return { answer, close: () => upstream.destroy() }
+      },
       run: (command) => {
         mkdirSync(paths.workdir, { recursive: true })
         // AgentCore runs the command text with a shell.
@@ -272,9 +280,14 @@ export async function startFakeAgentCore(qualifier?: string) {
  * A fake AgentCore endpoint whose microVM is a container of the chat sandbox
  * image, with the shim of this checkout as its entry point on port 8080: the
  * same as the image's `agentcore` target. Commands run as the image user with
- * the image's `sh` (dash), as on AgentCore.
+ * the image's `sh` (dash), as on AgentCore. The fake reaches the shim with
+ * `docker exec`, so the container needs no published port: with `network`
+ * it runs only on that network (for example a closed one).
  */
-export async function startContainerAgentCore(image: string) {
+export async function startContainerAgentCore(
+  image: string,
+  options: { network?: string } = {},
+) {
   const docker = (args: string[]) =>
     execFileSync("docker", args, { encoding: "utf8" }).trim()
   const shimPath = "/usr/local/lib/ctxpipe/agentcore-shim.mjs"
@@ -287,8 +300,7 @@ export async function startContainerAgentCore(image: string) {
     "--init",
     "--user",
     "0",
-    "-p",
-    "127.0.0.1::8080",
+    ...(options.network ? ["--network", options.network] : []),
     "-v",
     `${SHIM_FILE}:${shimPath}:ro`,
     image,
@@ -300,21 +312,41 @@ export async function startContainerAgentCore(image: string) {
     "node",
     shimPath,
   ])
+  const shimCall = (args: string[]) =>
+    spawn("docker", [
+      "exec",
+      "-i",
+      container,
+      "curl",
+      "-sSN",
+      "--noproxy",
+      "*",
+      ...args,
+    ])
   try {
-    const shimPort = Number(
-      docker(["port", container, "8080/tcp"]).split(":").at(-1),
-    )
     for (let attempt = 0; ; attempt++) {
-      const ready = await fetch(`http://127.0.0.1:${shimPort}/ping`).then(
-        (answer) => answer.ok,
-        () => false,
+      const ping = shimCall(["-f", "http://127.0.0.1:8080/ping"])
+      const ready = await new Promise<boolean>((resolve) =>
+        ping.on("close", (code) => resolve(code === 0)),
       )
       if (ready) break
       if (attempt > 100) throw new Error("The shim did not start")
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
     const fake = await withFakeEndpoint({
-      shimPort,
+      invoke: (body) => {
+        const call = shimCall([
+          "-X",
+          "POST",
+          "-H",
+          "content-type: application/json",
+          "--data-binary",
+          "@-",
+          "http://127.0.0.1:8080/invocations",
+        ])
+        call.stdin.end(body)
+        return { answer: call.stdout, close: () => call.kill() }
+      },
       run: (command) =>
         spawn("docker", [
           "exec",

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   isZoektShardBasenameForName,
   parseZoektShardBasename,
+  zoektRepositoryIdentity,
   zoektRepositoryName,
   zoektShardFilePrefix,
 } from "./shardPrefix.js"
@@ -22,6 +23,28 @@ describe("zoektRepositoryName", () => {
         checkoutKey: "ws:ws_1",
       }),
     ).toBe("ctxpipe:v1:org:org_alpha:repo:repo_same:checkout:ws:ws_1")
+  })
+})
+
+describe("zoektRepositoryIdentity", () => {
+  it("reads back the identity of each Name", () => {
+    for (const identity of [
+      { orgId: "org_alpha", repoId: "repo_main", checkoutKey: "default" },
+      {
+        orgId: "org_alpha",
+        repoId: "repo_main",
+        checkoutKey: `rev:${"a".repeat(40)}`,
+      },
+      { orgId: "org_alpha", repoId: "repo_main", checkoutKey: "ws:ws_1" },
+    ])
+      expect(zoektRepositoryIdentity(zoektRepositoryName(identity))).toEqual(
+        identity,
+      )
+  })
+
+  it("gives null for a Name of another form", () => {
+    expect(zoektRepositoryIdentity("github.com/team/app")).toBeNull()
+    expect(zoektRepositoryIdentity("ctxpipe:v1:org::repo:repo_main")).toBeNull()
   })
 })
 
