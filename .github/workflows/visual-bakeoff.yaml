@@ -13,15 +13,15 @@ on:
   workflow_dispatch:
     inputs:
       panel:
-        description: "Run the judge panel, not the bake-off. The panel uses panel_models and max_cost only."
+        description: "Run the judge panel, not the bake-off. The panel uses panel_models only, and its own spend cap of $40."
         required: false
         type: boolean
         default: false
       panel_models:
-        description: "The judge panel, comma-separated (see the README)."
+        description: "The judge panel, comma-separated. Empty: the default panel of panel.ts (see the README)."
         required: false
         type: string
-        default: "anthropic/claude-opus-5.5,openai/gpt-6.1-sol,google/gemini-4-argon"
+        default: ""
       arms:
         description: "The arms, comma-separated (see the README)."
         required: false
@@ -96,14 +96,14 @@ jobs:
         env:
           MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
           PANEL_MODELS: ${{ inputs.panel_models }}
-          MAX_COST: ${{ inputs.max_cost }}
         run: |
           out="$RUNNER_TEMP/visual-bakeoff-report"
           mkdir -p "$out"
+          models=()
+          if [[ -n "$PANEL_MODELS" ]]; then models+=(--models "$PANEL_MODELS"); fi
           status=0
           node packages/visual-review/evals/critic/panel.ts \
-            --models "$PANEL_MODELS" \
-            --max-cost "$MAX_COST" \
+            "${models[@]}" \
             --images "$RUNNER_TEMP/visual-bakeoff-images" \
             > "$out/report.md" || status=$?
           cat "$out/report.md"

@@ -826,57 +826,12 @@
                 "required": ["after"],
                 "additionalProperties": false
               },
-              "panel": {
-                "type": "object",
-                "properties": {
-                  "label": {
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "enum": ["improvement", "regression", "no-change"]
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "votes": {
-                    "type": "array",
-                    "items": {
-                      "type": "object",
-                      "properties": {
-                        "model": {
-                          "type": "string"
-                        },
-                        "label": {
-                          "anyOf": [
-                            {
-                              "type": "string",
-                              "enum": ["improvement", "regression", "no-change"]
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        },
-                        "reason": {
-                          "type": "string"
-                        },
-                        "error": {
-                          "type": "string"
-                        }
-                      },
-                      "required": ["model", "label", "reason"],
-                      "additionalProperties": false
-                    }
-                  }
-                },
-                "required": ["label", "votes"],
-                "additionalProperties": false
-              },
               "kind": {
                 "type": "string",
                 "const": "new"
+              },
+              "panel": {
+                "not": {}
               },
               "label": {
                 "type": "string",

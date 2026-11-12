@@ -1,3 +1,5 @@
+import type { z } from "zod"
+
 import { areas, qualities, type RubricEntry } from "./rubric.ts"
 import type { NewStoryInput, StoryImage, StoryInput } from "./story.ts"
 import { judgementJsonSchema, newJudgementJsonSchema } from "./verdict.ts"
@@ -171,7 +173,7 @@ export function buildPrompt(
  */
 export function buildPanelPrompt(
   input: StoryInput,
-  schema: Record<string, unknown>,
+  schema: z.core.JSONSchema.BaseSchema,
 ): Prompt {
   const prefix = `You label one visual change in the ctxpipe product UI, for the test set of a visual critic. Storybook rendered one story before and after a code change. A pixel diff measured the changed regions, and an interpreter gave each region a change type. Other judges label the same change. You do not see their labels.
 

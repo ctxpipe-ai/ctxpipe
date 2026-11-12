@@ -6,8 +6,8 @@
 // the owner queue (queue.ts). A synthetic case keeps its known label: the
 // panel result on it measures the panel. See README.md beside this file.
 //
-// Usage: node packages/visual-review/evals/critic/panel.ts [--models <list>] [--max-cost 40]
-//          [--concurrency 4] [--images <dir>] [--cases <path>]
+// Usage: node packages/visual-review/evals/critic/panel.ts [--models <list>]
+//          [--max-cost 40] [--images <dir>] [--cases <path>]
 
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -19,6 +19,7 @@ import { z } from "zod"
 import { askOpenRouter } from "../../src/adapters/openrouter.ts"
 import { buildPanelPrompt } from "../../src/prompt.ts"
 import type { StoryInput } from "../../src/story.ts"
+import { parseJsonReply } from "../../src/verdict.ts"
 import {
   caseManifestSchema,
   panelLabels,
@@ -38,19 +39,19 @@ const defaultModels = [
   "google/gemini-4-argon",
 ]
 
-const usage = `Usage: node packages/visual-review/evals/critic/panel.ts [--models <list>] [--max-cost 40] [--concurrency 4] [--images <dir>] [--cases <path>]
+const usage = `Usage: node packages/visual-review/evals/critic/panel.ts [--models <list>] [--max-cost 40] [--images <dir>] [--cases <path>]
 
   --models       The panel, comma-separated OpenRouter ids, at least 3.
                  Default: ${defaultModels.join(",")}
   --max-cost     The spend cap in USD. A call starts only while the spend is
                  below it. Default: 40
-  --concurrency  The cases at the same time. Default: 4
   --images       The folder of the case images. Default:
                  .ci-results/visual-bakeoff/images
   --cases        The case manifest. Default: cases.json beside this file.
 
 The panel judges each case that has a before image and no panel votes yet,
-and writes the votes and the labels into the manifest. The key and the
+or a failed vote, 4 cases at the same time. It writes the votes and the
+labels into the manifest. The key and the
 endpoint come from MODEL_PROVIDER_API_KEY and MODEL_PROVIDER_URL.`
 
 /** The reply of one member: the reason first, then the label. */
@@ -86,13 +87,6 @@ export function agreement(
   )
 }
 
-/** The case label of a panel label. */
-const caseLabel = {
-  improvement: "intended",
-  regression: "regression",
-  "no-change": "noise",
-} as const
-
 /** The panel label that a synthetic case must get. */
 const known = (entry: Case): PanelLabel | undefined =>
   entry.kind === "regression" || entry.kind === "mixed"
@@ -100,6 +94,14 @@ const known = (entry: Case): PanelLabel | undefined =>
     : entry.kind === "noise"
       ? "no-change"
       : undefined
+
+/** The vote of a member that gave no usable answer. */
+const noVote = (model: string, error: string): Panel["votes"][number] => ({
+  model,
+  label: null,
+  reason: "",
+  error,
+})
 
 /** The vote of one member, or a vote with no label and the error. */
 async function vote(
@@ -112,30 +114,10 @@ async function vote(
     model,
     process.env,
   )
-  const body = /^```(?:json)?\s*([\s\S]*?)\s*```$/.exec(content.trim())?.[1]
-  let reply: z.ZodSafeParseResult<z.infer<typeof replySchema>>
-  try {
-    reply = replySchema.safeParse(JSON.parse(body ?? content))
-  } catch (error) {
-    return {
-      vote: {
-        model,
-        label: null,
-        reason: "",
-        error: `The reply is not JSON: ${(error as Error).message}`,
-      },
-      cost: run.costUsd,
-    }
-  }
+  const reply = parseJsonReply(content, replySchema)
   return {
-    vote: reply.success
-      ? { model, ...reply.data }
-      : {
-          model,
-          label: null,
-          reason: "",
-          error: `The reply does not match the schema: ${z.prettifyError(reply.error)}`,
-        },
+    vote:
+      "error" in reply ? noVote(model, reply.error) : { model, ...reply.data },
     cost: run.costUsd,
   }
 }
@@ -157,7 +139,6 @@ export async function judgePanel(
       options: {
         models: { type: "string", default: defaultModels.join(",") },
         "max-cost": { type: "string", default: "40" },
-        concurrency: { type: "string", default: "4" },
         images: {
           type: "string",
           default: ".ci-results/visual-bakeoff/images",
@@ -174,16 +155,13 @@ export async function judgePanel(
     .map((model) => model.trim())
     .filter(Boolean)
   const maxCost = Number(options["max-cost"])
-  const concurrency = Number(options.concurrency)
   if (
     models.length < 3 ||
     new Set(models).size !== models.length ||
-    !(maxCost >= 0) ||
-    !Number.isInteger(concurrency) ||
-    concurrency < 1
+    !(maxCost >= 0)
   ) {
     print(
-      `--models needs 3 or more different models, --max-cost a number of 0 or more, and --concurrency a whole number of 1 or more.\n\n${usage}`,
+      `--models needs 3 or more different models, and --max-cost a number of 0 or more.\n\n${usage}`,
     )
     return 2
   }
@@ -227,25 +205,23 @@ export async function judgePanel(
         return given
       } catch (error) {
         spend.count(null)
-        if (attempt === 2)
-          return {
-            model,
-            label: null,
-            reason: "",
-            error: (error as Error).message,
-          }
+        if (attempt === 2) return noVote(model, (error as Error).message)
         await new Promise((done) => setTimeout(done, 5_000))
       }
     }
   }
   // A new case has no before image, so the panel does not judge it: its
-  // label stays the one of the builder.
+  // label stays the one of the builder. A case with a failed vote (an outage,
+  // a reply that is not usable) is judged again, so that a short outage does
+  // not fill the owner queue.
   const queue = manifest.cases.filter(
-    (entry) => entry.kind !== "new" && !entry.panel,
+    (entry) =>
+      entry.kind !== "new" &&
+      (!entry.panel || entry.panel.votes.some(({ error }) => error)),
   )
   try {
     await Promise.all(
-      Array.from({ length: concurrency }, async () => {
+      Array.from({ length: 4 }, async () => {
         for (let entry = queue.shift(); entry; entry = queue.shift()) {
           if (stopped || imageError) return
           let story: StoryInput
@@ -286,7 +262,15 @@ export async function judgePanel(
       ? {
           ...entry,
           panel,
-          label: panel.label ? caseLabel[panel.label] : ("unsure" as const),
+          label: panel.label
+            ? (
+                {
+                  improvement: "intended",
+                  regression: "regression",
+                  "no-change": "noise",
+                } as const
+              )[panel.label]
+            : ("unsure" as const),
         }
       : { ...entry, panel }
   })

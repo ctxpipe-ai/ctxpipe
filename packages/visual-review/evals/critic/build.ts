@@ -136,10 +136,10 @@ function history(until: string): Commit[] {
  */
 export function visible(comparison: Comparison): boolean {
   if (comparison.status !== "changed") return false
-  const seen = comparison.regions
+  const visiblePixels = comparison.regions
     .filter(({ changeType }) => changeType !== "rendering-noise")
     .reduce((sum, { pixels }) => sum + pixels, 0)
-  return seen >= 0.002 * comparison.size.width * comparison.size.height
+  return visiblePixels >= 0.002 * comparison.size.width * comparison.size.height
 }
 
 /** The key of a Storybook build: the trees that the build reads. */
@@ -504,22 +504,33 @@ async function main() {
     return shots
   }
 
-  // The comparison of two screenshots. Most pages do not change in a
-  // commit, so equal bytes skip the diff, and each pair is compared once.
-  const compared = new Map<string, Promise<Comparison | null>>()
+  // The facts of a pair of screenshots that differ beyond the tolerance of
+  // the visual check, or null. A viewport screenshot keeps its size, so a
+  // size change is not a pair. Most pages do not change in a commit, so
+  // equal bytes skip the diff. Each pair is compared once, and only its
+  // facts stay in memory, not its diff image.
+  type Facts = { diffPixels: number; signature: string; visible: boolean }
+  const compared = new Map<string, Promise<Facts | null>>()
   const compare = (a: string, b: string) => {
-    let comparison = compared.get(`${a} ${b}`)
-    if (!comparison) {
+    let facts = compared.get(`${a} ${b}`)
+    if (!facts) {
       const [x, y] = [readFileSync(a), readFileSync(b)]
-      comparison = x.equals(y) ? Promise.resolve(null) : diff(x, y)
-      compared.set(`${a} ${b}`, comparison)
+      facts = x.equals(y)
+        ? Promise.resolve(null)
+        : diff(x, y).then((comparison) =>
+            comparison.status === "changed"
+              ? {
+                  diffPixels: comparison.diffPixels,
+                  signature: comparison.signature,
+                  visible: visible(comparison),
+                }
+              : null,
+          )
+      compared.set(`${a} ${b}`, facts)
     }
-    return comparison
+    return facts
   }
-  // Pixels beyond the tolerance of the visual check. A viewport screenshot
-  // keeps its size, so a size change is not a pair.
-  const differs = async (a: string, b: string) =>
-    (await compare(a, b))?.status === "changed"
+  const differs = async (a: string, b: string) => (await compare(a, b)) !== null
   type Kept = Candidate & {
     /** Null for a new case: there is no before image. */
     diffPixels: number | null
@@ -566,7 +577,7 @@ async function main() {
         const clean = captured(candidate.clean ?? candidate.after)
         if (!clean) continue
         const real = await compare(before.path, clean.path)
-        if (real?.status !== "changed" || !visible(real)) continue
+        if (!real?.visible) continue
         signature = real.signature
         if (candidate.clean && !(await differs(clean.path, after.path)))
           continue
@@ -578,7 +589,7 @@ async function main() {
       )
         continue
       const comparison = await compare(before.path, after.path)
-      if (comparison?.status === "changed")
+      if (comparison)
         kept.push({
           ...candidate,
           diffPixels: comparison.diffPixels,

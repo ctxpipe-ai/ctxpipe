@@ -61,9 +61,13 @@ const common = {
   /** The pixels that differ (BlazeDiff, threshold 0.1). */
   diffPixels: count,
   images: z.object({ before: image, after: image }),
-  /** Absent until the panel judges the case. */
-  panel: panel.optional(),
 }
+/**
+ * The votes of the panel on a case with a before image. Absent until the
+ * panel judges the case. A `new` case has no before image: the panel does
+ * not judge it.
+ */
+const judged = { panel: panel.optional() }
 /** The commit of a real change and its first parent. */
 const commit = z.object({ sha, parent: sha })
 /** The box of the synthetic change, in pixels of the after image. */
@@ -87,6 +91,7 @@ const region = z.object({ x: count, y: count, width: count, height: count })
 export const caseSchema = z.discriminatedUnion("kind", [
   z.object({
     ...common,
+    ...judged,
     kind: z.literal("intended"),
     label: z.enum(["intended", "regression", "noise", "unsure"]),
     class: z.null(),
@@ -96,6 +101,7 @@ export const caseSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     ...common,
+    ...judged,
     kind: z.literal("regression"),
     label: z.literal("regression"),
     class: z.enum(regressionClasses),
@@ -105,6 +111,7 @@ export const caseSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     ...common,
+    ...judged,
     kind: z.literal("noise"),
     label: z.literal("noise"),
     class: z.enum(noiseClasses),
@@ -114,6 +121,7 @@ export const caseSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     ...common,
+    ...judged,
     kind: z.literal("mixed"),
     label: z.literal("regression"),
     class: z.enum(regressionClasses),
@@ -124,6 +132,8 @@ export const caseSchema = z.discriminatedUnion("kind", [
   z.object({
     ...common,
     kind: z.literal("new"),
+    // The panel does not judge a new case: it has no votes.
+    panel: z.never().optional(),
     label: z.enum(["intended", "regression"]),
     class: z.enum(regressionClasses).nullable(),
     brief: z.string().min(1),
@@ -146,7 +156,11 @@ export const caseManifestSchema = z
     until: sha,
     /** The capture image, with its digest. */
     container: z.string(),
-    /** All stories are page stories (the `page` tag). */
+    /**
+     * All stories are page stories (the `page` tag). The field stays on
+     * purpose: the component stories become a second manifest with the
+     * scope `component` (CTX-1249), and the judges read the scope here.
+     */
     scope: z.literal("page"),
     /** The models of the judge panel, after a run of panel.ts. */
     panelModels: z.array(z.string()).optional(),

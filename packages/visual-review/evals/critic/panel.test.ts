@@ -172,10 +172,9 @@ const chat = http.post(`${gateway}/chat/completions`, async ({ request }) => {
   })
 })
 
-const run = async (extra: string[] = []) => {
+const run = async (extra: string[] = [], path = writeManifest()) => {
   vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
   vi.stubEnv("MODEL_PROVIDER_URL", gateway)
-  const path = writeManifest()
   const printed: string[] = []
   const code = await judgePanel(
     [
@@ -192,7 +191,7 @@ const run = async (extra: string[] = []) => {
   const manifest = caseManifestSchema.parse(
     JSON.parse(readFileSync(path, "utf8")),
   )
-  return { code, manifest, text: printed.join("\n") }
+  return { code, manifest, path, text: printed.join("\n") }
 }
 
 test("the agreement rule: a majority, and no disagreement on regression", () => {
@@ -278,6 +277,23 @@ test("a dry run labels each change case with the panel, and leaves the disagreem
   )
   expect(text).toContain("- vendor-c/judge: 1 of 3 votes right; 1 errors.")
   expect(text).toContain("6 cases judged, $0.36 of the $40 cap.")
+})
+
+test("a second run judges again only the cases with a failed vote", async () => {
+  calls = []
+  server.use(chat)
+  const { path } = await run()
+  calls = []
+
+  const { code, manifest } = await run([], path)
+
+  expect(code).toBe(0)
+  // Only mixed-1 has a failed vote: its three members judge it again.
+  expect(calls).toHaveLength(3)
+  expect(calls.every(({ story }) => story.includes("--mixed-1\n"))).toBe(true)
+  expect(
+    manifest.cases.find(({ id }) => id === "intended-agree")?.panel?.label,
+  ).toBe("improvement")
 })
 
 test("the spend cap stops the panel before a call, and a case without all votes gets no panel", async () => {

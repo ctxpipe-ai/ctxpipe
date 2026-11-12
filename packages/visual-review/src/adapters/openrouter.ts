@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises"
 import { extname } from "node:path"
 
+import type { z } from "zod"
+
 import { prepareImage } from "../prepare.ts"
 import {
   buildNewPrompt,
@@ -161,7 +163,7 @@ export async function judgeNewWithOpenRouter(
  */
 export async function askOpenRouter(
   prompt: Prompt,
-  schema: Record<string, unknown>,
+  schema: z.core.JSONSchema.BaseSchema,
   model: string,
   env: Record<string, string | undefined>,
 ): Promise<{ content: string; run: RunFacts }> {
