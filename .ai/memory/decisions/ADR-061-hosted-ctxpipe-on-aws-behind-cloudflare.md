@@ -103,12 +103,12 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - OIDC trust of each `previews` role: only the `preview` environment on `main`, and only the named previews workflow files (`job_workflow_ref`), as for the deploy roles.
     - State of each `previews` role: only the `previews/` prefix of its account's state bucket. It cannot read the state of `hosted` or of a guard stack.
     - The boundary of each `previews` role limits which resources it can change. It allows the cross-account actions only on these resources:
-        - a peering only between the preview-data VPC (requester, production) and the preview VPC (accepter, preview account). Both VPCs carry a previews tag, and the boundary checks the requester and the accepter VPC;
+        - a peering only between the preview-data VPC (requester, production) and the preview VPC (accepter, preview account). The boundary names both VPC ids, which aws-core config holds. Until a person adds the ids after the first deploy of `data` and `base`, the boundary allows no peering;
         - roles under `role/ctxpipe/preview-` only, and each one must carry the previews workload boundary. That boundary is narrower than the production workload boundary: in production it allows only the clone actions of decision 20 and the reads of decision 21;
         - bucket policies on the shard and dump buckets only.
     - IAM cannot limit the content of a trust policy or a bucket policy. These limits hold the content:
         - A resource control policy (RCP) of the organization denies S3 access and role assumption to principals outside the organization. So no grant can reach an outside account.
-        - The same RCP denies `sts:AssumeRoleWithWebIdentity` with a GitHub token unless the token's repository owner is the company's GitHub organization. So no trust policy can admit another GitHub account.
+        - The same RCP denies `sts:AssumeRoleWithWebIdentity` with a GitHub token unless the token's subject is a GitHub environment of the factory or ctxpipe repository. In the production account, only the `Production` and `preview` environments pass. Those environments admit only `main`, and a person manages them. So no trust policy can admit another repository, a pull request, or another branch in production.
         - The policy pack checks the content against the forms of decisions 20 and 21: the `preview-db` trust and limits, and read only on the named prefixes for the preview account's named roles.
         - The nightly audit compares the deployed policies with these forms.
     - The normal deploy role keeps its deny on all cross-account actions.
