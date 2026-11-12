@@ -14,9 +14,10 @@
 //   `secrets[…]`.
 // - NEON_API_KEY and RAILWAY_WORKSPACE_TOKEN never go to a job that runs
 //   untrusted code. No exception covers them.
-// - GitHub environments: `workbench` is for checks, evals, proofs and live
-//   contracts that call outside services, with spend-capped or test-scoped
-//   keys. `Production` is the production deploy.
+// - GitHub environments: `Preview` is only for the jobs that delete the
+//   Railway PR previews (pr-preview-teardown.yaml). `workbench` is for checks,
+//   evals, proofs and live contracts that call outside services, with
+//   spend-capped or test-scoped keys. `Production` is the production deploy.
 //   A job that runs untrusted code and reads MODEL_PROVIDER_API_KEY
 //   or VERCEL_ACCESS_TOKEN uses
 //   `environment: workbench`. To add a paid or outside check, put the job in
@@ -91,6 +92,11 @@ const productionJobs = new Map(
   }),
 )
 
+// The one job that runs untrusted code with an outside-service secret and
+// stays in `Preview`: it deletes the sandboxes of the Railway PR preview (the
+// preview Vercel project), not the sandboxes that CI contracts make.
+const previewCheckJobs = new Set(["pr-preview-teardown.yaml:cleanup_pr_sandboxes"])
+
 // Secrets that need `environment: workbench` in a job with untrusted code.
 const checkSecrets =
   /(?<![\w./-])secrets\s*\.\s*(MODEL_PROVIDER_API_KEY|VERCEL_ACCESS_TOKEN)\b/
@@ -105,6 +111,8 @@ const reviewedScripts = new Set([
 // to a job without the secret. Each entry names the only secrets it may hold.
 const exceptions = new Map(
   Object.entries({
+    // Deletes preview Vercel sandboxes with the backend Vercel SDK.
+    "pr-preview-teardown.yaml:cleanup_pr_sandboxes": ["VERCEL_ACCESS_TOKEN"],
     // Tests the sandbox provider against the preview Vercel project.
     "ci.yaml:vercel-sandbox": ["VERCEL_ACCESS_TOKEN"],
     // Evaluates the product MCP with real models.
@@ -524,10 +532,18 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
         /secrets\s*\.\s*(NEON_API_KEY|RAILWAY_WORKSPACE_TOKEN)\b/.exec(text)
       if (accountSecret && /^workbench$/i.test(environment ?? ""))
         failures.push(
-          `${where(number)} gives ${accountSecret[1]} to a job in the workbench environment. Only production jobs may read it.`,
+          `${where(number)} gives ${accountSecret[1]} to a job in the workbench environment. Only Preview and production jobs may read it.`,
         )
       const check = checkSecrets.exec(text)
-      if (runsUntrusted && check && !/^workbench$/i.test(environment ?? ""))
+      if (
+        runsUntrusted &&
+        check &&
+        !/^workbench$/i.test(environment ?? "") &&
+        !(
+          previewCheckJobs.has(`${name}:${job.name}`) &&
+          /^preview$/i.test(environment ?? "")
+        )
+      )
         failures.push(
           `${where(number)} gives ${check[1]} to a job that runs untrusted code, and the job does not use \`environment: workbench\` (spend-capped or test-scoped values). Use it, or move the secret to a job without such code.`,
         )
