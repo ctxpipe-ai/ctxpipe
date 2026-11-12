@@ -261,6 +261,21 @@ if OBSERVABILITY_OTLP_HEADERS="CF-Access-Client-Id=preview-id,CF-Access-Client-S
   fail "sync should fail when the production backend has no OTEL headers"
 fi
 
+# Before production is redeployed, its headers are the old stack's: no Access header, so no token to compare with.
+# The sync gives previews no OTEL variables (so no token can reach one) and does not fail the deploy.
+out="$(
+  OBSERVABILITY_OTLP_HEADERS="CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret" \
+    run_sync "authorization=old-ingest-key" "$tmp/old-prod" 2>&1
+)" || fail "sync should not fail while production still has the old stack's headers"
+[[ ! -s "$tmp/old-prod/upserts" ]] || fail "sync must not upsert OTEL variables while production has no Access token"
+printf '%s' "$out" | grep -Fq "production still sends to the old stack" || fail "sync should say why it skipped"
+if printf '%s' "$out" | grep -Eq 'old-ingest-key|preview-secret'; then fail "sync must not print a header value"; fi
+# Only one of the two Access headers in production: not the old stack's form, so fail closed.
+if OBSERVABILITY_OTLP_HEADERS="CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret" \
+  run_sync "CF-Access-Client-Id=prod-id" "$tmp/half-prod" >/dev/null 2>&1; then
+  fail "sync should fail when production has only one of the Access headers"
+fi
+
 # Unable to compare: fail closed.
 if OBSERVABILITY_OTLP_HEADERS="CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret" \
   run_sync unreadable "$tmp/no-prod" >/dev/null 2>&1; then

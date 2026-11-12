@@ -36,15 +36,27 @@ otlp_header_values() {
 
 # A missing Preview secret falls back to a repository secret of the same name, so the token is compared with
 # production's before any preview gets it, header by header: the same client id or secret, a production backend
-# without the headers, or one that cannot be read fails the deploy. It reads only OTEL_EXPORTER_OTLP_HEADERS of the
-# production backend and prints no value.
+# without OTEL headers or with only one of the two Access headers, or one that cannot be read fails (1). Until
+# production is redeployed with its Access token, its headers are the old stack's `authorization=` and carry no
+# Access header: there is no token to compare with, so it returns 2 and the sync gives previews no OTEL variables.
+# It reads only OTEL_EXPORTER_OTLP_HEADERS of the production backend and prints no value.
 check_preview_otel_differs_from_production() {
-  local prod prod_headers name prod_value preview_values same=""
+  local prod prod_headers name prod_value preview_values same="" access=0
   if ! prod="$(production_backend_vars OTEL_EXPORTER_OTLP_HEADERS)"; then
     echo "preview-otel-vars: cannot read the production OTEL headers to compare." >&2
     return 1
   fi
   prod_headers="$(printf '%s' "$prod" | jq -r '.OTEL_EXPORTER_OTLP_HEADERS // ""')"
+  if [[ -z "${prod_headers//[[:space:]]/}" ]]; then
+    echo "preview-otel-vars: the production backend has no OTEL headers, so the deploy cannot prove that the Preview token is different." >&2
+    return 1
+  fi
+  for name in CF-Access-Client-Id CF-Access-Client-Secret; do
+    [[ -n "$(otlp_header_values "$prod_headers" "$name")" ]] && access=$((access + 1))
+  done
+  if ((access == 0)); then
+    return 2
+  fi
   for name in CF-Access-Client-Id CF-Access-Client-Secret; do
     prod_value="$(otlp_header_values "$prod_headers" "$name" | head -1)"
     if [[ -z "$prod_value" ]]; then
@@ -69,8 +81,13 @@ check_preview_otel_differs_from_production() {
 # Previews send with their own Access service token: OBSERVABILITY_OTLP_HEADERS of the GitHub `Preview` environment,
 # never production's. A token that leaks from PR code then can be revoked without touching production.
 sync_preview_otel_variables() {
-  local vars_json
-  check_preview_otel_differs_from_production || return 1
+  local vars_json status=0
+  check_preview_otel_differs_from_production || status=$?
+  if ((status == 2)); then
+    echo "preview-otel-vars: production still sends to the old stack (no Access token in its OTEL headers); previews get no OTEL exporter variables until production is redeployed with its token." >&2
+    return 0
+  fi
+  ((status == 0)) || return 1
   echo "Building preview OTEL exporter vars from the Preview OBSERVABILITY_OTLP_HEADERS" >&2
   vars_json="$(preview_otel_vars_build)" || return 1
   if [[ -z "$vars_json" ]]; then

@@ -30,7 +30,8 @@
 #   fails when one is empty, or when GH_APP_ID or GH_CLIENT_ID is equal to the
 #   production backend value (scripts/preview-github-app-vars.sh).
 # - OTEL exporter variables: built from the Preview OBSERVABILITY_OTLP_HEADERS
-#   and the default collector; nothing is read from production
+#   and the default collector. The sync reads one production variable,
+#   OTEL_EXPORTER_OTLP_HEADERS, only to compare it with the Preview token
 #   (scripts/preview-otel-vars.sh).
 name: PR Deploy
 

@@ -1,6 +1,6 @@
 # ctxpipe-observability
 
-Internal ClickStack (HyperDX + ClickHouse) and Langfuse. Railway project `ctxpipe-observability` (`305aa114-c6f3-4aca-b883-0faa9c331aa2`), `has_pr_deploys = false`, region `us-east4-eqdc4a`. Not the product project. Product apps export OTLP to `https://telemetry.ctxpipe.ai`. Decision: [ADR-038](../../.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md).
+Internal ClickStack (HyperDX + ClickHouse) and Langfuse. Railway project `ctxpipe-observability` (`305aa114-c6f3-4aca-b883-0faa9c331aa2`), `has_pr_deploys = false`, region `us-east4-eqdc4a`. Not the product project. This is the old stack: the product apps now export OTLP to `https://otel.ctxpipe.dev`, the collector of the new stack (factory `machines/observability`), and this project stays until it is deleted (CTX-1216). Decision: [ADR-038](../../.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md).
 
 Querying: [USING.md](./USING.md). Deploy: [terraform/README.md](./terraform/README.md).
 
@@ -8,7 +8,7 @@ Querying: [USING.md](./USING.md). Deploy: [terraform/README.md](./terraform/READ
 
 | Service | Image | Role |
 | --- | --- | --- |
-| collector | `ghcr.io/ctxpipe-ai/obs-collector` | Public OTLP at `telemetry.ctxpipe.ai`. LLM spans go to Langfuse. Scrapes itself and ClickHouse |
+| collector | `ghcr.io/ctxpipe-ai/obs-collector` | Public OTLP at `telemetry.ctxpipe.ai` (no longer the product's endpoint). LLM spans go to Langfuse. Scrapes itself and ClickHouse |
 | clickhouse | `ghcr.io/ctxpipe-ai/obs-clickhouse` | 4 GiB cap, databases `otel` and `langfuse`, tiered. [clickhouse/README.md](./clickhouse/README.md) |
 | hyperdx | `hyperdx/hyperdx:2.39.1` | UI at `hyperdx.ctxpipe.ai`. [hyperdx/README.md](./hyperdx/README.md) |
 | mongo | `mongo:7` | HyperDX metadata |
