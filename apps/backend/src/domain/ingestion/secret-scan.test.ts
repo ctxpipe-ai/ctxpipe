@@ -78,6 +78,14 @@ describe("findSuspectedSecret on values that look like code or test data", () =>
       "an upper-case value that only ends like a name",
       `API_TOKEN=${"Q9F3KD8L"}_${"MZ2XT7PW"}_TOKENX`,
     ],
+    [
+      "an upper snake-case value outside env_http_headers",
+      `DB_PASSWORD=${"R8K2M5Q9"}_${"L4N7P3V6"}_PASSWORD`,
+    ],
+    [
+      "an upper snake-case value in an authorization header",
+      `Authorization: Bearer ${"R8K2M5Q9"}_${"L4N7P3V6"}_PASSWORD`,
+    ],
   ])("finds %s", (_, line) => {
     expect(found(line)).not.toBeNull()
   })
@@ -114,8 +122,8 @@ describe("findSuspectedSecret on values that look like code or test data", () =>
     ],
     ["a short word and digits", "DB_PASSWORD=password123"],
     [
-      "the name of the variable that holds the value",
-      '"CF-Access-Client-Secret" = "HYPERDX_CF_ACCESS_CLIENT_SECRET"',
+      "the names of the variables in a Codex env_http_headers table",
+      'env_http_headers = { "CF-Access-Client-Id" = "HYPERDX_CF_ACCESS_CLIENT_ID", "CF-Access-Client-Secret" = "HYPERDX_CF_ACCESS_CLIENT_SECRET" }',
     ],
   ])("does not find %s", (_, line) => {
     expect(found(line)).toBeNull()

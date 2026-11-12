@@ -123,9 +123,10 @@ do
   assert_workflow_syntax "$workflow"
 done
 
-# The sync never reads production: a production query is an unexpected query, which fails the sync.
+# The sync reads one production variable, OTEL_EXPORTER_OTLP_HEADERS, only to compare it with the Preview token.
 run_sync() {
-  local tmp="$1"
+  local mock_prod_headers="$1"
+  local tmp="$2"
   mkdir -p "$tmp"
   : >"$tmp/queries"
   : >"$tmp/upserts"
@@ -139,6 +140,13 @@ run_sync() {
       local variables="$2"
       printf '%s\n' "$query" >>"$tmp/queries"
       case "$query" in
+        *environments*)
+          jq -n '{data:{project:{environments:{edges:[{node:{id:"env_prod",name:"production"}}]}}}}'
+          ;;
+        *"query variables"*)
+          [[ "$mock_prod_headers" == unreadable ]] && return 1
+          jq -nc --arg h "$mock_prod_headers" '{data:{variables:{OTEL_EXPORTER_OTLP_HEADERS:$h, DATABASE_URL:"postgresql://should-not-copy"}}}'
+          ;;
         *variableCollectionUpsert*)
           printf '%s\n' "$variables" >>"$tmp/upserts"
           echo '{"data":{"variableCollectionUpsert":true}}'
@@ -211,12 +219,12 @@ trap 'rm -rf "$tmp"' EXIT
 
 out="$(
   OBSERVABILITY_OTLP_HEADERS="CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret" \
-    run_sync "$tmp/own-token" 2>&1
-)" || fail "sync should succeed with the Preview token, without reading production"
+    run_sync "CF-Access-Client-Id=prod-id,CF-Access-Client-Secret=prod-secret" "$tmp/own-token" 2>&1
+)" || fail "sync should succeed with a Preview token that is not production's"
 printf '%s' "$out" | grep -Fq "from the Preview OBSERVABILITY_OTLP_HEADERS" \
   || fail "sync should report the Preview token as its source"
-if printf '%s' "$out" | grep -Fq 'preview-secret'; then
-  fail "sync must not print OBSERVABILITY_OTLP_HEADERS"
+if printf '%s' "$out" | grep -Eq 'preview-secret|prod-secret|should-not-copy'; then
+  fail "sync must not print OBSERVABILITY_OTLP_HEADERS or production's values"
 fi
 # A preview sends with its own token, to the default collector.
 assert_four_upserts "$tmp/own-token/upserts" "CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret"
@@ -224,8 +232,23 @@ jq -e '
   .input.variables.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT == "https://otel.ctxpipe.dev/v1/traces"
 ' "$tmp/own-token/upserts" >/dev/null || fail "sync should build the default collector traces URL"
 
-if OBSERVABILITY_OTLP_HEADERS="" run_sync "$tmp/empty-secret" >/dev/null 2>&1; then
+if OBSERVABILITY_OTLP_HEADERS="" run_sync "" "$tmp/empty-secret" >/dev/null 2>&1; then
   fail "sync should fail when OBSERVABILITY_OTLP_HEADERS is empty"
+fi
+
+# A missing Preview secret falls back to the repository secret: production's token must never reach a preview.
+same="CF-Access-Client-Id=prod-id,CF-Access-Client-Secret=prod-secret"
+if out="$(OBSERVABILITY_OTLP_HEADERS=" $same " run_sync "$same" "$tmp/prod-token" 2>&1)"; then
+  fail "sync should fail when the Preview token is production's"
+fi
+[[ ! -s "$tmp/prod-token/upserts" ]] || fail "sync must not upsert production's token"
+printf '%s' "$out" | grep -Fq "is production's token" || fail "sync should say why it failed"
+if printf '%s' "$out" | grep -Fq 'prod-secret'; then fail "sync must not print the token"; fi
+
+# Unable to compare: fail closed.
+if OBSERVABILITY_OTLP_HEADERS="CF-Access-Client-Id=preview-id,CF-Access-Client-Secret=preview-secret" \
+  run_sync unreadable "$tmp/no-prod" >/dev/null 2>&1; then
+  fail "sync should fail when it cannot read production's headers to compare"
 fi
 
 # production_backend_vars stays for the GitHub App guard: it returns only the named variables that exist.

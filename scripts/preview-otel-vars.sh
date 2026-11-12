@@ -34,8 +34,27 @@ preview_otel_vars_json() {
   preview_otel_vars_build
 }
 
+# A missing Preview secret falls back to a repository secret of the same name, so the token is compared with
+# production's before any preview gets it: equal, or production unreadable, fails the deploy. It reads only
+# OTEL_EXPORTER_OTLP_HEADERS of the production backend and prints no value.
+check_preview_otel_differs_from_production() {
+  local prod prod_headers preview_headers
+  if ! prod="$(production_backend_vars OTEL_EXPORTER_OTLP_HEADERS)"; then
+    echo "preview-otel-vars: cannot read the production OTEL headers to compare." >&2
+    return 1
+  fi
+  prod_headers="$(printf '%s' "$prod" | jq -r '.OTEL_EXPORTER_OTLP_HEADERS // "" | gsub("^\\s+|\\s+$"; "")')"
+  preview_headers="$(printf '%s' "${OBSERVABILITY_OTLP_HEADERS:-}" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  if [[ -n "$prod_headers" && "$preview_headers" == "$prod_headers" ]]; then
+    echo "preview-otel-vars: the Preview OBSERVABILITY_OTLP_HEADERS is production's token." >&2
+    echo "preview-otel-vars: a missing Preview environment secret falls back to the repository secret. Set the telemetry-preview token in the GitHub environment Preview." >&2
+    return 1
+  fi
+}
+
 sync_preview_otel_variables() {
   local vars_json
+  check_preview_otel_differs_from_production || return 1
   vars_json="$(preview_otel_vars_json)" || return 1
   if [[ -z "$vars_json" ]]; then
     echo "preview-otel-vars: failed to resolve exporter vars" >&2
