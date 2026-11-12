@@ -34,19 +34,27 @@ preview_own_secrets_mask() {
   fi
 }
 
-# drop_preview_wake_token: a preview made before the worker wake went away has
-# a Railway project token in its backend variable RAILWAY_TOKEN. Revoke each
+# drop_preview_wake_token: a preview made before the worker wake went away can
+# have a Railway token in its backend variable RAILWAY_TOKEN (a project token,
+# or on the oldest previews another token). Revoke each
 # project token of this preview environment and delete that variable. No
 # value enters a shell variable.
 drop_preview_wake_token() {
-  local has_token token_ids id
+  local has_token token_ids id after page
   has_token="$(service_vars "$ENV_ID" "$BACKEND_SERVICE_ID" RAILWAY_TOKEN \
     | jq -r 'has("RAILWAY_TOKEN")')" || return 1
   [[ "$has_token" == "true" ]] || return 0
-  token_ids="$(railway_graphql \
-    'query projectTokens($projectId: String!) { projectTokens(projectId: $projectId, first: 100) { edges { node { id environmentId } } } }' \
-    "$(jq -nc --arg p "$RAILWAY_PROJECT_ID" '{projectId:$p}')" \
-    | jq -r --arg env "$ENV_ID" '.data.projectTokens.edges[]?.node | select(.environmentId == $env) | .id')" || return 1
+  # Read every page of project tokens, so no token of this environment stays.
+  token_ids="" after="" page=""
+  while :; do
+    page="$(railway_graphql \
+      'query projectTokens($projectId: String!, $after: String) { projectTokens(projectId: $projectId, first: 100, after: $after) { edges { node { id environmentId } } pageInfo { hasNextPage endCursor } } }' \
+      "$(jq -nc --arg p "$RAILWAY_PROJECT_ID" --arg a "$after" '{projectId:$p} + (if $a == "" then {} else {after:$a} end)')")" || return 1
+    token_ids+="$(jq -r --arg env "$ENV_ID" '.data.projectTokens.edges[]?.node | select(.environmentId == $env) | .id' <<<"$page")"$'\n'
+    [[ "$(jq -r '.data.projectTokens.pageInfo.hasNextPage // false' <<<"$page")" == "true" ]] || break
+    after="$(jq -r '.data.projectTokens.pageInfo.endCursor // empty' <<<"$page")"
+    [[ -n "$after" ]] || break
+  done
   for id in $token_ids; do
     railway_graphql 'mutation projectTokenDelete($id: String!) { projectTokenDelete(id: $id) }' \
       "$(jq -nc --arg id "$id" '{id:$id}')" >/dev/null || return 1
@@ -68,8 +76,8 @@ sync_preview_own_secrets() {
   done
   marker="$(service_vars "$ENV_ID" "$BACKEND_SERVICE_ID" PREVIEW_OWN_SECRETS \
     | jq -r '.PREVIEW_OWN_SECRETS // ""')" || return 1
+  drop_preview_wake_token || return 1
   if [[ "$marker" == "v1" ]]; then
-    drop_preview_wake_token || return 1
     echo "Preview $PR_ENV keeps its own AUTH_SECRET and connection-secrets key"
     return 0
   fi

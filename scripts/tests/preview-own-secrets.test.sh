@@ -32,7 +32,12 @@ run_sync() {
           jq -nc --arg m "$MARKER" --arg t "${OLD_TOKEN:-}" '{data:{variables:({AUTH_SECRET:"production-auth"} + (if $m == "" then {} else {PREVIEW_OWN_SECRETS:$m} end) + (if $t == "" then {} else {RAILWAY_TOKEN:$t} end))}}'
           ;;
         *"query projectTokens"*)
-          echo '{"data":{"projectTokens":{"edges":[{"node":{"id":"tok_preview","environmentId":"env_preview"}},{"node":{"id":"tok_other","environmentId":"env_other"}}]}}}'
+          # Two pages: the token of this preview is on the second one.
+          if jq -e 'has("after")' <<<"$2" >/dev/null; then
+            echo '{"data":{"projectTokens":{"edges":[{"node":{"id":"tok_preview","environmentId":"env_preview"}}],"pageInfo":{"hasNextPage":false,"endCursor":"c2"}}}}'
+          else
+            echo '{"data":{"projectTokens":{"edges":[{"node":{"id":"tok_other","environmentId":"env_other"}}],"pageInfo":{"hasNextPage":true,"endCursor":"c1"}}}}'
+          fi
           ;;
         *projectTokenDelete*)
           printf '%s\n' "$2" >>"$tmp/revokes"
@@ -118,6 +123,14 @@ jq -se 'map(.id) == ["tok_preview"]' "$tmp/old/revokes" >/dev/null \
 jq -e '.input == {projectId:"proj_test", environmentId:"env_preview", serviceId:"svc_backend", name:"RAILWAY_TOKEN"}' "$tmp/old/deletes" >/dev/null \
   || fail "RAILWAY_TOKEN should be deleted from the preview backend"
 [[ ! -s "$tmp/old/upserts" && ! -s "$tmp/old/mints" ]] || fail "an old preview keeps its own secrets"
+
+out="$(MARKER="" OLD_TOKEN=old-wake-token run_sync "$tmp/legacy" 2>&1)" || fail "an unmarked preview with an old token should pass: $out"
+printf '%s' "$out" | grep -Fq "old-wake-token" && fail "sync must not print the old token"
+jq -se 'map(.id) == ["tok_preview"]' "$tmp/legacy/revokes" >/dev/null \
+  || fail "an unmarked preview should also lose the project token of its environment"
+jq -e '.input.name == "RAILWAY_TOKEN" and .input.serviceId == "svc_backend"' "$tmp/legacy/deletes" >/dev/null \
+  || fail "an unmarked preview should also lose RAILWAY_TOKEN"
+grep -q "PREVIEW_OWN_SECRETS" "$tmp/legacy/upserts" || fail "an unmarked preview still gets its own secrets"
 
 
 # The deploy job must not give the workspace token to steps that run branch code
