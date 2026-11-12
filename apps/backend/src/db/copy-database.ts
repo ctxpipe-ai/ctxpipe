@@ -80,6 +80,36 @@ type Endpoint = {
 }
 
 /**
+ * The URL with the password of a separate input, for a login whose password
+ * a secret store holds apart from the URL (on AWS, the managed master secret
+ * of Aurora). The password goes only into this in-process URL: copyDatabase
+ * then gives it to the tools in PGPASSWORD, never in their arguments. A URL
+ * that has a password already is an error, so that the two inputs never
+ * disagree.
+ */
+export function withPassword(
+  url: string,
+  password: string | undefined,
+  name: string,
+): string {
+  if (!password) return url
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    throw new Error(
+      `The ${name} URL does not parse. Percent-encode the special characters of its password.`,
+    )
+  }
+  if (parsed.password || parsed.searchParams.has("password"))
+    throw new Error(
+      `The ${name} URL has a password, and a separate password is set too. Give only one.`,
+    )
+  parsed.password = encodeURIComponent(password)
+  return parsed.toString()
+}
+
+/**
  * Reads one database URL. The password (from the user part or the
  * `password` parameter) goes to PGPASSWORD for the tools, not to their
  * arguments. A remote host gets TLS with a certificate check on each path:
