@@ -210,23 +210,23 @@ jobs:
             echo "$image $digest"
           done | jq -Rcs 'split("\n") | map(select(. != "") | split(" ") | {(.[0]): .[1]}) | add // {}' | sed 's/^/digests=/' >> "$GITHUB_OUTPUT"
 
-  # Copies each production image, and the upstream images that the hosted
-  # and observability stacks pin, to the production ECR (CTX-1215 X2).
-  # crane copies the manifest list by digest, so the ECR digest equals the
-  # source digest. It writes the per-platform images first and the tagged
-  # list last, so the newest tagged image is always complete. Each push starts the factory
-  # digest workflow through EventBridge; this repo holds no factory
-  # credential. Railway deploys from GHCR (the terraform job) until the
-  # cutover, so no job waits for this one.
+  # Copies each production image, and the upstream images that the hosted,
+  # observability and preview stacks pin, to the ECR of their account
+  # (CTX-1215 X2). crane copies the manifest list by digest, so the ECR
+  # digest equals the source digest. It writes the per-platform images first
+  # and the tagged list last, so the newest tagged image is always complete.
+  # Each production push starts the factory digest workflow through
+  # EventBridge; this repo holds no factory credential. Railway deploys from
+  # GHCR (the terraform job) until the cutover, so no job waits for this one.
   copy_images_to_ecr:
     timeout-minutes: 15
-    name: Copy images to the production ECR
+    name: Copy images to the ECR
     if: github.event_name != 'workflow_dispatch'
     needs:
       - ecr_digests
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     # Only this job names the environment, and the environment admits only
-    # main. The push role trusts only the OIDC subject of this environment,
+    # main. The push roles trust only the OIDC subject of this environment,
     # so no other job of this repo can push to the ECR.
     environment: ecr-push
     permissions:
@@ -234,20 +234,9 @@ jobs:
       id-token: write
       packages: read
     env:
-      AWS_ACCOUNT: "213102790567"
-      ECR_REGION: us-west-2
+      PRODUCTION_ECR: 213102790567.dkr.ecr.us-west-2.amazonaws.com
+      PREVIEW_ECR: 573018602187.dkr.ecr.us-west-2.amazonaws.com
     steps:
-      # The repository variable ECR_MIRROR turns the copy on. A person sets
-      # it to `enabled` after aws-core deploys the push role. Until then, the
-      # copy step only checks the sources (a dry run) and warns. With the
-      # variable set, a failed login or copy fails the job: an ECR push
-      # starts the production deploys, so a failure must show.
-      - if: vars.ECR_MIRROR == 'enabled'
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
-        with:
-          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT }}:role/github-actions-ctxpipe-ecr-push
-          aws-region: ${{ env.ECR_REGION }}
-
       - name: Install crane
         run: |
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/crane.tar.gz" \
@@ -255,11 +244,39 @@ jobs:
           echo "898c0cff975f898a33e8c4580bdafb0e7c02c7faa33374e946762f97c4ab7110  $RUNNER_TEMP/crane.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/crane.tar.gz" -C "$RUNNER_TEMP" crane
 
+      # Each target has its own repository variable. A person sets it to
+      # `enabled` after aws-core deploys the push role of that account.
+      # Until then, the copy step only checks the sources of that target (a
+      # dry run) and warns. With the variable set, a failed login or copy
+      # fails the job: an ECR push starts deploys, so a failure must show.
+      # The crane login keeps the registry token for the later steps, so the
+      # next AWS login can replace the session.
+      - if: vars.ECR_MIRROR == 'enabled'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::213102790567:role/github-actions-ctxpipe-ecr-push
+          aws-region: us-west-2
+      - if: vars.ECR_MIRROR == 'enabled'
+        run: |
+          set -o pipefail
+          aws ecr get-login-password | "$RUNNER_TEMP/crane" auth login "$PRODUCTION_ECR" -u AWS --password-stdin
+
+      - if: vars.ECR_MIRROR_PREVIEW == 'enabled'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::573018602187:role/github-actions-ctxpipe-mirror-ecr-push
+          aws-region: us-west-2
+      - if: vars.ECR_MIRROR_PREVIEW == 'enabled'
+        run: |
+          set -o pipefail
+          aws ecr get-login-password | "$RUNNER_TEMP/crane" auth login "$PREVIEW_ECR" -u AWS --password-stdin
+
       - name: Copy the images by digest
         env:
           DIGESTS: ${{ needs.ecr_digests.outputs.digests }}
           GH_TOKEN: ${{ github.token }}
-          PUSH: ${{ vars.ECR_MIRROR == 'enabled' }}
+          PUSH_PRODUCTION: ${{ vars.ECR_MIRROR == 'enabled' }}
+          PUSH_PREVIEW: ${{ vars.ECR_MIRROR_PREVIEW == 'enabled' }}
         run: |
           set -o pipefail
           # A late rerun of an older run must not make an older build the
@@ -270,58 +287,60 @@ jobs:
             exit 0
           fi
           crane="$RUNNER_TEMP/crane"
-          ecr="$AWS_ACCOUNT.dkr.ecr.$ECR_REGION.amazonaws.com"
           echo "$GH_TOKEN" | "$crane" auth login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          if [ "$PUSH" = true ]; then
-            aws ecr get-login-password | "$crane" auth login "$ecr" -u AWS --password-stdin
-          else
-            echo "::warning::The repository variable ECR_MIRROR is not enabled: a dry run checks the sources and copies nothing."
-          fi
+          [ "$PUSH_PRODUCTION" = true ] || echo "::warning::The repository variable ECR_MIRROR is not enabled: a dry run checks the production sources and copies nothing."
+          [ "$PUSH_PREVIEW" = true ] || echo "::warning::The repository variable ECR_MIRROR_PREVIEW is not enabled: a dry run checks the preview sources and copies nothing."
           # The tags are immutable. A rerun skips a tag that already holds
           # the same digest, and fails on a tag that holds another digest.
-          copy() { # <source>@<digest> <repository> <tag>
-            target="$ecr/$2:$3"
-            digest="${1#*@}"
-            if [ "$PUSH" != true ]; then
-              [ "$("$crane" digest "$1")" = "$digest" ]
-              echo "dry run: $1 -> $target" | tee -a "$GITHUB_STEP_SUMMARY"
+          # With <missing> = skip, a repository that does not exist yet
+          # (registry error NAME_UNKNOWN) is skipped with a warning.
+          copy() { # <push> <missing> <source>@<digest> <target repository>:<tag>
+            source="$3"
+            target="$4"
+            digest="${source#*@}"
+            if [ "$1" != true ]; then
+              [ "$("$crane" digest "$source")" = "$digest" ]
+              echo "dry run: $source -> $target" | tee -a "$GITHUB_STEP_SUMMARY"
               return 0
             fi
-            if existing="$("$crane" digest "$target" 2> /dev/null)"; then
+            if existing="$("$crane" digest "$target" 2> "$RUNNER_TEMP/lookup")"; then
               [ "$existing" = "$digest" ] || { echo "::error::$target holds $existing, not $digest"; return 1; }
               echo "$target already holds $existing"
               return 0
             fi
-            "$crane" copy "$1" "$target"
+            if [ "$2" = skip ] && grep -q NAME_UNKNOWN "$RUNNER_TEMP/lookup"; then
+              echo "::warning::${target%:*} does not exist yet: $source is not copied" | tee -a "$GITHUB_STEP_SUMMARY"
+              return 0
+            fi
+            "$crane" copy "$source" "$target"
             echo "$target $digest" | tee -a "$GITHUB_STEP_SUMMARY"
           }
           [ "$DIGESTS" != "{}" ] || echo "::warning::ecr_digests gave no image digests, so this build is not copied to the ECR" | tee -a "$GITHUB_STEP_SUMMARY"
           while read -r image digest; do
-            copy "ghcr.io/ctxpipe-ai/$image@$digest" "ctxpipe/$image" "$GITHUB_SHA"
+            copy "$PUSH_PRODUCTION" fail "ghcr.io/ctxpipe-ai/$image@$digest" "$PRODUCTION_ECR/ctxpipe/$image:$GITHUB_SHA"
           done < <(jq -r 'to_entries[] | "\(.key) \(.value)"' <<< "$DIGESTS")
-          # The hosted and observability stacks run these upstream images. Each
-          # pin is a multi-platform index digest, and the copy keeps that
-          # digest. Change a pin here and in the stack that uses it in one
-          # reviewed edit. The tag is the exact upstream version, not a moving
-          # tag such as mongo:7, so a new pin always gets a new tag. A stack
-          # makes a repository with the service that uses it. Thus a pin whose
-          # repository does not exist yet is skipped with a warning. Another
-          # lookup error goes on to the copy, and a failed copy fails the job.
-          while read -r repository tag source; do
-            if [ "$PUSH" = true ] && ! error="$(aws ecr describe-images --repository-name "$repository" --image-ids imageTag="$tag" 2>&1 > /dev/null)" && [[ "$error" == *RepositoryNotFoundException* ]]; then
-              echo "::warning::$repository does not exist yet: $source is not copied" | tee -a "$GITHUB_STEP_SUMMARY"
-              continue
-            fi
-            copy "$source" "$repository" "$tag"
+          # The hosted, observability and preview stacks run these upstream
+          # images. Each pin is a multi-platform index digest, and the copy
+          # keeps that digest. A pin goes to production (ctxpipe/<name>), to
+          # the preview account (mirror/<name>), or to both. Change a pin
+          # here and in the stack that uses it in one reviewed edit. The tag
+          # is the exact upstream version, not a moving tag such as mongo:7,
+          # so a new pin always gets a new tag. A stack makes a repository
+          # with the service that uses it, so a pin skips a repository that
+          # does not exist yet.
+          while read -r targets name tag source; do
+            [[ ",$targets," != *,production,* ]] || copy "$PUSH_PRODUCTION" skip "$source" "$PRODUCTION_ECR/ctxpipe/$name:$tag"
+            [[ ",$targets," != *,preview,* ]] || copy "$PUSH_PREVIEW" skip "$source" "$PREVIEW_ECR/mirror/$name:$tag"
           done <<'PINS'
-          ctxpipe/cloudflared 2026.10.7 docker.io/cloudflare/cloudflared@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
-          ctxpipe/falkordb v4.20.7 docker.io/falkordb/falkordb@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
-          ctxpipe/otel-collector-contrib 0.155.0 docker.io/otel/opentelemetry-collector-contrib@sha256:4935caa35e9a4cb387e35732e8fb22b2b5759af8d12e7043357f03837f6e8df5
-          ctxpipe/busybox 1.37.0 docker.io/library/busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
-          ctxpipe/clickhouse-server 26.8.36.3-alpine docker.io/clickhouse/clickhouse-server@sha256:f5443f9ffa48f0154cdd50cab39fed732201762574a27f04f1f564bbba81832d
-          ctxpipe/clickstack-otel-collector 2.39.1 docker.io/clickhouse/clickstack-otel-collector@sha256:fb71cb46bfc11413e9b96b056118f66293262579cec42927d7f1ca38d3732146
-          ctxpipe/hyperdx 2.39.1 docker.io/hyperdx/hyperdx@sha256:619783ca66d6c81f72a0106f4013d65865ac42e064491b19c0019ffec268f316
-          ctxpipe/mongo 7.0.45 docker.io/library/mongo@sha256:8bb4442761a63a8dda452744082cdac9644b429807eb977b42324a63cef59ca4
+          production,preview cloudflared 2026.10.7 docker.io/cloudflare/cloudflared@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
+          production,preview falkordb v4.20.7 docker.io/falkordb/falkordb@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
+          production otel-collector-contrib 0.155.0 docker.io/otel/opentelemetry-collector-contrib@sha256:4935caa35e9a4cb387e35732e8fb22b2b5759af8d12e7043357f03837f6e8df5
+          production busybox 1.37.0 docker.io/library/busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+          production clickhouse-server 26.8.36.3-alpine docker.io/clickhouse/clickhouse-server@sha256:f5443f9ffa48f0154cdd50cab39fed732201762574a27f04f1f564bbba81832d
+          production clickstack-otel-collector 2.39.1 docker.io/clickhouse/clickstack-otel-collector@sha256:fb71cb46bfc11413e9b96b056118f66293262579cec42927d7f1ca38d3732146
+          production hyperdx 2.39.1 docker.io/hyperdx/hyperdx@sha256:619783ca66d6c81f72a0106f4013d65865ac42e064491b19c0019ffec268f316
+          production mongo 7.0.45 docker.io/library/mongo@sha256:8bb4442761a63a8dda452744082cdac9644b429807eb977b42324a63cef59ca4
+          preview nginx 1.31.8-alpine docker.io/library/nginx@sha256:713fc2ebfd92e8217db451477182ee91944b123d2b1ee9fd5a8c6e91ca6c3a11
           PINS
 
   release:
