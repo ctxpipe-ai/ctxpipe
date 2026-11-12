@@ -83,6 +83,10 @@ describe("findSuspectedSecret on values that look like code or test data", () =>
       `DB_PASSWORD=${"R8K2M5Q9"}_${"L4N7P3V6"}_PASSWORD`,
     ],
     [
+      "an upper snake-case value after an env_http_headers table",
+      `env_http_headers = {} # DB_PASSWORD=${"R8K2M5Q9"}_${"L4N7P3V6"}_PASSWORD`,
+    ],
+    [
       "an upper snake-case value in an authorization header",
       `Authorization: Bearer ${"R8K2M5Q9"}_${"L4N7P3V6"}_PASSWORD`,
     ],

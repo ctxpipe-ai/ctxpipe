@@ -63,7 +63,7 @@ const AUTH_HEADER =
  * environment variable that holds its value, not to the value:
  * `env_http_headers = { "X-Secret" = "MY_SECRET" }`.
  */
-const ENV_HTTP_HEADERS = /^\s*env_http_headers\s*=\s*\{/
+const ENV_HTTP_HEADERS = /^\s*env_http_headers\s*=\s*\{([^{}]*)\}/
 const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/
 const ASSIGNMENT =
   /(?<![\w.-])["']?([A-Za-z_][\w.-]{0,99})["']?[ \t]*([:=])[ \t]*([|>][-+0-9]{0,3}[ \t]*$|"[^"\n]{0,256}"|'[^'\n]{0,256}'|[^\s"'`|,;]{1,512})/g
@@ -269,7 +269,10 @@ function scanLines(
       return hit("authorization header")
 
     meter.work += line.length
-    const headerNames = ENV_HTTP_HEADERS.test(line)
+    // The span of the table's body, when the line is one: only quoted names inside it are exempt.
+    const table = ENV_HTTP_HEADERS.exec(line)
+    const tableStart = table ? (table.index ?? 0) + table[0].indexOf("{") : -1
+    const tableEnd = table ? (table.index ?? 0) + table[0].length - 1 : -1
     for (const match of line.matchAll(ASSIGNMENT)) {
       // `$name = value` sets a PHP or PowerShell variable, but `$PWD:/x` in
       // a shell line is a reference and a path.
@@ -279,7 +282,14 @@ function scanLines(
       let value = unquote(raw)
       if (/^[|>][-+0-9]{0,3}[ \t]*$/.test(value))
         value = blockScalar(lines, index)
-      if (headerNames && ENV_NAME.test(value)) continue
+      const at = match.index ?? 0
+      if (
+        at > tableStart &&
+        at < tableEnd &&
+        raw.startsWith('"') &&
+        ENV_NAME.test(value)
+      )
+        continue
       let strength = nameStrength(name)
       // Words after a `:` value make a sentence: `research pass: ByteRover
       // CLI 3`. Then only a random-looking value counts.
