@@ -103,17 +103,17 @@ The AgentCore and Aurora facts below come from the AWS documentation (read 2026-
     - OIDC trust of each `previews` role: only the `preview` environment on `main`, and only the named previews workflow files (`job_workflow_ref`), as for the deploy roles.
     - State of each `previews` role: only the `previews/` prefix of its account's state bucket. It cannot read the state of `hosted` or of a guard stack.
     - The boundary of each `previews` role limits which resources it can change. It allows the cross-account actions only on these resources:
-        - a peering whose accepter VPC carries the previews tag;
-        - roles under `role/ctxpipe/preview-`, with the workload boundary;
+        - a peering only between the preview-data VPC (requester, production) and the preview VPC (accepter, preview account). Both VPCs carry a previews tag, and the boundary checks the requester and the accepter VPC;
+        - roles under `role/ctxpipe/preview-` only, and each one must carry the previews workload boundary. That boundary is narrower than the production workload boundary: in production it allows only the clone actions of decision 20 and the reads of decision 21;
         - bucket policies on the shard and dump buckets only.
     - IAM cannot limit the content of a trust policy or a bucket policy. These limits hold the content:
         - A resource control policy (RCP) of the organization denies S3 access and role assumption to principals outside the organization. So no grant can reach an outside account.
+        - The same RCP denies `sts:AssumeRoleWithWebIdentity` with a GitHub token unless the token's repository owner is the company's GitHub organization. So no trust policy can admit another GitHub account.
         - The policy pack checks the content against the forms of decisions 20 and 21: the `preview-db` trust and limits, and read only on the named prefixes for the preview account's named roles.
         - The nightly audit compares the deployed policies with these forms.
     - The normal deploy role keeps its deny on all cross-account actions.
     - `data` finds the buckets and the cluster of `hosted` by their fixed names (decision 5). The preview VPC id comes from a fixed value in `Pulumi.data.yaml`. `data` requests the peering, and `base` accepts it in the preview account.
     - `data` keeps its state in the production account's state bucket. `base` and `pr` keep theirs in the preview account. No preview stack reads the outputs of `data`.
-    - The policy pack also checks each cross-account statement against the same forms.
     - Accepted design (the CTO, 2026-11-12): a change to `machines/previews` merges on the merge gate. Such a change can replace the policy pack. It can then widen the path from preview code to production customer data, but only inside the organization (the RCP) and only on the resources that the `previews` boundary names. The nightly audit finds such a change after the merge.
     - `pr`: one small stack for each preview.
 
