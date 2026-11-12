@@ -5,6 +5,7 @@
   },
   "ignoreWorkspaces": ["apps/otel-collector", "apps/forge-ctxpipe-agent"],
   "ignoreBinaries": [
+    "src/scripts/deletePreviewSandboxes.ts",
     "evals/mcp/run-seed.ts",
     "evals/mcp/run.ts"
   ],
