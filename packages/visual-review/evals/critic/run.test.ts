@@ -822,23 +822,21 @@ test("a run that the spend cap stops before its first call gets no image", async
 })
 
 test("a capped run with workers at the same time lets the calls in flight finish, and starts no call above the cap", async () => {
-  // Each call waits until all four workers made their call. Thus the four
-  // calls are in flight together, and no worker sees the cost of another
-  // call first. The result does not depend on the timing of the workers.
-  let arrive = () => {}
-  const allInFlight = new Promise<void>((done) => {
-    let arrived = 0
-    arrive = () => {
-      if (++arrived === 4) done()
-    }
-  })
-  const together = http.post(`${gateway}/chat/completions`, async () => {
-    arrive()
-    await allInFlight
-    // No response: msw gives the request to the next handler (`chat`).
-  })
-  server.use(chat, releaseOf())
-  server.use(together)
+  // Each call waits until all workers made their call. Thus the calls are
+  // in flight together, and no worker sees the cost of another call first.
+  // The result does not depend on the timing of the workers.
+  const workers = 4
+  const allInFlight = Promise.withResolvers<void>()
+  let arrived = 0
+  const holdUntilAllInFlight = http.post(
+    `${gateway}/chat/completions`,
+    async () => {
+      if (++arrived === workers) allInFlight.resolve()
+      await allInFlight.promise
+      // No response: msw gives the request to the next handler (`chat`).
+    },
+  )
+  server.use(holdUntilAllInFlight, chat, releaseOf())
   const cache = mkdtempSync(join(folder, "cache-"))
 
   // Four workers start at $0.00 and their four calls finish. The spend of
@@ -848,14 +846,14 @@ test("a capped run with workers at the same time lets the calls in flight finish
     "--arms",
     "llm:anthropic/claude-test",
     "--concurrency",
-    "4",
+    String(workers),
     "--max-cost",
     "0.03",
   ])
 
   expect(code).toBe(0)
   expect(text).toContain("The spend cap stopped the run")
-  expect(calls).toHaveLength(4)
+  expect(calls).toHaveLength(workers)
   const called = calls.map((call) => call.split(" ")[1])
   expect([...downloads].sort()).toEqual(
     files(cases.filter(({ id }) => called.includes(id))),
