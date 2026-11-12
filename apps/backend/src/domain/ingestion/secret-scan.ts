@@ -64,6 +64,9 @@ const AUTH_HEADER =
  * `env_http_headers = { "X-Secret" = "MY_SECRET" }`.
  */
 const ENV_HTTP_HEADERS = /^\s*env_http_headers\s*=\s*\{([^{}]*)\}/
+/** A table body of `"Header-Name" = "ENV_NAME"` entries and nothing else: no comment, no other value. */
+const ENV_HTTP_HEADERS_BODY =
+  /^\s*(?:"[A-Za-z0-9-]+"\s*=\s*"[A-Z_][A-Z0-9_]*"\s*(?:,\s*|$))*$/
 const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/
 const ASSIGNMENT =
   /(?<![\w.-])["']?([A-Za-z_][\w.-]{0,99})["']?[ \t]*([:=])[ \t]*([|>][-+0-9]{0,3}[ \t]*$|"[^"\n]{0,256}"|'[^'\n]{0,256}'|[^\s"'`|,;]{1,512})/g
@@ -270,7 +273,9 @@ function scanLines(
 
     meter.work += line.length
     // The span of the table's body, when the line is one: only quoted names inside it are exempt.
-    const table = ENV_HTTP_HEADERS.exec(line)
+    const found = ENV_HTTP_HEADERS.exec(line)
+    const table =
+      found && ENV_HTTP_HEADERS_BODY.test(found[1] ?? "") ? found : null
     const tableStart = table ? (table.index ?? 0) + table[0].indexOf("{") : -1
     const tableEnd = table ? (table.index ?? 0) + table[0].length - 1 : -1
     for (const match of line.matchAll(ASSIGNMENT)) {

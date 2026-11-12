@@ -27,13 +27,6 @@ preview_otel_vars_build() {
   }'
 }
 
-# Previews send with their own Access service token: OBSERVABILITY_OTLP_HEADERS of the GitHub `Preview` environment,
-# never production's. A token that leaks from PR code then can be revoked without touching production.
-preview_otel_vars_json() {
-  echo "Building preview OTEL exporter vars from the Preview OBSERVABILITY_OTLP_HEADERS" >&2
-  preview_otel_vars_build
-}
-
 # One header's value from an OTLP header list (`Name=value,Name=value`), by name, trimmed.
 otlp_header_value() {
   local headers="$1" name="$2"
@@ -68,10 +61,13 @@ check_preview_otel_differs_from_production() {
   fi
 }
 
+# Previews send with their own Access service token: OBSERVABILITY_OTLP_HEADERS of the GitHub `Preview` environment,
+# never production's. A token that leaks from PR code then can be revoked without touching production.
 sync_preview_otel_variables() {
   local vars_json
   check_preview_otel_differs_from_production || return 1
-  vars_json="$(preview_otel_vars_json)" || return 1
+  echo "Building preview OTEL exporter vars from the Preview OBSERVABILITY_OTLP_HEADERS" >&2
+  vars_json="$(preview_otel_vars_build)" || return 1
   if [[ -z "$vars_json" ]]; then
     echo "preview-otel-vars: failed to resolve exporter vars" >&2
     return 1

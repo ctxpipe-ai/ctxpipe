@@ -117,7 +117,7 @@ do
   grep -Fq 'scripts/preview-otel-vars.sh' "$workflow" || fail "$workflow must source scripts/preview-otel-vars.sh"
   count="$(grep -c 'sync_preview_otel_variables' "$workflow" || true)"
   [[ "$count" == 1 ]] || fail "$workflow must invoke sync_preview_otel_variables once (got $count)"
-  if grep -E -q 'preview_otel_vars_json\(\)|upsert_preview_otel_variables\(\)' "$workflow"; then
+  if grep -E -q 'preview_otel_vars_build\(\)|upsert_preview_otel_variables\(\)' "$workflow"; then
     fail "$workflow must not redefine preview OTEL orchestration"
   fi
   assert_workflow_syntax "$workflow"
