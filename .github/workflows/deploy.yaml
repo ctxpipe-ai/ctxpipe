@@ -395,8 +395,9 @@ jobs:
 
   # A reviewed exception in scripts/ci/check-secret-jobs.mjs (productionJobs):
   # this job runs `pnpm install` with the production secrets. Migrate
-  # (tsx src/db/migrate.ts) and the cleanup of preview sandboxes (Vercel SDK)
-  # need the packages. The job runs only on a push to main, with merged code
+  # (tsx src/db/migrate.ts), the cleanup of preview sandboxes and the
+  # retirement of the Vercel sandboxes (Vercel SDK) need the packages. The
+  # job runs only on a push to main, with merged code
   # and a frozen lockfile, and the production runtime trusts the same
   # packages. The pin rule and the cache rule of the check still apply.
   terraform:
@@ -592,6 +593,21 @@ jobs:
           VERCEL_TEAM_ID: ctxpipe
           VERCEL_PROJECT_ID: ctxpipe
         run: bun src/scripts/deletePreviewSandboxes.ts 'pr-*'
+
+      # CTX-1220: delete the Vercel sandboxes and snapshots that the sandbox
+      # rows of the production database record (Workspace bases, their
+      # builders, conversation and ingest sandboxes), then the rows. A second
+      # run finds nothing to do. As above, a failure does not fail the deploy,
+      # and the next deploy tries again.
+      - name: Retire the Vercel sandboxes of the production database
+        continue-on-error: true
+        working-directory: ${{ github.workspace }}/apps/backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+          VERCEL_TEAM_ID: ctxpipe
+          VERCEL_PROJECT_ID: ctxpipe
+        run: bun src/scripts/retireVercelSandboxes.ts
 
   # A reviewed exception in scripts/ci/check-secret-jobs.mjs (productionJobs):
   # the Forge CLI is a package, and it runs with the Forge token. The job runs
