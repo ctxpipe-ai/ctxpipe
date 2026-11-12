@@ -19,6 +19,8 @@ run_sync() {
   : >"$tmp/upserts"
   : >"$tmp/mints"
   : >"$tmp/psql"
+  : >"$tmp/revokes"
+  : >"$tmp/deletes"
   (
     # shellcheck disable=SC1090
     source "$script"
@@ -27,7 +29,18 @@ run_sync() {
       case "$1" in
         *"query variables"*)
           printf '%s\n' "$2" >"$tmp/read"
-          jq -nc --arg m "$MARKER" '{data:{variables:({AUTH_SECRET:"production-auth"} + (if $m == "" then {} else {PREVIEW_OWN_SECRETS:$m} end))}}'
+          jq -nc --arg m "$MARKER" --arg t "${OLD_TOKEN:-}" '{data:{variables:({AUTH_SECRET:"production-auth"} + (if $m == "" then {} else {PREVIEW_OWN_SECRETS:$m} end) + (if $t == "" then {} else {RAILWAY_TOKEN:$t} end))}}'
+          ;;
+        *"query projectTokens"*)
+          echo '{"data":{"projectTokens":{"edges":[{"node":{"id":"tok_preview","environmentId":"env_preview"}},{"node":{"id":"tok_other","environmentId":"env_other"}}]}}}'
+          ;;
+        *projectTokenDelete*)
+          printf '%s\n' "$2" >>"$tmp/revokes"
+          echo '{"data":{"projectTokenDelete":true}}'
+          ;;
+        *variableDelete*)
+          printf '%s\n' "$2" >>"$tmp/deletes"
+          echo '{"data":{"variableDelete":true}}'
           ;;
         *projectTokenCreate*)
           printf '%s\n' "$2" >>"$tmp/mints"
@@ -95,8 +108,16 @@ out="$(MARKER="" TOKEN=scoped-token-value run_sync "$tmp/no-db" 2>&1)" || fail "
 [[ ! -s "$tmp/no-db/psql" ]] || fail "without OWNER_DB_URL, sync must not run psql"
 
 out="$(MARKER=v1 TOKEN=scoped-token-value DB_URL=postgresql://owner@preview-branch/neondb run_sync "$tmp/kept" 2>&1)" || fail "a marked preview should pass: $out"
-[[ ! -s "$tmp/kept/upserts" && ! -s "$tmp/kept/mints" && ! -s "$tmp/kept/psql" ]] \
-  || fail "a preview that has its own secrets keeps them for its life"
+[[ ! -s "$tmp/kept/upserts" && ! -s "$tmp/kept/mints" && ! -s "$tmp/kept/psql" && ! -s "$tmp/kept/revokes" && ! -s "$tmp/kept/deletes" ]] \
+  || fail "a preview that has its own secrets and no old token is left as it is"
+
+out="$(MARKER=v1 OLD_TOKEN=old-wake-token run_sync "$tmp/old" 2>&1)" || fail "a marked preview with an old token should pass: $out"
+printf '%s' "$out" | grep -Fq "old-wake-token" && fail "sync must not print the old token"
+jq -se 'map(.id) == ["tok_preview"]' "$tmp/old/revokes" >/dev/null \
+  || fail "only the project token of this preview environment should be revoked"
+jq -e '.input == {projectId:"proj_test", environmentId:"env_preview", serviceId:"svc_backend", name:"RAILWAY_TOKEN"}' "$tmp/old/deletes" >/dev/null \
+  || fail "RAILWAY_TOKEN should be deleted from the preview backend"
+[[ ! -s "$tmp/old/upserts" && ! -s "$tmp/old/mints" ]] || fail "an old preview keeps its own secrets"
 
 
 # The deploy job must not give the workspace token to steps that run branch code

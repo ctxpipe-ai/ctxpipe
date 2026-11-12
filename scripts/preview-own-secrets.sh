@@ -34,6 +34,30 @@ preview_own_secrets_mask() {
   fi
 }
 
+# drop_preview_wake_token: a preview made before the worker wake went away has
+# a Railway project token in its backend variable RAILWAY_TOKEN. Revoke each
+# project token of this preview environment and delete that variable. No
+# value enters a shell variable.
+drop_preview_wake_token() {
+  local has_token token_ids id
+  has_token="$(service_vars "$ENV_ID" "$BACKEND_SERVICE_ID" RAILWAY_TOKEN \
+    | jq -r 'has("RAILWAY_TOKEN")')" || return 1
+  [[ "$has_token" == "true" ]] || return 0
+  token_ids="$(railway_graphql \
+    'query projectTokens($projectId: String!) { projectTokens(projectId: $projectId, first: 100) { edges { node { id environmentId } } } }' \
+    "$(jq -nc --arg p "$RAILWAY_PROJECT_ID" '{projectId:$p}')" \
+    | jq -r --arg env "$ENV_ID" '.data.projectTokens.edges[]?.node | select(.environmentId == $env) | .id')" || return 1
+  for id in $token_ids; do
+    railway_graphql 'mutation projectTokenDelete($id: String!) { projectTokenDelete(id: $id) }' \
+      "$(jq -nc --arg id "$id" '{id:$id}')" >/dev/null || return 1
+    echo "Revoked Railway project token $id of $PR_ENV"
+  done
+  railway_graphql 'mutation variableDelete($input: VariableDeleteInput!) { variableDelete(input: $input) }' \
+    "$(jq -nc --arg p "$RAILWAY_PROJECT_ID" --arg e "$ENV_ID" --arg s "$BACKEND_SERVICE_ID" \
+      '{input:{projectId:$p, environmentId:$e, serviceId:$s, name:"RAILWAY_TOKEN"}}')" >/dev/null || return 1
+  echo "Deleted RAILWAY_TOKEN from the backend of $PR_ENV"
+}
+
 sync_preview_own_secrets() {
   local name marker auth_secret connection_key
   for name in RAILWAY_PROJECT_ID ENV_ID PR_ENV BACKEND_SERVICE_ID WORKER_SERVICE_ID UI_SERVICE_ID CODESEARCH_SERVICE_ID; do
@@ -45,6 +69,7 @@ sync_preview_own_secrets() {
   marker="$(service_vars "$ENV_ID" "$BACKEND_SERVICE_ID" PREVIEW_OWN_SECRETS \
     | jq -r '.PREVIEW_OWN_SECRETS // ""')" || return 1
   if [[ "$marker" == "v1" ]]; then
+    drop_preview_wake_token || return 1
     echo "Preview $PR_ENV keeps its own AUTH_SECRET and connection-secrets key"
     return 0
   fi
