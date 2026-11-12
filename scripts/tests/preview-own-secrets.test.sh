@@ -126,19 +126,21 @@ out="$(MARKER=v1 OLD_TOKEN=old-wake-token run_sync "$tmp/old" 2>&1)" || fail "a 
 printf '%s' "$out" | grep -Fq "old-wake-token" && fail "sync must not print the old token"
 jq -se 'map(.id) == ["tok_preview"]' "$tmp/old/revokes" >/dev/null \
   || fail "only the project token of this preview environment should be revoked"
-jq -e '.input == {projectId:"proj_test", environmentId:"env_preview", serviceId:"svc_backend", name:"RAILWAY_TOKEN"}' "$tmp/old/deletes" >/dev/null \
-  || fail "RAILWAY_TOKEN should be deleted from the preview backend"
-[[ ! -s "$tmp/old/upserts" && ! -s "$tmp/old/mints" ]] || fail "an old preview keeps its own secrets"
+[[ ! -s "$tmp/old/deletes" ]] || fail "no variable delete: Railway redeploys on a delete"
+jq -se 'map(.input) | any(.serviceId == "svc_backend" and .skipDeploys == true and .variables == {RAILWAY_TOKEN:""})' "$tmp/old/upserts" >/dev/null \
+  || fail "RAILWAY_TOKEN should be emptied on the preview backend, with no deploy"
+[[ ! -s "$tmp/old/mints" ]] && ! grep -q "AUTH_SECRET" "$tmp/old/upserts" || fail "an old preview keeps its own secrets"
 
 out="$(MARKER="" OLD_TOKEN=old-wake-token run_sync "$tmp/legacy" 2>&1)" || fail "an unmarked preview with an old token should pass: $out"
 printf '%s' "$out" | grep -Fq "old-wake-token" && fail "sync must not print the old token"
 jq -se 'map(.id) == ["tok_preview"]' "$tmp/legacy/revokes" >/dev/null \
   || fail "an unmarked preview should also lose the project token of its environment"
-jq -e '.input.name == "RAILWAY_TOKEN" and .input.serviceId == "svc_backend"' "$tmp/legacy/deletes" >/dev/null \
-  || fail "an unmarked preview should also lose RAILWAY_TOKEN"
+[[ ! -s "$tmp/legacy/deletes" ]] || fail "no variable delete on an unmarked preview either"
+jq -se 'map(.input) | any(.variables == {RAILWAY_TOKEN:""} and .skipDeploys == true)' "$tmp/legacy/upserts" >/dev/null \
+  || fail "an unmarked preview should also get an empty RAILWAY_TOKEN, with no deploy"
 grep -q "PREVIEW_OWN_SECRETS" "$tmp/legacy/upserts" || fail "an unmarked preview still gets its own secrets"
-[[ "$(head -1 "$tmp/legacy/order")" == "revoke" && "$(tail -1 "$tmp/legacy/order")" == "delete" ]] \
-  || fail "revoke first, and delete RAILWAY_TOKEN (which redeploys) only after the own secrets: $(tr '\n' ' ' <"$tmp/legacy/order")"
+[[ "$(head -1 "$tmp/legacy/order")" == "revoke" ]] && ! grep -q delete "$tmp/legacy/order" \
+  || fail "revoke first, and never delete a variable: $(tr '\n' ' ' <"$tmp/legacy/order")"
 
 
 # The deploy job must not give the workspace token to steps that run branch code
