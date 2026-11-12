@@ -50,7 +50,6 @@ import {
 import {
   collectUnusedWorkspaceBases,
   destroyUnusedSandbox,
-  destroyWorkspaceSandbox,
 } from "./workspace-sandbox-cleanup.js"
 
 /**
@@ -585,30 +584,10 @@ export async function sweepConversationSandboxes(
     })
     dueAt(retryAt)
   }
-  // A base of the removed Vercel provider goes whatever the current provider
-  // is (AgentCore has no bases), with no provider call: the removal of the
-  // Vercel projects deletes its snapshot.
-  for (const row of bases) {
-    if (row.provider !== "vercel") continue
-    try {
-      if (!(await destroyWorkspaceSandbox(row.id, orgId))) dueAt(retryAt)
-    } catch (error) {
-      log.error({
-        step: "conversation-sandbox-sweep",
-        message: `Deleting a Vercel Workspace base row failed: ${String(error)}`,
-        sandboxId: row.id,
-      })
-      dueAt(retryAt)
-    }
-  }
   // Bases whose conversations are gone (deleted above, or long ago) go too.
   // Skipped when the agent image cannot be read: a daemon blip never deletes
   // the base new conversations should use.
-  const workspacesWithBases = new Set(
-    bases
-      .filter((row) => row.provider !== "vercel")
-      .map((row) => row.workspaceId),
-  )
+  const workspacesWithBases = new Set(bases.map((row) => row.workspaceId))
   let agent: SandboxAgent | null = null
   if (workspacesWithBases.size)
     agent = await currentSandboxAgent().catch((error: unknown) => {

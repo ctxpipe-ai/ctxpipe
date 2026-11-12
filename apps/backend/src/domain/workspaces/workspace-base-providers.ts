@@ -223,9 +223,7 @@ export async function workspaceBaseExists(ref: string): Promise<boolean> {
  * Delete what a base row holds at its provider: a builder and the captured
  * image. Gone counts as deleted. `in-use`: Docker refuses to
  * delete an image a running container uses (a stopped one keeps working
- * without it, measured), so the row stays for a later sweep. A row of the
- * retired Vercel provider holds nothing that ctxpipe can reach: the removal
- * of the Vercel projects deletes its snapshot, so the row goes with no call.
+ * without it, measured), so the row stays for a later sweep.
  */
 export async function deleteWorkspaceBaseArtifacts(
   row: Pick<
@@ -245,7 +243,6 @@ export async function deleteWorkspaceBaseArtifacts(
       ? removeDockerObject(() => docker.getImage(image).remove({ force: true }))
       : "removed"
   }
-  if (row.provider === "vercel") return "removed"
   throw new Error(
     `Cannot delete a Workspace base for provider ${row.provider ?? "unknown"}`,
   )

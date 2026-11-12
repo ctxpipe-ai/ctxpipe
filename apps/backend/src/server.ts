@@ -4,7 +4,10 @@ import type { Serve } from "bun"
 import { createApp } from "./app/app.js"
 import { parseEnv } from "./config/env.js"
 import { closeDb } from "./db/client.js"
-import { warnIfUnsandboxed } from "./domain/workspaces/sandbox-provider.js"
+import {
+  refuseVercelSandboxRows,
+  warnIfUnsandboxed,
+} from "./domain/workspaces/sandbox-provider.js"
 import { flushEvlog } from "./observability/logger.js"
 import { shutdownOtel } from "./observability/otel.js"
 import { shutdownGraphClients } from "./platform/graph/index.js"
@@ -23,6 +26,9 @@ import {
 const env = parseEnv(process.env as Record<string, string | undefined>)
 warnIfUnsandboxed()
 const app = createApp()
+// Before the server serves a request: `createApp` opened the database. The
+// top-level await holds the export, so Bun does not listen on a refusal.
+await refuseVercelSandboxRows()
 let shuttingDown = false
 
 async function shutdownResources() {

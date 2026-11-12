@@ -75,18 +75,6 @@ describe("destroyDetachedProviderSandbox", () => {
     ).rejects.toThrow("ECONNREFUSED")
     expect(destroy).not.toHaveBeenCalled()
   })
-
-  it("retires a sandbox of the removed Vercel provider with no provider call", async () => {
-    await expect(
-      destroyDetachedProviderSandbox({
-        provider: "vercel",
-        providerSandboxId: "sbx-old-chat",
-        snapshotId: "snap_old",
-      }),
-    ).resolves.toBeUndefined()
-    expect(dockerPing).not.toHaveBeenCalled()
-    expect(dockerSandbox).not.toHaveBeenCalled()
-  })
 })
 
 describe("remoteDockerHost", () => {

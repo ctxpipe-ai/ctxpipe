@@ -7,8 +7,11 @@ import type {
 import Docker from "dockerode"
 
 import { assertNotInOrgDbContext } from "../../db/client.js"
-import type { RunningSandboxProvider } from "../../models/workspace-sandboxes.js"
-import { log } from "../../observability/logger.js"
+import {
+  countVercelSandboxRows,
+  type RunningSandboxProvider,
+} from "../../models/workspace-sandboxes.js"
+import { flushEvlog, log } from "../../observability/logger.js"
 import { writeProxyCa } from "./agent-vault.js"
 import {
   agentCoreRuntime,
@@ -61,6 +64,25 @@ export function warnIfUnsandboxed(
     message:
       "SANDBOX_PROVIDER=unsandboxed: Workspace chat agents run as processes in this container with its network access and credentials",
   })
+}
+
+/**
+ * Refuses the start of the backend or the worker while the database holds a
+ * sandbox row of the removed Vercel provider (CTX-1220, ADR-048). This code
+ * cannot delete the Vercel sandbox or snapshot of such a row. The retirement
+ * script of the release before this one deletes them and the rows. The error
+ * gives the count only, never an org or a sandbox id. Call it after
+ * `initDb`, before the process serves a request or runs a job.
+ */
+export async function refuseVercelSandboxRows(
+  orgIds?: readonly string[],
+): Promise<void> {
+  const rows = await countVercelSandboxRows(orgIds)
+  if (rows === 0) return
+  const message = `Sandbox rows of the removed Vercel provider are in the database (count: ${rows}). This release cannot delete their Vercel sandboxes and snapshots, so it does not start. With the release before this one, run \`bun src/scripts/retireVercelSandboxes.ts\` in apps/backend until it reports no rows. Then start this release again.`
+  log.error({ step: "vercel-sandbox-rows", message, rows })
+  await flushEvlog()
+  throw new Error(message)
 }
 
 /**
@@ -242,10 +264,6 @@ export async function destroyDetachedProviderSandbox(input: {
     await configuredAgentCoreProvider().destroy({ id: input.providerSandboxId })
     return
   }
-  // The retired Vercel provider: ctxpipe cannot reach the sandbox any more,
-  // and the removal of the Vercel projects deletes it. The row goes with no
-  // provider call, so an old row never blocks a delete.
-  if (input.provider === "vercel") return
   if (
     input.provider === "local-process" ||
     input.provider === "local_process"
