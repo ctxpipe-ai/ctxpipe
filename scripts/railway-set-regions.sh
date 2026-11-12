@@ -15,10 +15,6 @@
 #   RAILWAY_ENVIRONMENT  (default: production)
 #   RAILWAY_REGION       (default: us-east4-eqdc4a)
 #   RAILWAY_NUM_REPLICAS (default: 1)
-#   RAILWAY_SERVICE_SET  (default: product)
-#     product         — ctxpipe (backend, openworkflow, ui, codesearch, falkordb)
-#     observability   — every service in the project; clickhouse and mongo
-#                       are volume-backed
 #   STATELESS_WAIT_SECONDS (default: 600)
 #   VOLUME_WAIT_SECONDS    (default: 2700)  # 50GB volume copy
 #
@@ -38,7 +34,6 @@ PROJECT_ID="${RAILWAY_PROJECT_ID:-}"
 ENVIRONMENT_NAME="${RAILWAY_ENVIRONMENT:-production}"
 REGION="${RAILWAY_REGION:-us-east4-eqdc4a}"
 NUM_REPLICAS="${RAILWAY_NUM_REPLICAS:-1}"
-SERVICE_SET="${RAILWAY_SERVICE_SET:-product}"
 STATELESS_WAIT_SECONDS="${STATELESS_WAIT_SECONDS:-600}"
 VOLUME_WAIT_SECONDS="${VOLUME_WAIT_SECONDS:-2700}"
 
@@ -99,23 +94,8 @@ wait_deploy() {
 }
 
 # Terraform service names. Stateless first; volume-backed last (serial copy).
-# The observability set is every service load_project returns. Only the
-# volume-backed names are listed here.
-STATELESS_NAMES=()
-VOLUME_NAMES=()
-case "$SERVICE_SET" in
-  product)
-    STATELESS_NAMES=(backend openworkflow ui)
-    VOLUME_NAMES=(codesearch falkordb)
-    ;;
-  observability)
-    VOLUME_NAMES=(clickhouse mongo)
-    ;;
-  *)
-    echo "Unknown RAILWAY_SERVICE_SET=$SERVICE_SET (expected product or observability)" >&2
-    exit 1
-    ;;
-esac
+STATELESS_NAMES=(backend openworkflow ui)
+VOLUME_NAMES=(codesearch falkordb)
 
 current_regions_json() {
   local service_id="$1"
@@ -186,7 +166,7 @@ pin_and_maybe_deploy() {
   local want_always=0 suffix=''
   local region_ok=0 policy_ok=1
 
-  if [[ "$label" == "falkordb" && "$SERVICE_SET" == "product" ]]; then
+  if [[ "$label" == "falkordb" ]]; then
     want_always=1
     suffix=' with restart policy ALWAYS'
     extra='{"restartPolicyType":"ALWAYS"}'
@@ -211,25 +191,6 @@ pin_and_maybe_deploy() {
 
 load_project
 
-if [[ "$SERVICE_SET" == "observability" ]]; then
-  # ids_by_name is set by load_project.
-  # shellcheck disable=SC2154
-  service_ids="$ids_by_name"
-  while IFS= read -r name; do
-    [[ -z "$name" ]] && continue
-    volume=0
-    for volume_name in "${VOLUME_NAMES[@]}"; do
-      if [[ "$name" == "$volume_name" ]]; then
-        volume=1
-        break
-      fi
-    done
-    if (( volume == 0 )); then
-      STATELESS_NAMES+=("$name")
-    fi
-  done < <(echo "$service_ids" | jq -r 'keys[]')
-fi
-
 echo "Pinning Railway $ENVIRONMENT_NAME ($ENV_ID) to $REGION"
 
 resolve_id() {
@@ -239,7 +200,7 @@ resolve_id() {
   echo "$ids_by_name" | jq -r --arg name "$name" '.[$name] // empty'
 }
 
-if [[ "$SERVICE_SET" == "product" && "$ENVIRONMENT_NAME" == "production" ]]; then
+if [[ "$ENVIRONMENT_NAME" == "production" ]]; then
   if [[ -z "$(resolve_id falkordb)" ]]; then
     echo "::error::No Railway service named falkordb in production. Cause: the service was renamed or removed, so the restart policy ALWAYS cannot be set. Fix: restore the falkordb service name in Railway, or update scripts/railway-set-regions.sh." >&2
     exit 1
