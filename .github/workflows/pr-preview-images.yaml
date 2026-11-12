@@ -106,8 +106,9 @@ jobs:
           docker tag "preview/$IMAGE:local" "$target"
           docker push "$target"
           # The digest the factory takes: one notice on this job's check run (factory previews/pr, runDigests).
-          digest=$(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$target" \
-            | sed -n "s|^$REGISTRY/ctxpipe-pr/$IMAGE@||p")
+          # From ECR, under this run's own tag: the image that the push above made.
+          digest=$(aws ecr describe-images --repository-name "ctxpipe-pr/$IMAGE" --image-ids imageTag="$TAG" \
+            --query 'imageDetails[0].imageDigest' --output text)
           [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::No digest for $target"; exit 1; }
           echo "::notice title=preview-image::$IMAGE $digest"
           echo "Pushed $target ($digest)" >> "$GITHUB_STEP_SUMMARY"
