@@ -8,8 +8,8 @@
 # - Only pull requests from this repo (the role trusts no fork) into main.
 # - Two jobs. `build` runs the PR's code (the Dockerfile steps) and holds no credential and no OIDC token: it hands the
 #   image on as an artifact. `push` runs no code of the PR (no checkout, no local action, pinned actions only), gets
-#   the role, and pushes that image. The role (`github-actions-ctxpipe-pr-ecr-push`, factory aws-core) can only push
-#   to `ctxpipe-pr/*` in the preview account.
+#   the role, and pushes that image. The role (`ctxpipe/preview-pr-image-push`, factory machines/previews/base) can
+#   only push to `ctxpipe-pr/*` in the preview account.
 # - The image is the PR's head commit, not the merge commit, so the tag names the code it holds.
 # - Provenance: every same-repo pull request has the role, so another PR can push and tag in `ctxpipe-pr/*`, and
 #   neither a tag nor a push time says which run pushed an image. So each push job reports the digest it pushed as
@@ -95,7 +95,7 @@ jobs:
           path: ${{ runner.temp }}/image
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: arn:aws:iam::573018602187:role/github-actions-ctxpipe-pr-ecr-push
+          role-to-assume: arn:aws:iam::573018602187:role/ctxpipe/preview-pr-image-push
           aws-region: us-west-2
       - name: Push to the preview account
         env:
