@@ -10,10 +10,13 @@
  *   bun src/scripts/retireVercelSandboxes.ts [--dry-run]
  *
  * It reads DATABASE_URL, and VERCEL_TOKEN, VERCEL_TEAM_ID and
- * VERCEL_PROJECT_ID (not with --dry-run). It logs counts only: never an org,
- * a repository, a sandbox or snapshot id, or a token.
+ * VERCEL_PROJECT_ID (not with --dry-run). The production deploy job runs it,
+ * and the output of that job is public. Thus it writes only its own count
+ * events (`useRetirementLogger`): never an org, a Workspace, a repository, a
+ * sandbox or snapshot id, a token or an error text.
  */
 import { APIError } from "@vercel/sandbox"
+import { initLogger } from "evlog"
 
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
@@ -33,6 +36,50 @@ import {
 import { log } from "../observability/logger.js"
 
 type KindCounts = Record<SandboxInstanceKind, number>
+
+const STEP = "retire-vercel-sandboxes"
+
+/** The fields of the script's own events, all counts and codes. */
+const LOGGED_FIELDS = [
+  "timestamp",
+  "level",
+  "step",
+  "message",
+  "dryRun",
+  "found",
+  "retired",
+  "failed",
+  "kind",
+  "status",
+] as const
+
+/**
+ * Send the script's own events to `write`, one JSON line each, with only
+ * `LOGGED_FIELDS`. Every other event of the process is dropped: the shared
+ * helpers log org ids (the org transaction timing) and raw errors (a
+ * rollback). This changes the logger of this process only.
+ */
+export function useRetirementLogger(write: (line: string) => void): void {
+  initLogger({
+    env: { service: "ctxpipe-retire-vercel-sandboxes" },
+    pretty: false,
+    silent: true,
+    drain: (ctx) => {
+      const event = ctx.event as Record<string, unknown>
+      if (event.step !== STEP) return
+      write(
+        JSON.stringify(
+          Object.fromEntries(
+            LOGGED_FIELDS.filter((key) => key in event).map((key) => [
+              key,
+              event[key],
+            ]),
+          ),
+        ),
+      )
+    },
+  })
+}
 
 function noKinds(): KindCounts {
   return { chat: 0, job: 0, base: 0, ingest: 0 }
@@ -109,7 +156,20 @@ export async function retireVercelSandboxes(input: {
   const retired = noKinds()
   const failed = noKinds()
   for (const row of rows) found[row.kind] += 1
-  if (input.dryRun || rows.length === 0) return { found, retired, failed }
+  const done = () => {
+    log.info({
+      step: STEP,
+      message: input.dryRun
+        ? "Counted the Vercel sandboxes to retire"
+        : "Retired the Vercel sandboxes",
+      dryRun: input.dryRun === true,
+      found,
+      retired,
+      failed,
+    })
+    return { found, retired, failed }
+  }
+  if (input.dryRun || rows.length === 0) return done()
   const credentials = input.credentials ?? (await vercelCredentials())
   const ordered = [
     ...rows.filter((row) => row.kind !== "base"),
@@ -126,7 +186,7 @@ export async function retireVercelSandboxes(input: {
       failed[row.kind] += 1
       // The error text can hold a snapshot id: log only the kind and status.
       log.warn({
-        step: "retire-vercel-sandboxes",
+        step: STEP,
         message: `Retiring a sandbox failed (kind ${row.kind})`,
         kind: row.kind,
         status:
@@ -136,10 +196,11 @@ export async function retireVercelSandboxes(input: {
       })
     }
   }
-  return { found, retired, failed }
+  return done()
 }
 
 if (import.meta.main) {
+  useRetirementLogger((line) => process.stdout.write(`${line}\n`))
   const dryRun = process.argv.includes("--dry-run")
   const url = process.env.DATABASE_URL
   if (!url) {
@@ -148,17 +209,7 @@ if (import.meta.main) {
   }
   initDb(url)
   retireVercelSandboxes({ dryRun })
-    .then(async ({ found, retired, failed }) => {
-      log.info({
-        step: "retire-vercel-sandboxes",
-        message: dryRun
-          ? "Counted the Vercel sandboxes to retire"
-          : "Retired the Vercel sandboxes",
-        dryRun,
-        found,
-        retired,
-        failed,
-      })
+    .then(async ({ failed }) => {
       await closeDb()
       const failures = Object.values(failed).reduce((a, b) => a + b, 0)
       if (failures > 0) {
@@ -169,7 +220,7 @@ if (import.meta.main) {
       }
     })
     .catch((error: unknown) => {
-      // Not the error text: it can name a sandbox or a snapshot.
+      // Not the error text: it can name an org, a sandbox or a snapshot.
       process.stderr.write(
         `Retiring the Vercel sandboxes failed (${error instanceof Error ? error.name : "unknown error"})\n`,
       )

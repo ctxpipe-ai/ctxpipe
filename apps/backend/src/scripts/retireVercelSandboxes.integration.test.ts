@@ -18,6 +18,7 @@ import {
 import {
   countVercelSandboxes,
   retireVercelSandboxes,
+  useRetirementLogger,
 } from "./retireVercelSandboxes.js"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
@@ -261,15 +262,9 @@ describe("retireVercelSandboxes (Postgres)", () => {
       requests += 1
     })
     server.use(...project.handlers)
-    const events: unknown[] = []
-    initLogger({
-      env: { service: "ctxpipe-backend-test" },
-      pretty: false,
-      silent: true,
-      drain: (ctx) => {
-        events.push(ctx.event)
-      },
-    })
+    // The logger of the script's process: every line it would write.
+    const lines: string[] = []
+    useRetirementLogger((line) => lines.push(line))
 
     const dryRun = await retireVercelSandboxes({ dryRun: true, orgIds })
     expect(dryRun.found).toEqual({ chat: 3, job: 0, base: 2, ingest: 1 })
@@ -297,6 +292,12 @@ describe("retireVercelSandboxes (Postgres)", () => {
       base: 0,
       ingest: 0,
     })
+    // A shared helper logs the org id and the raw error on a rollback.
+    await expect(
+      withOrgDbContext(orgA, async () => {
+        throw new Error(`rollback of ${names.chat}`)
+      }),
+    ).rejects.toThrow()
 
     project.sandboxes.clear()
     const second = await retireVercelSandboxes({ credentials, orgIds })
@@ -306,17 +307,28 @@ describe("retireVercelSandboxes (Postgres)", () => {
     expect(third.found).toEqual({ chat: 0, job: 0, base: 0, ingest: 0 })
     expect(requests).toBe(requestsBefore)
 
-    // The logs hold counts and status codes only.
-    const logged = JSON.stringify(events)
-    expect(events.length).toBeGreaterThan(0)
-    for (const secret of [
-      orgA,
-      orgB,
-      workspaceA,
-      ...Object.values(names),
-      credentials.token,
-      suffix,
+    // Each line of the run holds counts and status codes only: one summary
+    // for each run and one line for the failed delete.
+    expect(lines.map((line) => JSON.parse(line).message)).toEqual([
+      "Counted the Vercel sandboxes to retire",
+      "Retiring a sandbox failed (kind chat)",
+      "Retired the Vercel sandboxes",
+      "Retired the Vercel sandboxes",
+      "Retired the Vercel sandboxes",
     ])
-      expect(logged).not.toContain(secret)
+    for (const line of lines)
+      for (const secret of [
+        orgA,
+        orgB,
+        workspaceA,
+        workspaceB,
+        ...rows.map((record) => record.id),
+        ...Object.values(names),
+        credentials.token,
+        suffix,
+        "rollback",
+        "forbidden",
+      ])
+        expect(line).not.toContain(secret)
   })
 })
