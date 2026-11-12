@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { modelCallSettings } from "../../retrieval/services/modelProvider.js"
 import {
-  WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
+  WORKSPACE_CHAT_CREDENTIAL_PLACEHOLDER,
   WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT,
   WORKSPACE_CHAT_OPENCODE_CLI,
   WORKSPACE_CHAT_OPENCODE_HOME_SLUG_MAX_LENGTH,
@@ -318,7 +318,7 @@ describe("workspaceChatOpenCodeContract", () => {
     expect(written.homeEnv.PATH).toBe("/usr/local/bin:/usr/bin:/bin")
     // Agent Vault adds the model capability: the config holds a placeholder.
     expect(JSON.parse(written.configJson).provider.ctxpipe.options.apiKey).toBe(
-      WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
+      WORKSPACE_CHAT_CREDENTIAL_PLACEHOLDER,
     )
   })
 

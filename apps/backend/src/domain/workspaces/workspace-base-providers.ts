@@ -181,12 +181,11 @@ export function dockerWorkspaceBaseBuilder(input: {
   }
 }
 
-/** The builder for a provider. */
-export async function workspaceBaseBuilder(input: {
-  provider: FileKeepingSandboxProvider
+/** The Docker base builder of a Workspace. */
+export function workspaceBaseBuilder(input: {
   orgId: string
   revision: WorkspaceRevision
-}): Promise<WorkspaceBaseBuilder> {
+}): WorkspaceBaseBuilder {
   const { revision } = input
   // The build's GitHub token is recorded like a run token: the build's end
   // revokes it, and the sandbox sweep revokes what a crash left.
@@ -206,10 +205,7 @@ export async function workspaceBaseBuilder(input: {
  * Whether a base's image can still start a sandbox. False when Docker says
  * it is gone (404). Any other failure throws, and the caller keeps the base.
  */
-export async function workspaceBaseExists(
-  _provider: FileKeepingSandboxProvider,
-  ref: string,
-): Promise<boolean> {
+export async function workspaceBaseExists(ref: string): Promise<boolean> {
   assertNotInOrgDbContext()
   return new Docker({ timeout: 30_000 })
     .getImage(ref)
@@ -227,7 +223,9 @@ export async function workspaceBaseExists(
  * Delete what a base row holds at its provider: a builder and the captured
  * image. Gone counts as deleted. `in-use`: Docker refuses to
  * delete an image a running container uses (a stopped one keeps working
- * without it, measured), so the row stays for a later sweep.
+ * without it, measured), so the row stays for a later sweep. A row of the
+ * retired Vercel provider holds nothing that ctxpipe can reach: the removal
+ * of the Vercel projects deletes its snapshot, so the row goes with no call.
  */
 export async function deleteWorkspaceBaseArtifacts(
   row: Pick<
@@ -247,6 +245,7 @@ export async function deleteWorkspaceBaseArtifacts(
       ? removeDockerObject(() => docker.getImage(image).remove({ force: true }))
       : "removed"
   }
+  if (row.provider === "vercel") return "removed"
   throw new Error(
     `Cannot delete a Workspace base for provider ${row.provider ?? "unknown"}`,
   )

@@ -17,7 +17,7 @@ const connectionString = process.env.DATABASE_URL
 const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`
 const orgId = `org_test_sandbox_tokens_${suffix}`
 const otherOrgId = `org_test_sandbox_tokens_other_${suffix}`
-const sandboxId = `sandbox-${suffix}`
+const key = `run:conv_${suffix}:clone:1`
 
 describe("sandbox GitHub tokens (Postgres)", () => {
   beforeAll(() => {
@@ -26,31 +26,39 @@ describe("sandbox GitHub tokens (Postgres)", () => {
   })
 
   afterAll(async () => {
-    await sandboxGitTokenStore(orgId, parseEnv(process.env)).take(sandboxId)
+    await sandboxGitTokenStore(orgId, parseEnv(process.env)).take(key)
     await closeDb()
   })
 
-  it("keeps one encrypted token per sandbox, scoped to its org, and hands it back once", async () => {
+  it("keeps one encrypted token per key, scoped to its org, and hands it back once", async () => {
     const env = parseEnv(process.env)
     const tokens = sandboxGitTokenStore(orgId, env)
-    await tokens.put(sandboxId, "ghs_first")
-    await tokens.put(sandboxId, "ghs_second")
-    expect(await tokens.get(sandboxId)).toMatchObject({ token: "ghs_second" })
+    expect(await tokens.add(key, "ghs_first")).toBe(true)
+    // A key that holds a token keeps it.
+    expect(await tokens.add(key, "ghs_second")).toBe(false)
+    expect(await tokens.get(key)).toMatchObject({ token: "ghs_first" })
+    expect(
+      (await tokens.list(`run:conv_${suffix}:`)).map((row) => [
+        row.key,
+        row.token,
+      ]),
+    ).toEqual([[key, "ghs_first"]])
 
     const [stored] = await withOrgDbContext(orgId, (db) =>
       db
         .select()
         .from(workspaceSandboxGitTokens)
-        .where(eq(workspaceSandboxGitTokens.sandboxId, sandboxId)),
+        .where(eq(workspaceSandboxGitTokens.sandboxId, key)),
     )
-    expect(stored?.tokenCiphertext).not.toContain("ghs_second")
+    expect(stored?.tokenCiphertext).not.toContain("ghs_first")
 
     const other = sandboxGitTokenStore(otherOrgId, env)
-    expect(await other.get(sandboxId)).toBeNull()
-    expect(await other.take(sandboxId)).toBeNull()
+    expect(await other.get(key)).toBeNull()
+    expect(await other.list(`run:conv_${suffix}:`)).toEqual([])
+    expect(await other.take(key)).toBeNull()
 
-    expect(await tokens.take(sandboxId)).toBe("ghs_second")
-    expect(await tokens.take(sandboxId)).toBeNull()
-    expect(await tokens.get(sandboxId)).toBeNull()
+    expect(await tokens.take(key)).toBe("ghs_first")
+    expect(await tokens.take(key)).toBeNull()
+    expect(await tokens.get(key)).toBeNull()
   })
 })

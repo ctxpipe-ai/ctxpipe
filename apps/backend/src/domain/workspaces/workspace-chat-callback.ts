@@ -16,7 +16,7 @@ import type { RunVault } from "./agent-vault.js"
 import { parseSandboxCallbackHost } from "./sandbox-callback-host.js"
 import { bearerUrlRule } from "./sandbox-credential-rules.js"
 import { remoteDockerHost } from "./sandbox-provider.js"
-import { WORKSPACE_CHAT_FIREWALL_PLACEHOLDER } from "./workspace-chat-opencode-contract.js"
+import { WORKSPACE_CHAT_CREDENTIAL_PLACEHOLDER } from "./workspace-chat-opencode-contract.js"
 
 /**
  * Hostname or IP that a remotely hosted sandbox uses to call this backend.
@@ -168,7 +168,7 @@ function withBridgeTokenInVault(
       await vault.addRules([
         bearerUrlRule("tool-bridge", bridge.url, bridge.token),
       ])
-      return { ...bridge, token: WORKSPACE_CHAT_FIREWALL_PLACEHOLDER }
+      return { ...bridge, token: WORKSPACE_CHAT_CREDENTIAL_PLACEHOLDER }
     },
   }
 }

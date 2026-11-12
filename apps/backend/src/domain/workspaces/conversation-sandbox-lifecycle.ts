@@ -316,7 +316,6 @@ async function stopSandboxRow(
       return true
     }
     await stopDetachedProviderSandbox({
-      provider: row.provider,
       providerSandboxId: row.providerSandboxId,
     })
     await persistSandboxInstance({ ...row, state: "stopped" }, ownershipOf(row))
@@ -402,8 +401,8 @@ export async function orgsWithSandboxes(): Promise<string[]> {
  * The lifecycle sweep for one organization's conversation sandboxes:
  * - stop a running sandbox after 5 minutes unused (never while a turn or file
  *   read holds the conversation);
- * - delete a sandbox and its saved state a day before that state would
- *   expire (29 days after its last use), when its conversation is gone, or
+ * - delete a sandbox and its files 29 days after its last use
+ *   (`CHAT_SANDBOX_DELETE_AFTER_MS`), when its conversation is gone, or
  *   when an earlier delete failed; committed work is pushed first;
  * - delete an ingest sandbox whose run finished or that is older than the
  *   shard limit (60 minutes).

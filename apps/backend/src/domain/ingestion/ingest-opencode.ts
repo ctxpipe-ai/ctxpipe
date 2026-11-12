@@ -1,5 +1,5 @@
 import {
-  WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
+  WORKSPACE_CHAT_CREDENTIAL_PLACEHOLDER,
   WORKSPACE_CHAT_OPENCODE_CLI,
   workspaceChatOpenCodeProvider,
 } from "../workspaces/workspace-chat-opencode-contract.js"
@@ -78,7 +78,7 @@ export function ingestOpenCodeConfig(input: {
         url: input.toolBridgeUrl,
         enabled: true as const,
         headers: {
-          Authorization: `Bearer ${WORKSPACE_CHAT_FIREWALL_PLACEHOLDER}`,
+          Authorization: `Bearer ${WORKSPACE_CHAT_CREDENTIAL_PLACEHOLDER}`,
         },
       },
     },

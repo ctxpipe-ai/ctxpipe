@@ -13,7 +13,7 @@ import {
   githubFetchCredentialRules,
   type SandboxCredentialRule,
 } from "./sandbox-credential-rules.js"
-import { WORKSPACE_CHAT_FIREWALL_PLACEHOLDER as PLACEHOLDER } from "./workspace-chat-opencode-contract.js"
+import { WORKSPACE_CHAT_CREDENTIAL_PLACEHOLDER as PLACEHOLDER } from "./workspace-chat-opencode-contract.js"
 
 const image = workspaceChatDockerImage()
 

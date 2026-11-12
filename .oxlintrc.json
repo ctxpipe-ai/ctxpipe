@@ -283,7 +283,6 @@
     {
       "files": [
         "apps/backend/src/retrieval/services/code-search-projection.contract.test.ts",
-        "apps/backend/src/routes/sandbox-egress.test.ts",
         "apps/backend/src/services/confluence/converter.ts"
       ],
       "rules": {

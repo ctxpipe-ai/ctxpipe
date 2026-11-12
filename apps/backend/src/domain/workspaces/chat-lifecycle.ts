@@ -5,8 +5,10 @@ export const CHAT_SANDBOX_IDLE_STOP_MS = 5 * 60 * 1000
 /** A conversation's saved sandbox state is deleted this long after its last use. */
 export const CHAT_SANDBOX_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 /**
- * The sweep deletes a sandbox a day before its retention ends, so the last
- * push before deletion can still resume it.
+ * The sweep deletes a stopped Docker sandbox 29 days after its last use. The
+ * margin of one day came from the Vercel provider, whose saved state expired
+ * after 30 days. It stays, so that this removal does not change when
+ * self-host deletes a sandbox.
  */
 export const CHAT_SANDBOX_DELETE_AFTER_MS =
   CHAT_SANDBOX_RETENTION_MS - 24 * 60 * 60 * 1000

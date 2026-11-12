@@ -74,12 +74,11 @@ export function workspaceBaseIsStale(input: {
  * holds the Workspace lock (stock `ensure` takes it before create), which is
  * also the lock base cleanup holds, so the chosen base cannot be deleted
  * before the sandbox exists.
- * - A base the provider says is gone is marked failed (cleanup removes it)
- *   and the sandbox starts without one.
- * - When the provider cannot say (an outage), the sandbox starts without the
- *   base this time and the base is kept.
- * `requestBuild`: there is no usable base, or it is stale. `failed` marks
- * the chosen base failed when it then cannot start a sandbox.
+ * - A base whose image Docker says is gone is marked failed (cleanup removes
+ *   it) and the sandbox starts without one.
+ * - When Docker cannot say (an outage), the sandbox starts without the base
+ *   this time and the base is kept.
+ * `requestBuild`: there is no usable base, or it is stale.
  */
 export async function baseForNewSandbox(input: {
   orgId: string
@@ -87,18 +86,13 @@ export async function baseForNewSandbox(input: {
   agent: SandboxAgent
   revision: WorkspaceRevision
   now?: Date
-}): Promise<{
-  ref?: string
-  requestBuild: boolean
-  failed: () => Promise<void>
-}> {
-  const nothing = async () => undefined
+}): Promise<{ ref?: string; requestBuild: boolean }> {
   const now = input.now ?? new Date()
   const rows = await withOrgDbContext(input.orgId, () =>
     listSandboxInstances({ workspaceId: input.workspaceId, kind: "base" }),
   )
   const [base] = readyBases(rows, input.agent, input.revision)
-  if (!base?.latestSnapshotId) return { requestBuild: true, failed: nothing }
+  if (!base?.latestSnapshotId) return { requestBuild: true }
   const markFailed = async () => {
     const stored = await getSandboxInstance(base.id, input.orgId)
     if (stored?.state === "live")
@@ -114,27 +108,23 @@ export async function baseForNewSandbox(input: {
   }
   let exists: boolean
   try {
-    exists = await workspaceBaseExists(
-      input.agent.provider,
-      base.latestSnapshotId,
-    )
+    exists = await workspaceBaseExists(base.latestSnapshotId)
   } catch (error) {
     log.warn({
       step: "workspace-base-check",
       message: `Could not check the Workspace base; starting without it: ${String(error)}`,
       ...context,
     })
-    return { requestBuild: false, failed: nothing }
+    return { requestBuild: false }
   }
   if (!exists) {
     log.warn({
       step: "workspace-base-missing",
-      message:
-        "A Workspace base's image or snapshot is gone; starting without it",
+      message: "A Workspace base's image is gone; starting without it",
       ...context,
     })
     await markFailed()
-    return { requestBuild: true, failed: nothing }
+    return { requestBuild: true }
   }
   // Last start from it: cleanup keeps a current base 30 days after this.
   await heartbeatSandboxInstance(base.id, now, input.orgId)
@@ -145,7 +135,6 @@ export async function baseForNewSandbox(input: {
       desiredSha: input.revision.sha,
       now,
     }),
-    failed: markFailed,
   }
 }
 
@@ -308,9 +297,7 @@ export async function runWorkspaceBaseBuild(input: {
   let builder: WorkspaceBaseBuilder
   let build: Awaited<ReturnType<WorkspaceBaseBuilder["start"]>>
   try {
-    builder =
-      input.builder ??
-      (await workspaceBaseBuilder({ provider, orgId, revision }))
+    builder = input.builder ?? workspaceBaseBuilder({ orgId, revision })
     build = await builder.start({ id: baseId, orgId })
   } catch (error) {
     await fail(null)

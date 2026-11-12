@@ -142,7 +142,7 @@ export const WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV =
  * model key, the tool-bridge token, the GitHub CLI token). Agent Vault
  * replaces the Authorization header outside the sandbox.
  */
-export const WORKSPACE_CHAT_FIREWALL_PLACEHOLDER = "ctxpipe-firewall" as const
+export const WORKSPACE_CHAT_CREDENTIAL_PLACEHOLDER = "ctxpipe-firewall" as const
 
 export const WORKSPACE_CHAT_OPENCODE_JSON_SECRET =
   "CTXPIPE_OPENCODE_JSON" as const
@@ -280,7 +280,8 @@ export const WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT = [
 
 /**
  * The model provider block of an OpenCode config: the ctxpipe model proxy,
- * and the run token or the placeholder that Agent Vault replaces. Chat and ingest use the same block.
+ * and the run token or the placeholder that Agent Vault replaces. Chat and
+ * ingest use the same block.
  */
 export function workspaceChatOpenCodeProvider(input: {
   modelBase: string
@@ -295,7 +296,7 @@ export function workspaceChatOpenCodeProvider(input: {
         options: {
           baseURL: WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV,
           apiKey: input.proxyAddsCredentials
-            ? WORKSPACE_CHAT_FIREWALL_PLACEHOLDER
+            ? WORKSPACE_CHAT_CREDENTIAL_PLACEHOLDER
             : ("{env:CTXPIPE_OPENCODE_RUN_TOKEN}" as const),
         },
         models: {
@@ -312,8 +313,10 @@ export function workspaceChatOpenCodeConfig(input: {
   mcp?: { name: string; url: string; token: string }
   /**
    * Docker and AgentCore sandboxes: Agent Vault adds the key outside the
-   * sandbox. Their network holds no credential and reaches
-   * no private address but the backend, so the agent may read web pages.
+   * sandbox, and their network holds no credential. A Docker sandbox
+   * reaches no private address but the backend, so its agent may read web
+   * pages. An AgentCore sandbox has a closed network: its vault refuses
+   * each host that no rule names, so a web read fails there.
    */
   proxyAddsCredentials?: boolean
 }): {
@@ -327,7 +330,7 @@ export function workspaceChatOpenCodeConfig(input: {
         baseURL: typeof WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV
         apiKey:
           | "{env:CTXPIPE_OPENCODE_RUN_TOKEN}"
-          | typeof WORKSPACE_CHAT_FIREWALL_PLACEHOLDER
+          | typeof WORKSPACE_CHAT_CREDENTIAL_PLACEHOLDER
       }
       models: Record<string, { name: string }>
     }
@@ -363,9 +366,10 @@ export function workspaceChatOpenCodeConfig(input: {
     // turn records its changes with Git (`snapshotConversationTurn`).
     snapshot: false,
     // Subagents burn TTFT. Web search uses OpenCode's own search service,
-    // not ours, so it stays off. A hosted or Docker agent may read web
-    // pages: its network is open and holds no credential. An unsandboxed
-    // agent shares the backend's network, so web reads stay off.
+    // not ours, so it stays off. A Docker agent may read web pages: its
+    // network holds no credential. On AgentCore the tool is on too, but the
+    // closed network refuses each other host. An unsandboxed agent shares
+    // the backend's network, so web reads stay off.
     //
     // OpenCode's default "ask" rules stay: doom_loop, a path outside the
     // Workspace repository (external_directory), and a read of a .env file.

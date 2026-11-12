@@ -118,7 +118,7 @@ import {
 import { workspaceChatEngineTools } from "./workspace-chat-engine-tools.js"
 import { workspaceChatCompletionsBaseUrl } from "./workspace-chat-model-proxy.js"
 import {
-  WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
+  WORKSPACE_CHAT_CREDENTIAL_PLACEHOLDER,
   WORKSPACE_CHAT_OPENCODE_JSON_SECRET,
   workspaceChatLocalProcessScrubEnv,
   workspaceChatOpenCodeContract,
@@ -1260,19 +1260,16 @@ async function buildWorkspaceChatSandbox(
     callbackHost,
   )
   if (!session.ok) return session
-  // `image` is part of the sandbox key; `agentImage` picks the base.
+  // `image` is part of the sandbox key, and Docker bases are built on it.
   let image = "local-process"
-  let agentImage = image
   if (selectedProvider === "agentcore") {
     // One fixed value: a new image never orphans a conversation, which
     // starts again from git anyway.
     image = "agentcore-agent"
-    agentImage = image
   } else if (selectedProvider !== "unsandboxed") {
     try {
       // The chat image's id, so a new image gives new sandboxes.
-      agentImage = await sandboxAgentImage()
-      image = agentImage
+      image = await sandboxAgentImage()
     } catch (error) {
       getLogger().error(
         error instanceof Error ? error : new Error(String(error)),
@@ -1285,23 +1282,20 @@ async function buildWorkspaceChatSandbox(
       }
     }
   }
-  // A new sandbox starts from the Workspace base, chosen at create (under the
-  // Workspace lock); an existing one is resumed whatever it started from.
-  const base = async (): Promise<{
-    ref?: string
-    failed: () => Promise<void>
-  }> => {
-    if (selectedProvider === "unsandboxed" || selectedProvider === "agentcore")
-      return { failed: async () => undefined }
+  // A new Docker sandbox starts from the Workspace base, chosen at create
+  // (under the Workspace lock); an existing one is resumed whatever it
+  // started from.
+  const baseImage = async (): Promise<string | undefined> => {
+    if (selectedProvider !== "docker") return undefined
     const choice = await baseForNewSandbox({
       orgId: input.orgId,
       workspaceId: input.workspaceId,
-      agent: { provider: selectedProvider, image: agentImage },
+      agent: { provider: selectedProvider, image },
       revision: revision.data,
     })
     if (choice.requestBuild)
       void requestBaseBuild(input.orgId, input.workspaceId)
-    return choice
+    return choice.ref
   }
   const repoFullName = githubRepoFullNameFromWorkspaceUrl(desiredUrl)
   // Docker: the run's vault holds the GitHub token and Agent Vault adds it.
@@ -1368,7 +1362,7 @@ async function buildWorkspaceChatSandbox(
   const provider = conversationSandboxProvider(
     selectedProvider,
     agentPassword,
-    async () => (await base()).ref,
+    baseImage,
     vault?.caPem,
   )
   return {
@@ -1455,7 +1449,7 @@ function conversationSandboxWorkspace(input: {
       ? {
           ...input.proxyEnv,
           // `gh` sends no request without a token; Agent Vault replaces the header.
-          GH_TOKEN: WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
+          GH_TOKEN: WORKSPACE_CHAT_CREDENTIAL_PLACEHOLDER,
         }
       : { [WORKSPACE_CHAT_CLONE_TOKEN_SECRET]: cloneToken }),
   })

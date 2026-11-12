@@ -7,10 +7,7 @@ import type {
 import Docker from "dockerode"
 
 import { assertNotInOrgDbContext } from "../../db/client.js"
-import type {
-  FileKeepingSandboxProvider,
-  RunningSandboxProvider,
-} from "../../models/workspace-sandboxes.js"
+import type { RunningSandboxProvider } from "../../models/workspace-sandboxes.js"
 import { log } from "../../observability/logger.js"
 import { writeProxyCa } from "./agent-vault.js"
 import {
@@ -245,6 +242,10 @@ export async function destroyDetachedProviderSandbox(input: {
     await configuredAgentCoreProvider().destroy({ id: input.providerSandboxId })
     return
   }
+  // The retired Vercel provider: ctxpipe cannot reach the sandbox any more,
+  // and the removal of the Vercel projects deletes it. The row goes with no
+  // provider call, so an old row never blocks a delete.
+  if (input.provider === "vercel") return
   if (
     input.provider === "local-process" ||
     input.provider === "local_process"
@@ -307,13 +308,12 @@ export async function attachProviderSandbox(input: {
 }
 
 /**
- * Stop a sandbox and keep its files: Docker stops the container (the stock
- * provider's `resume` starts it again). A sandbox that is already stopped or
- * gone counts as stopped; the next turn resumes or recreates it. AgentCore
- * cannot keep the files, so the lifecycle deletes such a sandbox instead.
+ * Stop a Docker sandbox and keep its files (the stock provider's `resume`
+ * starts it again). A sandbox that is already stopped or gone counts as
+ * stopped; the next turn resumes or recreates it. Only Docker keeps the
+ * files: the lifecycle deletes an AgentCore sandbox instead.
  */
 export async function stopDetachedProviderSandbox(input: {
-  provider: FileKeepingSandboxProvider
   providerSandboxId: string
 }): Promise<void> {
   try {
