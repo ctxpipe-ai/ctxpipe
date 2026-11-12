@@ -49,7 +49,7 @@ describe("copy-database (two Postgres 17 containers)", () => {
     const passwordless = new URL(pair.targetUrl("ctxpipe"))
     const password = decodeURIComponent(passwordless.password)
     passwordless.password = ""
-    targetUrl = withPassword(passwordless.toString(), password, "target")
+    targetUrl = withPassword(passwordless.toString(), password)
 
     await runMigrations({
       connectionString: pair.sourceUrl,

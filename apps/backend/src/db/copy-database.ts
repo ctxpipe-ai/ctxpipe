@@ -80,6 +80,20 @@ type Endpoint = {
 }
 
 /**
+ * Parses a database URL. A URL that does not parse gives a fixed message:
+ * the parse error of Bun holds the whole URL, the password too.
+ */
+function parseUrl(url: string, name: string): URL {
+  try {
+    return new URL(url)
+  } catch {
+    throw new Error(
+      `The ${name} URL does not parse. Percent-encode the special characters of its password.`,
+    )
+  }
+}
+
+/**
  * The URL with the password of a separate input, for a login whose password
  * a secret store holds apart from the URL (on AWS, the managed master secret
  * of Aurora). The password goes only into this in-process URL: copyDatabase
@@ -90,20 +104,12 @@ type Endpoint = {
 export function withPassword(
   url: string,
   password: string | undefined,
-  name: string,
 ): string {
   if (!password) return url
-  let parsed: URL
-  try {
-    parsed = new URL(url)
-  } catch {
-    throw new Error(
-      `The ${name} URL does not parse. Percent-encode the special characters of its password.`,
-    )
-  }
+  const parsed = parseUrl(url, "target")
   if (parsed.password || parsed.searchParams.has("password"))
     throw new Error(
-      `The ${name} URL has a password, and a separate password is set too. Give only one.`,
+      "The target URL has a password, and a separate password is set too. Give only one.",
     )
   parsed.password = encodeURIComponent(password)
   return parsed.toString()
@@ -115,22 +121,24 @@ export function withPassword(
  * arguments. A remote host gets TLS with a certificate check on each path:
  * libpq checks no certificate for `sslmode=require`, and node-postgres sends
  * no TLS without `sslmode`. The CA is the system roots (Neon), or the file
- * that `sslrootcert` names (the RDS bundle for Aurora). A URL that does not
- * parse gives a fixed message: the parse error of Bun holds the whole URL.
+ * that `sslrootcert` names (the RDS bundle for Aurora).
+ *
+ * Each URL must give its own password. Without one, node-postgres would
+ * send the PGPASSWORD of the environment, which can be the password of the
+ * other server (for example the Aurora password to Neon).
  */
 async function endpoint(url: string, name: string): Promise<Endpoint> {
-  let parsed: URL
-  try {
-    parsed = new URL(url)
-  } catch {
-    throw new Error(
-      `The ${name} URL does not parse. Percent-encode the special characters of its password.`,
-    )
-  }
+  const parsed = parseUrl(url, name)
   const password =
     (parsed.password ? decodeURIComponent(parsed.password) : undefined) ??
     parsed.searchParams.get("password") ??
     undefined
+  if (!password)
+    throw new Error(
+      name === "target"
+        ? "The target URL has no password. Give it in the URL or in TARGET_DATABASE_PASSWORD."
+        : `The ${name} URL has no password. Give it in the URL.`,
+    )
   parsed.password = ""
   parsed.searchParams.delete("password")
   // node-postgres takes TLS from `ssl` below; URL parameters would replace it.
@@ -138,7 +146,7 @@ async function endpoint(url: string, name: string): Promise<Endpoint> {
   for (const key of [...forPool.searchParams.keys()])
     if (key.startsWith("ssl") || key === "uselibpqcompat")
       forPool.searchParams.delete(key)
-  if (password) forPool.password = encodeURIComponent(password)
+  forPool.password = encodeURIComponent(password)
   let ssl: pg.PoolConfig["ssl"]
   if (!["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname)) {
     const rootCert = parsed.searchParams.get("sslrootcert") ?? "system"

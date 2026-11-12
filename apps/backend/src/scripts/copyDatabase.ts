@@ -49,7 +49,6 @@ async function main(argv: string[]): Promise<number> {
   const targetUrl = withPassword(
     required("TARGET_DATABASE_URL"),
     process.env.TARGET_DATABASE_PASSWORD,
-    "target",
   )
   if (argv.includes("--preflight-only")) {
     const report = await preflight(sourceUrl, targetUrl)
