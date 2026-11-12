@@ -7,6 +7,7 @@
   "ignoreBinaries": [
     "tsx",
     "src/scripts/deletePreviewSandboxes.ts",
+    "src/scripts/retireVercelSandboxes.ts",
     "evals/mcp/run-seed.ts",
     "evals/mcp/run.ts"
   ],
