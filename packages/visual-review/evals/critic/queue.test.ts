@@ -1,12 +1,7 @@
 // The labeling queue of the owner, with msw in place of Langfuse. The cases
-// are a copy of the committed manifest; the results are of a fake run.
-import {
-  copyFileSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs"
+// are a copy of the committed manifest, with fake panel votes: the panel does
+// not agree on the first three real changes. The results are of a fake run.
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -15,7 +10,7 @@ import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest"
 
 import type { Verdict } from "../../src/verdict.ts"
-import { caseManifestSchema } from "./cases.ts"
+import { caseManifestSchema, type CaseManifest } from "./cases.ts"
 import { labelQueue } from "./queue.ts"
 
 // The Langfuse host of the script; msw answers in its place.
@@ -31,12 +26,57 @@ afterAll(() => server.close())
 const folder = mkdtempSync(join(tmpdir(), "bakeoff-queue-"))
 afterAll(() => rmSync(folder, { recursive: true, force: true }))
 
-const committed = caseManifestSchema.parse(
+const members = ["vendor-a/judge", "vendor-b/judge", "vendor-c/judge"]
+const fromFile = caseManifestSchema.parse(
   JSON.parse(readFileSync(join(import.meta.dirname, "cases.json"), "utf8")),
 )
-const real = committed.cases.filter(({ kind }) => kind === "intended")
+const split = new Set(
+  fromFile.cases
+    .filter(({ kind }) => kind === "intended")
+    .slice(0, 3)
+    .map(({ id }) => id),
+)
+const committed: CaseManifest = {
+  ...fromFile,
+  panelModels: members,
+  cases: fromFile.cases.map((entry) =>
+    entry.kind !== "intended"
+      ? entry
+      : split.has(entry.id)
+        ? {
+            ...entry,
+            label: "unsure",
+            panel: {
+              label: null,
+              votes: members.map((model, i) => ({
+                model,
+                label: i ? "improvement" : "regression",
+                reason: `${model}: the card is wider.`,
+              })),
+            },
+          }
+        : {
+            ...entry,
+            label: "intended",
+            panel: {
+              label: "improvement",
+              votes: members.map((model) => ({
+                model,
+                label: "improvement",
+                reason: `${model}: the card is wider.`,
+              })),
+            },
+          },
+  ),
+}
+// The real changes without panel agreement: the owner labels them.
+const real = committed.cases.filter(({ id }) => split.has(id))
+const agreed = committed.cases.find(
+  ({ kind, id }) => kind === "intended" && !split.has(id),
+)
 const broken = committed.cases.find(({ kind }) => kind === "regression")
-if (!broken || real.length < 2) throw new Error("The manifest changed.")
+if (!broken || !agreed || real.length < 3)
+  throw new Error("The manifest changed.")
 
 const verdict = (summary: string, model: string): Verdict => ({
   storyId: broken.id,
@@ -147,7 +187,7 @@ const queue = (present: string[]) => [
 const run = async (args: string[]) => {
   vi.stubEnv("LANGFUSE_AUTH_STRING", "test-auth")
   const cases = join(mkdtempSync(join(folder, "cases-")), "cases.json")
-  copyFileSync(join(import.meta.dirname, "cases.json"), cases)
+  writeFileSync(cases, JSON.stringify(committed))
   const printed: string[] = []
   const code = await labelQueue([...args, "--cases", cases], (text) =>
     printed.push(text),
@@ -155,7 +195,7 @@ const run = async (args: string[]) => {
   return { code, cases, text: printed.join("\n") }
 }
 
-test("push puts a label item for each real change and a blind pick into the queue, once", async () => {
+test("push puts a label item for each real change without panel agreement and a blind pick into the queue, once", async () => {
   traces = []
   added = []
   const first = `visual-bakeoff-label-${real[0]?.id}`
@@ -178,6 +218,14 @@ test("push puts a label item for each real change and a blind pick into the queu
   )
   expect(label.input).toContain(`${entry.images.after}.png`)
   expect(label.input).toContain(entry.brief)
+  // The votes of the panel, with their reasons.
+  expect(label.input).toContain(
+    "- vendor-a/judge: **regression**. vendor-a/judge: the card is wider.",
+  )
+  // A real change with panel agreement does not go to the owner.
+  expect(traces.map(({ id }) => id)).not.toContain(
+    `visual-bakeoff-label-${agreed.id}`,
+  )
 
   // One pick: the broken case. The case with no judge call gives none.
   const picks = traces.filter(({ name }) => name === "visual-bakeoff-pick")
@@ -237,6 +285,12 @@ test("export writes the newest label of each real change and the picks into case
                 "unsure",
                 "2026-11-10T10:00:00Z",
               ),
+              // A label of a real change with panel agreement does not count.
+              score(
+                `visual-bakeoff-label-${agreed.id}`,
+                "regression",
+                "2026-11-10T10:00:00Z",
+              ),
               // A label of a case that is not a real change does not count.
               score(
                 `visual-bakeoff-label-${broken.id}`,
@@ -263,8 +317,9 @@ test("export writes the newest label of each real change and the picks into case
     written.cases.find((entry) => entry.id === id)?.label
   expect(label(first.id)).toBe("regression")
   expect(label(second.id)).toBe("unsure")
-  expect(label(third.id)).toBe("intended")
+  expect(label(third.id)).toBe("unsure")
   expect(label(broken.id)).toBe("regression")
+  expect(label(agreed.id)).toBe("intended")
   const winner = jevIsA ? "jev" : "llm:anthropic/claude-test"
   expect(written.taste).toEqual([
     {

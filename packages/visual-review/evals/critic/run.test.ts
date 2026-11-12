@@ -169,6 +169,7 @@ const writeManifest = (extra: object = {}) => {
       seed: 7,
       until: sha("c"),
       container: "mcr.microsoft.com/playwright:v1.63.0-noble@sha256:0",
+      scope: "page",
       cases,
       ...extra,
     }),
@@ -932,6 +933,33 @@ test("the taste win rate comes from the owner picks in the manifest", async () =
   expect(score(jev[0], 1) + score(jev[1], 3)).toBeCloseTo(1.5)
 })
 
+test("the report marks an arm whose model is on the judge panel", async () => {
+  server.use(chat, decisions)
+  const manifest = writeManifest({
+    panelModels: ["anthropic/claude-test", "vendor-b/judge", "vendor-c/judge"],
+  })
+  const { text } = await run([
+    "--cases",
+    manifest,
+    "--arms",
+    "jev,llm:anthropic/claude-test,cascade:anthropic/claude-test,llm-no-facts:openrouter/anthropic/claude-test",
+    "--runs",
+    "1",
+  ])
+
+  expect(text).toContain(
+    "The labels of the real changes come from the judge panel (anthropic/claude-test, vendor-b/judge, vendor-c/judge).",
+  )
+  const arms = [...rows(text, "## Hold-out set").keys()]
+  expect(arms).toEqual([
+    "jev",
+    "llm:anthropic/claude-test (panel)",
+    "cascade:anthropic/claude-test (panel)",
+    // The same model, as the adapter sends it.
+    "llm-no-facts:openrouter/anthropic/claude-test (panel)",
+  ])
+})
+
 test("the hold-out set is 30% of each kind of the committed cases, the same for the same seed", () => {
   const manifest = caseManifestSchema.parse(
     JSON.parse(readFileSync(join(import.meta.dirname, "cases.json"), "utf8")),
@@ -947,7 +975,7 @@ test("the hold-out set is 30% of each kind of the committed cases, the same for 
     )
 
   expect(kinds(held)).toEqual({
-    intended: 18,
+    intended: 11,
     regression: 24,
     noise: 6,
     mixed: 6,

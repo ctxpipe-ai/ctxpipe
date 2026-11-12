@@ -1,3 +1,5 @@
+import type { z } from "zod"
+
 import { areas, qualities, type RubricEntry } from "./rubric.ts"
 import type { NewStoryInput, StoryImage, StoryInput } from "./story.ts"
 import { judgementJsonSchema, newJudgementJsonSchema } from "./verdict.ts"
@@ -108,11 +110,8 @@ const data = (name: string, text: string | undefined) =>
     text?.trim() ? text.replace(/<\/data/gi, "<\\/data") : "(none)"
   }\n</data>`
 
-/** Build the prompt for one story: the fixed prefix, then the story part. */
-export function buildPrompt(
-  input: StoryInput,
-  steps: Steps = "describe-first",
-): Prompt {
+/** The story part of the prompt of a change: the regions and the images. */
+function storyText(input: StoryInput): string {
   const roles: Record<StoryImage["role"], string> = {
     regions: "one [before | after] row for each region, at native resolution",
     locator: "an overview of the after image, each region outlined in red",
@@ -137,7 +136,7 @@ export function buildPrompt(
     omitted > 0 && regionsImage >= 0
       ? `\nImage ${regionsImage + 1} (regions) has a row only for the largest regions: regions 1 to ${shown} of ${input.regions.length}. The ${omitted} smaller region(s) have no row. The locator image outlines them. Judge them from the locator image and the full images, when they are attached.\n`
       : ""
-  const story = `Story: ${input.storyId}
+  return `Story: ${input.storyId}
 ${scopeLine(input.scope)}
 Viewport: ${input.viewport.width} × ${input.viewport.height}
 
@@ -152,7 +151,52 @@ ${input.images
 ${data("brief", input.brief)}
 
 ${data("source-diff", input.sourceDiff)}`
-  return { prefix: prefixOf(steps), story, images: input.images }
+}
+
+/** Build the prompt for one story: the fixed prefix, then the story part. */
+export function buildPrompt(
+  input: StoryInput,
+  steps: Steps = "describe-first",
+): Prompt {
+  return {
+    prefix: prefixOf(steps),
+    story: storyText(input),
+    images: input.images,
+  }
+}
+
+/**
+ * Build the prompt of a member of the judge panel of the bake-off
+ * (evals/critic/panel.ts) for one change: the panel rules, the rubric and
+ * `schema`, the JSON Schema of the reply, then the same story part as the
+ * critic prompt. Each member gets the same prompt.
+ */
+export function buildPanelPrompt(
+  input: StoryInput,
+  schema: z.core.JSONSchema.BaseSchema,
+): Prompt {
+  const prefix = `You label one visual change in the ctxpipe product UI, for the test set of a visual critic. Storybook rendered one story before and after a code change. A pixel diff measured the changed regions, and an interpreter gave each region a change type. Other judges label the same change. You do not see their labels.
+
+Rules:
+1. The story part gives the scope. A part of the UI (scope \`component\`) does not need its own page elements, and the page-only qualities apply only to the scope \`page\`.
+2. Look at the measured regions, and at the full before and after images for the context of the change.
+3. Give one label:
+   - \`improvement\`: the after image shows a change that a user sees, and the after image is as good as the before image or better against the rubric. The change adds no defect.
+   - \`regression\`: in a changed region, the after image breaks a rule of the rubric, or makes a design quality worse.
+   - \`no-change\`: no region holds a change that a user sees (anti-aliasing, a one-pixel shift of the same content).
+4. The brief tells what the change must do. A change that the brief does not explain is not a regression for that reason alone: judge it against the rubric.
+5. ${dataRule}
+6. Write \`reason\` before \`label\`: in two or three sentences, what changed, and the rubric entry that decides the label (the id in brackets).
+
+Rubric, layer 1, the concrete areas (the id in brackets):
+${areaList}
+
+Rubric, layer 2, the design qualities:
+${qualityList}
+
+Reply with one JSON object that matches this JSON Schema, and with no other text:
+${JSON.stringify(schema)}`
+  return { prefix, story: storyText(input), images: input.images }
 }
 
 /**
