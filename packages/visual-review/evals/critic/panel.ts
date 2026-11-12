@@ -62,27 +62,18 @@ const replySchema = z.object({
 const replyJsonSchema = z.toJSONSchema(replySchema)
 
 /**
- * The agreement rule. A label counts when more than half of the members give
- * it, and the members do not disagree on the regression question: a
- * `regression` vote together with an `improvement` or `no-change` vote gives
- * no label. Thus `regression` needs each member that answered, and
- * `improvement` or `no-change` needs a majority. A member whose call failed
- * gives no vote, but it stays in the count of the members. Null when there is
- * no agreement: the owner labels the case.
+ * The agreement rule: a plain majority. A label counts when more than half of
+ * the members give it (2 of 3). A member whose call failed gives no vote, but
+ * it stays in the count of the members. Null when there is no majority: the
+ * owner labels the case.
  */
 export function agreement(
   votes: readonly { label: PanelLabel | null }[],
 ): PanelLabel | null {
-  const count = (test: (label: PanelLabel | null) => boolean) =>
-    votes.filter(({ label }) => test(label)).length
-  if (
-    count((label) => label === "regression") &&
-    count((label) => label !== null && label !== "regression")
-  )
-    return null
   return (
     panelLabels.find(
-      (label) => 2 * count((vote) => vote === label) > votes.length,
+      (label) =>
+        2 * votes.filter((vote) => vote.label === label).length > votes.length,
     ) ?? null
   )
 }
@@ -302,7 +293,7 @@ export async function judgePanel(
     label === known(entry)
   const { spent } = spend.totals()
   const lines = [
-    `Judge panel: ${models.join(", ")}. Rule: a label counts when more than half of the members give it, and the members do not disagree on regression.`,
+    `Judge panel: ${models.join(", ")}. Rule: a label counts when more than half of the members give it.`,
     `${judged.length} cases judged, $${spent.toFixed(2)} of the $${maxCost} cap.${stopped ? " The spend cap stopped the panel: run it again to judge the other cases." : ""}`,
     `Real changes: ${real.length - owner.length} labeled (${tally(real.map(({ panel }) => panel?.label ?? null).filter(Boolean))}), ${owner.length} without agreement, for the owner queue${owner.length ? `: ${owner.map(({ id }) => id).join(", ")}` : ""}.`,
     `Known labels: the panel label is right on ${synthetic.filter((entry) => right(entry.panel?.label, entry)).length} of ${synthetic.length} synthetic cases.`,

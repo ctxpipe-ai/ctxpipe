@@ -131,7 +131,7 @@ const writeManifest = () => {
 // vote is a reply that is not JSON.
 const script: Record<string, (PanelLabel | null)[]> = {
   "intended-agree": ["improvement", "improvement", "improvement"],
-  "intended-split": ["regression", "regression", "no-change"],
+  "intended-split": ["improvement", "regression", "no-change"],
   "intended-majority": ["improvement", "no-change", "no-change"],
   "regression-1": ["regression", "regression", "regression"],
   "noise-1": ["no-change", "no-change", "improvement"],
@@ -194,7 +194,7 @@ const run = async (extra: string[] = [], path = writeManifest()) => {
   return { code, manifest, path, text: printed.join("\n") }
 }
 
-test("the agreement rule: a majority, and no disagreement on regression", () => {
+test("the agreement rule: a plain majority of the members", () => {
   const votes = (...labels: (PanelLabel | null)[]) =>
     labels.map((label) => ({ label }))
   expect(agreement(votes("improvement", "improvement", "no-change"))).toBe(
@@ -209,13 +209,16 @@ test("the agreement rule: a majority, and no disagreement on regression", () => 
   // A failed vote stays in the count of the members.
   expect(agreement(votes("regression", "regression", null))).toBe("regression")
   expect(agreement(votes("improvement", null, null))).toBeNull()
-  // One member disagrees on the regression question.
-  expect(agreement(votes("regression", "regression", "no-change"))).toBeNull()
-  expect(
-    agreement(votes("improvement", "improvement", "regression")),
-  ).toBeNull()
+  // Two against one: the majority label counts, also for regression.
+  expect(agreement(votes("regression", "regression", "no-change"))).toBe(
+    "regression",
+  )
+  expect(agreement(votes("improvement", "improvement", "regression"))).toBe(
+    "improvement",
+  )
   // No majority.
   expect(agreement(votes("improvement", "no-change", null))).toBeNull()
+  expect(agreement(votes("improvement", "regression", "no-change"))).toBeNull()
 })
 
 test("a dry run labels each change case with the panel, and leaves the disagreements to the owner", async () => {
