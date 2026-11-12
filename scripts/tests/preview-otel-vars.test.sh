@@ -282,6 +282,48 @@ if OBSERVABILITY_OTLP_HEADERS="CF-Access-Client-Id=preview-id,CF-Access-Client-S
   fail "sync should fail when it cannot read production's headers to compare"
 fi
 
+# The production deploy rolls the open previews once: when production's headers gain the Access token.
+switches() {
+  local mock_prod_headers="$1" new_headers="$2"
+  (
+    set -euo pipefail
+    # shellcheck disable=SC1091
+    source "$script"
+    railway_graphql() {
+      case "$1" in
+        (*environments*) jq -n '{data:{project:{environments:{edges:[{node:{id:"env_prod",name:"production"}}]}}}}' ;;
+        (*"query variables"*)
+          [[ "$mock_prod_headers" == unreadable ]] && return 1
+          jq -nc --arg h "$mock_prod_headers" '{data:{variables:{OTEL_EXPORTER_OTLP_HEADERS:$h}}}' ;;
+        (*) echo "unexpected query $1" >&2; return 1 ;;
+      esac
+    }
+    export RAILWAY_PROJECT_ID=proj_test BACKEND_SERVICE_ID=svc_backend
+    production_otel_switches_to_access "$new_headers"
+  )
+}
+access="CF-Access-Client-Id=prod-id,CF-Access-Client-Secret=prod-secret"
+switches "authorization=old-ingest-key" "$access" 2>/dev/null \
+  || fail "the switch from the old headers to the Access token should roll the previews"
+if switches "$access" "$access" 2>/dev/null; then fail "a deploy that keeps the Access token should not roll the previews"; fi
+if switches "authorization=old-ingest-key" "authorization=old-ingest-key" 2>/dev/null; then
+  fail "a deploy that keeps the old headers should not roll the previews"
+fi
+switches unreadable "$access" 2>/dev/null || fail "an unreadable production backend should roll the previews in any case"
+out="$(switches "authorization=old-ingest-key" "$access" 2>&1 || true)"
+if printf '%s' "$out" | grep -Eq 'old-ingest-key|prod-secret'; then fail "the switch check must not print a header value"; fi
+
+# deploy.yaml checks the switch before it syncs production, and then dispatches the roll of the open previews.
+deploy_workflow="$root/.github/workflows/deploy.yaml"
+grep -Fq 'production_otel_switches_to_access "$OBSERVABILITY_OTLP_HEADERS"' "$deploy_workflow" \
+  || fail "deploy.yaml must check whether production switches to the Access token"
+grep -Fq 'gh workflow run pr-preview-roll-existing.yaml' "$deploy_workflow" \
+  || fail "deploy.yaml must roll the open previews after the switch"
+switch_line="$(grep -n 'production_otel_switches_to_access' "$deploy_workflow" | head -1 | cut -d: -f1)"
+sync_line="$(grep -n 'name: Sync production secrets to Railway' "$deploy_workflow" | cut -d: -f1)"
+((switch_line < sync_line)) || fail "deploy.yaml must read production's headers before the sync changes them"
+assert_workflow_syntax "$deploy_workflow"
+
 # production_backend_vars stays for the GitHub App guard: it returns only the named variables that exist.
 prod_complete="$(jq -nc '{
   OTEL_EXPORTER_OTLP_HEADERS: "CF-Access-Client-Id=prod-id,CF-Access-Client-Secret=prod-secret",

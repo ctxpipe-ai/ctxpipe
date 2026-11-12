@@ -78,6 +78,22 @@ check_preview_otel_differs_from_production() {
   fi
 }
 
+# The switch to the new collector (CTX-1216): true (0) when production's OTEL headers have no Access token yet and
+# the headers that the production deploy is about to set (the argument) have one. The production deploy then rolls
+# the open previews once, so their OTEL sync, which skips until production has a token to compare with, now sets
+# their variables. A production backend that cannot be read also rolls them: a roll is harmless, a missed one leaves
+# previews without telemetry. Prints no value.
+production_otel_switches_to_access() {
+  local new_headers="$1" prod before
+  [[ -n "$(otlp_header_values "$new_headers" CF-Access-Client-Id)" ]] || return 1
+  if ! prod="$(production_backend_vars OTEL_EXPORTER_OTLP_HEADERS)"; then
+    echo "preview-otel-vars: cannot read the production OTEL headers; the open previews roll in any case." >&2
+    return 0
+  fi
+  before="$(printf '%s' "$prod" | jq -r '.OTEL_EXPORTER_OTLP_HEADERS // ""')"
+  [[ -z "$(otlp_header_values "$before" CF-Access-Client-Id)" ]]
+}
+
 # Previews send with their own Access service token: OBSERVABILITY_OTLP_HEADERS of the GitHub `Preview` environment,
 # never production's. A token that leaks from PR code then can be revoked without touching production.
 sync_preview_otel_variables() {
