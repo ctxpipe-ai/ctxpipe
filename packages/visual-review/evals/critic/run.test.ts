@@ -826,13 +826,18 @@ test("a capped run with workers at the same time lets the calls in flight finish
   // in flight together, and no worker sees the cost of another call first.
   // The result does not depend on the timing of the workers.
   const workers = 4
-  const allInFlight = Promise.withResolvers<void>()
-  let arrived = 0
+  let arrive = () => {}
+  const allInFlight = new Promise((done) => {
+    let arrived = 0
+    arrive = () => {
+      if (++arrived === workers) done(true)
+    }
+  })
   const holdUntilAllInFlight = http.post(
     `${gateway}/chat/completions`,
     async () => {
-      if (++arrived === workers) allInFlight.resolve()
-      await allInFlight.promise
+      arrive()
+      await allInFlight
       // No response: msw gives the request to the next handler (`chat`).
     },
   )
