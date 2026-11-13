@@ -62,7 +62,7 @@ export function OnboardingHowItWorksSlide({
             key={step.number}
             className={cn("flex flex-col p-5", rowFadeClassName, step.delay)}
           >
-            {/* A label, not a heading: the muted word stays below the body text. */}
+            {/* A label, not a heading: the muted word has less contrast than the body text. */}
             <p className="flex items-baseline gap-2 text-sm font-medium">
               <span className="font-mono text-teal-400 tabular-nums">
                 {step.number}

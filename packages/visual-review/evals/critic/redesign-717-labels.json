@@ -741,31 +741,31 @@
     "path": "apps/ui/src/routes/screenshots/-account.OrganizationDeletedStaleSelection.desktop.screenshot.png",
     "viewport": "desktop",
     "label": "regression",
-    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the card titles under it (Name, Email, Organizations, Slug URL at text-xl, semibold)."
+    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the Better Auth card titles under it (text-xl, semibold)."
   },
   {
     "path": "apps/ui/src/routes/screenshots/-account.OrganizationsView.desktop.screenshot.png",
     "viewport": "desktop",
     "label": "regression",
-    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the card titles under it (Name, Email, Organizations, Slug URL at text-xl, semibold)."
+    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the Better Auth card titles under it (text-xl, semibold)."
   },
   {
     "path": "apps/ui/src/routes/screenshots/-account.OrganizationsView.mobile.screenshot.png",
     "viewport": "mobile",
     "label": "regression",
-    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the card titles under it (Name, Email, Organizations, Slug URL at text-xl, semibold)."
+    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the Better Auth card titles under it (text-xl, semibold)."
   },
   {
     "path": "apps/ui/src/routes/screenshots/-account.Settings.desktop.screenshot.png",
     "viewport": "desktop",
     "label": "regression",
-    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the card titles under it (Name, Email, Organizations, Slug URL at text-xl, semibold)."
+    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the Better Auth card titles under it (text-xl, semibold)."
   },
   {
     "path": "apps/ui/src/routes/screenshots/-account.Settings.mobile.screenshot.png",
     "viewport": "mobile",
     "label": "regression",
-    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the card titles under it (Name, Email, Organizations, Slug URL at text-xl, semibold)."
+    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the Better Auth card titles under it (text-xl, semibold)."
   },
   {
     "path": "apps/ui/src/routes/screenshots/-auth.SelectOrganization.desktop.screenshot.png",
@@ -1431,19 +1431,19 @@
     "path": "apps/ui/src/routes/screenshots/-organization.Settings.desktop.screenshot.png",
     "viewport": "desktop",
     "label": "regression",
-    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the card titles under it (Name, Email, Organizations, Slug URL at text-xl, semibold)."
+    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the Better Auth card titles under it (text-xl, semibold)."
   },
   {
     "path": "apps/ui/src/routes/screenshots/-organization.Settings.mobile.screenshot.png",
     "viewport": "mobile",
     "label": "regression",
-    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the card titles under it (Name, Email, Organizations, Slug URL at text-xl, semibold)."
+    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the Better Auth card titles under it (text-xl, semibold)."
   },
   {
     "path": "apps/ui/src/routes/screenshots/-organization.SubPagesKeepOnePosition.desktop.screenshot.png",
     "viewport": "desktop",
     "label": "regression",
-    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the card titles under it (Name, Email, Organizations, Slug URL at text-xl, semibold)."
+    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the Better Auth card titles under it (text-xl, semibold)."
   },
   {
     "path": "apps/ui/src/routes/screenshots/-workspaces.new.CreateMovesToStepTwoUrl.desktop.screenshot.png",
