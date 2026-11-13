@@ -10,6 +10,7 @@ import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { parse } from "yaml"
 
+import { overdueEntries } from "../ci/check-unstable-list.mjs"
 import {
   minutesText,
   nightlyChanged,
@@ -52,19 +53,6 @@ test("a new commit on main, or no successful nightly run yet, runs the nightly r
   server.use(lastNightly(undefined))
   assert.equal(await nightlyChanged({ repo, sha, token: "t" }), true)
 })
-
-// The entries of the unstable list without a valid `since` date, or with a
-// date more than 7 days before `today` (YYYY-MM-DD). The test of the
-// committed list below is the 7-day check of CI.
-const overdueEntries = (stories, today) =>
-  stories.filter(
-    (entry) =>
-      !/^\d{4}-\d{2}-\d{2}$/.test(entry.since ?? "") ||
-      // A date that does not exist (2026-11-31) is not a date.
-      new Date(Date.parse(entry.since) || 0).toISOString().slice(0, 10) !==
-        entry.since ||
-      Date.parse(today) - Date.parse(entry.since) > 7 * 86_400_000,
-  )
 
 test("an unstable entry older than 7 days, or without a date, is overdue", () => {
   const entry = (since) => ({
@@ -429,22 +417,29 @@ test("the tickets command without the Linear key gives an error annotation and f
   assert.match(result.stdout, /^::error::LINEAR_API_KEY is not set/m)
 })
 
-test("the committed unstable list has no entry older than 7 days", () => {
-  const list = JSON.parse(
-    readFileSync(
-      new URL("../ci/visual-unstable-stories.json", import.meta.url),
-      "utf8",
-    ),
-  )
-  const overdue = overdueEntries(
-    list.stories,
-    new Date().toISOString().slice(0, 10),
-  )
-  assert.deepEqual(
-    overdue,
-    [],
-    "Fix the story of each entry (its ticket) and remove the entry.",
-  )
+test("the unstable list check fails on an overdue entry and names its ticket", () => {
+  const root = mkdtempSync(join(tmpdir(), "ctxpipe-unstable-list-"))
+  const check = (stories) => {
+    mkdirSync(join(root, "scripts/ci"), { recursive: true })
+    writeFileSync(
+      join(root, "scripts/ci/visual-unstable-stories.json"),
+      JSON.stringify({ stories }),
+    )
+    return spawnSync(
+      process.execPath,
+      [
+        fileURLToPath(new URL("../ci/check-unstable-list.mjs", import.meta.url)),
+        root,
+      ],
+      { encoding: "utf8" },
+    )
+  }
+  const today = new Date().toISOString().slice(0, 10)
+  const entry = (since) => ({ id: "card--empty", reason: "r", ticket: "CTX-1", since })
+  assert.equal(check([entry(today)]).status, 0)
+  const overdue = check([entry("2026-01-02")])
+  assert.equal(overdue.status, 1)
+  assert.match(overdue.stderr, /card--empty \(CTX-1, since 2026-01-02\)/)
 })
 
 test("each job of the nightly run waits for the job Nightly change and does not start on an unchanged main", () => {

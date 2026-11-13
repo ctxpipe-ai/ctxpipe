@@ -17,11 +17,11 @@ import { gunzipSync } from "node:zlib"
 
 import { markPortable } from "../checks/families.mjs"
 import { deploySteps, fullRunResults, stepResults } from "../checks/gate.mjs"
-import { jobPlans } from "../checks/plan.mjs"
+import { jobPlans, placeOf } from "../checks/plan.mjs"
 import { prerequisites, withNeeds } from "../checks/prerequisites.mjs"
 import { uiBundledImports } from "../checks/projects.mjs"
 import { failedChecks, failedIds } from "../checks/rerun-failed.mjs"
-import { lintSteps, runsInOf } from "../checks/shard.mjs"
+import { runsInOf } from "../checks/shard.mjs"
 import { vitestCommand } from "../ci/vitest-launch.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -223,7 +223,9 @@ test("the manifest matches its schema and lists each check of each family", asyn
         check.lane.startsWith("image-") ||
         check.family === "deploy" ||
         // This policy check reads the git diff, not only the files.
-        check.lane === "adr"
+        check.lane === "adr" ||
+        // This policy check reads the date.
+        check.lane === "unstable-list"
       ),
       check.id,
     )
@@ -366,6 +368,10 @@ test("the manifest marks exactly the platform-independent checks portable", () =
     [
       "build:image",
       ...notPortable.filter((lane) => lane.startsWith("deploy:")),
+      // The shell tests of the CI scripts.
+      ...readdirSync(join(root, "scripts/tests"))
+        .filter((name) => name.endsWith(".test.sh"))
+        .map((name) => `policy:tests-${name.replace(/\.test\.sh$/, "")}`),
       // Only the contracts file of the denylist.
       "vitest:contracts",
       "vitest:latency",
@@ -1228,11 +1234,7 @@ test("the manifest lists a check for each job of the other pull request workflow
     "scripts/checks/projects.mjs",
   ])
     assert.ok(plugin.inputs.includes(input), input)
-  assert.ok(
-    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8").includes(
-      "run: node scripts/ci/check-claude-plugin.mjs",
-    ),
-  )
+  assert.deepEqual(placeOf(plugin.id), { job: "lint" })
   // The Terraform plan: not cacheable, selected by the files of infra.
   const plan = checks.get("policy:terraform-plan:infra/main.tf")
   assert.ok(plan)
@@ -1240,17 +1242,11 @@ test("the manifest lists a check for each job of the other pull request workflow
   assert.ok(plan.inputs.includes("infra/**"))
   assert.deepEqual(plan.prerequisites, ["terraform-plan"])
   assert.ok(plan.intent)
-  // Each check that is not stochastic has a result in a full run: a lint or
-  // policy check has a step of the Lint and format job, any other check has
-  // a job. The Terraform plan has its own workflow.
+  // Each check that is not stochastic has a job that gives its result in a
+  // full run. The Terraform plan has its own workflow.
   for (const check of checks.values()) {
     if (check.stochastic || check === plan) continue
-    assert.ok(
-      check.family === "lint" || check.family === "policy"
-        ? Object.values(lintSteps).some((key) => check.id.startsWith(key))
-        : runsInOf(check.id),
-      check.id,
-    )
+    assert.ok(runsInOf(check.id), check.id)
   }
   // mcp-evals.yaml runs the eval cases; a model call is stochastic.
   assert.ok(lane("eval", "mcp").length > 0)
@@ -1575,6 +1571,115 @@ test("the project check times job selects the typecheck, lint and policy checks 
       family,
     )
   assert.deepEqual(ids.sort(), expected.sort())
+})
+
+test("the Lint and format job runs each lint and policy check of CI through the check runner, and no other command", () => {
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const start = workflow.indexOf("\n  lint:\n")
+  const job = workflow.slice(start, workflow.indexOf("\n\n  ", start + 1))
+  // Each rule of the job is a check of the manifest, so the merge gate can
+  // select it and accept a stored pass. A step that runs a command outside
+  // the check runner would run a rule that the gate cannot select or cache.
+  const commands = [
+    ...job.matchAll(/\n {8}run: (?:\|\n((?: {10}.*\n?)+)|(.*))/g),
+  ].map(([, block, line]) => (block ?? line).trim())
+  const runners = commands.filter((command) =>
+    /scripts\/checks\/(run|selected)\.mjs/.test(command),
+  )
+  assert.equal(runners.length, 2, commands.join("\n---\n"))
+  for (const command of commands)
+    assert.ok(
+      runners.includes(command) ||
+        [
+          "corepack enable",
+          "pnpm install --frozen-lockfile",
+          "cat .ci-results/checks/*.log || true",
+        ].includes(command),
+      command,
+    )
+  // In a full run, the jq filter of the runner step selects each lint and
+  // policy check that this job runs (not the Terraform plan).
+  const filter = runners
+    .find((command) => command.includes("run.mjs"))
+    .match(/jq -r '([^']*)'/)
+  assert.ok(filter, "the full run filters the checks with jq")
+  const listed = node([script("list.mjs")])
+  assert.equal(listed.status, 0, listed.stderr)
+  const selected = spawnSync("jq", ["-r", filter[1]], {
+    input: listed.stdout,
+    encoding: "utf8",
+    maxBuffer: 1 << 28,
+  })
+  assert.equal(selected.status, 0, selected.stderr)
+  const expected = JSON.parse(listed.stdout)
+    .checks.filter((check) => placeOf(check.id).job === "lint")
+    .map((check) => check.id)
+  for (const family of ["lint", "policy"])
+    assert.ok(
+      expected.some((id) => id.startsWith(`${family}:`)),
+      family,
+    )
+  assert.deepEqual(
+    selected.stdout.split("\n").filter(Boolean).sort(),
+    expected.sort(),
+  )
+  // In gate mode, the job runs the checks of its plan.
+  assert.ok(
+    runners.includes(
+      'node scripts/checks/selected.mjs .ci-results/lint "$RUNNER_TEMP/plan/plan.json" lint',
+    ),
+  )
+})
+
+test("each test file of the CI scripts is a policy check that selects on the files it reads", () => {
+  const listed = node([script("list.mjs")])
+  assert.equal(listed.status, 0, listed.stderr)
+  const checks = new Map(
+    JSON.parse(listed.stdout).checks.map((check) => [check.file, check]),
+  )
+  const files = readdirSync(join(root, "scripts/tests")).filter((name) =>
+    /\.test\.(mjs|sh)$/.test(name),
+  )
+  assert.ok(files.length > 30)
+  for (const name of files) {
+    const check = checks.get(`scripts/tests/${name}`)
+    assert.ok(check, name)
+    assert.equal(
+      check.id,
+      `policy:tests-${name.replace(/\.test\.(mjs|sh)$/, "")}:scripts/tests/${name}`,
+    )
+    assert.deepEqual(placeOf(check.id), { job: "lint" })
+    for (const input of ["scripts/**", ".github/**", "pnpm-lock.yaml"])
+      assert.ok(check.inputs.includes(input), `${name}: ${input}`)
+    // A shell test runs the tools of its host (bash, sed, jq), so a pass on
+    // macOS does not count on Linux.
+    assert.equal(check.portable, name.endsWith(".sh") ? undefined : true, name)
+  }
+  // A test that reads the whole manifest or the files of the apps selects
+  // on them.
+  for (const name of [
+    "ci-checks",
+    "ci-merge-gate",
+    "ci-merge-gate-plan",
+    "ci-critics",
+    "ci-test-policy",
+    "ci-service-pins",
+  ]) {
+    const { inputs } = checks.get(`scripts/tests/${name}.test.mjs`)
+    for (const input of ["apps/**", "packages/**"])
+      assert.ok(inputs.includes(input), `${name}: ${input}`)
+  }
+  assert.ok(
+    !checks.get("scripts/tests/ci-runners.test.mjs").inputs.includes("apps/**"),
+  )
+  // The policy scripts that ran only as steps of the lint job are checks too.
+  for (const lane of ["docs-links", "visual-container", "unstable-list"])
+    assert.ok(checks.get(`scripts/ci/check-${lane}.mjs`), lane)
+  // The unstable list expires by date, so a stored pass is never reused.
+  assert.equal(
+    checks.get("scripts/ci/check-unstable-list.mjs").cacheable,
+    false,
+  )
 })
 
 test("the rerun of selected.mjs reads MANIFEST and lists no checks", () => {

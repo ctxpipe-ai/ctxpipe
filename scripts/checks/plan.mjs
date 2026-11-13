@@ -2,14 +2,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 
 import { schemaErrors } from "./schema.mjs"
-import {
-  lintSteps,
-  profiles,
-  readTrace,
-  runsInOf,
-  shard,
-  traceSeconds,
-} from "./shard.mjs"
+import { profiles, readTrace, runsInOf, shard, traceSeconds } from "./shard.mjs"
 
 // The plan of a gated run (scripts/checks/README.md, Merge gate): which
 // checks run, in which ci.yaml job and shard, and which stored pass each
@@ -201,8 +194,7 @@ export function withStoreHits(selection, store) {
   }
 }
 
-// Where a check runs in a gated run. The Lint and format job runs each lint
-// and policy check as a step, on each run. Every Storybook play runs in the
+// Where a check runs in a gated run. Every Storybook play runs in the
 // Storybook plays shards, and each screenshot in the screenshots shards
 // (runsIn). A check that ci.yaml does not run is `external`:
 // another workflow runs it, and its own status reports the result.
@@ -210,14 +202,12 @@ const external = {
   deploy: "PR Deploy (pr-deploy.yaml, started by the merge gate)",
   eval: "MCP evals (mcp-evals.yaml, starts with the label mcp-evals)",
   // The check runs in terraform-plan-pr.yaml; without this entry the policy
-  // family maps it to the lint job, which has no step for it.
+  // family maps it to the lint job, which does not run it.
   "policy:terraform-plan":
     "Terraform plan (terraform-plan-pr.yaml, started by the merge gate for a change under infra/)",
 }
 export function placeOf(id) {
   const [family, lane] = id.split(":")
-  if (Object.values(lintSteps).some((prefix) => id.startsWith(prefix)))
-    return { job: "lint" }
   const workflow = external[`${family}:${lane}`] ?? external[family]
   if (workflow) return { workflow }
   if (family === "storybook" && lane !== "visual")
@@ -247,7 +237,7 @@ export function jobPlans(ran, seconds, rerun = new Set()) {
   const byJob = new Map()
   for (const id of ran) {
     const { job } = placeOf(id)
-    if (!job || job === "lint") continue
+    if (!job) continue
     byJob.set(job, [...(byJob.get(job) ?? []), id])
   }
   const jobs = {}
