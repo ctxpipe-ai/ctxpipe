@@ -22,6 +22,7 @@ import { zoektRepositoryName } from "../domain/zoekt/shardPrefix.js"
 import { startS3Server } from "../test/s3Server.js"
 import { exportIndexes, exportVolume } from "./exportIndexes.js"
 import { importIndexes } from "./importIndexes.js"
+import { resetIndexes } from "./resetIndexes.js"
 import { seedShardStore } from "./seedShardStore.js"
 import {
   downloadChecked,
@@ -333,5 +334,38 @@ describe("seed-shard-store", () => {
     const report = await seedShardStore({ coldDir })
 
     expect(report).toMatchObject({ ok: true, published: 1, skipped: 1 })
+  })
+})
+
+describe("reset-indexes", () => {
+  it("deletes the published shards of each repository on the host, both volumes and the RDB", async () => {
+    server.stubEnv("store")
+    const target = targets("target")
+    // A repository that is not on the host: its artifacts stay.
+    const other = "store/v1/org_other/repo_other/default/zoekt"
+    await uploadStream(
+      transferFromUrl(`s3://${server.bucket}/${other}`),
+      "manifest.json",
+      (async function* () {
+        yield Buffer.from("{}")
+      })(),
+    )
+
+    const report = await resetIndexes(target)
+
+    expect(report).toMatchObject({
+      ok: true,
+      repositories: 1,
+      unknownShards: 0,
+    })
+    expect(report.zoektIndexEntries).toBeGreaterThan(0)
+    expect(
+      (await server.keys()).filter((key) => key.startsWith("store/")),
+    ).toEqual([`${other}/manifest.json`])
+    expect(await readdir(target.zoektIndexDir)).toEqual([])
+    expect(await readdir(target.repoCacheDir)).toEqual([])
+    await expect(stat(target.falkordbDataFile)).rejects.toMatchObject({
+      code: "ENOENT",
+    })
   })
 })
