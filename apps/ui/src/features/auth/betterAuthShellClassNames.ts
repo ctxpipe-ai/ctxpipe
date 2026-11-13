@@ -20,6 +20,8 @@ export const betterAuthShellClassNames: NonNullable<
   },
   card: {
     base: "ctx-border ctx-surface rounded-md border-border shadow-none",
+    // The title of the house `CardTitle`, so the page `h1` stays the largest text.
+    title: "text-base font-medium md:text-base",
     footer: "rounded-md border-border bg-transparent shadow-none",
     cell: "rounded-md border border-border bg-transparent shadow-none",
     input:
