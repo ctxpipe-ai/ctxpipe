@@ -255,7 +255,7 @@ jobs:
       - if: vars.ECR_MIRROR == 'enabled'
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: arn:aws:iam::213102790567:role/github-actions-ctxpipe-ecr-push
+          role-to-assume: arn:aws:iam::213102790567:role/ctxpipe/ctxpipe-ecr-push
           aws-region: us-west-2
       - if: vars.ECR_MIRROR == 'enabled'
         run: |
