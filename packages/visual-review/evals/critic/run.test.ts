@@ -790,7 +790,9 @@ test("a run gets either the hold-out set only or no hold-out set, not both", asy
     "--skip-hold-out",
   ])
   expect(code).toBe(2)
-  expect(text).toContain("--hold-out-only and --skip-hold-out")
+  expect(text).toContain(
+    "Do not give --hold-out-only and --skip-hold-out together",
+  )
 })
 
 test("a case with its own scope goes to the judge with that scope", async () => {

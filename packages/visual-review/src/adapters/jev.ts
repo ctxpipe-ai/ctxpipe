@@ -65,8 +65,8 @@ const choiceQuestion = (instructions: string): Question => ({
  * probability of 0.5 or more, or when a label runs two parts together with a
  * probability of 0.5 or more (a `spacing` finding). It says `unsure` when the
  * defect or a worse probability (density too) is from 0.2 up, or when a
- * question has no answer. The run-together answer counts only for a
- * regression, not for `unsure`. The bake-off of CTX-1262 kept the 0.2
+ * question has no answer. A run-together answer under 0.5 does not count for
+ * `unsure`; a yes with no region is `unsure`. The bake-off of CTX-1262 kept the 0.2
  * floor: a higher floor turned real regressions into `intended` (ADR-063).
  * Else nothing got worse: the verdict is `intended` when a brief or a
  * source diff explains the change, and `unsure` when none does (the rule of
@@ -195,10 +195,10 @@ export async function judgeWithJev(
   })
   const defect = noul.safeParse(answers["defect"])
   const defectProbability = defect.success ? defect.data.noul : 0
-  const joined = noul.safeParse(answers["run-together"])
+  const runTogether = noul.safeParse(answers["run-together"])
   const unanswered =
     (defect.success ? 0 : 1) +
-    (joined.success ? 0 : 1) +
+    (runTogether.success ? 0 : 1) +
     (areas.length - areaResults.length) +
     (askedQualities.length - qualityResults.length)
 
@@ -235,11 +235,11 @@ export async function judgeWithJev(
           ...areaResults
             .filter(isWorse)
             .map(({ area, worse }) => ({ area, probability: worse })),
-          ...(joined.success && joined.data.noul >= 0.5
+          ...(runTogether.success && runTogether.data.noul >= 0.5
             ? [
                 {
                   area: spacing,
-                  probability: joined.data.noul,
+                  probability: runTogether.data.noul,
                   label: "spacing (parts run together)",
                 },
               ]

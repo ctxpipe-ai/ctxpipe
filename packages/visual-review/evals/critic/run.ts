@@ -537,7 +537,7 @@ export async function bakeOff(
   const maxMinutes = Number(options["max-minutes"] ?? Infinity)
   if (options["hold-out-only"] && options["skip-hold-out"]) {
     print(
-      `Give --hold-out-only and --skip-hold-out not together: no case would run.\n\n${usage}`,
+      `Do not give --hold-out-only and --skip-hold-out together: no case would run.\n\n${usage}`,
     )
     return 2
   }
