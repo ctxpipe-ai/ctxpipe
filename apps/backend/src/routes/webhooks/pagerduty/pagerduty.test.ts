@@ -8,13 +8,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
 import { encryptConnectionSecret } from "../../../lib/connection-secrets.js"
+import {
+  queueRunOfOtherVersion,
+  takeQueuedWorkflowRuns,
+} from "../../../test/open-workflow-runs.js"
 import { registerPagerdutyWebhookRoute } from "./pagerduty.js"
 
 const mocks = vi.hoisted(() => ({
   listConnections: vi.fn(),
   getBinding: vi.fn(),
   loadConfig: vi.fn(),
-  runWorkflow: vi.fn(),
 }))
 
 vi.mock("../../../models/pagerduty-connector.js", () => ({
@@ -23,9 +26,6 @@ vi.mock("../../../models/pagerduty-connector.js", () => ({
 }))
 vi.mock("../../../services/pagerduty/config-from-repo.js", () => ({
   loadPagerdutyScopeFromRepo: mocks.loadConfig,
-}))
-vi.mock("../../../openworkflow/client.js", () => ({
-  enqueueWorkflow: mocks.runWorkflow,
 }))
 vi.mock("../../../openworkflow/workflows/pagerduty-sync-entity.js", () => ({
   pagerdutySyncEntity: { spec: { name: "pagerduty-sync-entity" } },
@@ -70,8 +70,9 @@ const liveConnection = {
   webhookSecretEnc,
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks()
+  await takeQueuedWorkflowRuns()
   mocks.listConnections.mockResolvedValue([liveConnection])
   mocks.getBinding.mockResolvedValue({
     repositoryName: "acme/context",
@@ -81,7 +82,6 @@ beforeEach(() => {
   mocks.loadConfig.mockResolvedValue({
     services: [{ id: "PSERVICE", name: "checkout" }],
   })
-  mocks.runWorkflow.mockResolvedValue({ workflowRun: { id: "run_1" } })
 })
 
 describe("POST /api/v1/webhook/pagerduty", () => {
@@ -111,15 +111,15 @@ describe("POST /api/v1/webhook/pagerduty", () => {
       },
     )
     expect(response.status).toBe(200)
-    expect(mocks.runWorkflow).toHaveBeenCalledWith(
-      { name: "pagerduty-sync-entity" },
-      expect.objectContaining({
+    expect(await takeQueuedWorkflowRuns()).toContainEqual({
+      workflowName: "pagerduty-sync-entity",
+      input: expect.objectContaining({
         orgId: "org_1",
         connectionId: "con_pd",
         incidentId: "PINCIDENT",
       }),
-      { idempotencyKey: "pagerduty:con_pd:evt_1" },
-    )
+      idempotencyKey: "pagerduty:con_pd:evt_1",
+    })
   })
 
   it("rejects a tampered body", async () => {
@@ -144,7 +144,7 @@ describe("POST /api/v1/webhook/pagerduty", () => {
       },
     )
     expect(response.status).toBe(401)
-    expect(mocks.runWorkflow).not.toHaveBeenCalled()
+    expect(await takeQueuedWorkflowRuns()).toEqual([])
   })
 
   it("rejects a stale event", async () => {
@@ -169,7 +169,7 @@ describe("POST /api/v1/webhook/pagerduty", () => {
       },
     )
     expect(response.status).toBe(401)
-    expect(mocks.runWorkflow).not.toHaveBeenCalled()
+    expect(await takeQueuedWorkflowRuns()).toEqual([])
   })
 
   function postIncident(serviceId: string) {
@@ -192,17 +192,17 @@ describe("POST /api/v1/webhook/pagerduty", () => {
     })
   }
 
-  const sourcesSyncCall = [
-    expect.objectContaining({ name: "workspace-sources-sync" }),
-    {
+  const sourcesSyncRun = {
+    workflowName: "workspace-sources-sync",
+    input: expect.objectContaining({
       kind: "connection",
       orgId: "org_1",
       connectionId: "con_pd",
       provider: "pagerduty",
       event: { incidentId: "PINCIDENT", serviceId: "PSERVICE" },
-    },
-    { idempotencyKey: "workspace-sources:con_pd:evt_1" },
-  ]
+    }),
+    idempotencyKey: "workspace-sources:con_pd:evt_1",
+  }
 
   it("enqueues only the Workspace sources sync when the legacy binding is not live", async () => {
     mocks.listConnections.mockResolvedValue([
@@ -210,15 +210,17 @@ describe("POST /api/v1/webhook/pagerduty", () => {
     ])
     const response = await postIncident("PSERVICE")
     expect(response.status).toBe(200)
-    expect(mocks.runWorkflow).toHaveBeenCalledTimes(1)
-    expect(mocks.runWorkflow).toHaveBeenCalledWith(...sourcesSyncCall)
+    expect(await takeQueuedWorkflowRuns()).toEqual([sourcesSyncRun])
   })
 
   it("returns 503 when the Workspace sources sync cannot start, so PagerDuty retries", async () => {
     mocks.listConnections.mockResolvedValue([
       { ...liveConnection, setupPhase: "draft" },
     ])
-    mocks.runWorkflow.mockRejectedValue(new Error("database is down"))
+    await queueRunOfOtherVersion(
+      "workspace-sources-sync",
+      "workspace-sources:con_pd:evt_1",
+    )
     expect((await postIncident("PSERVICE")).status).toBe(503)
   })
 
@@ -244,7 +246,7 @@ describe("POST /api/v1/webhook/pagerduty", () => {
       },
     )
     expect(response.status).toBe(200)
-    expect(mocks.runWorkflow).not.toHaveBeenCalled()
+    expect(await takeQueuedWorkflowRuns()).toEqual([])
   })
 
   it("does not start the legacy sync for a service out of the legacy scope", async () => {
@@ -269,12 +271,9 @@ describe("POST /api/v1/webhook/pagerduty", () => {
       },
     )
     expect(response.status).toBe(200)
-    expect(mocks.runWorkflow).toHaveBeenCalledTimes(1)
-    expect(mocks.runWorkflow).not.toHaveBeenCalledWith(
-      { name: "pagerduty-sync-entity" },
-      expect.anything(),
-      expect.anything(),
-    )
+    expect(
+      (await takeQueuedWorkflowRuns()).map((run) => run.workflowName),
+    ).toEqual(["workspace-sources-sync"])
     expect(mocks.loadConfig).toHaveBeenCalled()
   })
 
@@ -315,13 +314,14 @@ describe("POST /api/v1/webhook/pagerduty", () => {
     )
     expect(response.status).toBe(200)
     // One legacy sync and one sources sync, both for the verified connection.
-    expect(mocks.runWorkflow).toHaveBeenCalledTimes(2)
-    for (const [, input] of mocks.runWorkflow.mock.calls)
-      expect(input).toMatchObject({ connectionId: "con_pd" })
-    expect(mocks.runWorkflow).toHaveBeenCalledWith(
-      { name: "pagerduty-sync-entity" },
-      expect.objectContaining({ connectionId: "con_pd" }),
-      { idempotencyKey: "pagerduty:con_pd:evt_dup" },
-    )
+    const runs = await takeQueuedWorkflowRuns()
+    expect(runs).toHaveLength(2)
+    for (const run of runs)
+      expect(run.input).toMatchObject({ connectionId: "con_pd" })
+    expect(runs).toContainEqual({
+      workflowName: "pagerduty-sync-entity",
+      input: expect.objectContaining({ connectionId: "con_pd" }),
+      idempotencyKey: "pagerduty:con_pd:evt_dup",
+    })
   })
 })
