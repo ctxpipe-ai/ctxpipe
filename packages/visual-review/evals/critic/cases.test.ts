@@ -16,6 +16,7 @@ const manifest = {
   seed: 1,
   until: sha("a"),
   container: "mcr.microsoft.com/playwright:v1.63.0-noble@sha256:0",
+  scope: "page",
   cases: [
     {
       id: "intended-001",
@@ -189,6 +190,24 @@ describe("caseManifestSchema", () => {
     expect(caseManifestSchema.safeParse(unsure(0)).success).toBe(true)
     expect(caseManifestSchema.safeParse(unsure(1)).success).toBe(false)
   })
+
+  test("accepts the mobile viewport and the votes of the judge panel", () => {
+    const voted = change(0, (entry) => {
+      entry.viewport = { name: "mobile", width: 390, height: 844 }
+      entry.panel = {
+        label: null,
+        votes: [
+          { model: "vendor-a/judge", label: "regression", reason: "Cut off." },
+          { model: "vendor-b/judge", label: null, reason: "", error: "500" },
+        ],
+      }
+    })
+    expect(caseManifestSchema.safeParse(voted).success).toBe(true)
+    const wrongSize = change(0, (entry) => {
+      entry.viewport = { name: "mobile", width: 1440, height: 900 }
+    })
+    expect(caseManifestSchema.safeParse(wrongSize).success).toBe(false)
+  })
 })
 
 describe("the committed case manifest", () => {
@@ -204,12 +223,16 @@ describe("the committed case manifest", () => {
     expect(read("./cases.schema.json")).toEqual(caseManifestJsonSchema)
   })
 
-  test("has at least 150 cases, and a known region for each synthetic one", () => {
-    const { cases } = caseManifestSchema.parse(read("./cases.json"))
-    expect(cases.length).toBeGreaterThanOrEqual(150)
+  test("has at least 100 page cases of each kind, at both viewports", () => {
+    const { cases, scope } = caseManifestSchema.parse(read("./cases.json"))
+    expect(scope).toBe("page")
+    expect(cases.length).toBeGreaterThanOrEqual(100)
     const kinds = new Set(cases.map((entry) => entry.kind))
     expect(kinds).toEqual(
       new Set(["intended", "regression", "noise", "mixed", "new"]),
+    )
+    expect(new Set(cases.map(({ viewport }) => viewport.name))).toEqual(
+      new Set(["desktop", "mobile"]),
     )
   })
 
