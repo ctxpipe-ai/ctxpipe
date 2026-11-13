@@ -756,9 +756,10 @@ async function compareImages(
  * for each screenshot, in the order of `screenshots`) to a new private folder
  * that the command keeps, and name them in the summary of the verdict. The
  * summary of Jev names the areas and qualities, their probabilities and the
- * region; a screenshot of a group gets the summary of the judged one. The factory shows the summary as a finding: the
- * agent looks at the images, and fixes the screenshot or says in the PR why
- * the change is intended (ADR-063). The command removes the work folder of
+ * region; a screenshot of a group gets the summary of the judged one. The
+ * factory shows the summary as a finding: the agent looks at the images, and
+ * fixes the screenshot or says in the PR why the change is intended
+ * (ADR-063). The command removes the work folder of
  * the compare engine at the end of the run, so the copies are the images to
  * look at.
  */
