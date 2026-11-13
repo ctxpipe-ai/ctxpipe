@@ -20,7 +20,7 @@ Implementation process: [`.agents/skills/product-ui/SKILL.md`](../../.agents/ski
   - One font (Geist) and one palette
   - A status dot **plus** its word (not color-only)
 - **Use with care** (product owner decision, 2026-11-13, [CTX-1259](https://linear.app/ctxpipe/issue/CTX-1259)):
-  - Card corner crosses: only on a hero or summary card (the lead card of a page, an overview of metrics). Set `corners` on [`Card`](src/components/ui/Card.tsx). The default card has no crosses.
+  - Card corner crosses: only on a hero or summary card (the lead card of a page, an overview of metrics). No product card is one today, so [`Card`](src/components/ui/Card.tsx) has no crosses. Add them back, as an opt-in prop of `Card`, with the first hero or summary card.
   - Mono uppercase tracked labels (`.ctx-label`): only as a section label in a dense panel (graph inspector, menu groups, a scope checklist). Do not put one as an eyebrow above a page title or above a card heading. Use the title alone.
   - A pulsing status dot: only for a live state (running, syncing, indexing, hydrating, a check in progress). A static state (ready, failed, connected) has a still dot.
 - **Hover:** a quiet button (`variant="quiet"`) shows a subtle background wash on hover (`bg-foreground/[0.06]`). Do not use a glow or a drop shadow on hover.

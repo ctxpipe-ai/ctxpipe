@@ -13,7 +13,7 @@ Keep and reuse:
 
 Use with care (see [DESIGN.md](../../../../apps/ui/DESIGN.md) **Personality**):
 
-- Card corner crosses: only on a hero or summary card (`corners` on [`Card`](../../../../apps/ui/src/components/ui/Card.tsx))
+- Card corner crosses: only on a hero or summary card. [`Card`](../../../../apps/ui/src/components/ui/Card.tsx) has none today; add an opt-in prop with the first such card
 - `.ctx-label`: only as a section label in a dense panel, never as an eyebrow above a title
 - A pulsing dot: only for a live state
 

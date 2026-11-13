@@ -1,38 +1,12 @@
 import type { ComponentProps } from "react"
 import { twMerge } from "tailwind-merge"
 
-function CornerCross({ className }: { className?: string }) {
-  return (
-    <span
-      aria-hidden
-      className={twMerge("pointer-events-none absolute size-3", className)}
-    >
-      <svg
-        viewBox="0 0 12 12"
-        className="size-full text-zinc-700"
-        stroke="currentColor"
-        strokeWidth={1.5}
-        aria-hidden
-      >
-        <title>Corner decoration</title>
-        <line x1={6} y1={0} x2={6} y2={12} />
-        <line x1={0} y1={6} x2={12} y2={6} />
-      </svg>
-    </span>
-  )
-}
-
 function Card({
   className,
   size = "default",
-  corners = false,
   children,
   ...props
-}: ComponentProps<"div"> & {
-  size?: "default" | "sm"
-  /** Corner crosses: only for a hero or summary card (the lead card of a page, an overview of metrics). */
-  corners?: boolean
-}) {
+}: ComponentProps<"div"> & { size?: "default" | "sm" }) {
   return (
     <div
       data-slot="card"
@@ -43,14 +17,6 @@ function Card({
       )}
       {...props}
     >
-      {corners ? (
-        <>
-          <CornerCross className="left-0 top-0 -translate-x-[calc(50%+0.5px)] -translate-y-[calc(50%+0.5px)]" />
-          <CornerCross className="right-0 top-0 translate-x-[calc(50%+0.5px)] -translate-y-[calc(50%+0.5px)]" />
-          <CornerCross className="bottom-0 left-0 -translate-x-[calc(50%+0.5px)] translate-y-[calc(50%+0.5px)]" />
-          <CornerCross className="bottom-0 right-0 translate-x-[calc(50%+0.5px)] translate-y-[calc(50%+0.5px)]" />
-        </>
-      ) : null}
       {children}
     </div>
   )
