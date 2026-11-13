@@ -20,7 +20,7 @@ const at = <T>(list: readonly T[], index: number) => {
 const { areas, qualities } = packagedRubric
 
 describe("rubric", () => {
-  test("has the eight concrete areas and the ten design qualities", () => {
+  test("has the twelve concrete areas and the ten design qualities", () => {
     expect(areas.map(({ name }) => name)).toEqual([
       "Spacing",
       "Color tokens",
@@ -30,6 +30,10 @@ describe("rubric", () => {
       "Alignment",
       "Missing elements",
       "Broken content",
+      "Status",
+      "Actions and affordance",
+      "Dialog structure",
+      "Copy",
     ])
     expect(qualities.map(({ name }) => name)).toEqual([
       "Clarity",

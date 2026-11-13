@@ -34,6 +34,7 @@ The builder keeps only the pairs that differ by more than the tolerance of the v
 - `queue.ts`: the labeling queue of the owner in Langfuse (`pnpm visual:bakeoff:queue`).
 - `capture.ts`: the capture step. It runs in the pinned capture container (`scripts/ci/visual-container.json`) with the play runner and the pins of the visual check.
 - `mutations.ts`: the synthetic changes and their known regions.
+- `owner-calibration.json` and `calibration.ts`: the owner calibration set and its command (see [The owner calibration](#the-owner-calibration)).
 - `redesign-717-labels.json`: the labels of the 254 screenshots that PR 717 changed (`{ path, viewport, label, reason }`, `label` is `regression` or `intended`). A design review made them for CTX-1265. `redesign.json` takes its labels from it (CTX-1262).
 
 The images are not in git. The manifest holds the SHA-256 of each image. Each image is one asset of the pre-release [`visual-bakeoff-images`](https://github.com/ctxpipe-ai/ctxpipe/releases/tag/visual-bakeoff-images) of this repository, named `<sha256>.png`. The images are screenshots of the Storybook stories, with their mock data, so they can be public.
@@ -157,6 +158,23 @@ The report has a table for the hold-out set and a table for the other cases. The
 With `panel`, the job runs the judge panel instead of the bake-off, with the spend cap of the panel ($40, the default of `panel.ts`; see the cost estimate in the pull request of [CTX-1249](https://linear.app/ctxpipe/issue/CTX-1249)). `panel_models` replaces the default panel when it is set. The artifact then holds the new `cases.json` with the votes: commit it in a pull request, and push the owner queue.
 
 The default arms are the models of the plan in the three prompt arms, the three decision models (Jev, Elephant and Mammoth) alone, the cascade from each of them to Sonnet, and the local judge. A decision call costs much less than an LLM call, and a cascade calls Sonnet only when its filter does not accept the change, so a cascade arm costs at most the Sonnet arm. A full run of all the default arms costs more than $100. The hold-out cases go first, so a run that the cap stops still has the cases of the selection rule. To spend less, give fewer arms or fewer runs.
+
+## The owner calibration
+
+The product owner reviewed 10 screenshots of `main` on 2026-11-14 ([CTX-1269](https://linear.app/ctxpipe/issue/CTX-1269)). `owner-calibration.json` holds that feedback. Each screenshot has:
+
+- `path`: where the screenshot was in the repository on that day. `image` is its SHA-256: an asset of the image release, so the set stays the same when the UI changes.
+- `flag`: the issues that the owner wants a critic to flag.
+- `ok`: the things that the owner said are fine.
+- `kinds` on each item: the rubric ids (areas and qualities) that a judge flags the item with.
+
+The command gives each screenshot to the runner as a `new` case (the image alone, with a fixed neutral brief), so each arm judges it as `pnpm visual:review` judges a new screenshot. The runner output is in `runner/` of `--out`. A verdict flags the kind of each finding and each quality that `fails`. An issue is a hit when the verdict flags one of its kinds. A fine item is a false flag when the verdict flags one of its kinds that no issue of that screenshot names.
+
+```sh
+node packages/visual-review/evals/critic/calibration.ts --arms jev,llm:anthropic/claude-sonnet-5.5 [--max-cost 2] [--images <dir>] [--out <dir>]
+```
+
+The arms are the arms of the runner that judge a new screenshot, for example `jev` and `llm:<model>`. The spend cap has the rules of the runner. The workflow runs it with the input `calibration`. Give the arms in `arms` and a small `max_cost`.
 
 ## The labeling queue
 

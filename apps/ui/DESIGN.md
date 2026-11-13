@@ -24,7 +24,7 @@ Implementation process: [`.agents/skills/product-ui/SKILL.md`](../../.agents/ski
   - Mono uppercase tracked labels (`.ctx-label`): only as a section label in a dense panel (graph inspector, node drawer, a scope checklist). Do not put one as an eyebrow above a page title or above a card heading. Use the title alone.
   - A pulsing status dot: only for a live state (running, syncing, indexing, hydrating, a check in progress). A static state (ready, failed, connected) has a still dot.
 - **Hover:** a quiet button (`variant="quiet"`) shows a subtle background wash on hover (`bg-foreground/[0.06]`). Do not use a glow or a drop shadow on hover.
-- **Copy register:** US English. ASD-STE100 at about 80% strength. Plain and specific. “Add connection”, not “Let’s get you connected!” or “Utilize webhook configuration.”
+- **Copy register:** US English. ASD-STE100 at about 80% strength. Plain and specific. “Add connection”, not “Let’s get you connected!” or “Utilize webhook configuration.” US spelling applies to every visible word, also a legend or a chart label (“Node colors”, not “node colours”).
 
 ## Tokens we keep
 
@@ -59,7 +59,8 @@ Dark product floor: zinc-950 / `--background` / `--card`. Ink: `--foreground`. S
 |-------|------|
 | `--primary` (near-white in dark) | Filled primary buttons |
 | `teal-400` (`#40E0D0`) and `teal-*` mix stops | Accent: links that are *the* action, status wash, focus-adjacent teal |
-| `--destructive` | Confirm-dialog filled danger only |
+| `--destructive` | Confirm-dialog filled danger, and the slab of an error alert. Red is correct for an error |
+| Warning slab | Yellow with dark text when that passes WCAG AA; else amber-brown with light text. Both are accessible: do not choose a warning color that fails AA |
 | `--border` / `border-white/10` | Hairlines when gap or bg shift is not enough |
 
 On chromatic surfaces (teal / red / amber slabs): same-hue muted secondary text. Do not use `text-zinc-400` or `text-white/50` as hierarchy on those slabs.
@@ -120,15 +121,27 @@ Decorative icons: `aria-hidden`, `text-muted-foreground`, intended size (~16–2
 
 - **AppShell / product chrome:** no 24px grid and no teal/blue radial glow. Onboarding may keep atmosphere. Do not add background decoration (gradients, grain, world maps, Hero Patterns).
 - **Titles:** product screens `text-lg` / `text-xl`. `text-3xl`+ only on onboarding / marketing.
-- **Alerts:** keep dark slabs ([`InlineAlert`](src/components/ui/InlineAlert.tsx)); no opacity-as-grey; same-hue muted secondary text on the slab. Prefer Tabler icons on new alerts.
+- **Alerts:** keep dark slabs ([`InlineAlert`](src/components/ui/InlineAlert.tsx)); no opacity-as-grey; same-hue muted secondary text on the slab. Prefer Tabler icons on new alerts. The action of an alert sits on the right of the slab at the normal secondary size, not small and below the text. Error copy gives the cause and the next step. It does not repeat the title (“Could not load connectors” over “Failed to load connections” says nothing new).
 - **Notices that wait for an action** (for example the Home upgrade toasts and Workspace hydrate problem toasts): toasts in a [`ToastStack`](src/components/ui/ToastStack.tsx) in a slot at the top of the Home content column, not a warning slab in the page. An upgrade toast has the upgrade icon; a problem toast has the warning icon. The front toast shows in full; hover or focus opens the stack.
 - **Empty states:** short title + one sentence + **one primary** control, when there is an action. No icon tile above the title. Hide tabs/filters until there is data. Center only if copy is ≤2 lines; otherwise left-align.
 - **Loading:** region waits (list, tree, thread, pane) use [`Skeleton`](src/components/ui/Skeleton.tsx) that matches the populated pattern (see **Loading states**). Process waits (hydrate, OAuth, discovery) use [`InlineLoader`](src/components/ui/InlineLoader.tsx). Button mutations use `isPending`. Status uses a dot plus the word; the dot pulses only while the work runs. See product-ui **Plan states**.
 - **Lists:** icon + title + one-line body rows for features / capabilities. `list-disc` only for legal / consent or a true prose outline (see [`KnowledgeGraphIntroCallout`](src/features/knowledge-graph/KnowledgeGraphIntroCallout.tsx)).
 - **Destructive:** outline or quiet on the page. Filled red only on the confirm dialog ([`AlertDialog`](src/components/ui/AlertDialog.tsx)).
 - **Actions:** one primary per surface; outline / secondary next; link / quiet for tertiary. Teal is for the one real action in a dense list — not every row title.
+  - The main action of a page is labeled and easy to find (“Add connection”), not a lone `+` icon.
+  - Every icon tells its action. Do not put a chevron at the end of a row when the row does not open or expand.
+  - Peer actions in one row have the same weight and type: two buttons, or two links. Do not put a “Fix” button next to an “Add another” text link.
+  - A copy button sits at the right end of the field that it copies, inside or next to the field. Not in the footer below it.
 - **Separators:** gap or background shift first; one hairline if grouping is still ambiguous. Borders are a last separator. Do not nest cards inside cards.
+- **Pages:** group the content of a page in tiles or cards, with a clear hierarchy and area boundaries, as the chat page does. A flat list of bare rows under a title reads as an unfinished legacy page.
+- **Columns:** the blocks of one column share one left edge: a message, an answer and the composer; an icon row, a checklist and a step card.
+- **Modals:** a header, a body and a footer zone on one aligned grid. One close control: in a wizard, one Close button at the bottom right, and no second Close or X at the top.
+- **Flows:** the next step of a flow (for example “Merge the pull request” after setup) is a card or a selected item, not loose text under a checklist.
+- **Secondary chrome:** legends, hints and help are smaller and dimmer than the content, and do not cover it. A first-run help tour can cover content until the user dismisses it. Remember the dismissal (local storage), so the tour does not come back.
+- **Interactive lists:** the text of a file tree or a nav list is never so dim that it reads as disabled. Use `text-muted-foreground` or brighter for an item that the user can click.
 - **Status:** existing pill + dot **and** the word ([`RepositoryStatus`](src/features/repositories/components/RepositoryStatus.tsx)). The dot pulses only for a live state; a static state has a still dot. Not color-only. Not a glowing dot without a label.
+  - The color is on the dot. The word is restrained text in one color: not green, red and amber words side by side.
+  - In a list, the dots and the words of all rows sit in one aligned column.
 
 ## Loading states
 

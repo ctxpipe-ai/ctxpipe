@@ -3,7 +3,7 @@
     {
       "id": "spacing",
       "name": "Spacing",
-      "definition": "Space comes from the Tailwind scale. A group has more space around it than within it. A label is closer to its field than one field group is to the next. A heading is closer to its own content than to the block above it. Text does not touch the edge of its button, card, pill or page.",
+      "definition": "Space comes from the Tailwind scale. A group has more space around it than within it. A label is closer to its field than one field group is to the next. A heading is closer to its own content than to the block above it. Text does not touch the edge of its button, card, pill or page. A chip, badge or icon tab has space on each side from its neighbors.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
@@ -18,7 +18,7 @@
     {
       "id": "color-tokens",
       "name": "Color tokens",
-      "definition": "Color comes from the house tokens: a zinc floor, a white primary, a teal accent, and the destructive red only on a confirm dialog. No indigo, no purple gradient, no second accent.",
+      "definition": "Color comes from the house tokens: a zinc floor, a white primary, a teal accent. Red marks an error alert and the filled danger button of a confirm dialog. A warning is yellow with dark text when that passes AA, else amber-brown. No indigo, no purple gradient, no second accent.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
@@ -63,7 +63,7 @@
     {
       "id": "contrast",
       "name": "Contrast",
-      "definition": "Text is readable on its surface: about 4.5:1 for body text and 3:1 for large text and icons. On a teal, red or amber slab, secondary text is a lighter stop of the same hue at full opacity, not white at reduced opacity.",
+      "definition": "Text is readable on its surface: about 4.5:1 for body text and 3:1 for large text and icons. On a teal, red or amber slab, secondary text is a lighter stop of the same hue at full opacity, not white at reduced opacity. The text of a file tree or a nav list is never so dim that it reads as disabled.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
@@ -78,11 +78,15 @@
     {
       "id": "alignment",
       "name": "Alignment",
-      "definition": "Items in one column share one left edge. Long copy is left-aligned, never justified. Numbers are right-aligned with tabular figures. Mixed type on one row shares a baseline.",
+      "definition": "Items in one column share one left edge: a message, an answer and the composer; an icon row, a checklist and a step card. Long copy is left-aligned, never justified. Numbers are right-aligned with tabular figures. Mixed type on one row shares a baseline.",
       "sources": [
         {
           "file": ".agents/skills/product-ui/references/visual-craft.md",
           "section": "Space and layout"
+        },
+        {
+          "file": "apps/ui/DESIGN.md",
+          "section": "Targets (new or touched UI)"
         }
       ]
     },
@@ -105,6 +109,66 @@
         {
           "file": ".agents/skills/product-ui/references/visual-craft.md",
           "section": "Finishing"
+        }
+      ]
+    },
+    {
+      "id": "status",
+      "name": "Status",
+      "definition": "A status is a dot and a word. The color is on the dot; the word is restrained text in one color, not green, red and amber words side by side. In a list, the dots and the words of all rows sit in one aligned column.",
+      "sources": [
+        {
+          "file": "apps/ui/DESIGN.md",
+          "section": "Targets (new or touched UI)"
+        },
+        {
+          "file": ".agents/skills/product-ui/references/information-design.md",
+          "section": "Intent → pattern"
+        }
+      ]
+    },
+    {
+      "id": "actions",
+      "name": "Actions and affordance",
+      "definition": "Each icon tells its action: no chevron on a row that does not open, no bare icon whose result is not clear. The main action of a page is labeled and easy to find, not a lone + icon. Peer actions in one row have the same weight and type, not a button next to a text link. A copy button sits at the right end of the field that it copies. The next step of a flow is a card or a selected item, not loose text. The action of an alert is on the right, at the normal secondary size.",
+      "sources": [
+        {
+          "file": ".agents/skills/product-ui/references/visual-craft.md",
+          "section": "Actions"
+        },
+        {
+          "file": "apps/ui/DESIGN.md",
+          "section": "Targets (new or touched UI)"
+        }
+      ]
+    },
+    {
+      "id": "dialog",
+      "name": "Dialog structure",
+      "definition": "A modal has a header, a body and a footer zone on one aligned grid. It has one close control: in a wizard, one Close button at the bottom right, and no second Close or X at the top.",
+      "sources": [
+        {
+          "file": "apps/ui/DESIGN.md",
+          "section": "Targets (new or touched UI)"
+        },
+        {
+          "file": ".agents/skills/product-ui/references/visual-craft.md",
+          "section": "Space and layout"
+        }
+      ]
+    },
+    {
+      "id": "copy",
+      "name": "Copy",
+      "definition": "Copy is US English in every label, also a legend (color, not colour). Error copy gives the cause and a next step, and does not repeat the title. Copy tells the user what to do, in plain and specific words.",
+      "sources": [
+        {
+          "file": "apps/ui/DESIGN.md",
+          "section": "Personality (copy these)"
+        },
+        {
+          "file": "apps/ui/DESIGN.md",
+          "section": "Targets (new or touched UI)"
         }
       ]
     }
@@ -137,7 +201,7 @@
     {
       "id": "hierarchy",
       "name": "Hierarchy",
-      "definition": "One element leads: the title is the loudest ink. Hierarchy comes from weight and muted color, not from a size jump. Neighbors and decorative icons are muted first. Items of different importance do not get the same weight, as in a grid of equal cards.",
+      "definition": "One element leads: the title is the loudest ink. Hierarchy comes from weight and muted color, not from a size jump. Neighbors and decorative icons are muted first. Items of different importance do not get the same weight, as in a grid of equal cards. Secondary chrome (legends, hints, help) is smaller and dimmer than the content.",
       "sources": [
         {
           "file": ".agents/skills/product-ui/references/visual-craft.md",
@@ -217,7 +281,7 @@
     {
       "id": "feedback-and-state",
       "name": "Feedback and state",
-      "definition": "Each state uses its house pattern. A region wait is a skeleton with the box of the loaded state. A process wait is the teal loader. An empty state is a short title, one sentence and one primary control. An error is an inline alert with a next step.",
+      "definition": "Each state uses its house pattern. A region wait is a skeleton with the box of the loaded state. A process wait is the teal loader. An empty state is a short title, one sentence and one primary control. An error is an inline alert with its cause and a next step.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
@@ -249,7 +313,7 @@
     {
       "id": "restraint",
       "name": "Restraint",
-      "definition": "No AI tells: no gradient, gradient text, glass, grain, glow or grid on product chrome, no hero type, no four equal KPI tiles, no teal on every row, no colored stripe on one side of a card, no hard offset or wide black shadow on an in-page card, no badge stacked above a title. A dialog, popover, menu or toast keeps its house shadow. No icon tile above the heading of an empty state. A status dot pulses only for a live state (running, syncing, indexing). These are not tells: the mono uppercase .ctx-label as a section label in a dense panel (not as an eyebrow above a page title or a card heading), the corner crosses on a hero or summary card, and a status dot with its word.",
+      "definition": "No AI tells: no gradient, gradient text, glass, grain, glow or grid on product chrome, no hero type, no four equal KPI tiles, no teal on every row, no colored stripe on one side of a card, no hard offset or wide black shadow on an in-page card, no badge stacked above a title. A dialog, popover, menu or toast keeps its house shadow. No icon tile above the heading of an empty state. A status dot pulses only for a live state (running, syncing, indexing). These are not tells: the mono uppercase .ctx-label as a section label in a dense panel (not as an eyebrow above a page title or a card heading), an uppercase heading that names a page section, a blurred backdrop behind a modal, the corner crosses on a hero or summary card, and a status dot with its word.",
       "sources": [
         {
           "file": ".agents/skills/product-ui/references/ai-tells.md",

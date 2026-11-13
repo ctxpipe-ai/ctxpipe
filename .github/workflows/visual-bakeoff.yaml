@@ -4,7 +4,9 @@ name: Visual critic bake-off
 # settings) judges each case of packages/visual-review/evals/critic/cases.json,
 # and the job writes the report (packages/visual-review/evals/critic/README.md).
 # With `panel`, the job runs the judge panel (CTX-1249) instead: it labels the
-# cases, and the artifact holds the new cases.json to commit. A model call
+# cases, and the artifact holds the new cases.json to commit. With
+# `calibration`, the arms judge the owner calibration set (CTX-1269) instead,
+# and the report counts the owner issues that each arm flags. A model call
 # costs money, so the workflow runs only by hand. Two limits keep the spend
 # below the budget of $100: the runner starts no paid call when the known
 # cost reaches max_cost, and the model key of the workbench environment has
@@ -14,6 +16,11 @@ on:
     inputs:
       panel:
         description: "Run the judge panel, not the bake-off. The panel uses panel_models only, and its own spend cap of $40."
+        required: false
+        type: boolean
+        default: false
+      calibration:
+        description: "Judge the owner calibration set (owner-calibration.json) with the arms, not the bake-off cases. The arms must judge a new screenshot, for example jev and llm:<model>."
         required: false
         type: boolean
         default: false
@@ -93,7 +100,7 @@ jobs:
       # packages and the model weights), so it is not a dependency of the
       # repository. It goes into its own folder.
       - name: Install the local judge of BlazeDiff
-        if: ${{ !inputs.panel && contains(inputs.arms, 'blazediff-local') }}
+        if: ${{ !inputs.panel && !inputs.calibration && contains(inputs.arms, 'blazediff-local') }}
         run: |
           npm install --prefix "$RUNNER_TEMP/blazediff-agent" --no-audit --no-fund \
             @blazediff/agent@0.13.2 @huggingface/transformers@4.3.2
@@ -120,8 +127,20 @@ jobs:
           # The votes so far, also after an image error.
           cp packages/visual-review/evals/critic/cases.json "$out/"
           exit "$status"
+      - name: Run the owner calibration
+        if: ${{ !inputs.panel && inputs.calibration }}
+        env:
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+          ARMS: ${{ inputs.arms }}
+          MAX_COST: ${{ inputs.max_cost }}
+        run: |
+          node packages/visual-review/evals/critic/calibration.ts \
+            --arms "$ARMS" \
+            --max-cost "$MAX_COST" \
+            --images "$RUNNER_TEMP/visual-bakeoff-images" \
+            --out "$RUNNER_TEMP/visual-bakeoff-report"
       - name: Run the bake-off
-        if: ${{ !inputs.panel }}
+        if: ${{ !inputs.panel && !inputs.calibration }}
         env:
           MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
           ARMS: ${{ inputs.arms }}

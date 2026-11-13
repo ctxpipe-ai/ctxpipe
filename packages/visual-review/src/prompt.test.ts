@@ -58,6 +58,15 @@ describe("buildPrompt", () => {
     expect(prefix).toMatch(
       /judge a page-only quality only when the scope is `page`/i,
     )
+    // How to judge: partial UI, the story state and the established
+    // patterns are not defects (the owner calibration, CTX-1269).
+    expect(prefix).toMatch(
+      /most UI in a screenshot is partial[^]*placeholder story text are not defects/i,
+    )
+    expect(prefix).toMatch(/do not report the state itself/i)
+    expect(prefix).toMatch(
+      /an uppercase heading that names a page section is fine/i,
+    )
     // Only the measured regions.
     expect(prefix).toMatch(/judge only the measured regions/i)
     expect(prefix).toMatch(
