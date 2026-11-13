@@ -62,11 +62,13 @@ const choiceQuestion = (instructions: string): Question => ({
  * Decisions API (`model`). The key comes from `MODEL_PROVIDER_API_KEY` and
  * the OpenRouter API base from `MODEL_PROVIDER_URL`. The verdict says
  * `regression` when an area or a quality other than density is worse with a
- * probability of 0.5 or more, or when a label runs two parts together with a
- * probability of 0.5 or more (a `spacing` finding). It says `unsure` when the
- * defect or a worse probability (density too) is from 0.2 up, or when a
- * question has no answer. A run-together answer under 0.5 does not count for
- * `unsure`; a yes with no region is `unsure`. The bake-off of CTX-1262 kept the 0.2
+ * probability of 0.5 or more, when a label runs two parts together with a
+ * probability of 0.5 or more (a `spacing` finding), or when the change
+ * leaves a dialog or a flow with no way to close, cancel or go back, with a
+ * probability of 0.5 or more (a `dialog` finding). It says `unsure` when the defect or a worse probability
+ * (density too) is from 0.2 up, or when a question has no answer. A
+ * run-together or lost-exit answer under 0.5 does not count for `unsure`; a
+ * yes with no region is `unsure`. The bake-off of CTX-1262 kept the 0.2
  * floor: a higher floor turned real regressions into `intended` (ADR-063).
  * Else nothing got worse: the verdict is `intended` when a brief or a
  * source diff explains the change, and `unsure` when none does (the rule of
@@ -120,6 +122,8 @@ export async function judgeWithJev(
   // The rubric is data of the PR head: it can have no spacing area. Then
   // Jev gets no run-together question.
   const spacing = areas.find(({ id }) => id === "spacing")
+  // The same for the dialog area and the lost-exit question.
+  const dialog = areas.find(({ id }) => id === "dialog")
   const questions: Record<string, Question> = {
     defect: {
       type: "noul",
@@ -136,6 +140,16 @@ export async function judgeWithJev(
         type: "noul",
         instructions:
           "Look at the after image only. Does a label put two parts side by side with no space and no separator, so that they read as one word (for example a number and a word)?",
+      },
+    }),
+    // A change that removes or hides a way out of a dialog or a flow is a
+    // regression, also when the screen looks cleaner (owner calibration,
+    // CTX-1275). A yes is a `dialog` finding.
+    ...(dialog && {
+      "lost-exit": {
+        type: "noul",
+        instructions:
+          "Does the change leave a dialog, a wizard or a flow with no visible control to close, cancel or go back (a Close or Cancel button, an X, a Back button), when the before image shows one? Answer no when the after image still shows a way out, or when there is no dialog, wizard or flow.",
       },
     }),
   }
@@ -202,9 +216,11 @@ export async function judgeWithJev(
   const defect = noul.safeParse(answers["defect"])
   const defectProbability = defect.success ? defect.data.noul : 0
   const runTogether = noul.safeParse(answers["run-together"])
+  const lostExit = noul.safeParse(answers["lost-exit"])
   const unanswered =
     (defect.success ? 0 : 1) +
     (!spacing || runTogether.success ? 0 : 1) +
+    (!dialog || lostExit.success ? 0 : 1) +
     (areas.length - areaResults.length) +
     (askedQualities.length - qualityResults.length)
 
@@ -245,6 +261,16 @@ export async function judgeWithJev(
                   area: spacing,
                   probability: runTogether.data.noul,
                   label: "spacing (parts run together)",
+                },
+              ]
+            : []),
+          // A dialog or a flow with no way out is a dialog finding.
+          ...(dialog && lostExit.success && lostExit.data.noul >= 0.5
+            ? [
+                {
+                  area: dialog,
+                  probability: lostExit.data.noul,
+                  label: "dialog (exit removed)",
                 },
               ]
             : []),
@@ -402,8 +428,8 @@ async function decide(
  * change. There is no base image, so each question asks whether the
  * screenshot breaks a rule of an area or a quality of the rubric, with a
  * probability (a `noul` question). Literal rule questions ask about defects
- * of the owner calibration (up to four, one for each area that the rubric
- * has, and a flat page on a page screenshot), and the state gives Jev
+ * of the owner calibration (each one only when the rubric has its area or
+ * quality, and the flat-page question only on a page screenshot), and the state gives Jev
  * `judgingRule`, what not to report. The verdict says `regression` when an
  * area, a rule question or a quality breaks a rule with a probability of 0.5
  * or more (a rule answer under 0.5 does not count for `unsure`), and
@@ -449,53 +475,88 @@ export async function judgeNewWithJev(
       type: "noul",
       instructions: `Quality: ${name}. ${definition} Does the new screenshot fail this quality?`,
     }
-  // Literal yes/no questions, each with the area of its finding, from the
-  // owner calibration (CTX-1269): the area questions alone are too wide for
-  // these defects. The rubric is data of the PR head: a rule question goes
-  // only with its area.
+  // Literal yes/no questions from the owner calibration (CTX-1269 and
+  // CTX-1275): the area and quality questions alone are too wide for these
+  // defects. A yes is a finding of the area, or a failed quality, that
+  // `target` names. The rubric is data of the PR head: a rule question goes
+  // only with its target. `page` marks a question for a page screenshot only:
+  // as rubric text, the flat-page rule made Jev call intended changes worse
+  // (CTX-1271).
   const rules = [
     {
       name: "rule.two-close",
-      area: "dialog",
+      target: "dialog",
       instructions:
         "Does one dialog show two close controls, for example a Close button or an X at the top and another Close button at the bottom?",
     },
     {
       name: "rule.copy-button",
-      area: "actions",
+      target: "actions",
       instructions:
         "Is a Copy button away from the right end of the field whose value it copies, for example in a footer below the field?",
     },
     {
       name: "rule.status-colors",
-      area: "status",
+      target: "status",
       instructions:
         "Do the status words of a list have two or more text colors (for example green, red and amber words), in place of a colored dot with plain text?",
     },
     {
       name: "rule.uk-spelling",
-      area: "copy",
+      target: "copy",
       instructions:
         "Does visible text use British spelling, such as colour, organisation or behaviour?",
     },
-  ].flatMap((rule) => {
-    const area = areas.find(({ id }) => id === rule.area)
-    return area ? [{ ...rule, area }] : []
-  })
-  for (const { name, instructions } of rules)
-    questions[name] = { type: "noul", instructions }
-  // A flat legacy page, with no tiles and no area boundaries, fails the
-  // grouping quality (owner calibration). Only on a new page screenshot: as
-  // rubric text, the rule made Jev call intended changes worse (CTX-1271).
-  const flatPage =
-    story.scope === "page" &&
-    askedQualities.some(({ id }) => id === "grouping-and-rhythm")
-  if (flatPage)
-    questions["rule.flat-page"] = {
-      type: "noul",
+    {
+      name: "rule.no-exit",
+      target: "dialog",
+      instructions:
+        "Is there a dialog or a wizard on the screen that shows no control to close, cancel or go back? Answer no when the screen shows no dialog or wizard.",
+    },
+    {
+      name: "rule.dialog-clipped",
+      target: "dialog",
+      instructions:
+        "Is a dialog taller than the screen, or is its header, its footer or its content cut off at an edge of the screen?",
+    },
+    {
+      name: "rule.off-axis",
+      target: "alignment",
+      instructions:
+        "In a vertical stack, do the leading markers (a header icon, checkboxes, step numbers, list icons) sit on different vertical axes, or off the center of their text line?",
+    },
+    {
+      name: "rule.bright-area",
+      target: "color-tokens",
+      instructions:
+        "Is a large area much brighter or more saturated than the dark rest of the screen, for example a bright yellow fill or a white editor panel?",
+    },
+    {
+      name: "rule.flat-page",
+      target: "grouping-and-rhythm",
+      page: true,
       instructions:
         "Is the main content of the page a flat list of bare rows under a title, with no tiles or cards and no area boundaries?",
-    }
+    },
+  ].flatMap(
+    ({
+      target,
+      page,
+      ...rule
+    }): ({ name: string; instructions: string } & (
+      | { area: RubricEntry; quality?: never }
+      | { area?: never; quality: string }
+    ))[] => {
+      if (page && story.scope !== "page") return []
+      const area = areas.find(({ id }) => id === target)
+      if (area) return [{ ...rule, area }]
+      return askedQualities.some(({ id }) => id === target)
+        ? [{ ...rule, quality: target }]
+        : []
+    },
+  )
+  for (const { name, instructions } of rules)
+    questions[name] = { type: "noul", instructions }
   if (drawsBoxes)
     questions["defect-box"] = {
       type: "box",
@@ -526,31 +587,29 @@ export async function judgeNewWithJev(
     const probability = probabilityOf(`area.${area.id}`)
     return probability === undefined ? [] : [{ area, probability }]
   })
-  const flatPageProbability = probabilityOf("rule.flat-page")
-  const qualityResults = askedQualities.flatMap(({ id }) => {
-    const probability = probabilityOf(`quality.${id}`)
-    // A yes to the flat-page question is a failed grouping quality, also
-    // when the quality has no answer. An answer under 0.5 does not count,
-    // as for the other rule questions.
-    const flat =
-      id === "grouping-and-rhythm" && flatPageProbability !== undefined
-        ? flatPageProbability
-        : 0
-    if (flat >= 0.5)
-      return [{ id, probability: Math.max(probability ?? 0, flat) }]
-    return probability === undefined ? [] : [{ id, probability }]
-  })
   // As the run-together question of a change: a rule answer under 0.5 does
   // not count for `unsure`, and a yes with no region is `unsure`.
-  const ruleResults = rules.flatMap(({ name, area }) => {
-    const probability = probabilityOf(name)
-    return probability === undefined ? [] : [{ area, probability }]
+  const ruleResults = rules.flatMap((rule) => {
+    const probability = probabilityOf(rule.name)
+    return probability === undefined ? [] : [{ ...rule, probability }]
+  })
+  // A yes to a rule question of a quality fails the quality, also when the
+  // quality question has no answer.
+  const qualityResults = askedQualities.flatMap(({ id }) => {
+    const probability = probabilityOf(`quality.${id}`)
+    const yes = Math.max(
+      0,
+      ...ruleResults
+        .filter((rule) => rule.quality === id && rule.probability >= 0.5)
+        .map((rule) => rule.probability),
+    )
+    if (yes) return [{ id, probability: Math.max(probability ?? 0, yes) }]
+    return probability === undefined ? [] : [{ id, probability }]
   })
   const defectProbability = probabilityOf("defect")
   const unanswered =
     (defectProbability === undefined ? 1 : 0) +
     (rules.length - ruleResults.length) +
-    (flatPage && flatPageProbability === undefined ? 1 : 0) +
     (areas.length - areaResults.length) +
     (askedQualities.length - qualityResults.length)
   const strongest = Math.max(
@@ -571,7 +630,12 @@ export async function judgeNewWithJev(
         word: "broken",
         // One finding for each area: a yes to a rule question and a broken
         // area are one finding, with the higher probability.
-        flaggedAreas: [...areaResults, ...ruleResults]
+        flaggedAreas: [
+          ...areaResults,
+          ...ruleResults.flatMap(({ area, probability }) =>
+            area ? [{ area, probability }] : [],
+          ),
+        ]
           .filter(breaks)
           .sort((a, b) => b.probability - a.probability)
           .filter(

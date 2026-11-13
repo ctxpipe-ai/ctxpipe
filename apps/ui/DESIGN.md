@@ -60,10 +60,12 @@ Dark product floor: zinc-950 / `--background` / `--card`. Ink: `--foreground`. S
 | `--primary` (near-white in dark) | Filled primary buttons |
 | `teal-400` (`#40E0D0`) and `teal-*` mix stops | Accent: links that are *the* action, status wash, focus-adjacent teal |
 | `--destructive` | Confirm-dialog filled danger, and the slab of an error alert. Red is correct for an error |
-| Warning slab | Yellow with dark text when that passes WCAG AA; else amber-brown with light text. Both are accessible: do not choose a warning color that fails AA |
+| Warning | A dark surface with a yellow or amber border and icon. A yellow fill with dark text only on a small element, and only when it passes WCAG AA. A full-width bright fill dominates the dark UI |
 | `--border` / `border-white/10` | Hairlines when gap or bg shift is not enough |
 
 On chromatic surfaces (teal / red / amber slabs): same-hue muted secondary text. Do not use `text-zinc-400` or `text-white/50` as hierarchy on those slabs.
+
+**Brightness:** the dark UI has no large bright or saturated area. Bright color is a small accent: a border, an icon, a dot. An embedded surface (an editor, a diff viewer, a preview) uses the dark theme, not a white light theme.
 
 Leftover shadcn indigo (`sidebar-primary` / `chart-1` hue 264) is not brand. Do not introduce indigo, purple gradients, or a second accent.
 
@@ -135,7 +137,11 @@ Decorative icons: `aria-hidden`, `text-muted-foreground`, intended size (~16–2
 - **Separators:** gap or background shift first; one hairline if grouping is still ambiguous. Borders are a last separator. Do not nest cards inside cards.
 - **Pages:** group the content of a page in tiles or cards, with a clear hierarchy and area boundaries, as the chat page does. A flat list of bare rows under a title reads as an unfinished legacy page.
 - **Columns:** the blocks of one column share one left edge: a message, an answer and the composer; an icon row, a checklist and a step card.
+- **Axes:** the leading markers of a vertical stack (a header icon, checkboxes, step numbers, list icons) share one vertical axis. The center of each marker sits on its text line.
+- **Balance:** spread space evenly across a row and a column. Do not put an element close to one neighbor and leave a large gap on its other side. When you move one element, check the whole row or column again.
 - **Modals:** a header, a body and a footer zone on one aligned grid. One close control: in a wizard, one Close button at the bottom right, and no second Close or X at the top.
+  - Every dialog and every step of a flow shows a way to close, cancel or go back. Do not remove or hide an exit to make a screen look cleaner.
+  - A dialog fits the viewport. The header and the footer stay in place with the same padding. Long content scrolls inside the body. Nothing is cut off at an edge of the screen.
 - **Flows:** the next step of a flow (for example “Merge the pull request” after setup) is a card or a selected item, not loose text under a checklist.
 - **Secondary chrome:** legends, hints and help are smaller and dimmer than the content, and do not cover it. A first-run help tour can cover content until the user dismisses it. Remember the dismissal (local storage), so the tour does not come back.
 - **Interactive lists:** the text of a file tree or a nav list is never so dim that it reads as disabled. Use `text-muted-foreground` or brighter for an item that the user can click.
