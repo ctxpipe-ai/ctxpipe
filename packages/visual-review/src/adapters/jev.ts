@@ -401,8 +401,9 @@ async function decide(
  * another decision model (`requestedModel`), as `judgeWithJev` judges a
  * change. There is no base image, so each question asks whether the
  * screenshot breaks a rule of an area or a quality of the rubric, with a
- * probability (a `noul` question). Four literal rule questions ask about
- * defects of the owner calibration, and the state gives Jev `judgingRule`,
+ * probability (a `noul` question). Literal rule questions ask about defects
+ * of the owner calibration (four on each screenshot, and a flat page on a
+ * page screenshot), and the state gives Jev `judgingRule`,
  * what not to report. The verdict says `regression` when an area, a rule
  * question or a quality breaks a rule with a probability of 0.5 or more (a
  * rule answer under 0.5 does not count for `unsure`), and `unsure` when a
@@ -483,6 +484,18 @@ export async function judgeNewWithJev(
   })
   for (const { name, instructions } of rules)
     questions[name] = { type: "noul", instructions }
+  // A flat legacy page, with no tiles and no area boundaries, fails the
+  // grouping quality (owner calibration). Only on a new page screenshot: as
+  // rubric text, the rule made Jev call intended changes worse (CTX-1271).
+  const flatPage =
+    story.scope === "page" &&
+    askedQualities.some(({ id }) => id === "grouping-and-rhythm")
+  if (flatPage)
+    questions["rule.flat-page"] = {
+      type: "noul",
+      instructions:
+        "Is the main content of the page a flat list of bare rows under a title, with no tiles or cards and no area boundaries?",
+    }
   if (drawsBoxes)
     questions["defect-box"] = {
       type: "box",
@@ -513,9 +526,15 @@ export async function judgeNewWithJev(
     const probability = probabilityOf(`area.${area.id}`)
     return probability === undefined ? [] : [{ area, probability }]
   })
+  const flatPageProbability = probabilityOf("rule.flat-page")
   const qualityResults = askedQualities.flatMap(({ id }) => {
     const probability = probabilityOf(`quality.${id}`)
-    return probability === undefined ? [] : [{ id, probability }]
+    if (probability === undefined) return []
+    // A yes to the flat-page question is a failed grouping quality. An
+    // answer under 0.5 does not count, as for the other rule questions.
+    return id === "grouping-and-rhythm" && (flatPageProbability ?? 0) >= 0.5
+      ? [{ id, probability: Math.max(probability, flatPageProbability ?? 0) }]
+      : [{ id, probability }]
   })
   // As the run-together question of a change: a rule answer under 0.5 does
   // not count for `unsure`, and a yes with no region is `unsure`.
@@ -527,6 +546,7 @@ export async function judgeNewWithJev(
   const unanswered =
     (defectProbability === undefined ? 1 : 0) +
     (rules.length - ruleResults.length) +
+    (flatPage && flatPageProbability === undefined ? 1 : 0) +
     (areas.length - areaResults.length) +
     (askedQualities.length - qualityResults.length)
   const strongest = Math.max(

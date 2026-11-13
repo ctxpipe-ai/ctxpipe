@@ -153,12 +153,14 @@ test("counts the owner issues and the fine items that each arm flags", async () 
   expect(printed).toContain(
     "| pages-a--story | 1 / 2 hits, 0 / 2 false (clarity) | 1 / 2 hits, 1 / 2 false (color-tokens, density) |",
   )
-  const results = JSON.parse(readFileSync(join(out, "results.json"), "utf8"))
+  const results = JSON.parse(
+    readFileSync(join(out, "runner", "results.json"), "utf8"),
+  )
   expect(results.results).toHaveLength(4)
   expect(results.spent).toBeCloseTo(0.021)
 })
 
-test("an arm that judges no new screenshot is a usage error, with no call", async () => {
+test("an unknown arm is an error of the runner, with no call", async () => {
   vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
   let printed = ""
 

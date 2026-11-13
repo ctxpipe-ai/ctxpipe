@@ -801,6 +801,23 @@ describe("judgeNewWithJev", () => {
     expect(unplaced.findings).toEqual([])
   })
 
+  test("a flat page fails the grouping quality, only on a page screenshot", async () => {
+    const seen = serve((name) =>
+      name === "rule.flat-page" ? noul(0.8) : noul(0.02),
+    )
+    const story = await newStory()
+    const verdict = await judgeNewWithJev({ ...story, scope: "page" })
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.qualities).toContainEqual({
+      name: "grouping-and-rhythm",
+      delta: "fails",
+      confidence: 0.8,
+    })
+
+    await judgeNewWithJev(story)
+    expect(Object.keys(seen.body.questions)).not.toContain("rule.flat-page")
+  })
+
   test("a rule question goes only with its area: a head rubric can leave it out", async () => {
     const seen = serve(() => noul(0.02))
     const story = await newStory()

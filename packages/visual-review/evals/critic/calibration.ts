@@ -1,44 +1,39 @@
 // The owner calibration of the visual critic (CTX-1269). The product owner
 // reviewed screenshots of main, and said what a critic must flag and what is
-// fine. `owner-calibration.json` holds that feedback. This command judges each
-// screenshot as a new screenshot (the image alone), with the arms of the
-// bake-off runner, and counts, for each arm, the owner issues that it flags
-// (hits) and the fine items that it flags (false flags). See README.md beside
-// this file.
+// fine. `owner-calibration.json` holds that feedback. This command gives each
+// screenshot to the bake-off runner as a new screenshot (the image alone),
+// and counts, for each arm, the owner issues that it flags (hits) and the
+// fine items that it flags (false flags). See README.md beside this file.
 //
 // Usage: node packages/visual-review/evals/critic/calibration.ts --arms <list>
 //          [--calibration <path>] [--images <dir>] [--out <dir>] [--max-cost 2]
 
 import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { parseArgs } from "node:util"
 
 import { z } from "zod"
 
-import { pngSize } from "../../src/prepare.ts"
-import { packagedRubric, rubricId } from "../../src/rubric.ts"
-import type { NewStoryInput } from "../../src/story.ts"
+import { rubricId } from "../../src/rubric.ts"
 import type { Verdict } from "../../src/verdict.ts"
-import { imageFile, imageStore, releaseUrl } from "./images.ts"
-import { armOf, failed } from "./run.ts"
-import { spendMeter } from "./spend.ts"
+import type { CaseManifest } from "./cases.ts"
+import type { Result } from "./report.ts"
+import { bakeOff } from "./run.ts"
 
 const usage = `Usage: node packages/visual-review/evals/critic/calibration.ts --arms <list> [--calibration <path>] [--images <dir>] [--out <dir>] [--max-cost 2]
 
   --arms         The arms of the bake-off runner that judge a new screenshot,
                  comma-separated, for example jev,llm:anthropic/claude-sonnet-5.5
   --calibration  The feedback file. Default: owner-calibration.json beside this file.
-  --images       The folder of the images, as <sha256>.png. An image that is
-                 not in it comes from the release visual-bakeoff-images.
-                 Default: .ci-results/visual-bakeoff/images
-  --out          The folder for results.json and report.md.
+  --images       The image folder of the runner. Default: .ci-results/visual-bakeoff/images
+  --out          The folder for report.md, and for the cases, the results and
+                 the report of the runner in runner/.
                  Default: .ci-results/visual-bakeoff/report
-  --max-cost     The spend cap in USD, with the rules of the bake-off runner.
-                 Default: 2
+  --max-cost     The spend cap of the runner in USD. Default: 2
 
 The key and the endpoint come from MODEL_PROVIDER_API_KEY and
-MODEL_PROVIDER_URL. Exit code: 2 for a usage or input error; else 0.`
+MODEL_PROVIDER_URL. Exit code: the exit code of the runner, or 2 for a usage
+or input error.`
 
 // The rubric ids that a judge flags an item of the owner with.
 const kindsSchema = z.array(rubricId).min(1)
@@ -53,7 +48,8 @@ export const calibrationSchema = z.strictObject({
         path: z.string().min(1),
         /** The SHA-256 of the image: an asset of the image release. */
         image: z.string().regex(/^[0-9a-f]{64}$/),
-        storyId: z.string().min(1),
+        /** The story id, also the case id in the runner. */
+        storyId: z.string().regex(/^[a-z0-9-]+$/),
         scope: z.enum(["page", "component"]),
         /** The issues that the owner wants a critic to flag. */
         flag: z.array(
@@ -70,6 +66,37 @@ export const calibrationSchema = z.strictObject({
 export type Calibration = z.infer<typeof calibrationSchema>
 
 /**
+ * The case manifest of the runner: each screenshot is a `new` case. The
+ * runner needs a commit, a brief and a label; the screenshots have none, so
+ * these fields are fixed placeholders that no score reads.
+ */
+function manifestOf({ screenshots }: Calibration): CaseManifest {
+  const none = "0".repeat(40)
+  return {
+    $schema: "./cases.schema.json",
+    version: 1,
+    seed: 0,
+    until: none,
+    container: "none",
+    scope: "page",
+    cases: screenshots.map(({ storyId, image, scope }) => ({
+      id: storyId,
+      storyId,
+      scope,
+      viewport: { name: "desktop", width: 1440, height: 900 },
+      kind: "new",
+      label: "intended",
+      class: null,
+      brief: "A screenshot of main for the design review of the owner.",
+      commit: { sha: none, parent: none },
+      region: null,
+      diffPixels: null,
+      images: { after: image },
+    })),
+  }
+}
+
+/**
  * The rubric ids that a verdict flags: the kind of each finding, and each
  * quality that `fails`.
  */
@@ -80,8 +107,6 @@ const flaggedKinds = (verdict: Verdict) =>
       .filter(({ delta }) => delta === "fails")
       .map(({ name }) => name),
   ])
-
-type Result = { arm: string; image: string; verdict: Verdict }
 
 /**
  * The score of one verdict on one screenshot. An owner issue is a hit when
@@ -117,9 +142,9 @@ function calibrationReport(
   const fine = calibration.screenshots.reduce((n, s) => n + s.ok.length, 0)
   const scored = results.map((result) => {
     const screenshot = calibration.screenshots.find(
-      ({ image }) => image === result.image,
+      ({ storyId }) => storyId === result.case,
     )
-    if (!screenshot) throw new Error(`No screenshot ${result.image}.`)
+    if (!screenshot) throw new Error(`No screenshot ${result.case}.`)
     return { ...result, screenshot, ...scoreOne(screenshot, result.verdict) }
   })
   const totals = arms.map((arm) => {
@@ -166,10 +191,6 @@ export async function calibrate(
 ): Promise<number> {
   let options
   let calibration: Calibration
-  const arms: {
-    id: string
-    judgeNew: (story: NewStoryInput) => Promise<Verdict>
-  }[] = []
   try {
     ;({ values: options } = parseArgs({
       args: [...args],
@@ -188,20 +209,7 @@ export async function calibrate(
         "max-cost": { type: "string", default: "2" },
       },
     }))
-    if (!options.arms || !(Number(options["max-cost"]) >= 0))
-      throw new Error(
-        "--arms is required, and --max-cost is a number of 0 or more.",
-      )
-    for (const id of options.arms.split(",").map((arm) => arm.trim())) {
-      const { judgeNew } = await armOf(id, {
-        concurrency: 1,
-        work: tmpdir(),
-      })
-      if (!judgeNew) throw new Error(`Arm "${id}" judges no new screenshot.`)
-      arms.push({ id, judgeNew })
-    }
-    if (!process.env.MODEL_PROVIDER_API_KEY)
-      throw new Error("Set MODEL_PROVIDER_API_KEY (the OpenRouter key).")
+    if (!options.arms) throw new Error("--arms is required.")
     calibration = calibrationSchema.parse(
       JSON.parse(await readFile(options.calibration, "utf8")),
     )
@@ -210,72 +218,43 @@ export async function calibrate(
     return 2
   }
 
-  const spend = spendMeter(Number(options["max-cost"]))
-  const images = resolve(options.images)
-  const get = imageStore(images, releaseUrl)
-  try {
-    // The image store keeps each checked image in the image folder: the
-    // judges read it there.
-    const stories: NewStoryInput[] = []
-    for (const { image, storyId, scope } of calibration.screenshots) {
-      const size = pngSize(await get(image))
-      if (!size) throw new Error(`The image ${image} is not a PNG.`)
-      stories.push({
-        storyId,
-        scope,
-        images: [{ path: join(images, imageFile(image)), size }],
-        rubric: packagedRubric,
-      })
-    }
-    // The arms run at the same time; each arm judges one screenshot at a
-    // time. A failed call gets one retry while the spend is below the cap,
-    // as in the bake-off runner.
-    const results: Result[] = []
-    await Promise.all(
-      arms.map(async ({ id, judgeNew }) => {
-        for (const [index, story] of stories.entries()) {
-          if (!spend.open()) return
-          let verdict: Verdict
-          try {
-            verdict = await judgeNew(story).catch((error: unknown) => {
-              // The cost of the failed call is not known.
-              spend.count(null)
-              if (!spend.open()) throw error
-              return judgeNew(story)
-            })
-          } catch (error) {
-            verdict = failed(
-              story,
-              { model: id, costUsd: null, latencyMs: 0 },
-              (error as Error).message,
-            )
-          }
-          spend.count(verdict.costUsd)
-          const image = calibration.screenshots[index]?.image ?? ""
-          results.push({ arm: id, image, verdict })
-        }
-      }),
-    )
-    const { spent } = spend.totals()
-    const text = calibrationReport(
-      calibration,
-      arms.map(({ id }) => id),
-      results,
-      spent,
-    )
-    const out = resolve(options.out)
-    await mkdir(out, { recursive: true })
-    await writeFile(
-      join(out, "results.json"),
-      `${JSON.stringify({ spent, results }, null, 2)}\n`,
-    )
-    await writeFile(join(out, "report.md"), `${text}\n`)
-    print(text)
-    return 0
-  } catch (error) {
-    print((error as Error).message)
-    return 2
+  const out = resolve(options.out)
+  const runner = join(out, "runner")
+  await mkdir(runner, { recursive: true })
+  const cases = join(runner, "cases.json")
+  await writeFile(
+    cases,
+    `${JSON.stringify(manifestOf(calibration), null, 2)}\n`,
+  )
+  let runnerOutput = ""
+  const code = await bakeOff(
+    [
+      "--arms",
+      options.arms,
+      "--cases",
+      cases,
+      "--runs",
+      "1",
+      "--max-cost",
+      options["max-cost"],
+      "--images",
+      options.images,
+      "--out",
+      runner,
+    ],
+    (text) => (runnerOutput += text),
+  )
+  if (code !== 0) {
+    print(runnerOutput)
+    return code
   }
+  const { arms, spent, results } = JSON.parse(
+    await readFile(join(runner, "results.json"), "utf8"),
+  ) as { arms: string[]; spent: number; results: Result[] }
+  const text = calibrationReport(calibration, arms, results, spent)
+  await writeFile(join(out, "report.md"), `${text}\n`)
+  print(text)
+  return 0
 }
 
 if (import.meta.main)

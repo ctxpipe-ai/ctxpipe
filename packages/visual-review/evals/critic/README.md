@@ -168,7 +168,7 @@ The product owner reviewed 10 screenshots of `main` on 2026-11-14 ([CTX-1269](ht
 - `ok`: the things that the owner said are fine.
 - `kinds` on each item: the rubric ids (areas and qualities) that a judge flags the item with.
 
-The command judges each screenshot as a new screenshot (the image alone, with no brief), as `pnpm visual:review` judges one. A verdict flags the kind of each finding and each quality that `fails`. An issue is a hit when the verdict flags one of its kinds. A fine item is a false flag when the verdict flags one of its kinds that no issue of that screenshot names.
+The command gives each screenshot to the runner as a `new` case (the image alone, with a fixed neutral brief), so each arm judges it as `pnpm visual:review` judges a new screenshot. The runner output is in `runner/` of `--out`. A verdict flags the kind of each finding and each quality that `fails`. An issue is a hit when the verdict flags one of its kinds. A fine item is a false flag when the verdict flags one of its kinds that no issue of that screenshot names.
 
 ```sh
 node packages/visual-review/evals/critic/calibration.ts --arms jev,llm:anthropic/claude-sonnet-5.5 [--max-cost 2] [--images <dir>] [--out <dir>]

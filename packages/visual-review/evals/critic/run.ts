@@ -170,7 +170,7 @@ async function withAnswers(
 }
 
 /** The arm of one `--arms` entry. Throws for an unknown arm. */
-export async function armOf(
+async function armOf(
   id: string,
   options: { concurrency: number; blazediffAgent?: string; work: string },
 ): Promise<Arm> {
@@ -480,7 +480,7 @@ const unchanged = (story: StoryInput): Verdict => ({
 })
 
 /** The verdict of a judge that gave no verdict: `unsure`, with the error. */
-export const failed = (
+const failed = (
   story: Pick<StoryInput, "storyId">,
   run: Pick<Verdict, "model" | "costUsd" | "latencyMs">,
   error: string,
