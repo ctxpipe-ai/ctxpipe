@@ -119,7 +119,6 @@ jobs:
         run: |
           node --test scripts/tests/ci-*.test.mjs
           node --test scripts/tests/railway-sync-variables.test.mjs
-          bash scripts/tests/railway-set-images.test.sh
 
   typecheck:
     timeout-minutes: 30
@@ -614,8 +613,8 @@ jobs:
         run: |
           set -o pipefail
           if [ "$MODE" != gate ]; then
-            # A check with cacheable false reads outside state (Terraform,
-            # Docker) that this job lacks, and its time is not the job's purpose.
+            # A check with cacheable false reads outside state (Docker) that
+            # this job lacks, and its time is not the job's purpose.
             pnpm -s checks:list |
               jq -r '.checks[] | select((.family == "typecheck" or .family == "lint" or .family == "policy") and .cacheable != false) | .id' \
               > "$RUNNER_TEMP/project-checks.txt"
@@ -1304,40 +1303,6 @@ jobs:
           name: lane-trace-vercel
           path: .ci-results/vercel/trace.json.gz
           if-no-files-found: ignore
-
-  terraform-validate:
-    timeout-minutes: 10
-    name: Terraform configuration
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request'
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
-        with:
-          terraform_version: 1.14.7
-      # Providers download from GitHub releases, which can answer 500. The
-      # cache keeps the locked providers, so most runs do not download.
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: ${{ github.workspace }}/.terraform-plugin-cache
-          key: terraform-providers-${{ hashFiles('infra/.terraform.lock.hcl') }}
-      - name: Validate without remote state or account credentials
-        working-directory: infra
-        env:
-          TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform-plugin-cache
-        run: |
-          mkdir -p "$TF_PLUGIN_CACHE_DIR"
-          for delay in 0 15 60; do
-            sleep "$delay"
-            terraform init -backend=false -input=false && break
-            [ "$delay" = 60 ] && {
-              echo "::error::Outside service unavailable: the Terraform provider download failed 3 times"
-              exit 1
-            }
-          done
-          terraform validate -no-color
 
   migrate:
     timeout-minutes: 20
@@ -2208,77 +2173,6 @@ jobs:
           path: ${{ runner.temp }}/plan/plan.json
           if-no-files-found: ignore
 
-  # Calls terraform-plan-pr.yaml when the PR changes a file under infra/. It
-  # does not depend on the selection or the mode: the check of the plan has
-  # the lockfile among its inputs, and a lockfile change must not ask the
-  # reviewers of the terraform-plan environment for approval. A call keeps the
-  # PR author as the actor, so "Prevent self-review" of the environment works.
-  # Neither job runs on ready_for_review: it adds no new code, and it would ask
-  # the reviewers for one more approval. A stacked PR (a base other than main)
-  # does not run ci.yaml, so it gets no plan: a person uses Run workflow. The
-  # first job runs no repository code.
-  merge-gate-terraform-changes:
-    timeout-minutes: 5
-    name: Merge gate looks for Terraform changes
-    if: |
-      github.event_name == 'pull_request' &&
-      github.event.action != 'ready_for_review' &&
-      github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      plan: ${{ steps.changes.outputs.plan }}
-    steps:
-      - name: Look for a change under infra/
-        id: changes
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          BRANCH: ${{ github.head_ref }}
-          PR: ${{ github.event.pull_request.number }}
-        run: |
-          echo "plan=false" >> "$GITHUB_OUTPUT"
-          # A renamed file counts at its old path too.
-          files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate \
-            --jq '.[] | .filename, (.previous_filename // empty)')
-          if ! grep -q '^infra/' <<<"$files"; then
-            echo "::notice::The PR changes no file under infra/; no Terraform plan"
-            exit 0
-          fi
-          # The PR can merge and lose its branch while the gate goes on.
-          # Skip only on a definite answer; any other failure fails the step.
-          state=$(gh pr view "$PR" --repo "$REPO" --json state --jq .state)
-          if [ "$state" != "OPEN" ]; then
-            echo "::notice::PR is closed or its branch is gone; no Terraform plan"
-            exit 0
-          fi
-          # A branch name can hold a slash: encode it for the path.
-          encoded=$(jq -rn --arg branch "$BRANCH" '$branch | @uri')
-          if ! out=$(gh api "repos/$REPO/branches/$encoded" --silent 2>&1); then
-            case "$out" in
-              *"HTTP 404"*)
-                echo "::notice::PR is closed or its branch is gone; no Terraform plan"
-                exit 0
-                ;;
-            esac
-            echo "$out" >&2
-            exit 1
-          fi
-          echo "plan=true" >> "$GITHUB_OUTPUT"
-
-  merge-gate-terraform-plan:
-    name: Terraform plan
-    needs: merge-gate-terraform-changes
-    if: needs.merge-gate-terraform-changes.outputs.plan == 'true'
-    uses: ./.github/workflows/terraform-plan-pr.yaml
-    with:
-      pr_number: ${{ github.event.pull_request.number }}
-    permissions:
-      contents: read
-      pull-requests: write
-
   # Publishes the decision of each PR run: the job summary, the artifact
   # merge-gate-decision, and one PR comment that it updates. In gate mode
   # this job is the verdict: it fails when the gated run fails (or, on a
@@ -2315,7 +2209,6 @@ jobs:
         storybook-visual,
         codesearch,
         vercel-sandbox,
-        terraform-validate,
         migrate,
         upgrade-from-previous-release,
       ]

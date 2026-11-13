@@ -86,11 +86,6 @@ const production = join(".github", "workflows", "deploy.yaml")
 // production runtime trusts the same dependencies.
 const productionJobs = new Map(
   Object.entries({
-    // `pnpm install`: migrate (tsx src/db/migrate.ts) and the cleanup of
-    // preview sandboxes (Vercel SDK) need the dependencies. The production
-    // Terraform variables, the Railway and Neon keys and the production
-    // database URL are in this job.
-    "deploy.yaml:terraform": "migrate and the sandbox cleanup need packages",
     // `pnpm install`: the Forge CLI deploys the Forge app with the Forge
     // token.
     "deploy.yaml:forge_deploy": "the Forge CLI is a package",
@@ -336,12 +331,6 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     // Before, the plan job gave the same ids in its outputs. The job already
     // runs PR code with the token (pnpm install and the selected tests).
     "ci.yaml:vercel-sandbox",
-    // The Resolve job checks out the merge commit (it holds no secret) and
-    // uploads infra/. The plan job may check out only the workflow commit, and
-    // it already runs branch Terraform code: the reviewers of the
-    // terraform-plan environment are the boundary. The job downloads the
-    // artifact by its id, so another job of the run cannot replace it.
-    "terraform-plan-pr.yaml:terraform-plan",
   ])
   for (const job of jobs) {
     // A job has an OIDC token when it asks for one, or when the workflow

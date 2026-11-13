@@ -2,10 +2,7 @@ import { HttpResponse, http } from "msw"
 import { describe, expect, it } from "vitest"
 
 import { useMswServer } from "../../test/msw.js"
-import {
-  deletePreviewSandboxes,
-  EVERY_PREVIEW,
-} from "./deletePreviewSandboxes.js"
+import { deletePreviewSandboxes } from "./deletePreviewSandboxes.js"
 
 const API = "https://vercel.com/api/v2/sandboxes"
 const credentials = {
@@ -276,50 +273,12 @@ describe("deletePreviewSandboxes", () => {
     expect([...project.sandboxes.keys()]).toEqual(["chat-a"])
   })
 
-  it("deletes every preview's leftovers and keeps anything not tagged pr-<number>", async () => {
-    const project = vercelProject({
-      sandboxes: [
-        sandbox("chat-12", "pr-12"),
-        sandbox("base-12", "pr-12", "workspace-base"),
-        sandbox("chat-prod", "production"),
-        sandbox("base-prod", "production", "workspace-base"),
-        sandbox("chat-abc", "pr-abc"),
-        sandbox("chat-12x", "pr-12x"),
-        sandbox("chat-untagged", null),
-        sandbox("chat-local", "local-dev"),
-      ],
-      snapshots: {
-        "chat-12": [snapshot("snap_12")],
-        "base-12": [snapshot("snap_base_12")],
-        "base-prod": [snapshot("snap_base_prod")],
-      },
-    })
-    server.use(...project.handlers)
-
-    const deleted = await deletePreviewSandboxes({
-      credentials,
-      environment: EVERY_PREVIEW,
-    })
-
-    expect(deleted).toEqual(["chat-12", "base-12"])
-    expect(project.requests[0]).toBe("list sandboxes prj_test ")
-    expect([...project.sandboxes.keys()]).toEqual([
-      "chat-prod",
-      "base-prod",
-      "chat-abc",
-      "chat-12x",
-      "chat-untagged",
-      "chat-local",
-    ])
-    expect([...project.snapshots.keys()]).toEqual(["snap_base_prod"])
-  })
-
   it("reads every page of the sandbox list", async () => {
     const project = vercelProject({
       sandboxes: [
-        sandbox("chat-prod", "production"),
-        sandbox("chat-3", "pr-3"),
-        sandbox("chat-4", "pr-4"),
+        sandbox("chat-3a", "pr-3"),
+        sandbox("chat-3b", "pr-3"),
+        sandbox("chat-3c", "pr-3"),
       ],
       snapshots: {},
       pageSize: 2,
@@ -328,12 +287,12 @@ describe("deletePreviewSandboxes", () => {
 
     const deleted = await deletePreviewSandboxes({
       credentials,
-      environment: EVERY_PREVIEW,
+      environment: "pr-3",
     })
 
-    expect(deleted).toEqual(["chat-3", "chat-4"])
-    expect(project.requests).toContain("list sandboxes prj_test  cursor 2")
-    expect([...project.sandboxes.keys()]).toEqual(["chat-prod"])
+    expect(deleted).toEqual(["chat-3a", "chat-3b", "chat-3c"])
+    expect(project.requests.some((r) => r.endsWith("cursor 2"))).toBe(true)
+    expect([...project.sandboxes.keys()]).toEqual([])
   })
 
   it("on one page, deletes what it finds", async () => {
@@ -348,14 +307,14 @@ describe("deletePreviewSandboxes", () => {
     server.use(...project.handlers)
 
     await expect(
-      deletePreviewSandboxes({ credentials, environment: EVERY_PREVIEW }),
+      deletePreviewSandboxes({ credentials, environment: "pr-3" }),
     ).resolves.toEqual(["chat-3"])
     expect(project.requests.filter((r) => r.includes("cursor"))).toEqual([])
   })
 
   it("tries every sandbox when one delete fails, then fails the run", async () => {
     const project = vercelProject({
-      sandboxes: [sandbox("chat-1", "pr-1"), sandbox("chat-2", "pr-2")],
+      sandboxes: [sandbox("chat-1", "pr-1"), sandbox("chat-1b", "pr-1")],
       snapshots: {},
       failDeleteWith: 403,
       failDeleteOf: "chat-1",
@@ -363,7 +322,7 @@ describe("deletePreviewSandboxes", () => {
     server.use(...project.handlers)
 
     await expect(
-      deletePreviewSandboxes({ credentials, environment: EVERY_PREVIEW }),
+      deletePreviewSandboxes({ credentials, environment: "pr-1" }),
     ).rejects.toMatchObject({ response: { status: 403 } })
     expect([...project.sandboxes.keys()]).toEqual(["chat-1"])
   })

@@ -6,7 +6,7 @@ import { logFile, logged } from "./log.mjs"
 
 // The project-level checks: typecheck (one for each project of
 // scripts/ci/projects.json), lint (oxlint, oxfmt, knip), the policy
-// scripts (of the CI lint job, and the Terraform plan), the builds (each
+// scripts of the CI lint job, the builds (each
 // production image and each package of the CI build jobs). Each one runs a
 // fixed command over a whole project, so it has no trace. Its inputs are the
 // files that it reads, approximated with whole directories: a change anywhere
@@ -154,37 +154,6 @@ const definitions = () => [
       ".github/**",
     ],
     commands: [pnpm("knip")],
-  },
-  {
-    // The plan of terraform-plan-pr.yaml. It reads the remote state, so the
-    // same inputs can give another result: a result cache never reuses it.
-    family: "policy",
-    lane: "terraform-plan",
-    file: "infra/main.tf",
-    root: "infra",
-    inputs: [...shared, "infra/**"],
-    cacheable: false,
-    prerequisites: ["terraform-plan"],
-    intent:
-      "Catches a Terraform change that the plan rejects or that changes infrastructure. Run it when a file under infra changes; never for app code.",
-    commands: [
-      [
-        "sh",
-        "-c",
-        'terraform -chdir=infra init -input=false -lockfile=readonly -backend-config="access_key=$R2_ACCESS_KEY_ID" -backend-config="secret_key=$R2_SECRET_ACCESS_KEY" -backend-config="key=production/terraform.tfstate"',
-      ],
-      [
-        "env",
-        "RAILWAY_TOKEN=pr-plan-placeholder",
-        "NEON_API_KEY=pr-plan-placeholder",
-        "terraform",
-        "-chdir=infra",
-        "plan",
-        "-refresh=false",
-        "-no-color",
-        "-input=false",
-      ],
-    ],
   },
   ...[
     // The test policy compares the tests with a pinned commit; the script

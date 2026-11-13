@@ -12,18 +12,10 @@ import { log } from "../observability/logger.js"
 const PREVIEW = /^pr-\d+$/
 
 /**
- * The `environment` value that selects the leftovers of every PR preview in
- * the project. The production deploy uses it: previews ran in the production
- * Vercel project before they got their own project, and the PR-close cleanup
- * can no longer reach them.
- */
-export const EVERY_PREVIEW = "pr-*"
-
-/**
  * Delete every hosted sandbox a PR preview created: chat sandboxes with their
  * saved state, and the builders of Workspace bases and agent snapshots (any
  * OpenCode version) with the snapshots taken from them. `environment` is one
- * preview (`pr-<number>`) or `EVERY_PREVIEW`. Only a sandbox whose
+ * preview (`pr-<number>`). Only a sandbox whose
  * `environment` tag is exactly `pr-<number>` is deleted, so production and
  * untagged sandboxes stay. Snapshots carry no tags; they go with their
  * builder or chat sandbox.
@@ -37,8 +29,7 @@ export async function deletePreviewSandboxes(input: {
   environment: string
 }): Promise<string[]> {
   const { credentials, environment } = input
-  const every = environment === EVERY_PREVIEW
-  if (!every && !PREVIEW.test(environment))
+  if (!PREVIEW.test(environment))
     throw new Error(
       `Refusing to delete sandboxes outside a PR preview: "${environment}"`,
     )
@@ -47,13 +38,12 @@ export async function deletePreviewSandboxes(input: {
   const listed = await (
     await Sandbox.list({
       ...credentials,
-      ...(every ? {} : { tags: { environment } }),
+      tags: { environment },
     })
   ).toArray()
-  const doomed = listed.filter((sandbox) => {
-    const tag = sandbox.tags?.environment ?? ""
-    return every ? PREVIEW.test(tag) : tag === environment
-  })
+  const doomed = listed.filter(
+    (sandbox) => sandbox.tags?.environment === environment,
+  )
   const deleted: string[] = []
   const errors: unknown[] = []
   for (const sandbox of doomed) {

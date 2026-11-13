@@ -218,7 +218,6 @@ test("the manifest matches its schema and lists each check of each family", asyn
     assert.equal(
       check.cacheable ?? true,
       !(
-        check.lane === "terraform-plan" ||
         check.lane.startsWith("image-") ||
         // This policy check reads the git diff, not only the files.
         check.lane === "adr"
@@ -1225,18 +1224,11 @@ test("the manifest lists a check for each job of the other pull request workflow
       "run: node scripts/ci/check-claude-plugin.mjs",
     ),
   )
-  // The Terraform plan: not cacheable, selected by the files of infra.
-  const plan = checks.get("policy:terraform-plan:infra/main.tf")
-  assert.ok(plan)
-  assert.equal(plan.cacheable, false)
-  assert.ok(plan.inputs.includes("infra/**"))
-  assert.deepEqual(plan.prerequisites, ["terraform-plan"])
-  assert.ok(plan.intent)
   // Each check that is not stochastic has a result in a full run: a lint or
   // policy check has a step of the Lint and format job, any other check has
-  // a job. The Terraform plan has its own workflow.
+  // a job.
   for (const check of checks.values()) {
-    if (check.stochastic || check === plan) continue
+    if (check.stochastic) continue
     assert.ok(
       check.family === "lint" || check.family === "policy"
         ? Object.values(lintSteps).some((key) => check.id.startsWith(key))
