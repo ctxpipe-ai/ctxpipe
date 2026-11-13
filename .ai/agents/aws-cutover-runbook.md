@@ -18,8 +18,12 @@ output.
 ## Commands that this runbook uses
 
 - Run a one-off task (agent): `gh workflow run hosted-run-task.yml -R ctxpipe-ai/factory --ref main -f task=<task>`.
-  Then `gh run watch -R ctxpipe-ai/factory <run id>`. The task log is in the run. The tasks and their guards are in
-  `machines/hosted/README.md#the-cutover-tasks` (factory).
+  Then `gh run watch -R ctxpipe-ai/factory <run id>`. The task log is in the run. The tasks are in
+  `machines/hosted/README.md#the-cutover-tasks` (factory). The workflow refuses a task when its guard fails:
+  - every copy-database task and `cutover-import-indexes`, while the repository variable `CUTOVER_G4_PASSED` is
+    `true`;
+  - `cutover-import-indexes`, until `falkordb` and `codesearch` are stopped (no task desired, running or pending);
+  - `cutover-seed-shard-store`, until `codesearch` is stopped.
 - Neon SQL (person, owner login): `psql "$NEON_OWNER_URL" -tAc "<sql>"`. A statement with `$$` goes in a quoted
   heredoc, as G3 shows, so that the shell does not expand it. The SQL uses `current_database()` and needs no database
   name.
