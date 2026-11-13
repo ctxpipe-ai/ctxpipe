@@ -3,7 +3,7 @@
 [CTX-1217]: https://linear.app/ctxpipe/issue/CTX-1217
 
 This runbook moves hosted ctxpipe from Railway and Neon to AWS in one window. The plan, the rehearsals and their
-results are in [CTX-1217]. Do each step in order. Do not start a step before the step before it shows its expected
+results are in [CTX-1217], which links this file. Do each step in order. Do not start a step before the step before it shows its expected
 output.
 
 **Who:**
@@ -171,8 +171,9 @@ line gives its expected output. The dry run of the copy is its preflight against
 ### T+50 · Migrate
 
 - **Who:** agent. **Do:** run the task `cutover-migrate`: the `hosted-migrate` command on the restored database.
-- **Expected:** the log shows `[migrate] done`, then `rolbypassrls=f memberships=0` for `ctxpipe_app` (see "Open
-  items").
+- **Expected:** the log shows `[migrate] done`. Then it shows `f|0`, the result of this query on the restored database
+  (see "Open items"):
+  `SELECT r.rolbypassrls, (SELECT count(*) FROM pg_auth_members m WHERE m.member = r.oid) FROM pg_roles r WHERE r.rolname = 'ctxpipe_app'`.
 - **Dry run:** none. It changes AWS only.
 - **Rollback:** the full rollback.
 
@@ -225,8 +226,8 @@ Do the steps that apply, in this order. Skip a step whose change was not made ye
 
 1. Neon: the rollback of G3 (read-write again).
 2. Railway: set the replicas of `backend` and `worker` back to their values before T+0.
-3. Revert edge pull request (b), if it was merged. Then revert (a): `app.ctxpipe.ai` goes back to Railway.
-4. AWS: stop `backend`, `worker` and `ui`. The next window empties the target at T+3.
+3. AWS: stop `backend`, `worker` and `ui`. The next window empties the target at T+3.
+4. Revert edge pull request (b), if it was merged. Then revert (a): `app.ctxpipe.ai` goes back to Railway.
 5. Write what failed into [CTX-1217], and plan the next window.
 
 ## Open items
@@ -235,7 +236,7 @@ Do the steps that apply, in this order. Skip a step whose change was not made ye
   `CUTOVER_G4_PASSED` is `true`: after G4, a reset would drop the production database.
   - Hosted migrate already ran on Aurora, so the copy needs an empty database first.
   - Hosted runs migrate only during `pulumi up`, once for each backend image. The dump keeps no roles, so the copy has
-    no `ctxpipe_app`. The restored database therefore needs its own migrate task. That task must also print
-    `rolbypassrls` and the count of role memberships of `ctxpipe_app`.
+    no `ctxpipe_app`. The restored database therefore needs its own migrate task. The agent cannot reach Aurora, so
+    that task must also run the role query of T+50 and print its result.
 - The MCP evals cannot run against a deployed stack yet (the open point in [CTX-1217]).
 - Delete this file in the pull request that removes the cutover tasks.
