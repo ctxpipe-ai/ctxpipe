@@ -132,11 +132,16 @@ jobs:
       fail-fast: false
       matrix: *images
     steps:
+      # Each architecture by its exact name: a pattern such as
+      # `digest-chat-sandbox-*` also matches `digest-chat-sandbox-agentcore-*`.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          pattern: digest-${{ matrix.image }}-*
+          name: digest-${{ matrix.image }}-amd64
           path: ${{ runner.temp }}/digest
-          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: digest-${{ matrix.image }}-arm64
+          path: ${{ runner.temp }}/digest
 
       - name: Login to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
