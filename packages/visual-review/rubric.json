@@ -18,7 +18,7 @@
     {
       "id": "color-tokens",
       "name": "Color tokens",
-      "definition": "Color comes from the house tokens: a zinc floor, a white primary, a teal accent. Red marks an error alert and the filled danger button of a confirm dialog. A warning is yellow with dark text when that passes AA, else amber-brown. No indigo, no purple gradient, no second accent.",
+      "definition": "Color comes from the house tokens: a zinc floor, a white primary, a teal accent. Red marks an error alert and the filled danger button of a confirm dialog. The dark UI has no large bright or saturated area: bright color is a small accent, such as a border, an icon or a dot. A warning is a dark surface with a yellow or amber border and icon; a yellow fill with dark text is only for a small element and only when it passes AA. An embedded editor, diff viewer or preview uses the dark theme. No indigo, no purple gradient, no second accent.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
@@ -78,7 +78,7 @@
     {
       "id": "alignment",
       "name": "Alignment",
-      "definition": "Items in one column share one left edge: a message, an answer and the composer; an icon row, a checklist and a step card. Long copy is left-aligned, never justified. Numbers are right-aligned with tabular figures. Mixed type on one row shares a baseline.",
+      "definition": "Items in one column share one left edge: a message, an answer and the composer; an icon row, a checklist and a step card. The leading markers of a vertical stack (a header icon, checkboxes, step numbers, list icons) share one vertical axis, and the center of each marker sits on its text line. Long copy is left-aligned, never justified. Numbers are right-aligned with tabular figures. Mixed type on one row shares a baseline.",
       "sources": [
         {
           "file": ".agents/skills/product-ui/references/visual-craft.md",
@@ -130,7 +130,7 @@
     {
       "id": "actions",
       "name": "Actions and affordance",
-      "definition": "Each icon tells its action: no chevron on a row that does not open, no bare icon whose result is not clear. The main action of a page is labeled and easy to find, not a lone + icon. Peer actions in one row have the same weight and type, not a button next to a text link. A copy button sits at the right end of the field that it copies. The next step of a flow is a card or a selected item, not loose text. The action of an alert is on the right, at the normal secondary size.",
+      "definition": "Each icon tells its action: no chevron on a row that does not open, no bare icon whose result is not clear. The main action of a page is labeled and easy to find, not a lone + icon. Peer actions in one row have the same weight and type, not a button next to a text link. A copy button sits at the right end of the field that it copies. The next step of a flow is a card or a selected item, not loose text. The action of an alert is on the right, at the normal secondary size. A change that removes or hides a way to close, cancel or go back is a regression, also when the screen looks cleaner.",
       "sources": [
         {
           "file": ".agents/skills/product-ui/references/visual-craft.md",
@@ -145,7 +145,7 @@
     {
       "id": "dialog",
       "name": "Dialog structure",
-      "definition": "A modal has a header, a body and a footer zone on one aligned grid. It has one close control: in a wizard, one Close button at the bottom right, and no second Close or X at the top.",
+      "definition": "A modal has a header, a body and a footer zone on one aligned grid. It fits the viewport: the header and the footer stay in place with the same padding, long content scrolls inside the body, and nothing is cut off at an edge of the screen. A dialog or a flow always shows a way to close, cancel or go back. It has one close control: in a wizard, one Close button at the bottom right, and no second Close or X at the top.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
@@ -338,6 +338,22 @@
         {
           "file": ".agents/skills/product-ui/references/ai-tells.md",
           "section": "Ceiling vs Operate"
+        }
+      ],
+      "pageOnly": false
+    },
+    {
+      "id": "balance",
+      "name": "Visual balance",
+      "definition": "Space is spread evenly across a row and a column. No element sits close to one neighbor while a large empty gap stays on its other side, and a moved element leaves no lopsided gap. Judge the balance of the whole composition, not only one element.",
+      "sources": [
+        {
+          "file": "apps/ui/DESIGN.md",
+          "section": "Targets (new or touched UI)"
+        },
+        {
+          "file": ".agents/skills/product-ui/references/visual-craft.md",
+          "section": "Space and layout"
         }
       ],
       "pageOnly": false

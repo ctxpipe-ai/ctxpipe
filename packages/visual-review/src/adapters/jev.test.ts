@@ -320,7 +320,9 @@ describe("judgeWithJev verdict", () => {
 
   test("nothing worse is intended when a brief explains the change", async () => {
     serve((name) =>
-      name === "defect" || name === "run-together" ? defect(0.03) : fine,
+      ["defect", "run-together", "lost-exit"].includes(name)
+        ? defect(0.03)
+        : fine,
     )
     const verdict = await judgeWithJev(
       await story({ brief: "Rename the button." }),
@@ -354,7 +356,8 @@ describe("judgeWithJev verdict", () => {
   test("a refused question makes the verdict unsure, not intended", async () => {
     serve((name) => {
       if (name === "quality.clarity") return { type: "refusal" }
-      if (name === "defect" || name === "run-together") return defect(0.03)
+      if (["defect", "run-together", "lost-exit"].includes(name))
+        return defect(0.03)
       return fine
     })
     const verdict = await judgeWithJev(
@@ -374,7 +377,8 @@ describe("judgeWithJev verdict", () => {
           type: "choice",
           probabilities: { better: 0, same: 1.5, worse: 0 },
         }
-      if (name === "defect" || name === "run-together") return defect(0.03)
+      if (["defect", "run-together", "lost-exit"].includes(name))
+        return defect(0.03)
       return fine
     })
     const verdict = await judgeWithJev(
@@ -384,9 +388,26 @@ describe("judgeWithJev verdict", () => {
     expect(verdict.summary).toContain("2 questions")
   })
 
+  test("a lost close, cancel or back control is a dialog finding", async () => {
+    const seen = serve((name) => {
+      if (name === "lost-exit") return defect(0.8)
+      if (name === "defect" || name === "run-together") return defect(0.1)
+      if (name === "defect-box") return box(0.2, 0.3, 0.1, 0.4)
+      return fine
+    })
+    const verdict = await judgeWithJev(
+      await story({ brief: "Make the wizard look cleaner." }),
+    )
+    expect(seen.body.questions["lost-exit"]).toMatchObject({ type: "noul" })
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.findings.map(({ kind }) => kind)).toEqual(["dialog"])
+    expect(verdict.summary).toContain("dialog (exit removed) 0.80")
+  })
+
   test("a label that runs two parts together is a spacing finding in the region of the box", async () => {
     serve((name) => {
       if (name === "run-together") return defect(0.86)
+      if (name === "lost-exit") return defect(0.03)
       if (name === "defect") return defect(0.1)
       if (name === "defect-box") return box(0.2, 0.3, 0.1, 0.4)
       return fine
@@ -404,6 +425,7 @@ describe("judgeWithJev verdict", () => {
   test("a run-together label with no usable box is unsure, not intended", async () => {
     serve((name) => {
       if (name === "run-together") return defect(0.86)
+      if (name === "lost-exit") return defect(0.03)
       if (name === "defect") return defect(0.03)
       if (name === "defect-box") return box(0.5, 0.5, 0.1, 0.4)
       return fine
@@ -419,6 +441,7 @@ describe("judgeWithJev verdict", () => {
   test("a worse spacing area and a run-together label give one spacing finding", async () => {
     serve((name) => {
       if (name === "run-together") return defect(0.7)
+      if (name === "lost-exit") return defect(0.03)
       if (name === "area.spacing") return choice(0, 0.3, 0.7)
       if (name === "defect") return defect(0.1)
       if (name === "defect-box") return box(0.2, 0.3, 0.1, 0.4)
@@ -431,6 +454,7 @@ describe("judgeWithJev verdict", () => {
   test("a run-together answer under 0.5 does not make the verdict unsure", async () => {
     serve((name) => {
       if (name === "run-together") return defect(0.45)
+      if (name === "lost-exit") return defect(0.03)
       if (name === "defect") return defect(0.03)
       return fine
     })
@@ -441,7 +465,9 @@ describe("judgeWithJev verdict", () => {
   })
 
   test("a head rubric with no spacing area gets no run-together question", async () => {
-    const seen = serve((name) => (name === "defect" ? defect(0.03) : fine))
+    const seen = serve((name) =>
+      name === "defect" || name === "lost-exit" ? defect(0.03) : fine,
+    )
     const verdict = await judgeWithJev(
       await story({
         brief: "Rename the button.",
@@ -458,7 +484,8 @@ describe("judgeWithJev verdict", () => {
   test("a worse density alone is unsure, not a regression, and the summary says why", async () => {
     serve((name) => {
       if (name === "quality.density") return choice(0, 0.3, 0.7)
-      if (name === "defect" || name === "run-together") return defect(0.03)
+      if (["defect", "run-together", "lost-exit"].includes(name))
+        return defect(0.03)
       if (name === "defect-box") return box(0.2, 0.3, 0.1, 0.4)
       return fine
     })
@@ -474,7 +501,8 @@ describe("judgeWithJev verdict", () => {
     serve((name) => {
       if (name === "quality.density") return choice(0, 0.3, 0.7)
       if (name === "quality.clarity") return { type: "refusal" }
-      if (name === "defect" || name === "run-together") return defect(0.03)
+      if (["defect", "run-together", "lost-exit"].includes(name))
+        return defect(0.03)
       return fine
     })
     const verdict = await judgeWithJev(
@@ -754,6 +782,11 @@ describe("judgeNewWithJev", () => {
       "rule.copy-button",
       "rule.status-colors",
       "rule.uk-spelling",
+      "rule.no-exit",
+      "rule.dialog-clipped",
+      "rule.off-axis",
+      "rule.bright-area",
+      "rule.uneven-space",
       "defect-box",
     ])
     expect(
@@ -828,6 +861,18 @@ describe("judgeNewWithJev", () => {
     expect(Object.keys(component.body.questions)).not.toContain(
       "rule.flat-page",
     )
+  })
+
+  test("a yes to a rule question of a quality fails the quality", async () => {
+    serve((name) => (name === "rule.uneven-space" ? noul(0.75) : noul(0.02)))
+    const verdict = await judgeNewWithJev(await newStory())
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.findings).toEqual([])
+    expect(verdict.qualities).toContainEqual({
+      name: "balance",
+      delta: "fails",
+      confidence: 0.75,
+    })
   })
 
   test("a rule question goes only with its area: a head rubric can leave it out", async () => {
