@@ -76,8 +76,8 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|
   --budget-usd The most that the model calls of this run can spend, in USD.
               Before each call, the command adds the cost of the calls so far:
               usage.cost of each reply, or for a reply with no cost
-              ${unknownCallUsd} (${unknownJevCallUsd} for a Jev call). When that sum reaches the budget, it makes no more calls:
-              each screenshot that is not judged yet is unsure with the error
+              ${unknownCallUsd} (${unknownJevCallUsd} for a Jev call). When that sum
+              reaches the budget, it makes no more calls: each screenshot that is not judged yet is unsure with the error
               "Budget reached", and the exit code is 2. The exit code is 2
               also when the last call reaches the budget. Thus a run spends at
               most the budget plus one call. The new screenshots are judged
@@ -87,10 +87,11 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|
               Decisions API, with the same key, and no explainer: the verdict
               of Jev is the final verdict, also for a new screenshot. A Jev
               regression has severity major, so it blocks. The visual critic
-              of the factory uses jev (ADR-063). agent: write a judgment request for each
-              story; your coding agent writes its verdict.json; run again to read it.
-              Default: model.
-  --model     The explainer model of --judge model. Default: ${defaultModel}
+              of the factory uses jev (ADR-063). agent: write a judgment
+              request for each story; your coding agent writes its
+              verdict.json; run again to read it. Default: model.
+  --model     The explainer model. Only with --judge model. Default:
+              ${defaultModel}
   --filter    jev: ask the Jev filter first, and call the explainer only when Jev
               does not accept the change. Only with --judge model. A new
               screenshot goes to the explainer. Default: none.
@@ -132,7 +133,7 @@ export async function visualReview(
         manifest: { type: "string" },
         images: { type: "string" },
         judge: { type: "string", default: "model" },
-        model: { type: "string", default: defaultModel },
+        model: { type: "string" },
         filter: { type: "string", default: "none" },
         brief: { type: "string" },
         session: { type: "string" },
@@ -144,7 +145,7 @@ export async function visualReview(
     print(`${(error as Error).message}\n\n${usage}`)
     return 2
   }
-  const { judge, filter, model } = options
+  const { judge, filter } = options
   const limit = options["budget-usd"]
   const budget: Budget = {
     limitUsd: limit === undefined ? undefined : Number(limit),
@@ -162,36 +163,49 @@ export async function visualReview(
     )
     return 2
   }
-  // The paid judges: `--judge jev` asks only Jev, `--judge model` the
-  // explainer (after the Jev filter, if asked, for a change).
-  const judgeNewByModel = async (story: NewStoryInput) =>
-    (await paid(
-      budget,
-      () =>
-        judge === "jev"
-          ? judgeNewWithJev(story)
-          : judgeNewWithOpenRouter(story, model, process.env),
-      judge === "jev" ? unknownJevCallUsd : unknownCallUsd,
-    )) ?? budgetReached(story.storyId, budget)
   if (
     (judge !== "model" && judge !== "jev" && judge !== "agent") ||
     (filter !== "jev" && filter !== "none") ||
-    (judge !== "model" && filter === "jev") ||
+    (judge !== "model" && (filter === "jev" || options.model !== undefined)) ||
     (judge !== "agent" && options.session !== undefined) ||
     (options.images !== undefined) !== paths.length > 0 ||
     (options.images !== undefined &&
       (options.manifest !== undefined || judge === "agent"))
   ) {
     print(
-      `--judge must be model, jev or agent, and --filter must be jev or none (jev only with --judge model, --session only with --judge agent). --images needs the paths after --, and only goes with --judge model or jev and no --manifest.\n\n${usage}`,
+      `--judge must be model, jev or agent, and --filter must be jev or none (--filter jev and --model only with --judge model, --session only with --judge agent). --images needs the paths after --, and only goes with --judge model or jev and no --manifest.\n\n${usage}`,
     )
     return 2
   }
-  const judgeChangedByModel = async (story: StoryInput) =>
+  // The paid judges of a new and of a changed screenshot: `--judge jev` asks
+  // only Jev, `--judge model` the explainer (after the Jev filter, if asked).
+  const model = options.model ?? defaultModel
+  const { judgeNewPaid, judgeChangedPaid } =
     judge === "jev"
-      ? ((await paid(budget, () => judgeWithJev(story), unknownJevCallUsd)) ??
-        budgetReached(story.storyId, budget))
-      : judgeByModel(story, model, filter, undefined, budget)
+      ? {
+          judgeNewPaid: async (story: NewStoryInput) =>
+            (await paid(
+              budget,
+              () => judgeNewWithJev(story),
+              unknownJevCallUsd,
+            )) ?? budgetReached(story.storyId, budget),
+          judgeChangedPaid: async (story: StoryInput) =>
+            (await paid(
+              budget,
+              () => judgeWithJev(story),
+              unknownJevCallUsd,
+            )) ?? budgetReached(story.storyId, budget),
+        }
+      : {
+          judgeNewPaid: async (story: NewStoryInput) =>
+            (await paid(
+              budget,
+              () => judgeNewWithOpenRouter(story, model, process.env),
+              unknownCallUsd,
+            )) ?? budgetReached(story.storyId, budget),
+          judgeChangedPaid: (story: StoryInput) =>
+            judgeByModel(story, model, filter, undefined, budget),
+        }
 
   if (options.images !== undefined) {
     // The factory runs this mode as the visual critic. A missing key is an
@@ -232,11 +246,11 @@ export async function visualReview(
           ...(await judgeNewScreenshots(
             screenshots.flatMap(({ fresh }) => (fresh ? [fresh] : [])),
             brief,
-            judgeNewByModel,
+            judgeNewPaid,
           )),
           ...(await reviewStories(
             screenshots.flatMap(({ story }) => (story ? [story] : [])),
-            judgeChangedByModel,
+            judgeChangedPaid,
           )),
         ]
       } catch (error) {
@@ -358,7 +372,7 @@ export async function visualReview(
                 },
                 agent,
               )
-          : judgeNewByModel,
+          : judgeNewPaid,
       )),
       ...(await reviewStories(
         stories,
@@ -372,7 +386,7 @@ export async function visualReview(
                 },
                 agent,
               )
-          : judgeChangedByModel,
+          : judgeChangedPaid,
       )),
     ]
   } catch (error) {

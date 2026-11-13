@@ -242,7 +242,7 @@ const noAnswer = (
   verdict: "unsure",
   severity: "none",
   confidence: 0,
-  summary: "The Jev filter gave no usable answer.",
+  summary: "Jev gave no usable answer.",
   qualities: [],
   findings: [],
   model,
@@ -509,14 +509,14 @@ function decision({
     ),
   ]
   const summary = {
-    regression: `Jev filter: defect ${defect.toFixed(2)}; ${word}: ${labels.join(", ")}.`,
-    intended: `Jev filter found nothing ${word}: defect ${defect.toFixed(2)}.`,
+    regression: `Jev: defect ${defect.toFixed(2)}; ${word}: ${labels.join(", ")}.`,
+    intended: `Jev found nothing ${word}: defect ${defect.toFixed(2)}.`,
     unsure:
       strongest >= 0.5
-        ? "Jev filter flagged a problem, but it cannot place it in an area and a region."
+        ? "Jev flagged a problem, but it cannot place it in an area and a region."
         : unanswered
-          ? `Jev filter left ${unanswered} questions without an answer.`
-          : `Jev filter is not sure: the strongest ${word} probability is ${strongest.toFixed(2)}.`,
+          ? `Jev left ${unanswered} questions without an answer.`
+          : `Jev is not sure: the strongest ${word} probability is ${strongest.toFixed(2)}.`,
   }[verdict]
   return {
     observations: [],
