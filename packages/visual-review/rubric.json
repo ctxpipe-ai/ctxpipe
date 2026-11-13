@@ -130,7 +130,7 @@
     {
       "id": "actions",
       "name": "Actions and affordance",
-      "definition": "Each icon tells its action: no chevron on a row that does not open, no bare icon whose result is not clear. The main action of a page is labeled and easy to find, not a lone + icon. Peer actions in one row have the same weight and type, not a button next to a text link. A copy button sits at the right end of the field that it copies. The next step of a flow is a card or a selected item, not loose text. The action of an alert is on the right, at the normal secondary size. A change that removes or hides a way to close, cancel or go back is a regression, also when the screen looks cleaner.",
+      "definition": "Each icon tells its action: no chevron on a row that does not open, no bare icon whose result is not clear. The main action of a page is labeled and easy to find, not a lone + icon. Peer actions in one row have the same weight and type, not a button next to a text link. A copy button sits at the right end of the field that it copies. The next step of a flow is a card or a selected item, not loose text. The action of an alert is on the right, at the normal secondary size.",
       "sources": [
         {
           "file": ".agents/skills/product-ui/references/visual-craft.md",

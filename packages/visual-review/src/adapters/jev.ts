@@ -511,7 +511,7 @@ export async function judgeNewWithJev(
       name: "rule.no-exit",
       target: "dialog",
       instructions:
-        "Does a dialog or a step of a flow show no control to close, cancel or go back?",
+        "Is there a dialog or a wizard on the screen that shows no control to close, cancel or go back? Answer no when the screen shows no dialog or wizard.",
     },
     {
       name: "rule.dialog-clipped",
