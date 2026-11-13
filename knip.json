@@ -82,6 +82,7 @@
         "src/**/*.test.ts",
         "src/command.ts",
         "evals/**/*.test.ts",
+        "evals/critic/calibration.ts",
         "evals/critic/capture.ts",
         "evals/critic/panel.ts"
       ],
