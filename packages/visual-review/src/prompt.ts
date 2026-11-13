@@ -1,6 +1,6 @@
 import type { z } from "zod"
 
-import { areas, qualities, type RubricEntry } from "./rubric.ts"
+import type { Rubric, RubricEntry } from "./rubric.ts"
 import type { NewStoryInput, StoryImage, StoryInput } from "./story.ts"
 import { judgementJsonSchema, newJudgementJsonSchema } from "./verdict.ts"
 
@@ -20,13 +20,18 @@ const entry = ({ name, definition, sources }: RubricEntry, suffix = "") =>
     .map(({ file, section }) => `${file} › ${section}`)
     .join("; ")}.`
 
-const areaList = areas.map((area) => entry(area, ` [${area.id}]`)).join("\n")
-const qualityList = qualities
-  .map((quality) =>
-    entry(quality, `${quality.pageOnly ? " (page only)" : ""} [${quality.id}]`),
-  )
-  .join("\n")
-const scopeLine = (scope: StoryInput["scope"]) => {
+const areaList = ({ areas }: Rubric) =>
+  areas.map((area) => entry(area, ` [${area.id}]`)).join("\n")
+const qualityList = ({ qualities }: Rubric) =>
+  qualities
+    .map((quality) =>
+      entry(
+        quality,
+        `${quality.pageOnly ? " (page only)" : ""} [${quality.id}]`,
+      ),
+    )
+    .join("\n")
+const scopeLine = (scope: StoryInput["scope"], { qualities }: Rubric) => {
   const pageOnly = qualities
     .filter((quality) => quality.pageOnly)
     .map(({ name }) => name)
@@ -62,6 +67,7 @@ const compareRule: Record<Steps, string> = {
 
 const prefixOf = (
   steps: Steps,
+  rubric: Rubric,
 ) => `You review one visual change in the ctxpipe product UI. Storybook rendered one story before and after a code change. A pixel diff measured the changed regions, and an interpreter gave each region a change type. You decide if the change is intended, a regression, or noise.
 
 Rules:
@@ -75,15 +81,17 @@ ${compareRule[steps]}
 8. ${referenceRule}
 
 Rubric, layer 1, the concrete areas. Each finding has one of them as its \`kind\` (the id in brackets):
-${areaList}
+${areaList(rubric)}
 
 Rubric, layer 2, the design qualities. For each quality that applies, say if the change makes it better, the same or worse:
-${qualityList}
+${qualityList(rubric)}
 
 Reply with one JSON object that matches this JSON Schema, and with no other text:
-${JSON.stringify(judgementJsonSchema)}`
+${JSON.stringify(judgementJsonSchema(rubric))}`
 
-const newPrefix = `You review new UI in the ctxpipe product UI. Storybook rendered a new story, or a new screenshot of a story, for which there is no base image. There is no diff to compare. You judge the screenshot on its own against the rubric.
+const newPrefix = (
+  rubric: Rubric,
+) => `You review new UI in the ctxpipe product UI. Storybook rendered a new story, or a new screenshot of a story, for which there is no base image. There is no diff to compare. You judge the screenshot on its own against the rubric.
 
 Rules:
 1. ${scopeRule}
@@ -96,13 +104,13 @@ Rules:
 8. ${referenceRule}
 
 Rubric, layer 1, the concrete areas. Each finding has one of them as its \`kind\` (the id in brackets):
-${areaList}
+${areaList(rubric)}
 
 Rubric, layer 2, the design qualities. For each quality that applies, rate the screenshot: \`meets\` when it follows the quality, \`weak\` when it follows it only in part, \`fails\` when it breaks it:
-${qualityList}
+${qualityList(rubric)}
 
 Reply with one JSON object that matches this JSON Schema, and with no other text:
-${JSON.stringify(newJudgementJsonSchema)}`
+${JSON.stringify(newJudgementJsonSchema(rubric))}`
 
 // A closing tag inside the data cannot end its block.
 const data = (name: string, text: string | undefined) =>
@@ -137,7 +145,7 @@ function storyText(input: StoryInput): string {
       ? `\nImage ${regionsImage + 1} (regions) has a row only for the largest regions: regions 1 to ${shown} of ${input.regions.length}. The ${omitted} smaller region(s) have no row. The locator image outlines them. Judge them from the locator image and the full images, when they are attached.\n`
       : ""
   return `Story: ${input.storyId}
-${scopeLine(input.scope)}
+${scopeLine(input.scope, input.rubric)}
 Viewport: ${input.viewport.width} × ${input.viewport.height}
 
 Measured regions:
@@ -153,13 +161,16 @@ ${data("brief", input.brief)}
 ${data("source-diff", input.sourceDiff)}`
 }
 
-/** Build the prompt for one story: the fixed prefix, then the story part. */
+/**
+ * Build the prompt for one story: the fixed prefix with the rubric of the
+ * story, then the story part.
+ */
 export function buildPrompt(
   input: StoryInput,
   steps: Steps = "describe-first",
 ): Prompt {
   return {
-    prefix: prefixOf(steps),
+    prefix: prefixOf(steps, input.rubric),
     story: storyText(input),
     images: input.images,
   }
@@ -189,10 +200,10 @@ Rules:
 6. Write \`reason\` before \`label\`: in two or three sentences, what changed, and the rubric entry that decides the label (the id in brackets).
 
 Rubric, layer 1, the concrete areas (the id in brackets):
-${areaList}
+${areaList(input.rubric)}
 
 Rubric, layer 2, the design qualities:
-${qualityList}
+${qualityList(input.rubric)}
 
 Reply with one JSON object that matches this JSON Schema, and with no other text:
 ${JSON.stringify(schema)}`
@@ -205,7 +216,7 @@ ${JSON.stringify(schema)}`
  */
 export function buildNewPrompt(input: NewStoryInput): Prompt {
   const story = `Story: ${input.storyId}
-${scopeLine(input.scope)}
+${scopeLine(input.scope, input.rubric)}
 
 New screenshots, in the order attached:
 ${input.images
@@ -219,7 +230,7 @@ ${data("brief", input.brief)}
 
 ${data("source-diff", input.sourceDiff)}`
   return {
-    prefix: newPrefix,
+    prefix: newPrefix(input.rubric),
     story,
     images: input.images.map(({ path }) => ({ role: "after", path })),
   }

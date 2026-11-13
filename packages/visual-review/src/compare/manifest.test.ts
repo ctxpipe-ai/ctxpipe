@@ -8,6 +8,7 @@ import {
   baselinePath,
   diff,
   manifestJsonSchema,
+  packagedRubric,
   toStoryInput,
   writeManifest,
   writeStoryImages,
@@ -153,6 +154,7 @@ describe("toStoryInput", () => {
     const input = toStoryInput(manifest, story, {
       root: "/repo/.ci-results/visual",
       brief: "Make the connected badge red.",
+      rubric: packagedRubric,
     })
 
     expect(input).toEqual({
@@ -192,6 +194,7 @@ describe("toStoryInput", () => {
         },
       ],
       brief: "Make the connected badge red.",
+      rubric: packagedRubric,
     })
   })
 
@@ -203,7 +206,7 @@ describe("toStoryInput", () => {
       toStoryInput(
         manifest,
         { ...story, images: { ...story.images, after: path } },
-        { root: "/repo/.ci-results/visual" },
+        { root: "/repo/.ci-results/visual", rubric: packagedRubric },
       ),
     ).toThrow(`Path "${path}" is outside the manifest folder`)
   })
@@ -224,7 +227,11 @@ describe("toStoryInput", () => {
       comparison,
     )
 
-    const input = toStoryInput(manifest, { ...story, images }, { root: dir })
+    const input = toStoryInput(
+      manifest,
+      { ...story, images },
+      { root: dir, rubric: packagedRubric },
+    )
 
     expect(input.images.map(({ role }) => role)).toEqual([
       "regions",

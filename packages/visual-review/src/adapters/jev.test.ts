@@ -17,8 +17,10 @@ import {
   vi,
 } from "vitest"
 
-import { areas, qualities, verdictSchema, type StoryInput } from "../index.ts"
+import { packagedRubric, verdictSchema, type StoryInput } from "../index.ts"
 import { judgeNewWithJev, judgeWithJev } from "./jev.ts"
+
+const { areas, qualities } = packagedRubric
 
 type DecisionsBody = {
   model: string
@@ -78,6 +80,7 @@ const story = async (overrides: Partial<StoryInput> = {}) =>
   ({
     storyId: "connectors-card--connected",
     scope: "component",
+    rubric: packagedRubric,
     viewport: { width: 1440, height: 900 },
     regions: [
       {
@@ -437,6 +440,21 @@ describe("judgeWithJev verdict", () => {
     expect(verdict.verdict).toBe("intended")
   })
 
+  test("a head rubric with no spacing area gets no run-together question", async () => {
+    const seen = serve((name) => (name === "defect" ? defect(0.03) : fine))
+    const verdict = await judgeWithJev(
+      await story({
+        brief: "Rename the button.",
+        rubric: {
+          ...packagedRubric,
+          areas: packagedRubric.areas.filter(({ id }) => id !== "spacing"),
+        },
+      }),
+    )
+    expect(Object.keys(seen.body.questions)).not.toContain("run-together")
+    expect(verdict.verdict).toBe("intended")
+  })
+
   test("a worse density alone is unsure, not a regression, and the summary says why", async () => {
     serve((name) => {
       if (name === "quality.density") return choice(0, 0.3, 0.7)
@@ -711,6 +729,7 @@ describe("judgeNewWithJev", () => {
   const newStory = async (brief?: string) => ({
     storyId: "connectors-card--new",
     scope: "component" as const,
+    rubric: packagedRubric,
     images: [
       {
         path: await png("new.png", 800, 500),

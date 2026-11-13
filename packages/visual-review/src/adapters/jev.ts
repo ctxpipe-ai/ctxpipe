@@ -10,7 +10,7 @@ import { z } from "zod"
 
 import { pngSize, prepareImage, type Prepared } from "../prepare.ts"
 import { buildNewPrompt, buildPrompt } from "../prompt.ts"
-import { areas, qualities } from "../rubric.ts"
+import type { RubricEntry } from "../rubric.ts"
 import type { Box, NewStoryInput, StoryImage, StoryInput } from "../story.ts"
 import { parseNewVerdict, parseVerdict, type Verdict } from "../verdict.ts"
 
@@ -113,9 +113,13 @@ export async function judgeWithJev(
         .find((index) => index >= 0)
     : undefined
 
+  const { areas, qualities } = story.rubric
   const askedQualities = qualities.filter(
     ({ pageOnly }) => story.scope === "page" || !pageOnly,
   )
+  // The rubric is data of the PR head: it can have no spacing area. Then
+  // Jev gets no run-together question.
+  const spacing = areas.find(({ id }) => id === "spacing")
   const questions: Record<string, Question> = {
     defect: {
       type: "noul",
@@ -127,11 +131,13 @@ export async function judgeWithJev(
     // spacing defect: on the deliberate redesign of PR #717, they flagged
     // none of the 7 screenshots that had it, and this question flagged all 7
     // with no false flag (CTX-1262). A yes is a `spacing` finding.
-    "run-together": {
-      type: "noul",
-      instructions:
-        "Look at the after image only. Does a label put two parts side by side with no space and no separator, so that they read as one word (for example a number and a word)?",
-    },
+    ...(spacing && {
+      "run-together": {
+        type: "noul",
+        instructions:
+          "Look at the after image only. Does a label put two parts side by side with no space and no separator, so that they read as one word (for example a number and a word)?",
+      },
+    }),
   }
   for (const { id, name, definition } of areas)
     questions[`area.${id}`] = choiceQuestion(
@@ -198,7 +204,7 @@ export async function judgeWithJev(
   const runTogether = noul.safeParse(answers["run-together"])
   const unanswered =
     (defect.success ? 0 : 1) +
-    (runTogether.success ? 0 : 1) +
+    (!spacing || runTogether.success ? 0 : 1) +
     (areas.length - areaResults.length) +
     (askedQualities.length - qualityResults.length)
 
@@ -223,9 +229,6 @@ export async function judgeWithJev(
   const isWorse = ({ delta, worse }: { delta: string; worse: number }) =>
     delta === "worse" && worse >= 0.5
   const density = qualityResults.find(({ id }) => id === "density")
-  // A label whose parts run together is a spacing finding.
-  const spacing = areas.find(({ id }) => id === "spacing")
-  if (!spacing) throw new Error("The rubric has no spacing area.")
   // `parseVerdict` checks the judgment and applies the rules of the prompt.
   return parseVerdict(
     JSON.stringify({
@@ -235,7 +238,8 @@ export async function judgeWithJev(
           ...areaResults
             .filter(isWorse)
             .map(({ area, worse }) => ({ area, probability: worse })),
-          ...(runTogether.success && runTogether.data.noul >= 0.5
+          // A label whose parts run together is a spacing finding.
+          ...(spacing && runTogether.success && runTogether.data.noul >= 0.5
             ? [
                 {
                   area: spacing,
@@ -420,6 +424,7 @@ export async function judgeNewWithJev(
     prepared.push(read)
   }
   const drawsBoxes = requestedModel === "typesafe/jev-1.14"
+  const { areas, qualities } = story.rubric
   const askedQualities = qualities.filter(
     ({ pageOnly }) => story.scope === "page" || !pageOnly,
   )
@@ -535,7 +540,7 @@ function decision({
 }: {
   word: "worse" | "broken"
   flaggedAreas: readonly {
-    area: (typeof areas)[number]
+    area: RubricEntry
     probability: number
     label?: string
   }[]
