@@ -63,9 +63,9 @@ const choiceQuestion = (instructions: string): Question => ({
  * the OpenRouter API base from `MODEL_PROVIDER_URL`. The verdict says
  * `regression` when an area or a quality other than density is worse with a
  * probability of 0.5 or more, when a label runs two parts together with a
- * probability of 0.5 or more (a `spacing` finding), or when the after image
- * lost a close, cancel or back control with a probability of 0.5 or more (a
- * `dialog` finding). It says `unsure` when the defect or a worse probability
+ * probability of 0.5 or more (a `spacing` finding), or when the change
+ * leaves a dialog or a flow with no way to close, cancel or go back, with a
+ * probability of 0.5 or more (a `dialog` finding). It says `unsure` when the defect or a worse probability
  * (density too) is from 0.2 up, or when a question has no answer. A
  * run-together or lost-exit answer under 0.5 does not count for `unsure`; a
  * yes with no region is `unsure`. The bake-off of CTX-1262 kept the 0.2
@@ -264,7 +264,7 @@ export async function judgeWithJev(
                 },
               ]
             : []),
-          // A lost close, cancel or back control is a dialog finding.
+          // A dialog or a flow with no way out is a dialog finding.
           ...(dialog && lostExit.success && lostExit.data.noul >= 0.5
             ? [
                 {
