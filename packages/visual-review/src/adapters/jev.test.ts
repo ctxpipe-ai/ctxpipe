@@ -164,6 +164,10 @@ describe("judgeWithJev questions", () => {
       expect(names.includes(`quality.${id}`)).toBe(!pageOnly)
     expect(seen.body.model).toBe("typesafe/jev-1.14")
     expect(seen.body.questions["defect"]?.type).toBe("noul")
+    expect(seen.body.questions["run-together"]).toMatchObject({
+      type: "noul",
+      instructions: expect.stringContaining("no space and no separator"),
+    })
     expect(seen.body.questions["defect-box"]?.type).toBe("box")
     expect(seen.body.questions["area.spacing"]?.type).toBe("choice")
     expect(
@@ -312,7 +316,9 @@ describe("judgeWithJev verdict", () => {
   })
 
   test("nothing worse is intended when a brief explains the change", async () => {
-    serve((name) => (name === "defect" ? defect(0.03) : fine))
+    serve((name) =>
+      name === "defect" || name === "run-together" ? defect(0.03) : fine,
+    )
     const verdict = await judgeWithJev(
       await story({ brief: "Rename the button." }),
     )
@@ -345,7 +351,7 @@ describe("judgeWithJev verdict", () => {
   test("a refused question makes the verdict unsure, not intended", async () => {
     serve((name) => {
       if (name === "quality.clarity") return { type: "refusal" }
-      if (name === "defect") return defect(0.03)
+      if (name === "defect" || name === "run-together") return defect(0.03)
       return fine
     })
     const verdict = await judgeWithJev(
@@ -365,7 +371,7 @@ describe("judgeWithJev verdict", () => {
           type: "choice",
           probabilities: { better: 0, same: 1.5, worse: 0 },
         }
-      if (name === "defect") return defect(0.03)
+      if (name === "defect" || name === "run-together") return defect(0.03)
       return fine
     })
     const verdict = await judgeWithJev(
@@ -373,6 +379,56 @@ describe("judgeWithJev verdict", () => {
     )
     expect(verdict.verdict).toBe("unsure")
     expect(verdict.summary).toContain("2 questions")
+  })
+
+  test("a label that runs two parts together is a spacing finding in the region of the box", async () => {
+    serve((name) => {
+      if (name === "run-together") return defect(0.86)
+      if (name === "defect") return defect(0.1)
+      if (name === "defect-box") return box(0.2, 0.3, 0.1, 0.4)
+      return fine
+    })
+    const verdict = await judgeWithJev(
+      await story({ brief: "Show the step number before the step name." }),
+    )
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.severity).toBe("minor")
+    expect(verdict.findings.map(({ kind }) => kind)).toEqual(["spacing"])
+    expect(verdict.summary).toContain("spacing (parts run together) 0.86")
+  })
+
+  test("a worse spacing area and a run-together label give one spacing finding", async () => {
+    serve((name) => {
+      if (name === "run-together") return defect(0.7)
+      if (name === "area.spacing") return choice(0, 0.3, 0.7)
+      if (name === "defect") return defect(0.1)
+      if (name === "defect-box") return box(0.2, 0.3, 0.1, 0.4)
+      return fine
+    })
+    const verdict = await judgeWithJev(await story())
+    expect(verdict.findings.map(({ kind }) => kind)).toEqual(["spacing"])
+  })
+
+  test("a run-together answer under 0.5 does not make the verdict unsure", async () => {
+    serve((name) => {
+      if (name === "run-together") return defect(0.45)
+      if (name === "defect") return defect(0.03)
+      return fine
+    })
+    const verdict = await judgeWithJev(
+      await story({ brief: "Rename the button." }),
+    )
+    expect(verdict.verdict).toBe("intended")
+  })
+
+  test("the caller can keep the raw answers of Jev", async () => {
+    serve((name) => (name === "run-together" ? defect(0.2) : fine))
+    let kept: Record<string, unknown> | undefined
+    await judgeWithJev(await story(), undefined, (answers) => {
+      kept = answers
+    })
+    expect(kept?.["run-together"]).toEqual(defect(0.2))
+    expect(kept?.["area.spacing"]).toEqual(fine)
   })
 
   test("a response with no answers is unsure, not intended", async () => {

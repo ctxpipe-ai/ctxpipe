@@ -745,6 +745,94 @@ test("a hold-out-only dry run gets only the images of the hold-out cases from th
   expect(downloads).toEqual([])
 })
 
+test("a run that skips the hold-out set judges only the other cases, and keeps the raw answers of Jev", async () => {
+  server.use(decisions, releaseOf())
+  const cache = join(mkdtempSync(join(folder, "cache-")), "images")
+  const otherCases = cases.filter(({ id }) => !held().has(id))
+
+  const { code, out, text } = await fromRelease(cache, [
+    "--arms",
+    "jev",
+    "--skip-hold-out",
+  ])
+
+  expect(code).toBe(0)
+  expect(text).toContain(
+    `Cases: ${otherCases.length} (0 in the hold-out set, 4 new screenshots). Runs: 1. Arms: 1.`,
+  )
+  expect(
+    calls.some((call) => [...held()].some((id) => call.endsWith(id))),
+  ).toBe(false)
+  const { results } = JSON.parse(
+    readFileSync(join(out, "results.json"), "utf8"),
+  ) as { results: { case: string; verdict: { answers?: object } }[] }
+  // A new screenshot goes to the judge of a new screenshot, which keeps no
+  // answers.
+  const changes = new Set(
+    cases.filter(({ kind }) => kind !== "new").map(({ id }) => id),
+  )
+  const judged = results.filter(
+    ({ case: id }) =>
+      changes.has(id) && calls.some((call) => call.endsWith(id)),
+  )
+  expect(judged.length).toBeGreaterThan(0)
+  for (const { verdict } of judged)
+    expect(verdict.answers).toHaveProperty("run-together")
+})
+
+test("a run gets either the hold-out set only or no hold-out set, not both", async () => {
+  const { code, text } = await run([
+    "--cases",
+    writeManifest(),
+    "--arms",
+    "jev",
+    "--hold-out-only",
+    "--skip-hold-out",
+  ])
+  expect(code).toBe(2)
+  expect(text).toContain("--hold-out-only and --skip-hold-out")
+})
+
+test("a case with its own scope goes to the judge with that scope", async () => {
+  const asked = new Map<string, string[]>()
+  server.use(
+    http.post(
+      "https://gateway.test/api/alpha/decisions",
+      async ({ request }) => {
+        const body = (await request.json()) as {
+          state: unknown[]
+          questions: Record<string, { type: string }>
+        }
+        const id = storyOf(
+          body.state.filter((part) => typeof part === "string").join("\n"),
+        )
+        asked.set(id, Object.keys(body.questions))
+        return HttpResponse.json({
+          model: "typesafe/jev-1.14",
+          answers: {},
+          usage: { cost: 0.0004 },
+        })
+      },
+    ),
+  )
+  const component = cases.find(({ kind }) => kind === "regression")
+  if (!component) throw new Error("The fixture has no regression case.")
+  const { code } = await run([
+    "--cases",
+    writeManifest({
+      cases: cases.map((entry) =>
+        entry === component ? { ...entry, scope: "component" } : entry,
+      ),
+    }),
+    "--arms",
+    "jev",
+  ])
+  expect(code).toBe(0)
+  expect(asked.get(component.id)).not.toContain("quality.focus")
+  const page = [...asked].find(([id]) => id !== component.id)
+  expect(page?.[1]).toContain("quality.focus")
+})
+
 test("an image with one changed byte fails the hash check before a call", async () => {
   server.use(chat, releaseOf(changedByte))
   const cache = mkdtempSync(join(folder, "cache-"))

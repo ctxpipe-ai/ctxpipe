@@ -4,7 +4,8 @@
 //
 // Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--out <dir>]
 //          [--runs 3] [--max-cost 100] [--max-minutes <n>] [--concurrency 4]
-//          [--blazediff-agent <dir>] [--cases <path>] [--hold-out-only]
+//          [--blazediff-agent <dir>] [--cases <path>]
+//          [--hold-out-only | --skip-hold-out]
 
 import { createHash } from "node:crypto"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
@@ -13,11 +14,7 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { parseArgs } from "node:util"
 
-import {
-  judgeNewWithJev,
-  judgeWithJev,
-  type JevVariant,
-} from "../../src/adapters/jev.ts"
+import { judgeNewWithJev, judgeWithJev } from "../../src/adapters/jev.ts"
 import {
   judgeNewWithOpenRouter,
   judgeWithOpenRouter,
@@ -35,7 +32,7 @@ import { imageFile, imageStore, releaseUrl } from "./images.ts"
 import { report, type Result, type StopReason } from "./report.ts"
 import { spendMeter } from "./spend.ts"
 
-const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--out <dir>] [--runs 3] [--max-cost 100] [--max-minutes <n>] [--concurrency 4] [--blazediff-agent <dir>] [--cases <path>] [--hold-out-only]
+const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--out <dir>] [--runs 3] [--max-cost 100] [--max-minutes <n>] [--concurrency 4] [--blazediff-agent <dir>] [--cases <path>] [--hold-out-only | --skip-hold-out]
 
   --arms         The arms, comma-separated:
                    llm:<model>           the critic prompt (describe each side, then compare)
@@ -68,6 +65,9 @@ const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--
   --cases        The case manifest. Default: cases.json beside this file.
   --hold-out-only
                  Run only the cases of the hold-out set.
+  --skip-hold-out
+                 Run only the cases that are not in the hold-out set: tune a
+                 judge on them, and keep the hold-out set for the check.
 
 The key and the endpoint of the paid arms come from MODEL_PROVIDER_API_KEY
 and MODEL_PROVIDER_URL. Exit code: 2 for a usage or input error, also a
@@ -154,22 +154,18 @@ function withoutFacts(story: StoryInput): StoryInput {
 
 const same = (story: StoryInput) => story
 
-// Experiment variants of CTX-1262 (`jev@<name>`).
-const variants: Record<string, JevVariant> = {
-  v0: { state: "text", images: "all" },
-  v1: { state: "intended", images: "all" },
-  v2: { state: "intended", images: "focused" },
-  v3: { state: "text", images: "focused" },
-  v4: { state: "intended", images: "all" },
-  v5: { state: "intended", images: "pair" },
-  v6: { state: "text", images: "all", hint: true },
-  v7: { state: "text", images: "pair" },
-  v8: { state: "intended", images: "pair-locator" },
-  v9: { state: "intended", images: "pair", score: true },
-  v10: { state: "text", images: "all", atomic: true },
-  v11: { state: "text", images: "pair", atomic: true },
-  v12: { state: "text", images: "all", atomic: true, rules: true },
-  v13: { state: "intended", images: "all", atomic: true, rules: true },
+/**
+ * A Jev verdict with the raw answers of Jev, which results.json keeps: a
+ * new threshold can be tested on them with no new call.
+ */
+async function withAnswers(
+  judge: (
+    onAnswers: (answers: Record<string, unknown>) => void,
+  ) => Promise<Verdict>,
+): Promise<Verdict & { answers?: Record<string, unknown> }> {
+  let answers: Record<string, unknown> | undefined
+  const verdict = await judge((given) => (answers = given))
+  return answers ? { ...verdict, answers } : verdict
 }
 
 /** The arm of one `--arms` entry. Throws for an unknown arm. */
@@ -177,23 +173,6 @@ async function armOf(
   id: string,
   options: { concurrency: number; blazediffAgent?: string; work: string },
 ): Promise<Arm> {
-  const variant = id.startsWith("jev@") ? variants[id.slice(4)] : undefined
-  if (variant)
-    return {
-      id,
-      paid: true,
-      concurrency: options.concurrency,
-      input: same,
-      judge: async (story) => {
-        let answers: Record<string, unknown> | undefined
-        const verdict = await judgeWithJev(story, undefined, {
-          variant,
-          onAnswers: (given) => (answers = given),
-        })
-        return answers ? { ...verdict, answers } : verdict
-      },
-      judgeNew: (story) => judgeNewWithJev(story),
-    }
   const colon = id.indexOf(":")
   const kind = colon < 0 ? id : id.slice(0, colon)
   const model = colon < 0 ? "" : id.slice(colon + 1)
@@ -225,7 +204,8 @@ async function armOf(
       return {
         ...base,
         input: same,
-        judge: (story) => judgeWithJev(story),
+        judge: (story) =>
+          withAnswers((onAnswers) => judgeWithJev(story, undefined, onAnswers)),
         judgeNew: (story) => judgeNewWithJev(story),
       }
     case "decision":
@@ -233,7 +213,8 @@ async function armOf(
       return {
         ...base,
         input: same,
-        judge: (story) => judgeWithJev(story, model),
+        judge: (story) =>
+          withAnswers((onAnswers) => judgeWithJev(story, model, onAnswers)),
         judgeNew: (story) => judgeNewWithJev(story, model),
       }
     case "cascade": {
@@ -554,6 +535,12 @@ export async function bakeOff(
   const maxCost = Number(options["max-cost"])
   const concurrency = Number(options.concurrency)
   const maxMinutes = Number(options["max-minutes"] ?? Infinity)
+  if (options["hold-out-only"] && options["skip-hold-out"]) {
+    print(
+      `Give --hold-out-only and --skip-hold-out not together: no case would run.\n\n${usage}`,
+    )
+    return 2
+  }
   if (
     !options.arms ||
     !Number.isInteger(runs) ||
