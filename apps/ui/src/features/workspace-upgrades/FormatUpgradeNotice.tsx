@@ -56,7 +56,7 @@ export function FormatUpgradeNotice(props: {
         <Button
           variant="primary"
           size={size}
-          className={onYellow ? bannerPrimary : undefined}
+          className={onYellow ? onYellowButton.primary : undefined}
           isPending={start.isPending}
           onPress={() => start.mutate()}
         >
@@ -67,7 +67,7 @@ export function FormatUpgradeNotice(props: {
         <Button
           variant={onYellow ? "primary" : "secondary"}
           size={size}
-          className={onYellow ? bannerPrimary : undefined}
+          className={onYellow ? onYellowButton.primary : undefined}
           href={item.pullRequest.url}
           target="_blank"
           rel="noreferrer"
@@ -78,11 +78,7 @@ export function FormatUpgradeNotice(props: {
       <Button
         variant={banner ? "outline" : "secondary"}
         size={size}
-        className={
-          onYellow
-            ? "border-zinc-950/40 text-zinc-950 outline-zinc-950 hover:border-zinc-950/60 hover:bg-zinc-950/10 pressed:bg-zinc-950/15 dark:border-zinc-950/40 dark:hover:border-zinc-950/60"
-            : undefined
-        }
+        className={onYellow ? onYellowButton.outline : undefined}
         href={workspaceUpgradesHref(orgSlug, workspaceSlug)}
       >
         Review upgrade
@@ -117,6 +113,13 @@ export function FormatUpgradeNotice(props: {
   )
 }
 
-/** The main action on the yellow banner: a dark button with a dark focus ring. */
-const bannerPrimary =
-  "border-transparent bg-zinc-950 text-amber-50 outline-zinc-950 hover:bg-zinc-800 pressed:bg-zinc-800"
+/**
+ * The buttons on the yellow `attention` slab: dark fills and outlines, with a
+ * dark focus ring, so they keep their contrast on the yellow.
+ */
+const onYellowButton = {
+  primary:
+    "border-transparent bg-zinc-950 text-amber-50 outline-zinc-950 hover:bg-zinc-800 pressed:bg-zinc-800",
+  outline:
+    "border-zinc-950/40 text-zinc-950 outline-zinc-950 hover:border-zinc-950/60 hover:bg-zinc-950/10 pressed:bg-zinc-950/15 dark:border-zinc-950/40 dark:hover:border-zinc-950/60",
+}
