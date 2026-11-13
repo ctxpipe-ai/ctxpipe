@@ -2,7 +2,10 @@ import { rm } from "node:fs/promises"
 import { join } from "node:path"
 
 import { REPO_CACHE_DIR } from "../../config/paths.js"
-import { deleteRepositoryArtifacts, shardStore } from "../store/shardStore.js"
+import {
+  deleteRepositoryArtifacts,
+  writableShardStore,
+} from "../store/shardStore.js"
 import { purgeZoektShardsForRepo } from "../zoekt/pinManager.js"
 import { zoektRepositoryName } from "../zoekt/shardPrefix.js"
 
@@ -21,7 +24,7 @@ export async function purgeRepositoryFromDisk(params: {
 
   // The S3 copies go first: a pin in between still finds the local shards
   // and fetches nothing, and a failed S3 delete fails the purge.
-  const store = shardStore()
+  const store = writableShardStore()
   if (store) await deleteRepositoryArtifacts(store, { orgId, repoId })
 
   const repoRoot = join(REPO_CACHE_DIR, orgId, repoId)

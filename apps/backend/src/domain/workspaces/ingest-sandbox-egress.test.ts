@@ -7,7 +7,7 @@ import { promisify } from "node:util"
 import { describe, expect, it } from "vitest"
 
 import {
-  assertNoMetadataEndpoint,
+  assertNoOtherMetadataEndpoint,
   ingestCredentialRules,
 } from "./ingest-sandbox-egress.js"
 
@@ -83,11 +83,20 @@ describe("ingestCredentialRules", () => {
   })
 })
 
-describe("assertNoMetadataEndpoint", () => {
-  /** A sandbox shell whose `curl` answers each URL with `code`. */
-  const sandboxWithCurl = (code: string) => {
+describe("assertNoOtherMetadataEndpoint", () => {
+  /**
+   * A sandbox shell whose `curl` answers each URL with the code of the first
+   * matching entry of `codes`, and `000` (no connection) otherwise.
+   */
+  const sandboxWithCurl = (codes: Record<string, string>) => {
     const bin = mkdtempSync(join(tmpdir(), "metadata-curl-"))
-    writeFileSync(join(bin, "curl"), `#!/bin/sh\nprintf '${code}'\n`)
+    const cases = Object.entries(codes)
+      .map(([part, code]) => `  *'${part}'*) printf '${code}' ;;`)
+      .join("\n")
+    writeFileSync(
+      join(bin, "curl"),
+      `#!/bin/sh\nfor arg; do url=$arg; done\ncase $url in\n${cases}\n  *) printf '000' ;;\nesac\n`,
+    )
     chmodSync(join(bin, "curl"), 0o755)
     return {
       process: {
@@ -105,15 +114,23 @@ describe("assertNoMetadataEndpoint", () => {
     }
   }
 
-  it("fails closed when a metadata endpoint answers", async () => {
+  it("passes when only the instance metadata service answers, as on AgentCore", async () => {
     await expect(
-      assertNoMetadataEndpoint(sandboxWithCurl("200")),
-    ).rejects.toThrow("open http://169.254.169.254/")
+      assertNoOtherMetadataEndpoint(
+        sandboxWithCurl({ "169.254.169.254": "401" }),
+      ),
+    ).resolves.toBeUndefined()
   })
 
-  it("passes when no metadata endpoint answers", async () => {
+  it.each([
+    ["the ECS credential endpoint", "http://169.254.170.2/"],
+    ["the EKS credential endpoint", "http://169.254.170.23/"],
+    ["the instance metadata service over IPv6", "http://[fd00:ec2::254]/"],
+  ])("fails closed when %s answers", async (_name, url) => {
     await expect(
-      assertNoMetadataEndpoint(sandboxWithCurl("000")),
-    ).resolves.toBeUndefined()
+      assertNoOtherMetadataEndpoint(
+        sandboxWithCurl({ "169.254.169.254": "401", [url]: "200" }),
+      ),
+    ).rejects.toThrow(`open ${url}`)
   })
 })

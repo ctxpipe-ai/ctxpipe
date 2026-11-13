@@ -42,8 +42,8 @@ import {
 import { uploadScipIndex, withScipLock } from "../store/scipStore.js"
 import {
   publishArtifact,
-  shardStore,
   type StoreAddress,
+  writableShardStore,
 } from "../store/shardStore.js"
 import {
   evictColdShards,
@@ -542,7 +542,7 @@ async function uploadShards(
   address: StoreAddress,
   shardPaths: readonly string[],
 ): Promise<void> {
-  const store = shardStore()
+  const store = writableShardStore()
   if (!store) return
   const startMs = Date.now()
   try {
