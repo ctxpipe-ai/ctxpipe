@@ -335,6 +335,7 @@ jobs:
           done <<'PINS'
           production,preview cloudflared 2026.10.7 docker.io/cloudflare/cloudflared@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
           production,preview falkordb v4.20.7 docker.io/falkordb/falkordb@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
+          production,preview aws-cli 2.38.5 docker.io/amazon/aws-cli@sha256:c8156a0e74e13929a42d7e60f0d4e14e7d28d980cd21822505d4bff80e5460c1
           production otel-collector-contrib 0.155.0 docker.io/otel/opentelemetry-collector-contrib@sha256:4935caa35e9a4cb387e35732e8fb22b2b5759af8d12e7043357f03837f6e8df5
           production busybox 1.37.0 docker.io/library/busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
           production clickhouse-server 26.8.36.3-alpine docker.io/clickhouse/clickhouse-server@sha256:f5443f9ffa48f0154cdd50cab39fed732201762574a27f04f1f564bbba81832d
