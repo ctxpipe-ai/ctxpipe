@@ -58,6 +58,30 @@ The product owner decided on 2026-11-13: "Use Jev for this capability and just f
    - **Density.** Density never found a regression that no other question found (page cases, hold-out set, 3 runs), and it gave 12 of the 14 false flags on the redesign set (an intended removal leaves more space).
    - **Result** (runs 43400628954 and 43400633408, 1 run each). Hold-out set: recall 0.91, precision 0.86, unsure 0.26, $0.0005 per story, as before. Other page cases: recall 0.91, precision 0.88. Redesign set: 7 of 15 regressions found (before: 0), 4 false flags (before: 14), unsure 0.91 (before: 0.88). The 8 missed regressions are the inverted title hierarchy ([CTX-1266](https://linear.app/ctxpipe/issue/CTX-1266)); each one is `unsure`.
    - **The fixes of these regressions** (PR #718, [CTX-1265](https://linear.app/ctxpipe/issue/CTX-1265)) are 25 more `intended` cases of the redesign set: each pair goes from the broken state to the fixed one. In run 43403029107, Jev flagged none of them, but each one was `unsure` (highest worse probability 0.11 to 0.30). The same run found 7 of the 15 regressions again, with 3 false flags. Thus Jev does not see the direction of a hierarchy change: it is not sure about the break and about the fix alike. (The critic run on PR #718 flagged 11 of the 25 fixes. That run had another brief and grouped the screenshots; the bake-off did not repeat it.)
+   - **The decision of the lead (2026-11-13).** The final variant ties the hold-out set and improves the redesign set, so it ships. The rule "change only the docs when no variant beats the hold-out set" gave way to the later goal of the owner: catch execution regressions with no false flags on intended changes.
+   - **Limits of the result.** The run-together question came from one defect pattern, and it can be fitted to that pattern: the 7 regressions that it found all show the same "01Connect" step label. The 8 inverted title hierarchies are still missed ([CTX-1266](https://linear.app/ctxpipe/issue/CTX-1266)).
+   - **The iterations.** All runs are Jev only, with 1 run each. "Page" is the 109 panel-labeled cases outside the hold-out set (recall / precision / unsure). "Redesign" is regressions found / false flags / unsure. Before run 43398751999, the redesign set had the 68 route screenshots only, with 10 regressions. v1 to v3 used the rubric before PR #717.
+
+     | # | Variant | Runs | Page | Redesign | $/story |
+     | --- | --- | --- | --- | --- | ---: |
+     | 0 | v0: the critic before CTX-1262 | 43383310886, 43398751999 | 0.91 / 0.87 / 0.28 | 0/15 / 14 / 0.88 | 0.0005 |
+     | 1 | v1: intended changes as a list, `same` for an explained change, an "explained" question | 43382862689, 43382866826 | 0.89 / 0.83 / 0.26 | 0/10 / 6 / 0.91 | 0.0005 |
+     | 2 | v2: v1 with the regions and locator images only | same | 0.95 / 0.72 / 0.10 | 8/10 / 44 / 0.20 | 0.0002 |
+     | 3 | v3: v0 with the regions and locator images only | same | 0.92 / 0.80 / 0.21 | 1/10 / 7 / 0.88 | 0.0002 |
+     | 4 | v4: v1 with no "explained" question | 43383310886, 43383314579 | 0.91 / 0.83 / 0.25 | 0/10 / 2 / 0.97 | 0.0005 |
+     | 5 | v5: v4 with the regions, before and after images | same | 0.89 / 0.94 / 0.32 | 0/10 / 6 / 0.91 | 0.0004 |
+     | 6 | v6: v0 with "a named change is not worse for that reason" | same | 0.92 / 0.87 / 0.28 | 0/10 / 13 / 0.80 | 0.0005 |
+     | 7 | v7: v0 with the regions, before and after images | 43383778210, 43383782608 | 0.92 / 0.90 / 0.29 | 0/10 / 8 / 0.88 | 0.0004 |
+     | 8 | v8: v4 with all images except the diff | same | 0.92 / 0.82 / 0.23 | 0/10 / 12 / 0.82 | 0.0004 |
+     | 9 | v9: v5 with `score` questions | same | 0.80 / 0.94 (strict) | 0/10 / 13 (both worse levels) | 0.0004 |
+     | 10 | Floor 0.3 or 0.4 on the v0 answers (no call) | – | 0.91 / 0.87 / 0.13 to 0.18 | 0/15 / 14 / 0.10 to 0.52; 7 to 15 regressions become `intended` | – |
+     | 11 | v10: v0 with four yes/no spacing and hierarchy questions | 43397031262, 43398751999 | 0.93 / 0.83 | 12/15 / 47 | 0.0005 |
+     | 12 | v11: v7 with the same four questions | same | 0.92 / 0.87 | 11/15 / 55 | 0.0004 |
+     | 13 | v12: v10 with three "after image only" rule questions | 43398751999, 43398757289 | "run together" only: 0.89 / 0.87 | "run together" only: 7/15 / 14 | 0.0005 |
+     | 14 | v13: v4 with the questions of v12 | 43399171865, 43399177407 | 0.89 / 0.81 / 0.24 | "run together" only: 7/13 / 9 | 0.0005 |
+     | Final | v0, the run-together question, the density rule | 43400628954, 43400633408, 43403029107 | 0.91 / 0.88 / 0.29 | 7/15 / 4 / 0.91; the 25 fixes: 0 flagged | 0.0005 |
+
+     Hold-out set: v0 0.91 / 0.86 / 0.26 and v5 0.88 / 0.83 / 0.21 (run 43384200923); final 0.91 / 0.86 / 0.26 (run 43400628954). The 17 runs cost $1.91.
 
 ## Consequences
 
@@ -73,7 +97,7 @@ The product owner decided on 2026-11-13: "Use Jev for this capability and just f
 - Only page stories. Most changed baselines of a PR are component stories.
 - No new-screenshot case got a result, so the judgment of a new screenshot by Jev has no measurement.
 - Jev does not give the same answer twice: on the same question and images, two runs differed by 0.025 on average and by up to 0.22 (rule 9). Thus a difference of a few flags between two variants of one run each is noise.
-- The redesign set is one PR, and rule 9 tuned on it. Its 15 regressions are of two kinds only.
+- The redesign set is one PR, and rule 9 tuned on it. Its 15 regressions are of two kinds only. The run-together question can be fitted to the one pattern that it finds.
 - 563 Anthropic calls returned no `usage.cost`. The spend of the run ($62.92) is an overestimate, and the Anthropic arms show no cost per story.
 
 ## First use
