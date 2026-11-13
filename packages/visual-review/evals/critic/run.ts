@@ -168,6 +168,7 @@ const variants: Record<string, JevVariant> = {
   v9: { state: "intended", images: "pair", score: true },
   v10: { state: "text", images: "all", atomic: true },
   v11: { state: "text", images: "pair", atomic: true },
+  v12: { state: "text", images: "all", atomic: true, rules: true },
 }
 
 /** The arm of one `--arms` entry. Throws for an unknown arm. */
@@ -396,12 +397,13 @@ async function blazediffLocal(folder: string, work: string): Promise<Judge> {
  * with the compare engine, and write the images for the judges into `work`.
  * A `new` case has only its after image, which goes to `work` as it is. A
  * case with no image, or with an image that does not have its SHA-256,
- * throws. `scope` is the scope of the stories of the manifest. The judge
+ * throws. `scope` is the scope of the stories of the manifest; a case with
+ * its own `scope` uses that one. The judge
  * panel (panel.ts) prepares a case in the same way.
  */
 export async function prepare(
   entry: Case,
-  scope: CaseManifest["scope"],
+  scope: StoryInput["scope"],
   get: (sha256: string) => Promise<Buffer>,
   images: string,
   work: string,
@@ -428,7 +430,7 @@ export async function prepare(
       entry,
       newStory: {
         storyId: entry.id,
-        scope,
+        scope: entry.scope ?? scope,
         images: [{ path, size }],
         brief: entry.brief,
       },
@@ -464,7 +466,7 @@ export async function prepare(
     },
     story: storyInput({
       storyId: entry.id,
-      scope,
+      scope: entry.scope ?? scope,
       viewport: entry.viewport,
       size,
       regions: measured.regions,

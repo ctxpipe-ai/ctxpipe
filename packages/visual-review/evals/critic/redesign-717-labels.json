@@ -1,0 +1,1526 @@
+[
+  {
+    "path": "apps/ui/src/components/SideNav/screenshots/SideNav.PlainLinkMovesCurrentNav.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/components/onboarding/screenshots/OnboardingCreateOrgSlide.CreateFailed.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Inline code chip grew from 11 px to 12 px; it still matches the 12 px help text."
+  },
+  {
+    "path": "apps/ui/src/components/onboarding/screenshots/OnboardingCreateOrgSlide.CreatingOrganization.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Inline code chip grew from 11 px to 12 px; it still matches the 12 px help text."
+  },
+  {
+    "path": "apps/ui/src/components/onboarding/screenshots/OnboardingCreateOrgSlide.Empty.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Inline code chip grew from 11 px to 12 px; it still matches the 12 px help text."
+  },
+  {
+    "path": "apps/ui/src/components/onboarding/screenshots/OnboardingCreateOrgSlide.InvalidSlug.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Inline code chip grew from 11 px to 12 px; it still matches the 12 px help text."
+  },
+  {
+    "path": "apps/ui/src/components/onboarding/screenshots/OnboardingCreateOrgSlide.PrefilledFromWorkEmail.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Inline code chip grew from 11 px to 12 px; it still matches the 12 px help text."
+  },
+  {
+    "path": "apps/ui/src/components/onboarding/screenshots/OnboardingCreateOrgSlide.ValidationError.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Inline code chip grew from 11 px to 12 px; it still matches the 12 px help text."
+  },
+  {
+    "path": "apps/ui/src/components/onboarding/screenshots/OnboardingHowItWorksSlide.Joiner.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "regression",
+    "reason": "Step label lost its hierarchy: the number touches the word (01Connect), and the label has the same bright medium weight as the body text, so label and body read as one level."
+  },
+  {
+    "path": "apps/ui/src/components/onboarding/screenshots/OnboardingHowItWorksSlide.NewOrganization.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "regression",
+    "reason": "Step label lost its hierarchy: the number touches the word (01Connect), and the label has the same bright medium weight as the body text, so label and body read as one level."
+  },
+  {
+    "path": "apps/ui/src/components/onboarding/screenshots/OnboardingHowItWorksSlide.RowsFadeInInOrder.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "regression",
+    "reason": "Step label lost its hierarchy: the number touches the word (01Connect), and the label has the same bright medium weight as the body text, so label and body read as one level."
+  },
+  {
+    "path": "apps/ui/src/components/onboarding/screenshots/OnboardingHowItWorksSlide.RowsWithReducedMotion.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "regression",
+    "reason": "Step label lost its hierarchy: the number touches the word (01Connect), and the label has the same bright medium weight as the body text, so label and body read as one level."
+  },
+  {
+    "path": "apps/ui/src/components/onboarding/screenshots/OnboardingPageShell.WithWelcomeSlide.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "regression",
+    "reason": "Step label lost its hierarchy: the number touches the word (01Connect), and the label has the same bright medium weight as the body text, so label and body read as one level."
+  },
+  {
+    "path": "apps/ui/src/components/ui/screenshots/InlineLoader.Determinate.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Loader label uses text-xs; the line height moves the bar up by 1 to 2 px. Balance is the same."
+  },
+  {
+    "path": "apps/ui/src/components/ui/screenshots/InlineLoader.Indeterminate.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Loader label uses text-xs; the line height moves the bar up by 1 to 2 px. Balance is the same."
+  },
+  {
+    "path": "apps/ui/src/features/auth/screenshots/OAuthConsent.ConsentNeedsOneOrg.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "The OAuth connection eyebrow above the title is removed; the title leads the card."
+  },
+  {
+    "path": "apps/ui/src/features/auth/screenshots/OAuthConsent.ConsentOrgPicker.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "The OAuth connection eyebrow above the title is removed; the title leads the card."
+  },
+  {
+    "path": "apps/ui/src/features/auth/screenshots/OAuthConsent.ConsentOrgsUnavailable.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "The OAuth connection eyebrow above the title is removed; the title leads the card."
+  },
+  {
+    "path": "apps/ui/src/features/auth/screenshots/OAuthConsent.ConsentReadOnly.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "The OAuth connection eyebrow above the title is removed; the title leads the card."
+  },
+  {
+    "path": "apps/ui/src/features/auth/screenshots/OAuthConsent.ConsentWriteOffByDefault.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "The OAuth connection eyebrow above the title is removed; the title leads the card."
+  },
+  {
+    "path": "apps/ui/src/features/auth/screenshots/OAuthConsent.ConsentWriteOnly.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "The OAuth connection eyebrow above the title is removed; the title leads the card."
+  },
+  {
+    "path": "apps/ui/src/features/auth/screenshots/OAuthOrganizationSelector.MultipleOrganizations.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "The OAuth connection eyebrow above the title is removed; the title leads the card."
+  },
+  {
+    "path": "apps/ui/src/features/connectors/components/confluence-setup/screenshots/ConfluenceSetupWizard.Loading.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Loader label uses text-xs; the line height moves the bar up by 1 to 2 px. Balance is the same."
+  },
+  {
+    "path": "apps/ui/src/features/connectors/components/confluence-setup/screenshots/ConfluenceSetupWizard.RegisterAtlassianOauth.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Scope code chips grew from 13 px to 14 px (text-sm); rows stay even."
+  },
+  {
+    "path": "apps/ui/src/features/connectors/components/confluence-setup/steps/screenshots/RegisterAtlassianOauthStep.RegisterOAuth.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Scope code chips grew from 13 px to 14 px (text-sm); rows stay even."
+  },
+  {
+    "path": "apps/ui/src/features/connectors/components/linear-setup/screenshots/LinearSetupWizard.Loading.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Loader label uses text-xs; the line height moves the bar up by 1 to 2 px. Balance is the same."
+  },
+  {
+    "path": "apps/ui/src/features/connectors/components/screenshots/BuildkiteConnectionCard.ReplaceWebhookToken.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Quiet button hover is a subtle background wash, not a teal glow."
+  },
+  {
+    "path": "apps/ui/src/features/connectors/components/screenshots/ConnectorsEmptyState.EmptyState.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Empty state without the icon tile: short title, one sentence, one primary button. Clearly better."
+  },
+  {
+    "path": "apps/ui/src/features/connectors/components/screenshots/OrgAtlassianOauthPanel.Embedded.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Scope code chips grew from 13 px to 14 px (text-sm); rows stay even."
+  },
+  {
+    "path": "apps/ui/src/features/connectors/components/screenshots/OrgAtlassianOauthPanel.OAuthPanel.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Scope code chips grew from 13 px to 14 px (text-sm); rows stay even."
+  },
+  {
+    "path": "apps/ui/src/features/connectors/components/screenshots/SlackSetupDialog.CaptureWorkspace.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Inline code chips grew from 11 px to 12 px."
+  },
+  {
+    "path": "apps/ui/src/features/connectors/components/screenshots/SlackSetupDialog.Loading.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Loader label uses text-xs; the line height moves the bar up by 1 to 2 px. Balance is the same."
+  },
+  {
+    "path": "apps/ui/src/features/connectors/components/screenshots/SlackSetupDialog.ManageAgainShowsTheNewScope.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Inline code chips grew from 11 px to 12 px."
+  },
+  {
+    "path": "apps/ui/src/features/hints/screenshots/OnboardingHint.AddWorkspaceHint.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/hints/screenshots/OnboardingHint.AddWorkspaceHintSkippedAfterCreating.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/hints/screenshots/OnboardingHint.AddWorkspaceHintWaitsForDialog.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/knowledge-graph/screenshots/KnowledgeGraphCosmographCanvas.NativeLegends.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Icon tile above the graph wait or error state removed; the title and the bar stay centered."
+  },
+  {
+    "path": "apps/ui/src/features/knowledge-graph/screenshots/KnowledgeGraphCosmographCanvas.NoWebGL.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Icon tile above the graph wait or error state removed; the title and the bar stay centered."
+  },
+  {
+    "path": "apps/ui/src/features/knowledge-graph/screenshots/KnowledgeGraphCosmographCanvas.PaneNarrow.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Icon tile above the graph wait or error state removed; the title and the bar stay centered."
+  },
+  {
+    "path": "apps/ui/src/features/knowledge-graph/screenshots/KnowledgeGraphCosmographCanvas.PaneWide.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Icon tile above the graph wait or error state removed; the title and the bar stay centered."
+  },
+  {
+    "path": "apps/ui/src/features/knowledge-graph/screenshots/NodeDetailDrawer.SourceLink.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Quiet button hover is a subtle background wash, not a teal glow."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/GithubWorkspaceDestination.Empty.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/GithubWorkspaceDestination.LoadError.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/GithubWorkspaceDestination.Loading.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/GithubWorkspaceDestination.LoadingSkeletonMatches.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/GithubWorkspaceDestination.Populated.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceCommandPalette.Open.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Menu section header grew from 11 px to 12 px; the header row keeps its height."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceCommandPalette.PaletteFiltersAtOnce.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Menu section header grew from 11 px to 12 px; the header row keeps its height."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceCommandPalette.PaletteHoverAndKeysShareOneHighlight.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Menu section header grew from 11 px to 12 px; the header row keeps its height."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceCommandPalette.PaletteLoadingKeepsPages.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Menu section header grew from 11 px to 12 px; the header row keeps its height."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceCommandPalette.PaletteSkeletonHandsOverOnce.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Menu section header grew from 11 px to 12 px; the header row keeps its height."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceFileTree.DeletedFileStaysUntilMerged.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Quiet button hover is a subtle background wash, not a teal glow."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceFileTree.NewPathsKeepExpandedFolders.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Quiet button hover is a subtle background wash, not a teal glow."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceFileTree.SearchOpen.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Quiet button hover is a subtle background wash, not a teal glow."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceGraphPane.EmptyProjection.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Icon tile above the graph wait or error state removed; the title and the bar stay centered."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceGraphPane.Loading.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Icon tile above the graph wait or error state removed; the title and the bar stay centered."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceGraphPane.NarrowPane.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Icon tile above the graph wait or error state removed; the title and the bar stay centered."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceGraphPane.NodesWithoutRelationships.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Icon tile above the graph wait or error state removed; the title and the bar stay centered."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceGraphPane.Populated.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Icon tile above the graph wait or error state removed; the title and the bar stay centered."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceGraphPane.WidePane.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Icon tile above the graph wait or error state removed; the title and the bar stay centered."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceHydrateProgress.PrepareReadingKnowledge.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Workspace eyebrow above the title removed; the title leads."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceHydrateProgress.PrepareWaitingForTip.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Workspace eyebrow above the title removed; the title leads."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceNavList.AddWorkspaceThenRepositories.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceNavList.Empty.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceNavList.LoadFails.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceNavList.MultipleWorkspaces.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceNavList.SingleWorkspace.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspacePane.DefaultBranchUntilSandboxReady.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Quiet button hover is a subtle background wash, not a teal glow."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspacePane.GraphLoading.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Icon tile above the graph wait or error state removed; the title and the bar stay centered."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspacePane.GraphLostRebuilds.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Icon tile above the graph wait or error state removed; the title and the bar stay centered."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspacePane.GraphPhasePending.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Icon tile above the graph wait or error state removed; the title and the bar stay centered."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.Compose.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.ComposeNeedsFormatUpgrade.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.Conversation.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.ConversationKeepsExplicitPaneSearch.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.ConversationLoading.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.ConversationMissing.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.ConversationNavIsChatOnly.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.ConversationNeedsFormatUpgrade.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.ConversationWorkspaceMovedNoChanges.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.ConversationWorkspaceMovedWithChanges.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.CreatePrMatchesPaneTriggers.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.DeleteFromConversationShowsNoError.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.DeleteLastWorkspaceShowsNoError.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.DeleteWorkspaceShowsNoError.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.DiffTabRoundedCorner.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.DiffTriggerNoChanges.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.DiffTriggerPaneClosed.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.FailedTouchIsCaught.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.FilesPane.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.FixUsingAgentOpensChat.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.GraphPane.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.Hydrating.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Eyebrow label above the title removed; the title leads; the sidebar Workspaces header is 12 px."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.Hydrating.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "Eyebrow label above the title removed; the title leads; the sidebar Workspaces header is 12 px."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.IngestingDemo.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.LoadError.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Eyebrow label above the title removed; the title leads; the sidebar Workspaces header is 12 px."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.LoadError.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "Eyebrow label above the title removed; the title leads; the sidebar Workspaces header is 12 px."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.Loading.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.MaximizedPaneMatchesHeader.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.NotFound.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Eyebrow label above the title removed; the title leads; the sidebar Workspaces header is 12 px."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.NotFound.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "Eyebrow label above the title removed; the title leads; the sidebar Workspaces header is 12 px."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.PaneTabsStayInPlace.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.PrepareFailed.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.PublishErrorsToast.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.PublishPrErrorToast.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.ReadOnly.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.SettingsPane.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.SettingsPaneLandsOnUpgrades.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.SharedPublishPending.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.SingleCreatePr.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.SingleCreatePrPaneClosed.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.StableRequestBudget.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.SurfaceSkeletonMatches.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.SyncAddsThreadEntry.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.WaitingForTip.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Eyebrow label above the title removed; the title leads; the sidebar Workspaces header is 12 px."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.WaitingForTip.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "Eyebrow label above the title removed; the title leads; the sidebar Workspaces header is 12 px."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.WriteCheckFailedStopsPolling.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.WriteCheckStallStopsPolling.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-account.ApiKeysCreateWithOrganizations.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "The mono uppercase page label is now a sentence-case page title; it stays larger than the 16 px card titles of this view."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-account.ApiKeysEditOrganizations.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "The mono uppercase page label is now a sentence-case page title; it stays larger than the 16 px card titles of this view."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-account.ApiKeysEmpty.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "The mono uppercase page label is now a sentence-case page title; it stays larger than the 16 px card titles of this view."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-account.ConnectedAppsEditOrgs.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "The mono uppercase page label is now a sentence-case page title; it stays larger than the 16 px card titles of this view."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-account.ConnectedAppsEmpty.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "The mono uppercase page label is now a sentence-case page title; it stays larger than the 16 px card titles of this view."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-account.ConnectedAppsRevoke.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "The mono uppercase page label is now a sentence-case page title; it stays larger than the 16 px card titles of this view."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-account.OrganizationDeletedStaleSelection.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "regression",
+    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the card titles under it (Name, Email, Organizations, Slug URL at text-xl, semibold)."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-account.OrganizationsView.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "regression",
+    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the card titles under it (Name, Email, Organizations, Slug URL at text-xl, semibold)."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-account.OrganizationsView.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "regression",
+    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the card titles under it (Name, Email, Organizations, Slug URL at text-xl, semibold)."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-account.Settings.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "regression",
+    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the card titles under it (Name, Email, Organizations, Slug URL at text-xl, semibold)."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-account.Settings.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "regression",
+    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the card titles under it (Name, Email, Organizations, Slug URL at text-xl, semibold)."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-auth.SelectOrganization.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "The OAuth connection eyebrow above the title is removed; the title leads the card."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-auth.SelectOrganization.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "The OAuth connection eyebrow above the title is removed; the title leads the card."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.BuildkiteFromCatalog.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Connectors eyebrow above the title removed; a static status dot does not pulse."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.BuildkiteFromCatalog.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "Connectors eyebrow above the title removed; a static status dot does not pulse."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.CouldntLoad.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Connectors eyebrow above the title removed; a static status dot does not pulse."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.CouldntLoad.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "Connectors eyebrow above the title removed; a static status dot does not pulse."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.Empty.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Connectors eyebrow and the empty-state icon tile removed; short copy and one primary button. Clearly better."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.Empty.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "Connectors eyebrow and the empty-state icon tile removed; short copy and one primary button. Clearly better."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.FixFromCatalog.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Connectors eyebrow above the title removed; a static status dot does not pulse."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.FixFromCatalog.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "Connectors eyebrow above the title removed; a static status dot does not pulse."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.Full.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "A static status dot does not pulse; the sidebar Workspaces header is 12 px."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.Full.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "A static status dot does not pulse; the sidebar Workspaces header is 12 px."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.InProgress.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Connectors eyebrow above the title removed; a static status dot does not pulse."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.InProgress.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "Connectors eyebrow above the title removed; a static status dot does not pulse."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.Loading.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Connectors eyebrow above the title removed; a static status dot does not pulse."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.Loading.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "Connectors eyebrow above the title removed; a static status dot does not pulse."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.MixedHealth.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Connectors eyebrow above the title removed; a static status dot does not pulse."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.MixedHealth.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "Connectors eyebrow above the title removed; a static status dot does not pulse."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.NeedsFormatUpgrade.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Connectors eyebrow above the title removed; a static status dot does not pulse."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.NeedsFormatUpgrade.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "Connectors eyebrow above the title removed; a static status dot does not pulse."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.NeedsFormatUpgradeNoConnections.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Connectors eyebrow and the empty-state icon tile removed; short copy and one primary button. Clearly better."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.NeedsFormatUpgradeNoConnections.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "Connectors eyebrow and the empty-state icon tile removed; short copy and one primary button. Clearly better."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.NeedsFormatUpgradeNoRowYet.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Connectors eyebrow above the title removed; a static status dot does not pulse."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.NeedsFormatUpgradeNoRowYet.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "Connectors eyebrow above the title removed; a static status dot does not pulse."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.PlainFromCatalog.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Connectors eyebrow above the title removed; a static status dot does not pulse."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.PlainFromCatalog.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "Connectors eyebrow above the title removed; a static status dot does not pulse."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.ReopensConfluenceWizardAfterAccountLink.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Connectors eyebrow above the title removed; a static status dot does not pulse."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-connectors.ReopensConfluenceWizardAfterAccountLink.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "Connectors eyebrow above the title removed; a static status dot does not pulse."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-consent.ConsentSendsTickedOrgs.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "The OAuth connection eyebrow above the title is removed; the title leads the card."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-consent.ConsentSendsTickedOrgs.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "The OAuth connection eyebrow above the title is removed; the title leads the card."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-github.link.ChecksAccountsBeforeLinking.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-github.link.ChecksAccountsBeforeLinking.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-github.link.LinkedToAnotherUser.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-github.link.LinkedToAnotherUser.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-github.link.LinksWhenNoGithubAccount.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-github.link.LinksWhenNoGithubAccount.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-github.link.RefusesOtherAddress.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-github.link.RefusesOtherAddress.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-github.link.RefusesWithoutConnectFlow.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-github.link.RefusesWithoutConnectFlow.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-github.setup.NotLinkedShowsLinkError.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-github.setup.NotLinkedShowsLinkError.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-github.setup.RegistrationRefused.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-github.setup.RegistrationRefused.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-notices.AlwaysUpdate.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-notices.AlwaysUpdateSaveFails.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-notices.AlwaysUpdateSlowSave.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-notices.CollapsedBothTypes.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-notices.Dismiss.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-notices.DismissedCollapseToIcon.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-notices.FailedUpgrade.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-notices.FailedUpgradeMember.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-notices.MemberView.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-notices.MixedStack.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-notices.NoToastWhenNothingToStart.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-notices.ProblemLegacyOverlayAndFile.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-notices.ProblemLegacyOverlayOnly.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-notices.ProblemOnly.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-notices.ReducedMotion.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-notices.SingleToast.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-notices.StackOfThree.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-notices.ToastTakesNoSpaceAfterItGoes.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-notices.UpdateOnce.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.FadesInAfterOnboarding.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideAdminAfterFirstQuestion.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideAdminCreatesWorkspaceOnHome.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideAdminLinksRepositoriesOnHome.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideAdminNewOrg.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideAdminWorkspaceBuildFailed.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideAdminWorkspaceBuilding.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideAdminWorkspaceReadingRepository.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideAllDone.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideConnectGithubOpensLinkPopup.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideDismissRemovesIt.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideEditorStepCopiesCommand.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideEstablishedUserEmptyOrg.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideEstablishedUserHidden.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideEstablishedUserNewOrg.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideMemberNoWorkspace.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideMemberView.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideReservesNoSpaceWhileLoading.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideRoleFailureHidesIt.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideSignalFailureKeepsHome.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideStaysAfterFirstWorkspace.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home-setup-guide.HandOffShowsHomeWhenDataIsSlow.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home.ActivityAndRecentKeepTheirGap.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home.ActivityLoading.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home.Empty.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home.EmptyRecentWhileActivityLoads.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home.Loading.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home.NoHistory.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home.Populated.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home.WorkspacesLoadFails.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-home.WorkspacesLoading.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-onboarding.DoubleClickMovesOneSlide.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Inline code chip grew from 11 px to 12 px; it still matches the 12 px help text."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-onboarding.DoubleClickMovesOneSlide.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "Inline code chip grew from 11 px to 12 px; it still matches the 12 px help text."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-onboarding.JoinerFinishStaysWhenSessionIsStale.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "regression",
+    "reason": "Step label lost its hierarchy: the number touches the word (01Connect), and the label has the same bright medium weight as the body text, so label and body read as one level."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-onboarding.JoinerFinishStaysWhenSessionIsStale.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "regression",
+    "reason": "Step label lost its hierarchy: the number touches the word (01Connect), and the label has the same bright medium weight as the body text, so label and body read as one level."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-org-github-setup.CheckFails.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-org-github-setup.CheckFails.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-org-github-setup.Checking.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-org-github-setup.Checking.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-org-github-setup.ChooseWorkspace.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-org-github-setup.ChooseWorkspace.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-org-github-setup.NotInstalled.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-org-github-setup.NotInstalled.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "intended",
+    "reason": "GitHub eyebrow above the title removed; the title or the alert leads the page."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-organization.ApiKeysEmpty.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "The mono uppercase page label is now a sentence-case page title; it stays larger than the 16 px card titles of this view."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-organization.ApiKeysMemberForbidden.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "The mono uppercase page label is now a sentence-case page title; it stays larger than the 16 px card titles of this view."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-organization.ApiKeysPopulated.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "The mono uppercase page label is now a sentence-case page title; it stays larger than the 16 px card titles of this view."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-organization.LoadingKeepsFrame.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "The mono uppercase page label is now a sentence-case page title; it stays larger than the 16 px card titles of this view."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-organization.Settings.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "regression",
+    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the card titles under it (Name, Email, Organizations, Slug URL at text-xl, semibold)."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-organization.Settings.mobile.screenshot.png",
+    "viewport": "mobile",
+    "label": "regression",
+    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the card titles under it (Name, Email, Organizations, Slug URL at text-xl, semibold)."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-organization.SubPagesKeepOnePosition.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "regression",
+    "reason": "Hierarchy inverted: the new page title (text-lg, medium) is smaller and lighter than the card titles under it (Name, Email, Organizations, Slug URL at text-xl, semibold)."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-workspaces.new.CreateMovesToStepTwoUrl.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-workspaces.new.CreateOnGitHub.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-workspaces.new.KeepsPlaceBetweenSteps.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-workspaces.new.Loading.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-workspaces.new.LoadingStepTwo.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-workspaces.new.PasteUrl.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-workspaces.new.SelectGitHub.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-workspaces.new.StepTwoFormatAhead.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-workspaces.new.StepTwoFormatNotValid.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-workspaces.new.StepTwoFromUrl.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-workspaces.new.StepTwoUpgradesReadFails.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-workspaces.new.StepTwoWaitsForFormat.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  },
+  {
+    "path": "apps/ui/src/routes/screenshots/-workspaces.new.UnknownWorkspaceInUrl.desktop.screenshot.png",
+    "viewport": "desktop",
+    "label": "intended",
+    "reason": "Only the sidebar Workspaces header grew from 10 px to 12 px; nothing else changed."
+  }
+]

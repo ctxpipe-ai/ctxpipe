@@ -7,6 +7,1414 @@
   "scope": "page",
   "cases": [
     {
+      "id": "redesign-f60754e6",
+      "storyId": "SideNav.PlainLinkMovesCurrentNav",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 340,
+      "images": {
+        "before": "06d9a7b9dd3d3c858eaf550cf5006a9944442c7f09990a2d74d8b8821539da4a",
+        "after": "6c1e77f0dd46e6b8867d97c0201405d7f5da76160fe43a34f66f9771802e836b"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-6218447a",
+      "storyId": "OnboardingCreateOrgSlide.CreateFailed",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 129,
+      "images": {
+        "before": "fc13de288060d9a8c83627836eb4a61f5b730d5dfcbc5eadd74929adc1e9ff27",
+        "after": "08794e28e61166f00d2f02bd9e4540026b46f5b485d66276b2785c25ef643d8a"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-89b8a607",
+      "storyId": "OnboardingHowItWorksSlide.Joiner",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 13417,
+      "images": {
+        "before": "26c612e2eeafd838e40235bc6820f54f7e5a912f3c152d675fd71357e6104125",
+        "after": "c68ddb52cd7e15f5f19882fa28a8f033c2587a2405f104b9149e4f1611710e10"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "regression",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-5af94d1a",
+      "storyId": "OnboardingHowItWorksSlide.NewOrganization",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 13246,
+      "images": {
+        "before": "f9cefebac9bec20a23b9809ef27c88862a30201cf3b221e9a3a1a5e6126762d8",
+        "after": "4cba6a117c9162d899175d3ace0159c1eaa7af95a6b09192e33041c60ee807bc"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "regression",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-9d6c1d5a",
+      "storyId": "OnboardingHowItWorksSlide.RowsFadeInInOrder",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 12879,
+      "images": {
+        "before": "072d8f441d4f4e68cd4441936590f9255cfdbbea1e1ec918131dd84fbd314fd8",
+        "after": "a6bafb982f6af3f829c4b39d54b03a4b2c7e0fbb718896580ec22bcfe068b95c"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "regression",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-1ee2ac75",
+      "storyId": "OnboardingHowItWorksSlide.RowsWithReducedMotion",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 12879,
+      "images": {
+        "before": "072d8f441d4f4e68cd4441936590f9255cfdbbea1e1ec918131dd84fbd314fd8",
+        "after": "a6bafb982f6af3f829c4b39d54b03a4b2c7e0fbb718896580ec22bcfe068b95c"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "regression",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-45ab9015",
+      "storyId": "OnboardingPageShell.WithWelcomeSlide",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 14288,
+      "images": {
+        "before": "2107f593798d85ffd773c1092cbb8ba6bb55a062a577077775f585ce33a4382b",
+        "after": "47f8a5a8e70b53303b1dcb0160b0337d13f5d2a52971b41731858e19a733b44f"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "regression",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-d0d7aa41",
+      "storyId": "InlineLoader.Determinate",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 564,
+      "images": {
+        "before": "ef50f2aac57c65746c6ae37c00373f3606bf3aa7123e2a9e61ed3606898d8caf",
+        "after": "fb29fa852e8340886fe6d626ff25c541dacb339f2fcd17e777d8d38f07564c64"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-5e2b8f07",
+      "storyId": "InlineLoader.Indeterminate",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 657,
+      "images": {
+        "before": "35188d4d80ac77d564d37b53f2a1c88a6472d21ab73bc50af399044c2cabba16",
+        "after": "9e0e472e1a15c2c702417904ec8d78dcaeefc456b5eead319077389c908b7ec0"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-79d78b09",
+      "storyId": "OAuthConsent.ConsentNeedsOneOrg",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 28548,
+      "images": {
+        "before": "2fdcacf529c6531638c93f1d5fa845c445734c5421429a2b24477f8fb50484b3",
+        "after": "a2f72564c2f4948dc1f275beb031ecfb935f2138e4d932798cbfb9949238c835"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-b92b3b1f",
+      "storyId": "OAuthConsent.ConsentOrgPicker",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 28130,
+      "images": {
+        "before": "efa22fb1421d1e42a94e7e80874509cf339bb25b47448576e16d1d44ffd5be6c",
+        "after": "fa80c2096fbf76f9abc5261e2f36f1d83d1af3d6c526ade97a0a2a51d163228e"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-93a02320",
+      "storyId": "OAuthConsent.ConsentOrgsUnavailable",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 31302,
+      "images": {
+        "before": "90e0c9473282d5d62d88671d4c462ee3d56265e063820b4f3f7c6493b11c78b0",
+        "after": "a12c1a8390be87642f2998ef7447da725f6cf8d8419f5b7df09f03f5dc9c9314"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-4bfbaa6c",
+      "storyId": "OAuthConsent.ConsentReadOnly",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 20694,
+      "images": {
+        "before": "682f96549bc05d3b8628700c7e56f00fcf037f51fe0a092d1c7f064b4e620566",
+        "after": "11407eac88eeff9800b4b21ac24775aa254cb5f76b7df8ebced4e7073c9c3609"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-693efad7",
+      "storyId": "OAuthConsent.ConsentWriteOnly",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 22382,
+      "images": {
+        "before": "17cd799847670f99c1558768090ce9a8cecd14edca1423933121811cfe1f5112",
+        "after": "576058fca930a19fb4d549e4e278f1942709aaa9e600fd77023c651f98eb74d7"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-dc231a88",
+      "storyId": "OAuthOrganizationSelector.MultipleOrganizations",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 19600,
+      "images": {
+        "before": "2726211ef13a0285f759b6c8a571ebfac58b71807574cc98a812ad954b783c64",
+        "after": "ffbfda9ced1adbfadb3710bc3de0b4630f263ac2c0dee756a30d64828284b56f"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-62eab834",
+      "storyId": "ConfluenceSetupWizard.Loading",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 5016,
+      "images": {
+        "before": "f612bdc029e33383d9f322888002eef0fa2154c2a4c2d7be2a9ef1864ef7e41b",
+        "after": "20f873e1a8c81f19e7e6698ddc180fa9ab098e11ca72552bf16947daea957b47"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-71407f7c",
+      "storyId": "ConfluenceSetupWizard.RegisterAtlassianOauth",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 11311,
+      "images": {
+        "before": "cf830e024ae0a87f688272f759314730bfe7e5bc6071662560c47d8a505d6d2d",
+        "after": "a709d7ac8748d478016bde2f86d42d3533fe0403b3ee930ede328dcca441a7dd"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-4168f2af",
+      "storyId": "RegisterAtlassianOauthStep.RegisterOAuth",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 11190,
+      "images": {
+        "before": "10e447ce71d54bf7abb8664c09590c9cb4404e5f0e5312f7e1917876751feab6",
+        "after": "cc3505ff43dbe98cbb4a14ca123a06958afcfb86f32b5302ddff1a3c7fa57e34"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-7b048adf",
+      "storyId": "LinearSetupWizard.Loading",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 4827,
+      "images": {
+        "before": "1cca6cf8f396aa8684ab0f144a15f55e5045153921c0b9021d7309b68dcc43f0",
+        "after": "20bda2df876e906d8c80b20220ce1ab9a9b4be089c69583998f7c2c173d73f5f"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-d1482f6e",
+      "storyId": "BuildkiteConnectionCard.ReplaceWebhookToken",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 946,
+      "images": {
+        "before": "e08d2bbe8536050958b8e072a345e842f017022f45c8e6cfc89d3334ac2be07f",
+        "after": "002c913a3b09fd8cc21df95ff4158b698b2adfb65d7f65c787877ac24ee697ec"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-3da8a725",
+      "storyId": "ConnectorsEmptyState.EmptyState",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 11988,
+      "images": {
+        "before": "ce9c3d0424fd86521c320479773c08fd6777e1c7fdc42836a01026d7f8827d4a",
+        "after": "0e383fbc0e6a03091684aa2484752e686b86dd3472ddf4a48e48cb1ca08f0950"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-c717dafa",
+      "storyId": "OrgAtlassianOauthPanel.Embedded",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 13054,
+      "images": {
+        "before": "2a1be51fa9ce39f28e1794b9e7294713b36726826d8fa986efe40dce6b151ea7",
+        "after": "279f6846ca9caf0b6f9f2db99afc44323ccbfd028bc76c3e42c71da30972e879"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-dde4299d",
+      "storyId": "OrgAtlassianOauthPanel.OAuthPanel",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 12566,
+      "images": {
+        "before": "3b27a1e9d1127b0817800b5b05ed2b900f49e8482e023f3a1ec89c4fd0fe4252",
+        "after": "78e9a36befec07ae2875999b51877700c31db329c2db5d8bb6c40067d4eec696"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-ec3ccf22",
+      "storyId": "SlackSetupDialog.CaptureWorkspace",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 465,
+      "images": {
+        "before": "65767008ec60a391f2c117edc84f61932d82ff642816ff6db9ead645edc6092d",
+        "after": "a847ea1f39f85123b7c4e8da23c34595c457529829264237ad315a09dc23807e"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-94aca29a",
+      "storyId": "SlackSetupDialog.Loading",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 5354,
+      "images": {
+        "before": "95688beae85333cb5bca0403acbb5d23a65c6613b4c324d2b9a5d25e100c76ed",
+        "after": "a8d0139e53f346c3c12bd5c0276a2ec4f1299478ae60d7126c08df886ec10c79"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-b6944a4d",
+      "storyId": "OnboardingHint.AddWorkspaceHint",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 367,
+      "images": {
+        "before": "b6bce62c281c42854f24e7967ddab6e422281a171045be067645155e019e94bc",
+        "after": "76e939a1b9200685ae42646a135bf591834eee02e7095f5fa735df04dd29ef8d"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-7fd0764f",
+      "storyId": "KnowledgeGraphCosmographCanvas.NativeLegends",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 4484,
+      "images": {
+        "before": "b4747fdfe6a672d263c643063e54c7a3cedbf97aee603a1f81498f1d95e167d0",
+        "after": "44f86559e8cf1ff7bdb202184738c10cf243ea0091e1cd420fb8d300838b8754"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-8e2fb36c",
+      "storyId": "KnowledgeGraphCosmographCanvas.NoWebGL",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 9228,
+      "images": {
+        "before": "81a664b3eb8fff57d38dbc515215d2aa14ed78f2b558a7c42d326176ff9e0aaf",
+        "after": "94ae4236a0ee256b86aa477a4d522aa686f019b48b69d8368cab209e6883755d"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-08a40f18",
+      "storyId": "KnowledgeGraphCosmographCanvas.PaneNarrow",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 4484,
+      "images": {
+        "before": "65a3d0aab54d8868c5983a1d182eb2e01259995ddeddc7af9b8d61f46ed72154",
+        "after": "b0e70f9465991c7f8adb0d569700392b32b1a0a6809cfd14152518be0c0decb5"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-929c6622",
+      "storyId": "KnowledgeGraphCosmographCanvas.PaneWide",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 4484,
+      "images": {
+        "before": "bcb63a0cffd0c3da25cb226fcbdcaa55ced70fea5de2ae4f50b4c1c8fed978bf",
+        "after": "e04c5aff622fa5c3057d44e5e059413346c10d76dfed80972fbf051ff0293c33"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-a5897c8c",
+      "storyId": "NodeDetailDrawer.SourceLink",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 25,
+      "images": {
+        "before": "6cf6e8b24693cb2b6709b7753c8e5dd05c71e10b067614f9e0971b7823f231ca",
+        "after": "6058e58e795f38616f331455743151f8a5860b93457852ba1f98253f1db0a2b9"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-ce5a00f4",
+      "storyId": "GithubWorkspaceDestination.Empty",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 15444,
+      "images": {
+        "before": "8a32a8c93d8acef7d3ff4b93ed60cda98cf3e024c3f2c6998a4e80a1c846152f",
+        "after": "5507068b314d3e7ccfdaa69c50983957289b7ae5c285d28f01f5fedac5e3a722"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-f47a6923",
+      "storyId": "GithubWorkspaceDestination.LoadError",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 13136,
+      "images": {
+        "before": "e453a94b19bbb5452c173fd9ac988d163f8ded0f97194a71ce37a22e9254950a",
+        "after": "63e7a5bc411e750800e6907f79bdfcd2222760df9d59904f56b1f7e5ccc6f916"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-0d2b16b2",
+      "storyId": "GithubWorkspaceDestination.Loading",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 5681,
+      "images": {
+        "before": "ccbbe2145ccebf2f05c63fa7fdb5f18b20001e1a62c49051f9fc081ce35d26f3",
+        "after": "07064aa288346f1cae28b54ca5c3cae27a1148ae8af84b1c9303764d5ab1b573"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-c7e3b388",
+      "storyId": "GithubWorkspaceDestination.LoadingSkeletonMatches",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 18869,
+      "images": {
+        "before": "3c30c8d14f8d93925030b87a141e1b9abccae61a701a2732774dfcfd2d810722",
+        "after": "7d4269723ccad1e652ea8e8a3032e02ea98c0a6275a1c366f2bd0fed0978111e"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-0c2f23fa",
+      "storyId": "GithubWorkspaceDestination.Populated",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 14277,
+      "images": {
+        "before": "eaaa7bcdc83c9dfcfc4d92da19c9a5c39cf14716b5de47206738e2d9ab0a8972",
+        "after": "3af4f5e421a12d73e04705bac68a25e2be62b7dabbc75f814191a1e880d4cdca"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-0c3f88da",
+      "storyId": "WorkspaceCommandPalette.Open",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 3652,
+      "images": {
+        "before": "7858f43310578cbc7d6029dc4f5c69445bf3280968323f8fd4135bc720da868c",
+        "after": "af1a5f62160cb389f12b1c6ff4c1dac62066bda20330a8a0165a844e5ba0a185"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-c62f82ad",
+      "storyId": "WorkspaceCommandPalette.PaletteFiltersAtOnce",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 3271,
+      "images": {
+        "before": "26837004ad99132ae5ee8b9f07d9f6549c64bea0d6a9c4ad28f6c21058d428ec",
+        "after": "10db1d2cd2b7bd6a1e363bf6a01cf3b0df522518f4bf7d74175fb81022bb4b52"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-02a1a392",
+      "storyId": "WorkspaceCommandPalette.PaletteHoverAndKeysShareOneHighlight",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 4772,
+      "images": {
+        "before": "cda47676563fe85e4b9a39df2342fc16ebb13e8d424c46bcf832e36f4f751e27",
+        "after": "0e0f08f7a99c610c02f2fe723d2f772f9971e9bada03bf0c9219a17d5874889f"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-8aaa52a9",
+      "storyId": "WorkspaceCommandPalette.PaletteLoadingKeepsPages",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 1775,
+      "images": {
+        "before": "13ecbf2ad7a40011a36130c14718fd6d7c8bace1c3014431243fbbcb1ccc79fb",
+        "after": "22a9e4aee45bbb16af265e19e0bea0d66190c17b26886c02a49aa9cc425f9614"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-c7692432",
+      "storyId": "WorkspaceFileTree.DeletedFileStaysUntilMerged",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 814,
+      "images": {
+        "before": "a564d73beb164d418eb4d565c117c5283f91662b00600239a07f34e23cc7fa9e",
+        "after": "269510395b03abc512a75c988b12ebff40e21c811de646f8ef021fa99763409e"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-e66a2784",
+      "storyId": "WorkspaceFileTree.NewPathsKeepExpandedFolders",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 534,
+      "images": {
+        "before": "8df03ddd8c5bda94b887721261a7f0179a4ac5c809c925e9a8a8ff931fa73a29",
+        "after": "5e766e84edde6dfa36500e25f42333405ce3957a23a1ec2032684fe0385c5212"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-3adf2995",
+      "storyId": "WorkspaceFileTree.SearchOpen",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 47,
+      "images": {
+        "before": "3a3c7064ca304380ab56b156fa2f732cb51ba3f850c181bea9ceaef2982facf5",
+        "after": "7b11cd4891f42fce9e3f40cbe03c4acef0e17853200779a74601eba1400d22c2"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-0a99cb6d",
+      "storyId": "WorkspaceGraphPane.EmptyProjection",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 5465,
+      "images": {
+        "before": "116c6ebc0695771f926e18ed25b2f3e3c0a5904952f760f5f6f4d66a1cd0f34e",
+        "after": "4aaec7c6fef7ed5d665a5e7cd72e9b03819636d76320e84475bde52df0e0adaa"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-96298818",
+      "storyId": "WorkspaceGraphPane.Loading",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 5963,
+      "images": {
+        "before": "82142f84a077f170c3145046b7b4cd93ba12999f7b86ebe783f7a8f459571fc4",
+        "after": "3a3682d4fb17818d493811d7c09d1b13b1652cfd62662d48b7c7fb2e5563968d"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-d6c422a7",
+      "storyId": "WorkspaceHydrateProgress.PrepareReadingKnowledge",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 7947,
+      "images": {
+        "before": "f02c99932e3ec1238baf4817fbb21fc278152dbb90c36b23ee9ece00431e16a0",
+        "after": "d0ba6ee9afd1708c1061b073b6ee13381201e7d53a93ba73e91ffc0d80dd6779"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-b9982c19",
+      "storyId": "WorkspaceHydrateProgress.PrepareWaitingForTip",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 15576,
+      "images": {
+        "before": "79aea031698da0bad8b137b1f4b8db92502c36ace83f3c0f472a184bfeec7acb",
+        "after": "f5de0a8564e6a2030bee90203c036117f6aa6b8903b9a69dfa6447bb7767a5e5"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-81eb26cf",
+      "storyId": "WorkspacePane.DefaultBranchUntilSandboxReady",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 531,
+      "images": {
+        "before": "e0358bde7be4dec96c49a18c571e2c7601d1779d83b41def74f9d9c83960f0ea",
+        "after": "5817c8677b3296b28958be9b385ee394c77c484ed8c0e2a90e6105d626341344"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-5d03253f",
+      "storyId": "WorkspacePane.GraphLoading",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 5963,
+      "images": {
+        "before": "edb4c090a9f71b982c9ec73b1462db94e8fae22719b0de0f706166512de03592",
+        "after": "f2e03c68ab1664341a18383c00c4e040fff1aa850796a506f08de53550bdc37e"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-e7abfb33",
+      "storyId": "WorkspacePane.GraphLostRebuilds",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 4594,
+      "images": {
+        "before": "f06b3a8c8e75a7ae28c7744a42787c02f1538676c7eec56abeb31183fefdb4fd",
+        "after": "1f91bede1ddd848e2a0ddaa8dcb3d8eba058d5c818bbbf96b82302044786d09c"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-21d0bdca",
+      "storyId": "WorkspacePane.GraphPhasePending",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 6399,
+      "images": {
+        "before": "7eaf7e0946ad67542c4c2fc2fea1c021b3f32945fec9375b32523b83aef38570",
+        "after": "a3799649f967889bfb13d85f59465ca3cc4bd38eb28e8e3cc952455ae2fabc8b"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-030f617a",
+      "storyId": "WorkspaceSurface.Hydrating",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 6978,
+      "images": {
+        "before": "8fb02f1606236f998e4b05ecf68b656b63eb80556982227e9a8acf8ab500f31f",
+        "after": "a45ddc89cb61858102b0bb1dee543deae7c1389f83e01131cf5d9af4d6b338c8"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-dd04e15b",
+      "storyId": "WorkspaceSurface.Hydrating",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844
+      },
+      "diffPixels": 5915,
+      "images": {
+        "before": "2552447ae4ddd6e3f29847f51af6f9aabcb65a5d95934e5121f19d8e28e3925a",
+        "after": "959bbad7aca4b0c0c8116ba013878d4da73c5b47af65874b9e7a895376e13e21"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-b7d1d504",
+      "storyId": "WorkspaceSurface.LoadError",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 3815,
+      "images": {
+        "before": "a1fe144e09bfdb8ce44a0e0c11c313c5bcc8001859beba10f6ebca6e427397d6",
+        "after": "83e2f6d74de23cb5d4a2227bea04449ec0f3ad59a8fe09f59953580aa4d71d16"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-68a892ac",
+      "storyId": "WorkspaceSurface.LoadError",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844
+      },
+      "diffPixels": 3678,
+      "images": {
+        "before": "4de587d896a71807d151190284497fa545c614351fb5172ebe3b2916171cf7d9",
+        "after": "72908d4ff59cab55196f18c5404a83bcace2e3103e3105f874edd7ff45f5f153"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-ddb085b1",
+      "storyId": "WorkspaceSurface.NotFound",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 6945,
+      "images": {
+        "before": "7b5a062afe1db8818e7e742561b880c0817cc3d0bb6f119afd72ac42f92e78ca",
+        "after": "3de42b0e98c62b7465e4442b493f280b86e59e7c90a247ec930037e63df0c948"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-718ff476",
+      "storyId": "WorkspaceSurface.NotFound",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844
+      },
+      "diffPixels": 6843,
+      "images": {
+        "before": "4036c360e10f78fcc30b5fb995a9edd0ccf70338a3cb931f89dc9106f86b2622",
+        "after": "0dc53da297e2dbddcc78e987751a7f08472623de231ce28e34d7d5e3b0386236"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-91bcab5a",
+      "storyId": "WorkspaceSurface.WaitingForTip",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 13152,
+      "images": {
+        "before": "c06b592244b40c1e6940a8ab1fb061f21e64fdce8d3336824ca730b9d54ed782",
+        "after": "da87d93d7db723d2b9b9c092076c5bb979ef05f989985ffb0b8c57468e4d654d"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
+      "id": "redesign-f6e7e701",
+      "storyId": "WorkspaceSurface.WaitingForTip",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844
+      },
+      "diffPixels": 11875,
+      "images": {
+        "before": "ca4673a504003298d9146fb58668411cb335f20d8e210c977d5b0b89a91d1610",
+        "after": "d97c3a052e8db19ae14736a22d7eaa6ef880bfcf6c39b7e208912f645db4a1c2"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
+      "commit": {
+        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
+      },
+      "region": null
+    },
+    {
       "id": "redesign-88089ff3",
       "storyId": "-account.ApiKeysCreateWithOrganizations",
       "viewport": {
@@ -158,7 +1566,7 @@
         "after": "402b99c15adde2e80473cdc09870eb0394159d7222baee66fb3da6cd0172a27f"
       },
       "kind": "intended",
-      "label": "intended",
+      "label": "regression",
       "class": null,
       "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
       "commit": {
@@ -181,7 +1589,7 @@
         "after": "2da4a713e0803b69a00fa2c87c3ba25c1cd240f6acf2e7e205a75e9908b5ebea"
       },
       "kind": "intended",
-      "label": "intended",
+      "label": "regression",
       "class": null,
       "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
       "commit": {
@@ -204,7 +1612,7 @@
         "after": "3c7b46598eef9d67c1990598b6b0fd28f0e3b77229d43c46111fe559a28a8668"
       },
       "kind": "intended",
-      "label": "intended",
+      "label": "regression",
       "class": null,
       "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
       "commit": {
@@ -227,7 +1635,7 @@
         "after": "f68e5022766990217a29b9bc91e08f39d8330ba1e818a08135f3013ea0a12bee"
       },
       "kind": "intended",
-      "label": "intended",
+      "label": "regression",
       "class": null,
       "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
       "commit": {
@@ -250,30 +1658,7 @@
         "after": "eeaef491730af09351f96c644b1d19c907f004c8fa3ccc96d9d91c9e1a16b2a3"
       },
       "kind": "intended",
-      "label": "intended",
-      "class": null,
-      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
-      "commit": {
-        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
-        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
-      },
-      "region": null
-    },
-    {
-      "id": "redesign-41f9c012",
-      "storyId": "-auth.SelectOrganization",
-      "viewport": {
-        "name": "desktop",
-        "width": 1440,
-        "height": 900
-      },
-      "diffPixels": 18784,
-      "images": {
-        "before": "46202d8a4a5b757da0e40a495303c1d6a8b86547498dbbc331d03e6ae042dc79",
-        "after": "52f4975cac4bea6945e923451aabffde577b970bd4e516f397f151abd3a6a8ee"
-      },
-      "kind": "intended",
-      "label": "intended",
+      "label": "regression",
       "class": null,
       "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
       "commit": {
@@ -1111,52 +2496,6 @@
       "region": null
     },
     {
-      "id": "redesign-080ca892",
-      "storyId": "-home-notices.AlwaysUpdate",
-      "viewport": {
-        "name": "desktop",
-        "width": 1440,
-        "height": 900
-      },
-      "diffPixels": 340,
-      "images": {
-        "before": "8f3c3f6acd7409a28dbfdb7390b2efbe510a2e131fc8414ae8559e2047644a57",
-        "after": "1d6f45a8a421989b716687ad21cf92af9d93f9a70da8d50389d780db11d880fd"
-      },
-      "kind": "intended",
-      "label": "intended",
-      "class": null,
-      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
-      "commit": {
-        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
-        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
-      },
-      "region": null
-    },
-    {
-      "id": "redesign-efc0dac8",
-      "storyId": "-onboarding.DoubleClickMovesOneSlide",
-      "viewport": {
-        "name": "desktop",
-        "width": 1440,
-        "height": 900
-      },
-      "diffPixels": 129,
-      "images": {
-        "before": "1bb8a6bd5fe510d3c6f2b21a612b343a6868123407fa7d48bbe334f393d11615",
-        "after": "b54bbbf726c0fd789f04e4a0c29153b70e648e65616002caf28874cd1ea5444d"
-      },
-      "kind": "intended",
-      "label": "intended",
-      "class": null,
-      "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
-      "commit": {
-        "sha": "95f15312d866f8c09cf75a6a8c921218611ea44c",
-        "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
-      },
-      "region": null
-    },
-    {
       "id": "redesign-a2c2d63e",
       "storyId": "-onboarding.DoubleClickMovesOneSlide",
       "viewport": {
@@ -1193,7 +2532,7 @@
         "after": "c60f66f18e213755ecad30dd2febb40f50014f9917902e7b269f1fe6a3f86666"
       },
       "kind": "intended",
-      "label": "intended",
+      "label": "regression",
       "class": null,
       "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
       "commit": {
@@ -1216,7 +2555,7 @@
         "after": "cb7c1045bf8ad25b58094326b3eae85223235fe9bcbcce496d7df13f7f07a25c"
       },
       "kind": "intended",
-      "label": "intended",
+      "label": "regression",
       "class": null,
       "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
       "commit": {
@@ -1515,7 +2854,7 @@
         "after": "c752de3d79ce78e6625727ab0c715fff7be45036469990691ee30e222327fa24"
       },
       "kind": "intended",
-      "label": "intended",
+      "label": "regression",
       "class": null,
       "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
       "commit": {
@@ -1538,7 +2877,7 @@
         "after": "6228e4b4f9a4f946dc06f8bc0a8b351797a190eab47e9382ee748d9ebb5196cb"
       },
       "kind": "intended",
-      "label": "intended",
+      "label": "regression",
       "class": null,
       "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
       "commit": {
@@ -1561,7 +2900,7 @@
         "after": "c4556deb2643ce28f6821e4619a6c0867ad99b7191810411988f3cf3712d1bf8"
       },
       "kind": "intended",
-      "label": "intended",
+      "label": "regression",
       "class": null,
       "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n",
       "commit": {

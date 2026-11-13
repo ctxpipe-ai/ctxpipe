@@ -65,12 +65,22 @@ export type JevVariant = {
   hint?: boolean
   score?: boolean
   atomic?: boolean
+  rules?: boolean
 }
 
 /**
  * Atomic questions on spacing and hierarchy (experiment of CTX-1262). Each
  * asks one literal yes or no about the after side against the before side.
  */
+const ruleQuestions: Record<string, string> = {
+  "rule.title":
+    "Look at the after image only. Is a card title, a section heading or a label larger, heavier or brighter than the title of the page or of the panel?",
+  "rule.run-together":
+    "Look at the after image only. Does a label put two parts side by side with no space and no separator, so that they read as one word (for example a number and a word)?",
+  "rule.same-weight":
+    "Look at the after image only. In a changed region, do a label and the text below it have the same size, weight and color, so that the label does not lead?",
+}
+
 const atomicQuestions: Record<string, string> = {
   "atomic.touching":
     "Compare the before and after sides of the measured regions. On the after side, does text touch another element or other text with no gap, where the before side has a gap (for example a number that runs into a word)?",
@@ -300,6 +310,9 @@ export async function judgeWithJev(
   }
   if (variant.atomic)
     for (const [id, instructions] of Object.entries(atomicQuestions))
+      questions[id] = { type: "noul", instructions }
+  if (variant.rules)
+    for (const [id, instructions] of Object.entries(ruleQuestions))
       questions[id] = { type: "noul", instructions }
   if (boxIndex !== undefined)
     questions["defect-box"] = {
