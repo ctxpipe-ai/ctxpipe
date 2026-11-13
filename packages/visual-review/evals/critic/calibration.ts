@@ -1,36 +1,33 @@
 // The owner calibration of the visual critic (CTX-1269). The product owner
 // reviewed screenshots of main, and said what a critic must flag and what is
 // fine. `owner-calibration.json` holds that feedback. This command judges each
-// screenshot as a new screenshot (the image alone), and counts, for each arm,
-// the owner issues that it flags (hits) and the fine items that it flags
-// (false flags). See README.md beside this file.
+// screenshot as a new screenshot (the image alone), with the arms of the
+// bake-off runner, and counts, for each arm, the owner issues that it flags
+// (hits) and the fine items that it flags (false flags). See README.md beside
+// this file.
 //
 // Usage: node packages/visual-review/evals/critic/calibration.ts --arms <list>
 //          [--calibration <path>] [--images <dir>] [--out <dir>] [--max-cost 2]
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { parseArgs } from "node:util"
 
 import { z } from "zod"
 
-import { judgeNewWithJev } from "../../src/adapters/jev.ts"
-import { judgeNewWithOpenRouter } from "../../src/adapters/openrouter.ts"
 import { pngSize } from "../../src/prepare.ts"
 import { packagedRubric, rubricId } from "../../src/rubric.ts"
 import type { NewStoryInput } from "../../src/story.ts"
 import type { Verdict } from "../../src/verdict.ts"
-import { imageStore, releaseUrl } from "./images.ts"
+import { imageFile, imageStore, releaseUrl } from "./images.ts"
+import { armOf, failed } from "./run.ts"
 import { spendMeter } from "./spend.ts"
 
 const usage = `Usage: node packages/visual-review/evals/critic/calibration.ts --arms <list> [--calibration <path>] [--images <dir>] [--out <dir>] [--max-cost 2]
 
-  --arms         The arms, comma-separated:
-                   jev                the Jev judge of a new screenshot
-                   decision:<model>   another decision model, with the Jev questions
-                   llm:<model>        the new-screenshot prompt, for example
-                                      llm:anthropic/claude-sonnet-5.5
+  --arms         The arms of the bake-off runner that judge a new screenshot,
+                 comma-separated, for example jev,llm:anthropic/claude-sonnet-5.5
   --calibration  The feedback file. Default: owner-calibration.json beside this file.
   --images       The folder of the images, as <sha256>.png. An image that is
                  not in it comes from the release visual-bakeoff-images.
@@ -44,7 +41,7 @@ The key and the endpoint come from MODEL_PROVIDER_API_KEY and
 MODEL_PROVIDER_URL. Exit code: 2 for a usage or input error; else 0.`
 
 // The rubric ids that a judge flags an item of the owner with.
-const kinds = z.array(rubricId).min(1)
+const kindsSchema = z.array(rubricId).min(1)
 
 export const calibrationSchema = z.strictObject({
   /** The day of the review of the owner. */
@@ -59,9 +56,13 @@ export const calibrationSchema = z.strictObject({
         storyId: z.string().min(1),
         scope: z.enum(["page", "component"]),
         /** The issues that the owner wants a critic to flag. */
-        flag: z.array(z.strictObject({ issue: z.string().min(1), kinds })),
+        flag: z.array(
+          z.strictObject({ issue: z.string().min(1), kinds: kindsSchema }),
+        ),
         /** The things that the owner said are fine. */
-        ok: z.array(z.strictObject({ item: z.string().min(1), kinds })),
+        ok: z.array(
+          z.strictObject({ item: z.string().min(1), kinds: kindsSchema }),
+        ),
       }),
     )
     .min(1),
@@ -72,7 +73,7 @@ export type Calibration = z.infer<typeof calibrationSchema>
  * The rubric ids that a verdict flags: the kind of each finding, and each
  * quality that `fails`.
  */
-export const flaggedKinds = (verdict: Verdict) =>
+const flaggedKinds = (verdict: Verdict) =>
   new Set([
     ...verdict.findings.map(({ kind }) => kind),
     ...verdict.qualities
@@ -80,15 +81,16 @@ export const flaggedKinds = (verdict: Verdict) =>
       .map(({ name }) => name),
   ])
 
-export type Result = { arm: string; image: string; verdict: Verdict }
+type Result = { arm: string; image: string; verdict: Verdict }
 
 /**
  * The score of one verdict on one screenshot. An owner issue is a hit when
  * the verdict flags one of its kinds. A fine item is a false flag when the
  * verdict flags one of its kinds that no issue of the screenshot names: a
- * kind that an issue also names counts as a hit only.
+ * kind that an issue also names counts as a hit only. The count is by rubric
+ * id, not by the text of a finding.
  */
-export function scoreOne(
+function scoreOne(
   screenshot: Calibration["screenshots"][number],
   verdict: Verdict,
 ) {
@@ -105,7 +107,7 @@ export function scoreOne(
 }
 
 /** The report: the totals of each arm, then each screenshot. */
-export function calibrationReport(
+function calibrationReport(
   calibration: Calibration,
   arms: readonly string[],
   results: readonly Result[],
@@ -132,8 +134,8 @@ export function calibrationReport(
         (r) => r.arm === arm && r.screenshot === screenshot,
       )
       if (!result) return "not run"
-      const kinds = [...flaggedKinds(result.verdict)].join(", ") || "none"
-      return `${result.hits.length} / ${screenshot.flag.length} hits, ${result.falseFlags.length} / ${screenshot.ok.length} false (${kinds})`
+      const flagged = [...flaggedKinds(result.verdict)].join(", ") || "none"
+      return `${result.hits.length} / ${screenshot.flag.length} hits, ${result.falseFlags.length} / ${screenshot.ok.length} false (${flagged})`
     })
     return `| ${screenshot.storyId} | ${cells.join(" | ")} |`
   })
@@ -154,17 +156,6 @@ export function calibrationReport(
   ].join("\n")
 }
 
-/** The judge of a new screenshot for one `--arms` entry. Throws for another. */
-function judgeOf(arm: string): (story: NewStoryInput) => Promise<Verdict> {
-  const [kind, model] = arm.split(/:(.*)/s, 2)
-  if (kind === "jev" && !model) return (story) => judgeNewWithJev(story)
-  if (kind === "decision" && model)
-    return (story) => judgeNewWithJev(story, model)
-  if (kind === "llm" && model)
-    return (story) => judgeNewWithOpenRouter(story, model, process.env)
-  throw new Error(`Unknown arm "${arm}".\n\n${usage}`)
-}
-
 /**
  * Run the calibration with the command-line arguments `args`. `print` gets
  * the output. Returns the exit code.
@@ -175,7 +166,10 @@ export async function calibrate(
 ): Promise<number> {
   let options
   let calibration: Calibration
-  let arms: { id: string; judge: ReturnType<typeof judgeOf> }[]
+  const arms: {
+    id: string
+    judgeNew: (story: NewStoryInput) => Promise<Verdict>
+  }[] = []
   try {
     ;({ values: options } = parseArgs({
       args: [...args],
@@ -198,11 +192,14 @@ export async function calibrate(
       throw new Error(
         "--arms is required, and --max-cost is a number of 0 or more.",
       )
-    arms = options.arms
-      .split(",")
-      .map((id) => id.trim())
-      .filter(Boolean)
-      .map((id) => ({ id, judge: judgeOf(id) }))
+    for (const id of options.arms.split(",").map((arm) => arm.trim())) {
+      const { judgeNew } = await armOf(id, {
+        concurrency: 1,
+        work: tmpdir(),
+      })
+      if (!judgeNew) throw new Error(`Arm "${id}" judges no new screenshot.`)
+      arms.push({ id, judgeNew })
+    }
     if (!process.env.MODEL_PROVIDER_API_KEY)
       throw new Error("Set MODEL_PROVIDER_API_KEY (the OpenRouter key).")
     calibration = calibrationSchema.parse(
@@ -214,52 +211,44 @@ export async function calibrate(
   }
 
   const spend = spendMeter(Number(options["max-cost"]))
-  const get = imageStore(resolve(options.images), releaseUrl)
-  const work = await mkdtemp(join(tmpdir(), "visual-calibration-"))
+  const images = resolve(options.images)
+  const get = imageStore(images, releaseUrl)
   try {
+    // The image store keeps each checked image in the image folder: the
+    // judges read it there.
     const stories: NewStoryInput[] = []
     for (const { image, storyId, scope } of calibration.screenshots) {
-      const bytes = await get(image)
-      const size = pngSize(bytes)
+      const size = pngSize(await get(image))
       if (!size) throw new Error(`The image ${image} is not a PNG.`)
-      const path = join(work, `${image}.png`)
-      await writeFile(path, bytes)
       stories.push({
         storyId,
         scope,
-        images: [{ path, size }],
+        images: [{ path: join(images, imageFile(image)), size }],
         rubric: packagedRubric,
       })
     }
     // The arms run at the same time; each arm judges one screenshot at a
-    // time. A failed call gets one retry, as in the bake-off runner.
+    // time. A failed call gets one retry while the spend is below the cap,
+    // as in the bake-off runner.
     const results: Result[] = []
     await Promise.all(
-      arms.map(async ({ id, judge }) => {
+      arms.map(async ({ id, judgeNew }) => {
         for (const [index, story] of stories.entries()) {
           if (!spend.open()) return
           let verdict: Verdict
           try {
-            verdict = await judge(story).catch(() => {
+            verdict = await judgeNew(story).catch((error: unknown) => {
               // The cost of the failed call is not known.
               spend.count(null)
-              return judge(story)
+              if (!spend.open()) throw error
+              return judgeNew(story)
             })
           } catch (error) {
-            verdict = {
-              storyId: story.storyId,
-              observations: [],
-              verdict: "unsure",
-              severity: "none",
-              confidence: 0,
-              summary: "The judge gave no verdict.",
-              qualities: [],
-              findings: [],
-              model: id,
-              costUsd: null,
-              latencyMs: 0,
-              error: (error as Error).message,
-            }
+            verdict = failed(
+              story,
+              { model: id, costUsd: null, latencyMs: 0 },
+              (error as Error).message,
+            )
           }
           spend.count(verdict.costUsd)
           const image = calibration.screenshots[index]?.image ?? ""
@@ -286,8 +275,6 @@ export async function calibrate(
   } catch (error) {
     print((error as Error).message)
     return 2
-  } finally {
-    await rm(work, { recursive: true, force: true })
   }
 }
 

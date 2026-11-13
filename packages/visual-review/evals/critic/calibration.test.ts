@@ -73,7 +73,7 @@ writeFileSync(calibrationPath, JSON.stringify(calibration))
 
 // The LLM flags color-tokens (a finding) and density (a failed quality) on
 // every screenshot.
-const judgement = {
+const judgment = {
   observations: [{ part: 1, seen: "A list of rows." }],
   verdict: "regression",
   severity: "minor",
@@ -98,7 +98,7 @@ test("counts the owner issues and the fine items that each arm flags", async () 
   server.use(
     http.post(`${gateway}/chat/completions`, () =>
       HttpResponse.json({
-        choices: [{ message: { content: JSON.stringify(judgement) } }],
+        choices: [{ message: { content: JSON.stringify(judgment) } }],
         usage: { cost: 0.01 },
       }),
     ),
@@ -158,17 +158,14 @@ test("counts the owner issues and the fine items that each arm flags", async () 
   expect(results.spent).toBeCloseTo(0.021)
 })
 
-test("an unknown arm is a usage error, with no call", async () => {
+test("an arm that judges no new screenshot is a usage error, with no call", async () => {
   vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
   let printed = ""
 
-  const code = await calibrate(
-    ["--arms", "cascade:anthropic/claude-sonnet-5.5"],
-    (text) => (printed += text),
-  )
+  const code = await calibrate(["--arms", "nope"], (text) => (printed += text))
 
   expect(code).toBe(2)
-  expect(printed).toContain('Unknown arm "cascade:anthropic/claude-sonnet-5.5"')
+  expect(printed).toContain('Unknown arm "nope"')
 })
 
 test("the owner calibration of 2026-11-14 matches the schema", () => {

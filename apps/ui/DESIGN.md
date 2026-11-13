@@ -136,7 +136,7 @@ Decorative icons: `aria-hidden`, `text-muted-foreground`, intended size (~16–2
 - **Pages:** group the content of a page in tiles or cards, with a clear hierarchy and area boundaries, as the chat page does. A flat list of bare rows under a title reads as an unfinished legacy page.
 - **Columns:** the blocks of one column share one left edge: a message, an answer and the composer; an icon row, a checklist and a step card.
 - **Modals:** a header, a body and a footer zone on one aligned grid. One close control: in a wizard, one Close button at the bottom right, and no second Close or X at the top.
-- **Flows:** the next step of a flow (for example “Merge the pull request” after setup) is a card or a selected item, not loose text under a checklist. A checklist of done steps is the expected wizard pattern.
+- **Flows:** the next step of a flow (for example “Merge the pull request” after setup) is a card or a selected item, not loose text under a checklist.
 - **Secondary chrome:** legends, hints and help are smaller and dimmer than the content, and do not cover it. A first-run help tour can cover content until the user dismisses it. Remember the dismissal (local storage), so the tour does not come back.
 - **Interactive lists:** the text of a file tree or a nav list is never so dim that it reads as disabled. Use `text-muted-foreground` or brighter for an item that the user can click.
 - **Status:** existing pill + dot **and** the word ([`RepositoryStatus`](src/features/repositories/components/RepositoryStatus.tsx)). The dot pulses only for a live state; a static state has a still dot. Not color-only. Not a glowing dot without a label.

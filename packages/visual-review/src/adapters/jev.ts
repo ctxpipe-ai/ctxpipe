@@ -278,39 +278,6 @@ export async function judgeWithJev(
   )
 }
 
-/**
- * The literal yes/no questions on a new screenshot, each with the area of
- * its finding. They come from the owner calibration (CTX-1269): the area
- * questions alone are too wide for these defects. A yes of 0.5 or more is a
- * finding of the area.
- */
-const ruleQuestions = [
-  {
-    name: "rule.two-close",
-    area: "dialog",
-    instructions:
-      "Does one dialog show two close controls, for example a Close button or an X at the top and another Close button at the bottom?",
-  },
-  {
-    name: "rule.copy-button",
-    area: "actions",
-    instructions:
-      "Is a Copy button away from the right end of the field whose value it copies, for example in a footer below the field?",
-  },
-  {
-    name: "rule.status-colors",
-    area: "status",
-    instructions:
-      "Do the status words of a list have two or more text colors (for example green, red and amber words), in place of a colored dot with plain text?",
-  },
-  {
-    name: "rule.uk-spelling",
-    area: "copy",
-    instructions:
-      "Does visible text use British spelling, such as colour, organisation or behaviour?",
-  },
-] as const
-
 /** The state of a decisions request: text, and each image as a data URL. */
 type State = (string | { type: "image_url"; image_url: { url: string } })[]
 
@@ -434,14 +401,13 @@ async function decide(
  * another decision model (`requestedModel`), as `judgeWithJev` judges a
  * change. There is no base image, so each question asks whether the
  * screenshot breaks a rule of an area or a quality of the rubric, with a
- * probability (a `noul` question). The literal questions of
- * `ruleQuestions` ask about four defects of the owner calibration, and the
- * state gives Jev `judgingRule`, what not to report. The verdict says
- * `regression` when an area, a rule question or a quality breaks a rule
- * with a probability of 0.5 or more (a rule answer under 0.5 does not count
- * for `unsure`), and
- * `unsure` when a probability is from 0.2 up to 0.5, when a question has no
- * answer, or when a defect has no area. Else it is `intended` (with a brief;
+ * probability (a `noul` question). Four literal rule questions ask about
+ * defects of the owner calibration, and the state gives Jev `judgingRule`,
+ * what not to report. The verdict says `regression` when an area, a rule
+ * question or a quality breaks a rule with a probability of 0.5 or more (a
+ * rule answer under 0.5 does not count for `unsure`), and `unsure` when a
+ * probability is from 0.2 up to 0.5, when a question has no answer, or when
+ * a defect has no area. Else it is `intended` (with a brief;
  * see `parseNewVerdict`). A quality is `fails` from 0.5, `weak` from 0.2, and
  * else `meets`. Only Jev 1.14 takes the box question, on the first image.
  * For another model, the region of a finding is the whole first image.
@@ -482,9 +448,36 @@ export async function judgeNewWithJev(
       type: "noul",
       instructions: `Quality: ${name}. ${definition} Does the new screenshot fail this quality?`,
     }
-  // The rubric is data of the PR head: a rule question goes only with its
-  // area.
-  const rules = ruleQuestions.flatMap((rule) => {
+  // Literal yes/no questions, each with the area of its finding, from the
+  // owner calibration (CTX-1269): the area questions alone are too wide for
+  // these defects. The rubric is data of the PR head: a rule question goes
+  // only with its area.
+  const rules = [
+    {
+      name: "rule.two-close",
+      area: "dialog",
+      instructions:
+        "Does one dialog show two close controls, for example a Close button or an X at the top and another Close button at the bottom?",
+    },
+    {
+      name: "rule.copy-button",
+      area: "actions",
+      instructions:
+        "Is a Copy button away from the right end of the field whose value it copies, for example in a footer below the field?",
+    },
+    {
+      name: "rule.status-colors",
+      area: "status",
+      instructions:
+        "Do the status words of a list have two or more text colors (for example green, red and amber words), in place of a colored dot with plain text?",
+    },
+    {
+      name: "rule.uk-spelling",
+      area: "copy",
+      instructions:
+        "Does visible text use British spelling, such as colour, organisation or behaviour?",
+    },
+  ].flatMap((rule) => {
     const area = areas.find(({ id }) => id === rule.area)
     return area ? [{ ...rule, area }] : []
   })

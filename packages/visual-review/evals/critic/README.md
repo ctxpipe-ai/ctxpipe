@@ -174,7 +174,7 @@ The command judges each screenshot as a new screenshot (the image alone, with no
 node packages/visual-review/evals/critic/calibration.ts --arms jev,llm:anthropic/claude-sonnet-5.5 [--max-cost 2] [--images <dir>] [--out <dir>]
 ```
 
-The arms are `jev`, `decision:<model>` and `llm:<model>`. The spend cap has the rules of the runner. The workflow runs it with the input `calibration`. Give the arms in `arms` and a small `max_cost`.
+The arms are the arms of the runner that judge a new screenshot, for example `jev` and `llm:<model>`. The spend cap has the rules of the runner. The workflow runs it with the input `calibration`. Give the arms in `arms` and a small `max_cost`.
 
 ## The labeling queue
 

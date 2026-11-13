@@ -20,7 +20,7 @@ on:
         type: boolean
         default: false
       calibration:
-        description: "Judge the owner calibration set (owner-calibration.json) with the arms, not the bake-off cases. Arms: jev, decision:<model> or llm:<model>."
+        description: "Judge the owner calibration set (owner-calibration.json) with the arms, not the bake-off cases. The arms must judge a new screenshot, for example jev and llm:<model>."
         required: false
         type: boolean
         default: false
