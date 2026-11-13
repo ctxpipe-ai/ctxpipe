@@ -223,14 +223,7 @@ line gives its expected output. The dry run of the copy is its preflight against
   2. Agent: start a reconcile sync of each connector. Watch the errors, the queue depth and the tunnel in HyperDX for
      one hour.
   3. Person: end the deploy freeze, and tell the customers.
-  4. Person: retire the cutover access and the copies:
-     - reset the password of the Neon owner role in the Neon console;
-     - put `retired` into the two `hosted/cutover/*` secrets;
-     - delete the Access service token of the agent, and revoke the API key of the test organization;
-     - delete the transfer copies of every run, the rehearsals too. They hold the graphs and the source code of each
-       organization, outside the deletion path of ctxpipe:
-       `aws s3 rm --recursive "s3://<shard bucket>/cutover-transfer/"`. Then
-       `aws s3 ls "s3://<shard bucket>/cutover-transfer/"` prints nothing.
+  4. Person: [retire the cutover access and the copies](#retire-the-cutover-access-and-the-copies).
 
 ## Full rollback (only before G4)
 
@@ -238,9 +231,26 @@ Do the steps that apply, in this order. Skip a step whose change was not made ye
 
 1. Neon: the rollback of G3 (read-write again).
 2. Railway: set the replicas of `backend` and `worker` back to their values before T+0.
-3. AWS: stop `backend`, `worker` and `ui`. The next window empties the target at T+3.
+3. AWS: stop `backend`, `worker` and `ui`. Agent: run the task `cutover-reset-database`, so that Aurora keeps no copy
+   of the production data.
 4. Revert edge pull request (b), if it was merged. Then revert (a): `app.ctxpipe.ai` goes back to Railway.
-5. Write what failed into [CTX-1217], and plan the next window.
+5. Person: [retire the cutover access and the copies](#retire-the-cutover-access-and-the-copies). The next window
+   makes the access again. The cutover tasks stay.
+6. Write what failed into [CTX-1217], and plan the next window.
+
+## Retire the cutover access and the copies
+
+- **Who:** person.
+- **When:** at T+90, or at the end of a full rollback.
+- **Do:**
+  1. Reset the password of the Neon owner role in the Neon console. If a Railway variable uses this login (for
+     example the migrate URL), put the new password into it before the next Railway deploy.
+  2. Put `retired` into the two `hosted/cutover/*` secrets.
+  3. Delete the Access service token of the agent. Revoke the API key of the test organization.
+  4. Delete the transfer copies of every run, the rehearsals too. They hold the graphs and the source code of each
+     organization, outside the deletion path of ctxpipe:
+     `aws s3 rm --recursive "s3://<shard bucket>/cutover-transfer/"`.
+- **Expected:** `aws s3 ls "s3://<shard bucket>/cutover-transfer/"` prints nothing.
 
 ## Open items
 
@@ -248,7 +258,7 @@ Do the steps that apply, in this order. Skip a step whose change was not made ye
   `CUTOVER_G4_PASSED` is `true`: after G4, a reset would drop the production database.
   - Hosted migrate already ran on Aurora, so the copy needs an empty database first.
   - Hosted runs migrate only during `pulumi up`, once for each backend image. The dump keeps no roles, so the copy has
-    no `ctxpipe_app`. The restored database therefore needs its own migrate task. The agent cannot reach Aurora, so
-    that task must also run the role query of T+50 and print its result.
+    no `ctxpipe_app`. The restored database therefore needs its own migrate task. The agent cannot reach Aurora.
+    That task must also run the role query of T+50 and print its result.
 - The MCP evals cannot run against a deployed stack yet (the open point in [CTX-1217]).
 - Delete this file in the pull request that removes the cutover tasks.
