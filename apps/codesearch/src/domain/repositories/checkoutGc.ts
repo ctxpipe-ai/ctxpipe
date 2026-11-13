@@ -4,8 +4,9 @@ import { join } from "node:path"
 import { ZOEKT_HOT_DIR, ZOEKT_INDEX_DIR } from "../../config/paths.js"
 import {
   deleteCheckoutArtifacts,
+  isShardStoreReadOnly,
   listCheckoutArtifacts,
-  shardStore,
+  writableShardStore,
 } from "../store/shardStore.js"
 import {
   localManifestPath,
@@ -61,7 +62,7 @@ export async function deleteCheckoutFromDisk(input: {
     checkoutKey: input.checkoutKey,
   })
   // The S3 copies go first and fail-closed, as in the repository purge.
-  const store = shardStore()
+  const store = writableShardStore()
   if (store) await deleteCheckoutArtifacts(store, input)
   const sharedPath = repoSharedClonePath(input.orgId, input.repoId)
   await withSharedClone(sharedPath, async () => {
@@ -121,7 +122,7 @@ export async function sweepRepositoryDisk(input: {
   }
   // The S3 copies of keys with no row go first, with the same age rule, as
   // in the purge: a failed S3 delete fails the sweep before a local delete.
-  const store = shardStore()
+  const store = writableShardStore()
   if (store) {
     const artifacts = await listCheckoutArtifacts(store, input)
     for (const [key, newestMs] of artifacts) {
@@ -153,9 +154,13 @@ export async function sweepRepositoryDisk(input: {
       result.deletedBytes += size
     }
     await pruneWorktrees(sharedPath)
-    result.publishedMissing = !(await lstat(
-      join(checkoutsDir, input.publishedCheckoutKey),
-    ).catch(() => null))
+    // A preview (read-only store) reads the production shards from S3 and
+    // cannot clone production repositories: it never asks for a rebuild.
+    result.publishedMissing =
+      !isShardStoreReadOnly() &&
+      !(await lstat(join(checkoutsDir, input.publishedCheckoutKey)).catch(
+        () => null,
+      ))
   })
 
   // Zoekt shards: `<name>_v16.00000.zoekt`, its `.meta`, and a stopped
