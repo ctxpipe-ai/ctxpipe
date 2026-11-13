@@ -29,7 +29,9 @@ const repo = "example-org/example-repo"
 const names = images.map(({ image }) => image)
 const digestOf = (image) =>
   `sha256:${Buffer.from(image).toString("hex").padEnd(64, "0").slice(0, 64)}`
-const allDigests = Object.fromEntries(names.map((name) => [name, digestOf(name)]))
+const allDigests = Object.fromEntries(
+  names.map((name) => [name, digestOf(name)]),
+)
 
 test("each deploy image declares every path that its Dockerfile copies", () => {
   for (const image of images)
@@ -198,7 +200,9 @@ test("a change to the lockfile or the chat sandbox files builds the images that 
     "ui",
     "codesearch",
   ])
-  const proxy = repository({ "scripts/chat-sandbox/node-http-proxy.cjs": "x\n" })
+  const proxy = repository({
+    "scripts/chat-sandbox/node-http-proxy.cjs": "x\n",
+  })
   server.use(...github({ base: proxy.base }))
   assert.deepEqual(built(await plan(proxy.dir)), [
     "chat-sandbox",
@@ -214,6 +218,7 @@ test("a change to the deploy workflow or to this plan builds every image", async
   for (const path of [
     ".github/workflows/deploy.yaml",
     "scripts/ci/deploy-images.mjs",
+    "scripts/ci/changed-files.mjs",
   ]) {
     const { dir, base } = repository({ [path]: "x\n" })
     server.use(...github({ base }))

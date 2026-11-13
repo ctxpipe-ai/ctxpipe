@@ -294,8 +294,6 @@ const definitions = () => [
             ],
             "ci-codesearch-releases": ["apps/codesearch/scripts/**"],
             "ci-codesearch-selection": ["apps/codesearch/**"],
-            // The Dockerfiles of the deploy images against their inputs.
-            "ci-deploy-images": ["apps/*/Dockerfile*", ".dockerignore"],
             "ci-test-shards": ["apps/backend/**"],
             "ci-visual-container": ["apps/ui/package.json"],
           }[stem] ?? []),

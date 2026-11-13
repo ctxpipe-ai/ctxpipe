@@ -21,8 +21,9 @@ import { changedFiles } from "./changed-files.mjs"
 //
 // Every image builds when: the run is not a push; no successful Deploy run on
 // main is found, or its commit is not in the history of HEAD; the GitHub API
-// fails; or deploy.yaml or this file changed. One image builds when the base
-// run has not exactly one valid `deploy-image` notice on its Publish job.
+// fails; or deploy.yaml, this file or changed-files.mjs changed. One image
+// builds when the base run has not exactly one valid `deploy-image` notice on
+// its Publish job.
 //
 // Usage (deploy.yaml, job image_plan): node scripts/ci/deploy-images.mjs
 // It writes `build` (the matrix of the build jobs), `reuse` (image to digest)
@@ -107,6 +108,7 @@ export const images = [
 const everyImage = [
   ".github/workflows/deploy.yaml",
   "scripts/ci/deploy-images.mjs",
+  "scripts/ci/changed-files.mjs",
 ]
 
 const inputsOf = ({ dockerfile, context = ".", inputs }) => [
@@ -187,7 +189,9 @@ function dockerfileSources(text, { context = ".", target } = {}) {
       if (!words[0] || words[0].includes("$"))
         stage.unreadable.push(instruction.text)
       // A stage name, not an image. FROM takes no stage number.
-      const base = stages.findIndex(({ name }) => name === words[0]?.toLowerCase())
+      const base = stages.findIndex(
+        ({ name }) => name === words[0]?.toLowerCase(),
+      )
       if (base >= 0) stage.needs.push(base)
       stages.push(stage)
       continue
@@ -255,7 +259,8 @@ function dockerfileSources(text, { context = ".", target } = {}) {
   }
   const last = stages.length - 1
   const start = target === undefined ? last : stageOf(target)
-  if (start === undefined) return { sources: [], unreadable: [`target ${target}`] }
+  if (start === undefined)
+    return { sources: [], unreadable: [`target ${target}`] }
   const reached = new Set()
   const visit = (index) => {
     if (reached.has(index)) return
@@ -349,6 +354,7 @@ export async function planImages({ root, event, repo, runId, token }) {
   })
   if (event !== "push") return everything(`a ${event} run builds every image`)
   let base
+  let changed
   let digests
   try {
     const { workflow_runs: runs } = await github(
@@ -370,11 +376,11 @@ export async function planImages({ root, event, repo, runId, token }) {
         `the base commit ${base.head_sha} is not in the history of HEAD`,
       )
     }
+    changed = changedFiles(root, base.head_sha).map(({ path }) => path)
     digests = await baseDigests({ repo, run: base.id, token })
   } catch (error) {
     return everything(`no base: ${error.message}`)
   }
-  const changed = changedFiles(root, base.head_sha).map(({ path }) => path)
   const global = changed.find((path) => everyImage.includes(path))
   if (global) return everything(`${global} changed`)
   const result = { build: [], reuse: {}, reasons: {} }
@@ -426,7 +432,8 @@ if (
     ),
   ]
   console.log(summary.join("\n"))
-  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `${lines.join("\n")}\n`)
+  if (env.GITHUB_OUTPUT)
+    appendFileSync(env.GITHUB_OUTPUT, `${lines.join("\n")}\n`)
   else console.log(lines.join("\n"))
   if (env.GITHUB_STEP_SUMMARY)
     appendFileSync(env.GITHUB_STEP_SUMMARY, `${summary.join("\n")}\n`)
