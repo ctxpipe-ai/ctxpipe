@@ -282,7 +282,7 @@ export function gatedVerdict({
   const hit = []
   for (const check of selection.selected) {
     const found = hits.get(check.id)
-    if (found && accepted(found.source, check.lane, config))
+    if (found && accepted(found.source, config))
       hit.push({
         id: check.id,
         class: found.source,

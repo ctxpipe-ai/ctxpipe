@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto"
+import { randomUUID } from "node:crypto"
 import { createServer } from "node:net"
 
 import {
@@ -52,7 +52,6 @@ import {
   WORKSPACE_CHAT_SANDBOX_SETUP,
   WORKSPACE_CHAT_SESSION_BRANCH_SECRET,
   WORKSPACE_CHAT_THREAD_SETUP,
-  WORKSPACE_CHAT_VERCEL_SETUP,
   workspaceChatDockerImage,
   workspaceChatRuntimeConfig,
 } from "./chat-runtime.js"
@@ -71,7 +70,6 @@ import {
 import { checkoutSessionBranch } from "./conversation-session-branch.js"
 import { nameConversationIfUnnamed } from "./conversation-title.js"
 import { openDockerRunVault } from "./docker-run-vault.js"
-import { hostedSandboxAccess } from "./hosted-sandbox-access.js"
 import { adaptTanstackHandle, SANDBOX_GIT_GUARD } from "./job-sandbox.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
 import { createChunkMasker, maskCredentials } from "./mask-credentials.js"
@@ -101,17 +99,11 @@ import {
   discoverSandboxProvider,
   remoteDockerHost,
   type SandboxProvider as SandboxProviderName,
+  turnAgentPassword,
   withDockerAgentPort,
   withProxyCa,
   withSessionOnlyEnv,
 } from "./sandbox-provider.js"
-import {
-  conversationFirewall,
-  conversationSandboxTags,
-  turnAgentPassword,
-  vercelAgentSnapshot,
-  vercelConversationProvider,
-} from "./vercel-sandbox-provider.js"
 import { sandboxAgentImage } from "./workspace-base-providers.js"
 import {
   conversationRenameChunk,
@@ -122,12 +114,11 @@ import {
 import {
   sandboxCallbackHost,
   workspaceChatCallbackMiddleware,
-  workspaceChatToolBridgePath,
 } from "./workspace-chat-callback.js"
 import { workspaceChatEngineTools } from "./workspace-chat-engine-tools.js"
 import { workspaceChatCompletionsBaseUrl } from "./workspace-chat-model-proxy.js"
 import {
-  WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
+  WORKSPACE_CHAT_CREDENTIAL_PLACEHOLDER,
   WORKSPACE_CHAT_OPENCODE_JSON_SECRET,
   workspaceChatLocalProcessScrubEnv,
   workspaceChatOpenCodeContract,
@@ -214,7 +205,7 @@ export const workspaceChatDockerOwnership = {
 /**
  * One stock definition per request. The sandbox key covers the conversation,
  * the Workspace's repository and default branch, and the key image (the
- * Docker chat image, or a fixed Vercel value). The commit, the credentials
+ * Docker chat image, or a fixed AgentCore value). The commit, the credentials
  * and the Workspace base a sandbox started from are not part of it, so a
  * conversation keeps its sandbox while the default branch moves (option D)
  * and when its Workspace gets a new base.
@@ -273,14 +264,9 @@ export function conversationSandboxProvider(
   agentPassword: string,
   /** Docker: the Workspace base image a new sandbox starts from, if any. */
   baseImage: () => Promise<string | undefined>,
-  vercel?: Parameters<typeof vercelConversationProvider>[0],
   /** Docker: the run's proxy CA, written into each sandbox before its clone. */
   proxyCaPem?: string,
 ): SandboxProvider {
-  if (isolation === "vercel") {
-    if (!vercel) throw new Error("Vercel sandbox options are missing")
-    return withSingleOpencodeServer(vercelConversationProvider(vercel))
-  }
   // AgentCore: as Docker, the run's Agent Vault adds each credential. A new
   // session starts from git (no Workspace base, ADR-061 decision 18).
   if (isolation === "agentcore")
@@ -800,7 +786,7 @@ async function startWorkspaceChat(
         return current.stdout.trim()
       },
       defaultBranch: input.defaultBranch,
-      // Hosted: the firewall. Docker: all egress goes through Agent Vault.
+      // Docker and AgentCore: all egress goes through Agent Vault.
       openNetwork: built.isolation !== "unsandboxed",
     })
     const { session, callbackHost, definition } = built
@@ -832,34 +818,6 @@ async function startWorkspaceChat(
     }
     let revisionConflict: WorkspaceRevision | undefined
     const chatStarted = Date.now()
-    // Hosted: the firewall, and the turn's tool bridge, known before the run
-    // so the firewall can add its token.
-    const hosted = built.firewall
-      ? {
-          firewall: built.firewall,
-          bridge: {
-            id: randomBytes(16).toString("hex"),
-            token: randomBytes(24).toString("hex"),
-          },
-          sandboxId: undefined as string | undefined,
-        }
-      : undefined
-    // The turn's credentials leave the firewall before the conversation lock
-    // is released, so this cannot replace the next turn's rules. A failure is
-    // logged: the model capability stops working when the lock is released,
-    // the bridge closes with the run, and the next update replaces the rules.
-    const closeHostedTurn = async () => {
-      if (!hosted?.sandboxId) return
-      await hosted.firewall
-        .closeTurn(hosted.sandboxId)
-        .catch((error: unknown) =>
-          log.warn({
-            step: "workspace-chat-firewall-close",
-            message: `Removing the turn's credentials from the sandbox firewall failed: ${String(error)}`,
-            conversationId: input.conversationId,
-          }),
-        )
-    }
     // The files this turn changed: a snapshot of the work tree when the turn
     // starts and when it ends. Runs before the conversation lock is released,
     // so a Files read that waits for the lock sees the stored result. A
@@ -962,13 +920,6 @@ async function startWorkspaceChat(
           onFinish: markSandboxUsed,
           onError: markSandboxUsed,
           onAbort: markSandboxUsed,
-        }),
-        // Before the thread lock: TanStack runs onFinish in this order.
-        defineChatMiddleware({
-          name: "workspace-chat-firewall",
-          onFinish: closeHostedTurn,
-          onError: closeHostedTurn,
-          onAbort: closeHostedTurn,
         }),
         defineChatMiddleware({
           name: "workspace-chat-turn-changes-end",
@@ -1089,13 +1040,7 @@ async function startWorkspaceChat(
             }
           },
         }),
-        workspaceChatCallbackMiddleware(
-          callbackHost,
-          built.publicBaseUrl && hosted
-            ? { publicBaseUrl: built.publicBaseUrl, bridge: hosted.bridge }
-            : undefined,
-          built.vault,
-        ),
+        workspaceChatCallbackMiddleware(callbackHost, built.vault),
         defineChatMiddleware({
           name: "workspace-chat-permissions",
           requires: [SandboxCapability],
@@ -1124,29 +1069,16 @@ async function startWorkspaceChat(
               if (built.isolation !== "unsandboxed")
                 await stopEarlierTurnProcesses(activeSandbox)
               // The conversation lock is held and OpenCode has not started.
-              // Its subprocesses inherit these values (none when hosted, a
-              // placeholder on Docker).
+              // Its subprocesses inherit these values (none on Docker or
+              // AgentCore).
               await activeSandbox.env.set(
                 await workspaceChatRunCapabilities(
-                  built.isolation,
                   built.vault,
                   session.proxyUrl,
                   mint,
                 ),
               )
               abortController.signal.throwIfAborted()
-              if (hosted) {
-                // The firewall adds the turn's credentials; the sandbox sends
-                // placeholders.
-                hosted.sandboxId = activeSandbox.id
-                await hosted.firewall.openTurn(activeSandbox.id, {
-                  modelProxyPath: new URL(session.proxyUrl).pathname,
-                  modelCapability: await mint("workspace-chat-model"),
-                  bridgePath: workspaceChatToolBridgePath(hosted.bridge.id),
-                  bridgeToken: hosted.bridge.token,
-                })
-                abortController.signal.throwIfAborted()
-              }
             })
           },
         }),
@@ -1174,20 +1106,16 @@ async function startWorkspaceChat(
 }
 
 /**
- * The run capabilities a sandbox gets as environment variables. A hosted
- * sandbox gets none: its firewall adds each credential outside the sandbox
- * (see `conversationFirewall`). A Docker sandbox gets none either: the run's
- * vault holds the model capability, and Agent Vault adds it to model proxy
- * calls (the OpenCode config sends a placeholder). Only an unsandboxed run
- * gets the capability itself.
+ * The run capabilities a sandbox gets as environment variables. A Docker or
+ * AgentCore sandbox gets none: the run's vault holds the model capability,
+ * and Agent Vault adds it to model proxy calls (the OpenCode config sends a
+ * placeholder). Only an unsandboxed run gets the capability itself.
  */
 export async function workspaceChatRunCapabilities(
-  isolation: SandboxProviderName,
   vault: Pick<RunVault, "addRules"> | undefined,
   proxyUrl: string,
   mint: (purpose: WorkspaceChatRunCapabilityPurpose) => Promise<string>,
 ): Promise<Record<string, string>> {
-  if (isolation === "vercel") return {}
   const model = await mint("workspace-chat-model")
   if (!vault) return { CTXPIPE_OPENCODE_RUN_TOKEN: model }
   await vault.addRules(modelProxyCredentialRules(proxyUrl, model))
@@ -1198,8 +1126,6 @@ async function resolveWorkspaceChatSession(
   input: TanstackWorkspaceChatInput,
   isolation: SandboxProviderName,
   callbackHost?: string,
-  /** Remote sandboxes reach the model proxy at the backend's public origin. */
-  publicBaseUrl?: string,
 ): Promise<
   | { ok: true; proxyUrl: string; orgSlug: string }
   | { ok: false; status: 503; error: string }
@@ -1223,14 +1149,12 @@ async function resolveWorkspaceChatSession(
   return {
     ok: true,
     orgSlug,
-    proxyUrl: publicBaseUrl
-      ? `${publicBaseUrl}/${orgSlug}/api/v1/workspace-chat/openai/v1`
-      : workspaceChatCompletionsBaseUrl({
-          isolation,
-          orgSlug,
-          port: Number(process.env.PORT) || 3000,
-          ...(callbackHost ? { callbackHost } : {}),
-        }),
+    proxyUrl: workspaceChatCompletionsBaseUrl({
+      isolation,
+      orgSlug,
+      port: Number(process.env.PORT) || 3000,
+      ...(callbackHost ? { callbackHost } : {}),
+    }),
   }
 }
 
@@ -1299,12 +1223,6 @@ async function buildWorkspaceChatSandbox(
     }
   }
   const agentPassword = turnAgentPassword()
-  const vercel =
-    selectedProvider === "vercel"
-      ? await hostedSandboxOptions(input, desiredUrl, agentPassword)
-      : undefined
-  if (vercel && !vercel.ok) return vercel
-  const publicBaseUrl = vercel?.ok ? vercel.publicBaseUrl : undefined
   let callbackHost: string | undefined
   try {
     callbackHost = await sandboxCallbackHost()
@@ -1340,24 +1258,18 @@ async function buildWorkspaceChatSandbox(
     input,
     selectedProvider,
     callbackHost,
-    publicBaseUrl,
   )
   if (!session.ok) return session
-  // `image` is part of the sandbox key; `agentImage` picks the base.
+  // `image` is part of the sandbox key, and Docker bases are built on it.
   let image = "local-process"
-  let agentImage = image
   if (selectedProvider === "agentcore") {
     // One fixed value: a new image never orphans a conversation, which
     // starts again from git anyway.
     image = "agentcore-agent"
-    agentImage = image
   } else if (selectedProvider !== "unsandboxed") {
     try {
-      agentImage = await sandboxAgentImage(selectedProvider)
-      // Docker: the chat image's id, so a new image gives new sandboxes.
-      // Vercel: one fixed value, so an OpenCode upgrade never orphans
-      // hosted conversations (a resumed sandbox keeps its OpenCode).
-      image = selectedProvider === "docker" ? agentImage : "vercel-agent"
+      // The chat image's id, so a new image gives new sandboxes.
+      image = await sandboxAgentImage()
     } catch (error) {
       getLogger().error(
         error instanceof Error ? error : new Error(String(error)),
@@ -1370,23 +1282,20 @@ async function buildWorkspaceChatSandbox(
       }
     }
   }
-  // A new sandbox starts from the Workspace base, chosen at create (under the
-  // Workspace lock); an existing one is resumed whatever it started from.
-  const base = async (): Promise<{
-    ref?: string
-    failed: () => Promise<void>
-  }> => {
-    if (selectedProvider === "unsandboxed" || selectedProvider === "agentcore")
-      return { failed: async () => undefined }
+  // A new Docker sandbox starts from the Workspace base, chosen at create
+  // (under the Workspace lock); an existing one is resumed whatever it
+  // started from.
+  const baseImage = async (): Promise<string | undefined> => {
+    if (selectedProvider !== "docker") return undefined
     const choice = await baseForNewSandbox({
       orgId: input.orgId,
       workspaceId: input.workspaceId,
-      agent: { provider: selectedProvider, image: agentImage },
+      agent: { provider: selectedProvider, image },
       revision: revision.data,
     })
     if (choice.requestBuild)
       void requestBaseBuild(input.orgId, input.workspaceId)
-    return choice
+    return choice.ref
   }
   const repoFullName = githubRepoFullNameFromWorkspaceUrl(desiredUrl)
   // Docker: the run's vault holds the GitHub token and Agent Vault adds it.
@@ -1418,8 +1327,7 @@ async function buildWorkspaceChatSandbox(
       }
     }
   }
-  // Hosted sandboxes never hold the token: the firewall adds it to GitHub
-  // calls. Docker sandboxes never hold it either: Agent Vault adds it.
+  // Docker and AgentCore sandboxes never hold the token: Agent Vault adds it.
   const cloneToken =
     selectedProvider !== "unsandboxed"
       ? ""
@@ -1454,26 +1362,12 @@ async function buildWorkspaceChatSandbox(
   const provider = conversationSandboxProvider(
     selectedProvider,
     agentPassword,
-    async () => (await base()).ref,
-    vercel?.ok
-      ? {
-          ...vercel.options,
-          base,
-          logContext: { orgId: input.orgId, workspaceId: input.workspaceId },
-          // No base: the agent snapshot (OpenCode only), never npm.
-          agentSnapshot: () =>
-            vercelAgentSnapshot({
-              credentials: vercel.options.credentials,
-              environment: vercel.environment,
-            }),
-        }
-      : undefined,
+    baseImage,
     vault?.caPem,
   )
   return {
     ok: true as const,
     isolation: selectedProvider,
-    publicBaseUrl,
     vault,
     /**
      * End this call's credentials: a Docker vault (its session stops, then
@@ -1488,7 +1382,6 @@ async function buildWorkspaceChatSandbox(
           prefixes: [`${cloneLabel}:`],
         })
     },
-    firewall: vercel?.ok ? vercel.options.access.firewall : undefined,
     definition: conversationSandboxDefinition({
       provider:
         selectedProvider === "unsandboxed"
@@ -1519,49 +1412,6 @@ async function buildWorkspaceChatSandbox(
       provider:
         selectedProvider === "unsandboxed" ? "local-process" : selectedProvider,
     }),
-  }
-}
-
-/**
- * Hosted sandboxes fail closed: without Vercel credentials, a GitHub
- * Workspace repository, or a public backend origin there is no chat.
- */
-async function hostedSandboxOptions(
-  input: TanstackWorkspaceChatInput,
-  desiredUrl: string,
-  agentPassword: string,
-): Promise<
-  | {
-      ok: true
-      publicBaseUrl: string
-      environment: string
-      options: Omit<
-        Parameters<typeof vercelConversationProvider>[0],
-        "base" | "agentSnapshot"
-      >
-    }
-  | { ok: false; status: 503; error: string }
-> {
-  const hosted = await hostedSandboxAccess({
-    orgId: input.orgId,
-    githubConnectionId: input.githubConnectionId,
-    desiredUrl,
-  })
-  if (!hosted.ok) return hosted
-  return {
-    ok: true,
-    publicBaseUrl: hosted.publicBaseUrl,
-    environment: hosted.environment,
-    options: {
-      credentials: hosted.credentials,
-      agentPassword,
-      access: {
-        firewall: conversationFirewall(hosted.backendHost),
-        tokens: hosted.tokens,
-        mintGitToken: hosted.mintGitToken,
-      },
-      tags: conversationSandboxTags(hosted.environment),
-    },
   }
 }
 
@@ -1599,16 +1449,14 @@ function conversationSandboxWorkspace(input: {
       ? {
           ...input.proxyEnv,
           // `gh` sends no request without a token; Agent Vault replaces the header.
-          GH_TOKEN: WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
+          GH_TOKEN: WORKSPACE_CHAT_CREDENTIAL_PLACEHOLDER,
         }
       : { [WORKSPACE_CHAT_CLONE_TOKEN_SECRET]: cloneToken }),
   })
   const setup = [
     ...(input.isolation === "docker" || input.isolation === "agentcore"
       ? WORKSPACE_CHAT_DOCKER_SETUP
-      : input.isolation === "vercel"
-        ? WORKSPACE_CHAT_VERCEL_SETUP
-        : WORKSPACE_CHAT_SANDBOX_SETUP),
+      : WORKSPACE_CHAT_SANDBOX_SETUP),
     ...WORKSPACE_CHAT_THREAD_SETUP,
     // AgentCore: the size cap runs last, after the fetches and checkouts.
     ...(input.isolation === "agentcore" ? [agentCoreSizeCapCommand()] : []),

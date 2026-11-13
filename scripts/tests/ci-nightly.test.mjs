@@ -576,7 +576,6 @@ test("the nightly run plans on main, traces its plan, and the Results writer alw
   assert.match(plan.if, /github\.ref == 'refs\/heads\/main'/)
   assert.match(text("nightly-plan"), /check-results-ci-writer/)
   assert.doesNotMatch(text("nightly-plan"), /node scripts|pnpm/)
-  assert.match(text("nightly-plan"), /--exclude-lane vercel/)
   assert.match(text("nightly-plan"), /workflow_dispatch \]; then args\+=\(--full\)/)
   // The plan job of the gate puts its checks into the jobs of the run.
   assert.match(text("merge-gate-plan"), /gate\.mjs nightly/)

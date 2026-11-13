@@ -8,7 +8,7 @@ import type { IngestSkillBundle } from "./skill-bundle.js"
  * The sandbox side of one ingest shard (ADR-052 sections 7 and 8). The
  * workflow steps are on the host; each step calls this runtime for the work
  * that runs in the sandbox. The production runtime uses the shard's Docker or
- * Vercel sandbox (`sandboxIngestShardRuntime`). The sandbox is a cache: each
+ * AgentCore sandbox (`sandboxIngestShardRuntime`). The sandbox is a cache: each
  * method makes the sandbox again when it is gone, and git holds each finished
  * step.
  */

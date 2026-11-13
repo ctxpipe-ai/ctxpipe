@@ -567,7 +567,8 @@ it(
   { timeout: 420_000 },
   async () => {
     // No ingest sandbox runtime.
-    vi.stubEnv("SANDBOX_PROVIDER", "vercel")
+    vi.stubEnv("SANDBOX_PROVIDER", "agentcore")
+    vi.stubEnv("AGENTCORE_RUNTIME_ARN", "")
     await runScan()
     expect(await row(ready)).toMatchObject({
       status: "blocked",

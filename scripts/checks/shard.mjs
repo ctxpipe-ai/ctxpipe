@@ -14,7 +14,6 @@ export const profiles = {
   database: { setupMinutes: 1.4, maxShards: 9 },
   upgrade: { setupMinutes: 1.1, maxShards: 1 },
   codesearch: { setupMinutes: 0.3, maxShards: 1 },
-  vercel: { setupMinutes: 0.8, maxShards: 1 },
   storybook: { setupMinutes: 0.6, maxShards: 5 },
   // The screenshots job: checkout, install, the Storybook build and the pull
   // of the pinned Playwright image, from the job start to the first capture
@@ -52,7 +51,6 @@ const runsIn = {
   },
   "vitest:codesearch": { job: "codesearch", profile: "codesearch" },
   "vitest:codesearch-bun": { job: "codesearch", profile: "codesearch" },
-  "vitest:vercel": { job: "vercel-sandbox", profile: "vercel" },
   ...Object.fromEntries([
     ...["backend", "worker", "ui", "codesearch", "docs", "chat-sandbox"].map(
       (name) => [`build:image-${name}`, { job: "production-builds" }],

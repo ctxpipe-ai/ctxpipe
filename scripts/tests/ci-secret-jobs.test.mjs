@@ -158,7 +158,7 @@ test("rejects toJSON(secrets) and secrets[…]", () => {
 test("rejects any secret in a job that installs dependencies", () => {
   rejects(
     workflow(
-      `  test:\n    env:\n      VERCEL_TOKEN: \${{ secrets.VERCEL_ACCESS_TOKEN }}\n    steps:\n      - uses: actions/checkout@v6\n${install}`,
+      `  test:\n    env:\n      MODEL_KEY: \${{ secrets.MODEL_PROVIDER_API_KEY }}\n    steps:\n      - uses: actions/checkout@v6\n${install}`,
     ),
     /job test holds a secret or an OIDC token and runs a package manager/,
   )
@@ -350,7 +350,7 @@ const secretJob = (
 })
 
 test("rejects an outside-service secret in a job with untrusted code outside workbench", () => {
-  for (const secret of ["MODEL_PROVIDER_API_KEY", "VERCEL_ACCESS_TOKEN"]) {
+  for (const secret of ["MODEL_PROVIDER_API_KEY"]) {
     for (const environment of [
       "",
       "    environment: Production\n",
@@ -739,7 +739,7 @@ test("detects an OIDC token from write-all and from the flow form", () => {
 test("rejects a secret in a step that lists the checks", () => {
   const step = (run, env = "") =>
     workflow(
-      `  checks:\n    environment: workbench\n    steps:\n      - name: Checks\n        env:\n          VERCEL_TOKEN: \${{ secrets.VERCEL_ACCESS_TOKEN }}\n${env}        run: ${run}\n`,
+      `  checks:\n    environment: workbench\n    steps:\n      - name: Checks\n        env:\n          MODEL_KEY: \${{ secrets.MODEL_PROVIDER_API_KEY }}\n${env}        run: ${run}\n`,
     )
   const listed =
     /gives a secret or an OIDC token to a step that lists the checks/
@@ -751,14 +751,14 @@ test("rejects a secret in a step that lists the checks", () => {
     ["pnpm -s checks:run < ids.txt", ""],
     ["node scripts/checks/rerun-failed.mjs .ci-results", ""],
     ["node scripts/checks/rerun-failed.mjs .ci-results", empty],
-    ["node scripts/checks/selected.mjs .ci-results/vercel", ""],
-    ["node scripts/checks/selected.mjs .ci-results/vercel", empty],
+    ["node scripts/checks/selected.mjs .ci-results/backend", ""],
+    ["node scripts/checks/selected.mjs .ci-results/backend", empty],
   ])
     rejects(step(run, env), listed)
   // With a manifest from an earlier step, nothing lists the checks.
   const manifest = "          MANIFEST: manifest.json\n"
   for (const [run, env] of [
-    ["node scripts/checks/selected.mjs .ci-results/vercel", manifest],
+    ["node scripts/checks/selected.mjs .ci-results/backend", manifest],
     ["node scripts/checks/rerun-failed.mjs .ci-results", manifest],
     ["node scripts/checks/run.mjs --manifest manifest.json ids.txt", ""],
   ])

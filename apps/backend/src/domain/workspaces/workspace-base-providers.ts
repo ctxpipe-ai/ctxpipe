@@ -2,7 +2,6 @@ import { createHash, randomUUID } from "node:crypto"
 
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import { DockerHandle } from "@tanstack/ai-sandbox-docker"
-import { APIError, Snapshot } from "@vercel/sandbox"
 import Docker from "dockerode"
 
 import { parseEnv } from "../../config/env.js"
@@ -14,22 +13,8 @@ import type {
 import { type RunVault, writeProxyCa } from "./agent-vault.js"
 import { workspaceChatDockerImage } from "./chat-runtime.js"
 import { openDockerRunVault } from "./docker-run-vault.js"
-import { hostedSandboxAccess } from "./hosted-sandbox-access.js"
 import type { WorkspaceRevision } from "./revision.js"
-import { recordedBaseBuildGitToken } from "./run-git-tokens.js"
 import { discoverSandboxProvider, dockerImageId } from "./sandbox-provider.js"
-import {
-  builderSnapshotExpiration,
-  deleteVercelBuilder,
-  startVercelWorkspaceBase,
-  vercelAgentSnapshot,
-  vercelCredentials,
-  workspaceBaseTags,
-} from "./vercel-sandbox-provider.js"
-import {
-  VERCEL_SANDBOX,
-  WORKSPACE_CHAT_OPENCODE_CLI,
-} from "./workspace-chat-opencode-contract.js"
 
 /** Docker labels on what our code creates, so a host prune can find it. */
 export const DOCKER_LABELS = {
@@ -49,28 +34,22 @@ export type SandboxAgent = {
 }
 
 /**
- * The agent image Workspace bases are built on, so a new one gets new bases:
- * the chat image's content id on Docker, the runtime and OpenCode version on
- * Vercel.
+ * The agent image Workspace bases are built on, so a new one gets new
+ * bases: the content id of the Docker chat image.
  */
-export function sandboxAgentImage(
-  provider: FileKeepingSandboxProvider,
-): Promise<string> {
-  return provider === "docker"
-    ? dockerImageId(workspaceChatDockerImage())
-    : Promise.resolve(
-        `vercel-agent/${VERCEL_SANDBOX.runtime}/${WORKSPACE_CHAT_OPENCODE_CLI}`,
-      )
+export function sandboxAgentImage(): Promise<string> {
+  return dockerImageId(workspaceChatDockerImage())
 }
 
 /**
  * The deployment's provider and agent image, or null where conversations
- * have no provider snapshot (unsandboxed). Throws when they cannot be read.
+ * have no Workspace base (AgentCore, unsandboxed). Throws when they cannot
+ * be read.
  */
 export async function currentSandboxAgent(): Promise<SandboxAgent | null> {
   const provider = await discoverSandboxProvider()
-  if (provider !== "docker" && provider !== "vercel") return null
-  return { provider, image: await sandboxAgentImage(provider) }
+  if (provider !== "docker") return null
+  return { provider, image: await sandboxAgentImage() }
 }
 
 function appEnv() {
@@ -114,7 +93,7 @@ export type WorkspaceBaseBuild = {
   handle: SandboxHandle
   /** Snapshot the prepared builder; returns the image or snapshot id. */
   capture: () => Promise<string>
-  /** Called once, however the build ends: Docker removes the builder, Vercel revokes its token. */
+  /** Called once, however the build ends: Docker removes the builder. */
   finish: () => Promise<void>
 }
 
@@ -202,94 +181,47 @@ export function dockerWorkspaceBaseBuilder(input: {
   }
 }
 
-/** The builder for a provider. */
-export async function workspaceBaseBuilder(input: {
-  provider: FileKeepingSandboxProvider
+/** The Docker base builder of a Workspace. */
+export function workspaceBaseBuilder(input: {
   orgId: string
   revision: WorkspaceRevision
-}): Promise<WorkspaceBaseBuilder> {
+}): WorkspaceBaseBuilder {
   const { revision } = input
-  if (input.provider === "docker") {
-    // The build's GitHub token is recorded like a run token: the build's end
-    // revokes it, and the sandbox sweep revokes what a crash left.
-    return dockerWorkspaceBaseBuilder({
-      chatImage: workspaceChatDockerImage(),
-      vault: () =>
-        openDockerRunVault({
-          orgId: input.orgId,
-          conversationId: `workspace-base-${revision.workspaceId}`,
-          label: `clone:${randomUUID()}`,
-          revision,
-        }),
-    })
-  }
-  const hosted = await hostedSandboxAccess({
-    orgId: input.orgId,
-    githubConnectionId: revision.remote.connectionId,
-    desiredUrl: revision.remote.url,
-  })
-  if (!hosted.ok) throw new Error(hosted.error)
-  return {
-    start: async () => {
-      // As on Docker: the build's end revokes the token, and the sandbox
-      // sweep revokes what a crash left.
-      const gitToken = recordedBaseBuildGitToken({
+  // The build's GitHub token is recorded like a run token: the build's end
+  // revokes it, and the sandbox sweep revokes what a crash left.
+  return dockerWorkspaceBaseBuilder({
+    chatImage: workspaceChatDockerImage(),
+    vault: () =>
+      openDockerRunVault({
         orgId: input.orgId,
-        workspaceId: revision.workspaceId,
-        mint: hosted.mintGitToken,
-      })
-      return startVercelWorkspaceBase({
-        credentials: hosted.credentials,
-        agentSnapshotId: await vercelAgentSnapshot({
-          credentials: hosted.credentials,
-          environment: hosted.environment,
-        }),
-        mintGitToken: gitToken.mint,
-        revokeGitToken: gitToken.revoke,
-        tags: workspaceBaseTags(hosted.environment),
-        expiration: builderSnapshotExpiration(hosted.environment),
-      })
-    },
-  }
+        conversationId: `workspace-base-${revision.workspaceId}`,
+        label: `clone:${randomUUID()}`,
+        revision,
+      }),
+  })
 }
 
 /**
- * Whether a base's image or snapshot can still start a sandbox. False when
- * the provider says it is gone (Docker 404, Vercel 404) or in a terminal
- * state that is not `created` (Vercel `deleted` or `failed`). Any other
- * failure throws, and the caller keeps the base.
+ * Whether a base's image can still start a sandbox. False when Docker says
+ * it is gone (404). Any other failure throws, and the caller keeps the base.
  */
-export async function workspaceBaseExists(
-  provider: FileKeepingSandboxProvider,
-  ref: string,
-): Promise<boolean> {
+export async function workspaceBaseExists(ref: string): Promise<boolean> {
   assertNotInOrgDbContext()
-  if (provider === "docker")
-    return new Docker({ timeout: 30_000 })
-      .getImage(ref)
-      .inspect()
-      .then(
-        () => true,
-        (error: { statusCode?: number }) => {
-          if (error.statusCode === 404) return false
-          throw error
-        },
-      )
-  try {
-    const snapshot = await Snapshot.get({
-      ...(await vercelCredentials()),
-      snapshotId: ref,
-    })
-    return snapshot.status === "created"
-  } catch (error) {
-    if (error instanceof APIError && error.response.status === 404) return false
-    throw error
-  }
+  return new Docker({ timeout: 30_000 })
+    .getImage(ref)
+    .inspect()
+    .then(
+      () => true,
+      (error: { statusCode?: number }) => {
+        if (error.statusCode === 404) return false
+        throw error
+      },
+    )
 }
 
 /**
  * Delete what a base row holds at its provider: a builder and the captured
- * image or snapshot. Gone counts as deleted. `in-use`: Docker refuses to
+ * image. Gone counts as deleted. `in-use`: Docker refuses to
  * delete an image a running container uses (a stopped one keeps working
  * without it, measured), so the row stays for a later sweep.
  */
@@ -310,14 +242,6 @@ export async function deleteWorkspaceBaseArtifacts(
     return image
       ? removeDockerObject(() => docker.getImage(image).remove({ force: true }))
       : "removed"
-  }
-  if (row.provider === "vercel") {
-    await deleteVercelBuilder({
-      credentials: await vercelCredentials(),
-      builderName: row.providerSandboxId,
-      snapshotId: row.latestSnapshotId,
-    })
-    return "removed"
   }
   throw new Error(
     `Cannot delete a Workspace base for provider ${row.provider ?? "unknown"}`,

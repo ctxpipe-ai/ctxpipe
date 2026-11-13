@@ -22,12 +22,7 @@ import {
   sealIngestCheckout,
   startIngestStep,
 } from "./ingest-prepare.js"
-import {
-  dockerRootExec,
-  type RootExec,
-  runAsRoot,
-  vercelRootExec,
-} from "./ingest-root.js"
+import { dockerRootExec, type RootExec, runAsRoot } from "./ingest-root.js"
 import { validatePatchStep } from "./patch-validator.js"
 import {
   INGEST_CONTEXT_ROOT,
@@ -48,10 +43,7 @@ import {
  * and the request shape are proven on that version only (see
  * `assertIngestOpenCodeVersion`).
  *
- * The Docker agent is the image's nonroot user, which has no sudo. The
- * "Vercel-like" image adds passwordless sudo for that default user, as a
- * Vercel sandbox has, and proves that the separate agent user cannot use it.
- * A real Vercel sandbox is not used here (T12 proves it).
+ * The Docker agent is the image's nonroot user, which has no sudo.
  */
 
 const SOURCE_URL = "https://github.com/example-org/checkout-api"
@@ -62,7 +54,6 @@ const CONTEXT_DIR = `${INGEST_CONTEXT_ROOT}/${WORKSPACE_ID}`
 const STUB_PORT = 47811
 const STUB_LOG = "/tmp/model-requests.log"
 const STUB_READ = "/tmp/stub-read-path"
-const SUDO_IMAGE = "ctxpipe-ingest-sudo-test:local"
 const GIT_ENV = {
   GIT_AUTHOR_NAME: "Fixture",
   GIT_AUTHOR_EMAIL: "fixture@example.com",
@@ -157,13 +148,8 @@ type Box = {
 }
 
 /** A prepared sandbox for one test; destroyed at the end. */
-async function withBox(
-  options: { vercelLike?: boolean },
-  fn: (box: Box) => Promise<void>,
-) {
-  const provider = dockerSandbox({
-    image: options.vercelLike ? SUDO_IMAGE : workspaceChatDockerImage(),
-  })
+async function withBox(fn: (box: Box) => Promise<void>) {
+  const provider = dockerSandbox({ image: workspaceChatDockerImage() })
   const handle = await provider.create({
     id: `ingest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   })
@@ -174,24 +160,8 @@ async function withBox(
         throw new Error(`${command}\n${result.stdout}\n${result.stderr}`)
       return result.stdout
     }
-    // Vercel-like: root through the default user's sudo, as the Vercel SDK
-    // `sudo` option does. Docker: an exec as uid 0.
-    const root = options.vercelLike
-      ? vercelRootExec({
-          runCommand: async ({ cmd, args, sudo }) => {
-            const r = await handle.process.exec(
-              `${sudo ? "sudo -n " : ""}${[cmd, ...args].map(quote).join(" ")}`,
-            )
-            return {
-              exitCode: r.exitCode,
-              logs: async function* () {
-                yield { stream: "stdout" as const, data: r.stdout }
-                yield { stream: "stderr" as const, data: r.stderr }
-              },
-            }
-          },
-        })
-      : dockerRootExec(handle.id)
+    // An exec as uid 0.
+    const root = dockerRootExec(handle.id)
     const asRoot = (script: string) => runAsRoot(root, script)
     const bundle = await readIngestSkillBundle()
     await prepareIngestSandbox(handle, root, {
@@ -288,16 +258,7 @@ async function agentRequests(
 
 beforeAll(() => {
   host = mkdtempSync(join(tmpdir(), "ingest-contract-"))
-  // Vercel-like: the default user has passwordless sudo.
-  execFileSync("docker", ["build", "-q", "-t", SUDO_IMAGE, "-"], {
-    input: [
-      `FROM ${workspaceChatDockerImage()}`,
-      "USER root",
-      "RUN apt-get update && apt-get install -y --no-install-recommends sudo && rm -rf /var/lib/apt/lists/* && echo 'node ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/node",
-      "USER 1000:1000",
-    ].join("\n"),
-  })
-}, 600_000)
+})
 
 afterAll(() => {
   rmSync(host, { recursive: true, force: true })
@@ -357,7 +318,7 @@ async function proveReadOnly(box: Box) {
 
 describe("ingest sandbox layout", () => {
   it("Docker: the agent cannot sudo or change the skills, config, or checkouts", async () => {
-    await withBox({}, async (box) => {
+    await withBox(async (box) => {
       await proveReadOnly(box)
       // Prepare always copies the bundle again.
       await box.asRoot(`rm ${INGEST_SKILLS_ROOT}/bin/ctxpipe-finish`)
@@ -375,17 +336,8 @@ describe("ingest sandbox layout", () => {
     })
   }, 300_000)
 
-  it("Vercel-like: the default user can sudo, the agent user cannot", async () => {
-    await withBox({ vercelLike: true }, async (box) => {
-      await box.sh("sudo -n true")
-      const whoami = await box.agent("id -un")
-      expect(whoami.stdout.trim()).toBe(INGEST_AGENT_USER)
-      await proveReadOnly(box)
-    })
-  }, 300_000)
-
   it("does not follow a symlink in a checkout when it seals it", async () => {
-    await withBox({}, async (box) => {
+    await withBox(async (box) => {
       const before = await box.sh("stat -c '%U %a' /etc/shadow /etc")
       await box.sh(
         "mkdir -p /tmp/links && cd /tmp/links && git init -q -b main",
@@ -407,7 +359,7 @@ describe("ingest sandbox layout", () => {
   }, 300_000)
 
   it("fails clearly on an untested OpenCode version", async () => {
-    await withBox({}, async (box) => {
+    await withBox(async (box) => {
       await expect(
         assertIngestOpenCodeVersion(box.root, AGENT_ENV),
       ).resolves.toBe("1.18.34")
@@ -429,7 +381,7 @@ describe("ingest sandbox layout", () => {
 
 describe("ingest agent isolation", () => {
   it("keeps the prompt, tools, and skills when a checkout is hostile", async () => {
-    await withBox({}, async (box) => {
+    await withBox(async (box) => {
       const clean = await sealed(box, "source", "src_clean", {})
       const hostile = await sealed(box, "source", "src_hostile", HOSTILE)
       await sealed(box, "context", "ws_iso", {})
@@ -485,7 +437,7 @@ describe("ingest agent isolation", () => {
   }, 600_000)
 
   it("does not carry config that one step plants in HOME into the next step", async () => {
-    await withBox({}, async (box) => {
+    await withBox(async (box) => {
       const context = await sealed(box, "context", "ws_home", {})
       const step = () =>
         startIngestStep(box.root, {
@@ -528,7 +480,7 @@ const AGENT_PIDS = `uid=$(id -u ${INGEST_AGENT_USER}); for d in /proc/[0-9]*; do
 
 describe("agent processes between steps", () => {
   it("stops a background re-planter before the next step and before collect", async () => {
-    await withBox({}, async (box) => {
+    await withBox(async (box) => {
       const context = await sealed(box, "context", "ws_procs", {})
       const baseCommit = await headOf(box, context)
       await startIngestStep(box.root, { workspaceId: "ws_procs", baseCommit })
@@ -575,7 +527,7 @@ describe("agent processes between steps", () => {
   }, 300_000)
 
   it("refuses a fetch ref outside the run's ingest refs", async () => {
-    await withBox({}, async (box) => {
+    await withBox(async (box) => {
       const context = await sealed(box, "context", "ws_ref", {})
       const baseCommit = await headOf(box, context)
       for (const ref of [
@@ -609,7 +561,7 @@ describe("agent processes between steps", () => {
 
 describe("stage helpers in the sandbox", () => {
   it("make patch.json at the fetched base commit that the host validator accepts", async () => {
-    await withBox({}, async (box) => {
+    await withBox(async (box) => {
       const kept: Record<string, string> = {}
       for (let i = 0; i < 6; i++)
         kept[`knowledge/services/kept-${i}.md`] = OWNED(`Kept ${i}`)
@@ -761,7 +713,7 @@ describe("stage helpers in the sandbox", () => {
 
 describe("script-only skills in the sandbox", () => {
   it("discover-roots, libraries, and ownership write staged trees that the host validator accepts", async () => {
-    await withBox({}, async (box) => {
+    await withBox(async (box) => {
       const pkg = (name: string, dependencies: Record<string, string> = {}) =>
         JSON.stringify({ name, version: "1.0.0", dependencies })
       await sealed(box, "source", "shop", {

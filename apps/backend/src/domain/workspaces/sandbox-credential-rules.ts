@@ -4,8 +4,8 @@ import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 /**
  * The credentials that something outside a chat sandbox adds to its
- * requests: the Vercel firewall (hosted) or Agent Vault (Docker). One list,
- * so both add the same header to the same requests.
+ * requests: Agent Vault (Docker and AgentCore). One list, so each run adds
+ * the same header to the same requests.
  *
  * A rule with a path matches that exact path only. The backend resolves `..`
  * and `%2e` segments before it routes a request, so a prefix match could
@@ -76,10 +76,8 @@ export function githubFetchCredentialRules(
  *
  * The path is in lower case, the form of the rules: `shardRepositories`
  * builds their `owner/name` from the same lower-case name. A rule matches
- * an exact path (Agent Vault in Docker, the Vercel firewall), and nothing
- * promises that it ignores case, so the URL and the rules must be the same
- * string. The hosted egress proxy (`ingest-egress-proxy.ts`) does accept
- * another case, but we do not rely on that.
+ * an exact path (Agent Vault), and nothing promises that it ignores case,
+ * so the URL and the rules must be the same string.
  */
 export function sandboxFetchUrl(repo: { url: string; kind?: string }): string {
   if (repo.kind === "git") return repo.url

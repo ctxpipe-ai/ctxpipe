@@ -499,7 +499,6 @@ jobs:
         test-shards,
         package-tests,
         codesearch,
-        vercel-sandbox,
         storybook-plays,
         storybook-visual,
         upgrade-from-previous-release,
@@ -1202,106 +1201,6 @@ jobs:
         with:
           name: lane-trace-codesearch
           path: ${{ runner.temp }}/codesearch-trace/trace.json.gz
-          if-no-files-found: ignore
-
-  vercel-sandbox:
-    timeout-minutes: 30
-    name: Hosted sandbox (Vercel) contracts
-    needs: merge-gate-plan
-    if: |
-      !cancelled() &&
-      (github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request') &&
-      (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.vercel-sandbox != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
-    # The workbench VERCEL_ACCESS_TOKEN is a test-scoped value for the
-    # preview Vercel project, never production.
-    environment: workbench
-    services:
-      postgres:
-        image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
-        env:
-          POSTGRES_USER: ctxpipe
-          POSTGRES_PASSWORD: ctxpipe
-          POSTGRES_DB: ctxpipe
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U ctxpipe -d ctxpipe"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
-      # Stands in for a minted Workspace read token in the firewall contract.
-      GITHUB_TOKEN: ${{ github.token }}
-      VERCEL_TEAM: ctxpipe
-      VERCEL_PROJECT: ctxpipe-previews
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          fetch-depth: 0
-      - run: corepack enable
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Migrate backend schema
-        env:
-          DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/ctxpipe
-          DATABASE_APP_PASSWORD: ctxpipe
-        working-directory: apps/backend
-        run: |
-          pnpm exec tsx src/db/migrate.ts
-      # The nightly run does not start this job (it needs the workbench
-      # environment), so only a workflow_dispatch run traces it.
-      - name: Required real Vercel sandbox contracts
-        if: needs.merge-gate-plan.outputs.mode != 'gate'
-        env:
-          DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
-          VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
-          EVENT: ${{ github.event_name }}
-        run: node scripts/ci/test-suite.mjs vercel $([ "$EVENT" = workflow_dispatch ] && echo --trace)
-      # The check discovery imports PR code (eval cases, the Storybook
-      # configuration), so it runs here, without the Vercel token. The next
-      # step runs only the Vercel lane with the token.
-      - name: List the checks (merge gate)
-        if: needs.merge-gate-plan.outputs.mode == 'gate'
-        run: pnpm -s checks:list > "$RUNNER_TEMP/manifest.json"
-      # The plan job gives the check ids of this job in plan.json, by the
-      # artifact id of its upload (scripts/checks/README.md, Merge gate).
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        if: needs.merge-gate-plan.outputs.mode == 'gate' && needs.merge-gate-plan.outputs.artifact-id != ''
-        with:
-          artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
-          merge-multiple: true
-          path: ${{ runner.temp }}/plan
-      - name: Selected Vercel sandbox contracts (merge gate)
-        if: needs.merge-gate-plan.outputs.mode == 'gate'
-        env:
-          DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
-          VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
-          MANIFEST: ${{ runner.temp }}/manifest.json
-        run: node scripts/checks/selected.mjs .ci-results/vercel "$RUNNER_TEMP/plan/plan.json" vercel-sandbox
-      - name: Preserve the Vercel results
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: test-results-vercel
-          # The Trace job reads the Vercel trace from lane-trace-vercel.
-          path: |
-            .ci-results/
-            !.ci-results/**/trace.json.gz
-          include-hidden-files: true
-          if-no-files-found: ignore
-      - name: Preserve the Vercel trace
-        if: always() && github.event_name == 'workflow_dispatch'
-        continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: lane-trace-vercel
-          path: .ci-results/vercel/trace.json.gz
           if-no-files-found: ignore
 
   migrate:
@@ -2011,7 +1910,7 @@ jobs:
           set -o pipefail
           args=(--repo . --manifest "$RUNNER_TEMP/inputs/manifest.json"
             --toolchain "$RUNNER_TEMP/inputs/toolchain.json"
-            --exclude-lane vercel --out "$RUNNER_TEMP/nightly/plan.json")
+            --out "$RUNNER_TEMP/nightly/plan.json")
           if [ -f "$RUNNER_TEMP/nightly/previous.json.gz" ]; then
             args+=(--trace "$RUNNER_TEMP/nightly/previous.json.gz")
           fi
@@ -2089,7 +1988,6 @@ jobs:
       storybook-plays: ${{ steps.plan.outputs.storybook-plays }}
       storybook-visual: ${{ steps.plan.outputs.storybook-visual }}
       codesearch: ${{ steps.plan.outputs.codesearch }}
-      vercel-sandbox: ${{ steps.plan.outputs.vercel-sandbox }}
       upgrade-from-previous-release: ${{ steps.plan.outputs.upgrade-from-previous-release }}
       project-checks: ${{ steps.plan.outputs.project-checks }}
     steps:
@@ -2208,7 +2106,6 @@ jobs:
         storybook-plays,
         storybook-visual,
         codesearch,
-        vercel-sandbox,
         migrate,
         upgrade-from-previous-release,
       ]

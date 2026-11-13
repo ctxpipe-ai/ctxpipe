@@ -94,7 +94,14 @@ describe("the plain git URL policy of each deployment mode", () => {
       expect(plainGitDeployment({ SANDBOX_PROVIDER: value }), value).toBe(
         "self-host",
       )
-    for (const value of [undefined, "", " ", "vercel", "unsandboxed", "Docker"])
+    for (const value of [
+      undefined,
+      "",
+      " ",
+      "agentcore",
+      "unsandboxed",
+      "Docker",
+    ])
       expect(plainGitDeployment({ SANDBOX_PROVIDER: value }), value).toBe(
         "hosted",
       )
@@ -191,7 +198,7 @@ describe("the plain git URL policy of each deployment mode", () => {
   })
 
   for (const [mode, value] of [
-    ["vercel (hosted)", "vercel"],
+    ["agentcore (hosted)", "agentcore"],
     ["no SANDBOX_PROVIDER", undefined],
   ] as const)
     describe(mode, () => {

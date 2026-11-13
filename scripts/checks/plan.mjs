@@ -30,16 +30,11 @@ const readJson = (path) => {
 const readText = (path) =>
   existsSync(path) ? readFileSync(path, "utf8").trim().slice(0, 200) : ""
 
-// True when the gated run accepts a stored pass of this class for a check of
-// this lane. The vercel job sets lane variables that the manifest job does
-// not set (GITHUB_TOKEN and VERCEL_TOKEN), so the key from the toolchain
-// record does not describe an agent run of its checks: an agent hit is not
-// accepted there. A `pr` pass comes from a CI job of this PR, so the job had
-// those variables.
-export function accepted(source, lane, config) {
+// True when the gated run accepts a stored pass of this class. A `pr` pass
+// comes from a CI job of this PR.
+export function accepted(source, config) {
   if (source === "ci") return true
-  if (source === "agent")
-    return config.acceptAgentResults === true && lane !== "vercel"
+  if (source === "agent") return config.acceptAgentResults === true
   if (source === "pr") return config.acceptPrResults === true
   return false
 }
@@ -417,13 +412,13 @@ export function plan({ config, inputs, needs, store }) {
   )
   if (mode.jobs?.length) selection = withJobChecks(selection, mode.jobs)
   selection = withStoreHits(selection, store)
-  const lanes = new Map(selection.selected.map((check) => [check.id, check]))
+  const selected = new Set(selection.selected.map((check) => check.id))
   const hits = new Map()
   for (const hit of selection.cache?.hits ?? [])
     if (
-      lanes.has(hit.id) &&
+      selected.has(hit.id) &&
       !hits.has(hit.id) &&
-      accepted(hit.source, lanes.get(hit.id).lane, config)
+      accepted(hit.source, config)
     )
       hits.set(hit.id, hit)
   const ran = selection.selected

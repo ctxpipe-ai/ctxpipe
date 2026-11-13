@@ -6,24 +6,7 @@ import { describe, expect, it } from "vitest"
 import { dockerHostError } from "../workspaces/ingest-sandbox-egress.js"
 import { ingestSandboxUnavailable } from "./reingest.js"
 
-const vercel = {
-  SANDBOX_PROVIDER: "vercel",
-  VERCEL_TOKEN: "token",
-  VERCEL_TEAM_ID: "team",
-  VERCEL_PROJECT_ID: "project",
-}
-
 describe("ingestSandboxUnavailable", () => {
-  it("lets hosted re-ingestion run on Vercel, as ingestion does", () => {
-    expect(ingestSandboxUnavailable(vercel)).toBeNull()
-  })
-
-  it("names the missing Vercel settings, not Docker", () => {
-    const note = ingestSandboxUnavailable({ ...vercel, VERCEL_TOKEN: "" })
-    expect(note).toContain("VERCEL_TOKEN")
-    expect(note).not.toContain("Docker")
-  })
-
   it("lets self-host run on Docker", () => {
     expect(ingestSandboxUnavailable({})).toBeNull()
     expect(ingestSandboxUnavailable({ SANDBOX_PROVIDER: "docker" })).toBeNull()

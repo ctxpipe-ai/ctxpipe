@@ -65,7 +65,7 @@ type PlainGitDeployment = "hosted" | "self-host"
  * The deployment mode of the plain git URL policy. Only
  * `SANDBOX_PROVIDER=docker` is self-host. Spaces around the value are
  * removed, as `lockedSandboxProvider` does. Each other value
- * (`vercel`, `unsandboxed`, or no value) gets the strict rule of hosted.
+ * (`agentcore`, `unsandboxed`, or no value) gets the strict rule of hosted.
  * The UI has no `process`, so this function gives the strict rule there.
  * The UI does not use it to judge a plain git URL: the UI has no editor
  * for a plain git source, and the backend is the only judge. The UI shows

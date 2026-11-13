@@ -4,6 +4,7 @@ import "./src/observability/register.js"
 import { defineConfig } from "@openworkflow/cli"
 
 import { initDb } from "./src/db/client.js"
+import { refuseVercelSandboxRows } from "./src/domain/workspaces/sandbox-provider.js"
 import { createLogger, flushEvlog, log } from "./src/observability/logger.js"
 import { shutdownOtel } from "./src/observability/otel.js"
 import { parseOpenWorkflowConcurrency } from "./src/openworkflow/codesearchCapacity.js"
@@ -20,6 +21,9 @@ import { scheduleUpgradeScansForAllOrgs } from "./src/openworkflow/workflows/wor
 const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error("DATABASE_URL is required for the worker")
 initDb(databaseUrl)
+// Before the worker schedules or runs a job: the config throws, so the CLI
+// does not start the worker.
+await refuseVercelSandboxRows()
 // Queue depth for the dashboard (OTel). A hosted deployment sets
 // DEPLOYMENT_ENVIRONMENT and also gets the CloudWatch EMF line that its
 // worker autoscaling reads; self-host leaves it unset.

@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto"
+
 import type {
   SandboxHandle,
   SandboxProvider as TanstackSandboxProvider,
@@ -5,11 +7,11 @@ import type {
 import Docker from "dockerode"
 
 import { assertNotInOrgDbContext } from "../../db/client.js"
-import type {
-  FileKeepingSandboxProvider,
-  RunningSandboxProvider,
+import {
+  countVercelSandboxRows,
+  type RunningSandboxProvider,
 } from "../../models/workspace-sandboxes.js"
-import { log } from "../../observability/logger.js"
+import { flushEvlog, log } from "../../observability/logger.js"
 import { writeProxyCa } from "./agent-vault.js"
 import {
   agentCoreRuntime,
@@ -18,15 +20,10 @@ import {
 import { wrapSandboxHandles } from "./sandbox-process-guards.js"
 
 /**
- * Hosted runs Vercel (AgentCore after the AWS cutover), self-host runs
- * Docker; unsandboxed is explicit only.
+ * Hosted runs AgentCore, self-host runs Docker; unsandboxed is explicit
+ * only.
  */
-export const SANDBOX_PROVIDERS = [
-  "docker",
-  "vercel",
-  "agentcore",
-  "unsandboxed",
-] as const
+export const SANDBOX_PROVIDERS = ["docker", "agentcore", "unsandboxed"] as const
 
 export type SandboxProvider = (typeof SANDBOX_PROVIDERS)[number]
 
@@ -45,7 +42,7 @@ export function lockedSandboxProvider(
     throw new Error(`Unknown SANDBOX_PROVIDER "${locked}"`)
   if (locked === "unsandboxed" && env.NODE_ENV === "production")
     throw new Error(
-      "SANDBOX_PROVIDER=unsandboxed is for local development only. Use docker or vercel.",
+      "SANDBOX_PROVIDER=unsandboxed is for local development only. Use docker or agentcore.",
     )
   return locked as SandboxProvider
 }
@@ -67,6 +64,25 @@ export function warnIfUnsandboxed(
     message:
       "SANDBOX_PROVIDER=unsandboxed: Workspace chat agents run as processes in this container with its network access and credentials",
   })
+}
+
+/**
+ * Refuses the start of the backend or the worker while the database holds a
+ * sandbox row of the removed Vercel provider (CTX-1220, ADR-048). This code
+ * cannot delete the Vercel sandbox or snapshot of such a row. The retirement
+ * script of the release before this one deletes them and the rows. The error
+ * gives the count only, never an org or a sandbox id. Call it after
+ * `initDb`, before the process serves a request or runs a job.
+ */
+export async function refuseVercelSandboxRows(
+  orgIds?: readonly string[],
+): Promise<void> {
+  const rows = await countVercelSandboxRows(orgIds)
+  if (rows === 0) return
+  const message = `Sandbox rows of the removed Vercel provider are in the database (count: ${rows}). This release cannot delete their Vercel sandboxes and snapshots, so it does not start. With the release before this one, run \`bun src/scripts/retireVercelSandboxes.ts\` in apps/backend until it reports no rows. Then start this release again.`
+  log.error({ step: "vercel-sandbox-rows", message, rows })
+  await flushEvlog()
+  throw new Error(message)
 }
 
 /**
@@ -98,6 +114,16 @@ export async function discoverSandboxProvider(
     )
   }
   return "docker"
+}
+
+/**
+ * The OpenCode password for one turn's agent port. The OpenCode server must
+ * hold it, so it is in the sandbox. A new one each turn makes it useless
+ * after the turn: the next turn stops the earlier server and starts one with
+ * its own password.
+ */
+export function turnAgentPassword(): string {
+  return randomBytes(24).toString("hex")
 }
 
 /**
@@ -146,7 +172,7 @@ export function remoteDockerHost(
 
 /**
  * Docker conversation sandboxes, with the agent port behind the OpenCode
- * password (as on Vercel) and reachable from this process. Stock `ports.connect`
+ * password and reachable from this process. Stock `ports.connect`
  * returns `localhost:<published port>`, which only works when the daemon runs
  * on this machine; for a remote daemon the port is published on its host.
  */
@@ -219,8 +245,6 @@ export function configuredAgentCoreProvider(
 }
 
 export async function destroyDetachedProviderSandbox(input: {
-  /** Required for Vercel, whose token record is org-scoped. */
-  orgId?: string
   provider?: string | null
   providerSandboxId: string
   snapshotId?: string
@@ -238,15 +262,6 @@ export async function destroyDetachedProviderSandbox(input: {
   }
   if (input.provider === "agentcore") {
     await configuredAgentCoreProvider().destroy({ id: input.providerSandboxId })
-    return
-  }
-  if (input.provider === "vercel") {
-    // Deleting also removes the saved state and revokes the GitHub token.
-    if (!input.orgId) throw new Error("Deleting a Vercel sandbox needs its org")
-    const { deleteVercelSandbox } = await import("./vercel-sandbox-provider.js")
-    await deleteVercelSandbox(
-      await vercelSandboxTarget(input.orgId, input.providerSandboxId),
-    )
     return
   }
   if (
@@ -276,7 +291,6 @@ export async function destroyDetachedProviderSandbox(input: {
  * a turn runs) never starts or resumes a sandbox: null when it does not run.
  */
 export async function attachProviderSandbox(input: {
-  orgId: string
   provider: RunningSandboxProvider
   providerSandboxId: string
   onlyRunning?: boolean
@@ -305,59 +319,30 @@ export async function attachProviderSandbox(input: {
     })
   }
   // A session that ended gives null; a stopped one does not exist.
-  if (input.provider === "agentcore")
-    return configuredAgentCoreProvider().resume({
-      id: input.providerSandboxId,
-      ...(input.signal ? { signal: input.signal } : {}),
-    })
-  const { attachVercelSandbox } = await import("./vercel-sandbox-provider.js")
-  return attachVercelSandbox(
-    await vercelSandboxTarget(input.orgId, input.providerSandboxId),
-    { onlyRunning: input.onlyRunning, signal: input.signal },
-  )
+  return configuredAgentCoreProvider().resume({
+    id: input.providerSandboxId,
+    ...(input.signal ? { signal: input.signal } : {}),
+  })
 }
 
 /**
- * Stop a sandbox and keep its files: Docker stops the container (the stock
- * provider's `resume` starts it again); Vercel saves its state and revokes
- * its GitHub token. A sandbox that is already stopped or gone counts as
- * stopped; the next turn resumes or recreates it. AgentCore cannot keep the
- * files, so the lifecycle deletes such a sandbox instead.
+ * Stop a Docker sandbox and keep its files (the stock provider's `resume`
+ * starts it again). A sandbox that is already stopped or gone counts as
+ * stopped; the next turn resumes or recreates it. Only Docker keeps the
+ * files: the lifecycle deletes an AgentCore sandbox instead.
  */
 export async function stopDetachedProviderSandbox(input: {
-  orgId: string
-  provider: FileKeepingSandboxProvider
   providerSandboxId: string
 }): Promise<void> {
-  if (input.provider === "docker") {
-    try {
-      // PID 1 is the stock keep-alive command, which ignores SIGTERM.
-      await new Docker({ timeout: 30_000 })
-        .getContainer(input.providerSandboxId)
-        .stop({ t: 1 })
-    } catch (error) {
-      const status = (error as { statusCode?: number }).statusCode
-      // 304: already stopped. 404: gone.
-      if (status !== 304 && status !== 404) throw error
-    }
-    return
-  }
-  const { stopVercelSandbox } = await import("./vercel-sandbox-provider.js")
-  await stopVercelSandbox(
-    await vercelSandboxTarget(input.orgId, input.providerSandboxId),
-  )
-}
-
-/** A Vercel sandbox by name, with the org's record of its GitHub token. */
-async function vercelSandboxTarget(orgId: string, name: string) {
-  const { vercelCredentials } = await import("./vercel-sandbox-provider.js")
-  const { sandboxGitTokenStore } =
-    await import("../../models/sandbox-git-tokens.js")
-  const { parseEnv } = await import("../../config/env.js")
-  return {
-    credentials: await vercelCredentials(),
-    name,
-    tokens: sandboxGitTokenStore(orgId, parseEnv(process.env)),
+  try {
+    // PID 1 is the stock keep-alive command, which ignores SIGTERM.
+    await new Docker({ timeout: 30_000 })
+      .getContainer(input.providerSandboxId)
+      .stop({ t: 1 })
+  } catch (error) {
+    const status = (error as { statusCode?: number }).statusCode
+    // 304: already stopped. 404: gone.
+    if (status !== 304 && status !== 404) throw error
   }
 }
 

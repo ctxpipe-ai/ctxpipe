@@ -9,7 +9,6 @@
     "src/domain/workspaces/pagerduty-mirror-native.contract.test.ts": 12,
     "src/domain/workspaces/slack-mirror-native.contract.test.ts": 21,
     "src/domain/workspaces/workspace-commit-activity-native.contract.test.ts": 15,
-    "src/domain/workspaces/workspace-sandbox-base-vercel.integration.test.ts": 17,
     "src/domain/workspaces/write-pause-native.contract.test.ts": 198,
     "src/models/pagerduty-connector.integration.test.ts": 5,
     "src/openworkflow/defineObservedWorkflow.test.ts": 4,

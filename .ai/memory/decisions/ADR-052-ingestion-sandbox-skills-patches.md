@@ -175,3 +175,7 @@ In a publish, a merged file that fails the patch validator is withheld at its de
 - **A unit test pins the hash.** The test fails when the content changes and `hash` does not. The failure message says that a person sets `version` only when the edit can change the knowledge that ingestion writes, or when a skill folder is added or removed.
 - **A run in progress.** The in-run check compares the planned version with the current version. A run planned before this revision has only the content hash, which equals the first version. The check also stops a run when the skill folder names differ from the planned names.
 
+
+## Amendment 2026-11-12: no Vercel ingest path (CTX-1220)
+
+Ingest shards run only on Docker and AgentCore. Both use the shard's vault in Agent Vault. The Vercel ingest provider, its firewall policy, and the backend egress proxy (`/api/v1/sandbox-egress`) are removed. The Vercel parts of this ADR above are history.

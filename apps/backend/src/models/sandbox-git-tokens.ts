@@ -8,15 +8,11 @@ import {
   encryptConnectionSecret,
 } from "../lib/connection-secrets.js"
 
-export type SandboxGitTokenStore = {
-  get: (sandboxId: string) => Promise<{ token: string; mintedAt: Date } | null>
-  put: (sandboxId: string, token: string) => Promise<void>
+/** The store of the run tokens. */
+export type RunGitTokenStore = {
+  get: (key: string) => Promise<{ token: string; mintedAt: Date } | null>
   /** Removes the record and returns the token it held, for revocation. */
-  take: (sandboxId: string) => Promise<string | null>
-}
-
-/** The store, with the operations run tokens use. */
-export type RunGitTokenStore = SandboxGitTokenStore & {
+  take: (key: string) => Promise<string | null>
   /** Records a token only when the key is free; false when another holds it. */
   add: (key: string, token: string) => Promise<boolean>
   /** Every record whose key starts with the prefix. */
@@ -26,9 +22,9 @@ export type RunGitTokenStore = SandboxGitTokenStore & {
 }
 
 /**
- * Encrypted GitHub read tokens for one organization: one per hosted sandbox
- * (keyed by the sandbox name), and the run tokens of Docker and local
- * conversations (keyed `run:<conversation>:…`, see `run-git-tokens.ts`).
+ * Encrypted GitHub read tokens for one organization: the run tokens of
+ * conversations (keyed `run:<conversation>:…`) and ingest shards (keyed
+ * `ingest:<run>:<shard>:…`), see `run-git-tokens.ts`.
  */
 export function sandboxGitTokenStore(
   orgId: string,
@@ -48,20 +44,6 @@ export function sandboxGitTokenStore(
               mintedAt: row.mintedAt,
             }
           : null
-      }),
-    put: (sandboxId, token) =>
-      withOrgDbContext(orgId, async (db) => {
-        const values = {
-          tokenCiphertext: encryptConnectionSecret(token, env),
-          mintedAt: new Date(),
-        }
-        await db
-          .insert(workspaceSandboxGitTokens)
-          .values({ sandboxId, orgId, ...values })
-          .onConflictDoUpdate({
-            target: workspaceSandboxGitTokens.sandboxId,
-            set: values,
-          })
       }),
     take: (sandboxId) =>
       withOrgDbContext(orgId, async (db) => {

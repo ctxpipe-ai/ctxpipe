@@ -92,17 +92,16 @@ Workspace repository. The first message can take longer while the sandbox
 starts (**Setting up sandbox**). Later messages use the same sandbox.
 
 On hosted ctxpipe, each conversation gets its own
-[Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) microVM. No other
-conversation or organization shares it.
+[Amazon Bedrock AgentCore](https://aws.amazon.com/bedrock/agentcore/) session,
+in its own microVM. No other conversation or organization shares it.
 
-- **Your files stay.** A sandbox stops after 5 minutes without use and keeps
-  its files. Your next message starts it again, with the files where the agent
-  left them. ctxpipe deletes the saved files 29 days after the last use of the
-  conversation. Before that, it pushes the commits that are not on GitHub to
-  the branch of the conversation. Changes that nobody committed are deleted.
-- **The agent can use the internet**, for example to read documentation or
-  install packages.
-- **No credential is in the sandbox.** A firewall outside the sandbox adds
+- **Commits stay.** A sandbox stops after 5 minutes without use. Before it
+  stops, ctxpipe pushes the commits that are not on GitHub to the branch of
+  the conversation. Your next message starts a new sandbox from that branch.
+  Changes that nobody committed are deleted.
+- **Closed network.** The agent can reach GitHub, the ctxpipe model proxy,
+  and the Workspace tools. It cannot reach another host.
+- **No credential is in the sandbox.** A proxy outside the sandbox adds
   each credential to a request on its way out. The GitHub token can only read.
   It is short-lived, and ctxpipe revokes it when the sandbox stops. Access to
   the model and the Workspace tools is added only while a reply runs.
