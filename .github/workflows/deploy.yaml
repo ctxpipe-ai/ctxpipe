@@ -28,16 +28,51 @@ permissions:
   pull-requests: write
 
 jobs:
-  # Each image builds natively on an amd64 runner and on an arm64 runner. QEMU
-  # is too slow for the codesearch toolchain. Each build pushes its image by
-  # digest only. The publish_images job then joins the two digests in one
-  # manifest list with the tags <sha> and latest. Railway pulls the
-  # linux/amd64 image, and the AWS hosts (Graviton) pull the linux/arm64
+  # Decides which images this push builds (scripts/ci/deploy-images.mjs). An
+  # image builds when one of its inputs changed since the commit of the last
+  # successful Deploy run on main. Each other image keeps the multi-platform
+  # image that the base run published: publish_images gives that digest the
+  # new tags. Every image builds when no base is found, when the base commit
+  # is not in the history of this commit, or when this file or the plan
+  # changed. The job reads the base run only through the GitHub API, as data.
+  image_plan:
+    timeout-minutes: 5
+    name: Plan the image builds
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      reuse: ${{ steps.plan.outputs.reuse }}
+      images: ${{ steps.plan.outputs.images }}
+    steps:
+      # The full history: the plan compares this commit with the base commit.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/deploy-images.mjs
+
+  # Each image that the plan selects builds natively on an amd64 runner and on
+  # an arm64 runner. QEMU is too slow for the codesearch toolchain. Each build
+  # pushes its image by digest only. The publish_images job then joins the two
+  # digests in one manifest list with the tags <sha> and latest. Railway pulls
+  # the linux/amd64 image, and the AWS hosts (Graviton) pull the linux/arm64
   # image. Self-hosters can run either.
   build_images_amd64:
     timeout-minutes: 45
     name: Build image (${{ matrix.image }}, amd64)
-    if: github.event_name != 'workflow_dispatch'
+    needs: image_plan
+    if: github.event_name != 'workflow_dispatch' && needs.image_plan.outputs.build != '[]'
     # amd64: it builds the linux/amd64 image of each service natively.
     runs-on: blacksmith-4vcpu-ubuntu-2404
     environment: production
@@ -45,27 +80,8 @@ jobs:
       ARCH: amd64
     strategy:
       fail-fast: false
-      matrix: &images
-        include:
-          - image: backend
-            dockerfile: apps/backend/Dockerfile
-          - image: worker
-            dockerfile: apps/backend/Dockerfile.worker
-          - image: ui
-            dockerfile: apps/ui/Dockerfile
-          - image: codesearch
-            dockerfile: apps/codesearch/Dockerfile
-          # Workspace chat sandboxes.
-          - image: chat-sandbox
-            dockerfile: scripts/chat-sandbox/Dockerfile
-            context: scripts/chat-sandbox
-          # The AgentCore Runtime image of the chat sandbox: the `agentcore`
-          # target of the same Dockerfile, with the shim as its entry point
-          # (CTX-1219).
-          - image: chat-sandbox-agentcore
-            dockerfile: scripts/chat-sandbox/Dockerfile
-            context: scripts/chat-sandbox
-            target: agentcore
+      matrix: &build_images
+        include: ${{ fromJSON(needs.image_plan.outputs.build) }}
     steps: &build_image_steps
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
@@ -106,21 +122,31 @@ jobs:
   build_images_arm64:
     timeout-minutes: 45
     name: Build image (${{ matrix.image }}, arm64)
-    if: github.event_name != 'workflow_dispatch'
+    needs: image_plan
+    if: github.event_name != 'workflow_dispatch' && needs.image_plan.outputs.build != '[]'
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     environment: production
     env:
       ARCH: arm64
     strategy:
       fail-fast: false
-      matrix: *images
+      matrix: *build_images
     steps: *build_image_steps
 
+  # Tags each image of the plan with <sha> and latest: a built image as the
+  # list of its two digests, and a reused image by the digest of the base run.
+  # A copy of one list keeps its digest. Each job reports the digest that it
+  # pushed as one `deploy-image` notice on its own check run: the plan of a
+  # later run reads only that notice. The build jobs are skipped when the plan
+  # builds no image, and a job after a skipped job runs only with a status
+  # function. Thus this job and each job after it run unless a job before
+  # them failed or the run was cancelled.
   publish_images:
     timeout-minutes: 10
     name: Publish image (${{ matrix.image }})
-    if: github.event_name != 'workflow_dispatch'
+    if: ${{ !cancelled() && !failure() && github.event_name != 'workflow_dispatch' }}
     needs:
+      - image_plan
       - build_images_amd64
       - build_images_arm64
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm
@@ -129,15 +155,20 @@ jobs:
       packages: write
     strategy:
       fail-fast: false
-      matrix: *images
+      matrix:
+        include: ${{ fromJSON(needs.image_plan.outputs.images) }}
+    env:
+      REUSE: ${{ fromJSON(needs.image_plan.outputs.reuse)[matrix.image] }}
     steps:
       # Each architecture by its exact name: a pattern such as
       # `digest-chat-sandbox-*` also matches `digest-chat-sandbox-agentcore-*`.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: env.REUSE == ''
         with:
           name: digest-${{ matrix.image }}-amd64
           path: ${{ runner.temp }}/digest
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: env.REUSE == ''
         with:
           name: digest-${{ matrix.image }}-arm64
           path: ${{ runner.temp }}/digest
@@ -151,21 +182,32 @@ jobs:
 
       - name: Tag the multi-platform image
         env:
+          NAME: ${{ matrix.image }}
           IMAGE: ghcr.io/ctxpipe-ai/${{ matrix.image }}
           INDEX: ${{ runner.temp }}/index/${{ matrix.image }}
         run: |
           set -o pipefail
+          if [ -n "$REUSE" ]; then
+            [[ "$REUSE" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::The plan gave $NAME no image digest" >&2; exit 1; }
+            sources=("$IMAGE@$REUSE")
+          else
+            sources=("$IMAGE@$(cat "$RUNNER_TEMP/digest/amd64")" "$IMAGE@$(cat "$RUNNER_TEMP/digest/arm64")")
+          fi
           docker buildx imagetools create --progress plain \
             --tag "$IMAGE:$GITHUB_SHA" \
             --tag "$IMAGE:latest" \
-            "$IMAGE@$(cat "$RUNNER_TEMP/digest/amd64")" \
-            "$IMAGE@$(cat "$RUNNER_TEMP/digest/arm64")" 2>&1 | tee "$RUNNER_TEMP/create.log"
+            "${sources[@]}" 2>&1 | tee "$RUNNER_TEMP/create.log"
           # The digest of the list that this job pushed, from the push and not
           # from a later read of the tag. copy_images_to_ecr copies it.
           mkdir -p "$(dirname "$INDEX")"
           grep -oE 'pushing sha256:[0-9a-f]{64} to ' "$RUNNER_TEMP/create.log" | sort -u | cut -d' ' -f2 > "$INDEX"
           [ "$(wc -l < "$INDEX")" -eq 1 ]
+          if [ -n "$REUSE" ] && [ "$(cat "$INDEX")" != "$REUSE" ]; then
+            echo "::error::The copy of $IMAGE@$REUSE pushed $(cat "$INDEX")" >&2
+            exit 1
+          fi
           docker buildx imagetools inspect "$IMAGE@$(cat "$INDEX")"
+          echo "::notice title=deploy-image::$NAME $(cat "$INDEX")"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -182,7 +224,7 @@ jobs:
   ecr_digests:
     timeout-minutes: 5
     name: Digests for the production ECR
-    if: github.event_name != 'workflow_dispatch'
+    if: ${{ !cancelled() && !failure() && github.event_name != 'workflow_dispatch' }}
     needs:
       - publish_images
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm
@@ -234,7 +276,7 @@ jobs:
   copy_images_to_ecr:
     timeout-minutes: 15
     name: Copy images to the ECR
-    if: github.event_name != 'workflow_dispatch'
+    if: ${{ !cancelled() && !failure() && github.event_name != 'workflow_dispatch' }}
     needs:
       - ecr_digests
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm
@@ -361,7 +403,7 @@ jobs:
   release:
     timeout-minutes: 20
     name: Release
-    if: github.event_name != 'workflow_dispatch'
+    if: ${{ !cancelled() && !failure() && github.event_name != 'workflow_dispatch' }}
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     needs:
       - publish_images
@@ -417,7 +459,7 @@ jobs:
   terraform:
     timeout-minutes: 90
     name: Terraform Init/Plan/Apply
-    if: github.event_name != 'workflow_dispatch'
+    if: ${{ !cancelled() && !failure() && github.event_name != 'workflow_dispatch' }}
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     environment: production
     needs:
@@ -614,7 +656,7 @@ jobs:
   forge_deploy:
     timeout-minutes: 20
     name: Deploy Forge app (production)
-    if: github.event_name != 'workflow_dispatch'
+    if: ${{ !cancelled() && !failure() && github.event_name != 'workflow_dispatch' }}
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     environment: production
     needs: terraform
