@@ -324,16 +324,16 @@ export function nightlyPlan(factory, seconds) {
   const visual = (id) => id.startsWith("storybook:visual:")
   const playsOf = (id) =>
     visual(id) ? `storybook:plays:${id.slice("storybook:visual:".length)}` : id
-  const rendered = [
-    ...new Set(
-      factory.run
-        .filter(
-          (id) =>
-            family(id) === "storybook" && (!visual(id) || traced.has(id)),
-        )
-        .map(playsOf),
-    ),
-  ].sort()
+  // One id for each story (`<file>#<story>`): a render records every check id
+  // of its story in the trace of its shard, and `trace.mjs merge` rejects an
+  // id in two traces. The id of the play or required check wins.
+  const byStory = new Map()
+  for (const id of factory.run)
+    if (family(id) === "storybook" && (!visual(id) || traced.has(id))) {
+      const story = id.split(":").slice(2).join(":")
+      if (!visual(id) || !byStory.has(story)) byStory.set(story, playsOf(id))
+    }
+  const rendered = [...byStory.values()].sort()
   const rest = factory.run.filter(
     (id) => !project(id) && (family(id) !== "storybook" || visual(id)),
   )

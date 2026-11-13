@@ -1278,6 +1278,24 @@ test("a nightly plan puts its checks into the jobs of the run, and a full one gi
   assert.throws(() => nightlyPlan({ schemaVersion: 2 }, new Map()))
 })
 
+test("a nightly plan renders each story in one Storybook shard only", () => {
+  // Each render of a story records all its check ids in the trace of its
+  // shard, and `trace.mjs merge` rejects an id in two traces. So a story
+  // with a required check and a traced screenshot check is one plan id.
+  const stories = ["a", "b", "c", "d"].map(
+    (name) => `apps/ui/src/${name}.stories.tsx#${name}--one`,
+  )
+  const required = stories.map((story) => `storybook:required:${story}`)
+  const shots = stories.map((story) => `storybook:visual:${story}`)
+  const planned = nightlyPlan(
+    nightly({ trace: [...required, ...shots] }),
+    new Map(required.map((id) => [id, 400])),
+  )
+  const shards = planned.jobs["storybook-plays"]
+  assert.ok(shards.length > 1)
+  assert.deepEqual(shards.flatMap((entry) => entry.plan.ids).sort(), required)
+})
+
 test("the CLI writes the nightly plan and the outputs of the plan job", () => {
   const directory = inputs({
     "factory-plan.json": nightly({ trace: [ui] }),
