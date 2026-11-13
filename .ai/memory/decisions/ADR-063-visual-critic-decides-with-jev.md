@@ -30,6 +30,8 @@ The product owner decided on 2026-11-13: "Use Jev for this capability and just f
 1. **Jev decides.** The `visual` entry runs `visual:review --judge jev`. Jev 1.14 (`typesafe/jev-1.14`, OpenRouter Decisions API, `judgeWithJev`) gives the final verdict of each changed screenshot. A new screenshot (no base image) goes to Jev too (`judgeNewWithJev`). No LLM explains or changes the verdict. `--judge model` (an LLM, with an optional `--filter jev`) and `--judge agent` stay for a person or a fork.
 2. **Thresholds.** For a change, Jev answers one question for each area and each quality of the rubric (better, same or worse), one defect question, and one box question for the region. For a new screenshot, each question asks whether the screenshot breaks a rule.
    - A worse (or broken) area or quality with a probability of 0.5 or more is a `regression` with severity `minor`. An area needs the region of the box; without a box, the verdict is `unsure`.
+   - For a change, Jev also answers one yes/no question: does a label put two parts side by side with no space, so that they read as one word? A yes with a probability of 0.5 or more is a `spacing` finding (rule 9). This answer does not count for `unsure`.
+   - A worse `density` is never a `regression` on its own. It counts only for `unsure`, and the summary says so (rule 9).
    - A highest probability from 0.2 up to 0.5, or a question with no answer, is `unsure`.
    - Else the verdict is `intended` when the brief or the source diff explains the change, and `unsure` when nothing explains it.
    - An image pair in the tolerance of the visual check is `noise`, and a removed screenshot is `unsure`. Neither calls Jev.
@@ -47,6 +49,14 @@ The product owner decided on 2026-11-13: "Use Jev for this capability and just f
 6. **Data receiver.** Each changed screenshot, the brief and the source diff now go to TypeSafe (Jev) through the alpha OpenRouter endpoint `/api/alpha/decisions`. Before, they went to Anthropic, and only an opt-in `--filter jev` reached TypeSafe. The request sets `provider.data_collection: "deny"`, but no one has confirmed that OpenRouter applies it on the alpha endpoint, or the retention terms of TypeSafe. The screenshots are Storybook stories with mock data, and the repository is public.
 7. **Rule.** Run the bake-off again for each new decider model and for each change of the questions or the rubric, before the critic uses it.
 8. **Rubric update (2026-11-13).** The rubric has sharper definitions and one new area, `broken-content`, so that each Jev question names defects that a screenshot shows and ties them to our design docs. The new rules come from two design guides that the product owner recommended, [frontend-design](https://agenticskills.io/skills/frontend-design) and [Impeccable](https://impeccable.style/), with only the rules that agree with `apps/ui/DESIGN.md`. A Jev-only bake-off on all 47 hold-out cases (panel labels, 1 run) measured the change (rule 7). Before (run 43360812931): recall 0.79, precision 0.90, unsure 0.38, $0.0004 per story. After (run 43360825713): recall 0.91, precision 0.83, unsure 0.23, $0.0005 per story. Only the new rubric passes the selection rule (recall 0.9 or more, precision 0.7 or more). The lower precision is acceptable, because a Jev result is feedback that never blocks (rule 3).
+9. **Jev iterations (2026-11-13, [CTX-1262](https://linear.app/ctxpipe/issue/CTX-1262)).** On the deliberate redesign of CTX-1259, 96% of the verdicts were `unsure`, and each `regression` was a removal that the brief names. 16 Jev-only runs ($1.82) tested 14 question variants and many thresholds. The bake-off now keeps the raw answers of Jev, so a threshold is tested again with no new call. The tuning used the 109 panel-labeled cases outside the hold-out set and the labeled redesign set of PR #717 (`evals/critic/redesign.json`: 124 screenshots, 15 of them regressions that the owner found after the merge). The hold-out set was used only for the last candidates.
+   - **The `unsure` floor stays 0.2.** On the redesign set, 14 of the 15 regressions and 94 of the 109 intended screenshots had a highest worse probability from 0.2 to 0.5. A floor of 0.3 or 0.4 made 7 or 8 of these regressions `intended`, with no other gain in recall. The `unsure` band does not separate them, but it is the only signal that Jev has on them.
+   - **The intended changes of the brief, as a list in the state, did not help.** With criteria that call an explained change `same`, the false flags on the redesign set fell from 10 to 2, but recall fell on the hold-out set (0.88, run 43384200923). No variant found a regression of the redesign set with the area and quality questions.
+   - **Fewer images.** Without the full before and after images, Jev flagged most intended changes (44 false flags of 65). With the list of intended changes and without the locator and diff images, precision on the page cases rose to 0.94, but recall fell to 0.89, and to 0.88 on the hold-out set. The critic still sends all five images.
+   - **A `score` question** in place of the choice gave a recall of 0.80 at the same threshold. Not used.
+   - **Literal yes/no questions** on spacing and hierarchy found up to 12 of the 15 redesign regressions, with 47 or more false flags. Only "parts run together" separated cleanly: 0.70 to 0.93 on the 7 step labels ("01Connect"), at most 0.41 on any page case and 0.28 on any intended redesign screenshot. It is now a question (rule 2).
+   - **Density.** Density never found a regression that no other question found (page cases, hold-out set, 3 runs), and it gave 12 of the 14 false flags on the redesign set (an intended removal leaves more space).
+   - **Result** (runs 43400628954 and 43400633408, 1 run each). Hold-out set: recall 0.91, precision 0.86, unsure 0.26, $0.0005 per story, as before. Other page cases: recall 0.91, precision 0.88. Redesign set: 7 of 15 regressions found (before: 0), 4 false flags (before: 14), unsure 0.91 (before: 0.88). The 8 missed regressions are the inverted title hierarchy ([CTX-1266](https://linear.app/ctxpipe/issue/CTX-1266)); each one is `unsure`.
 
 ## Consequences
 
@@ -61,6 +71,8 @@ The product owner decided on 2026-11-13: "Use Jev for this capability and just f
 - The labels of the real changes come from a judge panel, not from a person. GPT-6.1-Sol and Opus are panel members, so the labels can favor them.
 - Only page stories. Most changed baselines of a PR are component stories.
 - No new-screenshot case got a result, so the judgment of a new screenshot by Jev has no measurement.
+- Jev does not give the same answer twice: on the same question and images, two runs differed by 0.025 on average and by up to 0.22 (rule 9). Thus a difference of a few flags between two variants of one run each is noise.
+- The redesign set is one PR, and rule 9 tuned on it. Its 15 regressions are of two kinds only.
 - 563 Anthropic calls returned no `usage.cost`. The spend of the run ($62.92) is an overestimate, and the Anthropic arms show no cost per story.
 
 ## First use
@@ -78,6 +90,8 @@ Thus the critic was cheap and fast, and it missed nothing in the sample, but it 
 
 ## Follow-ups
 
+- [CTX-1266](https://linear.app/ctxpipe/issue/CTX-1266): Jev misses an inverted title hierarchy.
+- [CTX-1267](https://linear.app/ctxpipe/issue/CTX-1267): Jev flags 8 of 10 clean new screenshots.
 - [CTX-1255](https://linear.app/ctxpipe/issue/CTX-1255): Anthropic calls through OpenRouter give no `usage.cost` in the runner.
 - [CTX-1256](https://linear.app/ctxpipe/issue/CTX-1256): an LLM explains a suspected Jev regression, and never overrides it.
 - [CTX-1257](https://linear.app/ctxpipe/issue/CTX-1257): run the useful arms again on all 176 page cases with 3 runs.
