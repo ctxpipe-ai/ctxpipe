@@ -163,7 +163,7 @@ export async function visualReview(
     return 2
   }
   // The paid judges: `--judge jev` asks only Jev, `--judge model` the
-  // explainer (after the Jev filter, if asked).
+  // explainer (after the Jev filter, if asked, for a change).
   const judgeNewByModel = async (story: NewStoryInput) =>
     (await paid(
       budget,
@@ -173,11 +173,6 @@ export async function visualReview(
           : judgeNewWithOpenRouter(story, model, process.env),
       judge === "jev" ? unknownJevCallUsd : unknownCallUsd,
     )) ?? budgetReached(story.storyId, budget)
-  const judgeChangedByModel = async (story: StoryInput) =>
-    judge === "jev"
-      ? ((await paid(budget, () => judgeWithJev(story), unknownJevCallUsd)) ??
-        budgetReached(story.storyId, budget))
-      : judgeByModel(story, model, filter, undefined, budget)
   if (
     (judge !== "model" && judge !== "jev" && judge !== "agent") ||
     (filter !== "jev" && filter !== "none") ||
@@ -192,6 +187,11 @@ export async function visualReview(
     )
     return 2
   }
+  const judgeChangedByModel = async (story: StoryInput) =>
+    judge === "jev"
+      ? ((await paid(budget, () => judgeWithJev(story), unknownJevCallUsd)) ??
+        budgetReached(story.storyId, budget))
+      : judgeByModel(story, model, filter, undefined, budget)
 
   if (options.images !== undefined) {
     // The factory runs this mode as the visual critic. A missing key is an
