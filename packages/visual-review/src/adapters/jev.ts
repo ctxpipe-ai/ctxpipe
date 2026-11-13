@@ -64,6 +64,22 @@ export type JevVariant = {
   images: "all" | "focused" | "pair" | "pair-locator"
   hint?: boolean
   score?: boolean
+  atomic?: boolean
+}
+
+/**
+ * Atomic questions on spacing and hierarchy (experiment of CTX-1262). Each
+ * asks one literal yes or no about the after side against the before side.
+ */
+const atomicQuestions: Record<string, string> = {
+  "atomic.touching":
+    "Compare the before and after sides of the measured regions. On the after side, does text touch another element or other text with no gap, where the before side has a gap (for example a number that runs into a word)?",
+  "atomic.cramped":
+    "Compare the before and after sides of the measured regions. On the after side, is the space between two groups, or around a heading, smaller than on the before side, so that the groups or the heading and its content run together?",
+  "atomic.edge":
+    "Compare the before and after sides of the measured regions. On the after side, does text sit closer to the edge of its button, card, pill, field or page than on the before side?",
+  "atomic.flat":
+    "Compare the before and after sides of the measured regions. Is the hierarchy flatter on the after side: the title or the main item is no longer the loudest text, or items of different importance now have the same size, weight and color?",
 }
 
 /**
@@ -282,6 +298,9 @@ export async function judgeWithJev(
         `Quality: ${name}. ${definition} Does the change make this quality better, the same or worse? Judge only the measured regions.`,
       )
   }
+  if (variant.atomic)
+    for (const [id, instructions] of Object.entries(atomicQuestions))
+      questions[id] = { type: "noul", instructions }
   if (boxIndex !== undefined)
     questions["defect-box"] = {
       type: "box",
