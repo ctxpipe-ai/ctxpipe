@@ -21,6 +21,7 @@ type Question =
       criteria: Record<"better" | "same" | "worse", string>
     }
   | { type: "noul"; instructions: string }
+  | { type: "score"; instructions: string; criteria: string[] }
   | { type: "box"; instructions: string }
 
 const clamp = (value: number) => Math.min(1, Math.max(0, value))
@@ -60,8 +61,9 @@ const choiceQuestion = (instructions: string): Question => ({
 /** Experiment knobs of CTX-1262. */
 export type JevVariant = {
   state: "text" | "intended"
-  images: "all" | "focused" | "pair"
+  images: "all" | "focused" | "pair" | "pair-locator"
   hint?: boolean
+  score?: boolean
 }
 
 /**
@@ -138,7 +140,21 @@ function intendedState(
 function intendedQuestions(
   askedQualities: readonly (typeof qualities)[number][],
   listed: boolean,
+  score: boolean,
 ): Record<string, Question> {
+  const ask = (instructions: string, what: string): Question =>
+    score
+      ? {
+          type: "score",
+          instructions,
+          criteria: [
+            `Clearly worse: the after side breaks a rule of this ${what} that the before side follows${listed ? ", and no item of `intended_changes` describes this change" : ""}.`,
+            `A little worse: the after side follows a rule of this ${what} less well than the before side${listed ? ", and no item of `intended_changes` describes this change" : ""}.`,
+            `The same: the change does not touch this ${what}${listed ? ", or an item of `intended_changes` describes the change and the after side still follows the rules of this " + what : ""}.`,
+            `Better: the after side follows the rules of this ${what} better than the before side.`,
+          ],
+        }
+      : { type: "choice", instructions, criteria: criteria(what) }
   const criteria = (what: string) =>
     listed
       ? {
@@ -160,17 +176,15 @@ function intendedQuestions(
     },
   }
   for (const { id, name, definition } of areas)
-    questions[`area.${id}`] = {
-      type: "choice",
-      instructions: `Area: ${name}. The rules: ${definition} Compare the before and after sides of the measured regions. Does the change make this area better, the same or worse?`,
-      criteria: criteria("area"),
-    }
+    questions[`area.${id}`] = ask(
+      `Area: ${name}. The rules: ${definition} Compare the before and after sides of the measured regions. Does the change make this area better, the same or worse?`,
+      "area",
+    )
   for (const { id, name, definition } of askedQualities)
-    questions[`quality.${id}`] = {
-      type: "choice",
-      instructions: `Quality: ${name}. The rules: ${definition} Compare the before and after sides of the measured regions. Does the change make this quality better, the same or worse?`,
-      criteria: criteria("quality"),
-    }
+    questions[`quality.${id}`] = ask(
+      `Quality: ${name}. The rules: ${definition} Compare the before and after sides of the measured regions. Does the change make this quality better, the same or worse?`,
+      "quality",
+    )
   return questions
 }
 
@@ -222,6 +236,7 @@ export async function judgeWithJev(
     all: ["regions", "locator", "before", "after", "diff"],
     focused: ["regions", "locator"],
     pair: ["regions", "before", "after"],
+    "pair-locator": ["regions", "locator", "before", "after"],
   }[variant.images]
   const sent = roles.includes("regions")
     ? story.images.filter(({ role }) => kept.includes(role))
@@ -245,7 +260,11 @@ export async function judgeWithJev(
   )
   const intended = variant.state === "intended"
   const questions: Record<string, Question> = intended
-    ? intendedQuestions(askedQualities, intendedChanges(story.brief).length > 0)
+    ? intendedQuestions(
+        askedQualities,
+        intendedChanges(story.brief).length > 0,
+        variant.score ?? false,
+      )
     : {
         defect: {
           type: "noul",

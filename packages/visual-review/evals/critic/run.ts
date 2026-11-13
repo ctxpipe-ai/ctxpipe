@@ -163,6 +163,9 @@ const variants: Record<string, JevVariant> = {
   v4: { state: "intended", images: "all" },
   v5: { state: "intended", images: "pair" },
   v6: { state: "text", images: "all", hint: true },
+  v7: { state: "text", images: "pair" },
+  v8: { state: "intended", images: "pair-locator" },
+  v9: { state: "intended", images: "pair", score: true },
 }
 
 /** The arm of one `--arms` entry. Throws for an unknown arm. */
