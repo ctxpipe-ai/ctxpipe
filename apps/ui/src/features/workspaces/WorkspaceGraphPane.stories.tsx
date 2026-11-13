@@ -123,7 +123,9 @@ export const ClosingTipsIsRemembered: Story = {
     graph: docsWorkspaceGraph,
   },
   parameters: {
-    visual: { skip: "The end state is the same as TipsClosedEarlier." },
+    visual: {
+      skip: "The end state is the graph without the tips panel, as in TipsClosedEarlier.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -152,6 +154,11 @@ export const TipsClosedEarlier: Story = {
   args: {
     pending: false,
     graph: docsWorkspaceGraph,
+  },
+  parameters: {
+    visual: {
+      skip: "Without the tips panel, the graph labels still move when the play ends. The play checks the behavior.",
+    },
   },
   beforeEach: () => {
     window.localStorage.setItem(knowledgeGraphIntroStorageKey("acme"), "1")
