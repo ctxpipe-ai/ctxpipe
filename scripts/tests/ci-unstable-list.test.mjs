@@ -41,14 +41,21 @@ test("the unstable list check fails on an overdue entry and names its ticket", (
     return spawnSync(
       process.execPath,
       [
-        fileURLToPath(new URL("../ci/check-unstable-list.mjs", import.meta.url)),
+        fileURLToPath(
+          new URL("../ci/check-unstable-list.mjs", import.meta.url),
+        ),
         root,
       ],
       { encoding: "utf8" },
     )
   }
   const today = new Date().toISOString().slice(0, 10)
-  const entry = (since) => ({ id: "card--empty", reason: "r", ticket: "CTX-1", since })
+  const entry = (since) => ({
+    id: "card--empty",
+    reason: "r",
+    ticket: "CTX-1",
+    since,
+  })
   assert.equal(check([entry(today)]).status, 0)
   const overdue = check([entry("2026-01-02")])
   assert.equal(overdue.status, 1)

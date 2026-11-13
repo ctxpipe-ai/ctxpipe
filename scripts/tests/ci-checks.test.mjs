@@ -1284,8 +1284,8 @@ test("the manifest lists a build check for each production image and package of 
     [...builds.keys()].filter((id) => id.startsWith("build:image-")),
   )
   assert.deepEqual(
-    jobPlans(images, new Map())["production-builds"].sort(
-      (a, b) => a.name.localeCompare(b.name),
+    jobPlans(images, new Map())["production-builds"].sort((a, b) =>
+      a.name.localeCompare(b.name),
     ),
     entries.sort((a, b) => a.name.localeCompare(b.name)),
   )
@@ -1637,7 +1637,7 @@ test("the Lint and format job runs each lint and policy check of CI through the 
     "runners",
     "unstable-list",
   ])
-    assert.ok(always.run.includes(` ${name} `) || always.run.includes(` ${name};`), name)
+    assert.match(always.run, new RegExp(` ${name}[ ;]`), name)
   // In gate mode, the job runs the checks of its plan.
   assert.ok(
     runners.includes(
