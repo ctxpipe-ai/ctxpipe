@@ -16,6 +16,8 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | Semantic ≠ visual | Product `h1` is `text-lg` / `text-xl`. `text-3xl`+ is onboarding / marketing only |
 | Weight ≥ 400 | Quiet text with color or size, not `font-light` / `font-thin` |
 | Soft border too faint | Thicken to 2px before darkening the stroke |
+| Secondary chrome quiet | Legends, hints and help are smaller and dimmer than the content and do not cover it. A help tour remembers its dismissal |
+| Page has structure | Tiles or cards with hierarchy and area boundaries, as on the chat page. Not a flat list of bare rows |
 
 ## Space and layout
 
@@ -32,6 +34,9 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | Independent scales | Type in rem/px; button padding is its own scale (tighter when the control is small). No `em`-tied padding |
 | Baseline, not center | Mixed type on one row (title + meta, price + period) shares a baseline |
 | Align for reading | Long copy left-aligned; numbers right-aligned + `tabular-nums` |
+| One left edge | The blocks of one column share a left edge (message, answer, composer; icon row, checklist, step card) |
+| Chips have room | A chip, badge or icon tab has space on each side from its neighbors |
+| Modal grid | A modal has a header, a body and a footer zone on one aligned grid |
 | Empty copy | ≤2 lines may center; longer copy left-aligns and gets rewritten shorter |
 | Empty chrome | Tabs, filters, and search hidden until there is data |
 
@@ -55,6 +60,9 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | Status not color-only | Pill + icon or contrast + the word ([RepositoryStatus](../../../../apps/ui/src/features/repositories/components/RepositoryStatus.tsx)) |
 | Readable contrast | Text meets WCAG AA on its surface: 4.5:1 for body text, 3:1 for large text and icons. Quiet text uses `text-muted-foreground` |
 | Accent once | At most one teal edge or wash; match an existing house use (alert edge, status wash) |
+| Status color on the dot | Dot + word; the word is one restrained text color, and the dots and words of a list share one column |
+| Accessible warning | Yellow with dark text when that passes AA; else amber-brown. Red is for an error |
+| Clickable list text readable | A file tree or nav item is never so dim that it reads as disabled |
 
 ## Depth, radius, images
 
@@ -95,3 +103,10 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | One filled button | Primary is white/light. Secondary is outline. Tertiary is quiet / link |
 | Destructive | Outline or quiet on the page; filled red only on the confirm dialog |
 | No unbuilt chrome | Every control has a backend or was cut from this version |
+| Icon means its action | No chevron on a row that does not open; no bare icon whose result is not clear |
+| Main action labeled | The main action of a page has a label (“Add connection”), not a lone `+` |
+| Peers match | Peer actions in one row have the same weight and type (two buttons, or two links) |
+| One close control | One Close per modal; in a wizard, at the bottom right |
+| Copy at the field | A copy button sits at the right end of its field |
+| Next step is a card | The next step of a flow is a card or a selected item, not loose text |
+| Alert action | On the right of the slab, at the normal secondary size |

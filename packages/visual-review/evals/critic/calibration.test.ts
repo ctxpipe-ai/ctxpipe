@@ -9,6 +9,7 @@ import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest"
 
 import { screenshot } from "../../src/compare/fixtures.ts"
+import { packagedRubric } from "../../src/rubric.ts"
 import { calibrate, calibrationSchema, type Calibration } from "./calibration.ts"
 import { imageFile, sha256Of } from "./images.ts"
 
@@ -168,4 +169,12 @@ test("the owner calibration of 2026-11-14 matches the schema", () => {
   )
 
   expect(committed.screenshots).toHaveLength(10)
+  // Each kind is an id of the rubric, so that a judge can flag it.
+  const ids = new Set(
+    [...packagedRubric.areas, ...packagedRubric.qualities].map(({ id }) => id),
+  )
+  const kinds = committed.screenshots.flatMap(({ flag, ok }) =>
+    [...flag, ...ok].flatMap(({ kinds }) => kinds),
+  )
+  expect(kinds.filter((kind) => !ids.has(kind))).toEqual([])
 })

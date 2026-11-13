@@ -619,6 +619,10 @@ describe("judgeNewWithJev", () => {
       ...qualities
         .filter(({ pageOnly }) => !pageOnly)
         .map(({ id }) => `quality.${id}`),
+      "rule.two-close",
+      "rule.copy-button",
+      "rule.status-colors",
+      "rule.uk-spelling",
       "defect-box",
     ])
     expect(
@@ -628,10 +632,43 @@ describe("judgeNewWithJev", () => {
     ).toBe(true)
     expect(JSON.stringify(questions)).not.toMatch(/better, the same or worse/)
     expect(state).toContain("Image 1 (after):")
+    // What not to report, from the owner calibration.
+    expect(state).toContainEqual(
+      expect.stringMatching(/^How to judge: \(a\) Most UI in a screenshot is partial/),
+    )
 
     const other = serve(() => noul(0.02))
     await judgeNewWithJev(await newStory(), "baseten/elephant-1")
     expect(Object.keys(other.body.questions)).not.toContain("defect-box")
+  })
+
+  test("a yes to a rule question is a finding of its area, one finding with the area question", async () => {
+    serve((name) => {
+      if (name === "rule.two-close") return noul(0.8)
+      if (name === "area.dialog") return noul(0.6)
+      if (name === "rule.uk-spelling") return noul(0.7)
+      if (name === "defect-box") return box(0.2, 0.5, 0.1, 0.4)
+      return noul(0.02)
+    })
+    const verdict = await judgeNewWithJev(await newStory())
+    expect(verdictSchema.parse(verdict)).toEqual(verdict)
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.findings.map(({ kind }) => kind)).toEqual(["dialog", "copy"])
+    expect(verdict.summary).toContain("dialog 0.80, copy 0.70")
+  })
+
+  test("a rule question goes only with its area: a head rubric can leave it out", async () => {
+    const seen = serve(() => noul(0.02))
+    const story = await newStory()
+    await judgeNewWithJev({
+      ...story,
+      rubric: {
+        ...packagedRubric,
+        areas: packagedRubric.areas.filter(({ id }) => id !== "dialog"),
+      },
+    })
+    expect(Object.keys(seen.body.questions)).not.toContain("rule.two-close")
+    expect(Object.keys(seen.body.questions)).toContain("rule.copy-button")
   })
 
   test("a broken area is a regression in the region of the box", async () => {
