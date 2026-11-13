@@ -616,8 +616,20 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Date:** 2026-10-19
 - **Source:** CTO correction during the README update for PR 280
 
+### A critic fix must not give up a requirement the owner chose
+- **Rule:** Sometimes a fix for a review finding would give up a requirement that the owner chose, for example continuous deployment, speed, or a simple workflow. Do not make that trade alone. Find a fix that keeps the requirement. If no such fix exists, state the trade-off and ask the owner. Example: a broad token that starts any workflow was first "fixed" with a cron job for deploys. The fix that kept continuous deployment was an ECR push event. It starts the workflow through an EventBridge API destination, and AWS holds the token as a guard.
+- **Category:** workflow
+- **Date:** 2026-11-10
+- **Source:** CTO correction during the ADR-061 review rounds
+
 ### The shared `ctxpipe_app` role on the host Postgres
 - **Rule:** Do not change the password or the attributes of `ctxpipe_app` on the shared host Postgres (port 5433). The role belongs to the whole server, not to one database, and each worktree and each agent logs in with `ctxpipe_app:ctxpipe`. When migrate runs with a new `DATABASE_APP_PASSWORD`, it changes that password. Do not run it against this server. A rehearsal or a test that needs its own app role uses its own containers, its own role, or its own server.
 - **Category:** testing
 - **Date:** 2026-11-11
 - **Source:** team lead correction, after a cutover rehearsal (CTX-1217) reset the password and stopped the checks of other agents for one minute
+
+### Database URLs on Aurora: no `sslrootcert`, trust through the image
+- **Rule:** In the hosted stack on Aurora (the Pulumi project `machines/hosted` of the factory repo) and in the cutover tools, give migrate, the backend and the worker a database URL with `?sslmode=verify-full` and no `sslrootcert`. The OpenWorkflow driver (the `postgres` package) sends each URL parameter that it does not know to the server, and Aurora refuses `sslrootcert`. The process trusts the RDS CA through `NODE_EXTRA_CA_CERTS`, which the backend and worker images set to the absolute path `/app/apps/backend/certs/rds-global-bundle.pem`. Only libpq tools (`pg_dump`, `pg_restore`, as in `copyDatabase`) need `sslrootcert`, set to that path. The self-host construct `@ctxpipe/aws-cdk` builds its own URLs and does not follow this rule.
+- **Category:** infrastructure
+- **Date:** 2026-11-11
+- **Source:** the sandbox rehearsals 1 and 2 of the cutover (CTX-1217) on Aurora PostgreSQL 17

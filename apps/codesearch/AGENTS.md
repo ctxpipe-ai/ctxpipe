@@ -27,9 +27,15 @@ These instructions supplement the repository-root `AGENTS.md`.
   deletes the least recently pinned names that have a local manifest copy and
   are not pinned. The merged SCIP index uses the same store (kind `scip`,
   `src/domain/store/scipStore.ts`): `/merge-scip` uploads it, and a graph
-  read fetches it when it is missing. Unset means local only (Compose,
-  self-host).
-  Tests use `rclone serve s3` (`src/test/s3Server.ts`).
+  read fetches it when it is missing. `CODESEARCH_SHARD_STORE_READ_ONLY=true`
+  (previews) fetches but never uploads, deletes or sweeps in S3, the sweep
+  never reports `publishedMissing`, and shards built in the preview are never
+  evicted. Any other value than `true`, `false` or unset stops the start. The
+  flag is not the security boundary: on AWS (ADR-061) the preview codesearch
+  task role may only get and list objects. Railway previews copy production
+  variables, so do not set the store or AWS keys on a Railway codesearch.
+  Unset means local only (Compose, self-host). Tests use `rclone serve s3`
+  (`src/test/s3Server.ts`).
 
 ## Logging (evlog)
 
