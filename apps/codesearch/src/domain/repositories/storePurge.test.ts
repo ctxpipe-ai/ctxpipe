@@ -26,7 +26,11 @@ const { cacheRoot } = await vi.hoisted(async () => {
   return { cacheRoot: root }
 })
 
-import { publishArtifact, shardStore } from "../store/shardStore.js"
+import {
+  isShardStoreReadOnly,
+  publishArtifact,
+  shardStore,
+} from "../store/shardStore.js"
 import { resetPinManagerForTests } from "../zoekt/pinManager.js"
 import {
   zoektRepositoryName,
@@ -198,5 +202,57 @@ describe("sweepRepositoryDisk when S3 does not answer", () => {
     ).rejects.toThrow()
 
     expect(await readdir(zoektDir)).toContain(name)
+  })
+})
+
+describe("read-only shard store (a preview)", () => {
+  it("makes no S3 write in purge, checkout GC and sweep, and never asks for a rebuild", async () => {
+    await publish("repo_ro", "default")
+    await publish("repo_ro", revA)
+    await publish("repo_ro", revB)
+    const before = await server.keys()
+    vi.stubEnv("CODESEARCH_SHARD_STORE_READ_ONLY", "true")
+
+    await deleteCheckoutFromDisk({
+      orgId: ORG,
+      repoId: "repo_ro",
+      checkoutKey: revA,
+      zoektRepoId: 4,
+    })
+    const result = await sweepRepositoryDisk({
+      orgId: ORG,
+      repoId: "repo_ro",
+      rowKeys: new Set(),
+      publishedCheckoutKey: "default",
+      minAgeMs: 0,
+    })
+    await purgeRepositoryFromDisk({
+      orgId: ORG,
+      repoId: "repo_ro",
+      repoName: "team/app",
+      zoektRepoId: 4,
+    })
+
+    expect(await server.keys()).toEqual(before)
+    // The published checkout is missing on disk, as in each preview.
+    expect(result.publishedMissing).toBe(false)
+  })
+})
+
+describe("CODESEARCH_SHARD_STORE_READ_ONLY", () => {
+  it("means read-only without a shard store too, so a sweep never asks for a rebuild", async () => {
+    vi.stubEnv("CODESEARCH_SHARD_STORE", "")
+    vi.stubEnv("CODESEARCH_SHARD_STORE_READ_ONLY", "true")
+
+    const result = await sweepRepositoryDisk({
+      orgId: ORG,
+      repoId: "repo_ro_no_store",
+      rowKeys: new Set(),
+      publishedCheckoutKey: "default",
+      minAgeMs: 0,
+    })
+
+    expect(isShardStoreReadOnly()).toBe(true)
+    expect(result.publishedMissing).toBe(false)
   })
 })

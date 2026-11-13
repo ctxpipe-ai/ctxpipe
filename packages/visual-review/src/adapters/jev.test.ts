@@ -242,7 +242,7 @@ describe("judgeWithJev verdict", () => {
     const verdict = await judgeWithJev(await story())
     expect(verdictSchema.parse(verdict)).toEqual(verdict)
     expect(verdict.verdict).toBe("regression")
-    expect(verdict.severity).toBe("major")
+    expect(verdict.severity).toBe("minor")
     expect(verdict.confidence).toBeCloseTo(0.95)
     expect(verdict.storyId).toBe("connectors-card--connected")
     expect(verdict.model).toBe("typesafe/jev-1.14-20261001")
@@ -264,6 +264,35 @@ describe("judgeWithJev verdict", () => {
       confidence: 0.8,
     })
     expect(verdict.qualities.map(({ name }) => name)).not.toContain("focus")
+  })
+
+  test("a Jev regression is minor at any probability: feedback that never blocks", async () => {
+    serve((name) => {
+      if (name === "area.spacing") return choice(0.1, 0.3, 0.6)
+      if (name === "defect") return defect(0.1)
+      if (name === "defect-box") return box(0.2, 0.5, 0.1, 0.4)
+      return fine
+    })
+    const verdict = await judgeWithJev(await story())
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.severity).toBe("minor")
+    expect(verdict.confidence).toBeCloseTo(0.6)
+  })
+
+  test("a worse quality with no worse area names the region of the box in the summary", async () => {
+    serve((name) => {
+      if (name === "quality.consistency") return choice(0, 0.2, 0.8)
+      if (name === "defect") return defect(0.1)
+      if (name === "defect-box") return box(0.2, 0.5, 0.1, 0.4)
+      return fine
+    })
+    const verdict = await judgeWithJev(await story())
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.findings).toEqual([])
+    expect(verdict.summary).toContain("consistency 0.80")
+    expect(verdict.summary).toMatch(
+      /Region: x 0\.10, y 0\.20, width 0\.30, height 0\.30\./,
+    )
   })
 
   test("nothing worse is intended when a brief explains the change", async () => {
@@ -357,7 +386,7 @@ describe("judgeWithJev verdict", () => {
     serve((name) => (name === "quality.restraint" ? choice(0, 0.1, 0.9) : fine))
     const verdict = await judgeWithJev(await story())
     expect(verdict.verdict).toBe("regression")
-    expect(verdict.severity).toBe("major")
+    expect(verdict.severity).toBe("minor")
     expect(verdict.findings).toEqual([])
     expect(verdict.summary).toContain("restraint")
   })
@@ -595,7 +624,7 @@ describe("judgeNewWithJev", () => {
     const verdict = await judgeNewWithJev(await newStory())
     expect(verdictSchema.parse(verdict)).toEqual(verdict)
     expect(verdict.verdict).toBe("regression")
-    expect(verdict.severity).toBe("major")
+    expect(verdict.severity).toBe("minor")
     expect(verdict.findings.map(({ kind }) => kind)).toEqual(["spacing"])
     expect(verdict.findings[0]?.region.x).toBeCloseTo(0.1)
     expect(verdict.findings[0]?.region.height).toBeCloseTo(0.3)

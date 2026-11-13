@@ -169,6 +169,7 @@ const writeManifest = (extra: object = {}) => {
       seed: 7,
       until: sha("c"),
       container: "mcr.microsoft.com/playwright:v1.63.0-noble@sha256:0",
+      scope: "page",
       cases,
       ...extra,
     }),
@@ -820,24 +821,44 @@ test("a run that the spend cap stops before its first call gets no image", async
   expect(calls).toEqual([])
 })
 
-test("a capped run with workers at the same time gets only the images of the calls that it starts", async () => {
-  server.use(chat, releaseOf())
+test("a capped run with workers at the same time lets the calls in flight finish, and starts no call above the cap", async () => {
+  // Each call waits until all workers made their call. Thus the calls are
+  // in flight together, and no worker sees the cost of another call first.
+  // The result does not depend on the timing of the workers.
+  const workers = 4
+  let arrive = () => {}
+  const allInFlight = new Promise((done) => {
+    let arrived = 0
+    arrive = () => {
+      if (++arrived === workers) done(true)
+    }
+  })
+  const holdUntilAllInFlight = http.post(
+    `${gateway}/chat/completions`,
+    async () => {
+      arrive()
+      await allInFlight
+      // No response: msw gives the request to the next handler (`chat`).
+    },
+  )
+  server.use(holdUntilAllInFlight, chat, releaseOf())
   const cache = mkdtempSync(join(folder, "cache-"))
 
-  // Four workers start at $0.00. After their four calls, the spend of
-  // $0.04 is at the cap, so no other case starts and gets its images.
+  // Four workers start at $0.00 and their four calls finish. The spend of
+  // $0.04 is then above the cap of $0.03, so no other call starts and no
+  // other case gets its images.
   const { code, text } = await fromRelease(cache, [
     "--arms",
     "llm:anthropic/claude-test",
     "--concurrency",
-    "4",
+    String(workers),
     "--max-cost",
     "0.03",
   ])
 
   expect(code).toBe(0)
   expect(text).toContain("The spend cap stopped the run")
-  expect(calls).toHaveLength(4)
+  expect(calls).toHaveLength(workers)
   const called = calls.map((call) => call.split(" ")[1])
   expect([...downloads].sort()).toEqual(
     files(cases.filter(({ id }) => called.includes(id))),
@@ -932,6 +953,33 @@ test("the taste win rate comes from the owner picks in the manifest", async () =
   expect(score(jev[0], 1) + score(jev[1], 3)).toBeCloseTo(1.5)
 })
 
+test("the report marks an arm whose model is on the judge panel", async () => {
+  server.use(chat, decisions)
+  const manifest = writeManifest({
+    panelModels: ["anthropic/claude-test", "vendor-b/judge", "vendor-c/judge"],
+  })
+  const { text } = await run([
+    "--cases",
+    manifest,
+    "--arms",
+    "jev,llm:anthropic/claude-test,cascade:anthropic/claude-test,llm-no-facts:openrouter/anthropic/claude-test",
+    "--runs",
+    "1",
+  ])
+
+  expect(text).toContain(
+    "The labels of the real changes come from the judge panel (anthropic/claude-test, vendor-b/judge, vendor-c/judge).",
+  )
+  const arms = [...rows(text, "## Hold-out set").keys()]
+  expect(arms).toEqual([
+    "jev",
+    "llm:anthropic/claude-test (panel)",
+    "cascade:anthropic/claude-test (panel)",
+    // The same model, as the adapter sends it.
+    "llm-no-facts:openrouter/anthropic/claude-test (panel)",
+  ])
+})
+
 test("the hold-out set is 30% of each kind of the committed cases, the same for the same seed", () => {
   const manifest = caseManifestSchema.parse(
     JSON.parse(readFileSync(join(import.meta.dirname, "cases.json"), "utf8")),
@@ -947,7 +995,7 @@ test("the hold-out set is 30% of each kind of the committed cases, the same for 
     )
 
   expect(kinds(held)).toEqual({
-    intended: 18,
+    intended: 11,
     regression: 24,
     noise: 6,
     mixed: 6,
