@@ -59,6 +59,14 @@ jobs:
           - image: chat-sandbox
             dockerfile: scripts/chat-sandbox/Dockerfile
             context: scripts/chat-sandbox
+          # The AgentCore Runtime image of the chat sandbox: the `agentcore`
+          # target of the same Dockerfile, with the shim as its entry point
+          # (CTX-1219). It is not on the ECR list of ecr_digests until the
+          # hosted stack makes its repository.
+          - image: chat-sandbox-agentcore
+            dockerfile: scripts/chat-sandbox/Dockerfile
+            context: scripts/chat-sandbox
+            target: agentcore
     steps: &build_image_steps
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
@@ -79,6 +87,7 @@ jobs:
         with:
           context: ${{ matrix.context || '.' }}
           file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
           platforms: linux/${{ env.ARCH }}
           outputs: type=image,name=ghcr.io/ctxpipe-ai/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
 
