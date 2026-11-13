@@ -249,7 +249,7 @@
     {
       "id": "grouping-and-rhythm",
       "name": "Grouping and rhythm",
-      "definition": "A page groups its content in tiles or cards with a clear hierarchy and area boundaries, as the chat page does; a flat list of bare rows reads as unfinished. Related items sit together, with more space around a group than within it. A gap or a background shift separates groups first, then one hairline. No card inside a card.",
+      "definition": "Related items sit together, with more space around a group than within it. A gap or a background shift separates groups first, then one hairline. No card inside a card.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
@@ -258,10 +258,6 @@
         {
           "file": "apps/ui/DESIGN.md",
           "section": "Targets (new or touched UI)"
-        },
-        {
-          "file": ".agents/skills/product-ui/references/visual-craft.md",
-          "section": "Hierarchy"
         }
       ],
       "pageOnly": false

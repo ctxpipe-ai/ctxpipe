@@ -64,6 +64,17 @@ The product owner decided on 2026-11-13: "Use Jev for this capability and just f
    - **Result** (runs 43400628954, 43400633408 and 43403029107). Hold-out set: recall 0.91, precision 0.86, unsure 0.26, as before. Redesign set: 7 of 15 regressions found (before: 0), 3 or 4 false flags (before: 14), unsure 0.91 (before: 0.88). Of the 25 fixes, Jev flagged none, but each one was `unsure`: Jev does not see the direction of a hierarchy change.
    - **The lead decided to ship it.** The variant ties the hold-out set and improves the redesign set. The later goal of the owner (catch execution regressions, with few false flags on intended changes) took the place of the rule "change only the docs when no variant beats the hold-out set". No variant had zero false flags on the redesign set and the same recall.
    - **Limits.** The run-together question came from one defect pattern, and it can be fitted to that pattern: the 7 regressions that it found all show the same "01Connect" step label. The 8 inverted title hierarchies are still `unsure` ([CTX-1266](https://linear.app/ctxpipe/issue/CTX-1266)).
+11. **The owner calibration round (2026-11-14, [CTX-1269](https://linear.app/ctxpipe/issue/CTX-1269)).** The product owner reviewed 10 screenshots of `main` and said what a critic must flag (23 issues) and what is fine (19 items). `evals/critic/owner-calibration.json` holds that feedback, and `evals/critic/calibration.ts` judges each screenshot as a new screenshot and counts the hits and the false flags of each arm.
+    - **Rules as data.** The rubric gets the areas `status`, `actions`, `dialog` and `copy`, and sharper definitions of other entries (for example, red is correct for an error, and a page needs tiles with area boundaries). Both critic prompts get a "how to judge" rule: partial UI, the state of the story, established patterns and the uppercase heading of a page section are not defects. Jev gets that rule in its state and four yes/no questions on a new screenshot: two close controls, a copy button away from its field, status words in many colors, and British spelling. `apps/ui/DESIGN.md` and the product-ui references get the build rules.
+    - **Result** (1 run each, `main` with CTX-1262 before; runs 43442121562 and 43442133840):
+
+      | Judge | Hits before | Hits after | False flags before | False flags after |
+      | --- | ---: | ---: | ---: | ---: |
+      | Jev 1.14 | 7 / 23 | 14 / 23 | 8 / 19 | 7 / 19 |
+      | Claude Sonnet 5.5 (OpenRouter) | 1 / 23 | 13 / 23 | 2 / 19 | 1 / 19 |
+
+    - **Limits.** A hit or a false flag comes from the rubric ids of a verdict, not from its text, so the count is coarse: Jev flags 4 to 11 ids on most screenshots, and some of its hits are a wide flag that happens to name the id. Each finding of Sonnet after the change names the issue of the owner in its evidence. Jev still gives `regression` on all 10 screenshots, also on the screenshot where the owner wants nothing flagged ([CTX-1267](https://linear.app/ctxpipe/issue/CTX-1267)). One run each, and Jev does not give the same answer twice (rule 10). The calibration judged the rubric of the screenshots, not the bake-off cases: rule 7 asks for a bake-off run before the critic uses the questions.
+
 
 ## Consequences
 
@@ -98,7 +109,7 @@ Thus the critic was cheap and fast, and it missed nothing in the sample, but it 
 ## Follow-ups
 
 - [CTX-1266](https://linear.app/ctxpipe/issue/CTX-1266): Jev misses an inverted title hierarchy.
-- [CTX-1267](https://linear.app/ctxpipe/issue/CTX-1267): Jev flags 8 of 10 clean new screenshots.
+- [CTX-1267](https://linear.app/ctxpipe/issue/CTX-1267): Jev flags 8 of 10 clean new screenshots. After the owner calibration (rule 11), Jev still flags all 10 calibration screenshots.
 - [CTX-1255](https://linear.app/ctxpipe/issue/CTX-1255): Anthropic calls through OpenRouter give no `usage.cost` in the runner.
 - [CTX-1256](https://linear.app/ctxpipe/issue/CTX-1256): an LLM explains a suspected Jev regression, and never overrides it.
 - [CTX-1257](https://linear.app/ctxpipe/issue/CTX-1257): run the useful arms again on all 176 page cases with 3 runs.
