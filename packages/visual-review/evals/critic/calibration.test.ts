@@ -10,7 +10,11 @@ import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest"
 
 import { screenshot } from "../../src/compare/fixtures.ts"
 import { packagedRubric } from "../../src/rubric.ts"
-import { calibrate, calibrationSchema, type Calibration } from "./calibration.ts"
+import {
+  calibrate,
+  calibrationSchema,
+  type Calibration,
+} from "./calibration.ts"
 import { imageFile, sha256Of } from "./images.ts"
 
 const gateway = "https://gateway.test/api/v1"
@@ -27,7 +31,10 @@ const images = join(dir, "images")
 mkdirSync(images)
 const store = (gray: number) => {
   const bytes = screenshot(400, 300, [
-    { box: { x: 40, y: 40, width: 120, height: 30 }, color: [gray, gray, gray] },
+    {
+      box: { x: 40, y: 40, width: 120, height: 30 },
+      color: [gray, gray, gray],
+    },
   ])
   const sha256 = sha256Of(bytes)
   writeFileSync(join(images, imageFile(sha256)), bytes)
@@ -96,24 +103,27 @@ test("counts the owner issues and the fine items that each arm flags", async () 
       }),
     ),
     // Jev says that each screenshot breaks only the clarity quality.
-    http.post("https://gateway.test/api/alpha/decisions", async ({ request }) => {
-      const { questions } = (await request.json()) as {
-        questions: Record<string, { type: string }>
-      }
-      const answers = Object.fromEntries(
-        Object.entries(questions).map(([name, { type }]) => [
-          name,
-          type === "box"
-            ? { type, box: { top: 0.1, bottom: 0.3, left: 0.1, right: 0.4 } }
-            : { type, noul: name === "quality.clarity" ? 0.9 : 0.05 },
-        ]),
-      )
-      return HttpResponse.json({
-        model: "typesafe/jev-1.14",
-        answers,
-        usage: { cost: 0.0005 },
-      })
-    }),
+    http.post(
+      "https://gateway.test/api/alpha/decisions",
+      async ({ request }) => {
+        const { questions } = (await request.json()) as {
+          questions: Record<string, { type: string }>
+        }
+        const answers = Object.fromEntries(
+          Object.entries(questions).map(([name, { type }]) => [
+            name,
+            type === "box"
+              ? { type, box: { top: 0.1, bottom: 0.3, left: 0.1, right: 0.4 } }
+              : { type, noul: name === "quality.clarity" ? 0.9 : 0.05 },
+          ]),
+        )
+        return HttpResponse.json({
+          model: "typesafe/jev-1.14",
+          answers,
+          usage: { cost: 0.0005 },
+        })
+      },
+    ),
   )
   const out = join(dir, "out")
   let printed = ""

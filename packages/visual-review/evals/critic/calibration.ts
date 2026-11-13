@@ -195,7 +195,9 @@ export async function calibrate(
       },
     }))
     if (!options.arms || !(Number(options["max-cost"]) >= 0))
-      throw new Error("--arms is required, and --max-cost is a number of 0 or more.")
+      throw new Error(
+        "--arms is required, and --max-cost is a number of 0 or more.",
+      )
     arms = options.arms
       .split(",")
       .map((id) => id.trim())
