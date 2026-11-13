@@ -63,6 +63,19 @@ The product owner decided on 2026-11-13: "Use Jev for this capability and just f
 - No new-screenshot case got a result, so the judgment of a new screenshot by Jev has no measurement.
 - 563 Anthropic calls returned no `usage.cost`. The spend of the run ($62.92) is an overestimate, and the Anthropic arms show no cost per story.
 
+## First use
+
+The first real use of the critic was [CTX-1259](https://linear.app/ctxpipe/issue/CTX-1259) (2026-11-13): six intended visual changes across the product UI, all named in the brief.
+
+- **Size.** 254 changed screenshots. About 150 changed only because the workspace nav group header in the sidebar went from 10 px to 12 px.
+- **Spend limit.** The factory estimated $0.1280 (254 paths at $0.0005), above the $0.10 limit, and gave `ERROR` with no model call. The lead raised the limit to $0.15 for this PR.
+- **Calls and spend.** The command made 148 Jev calls: 105 screenshots took the verdict of their diff group, and 1 group disagreed. It spent $0.0916, about $0.00062 for each call, in 105 s (127 s for the critic).
+- **Verdicts.** 8 `intended`, 243 `unsure` (nit), and 3 `regression` with severity `minor` (nit). The highest "worse" probability of the 135 judged `unsure` verdicts was 0.20 to 0.46 (median 0.29).
+- **Regression feedback.** All 3 were false flags. Two graph wait states got "missing elements" (0.52 and 0.56) for the icon tile that the brief removes. One setup page got "broken content" (0.53, defect 0.64) for the eyebrow label that the brief removes.
+- **Sample of the other verdicts.** The implementing agent compared the before and after images of 2 `intended` and 2 `unsure` screenshots, one of them an `unsure` where Jev flagged a problem with no region, and the after image of 3 more. The sample found no missed regression. The flag with no region matches a long URL that runs out of an alert box, but the base image has the same defect.
+
+Thus the critic was cheap and fast, and it missed nothing in the sample, but it gave little signal: 96% of the verdicts were `unsure`, and each `regression` was an intended removal. Follow-ups: [CTX-1261](https://linear.app/ctxpipe/issue/CTX-1261) (estimate the spend by calls, not paths) and [CTX-1262](https://linear.app/ctxpipe/issue/CTX-1262) (the `unsure` rate on an explained change).
+
 ## Follow-ups
 
 - [CTX-1255](https://linear.app/ctxpipe/issue/CTX-1255): Anthropic calls through OpenRouter give no `usage.cost` in the runner.

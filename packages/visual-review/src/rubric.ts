@@ -46,7 +46,7 @@ export const areas = [
     id: "typography",
     name: "Typography",
     definition:
-      "UI text is Geist; ids, paths, hashes and counts are Geist Mono. Body is text-sm, meta is text-xs, a product title is text-lg or text-xl. Weights are 400 and 500 only. Sizes come from the Tailwind scale. Prose lines stay at about 75 characters or less. A title of two or more lines does not end with one word alone.",
+      "UI text is Geist; ids, paths, hashes and counts are Geist Mono. Body is text-sm, meta is text-xs, a product title is text-lg or text-xl. No text is smaller than text-xs (12 px). Weights are 400 and 500 only. Sizes come from the Tailwind scale. Prose lines stay at about 75 characters or less. A title of two or more lines does not end with one word alone.",
     sources: [design("Type"), craft("Type"), craft("Space and layout")],
   },
   {
@@ -125,7 +125,7 @@ export const qualities = [
     id: "consistency",
     name: "Consistency",
     definition:
-      "The change reuses the house primitives and patterns: one corner radius (rounded-md), the button variants, the status pill, the .ctx-label. No new font, hex color, corner treatment, shadow or card style.",
+      "The change reuses the house primitives and patterns: one corner radius (rounded-md), the button variants, the status pill. No new font, hex color, corner treatment, shadow or card style.",
     sources: [design("Personality (copy these)"), design("What not to invent")],
     pageOnly: false,
   },
@@ -165,7 +165,7 @@ export const qualities = [
     id: "restraint",
     name: "Restraint",
     definition:
-      "No AI tells: no gradient, gradient text, glass, grain, glow or grid on product chrome, no hero type, no four equal KPI tiles, no teal on every row, no colored stripe on one side of a card, no hard offset or wide black shadow on an in-page card, no badge stacked above a title. A dialog, popover, menu or toast keeps its house shadow. The house brand signatures are not tells: the mono uppercase .ctx-label, the card corner crosses, a status dot with its word, and the teal hover glow of a quiet button.",
+      "No AI tells: no gradient, gradient text, glass, grain, glow or grid on product chrome, no hero type, no four equal KPI tiles, no teal on every row, no colored stripe on one side of a card, no hard offset or wide black shadow on an in-page card, no badge stacked above a title. A dialog, popover, menu or toast keeps its house shadow. No icon tile above the heading of an empty state. A status dot pulses only for a live state (running, syncing, indexing). These are not tells: the mono uppercase .ctx-label as a section label in a dense panel (not as an eyebrow above a page title or a card heading), the corner crosses on a hero or summary card, and a status dot with its word.",
     sources: [tells("Tells to remove"), tells("Brand, not tells")],
     pageOnly: false,
   },
@@ -173,7 +173,7 @@ export const qualities = [
     id: "brand-fit",
     name: "Brand fit",
     definition:
-      "The surface reads as the ctxpipe Operate UI: dark zinc floor, white primary, teal accent, Geist type, card corner crosses, mono labels. Large type and atmosphere stay on onboarding.",
+      "The surface reads as the ctxpipe Operate UI: dark zinc floor, white primary, teal accent, Geist type, monospace for ids, paths, hashes and counts. Large type and atmosphere stay on onboarding.",
     sources: [design("Personality (copy these)"), tells("Ceiling vs Operate")],
     pageOnly: false,
   },

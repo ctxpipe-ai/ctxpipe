@@ -101,9 +101,6 @@ export function GithubLinkStep(props: {
 
   return (
     <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-      <header className="mb-8">
-        <span className="ctx-label text-teal-400">GitHub</span>
-      </header>
       {!valid ? (
         <p className="text-sm text-muted-foreground">
           This link is not valid. Close this window and connect GitHub again.

@@ -13,7 +13,7 @@ Do not install marketing `frontend-design` on this surface. Do not invent a pale
 
 Open [`apps/ui/DESIGN.md`](../../../apps/ui/DESIGN.md). Apply it on **new or touched** UI.
 
-**Done when:** you can name the radius (`rounded-md`), primary (white/light), accent (teal), title scale (`text-lg` / `text-xl` on product screens), and which brand signatures you will reuse (crosses, `.ctx-label`, status pill + text, quiet glow).
+**Done when:** you can name the radius (`rounded-md`), primary (white/light), accent (teal), title scale (`text-lg` / `text-xl` on product screens), and which brand signatures you will reuse (status dot + word, monospace for ids). Crosses only on a hero or summary card; `.ctx-label` only in a dense panel.
 
 ## 2. Feature, not shell
 
@@ -51,7 +51,7 @@ After the pattern, before code, name:
 
 ## 5. Observe a nearby screen
 
-Open a shipped screen in the same feature (or the closest `components/ui` primitive). Steal unintuitive details: numbered step markers, hairline recipes, `.ctx-node` icon enclosure, pill + pulse + word, catalog rows that are a `ul` used as layout.
+Open a shipped screen in the same feature (or the closest `components/ui` primitive). Steal unintuitive details: numbered step markers, hairline recipes, `.ctx-node` icon enclosure, pill + dot + word, catalog rows that are a `ul` used as layout.
 
 **Done when:** you can point at the anchor file and name two details you will copy.
 
@@ -68,7 +68,7 @@ Loading: pick the **kind** first. Do not mix them.
 | Region | Fetching a list, tree, thread, or pane whose shape we already ship | [`Skeleton`](../../../apps/ui/src/components/ui/Skeleton.tsx) / `SkeletonRow` that matches the populated rows. Not “Loading…” |
 | Process | Long job or unknown structure (hydrate, OAuth wait, discovery) | [`InlineLoader`](../../../apps/ui/src/components/ui/InlineLoader.tsx) / `ProgressLoader` |
 | Control | Mutation on a button | `Button isPending` |
-| Status | Known entity, in-progress (health, indexing, streaming) | Pulse-dot **plus** the word |
+| Status | Known entity, in-progress (health, indexing, streaming) | Pulse-dot **plus** the word. A static state has a still dot |
 
 **Interaction responsiveness:** selected chrome (tabs, pane switchers, SideNav rows, org switcher) updates **on the click**; the skeleton stays inside the region that needs data. The **page body** stays too — sibling columns, `AppShell`, and in-page state must not remount while one region fetches. Home / Connectors / Workspace share the org `AppShell`; a client page click must not remount the nav or wait on a loader before the main column swaps. A click that leaves chrome or the rest of the page unchanged until the next route paints is not done. SSR still includes the landing region in the first HTML (see [react](../react/SKILL.md) **Feel fast**).
 
@@ -100,7 +100,7 @@ Run all three. Fix before considering the UI done.
 
 **Craft** — apply every yes/no in [references/visual-craft.md](references/visual-craft.md) to this output.
 
-**Tell-scan** — apply [references/ai-tells.md](references/ai-tells.md). Our mono labels, status dots + text, quiet glow, and card crosses are brand, not tells.
+**Tell-scan** — apply [references/ai-tells.md](references/ai-tells.md). A status dot + its word and monospace ids are brand, not tells. A `.ctx-label` eyebrow above a title, crosses on a normal card, a pulse on a static state, and a hover glow are tells.
 
 **Done when:** every craft rule is a yes (or an explicit N/A), no tell remains, and the noun test passes for every collection.
 
