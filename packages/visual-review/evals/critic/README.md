@@ -161,11 +161,12 @@ The default arms are the models of the plan in the three prompt arms, the three 
 
 ## The owner calibration
 
-The product owner reviewed 10 screenshots of `main` on 2026-11-14 ([CTX-1269](https://linear.app/ctxpipe/issue/CTX-1269)). `owner-calibration.json` holds that feedback. Each screenshot has:
+The product owner reviewed 10 screenshots of `main` on 2026-11-14 ([CTX-1269](https://linear.app/ctxpipe/issue/CTX-1269)), and 6 screenshots of PR #722 in a second round on the same day ([CTX-1275](https://linear.app/ctxpipe/issue/CTX-1275)). `owner-calibration.json` holds that feedback. Each screenshot has:
 
 - `path`: where the screenshot was in the repository on that day. `image` is its SHA-256: an asset of the image release, so the set stays the same when the UI changes.
 - `flag`: the issues that the owner wants a critic to flag.
 - `ok`: the things that the owner said are fine.
+- `round`: the review round of the owner.
 - `kinds` on each item: the rubric ids (areas and qualities) that a judge flags the item with.
 
 The command gives each screenshot to the runner as a `new` case (the image alone, with a fixed neutral brief), so each arm judges it as `pnpm visual:review` judges a new screenshot. The runner output is in `runner/` of `--out`. A verdict flags the kind of each finding and each quality that `fails`. An issue is a hit when the verdict flags one of its kinds. A fine item is a false flag when the verdict flags one of its kinds that no issue of that screenshot names.
