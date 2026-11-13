@@ -14,11 +14,10 @@
 //   `secrets[…]`.
 // - NEON_API_KEY and RAILWAY_WORKSPACE_TOKEN never go to a job that runs
 //   untrusted code. No exception covers them.
-// - GitHub environments: `Preview` is only for the jobs that deploy, roll or
-//   delete the Railway PR preview. `workbench` is for checks, evals, proofs and
-//   live contracts that call outside services, with spend-capped or test-scoped
-//   keys.
-//   `Production` is the production deploy.
+// - GitHub environments: `Preview` is only for the jobs that delete the
+//   Railway PR previews (pr-preview-teardown.yaml). `workbench` is for checks,
+//   evals, proofs and live contracts that call outside services, with
+//   spend-capped or test-scoped keys. `Production` is the production deploy.
 //   A job that runs untrusted code and reads MODEL_PROVIDER_API_KEY
 //   or VERCEL_ACCESS_TOKEN uses
 //   `environment: workbench`. To add a paid or outside check, put the job in
@@ -101,7 +100,7 @@ const productionJobs = new Map(
 // The one job that runs untrusted code with an outside-service secret and
 // stays in `Preview`: it deletes the sandboxes of the Railway PR preview (the
 // preview Vercel project), not the sandboxes that CI contracts make.
-const previewCheckJobs = new Set(["pr-deploy.yaml:cleanup_pr_sandboxes"])
+const previewCheckJobs = new Set(["pr-preview-teardown.yaml:cleanup_pr_sandboxes"])
 
 // Secrets that need `environment: workbench` in a job with untrusted code.
 const checkSecrets =
@@ -111,16 +110,6 @@ const checkSecrets =
 // manager; the check reads each one to keep that true.
 const reviewedScripts = new Set([
   "scripts/ci/nightly.mjs",
-  "scripts/ci/smoke-preview-ui.sh",
-  "scripts/preview-app-db-password.sh",
-  "scripts/preview-github-app-vars.sh",
-  "scripts/preview-neon-branch.sh",
-  "scripts/preview-otel-vars.sh",
-  "scripts/preview-own-secrets.sh",
-  "scripts/preview-secrets.sh",
-  "scripts/preview-sandbox-vars.sh",
-  "scripts/preview-ui-private.sh",
-  "scripts/railway-graphql.sh",
 ])
 
 // Jobs that run untrusted code with a secret, by design, until each one moves
@@ -128,7 +117,7 @@ const reviewedScripts = new Set([
 const exceptions = new Map(
   Object.entries({
     // Deletes preview Vercel sandboxes with the backend Vercel SDK.
-    "pr-deploy.yaml:cleanup_pr_sandboxes": ["VERCEL_ACCESS_TOKEN"],
+    "pr-preview-teardown.yaml:cleanup_pr_sandboxes": ["VERCEL_ACCESS_TOKEN"],
     // Tests the sandbox provider against the preview Vercel project.
     "ci.yaml:vercel-sandbox": ["VERCEL_ACCESS_TOKEN"],
     // Evaluates the product MCP with real models.

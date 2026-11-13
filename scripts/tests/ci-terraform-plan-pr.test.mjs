@@ -28,14 +28,9 @@ const head = "a".repeat(40)
 // `gh api <path> [--paginate|--silent] [--jq <expr>]` prints the file of that
 // path (slashes become underscores), through jq when --jq is given, or fails
 // with the text in `<name>.error`. `gh pr view` prints the state file.
-// `gh workflow run` appends its arguments to calls.log.
 const fakeGh = `#!/usr/bin/env bash
 set -euo pipefail
 dir="$FAKE_GH_DIR"
-if [ "$1" = workflow ]; then
-  echo "$*" >> "$dir/calls.log"
-  exit 0
-fi
 if [ "$1" = pr ]; then
   cat "$dir/pr-state"
   exit 0
@@ -81,7 +76,6 @@ const steps = {
     "merge-gate-terraform-changes",
     "Look for a change under infra/",
   ],
-  "start-pr-deploy": ["merge-gate-deploy", "Start PR Deploy on the PR branch"],
 }
 
 const run = (script, dir, env, args = []) => {
@@ -105,9 +99,6 @@ const run = (script, dir, env, args = []) => {
     stdout: result.stdout,
     stderr: result.stderr,
     outputs: readFileSync(output, "utf8").trim().split("\n").filter(Boolean),
-    calls: existsSync(join(dir, "calls.log"))
-      ? readFileSync(join(dir, "calls.log"), "utf8").trim().split("\n")
-      : [],
   }
 }
 
@@ -305,7 +296,7 @@ test("the plan is not called when the branch is gone, and the step fails on anot
   assert.deepEqual(broken.outputs, ["plan=false"])
 })
 
-test("both dispatch steps look up a branch with a slash by its encoded name", () => {
+test("the Terraform changes step looks up a branch with a slash by its encoded name", () => {
   const branch = "jakub/ctx-1-topic"
   const encoded = `repos/${repo}/branches/jakub%2Fctx-1-topic`
   const terraform = run(
@@ -320,23 +311,6 @@ test("both dispatch steps look up a branch with a slash by its encoded name", ()
   )
   assert.equal(terraform.status, 0, terraform.stderr)
   assert.equal(terraform.outputs.at(-1), "plan=true")
-  const deploy = run("start-pr-deploy", setup({ api: { [encoded]: {} } }), {
-    REPO: repo,
-    PR: "7",
-    BRANCH: branch,
-  })
-  assert.equal(deploy.status, 0, deploy.stderr)
-  assert.deepEqual(deploy.calls, [
-    `workflow run pr-deploy.yaml --repo ${repo} --ref ${branch} -f pr_number=7`,
-  ])
-  // A missing branch is a definite 404: no deploy.
-  const gone = run(
-    "start-pr-deploy",
-    setup({ errors: { [encoded]: "gh: Not Found (HTTP 404)" } }),
-    { REPO: repo, PR: "7", BRANCH: branch },
-  )
-  assert.equal(gone.status, 0)
-  assert.deepEqual(gone.calls, [])
 })
 
 const remind = ({ names, labels }) => {

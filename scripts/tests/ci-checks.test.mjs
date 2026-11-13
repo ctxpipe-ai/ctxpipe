@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url"
 import { gunzipSync } from "node:zlib"
 
 import { markPortable } from "../checks/families.mjs"
-import { deploySteps, fullRunResults, stepResults } from "../checks/gate.mjs"
+import { fullRunResults, stepResults } from "../checks/gate.mjs"
 import { jobPlans } from "../checks/plan.mjs"
 import { prerequisites, withNeeds } from "../checks/prerequisites.mjs"
 import { uiBundledImports } from "../checks/projects.mjs"
@@ -195,15 +195,14 @@ test("the manifest matches its schema and lists each check of each family", asyn
     )
   // An expensive check states its intent in under about 40 words. A check
   // that calls a model or a wall clock is stochastic; a check that reads
-  // remote state, base images by tag or a deployment is not cacheable.
+  // remote state or base images by tag is not cacheable.
   for (const check of manifest.checks) {
     const expensive =
       check.family === "eval" ||
       check.lane === "required" ||
       check.lane === "latency" ||
       check.lane === "upgrade" ||
-      check.family === "build" ||
-      check.family === "deploy"
+      check.family === "build"
     if (expensive) {
       assert.ok(check.intent, `${check.id} has no intent`)
       assert.ok(
@@ -221,7 +220,6 @@ test("the manifest matches its schema and lists each check of each family", asyn
       !(
         check.lane === "terraform-plan" ||
         check.lane.startsWith("image-") ||
-        check.family === "deploy" ||
         // This policy check reads the git diff, not only the files.
         check.lane === "adr"
       ),
@@ -365,7 +363,6 @@ test("the manifest marks exactly the platform-independent checks portable", () =
     notPortable,
     [
       "build:image",
-      ...notPortable.filter((lane) => lane.startsWith("deploy:")),
       // Only the contracts file of the denylist.
       "vitest:contracts",
       "vitest:latency",
@@ -1183,18 +1180,13 @@ test("every check has the root toolchain files among its inputs", () => {
   assert.equal(result.status, 0, result.stderr)
   const { checks } = JSON.parse(result.stdout)
   assert.ok(checks.length > 0)
-  // The deploy checks read only their own files: they need only the Node
-  // version of the toolchain, so that a dependency change selects the image
-  // builds, not a preview deploy.
-  for (const { id, family, inputs } of checks)
-    for (const file of family === "deploy"
-      ? [".node-version"]
-      : [
-          "package.json",
-          "pnpm-lock.yaml",
-          "pnpm-workspace.yaml",
-          ".node-version",
-        ])
+  for (const { id, inputs } of checks)
+    for (const file of [
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      ".node-version",
+    ])
       assert.ok(inputs.includes(file), `${id} lacks input ${file}`)
 })
 
@@ -1408,133 +1400,6 @@ test("the UI image selects on the backend files that the UI build bundles, not o
   )
   // The UI does not import it.
   assert.ok(!selects("apps/backend/src/app/app.ts"))
-})
-
-test("the manifest lists the preview deployment and its UI smoke test, and the gate reads their PR Deploy steps", () => {
-  const result = node([script("list.mjs")])
-  assert.equal(result.status, 0, result.stderr)
-  const deploys = new Map(
-    JSON.parse(result.stdout)
-      .checks.filter((check) => check.family === "deploy")
-      .map((check) => [check.id, check]),
-  )
-  const deploy = deploys.get("deploy:preview:.github/workflows/pr-deploy.yaml")
-  const smoke = deploys.get(
-    "deploy:preview-ui-smoke:scripts/ci/smoke-preview-ui.sh",
-  )
-  assert.deepEqual(
-    [...deploys.keys()].sort(),
-    [deploy.id, smoke.id].sort(),
-    "each deploy check",
-  )
-  const workflow = readFileSync(
-    join(root, ".github/workflows/pr-deploy.yaml"),
-    "utf8",
-  )
-  // The deployment selects on each script that the workflow or a sourced
-  // script sources or runs, and on each image that it builds.
-  const sourced = new Set(
-    [
-      ...workflow.matchAll(/\$\{GITHUB_WORKSPACE\}\/(scripts\/[\w./-]+\.sh)/g),
-    ].map(([, file]) => file),
-  )
-  for (const file of [...sourced])
-    for (const [, name] of readFileSync(join(root, file), "utf8").matchAll(
-      /"\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)\/([\w.-]+\.(?:sh|mjs))"/g,
-    ))
-      sourced.add(`scripts/${name}`)
-  assert.ok(sourced.size >= 10)
-  const images = [...workflow.matchAll(/^\s+dockerfile: (\S+)$/gm)].map(
-    ([, file]) => file,
-  )
-  assert.equal(images.length, 4)
-  for (const input of [
-    ...sourced,
-    ...images,
-    "apps/backend/migrations/**",
-    "infra/module/ctxpipe/railway.tf",
-  ])
-    assert.ok(deploy.inputs.includes(input), `deploy lacks input ${input}`)
-  for (const check of deploys.values()) {
-    for (const input of check.inputs.filter((item) => !item.endsWith("/**")))
-      assert.ok(existsSync(join(root, input)), `${input} is missing`)
-    assert.equal(check.cacheable, false, check.id)
-    assert.ok(check.intent, check.id)
-    // Its job is in pr-deploy.yaml, and it has no profile of a gated run.
-    assert.deepEqual(runsInOf(check.id), { job: "pr-deploy" })
-  }
-  // The smoke test needs the deployed preview, which needs the pull request.
-  assert.deepEqual(smoke.prerequisites, ["preview-pr"])
-  assert.equal(prerequisites["preview-deployment"], undefined)
-  assert.deepEqual(deploy.prerequisites, ["preview-pr"])
-  // A plain app code change does not select the deployment: no input is a
-  // whole app directory, and no app source input imports a repo module (a
-  // selector follows the imports of a source input).
-  for (const input of [...deploy.inputs, ...smoke.inputs]) {
-    assert.ok(!/^apps\/[^/]+\/(src\/)?\*\*$/.test(input), input)
-    if (/^apps\/.*\.(ts|tsx|mjs)$/.test(input))
-      assert.doesNotMatch(
-        readFileSync(join(root, input), "utf8"),
-        /from "\.{1,2}\//,
-        input,
-      )
-    // A dependency change selects the image builds, not a preview deploy.
-    assert.ok(!/(^|\/)(pnpm-lock\.yaml|package\.json)$/.test(input), input)
-  }
-  // Each deploy check is one step of the deploy job of pr-deploy.yaml.
-  const job = workflow.slice(workflow.indexOf("\n  deploy_pr_environment:\n"))
-  assert.ok(job.includes("name: Deploy PR environment (Railway + Neon)\n"))
-  assert.deepEqual(Object.values(deploySteps).sort(), [
-    "deploy:preview-ui-smoke:",
-    "deploy:preview:",
-  ])
-  for (const step of Object.keys(deploySteps))
-    assert.ok(job.includes(`- name: ${step}\n`), step)
-  assert.match(
-    job,
-    /- name: Smoke-test the preview UI\n\s+run: bash scripts\/ci\/smoke-preview-ui\.sh /,
-  )
-  // The gate reads the result of each step of the newest PR Deploy run. A
-  // run without the deploy job (a failed job before it, or a run that has
-  // not ended) gives a missing result, which fails the gated run.
-  const deployRun = (conclusions) => ({
-    jobs: [
-      {
-        name: "Deploy PR environment (Railway + Neon)",
-        steps: Object.keys(deploySteps).map((name, index) => ({
-          name,
-          conclusion: conclusions[index],
-        })),
-      },
-    ],
-  })
-  const read = (run) => fullRunResults([], {}, stepResults({ jobs: [] }, run))
-  assert.equal(read(deployRun(["success", "failure"]))(deploy.id), "passed")
-  assert.equal(read(deployRun(["success", "failure"]))(smoke.id), "failed")
-  assert.equal(read(deployRun(["failure", "skipped"]))(deploy.id), "failed")
-  assert.match(
-    read(deployRun(["failure", "skipped"]))(smoke.id),
-    /^missing result \(job pr-deploy/,
-  )
-  assert.match(read(undefined)(deploy.id), /^missing result/)
-  // A failed job before the deploy job skips it: the deployment failed.
-  const skipped = {
-    status: "completed",
-    jobs: [
-      { name: "Migrate PR Neon branch", conclusion: "failure" },
-      {
-        name: "Deploy PR environment (Railway + Neon)",
-        conclusion: "skipped",
-        steps: [],
-      },
-    ],
-  }
-  assert.equal(read(skipped)(deploy.id), "failed")
-  assert.match(read(skipped)(smoke.id), /^missing result/)
-  // A run that has not ended gives pending, outside the failed checks.
-  const pending = { status: "in_progress", jobs: [] }
-  assert.equal(read(pending)(deploy.id), "pending")
-  assert.equal(read(pending)(smoke.id), "pending")
 })
 
 test("the project check times job selects the typecheck, lint and policy checks that can be cached", () => {

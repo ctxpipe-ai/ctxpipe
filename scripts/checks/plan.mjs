@@ -207,7 +207,6 @@ export function withStoreHits(selection, store) {
 // (runsIn). A check that ci.yaml does not run is `external`:
 // another workflow runs it, and its own status reports the result.
 const external = {
-  deploy: "PR Deploy (pr-deploy.yaml, started by the merge gate)",
   eval: "MCP evals (mcp-evals.yaml, starts with the label mcp-evals)",
   // The check runs in terraform-plan-pr.yaml; without this entry the policy
   // family maps it to the lint job, which has no step for it.
@@ -316,7 +315,6 @@ export function nightlyPlan(factory, seconds) {
       reason: `nightly: ${factory.full}`,
       jobs: {},
       outputs: {},
-      deploy: false,
     }
   const family = (id) => id.split(":")[0]
   const project = (id) => ["typecheck", "lint", "policy"].includes(family(id))
@@ -358,7 +356,6 @@ export function nightlyPlan(factory, seconds) {
     rerun: [],
     jobs,
     outputs: jobOutputs(jobs),
-    deploy: false,
   }
 }
 
@@ -403,9 +400,7 @@ export function fallbackOf({ mode, selection, inputs, needs }) {
 
 // The plan of this PR run. `mode` is `gate` only when merge-gate.json is in
 // gate mode and the selector gave a selection; else the run is full.
-// `deploy` is true when the merge gate starts PR Deploy: in gate mode,
-// PR Deploy runs on a push only when the merge gate starts it.
-export function plan({ config, inputs, needs, store, fork }) {
+export function plan({ config, inputs, needs, store }) {
   const mode = readJson(join(inputs, "mode.json"))
   const select = readJson(join(inputs, "selection.json"))
   const fallback = fallbackOf({ mode, selection: select, inputs, needs })
@@ -418,7 +413,6 @@ export function plan({ config, inputs, needs, store, fork }) {
       reason: fallback,
       jobs: {},
       outputs: {},
-      deploy: gate && !fork,
     }
   let selection = combine(
     select,
@@ -465,6 +459,5 @@ export function plan({ config, inputs, needs, store, fork }) {
     jobs,
     outputs: jobOutputs(jobs),
     shards: gate ? packing(ran, seconds) : {},
-    deploy: gate && !fork && ran.some((id) => id.startsWith("deploy:")),
   }
 }

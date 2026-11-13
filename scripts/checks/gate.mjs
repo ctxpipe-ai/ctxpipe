@@ -41,17 +41,17 @@ import {
 //     all run. It runs git on the checkout (HEAD^1 and HEAD).
 //
 //   gate.mjs plan --config <merge-gate.json> --inputs <dir> --needs <file>
-//                 --store <file> --fork <true|false> --out <dir>
+//                 --store <file> --out <dir>
 //                 [--github-output <file>]
 //     The plan of a PR run (plan.mjs): writes plan.json to <dir>, and the
-//     outputs of the plan job (`mode`, `config`, `deploy`, and for each job
+//     outputs of the plan job (`mode`, `config`, and for each job
 //     that runs checks, its check count or its matrix entries) to <file>. The
 //     check ids are only in plan.json (`jobs`). <inputs> holds the artifacts of the
 //     manifest, select and LLM jobs, <store> the PR store.
 //
 //   gate.mjs decide --config <merge-gate.json> --inputs <dir> --results <dir>
 //                   --needs <file> [--jobs <file>] [--earlier <file>]
-//                   [--deploy <file>] [--store <file>] --out <dir>
+//                   [--store <file>] --out <dir>
 //     The decision of a PR run. In gate mode the gated run gates, and the
 //     exit code is 1 when its verdict is fail. In shadow mode the full run
 //     gates; this computes what a gated run would decide from the same
@@ -61,19 +61,11 @@ import {
 //     manifest, select, LLM and plan jobs, <results> the test artifacts,
 //     <needs> the `needs` context, <jobs> the jobs of this run attempt from
 //     the GitHub API, <earlier> the jobs of the earlier attempts of this
-//     run, <deploy> the jobs of the newest PR Deploy run of the PR head.
+//     run.
 //     The decision also holds the review critics (critics.json of the
 //     critics job). In gate mode, the exit code is 1 when a critic has no
 //     stored verdict, or when a same-repo PR has no critics record.
 
-// The steps of the job `Deploy PR environment (Railway + Neon)` of
-// pr-deploy.yaml that run one deploy check each. A test keeps these names
-// equal to the steps in pr-deploy.yaml.
-export const deploySteps = {
-  "Update Railway service config via GraphQL and deploy once":
-    "deploy:preview:",
-  "Smoke-test the preview UI": "deploy:preview-ui-smoke:",
-}
 // The step of the Lint and format job that the gated run always runs.
 const ciScriptTests = "CI command regression tests"
 
@@ -84,31 +76,9 @@ const conclusion = (value) =>
 // The result of each step above in this run, and of the CI script tests.
 // Also the result of each image build: the matrix job `Production build
 // (<name>)` of ci.yaml is a plain Docker build of the check
-// `build:image-<name>:`, so the job result is the check result. And the
-// result of each deploy check, from the steps of the PR Deploy run (`deploy`).
-// A PR Deploy run that has not ended gives `pending` (no verdict yet). A
-// deploy job that a failed job before it skipped gives `failed` for the
-// deployment: it never came up. A run without a deploy run gives no result.
-export function stepResults(jobs, deploy) {
+// `build:image-<name>:`, so the job result is the check result.
+export function stepResults(jobs) {
   const results = new Map()
-  if (deploy && deploy.status && deploy.status !== "completed")
-    for (const prefix of Object.values(deploySteps))
-      results.set(prefix, "pending")
-  else if (deploy) {
-    const list = deploy.jobs ?? []
-    const job = list.find(
-      (item) => item.name === "Deploy PR environment (Railway + Neon)",
-    )
-    if (job?.steps?.length) {
-      for (const step of job.steps)
-        if (deploySteps[step.name])
-          results.set(deploySteps[step.name], conclusion(step.conclusion))
-    } else if (
-      list.some((item) => item.conclusion === "failure") &&
-      (!job || job.conclusion === "skipped")
-    )
-      results.set("deploy:preview:", "failed")
-  }
   for (const job of jobs?.jobs ?? []) {
     const image = /^Production build \((.+)\)$/.exec(job.name)?.[1]
     if (image) results.set(`build:image-${image}:`, conclusion(job.conclusion))
@@ -265,7 +235,7 @@ export function fullRunResults(records, needs, steps = new Map()) {
     if (results.has(id)) return results.get(id)
     const [family, lane] = id.split(":")
     const step = steps.get(`${family}:${lane}:`)
-    if (["passed", "failed", "pending"].includes(step)) return step
+    if (["passed", "failed"].includes(step)) return step
     const job = runsInOf(id)?.job
     return `missing result (job ${job ?? "none"}: ${needs[job]?.result ?? "did not run"})`
   }
@@ -819,11 +789,10 @@ export function shadow({
   needs,
   jobs,
   earlier,
-  deploy,
   run,
 }) {
   const full = fullVerdict(needs)
-  const steps = stepResults(jobs, deploy)
+  const steps = stepResults(jobs)
   const result = fullRunResults(records, needs, steps)
   // The plan job combines the selection of the select job, the LLM job and
   // the PR store. Without its record, the selection of the select job stays.
@@ -935,8 +904,8 @@ export function shadow({
 
 // The decision of a PR run in gate mode: the gated run gates. Each check of
 // the plan ran in its job of this run, and each other selected check has an
-// accepted hit. A check that another workflow runs (the preview deploy, the
-// MCP evals, the Terraform plan) has the status of that workflow and is not
+// accepted hit. A check that another workflow runs (the MCP evals, the
+// Terraform plan) has the status of that workflow and is not
 // part of this verdict. `reruns` are the records of the one rerun of each
 // failed check whose key has a stored pass.
 export function gateDecision({
@@ -946,13 +915,12 @@ export function gateDecision({
   reruns = [],
   needs,
   jobs,
-  deploy,
   run,
   store,
   seconds = new Map(),
   now = new Date(),
 }) {
-  const steps = stepResults(jobs, deploy)
+  const steps = stepResults(jobs)
   const result = fullRunResults(records, needs, steps)
   const selection = planned.selection
   const reasons = new Map(selection.selected.map((c) => [c.id, c.reason]))
@@ -1420,7 +1388,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
               inputs: options.inputs,
               needs: JSON.parse(readFileSync(options.needs, "utf8")),
               store: readStore(readJson(options.store)),
-              fork: options.fork === "true",
             })
           : nightlyPlan(
               JSON.parse(readFileSync(options.plan, "utf8")),
@@ -1439,7 +1406,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
       const outputs = {
         mode: planned.mode,
         config: planned.config,
-        deploy: String(planned.deploy),
         ...planned.outputs,
       }
       if (options["github-output"])
@@ -1451,7 +1417,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
           { flag: "a" },
         )
       process.stdout.write(
-        `Merge gate plan: mode ${planned.mode} (${planned.reason}); ${planned.ran?.length ?? "all"} checks run; jobs: ${Object.keys(planned.outputs).join(", ") || "none"}; deploy ${planned.deploy}\n`,
+        `Merge gate plan: mode ${planned.mode} (${planned.reason}); ${planned.ran?.length ?? "all"} checks run; jobs: ${Object.keys(planned.outputs).join(", ") || "none"}\n`,
       )
     } else if (command === "decide") {
       const env = process.env
@@ -1480,7 +1446,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
           reruns: readRecords(options.results, "rerun.ndjson"),
           needs,
           jobs: readJson(options.jobs),
-          deploy: readJson(options.deploy),
           run,
           store,
           seconds: existsSync(tracePath)
@@ -1498,7 +1463,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
           needs,
           jobs: readJson(options.jobs),
           earlier: readJson(options.earlier),
-          deploy: readJson(options.deploy),
           run,
         })
         // The full run proves each selected check that it ran, so its pass

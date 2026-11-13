@@ -113,22 +113,6 @@ const RETIRED = new Set([
   "LANGFUSE_INIT_USER_EMAIL",
   "LANGFUSE_INIT_USER_PASSWORD",
 ])
-// A Railway PR preview starts as a copy of the production variables. With
-// --preview, the values come from the GitHub Environment `Preview`, and each
-// empty one is deleted, so no production value stays. The preview scripts own
-// these names (a value made for each preview, the preview GitHub App, the
-// preview Vercel project, the OTLP header):
-const PREVIEW_OWNED = new Set([
-  "AUTH_SECRET",
-  "CONNECTION_SECRETS_ENCRYPTION_KEY",
-  "GITHUB_PRIVATE_KEY",
-  "GITHUB_CLIENT_SECRET",
-  "GITHUB_WEBHOOK_SECRET",
-  "VERCEL_TOKEN",
-  "OTEL_EXPORTER_OTLP_HEADERS",
-])
-// A preview cannot start without these.
-const PREVIEW_REQUIRED = new Set(["MODEL_PROVIDER_API_KEY", "FALKORDB_PASSWORD"])
 // Checked before any write, so a bad value never reaches a service.
 const FORMATS = {
   CONNECTION_SECRETS_ENCRYPTION_KEY: /^[0-9a-fA-F]{64}$/,
@@ -194,7 +178,6 @@ export async function main(
       service: { type: "string" },
       // Appends the service name to this file when a value changed.
       "changed-file": { type: "string" },
-      preview: { type: "boolean" },
     },
   })
   if (!args.service) {
@@ -206,16 +189,8 @@ export async function main(
     )
   }
   const service = args.service
-  let variables = SERVICE_VARIABLES[service]
-  let optional = OPTIONAL
-  if (args.preview) {
-    variables = Object.fromEntries(
-      Object.entries(variables).filter(([name]) => !PREVIEW_OWNED.has(name)),
-    )
-    optional = new Set(
-      Object.values(variables).filter((source) => !PREVIEW_REQUIRED.has(source)),
-    )
-  }
+  const variables = SERVICE_VARIABLES[service]
+  const optional = OPTIONAL
 
   const required = [
     "PROJECT_ID",
@@ -276,8 +251,7 @@ export async function main(
   }
   // variableDelete has no skipDeploys, so a delete can redeploy the service
   // on its current image. It happens when an optional connector is turned
-  // off, and on a new preview for each production value that Preview does
-  // not set. The service then starts without it.
+  // off. The service then starts without it.
   for (const name of removed) {
     await graphql(
       "mutation variableDelete($input: VariableDeleteInput!) { variableDelete(input: $input) }",

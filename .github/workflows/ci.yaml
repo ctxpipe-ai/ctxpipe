@@ -118,16 +118,8 @@ jobs:
       - name: CI command regression tests
         run: |
           node --test scripts/tests/ci-*.test.mjs
-          bash scripts/tests/preview-otel-vars.test.sh
-          bash scripts/tests/preview-sandbox-vars.test.sh
-          bash scripts/tests/preview-github-app-vars.test.sh
-          bash scripts/tests/preview-own-secrets.test.sh
           node --test scripts/tests/railway-sync-variables.test.mjs
-          bash scripts/tests/preview-app-db-password.test.sh
-          bash scripts/tests/preview-neon-branch.test.sh
-          bash scripts/tests/railway-environment-id.test.sh
           bash scripts/tests/railway-set-images.test.sh
-          bash scripts/tests/preview-ui-private.test.sh
 
   typecheck:
     timeout-minutes: 30
@@ -622,8 +614,8 @@ jobs:
         run: |
           set -o pipefail
           if [ "$MODE" != gate ]; then
-            # A check with cacheable false reads outside state (Terraform, Docker, a
-            # PR deploy) that this job lacks, and its time is not the job's purpose.
+            # A check with cacheable false reads outside state (Terraform,
+            # Docker) that this job lacks, and its time is not the job's purpose.
             pnpm -s checks:list |
               jq -r '.checks[] | select((.family == "typecheck" or .family == "lint" or .family == "policy") and .cacheable != false) | .id' \
               > "$RUNNER_TEMP/project-checks.txt"
@@ -2123,7 +2115,6 @@ jobs:
     outputs:
       artifact-id: ${{ steps.preserve.outputs.artifact-id }}
       mode: ${{ steps.plan.outputs.mode }}
-      deploy: ${{ steps.plan.outputs.deploy }}
       typecheck: ${{ steps.plan.outputs.typecheck }}
       test-shards: ${{ steps.plan.outputs.test-shards }}
       package-tests: ${{ steps.plan.outputs.package-tests }}
@@ -2196,7 +2187,6 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           NEEDS: ${{ toJSON(needs) }}
-          FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
           if [ "$EVENT" != pull_request ]; then
             node scripts/checks/gate.mjs nightly --config .github/merge-gate.json \
@@ -2207,7 +2197,7 @@ jobs:
           printf '%s' "$NEEDS" > "$RUNNER_TEMP/needs.json"
           node scripts/checks/gate.mjs plan --config .github/merge-gate.json \
             --inputs "$RUNNER_TEMP/inputs" --needs "$RUNNER_TEMP/needs.json" \
-            --store .merge-gate-store/store.json --fork "$FORK" \
+            --store .merge-gate-store/store.json \
             --out "$RUNNER_TEMP/plan" --github-output "$GITHUB_OUTPUT"
       - name: Preserve the plan
         id: preserve
@@ -2217,51 +2207,6 @@ jobs:
           name: merge-gate-plan
           path: ${{ runner.temp }}/plan/plan.json
           if-no-files-found: ignore
-
-  # In gate mode PR Deploy does not start on a push: this job starts it when
-  # the plan selects a deploy check, or when the run is full. A failed plan
-  # job gives no `mode`: that run is full, so this job starts PR Deploy too. A person can
-  # start it with Run workflow on the PR branch. It runs no repository code.
-  merge-gate-deploy:
-    timeout-minutes: 5
-    name: Merge gate starts PR Deploy
-    needs: merge-gate-plan
-    if: |
-      !cancelled() &&
-      (needs.merge-gate-plan.outputs.deploy == 'true' ||
-      needs.merge-gate-plan.outputs.mode == '') &&
-      github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
-    permissions:
-      actions: write
-    steps:
-      - name: Start PR Deploy on the PR branch
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          BRANCH: ${{ github.head_ref }}
-          PR: ${{ github.event.pull_request.number }}
-        run: |
-          # The PR can merge and lose its branch while this run goes on.
-          # Skip only on a definite answer; any other failure fails the step.
-          state=$(gh pr view "$PR" --repo "$REPO" --json state --jq .state)
-          if [ "$state" != "OPEN" ]; then
-            echo "::notice::PR is closed or its branch is gone; no preview deploy"
-            exit 0
-          fi
-          # A branch name can hold a slash: encode it for the path.
-          encoded=$(jq -rn --arg branch "$BRANCH" '$branch | @uri')
-          if ! out=$(gh api "repos/$REPO/branches/$encoded" --silent 2>&1); then
-            case "$out" in
-              *"HTTP 404"*)
-                echo "::notice::PR is closed or its branch is gone; no preview deploy"
-                exit 0
-                ;;
-            esac
-            echo "$out" >&2
-            exit 1
-          fi
-          gh workflow run pr-deploy.yaml --repo "$REPO" --ref "$BRANCH" -f pr_number="$PR"
 
   # Calls terraform-plan-pr.yaml when the PR changes a file under infra/. It
   # does not depend on the selection or the mode: the check of the plan has
@@ -2450,10 +2395,8 @@ jobs:
           REPO: ${{ github.repository }}
           RUN: ${{ github.run_id }}
           ATTEMPT: ${{ github.run_attempt }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         # The jobs of the earlier attempts show the flakes: a job that failed
-        # in an earlier attempt and passed in this one. The jobs of the newest
-        # PR Deploy run of the PR head give the deploy checks their results.
+        # in an earlier attempt and passed in this one.
         run: |
           gh api "repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=100" --paginate \
             --jq '.jobs[]' | jq -s '{jobs: .}' > "$RUNNER_TEMP/jobs.json"
@@ -2461,22 +2404,6 @@ jobs:
             gh api "repos/$REPO/actions/runs/$RUN/attempts/$attempt/jobs?per_page=100" --paginate \
               --jq '.jobs[]'
           done | jq -s '{jobs: .}' > "$RUNNER_TEMP/earlier.json"
-          # The newest PR Deploy run of the head whose deploy job did not
-          # skip. A run that a newer push cancelled early has no deploy job.
-          gh api "repos/$REPO/actions/workflows/pr-deploy.yaml/runs?head_sha=$HEAD_SHA&per_page=20" \
-            --jq '.workflow_runs[] | [.id, .status] | @tsv' > "$RUNNER_TEMP/deploy-runs.tsv"
-          echo '{"jobs": []}' > "$RUNNER_TEMP/deploy.json"
-          while read -r id status; do
-            gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" --paginate \
-              --jq '.jobs[]' | jq -s --arg status "$status" '{status: $status, jobs: .}' > "$RUNNER_TEMP/candidate.json"
-            if [[ -z "$(jq -r '.jobs[] | select(.name == "Deploy PR environment (Railway + Neon)" and .conclusion != "skipped") | .name' "$RUNNER_TEMP/candidate.json")" ]]; then
-              # Keep the first run as the answer if no run has a deploy job.
-              [[ "$(jq '.jobs | length' "$RUNNER_TEMP/deploy.json")" == 0 ]] && cp "$RUNNER_TEMP/candidate.json" "$RUNNER_TEMP/deploy.json"
-              continue
-            fi
-            cp "$RUNNER_TEMP/candidate.json" "$RUNNER_TEMP/deploy.json"
-            break
-          done < "$RUNNER_TEMP/deploy-runs.tsv"
       - name: Restore the PR store
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -2495,7 +2422,7 @@ jobs:
           node scripts/checks/gate.mjs decide --config .github/merge-gate.json \
             --inputs "$RUNNER_TEMP/inputs" --results "$RUNNER_TEMP/results" \
             --needs "$RUNNER_TEMP/needs.json" --jobs "$RUNNER_TEMP/jobs.json" \
-            --earlier "$RUNNER_TEMP/earlier.json" --deploy "$RUNNER_TEMP/deploy.json" \
+            --earlier "$RUNNER_TEMP/earlier.json" \
             --store .merge-gate-store/store.json --out "$RUNNER_TEMP/decision" || code=$?
           cat "$RUNNER_TEMP/decision/summary.md" >> "$GITHUB_STEP_SUMMARY" || true
           exit "$code"
