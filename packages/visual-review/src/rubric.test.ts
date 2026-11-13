@@ -123,7 +123,7 @@ describe("readRubric", () => {
     [
       "a bidi mark",
       (rubric: Rubric) => {
-        at(rubric.areas, 1).name = "Color‮tokens"
+        at(rubric.areas, 1).name = "Color\u202etokens"
       },
       "one line of printable text",
     ],
