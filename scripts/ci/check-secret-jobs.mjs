@@ -347,6 +347,11 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     // Before, the plan job gave the same ids in its outputs. The job already
     // runs PR code with the token (pnpm install and the selected tests).
     "ci.yaml:vercel-sandbox",
+    // The push job loads the image that the build job made from the PR's code
+    // and pushes it: that is its purpose. It runs no file of the artifact on
+    // the runner (`docker load` only stores the image), and its role can only
+    // push to ctxpipe-pr/* in the preview account, where PR code runs anyway.
+    "pr-preview-images.yaml:push",
     // The Resolve job checks out the merge commit (it holds no secret) and
     // uploads infra/. The plan job may check out only the workflow commit, and
     // it already runs branch Terraform code: the reviewers of the
