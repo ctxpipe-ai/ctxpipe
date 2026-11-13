@@ -42,7 +42,8 @@ output.
    - (c) the removal of the temporary Access app and of the `cutover.ctxpipe.dev` route.
 
    Each pull request shows its `pulumi preview`.
-3. `hosted-run-task.yml` has the tasks `cutover-reset-database` and `cutover-migrate` too (see "Open items").
+3. `hosted-run-task.yml` has the tasks `cutover-reset-database`, `cutover-migrate` and `cutover-reset-indexes` too
+   (see "Open items").
 4. A test organization with a personal API key exists in production (Railway today), for the smoke check
    (`VALIDATE_API_KEY`).
 
@@ -233,10 +234,13 @@ Do the steps that apply, in this order. Skip a step whose change was not made ye
 2. Railway: set the replicas of `backend` and `worker` back to their values before T+0.
 3. AWS: stop `backend`, `worker` and `ui`. Agent: run the task `cutover-reset-database`, so that Aurora keeps no copy
    of the production data.
-4. Revert edge pull request (b), if it was merged. Then revert (a): `app.ctxpipe.ai` goes back to Railway.
-5. Person: [retire the cutover access and the copies](#retire-the-cutover-access-and-the-copies). The next window
+4. If T+40 started: stop `falkordb` and `codesearch`. Agent: run the task `cutover-reset-indexes`. It empties both
+   volumes and deletes the shards that `cutover-seed-shard-store` published, so that AWS keeps no copy of the graphs
+   and the source code. Then start `falkordb` and `codesearch` again.
+5. Revert edge pull request (b), if it was merged. Then revert (a): `app.ctxpipe.ai` goes back to Railway.
+6. Person: [retire the cutover access and the copies](#retire-the-cutover-access-and-the-copies). The next window
    makes the access again. The cutover tasks stay.
-6. Write what failed into [CTX-1217], and plan the next window.
+7. Write what failed into [CTX-1217], and plan the next window.
 
 ## Retire the cutover access and the copies
 
@@ -254,8 +258,9 @@ Do the steps that apply, in this order. Skip a step whose change was not made ye
 
 ## Open items
 
-- `cutover-reset-database` and `cutover-migrate` are not in `hosted-run-task.yml` yet. Both must refuse to run while
-  `CUTOVER_G4_PASSED` is `true`: after G4, a reset would drop the production database.
+- `cutover-reset-database`, `cutover-migrate` and `cutover-reset-indexes` are not in `hosted-run-task.yml` yet. Each
+  must refuse to run while `CUTOVER_G4_PASSED` is `true`: after G4, a reset would delete production data.
+  `cutover-reset-indexes` must also need `falkordb` and `codesearch` stopped, as `cutover-import-indexes` does.
   - Hosted migrate already ran on Aurora, so the copy needs an empty database first.
   - Hosted runs migrate only during `pulumi up`, once for each backend image. The dump keeps no roles, so the copy has
     no `ctxpipe_app`. The restored database therefore needs its own migrate task. The agent cannot reach Aurora.
