@@ -206,6 +206,8 @@ line gives its expected output. The dry run of the copy is its preflight against
 - **Do:**
   1. Start `worker` (desired count 1).
   2. Merge edge pull request (c): it removes the temporary Access app and the `cutover.ctxpipe.dev` route.
+  3. Merge the factory pull request that removes the cutover tasks and `hosted-run-task.yml`. After this, no task can
+     drop or overwrite the production data.
 - **Expected:** customer traffic reaches AWS. The worker takes the open OpenWorkflow runs.
 - **Rollback:** none. Fix forward.
 
@@ -217,8 +219,14 @@ line gives its expected output. The dry run of the copy is its preflight against
   2. Agent: start a reconcile sync of each connector. Watch the errors, the queue depth and the tunnel in HyperDX for
      one hour.
   3. Person: end the deploy freeze, and tell the customers.
-  4. Person: retire the cutover access. Reset the password of the Neon owner role in the Neon console, put `retired`
-     into the two `hosted/cutover/*` secrets, and merge the factory pull request that removes the cutover tasks.
+  4. Person: retire the cutover access and the copies:
+     - reset the password of the Neon owner role in the Neon console;
+     - put `retired` into the two `hosted/cutover/*` secrets;
+     - delete the Access service token of the agent, and revoke the API key of the test organization;
+     - delete the transfer copies of every run, the rehearsals too. They hold the graphs and the source code of each
+       organization, outside the deletion path of ctxpipe:
+       `aws s3 rm --recursive "s3://<shard bucket>/cutover-transfer/"`. Then
+       `aws s3 ls "s3://<shard bucket>/cutover-transfer/"` prints nothing.
 
 ## Full rollback (only before G4)
 
