@@ -41,7 +41,7 @@ const meta = {
   component: LinearConnectionCard,
   decorators: [
     (Story) => (
-      <div className="w-full max-w-xl">
+      <div className="w-xl max-w-full">
         <Story />
       </div>
     ),

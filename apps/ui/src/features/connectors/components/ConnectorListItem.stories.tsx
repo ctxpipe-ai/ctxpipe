@@ -20,7 +20,7 @@ const meta = {
   },
   decorators: [
     (Story) => (
-      <div className="flex w-full max-w-xl flex-col gap-2">
+      <div className="flex w-xl max-w-full flex-col gap-2">
         <Story />
       </div>
     ),
