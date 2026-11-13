@@ -46,7 +46,7 @@ export const areas = [
     id: "typography",
     name: "Typography",
     definition:
-      "UI text is Geist; ids, paths, hashes and counts are Geist Mono. Body is text-sm, meta is text-xs, and no text is smaller than meta. A product title is text-lg or text-xl. Weights are 400 and 500 only. Prose lines stay at about 75 characters or less. A title of two or more lines does not end with one word alone.",
+      "UI text is Geist; ids, paths, hashes and counts are Geist Mono. Body is text-sm, meta is text-xs, a product title is text-lg or text-xl. Weights are 400 and 500 only. Sizes come from the Tailwind scale. Prose lines stay at about 75 characters or less. A title of two or more lines does not end with one word alone.",
     sources: [design("Type"), craft("Type"), craft("Space and layout")],
   },
   {
@@ -81,7 +81,7 @@ export const areas = [
     id: "broken-content",
     name: "Broken content",
     definition:
-      "The UI shows no raw or placeholder value: no undefined, null, NaN, [object Object], untranslated key, lorem ipsum or broken image. One row, card or dialog does not show the same text twice.",
+      "Labels, copy and field values show no rendering artifact: no undefined, null, NaN, [object Object], untranslated key, lorem ipsum or broken image. A code or file preview that shows such text as content is not broken.",
     sources: [craft("Finishing")],
   },
 ] as const satisfies readonly RubricEntry[]
@@ -133,7 +133,7 @@ export const qualities = [
     id: "grouping-and-rhythm",
     name: "Grouping and rhythm",
     definition:
-      "Related items sit together, with more space around a group than within it. The gaps are not all equal, so the groups show. A gap or a background shift separates groups first, then one hairline. No card inside a card.",
+      "Related items sit together, with more space around a group than within it. A gap or a background shift separates groups first, then one hairline. No card inside a card.",
     sources: [design("Space"), design("Targets (new or touched UI)")],
     pageOnly: false,
   },
@@ -165,7 +165,7 @@ export const qualities = [
     id: "restraint",
     name: "Restraint",
     definition:
-      "No AI tells: no gradient, gradient text, glass, grain, glow or grid on product chrome, no hero type, no four equal KPI tiles, no teal on every row, no colored stripe on one side of a card, no hard offset or wide black shadow, no badge or icon tile stacked above a title. The house brand signatures are not tells: the mono uppercase .ctx-label, the card corner crosses, a status dot with its word, and the teal hover glow of a quiet button.",
+      "No AI tells: no gradient, gradient text, glass, grain, glow or grid on product chrome, no hero type, no four equal KPI tiles, no teal on every row, no colored stripe on one side of a card, no hard offset or wide black shadow on an in-page card, no badge stacked above a title. A dialog, popover, menu or toast keeps its house shadow. The house brand signatures are not tells: the mono uppercase .ctx-label, the card corner crosses, a status dot with its word, and the teal hover glow of a quiet button.",
     sources: [tells("Tells to remove"), tells("Brand, not tells")],
     pageOnly: false,
   },

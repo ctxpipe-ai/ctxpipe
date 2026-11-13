@@ -25,8 +25,6 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | House density | Chat / connectors tightness after a loose first pass — not landing-page air |
 | Proximity | More space around a group than within it |
 | Four proximity smells fixed | (1) label–input tighter than group–group (2) extra space *above* a heading (3) list gap > line-height (4) horizontal clusters share one gap |
-| Heading with its content | A heading is closer to the content below it than to the block above it |
-| Gaps show the groups | Gaps are not all equal: the gap between groups is larger than the gap in a group |
 | Inner padding | Text does not touch the edge of its button, card, pill or page |
 | Form width | `max-w-*` on the fields; optional help column; inputs do not stretch to the nav |
 | Prose width | `max-w-prose` / ~45–75ch even if a sibling screenshot is wider |
@@ -44,7 +42,6 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | Scale only | Neighbors on the Tailwind type scale; no `text-[15px]` / `text-5xl` on product screens |
 | Leading proportional | Tighter on large titles; looser on small / wide help |
 | Tracking | Body untracked; short all-caps use `.ctx-label` tracking |
-| Smallest size | No text below `text-xs`. Body and control text is `text-sm` |
 | Title line breaks | A title of two or more lines does not end with one word alone on its line (`text-balance`) |
 | Links in a dense list | Weight or darker color; teal reserved for the one action. Hover-only for ancillary |
 
@@ -85,7 +82,7 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | Splitter / resize a11y | Focus shows the hover line (not a box outline); arrow keys nudge the value |
 | Selected chrome on press | Tab, nav row, and switcher highlight move in the click handler. Skeleton stays inside the region. First HTML still has the landing files/data |
 | Loading matches the pattern | Region wait is a skeleton of the populated rows. `"Loading…"` and a centered spinner are not the UI when the shape is already a list, tree, or pane |
-| No raw values | The UI shows no `undefined`, `null`, `NaN`, `[object Object]`, untranslated key, lorem ipsum or broken image. A missing value shows a dash or a short empty text |
+| No raw values | Labels, copy and field values show no `undefined`, `null`, `NaN`, `[object Object]`, untranslated key, lorem ipsum or broken image. A missing value shows a dash or a short empty text. A code or file preview shows its content as it is |
 | Visible labels | Each form field has a visible label. A placeholder is an example value, not the label |
 | No repeated text | One row, card or dialog does not show the same text twice (a title and a body that say the same thing) |
 | Named Tailwind first | `tracking-tighter`, `p-2`, `text-sm` — not `tracking-[-0.5px]`, `p-[13px]`, or `text-[15px]` unless no named token is close |

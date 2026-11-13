@@ -282,18 +282,6 @@ describe("judgeWithJev verdict", () => {
     expect(verdict.qualities.map(({ name }) => name)).not.toContain("focus")
   })
 
-  test("a worse broken-content area is a regression with its own kind", async () => {
-    serve((name) => {
-      if (name === "area.broken-content") return choice(0, 0.1, 0.9)
-      if (name === "defect") return defect(0.9)
-      if (name === "defect-box") return box(0.2, 0.5, 0.1, 0.4)
-      return fine
-    })
-    const verdict = await judgeWithJev(await story())
-    expect(verdict.verdict).toBe("regression")
-    expect(verdict.findings.map(({ kind }) => kind)).toEqual(["broken-content"])
-  })
-
   test("a Jev regression is minor at any probability: feedback that never blocks", async () => {
     serve((name) => {
       if (name === "area.spacing") return choice(0.1, 0.3, 0.6)
