@@ -10,10 +10,12 @@
  *   bun src/scripts/retireVercelSandboxes.ts [--dry-run]
  *
  * It reads DATABASE_URL, and VERCEL_TOKEN, VERCEL_TEAM_ID and
- * VERCEL_PROJECT_ID (not with --dry-run). The production deploy job runs it,
- * and the output of that job is public. Thus it writes only its own count
- * events (`useRetirementLogger`): never an org, a Workspace, a repository, a
- * sandbox or snapshot id, a token or an error text.
+ * VERCEL_PROJECT_ID (not with --dry-run). A fixed one-off task of the hosted
+ * stack runs it in the production VPC (`cutover-retire-vercel-sandboxes-dry-run`
+ * and `cutover-retire-vercel-sandboxes`), and its output goes to the shared
+ * logs. Thus it writes only its own count events (`useRetirementLogger`):
+ * never an org, a Workspace, a repository, a sandbox or snapshot id, a token
+ * or an error text.
  */
 import { APIError } from "@vercel/sandbox"
 import { initLogger } from "evlog"

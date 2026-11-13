@@ -1,5 +1,4 @@
 ---
-"@ctxpipe/aws-cdk": patch
 ---
 
-A one-time script deletes the hosted Vercel sandboxes and snapshots that the sandbox rows record, then the rows, and the production deploy runs it.
+A one-time backend script deletes the hosted Vercel sandboxes and snapshots that the sandbox rows record, then the rows. A fixed one-off task of the hosted stack runs it (merge after the move of hosted sandboxes to AgentCore).
