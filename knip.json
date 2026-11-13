@@ -82,7 +82,8 @@
         "src/**/*.test.ts",
         "src/command.ts",
         "evals/**/*.test.ts",
-        "evals/critic/capture.ts"
+        "evals/critic/capture.ts",
+        "evals/critic/panel.ts"
       ],
       "project": ["src/**/*.ts", "evals/**/*.ts"]
     },

@@ -192,6 +192,16 @@ describe("fetch on pin", () => {
     }
   }, 30_000)
 
+  it("fetches on pin with a read-only shard store (a preview)", async () => {
+    const { repo, manifest } = await indexAndPublish("repo_preview", 36)
+    await emptyCold()
+    vi.stubEnv("CODESEARCH_SHARD_STORE_READ_ONLY", "true")
+
+    const [result] = await pinRepos([repo], { coldDir, hotDir })
+
+    expect(result?.shardCount).toBe(manifest.files.length)
+  })
+
   it("pins a name with no S3 manifest with no shards", async () => {
     const { repo } = repoOf("repo_never", 32)
 

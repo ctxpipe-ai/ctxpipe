@@ -1,7 +1,8 @@
 // The labeling queue of the owner in Langfuse (CTX-1201). `push` puts the
 // items into the annotation queue: one label item for each real change (an
-// `intended` case), and, from the results of a bake-off run, blind pairwise
-// picks of two critic outputs. `export` writes the labels and the picks of
+// `intended` case) on which the judge panel does not agree (CTX-1249, see
+// panel.ts), and, from the results of a bake-off run, blind pairwise picks of
+// two critic outputs. `export` writes the labels and the picks of
 // the owner into cases.json. See README.md beside this file.
 //
 // Usage: pnpm visual:bakeoff:queue push|export [--results <path>]
@@ -31,8 +32,9 @@ const queueName = "visual-bakeoff"
 const usage = `Usage: pnpm visual:bakeoff:queue push|export [--results <path>] [--cases <path>] [--pairs 60]
 
   push      Put the items into the annotation queue "${queueName}" of
-            ${host}: a label item for each real change, and with
-            --results, the pairwise picks. An item that is in the queue
+            ${host}: a label item for each real change on which
+            the judge panel does not agree, and with --results, the
+            pairwise picks. An item that is in the queue
             already does not go in again.
   export    Write the labels of the owner into the manifest. With
             --results, also the picks.
@@ -123,15 +125,29 @@ function pairsOf(
   return pairs.sort((x, y) => (x.trace < y.trace ? -1 : 1)).slice(0, count)
 }
 
-/** The brief and the images of a case, as Markdown. */
+/**
+ * The brief and the images of a case, as Markdown. A real change without
+ * panel agreement also shows the votes. A blind pick shows no votes: they name
+ * the models.
+ */
 function shown(entry: Case) {
   const image = (name: string, sha256: string) => {
     const url = `${releaseUrl}/${imageFile(sha256)}`
     return `**${name}:** [open](${url})\n\n![${name}](${url})`
   }
   return [
-    `**Story:** \`${entry.storyId}\``,
+    `**Story:** \`${entry.storyId}\` (${entry.viewport.name})`,
     `**Brief:**\n\n${entry.brief ?? "(none)"}`,
+    ...(entry.kind === "intended" && entry.panel?.label === null
+      ? [
+          `**Judge panel (no agreement):**\n\n${entry.panel.votes
+            .map(
+              (vote) =>
+                `- ${vote.model}: **${vote.label ?? "no vote"}**. ${vote.error ?? vote.reason}`,
+            )
+            .join("\n")}`,
+        ]
+      : []),
     ...("before" in entry.images ? [image("Before", entry.images.before)] : []),
     image("After", entry.images.after),
   ].join("\n\n")
@@ -241,7 +257,11 @@ export async function labelQueue(
       )
     : []
   const api = langfuse(auth)
-  const real = manifest.cases.filter(({ kind }) => kind === "intended")
+  // The real changes that the owner labels: the panel judged them and does
+  // not agree.
+  const real = manifest.cases.filter(
+    ({ kind, panel }) => kind === "intended" && panel?.label === null,
+  )
 
   if (command === "push") {
     const queue = (await api.all("/annotation-queues", queueRow)).find(
@@ -257,7 +277,7 @@ export async function labelQueue(
       ...real.map((entry) => ({
         id: labelTrace(entry.id),
         name: traceNames.label,
-        input: `${shown(entry)}\n\nScore ${scores.label}: intended when the brief explains the change, regression when the change breaks the UI, else unsure.`,
+        input: `${shown(entry)}\n\nScore ${scores.label}: intended when the change is an improvement (or as good) and adds no defect, regression when the change breaks the UI, else unsure.`,
       })),
       ...pairs.map((pair) => ({
         id: pair.trace,
@@ -332,7 +352,9 @@ export async function labelQueue(
   let labeled = 0
   const cases = manifest.cases.map((entry) => {
     const label = labels.get(labelTrace(entry.id))?.value
-    if (entry.kind !== "intended" || !label) return entry
+    // Only a real change that the queue holds: the panel does not agree.
+    if (entry.kind !== "intended" || entry.panel?.label !== null || !label)
+      return entry
     labeled++
     return { ...entry, label }
   })

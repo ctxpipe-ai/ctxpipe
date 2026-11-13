@@ -160,4 +160,19 @@ describe("merged SCIP index in the shard store", () => {
     await ensureScipIndex(checkout("repo_busy"), path)
     expect(await readFile(path, "utf8")).toBe("merged")
   })
+
+  it("uploads nothing with a read-only store, and still fetches", async () => {
+    const path = await writeScip("repo_ro", "ro")
+    await uploadScipIndex(checkout("repo_ro"), path)
+    const before = await server.keys()
+    vi.stubEnv("CODESEARCH_SHARD_STORE_READ_ONLY", "true")
+
+    await writeFile(path, "changed in the preview")
+    await uploadScipIndex(checkout("repo_ro"), path)
+    expect(await server.keys()).toEqual(before)
+
+    await rm(path)
+    await ensureScipIndex(checkout("repo_ro"), path)
+    expect(await readFile(path, "utf8")).toBe("ro")
+  })
 })
