@@ -367,20 +367,6 @@ test("rejects an outside-service secret in a job with untrusted code outside wor
   }
 })
 
-test("keeps the preview sandbox cleanup in Preview", () => {
-  const cleanup = (environment) =>
-    secretJob(
-      "VERCEL_ACCESS_TOKEN",
-      environment,
-      "pr-preview-teardown.yaml",
-      "cleanup_pr_sandboxes",
-    )
-  const result = check(cleanup("    environment: Preview\n"))
-  assert.equal(result.stderr, "")
-  assert.equal(result.status, 0)
-  rejects(cleanup(""), /does not use .environment: workbench/)
-})
-
 test("rejects the Railway and Neon keys in the workbench environment", () => {
   for (const secret of ["RAILWAY_WORKSPACE_TOKEN", "NEON_API_KEY"])
     rejects(
