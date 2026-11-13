@@ -1,4 +1,5 @@
-// The Jev adapter: a cheap first filter for the visual critic. Jev (TypeSafe)
+// The Jev adapter: the decider of the visual critic (ADR-063), and the filter
+// of `--filter jev`. Jev (TypeSafe)
 // answers typed questions with probabilities and no text, through the
 // OpenRouter Decisions API. The adapter asks one question for each area and
 // each quality, one question for a visible defect, and one for its region.

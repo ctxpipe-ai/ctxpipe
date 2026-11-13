@@ -77,8 +77,9 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|
               Before each call, the command adds the cost of the calls so far:
               usage.cost of each reply, or for a reply with no cost
               ${unknownCallUsd} (${unknownJevCallUsd} for a Jev call). When that sum
-              reaches the budget, it makes no more calls: each screenshot that is not judged yet is unsure with the error
-              "Budget reached", and the exit code is 2. The exit code is 2
+              reaches the budget, it makes no more calls: each screenshot
+              that is not judged yet is unsure with the error "Budget
+              reached", and the exit code is 2. The exit code is 2
               also when the last call reaches the budget. Thus a run spends at
               most the budget plus one call. The new screenshots are judged
               first. Only with --judge model or jev. Default: no budget.
