@@ -42,9 +42,11 @@ output.
    - (c) the removal of the temporary Access app and of the `cutover.ctxpipe.dev` route.
 
    Each pull request shows its `pulumi preview`.
-3. `hosted-run-task.yml` has the tasks `cutover-reset-database`, `cutover-migrate` and `cutover-reset-indexes` too
-   (see "Open items").
-4. A test organization with a personal API key exists in production (Railway today), for the smoke check
+3. factory#166 is merged: `hosted-run-task.yml` has the cutover tasks, `cutover-reset-database`, `cutover-migrate` and
+   `cutover-reset-indexes` included. Each of these three refuses while `CUTOVER_G4_PASSED` is `true`.
+4. The local rehearsal passes on the images of the day:
+   `ops/aws-cutover/local-rehearsal/run.sh <backend image> <codesearch image>`. It runs the commands of the tasks.
+5. A test organization with a personal API key exists in production (Railway today), for the smoke check
    (`VALIDATE_API_KEY`).
 
 ## Dry run (the day before, changes nothing)
@@ -176,8 +178,8 @@ line gives its expected output. The dry run of the copy is its preflight against
 ### T+50 · Migrate
 
 - **Who:** agent. **Do:** run the task `cutover-migrate`: the `hosted-migrate` command on the restored database.
-- **Expected:** the log shows `[migrate] done`. Then it shows `f|0`, the result of this query on the restored database
-  (see "Open items"):
+- **Expected:** the log shows `[migrate] done`. Then it shows `f|0`, the result of this query on the restored database.
+  The task runs the query, because the agent cannot reach Aurora:
   `SELECT r.rolbypassrls, (SELECT count(*) FROM pg_auth_members m WHERE m.member = r.oid) FROM pg_roles r WHERE r.rolname = 'ctxpipe_app'`.
 - **Dry run:** none. It changes AWS only.
 - **Rollback:** the full rollback.
@@ -256,14 +258,13 @@ Do the steps that apply, in this order. Skip a step whose change was not made ye
      `aws s3 rm --recursive "s3://<shard bucket>/cutover-transfer/"`.
 - **Expected:** `aws s3 ls "s3://<shard bucket>/cutover-transfer/"` prints nothing.
 
+After a rollback, AWS still holds copies that no step deletes. AWS deletes them after a time:
+
+- Aurora's automated backups: 7 days.
+- The FalkorDB dump for the previews (`production/dump.rdb` in the dump bucket): until the next daily dump.
+- The EBS volume backups, when they exist: 7 days, in a locked vault.
+
 ## Open items
 
-- `cutover-reset-database`, `cutover-migrate` and `cutover-reset-indexes` are not in `hosted-run-task.yml` yet. Each
-  must refuse to run while `CUTOVER_G4_PASSED` is `true`: after G4, a reset would delete production data.
-  `cutover-reset-indexes` must also need `falkordb` and `codesearch` stopped, as `cutover-import-indexes` does.
-  - Hosted migrate already ran on Aurora, so the copy needs an empty database first.
-  - Hosted runs migrate only during `pulumi up`, once for each backend image. The dump keeps no roles, so the copy has
-    no `ctxpipe_app`. The restored database therefore needs its own migrate task. The agent cannot reach Aurora.
-    That task must also run the role query of T+50 and print its result.
 - The MCP evals cannot run against a deployed stack yet (the open point in [CTX-1217]).
 - Delete this file in the pull request that removes the cutover tasks.

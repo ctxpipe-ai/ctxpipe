@@ -59,6 +59,13 @@ jobs:
           - image: chat-sandbox
             dockerfile: scripts/chat-sandbox/Dockerfile
             context: scripts/chat-sandbox
+          # The AgentCore Runtime image of the chat sandbox: the `agentcore`
+          # target of the same Dockerfile, with the shim as its entry point
+          # (CTX-1219).
+          - image: chat-sandbox-agentcore
+            dockerfile: scripts/chat-sandbox/Dockerfile
+            context: scripts/chat-sandbox
+            target: agentcore
     steps: &build_image_steps
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
@@ -79,6 +86,7 @@ jobs:
         with:
           context: ${{ matrix.context || '.' }}
           file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
           platforms: linux/${{ env.ARCH }}
           outputs: type=image,name=ghcr.io/ctxpipe-ai/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
 
@@ -123,11 +131,16 @@ jobs:
       fail-fast: false
       matrix: *images
     steps:
+      # Each architecture by its exact name: a pattern such as
+      # `digest-chat-sandbox-*` also matches `digest-chat-sandbox-agentcore-*`.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          pattern: digest-${{ matrix.image }}-*
+          name: digest-${{ matrix.image }}-amd64
           path: ${{ runner.temp }}/digest
-          merge-multiple: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: digest-${{ matrix.image }}-arm64
+          path: ${{ runner.temp }}/digest
 
       - name: Login to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
@@ -203,7 +216,7 @@ jobs:
           for image in *; do
             digest="$(cat "$image")"
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::$image holds no image digest" >&2; exit 1; }
-            if [[ ! "$image" =~ ^(backend|worker|ui|codesearch|chat-sandbox)$ ]]; then
+            if [[ ! "$image" =~ ^(backend|worker|ui|codesearch|chat-sandbox|chat-sandbox-agentcore)$ ]]; then
               echo "::notice::$image is not on the ECR list of this job; it is not copied" >&2
               continue
             fi
@@ -255,7 +268,7 @@ jobs:
       - if: vars.ECR_MIRROR == 'enabled'
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: arn:aws:iam::213102790567:role/github-actions-ctxpipe-ecr-push
+          role-to-assume: arn:aws:iam::213102790567:role/ctxpipe/ctxpipe-ecr-push
           aws-region: us-west-2
       - if: vars.ECR_MIRROR == 'enabled'
         run: |

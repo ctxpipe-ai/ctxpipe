@@ -62,11 +62,19 @@ jobs:
         run: node scripts/ci/nightly.mjs changed
 
   lint:
-    timeout-minutes: 15
+    timeout-minutes: 30
     name: Lint and format
+    # The lint checks, the policy scripts and the tests of the CI scripts:
+    # each one is a check of the manifest (scripts/checks/README.md,
+    # Families). In gate mode the job runs only when the plan selects one of
+    # them, and runs only those. A push to main runs no check (ADR-062): each
+    # night, the job Project check times runs every cacheable one.
+    needs: merge-gate-plan
     if: |
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request'
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request') &&
+      (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.lint != '')
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -82,52 +90,47 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
-      - run: pnpm lint
-      - run: pnpm format:check
-      - name: Reject unused files, exports and dependencies
-        run: pnpm knip
-      - run: node scripts/ci/check-workflow-credentials.mjs
-      - run: node scripts/ci/check-secret-jobs.mjs
-      - run: node scripts/ci/check-agent-harness.mjs
-      - name: Fetch Gate 0 classification pin
-        run: git fetch origin 7dfa6b93a5baedc3eb2c86dd1056662e89cace00 --no-tags
-      - name: Reject skipped proof and owned mocks
-        run: node scripts/ci/check-test-policy.mjs
-      - name: Reject slow UI motion
-        run: node scripts/ci/check-ui-motion.mjs
-      - name: Reject racy Storybook play checks
-        run: node scripts/ci/check-story-play-timing.mjs
-      - name: Reject a route with no page story
-        run: node scripts/ci/check-page-stories.mjs
-      - name: Reject a Playwright image pin that differs from the lockfile
-        run: node scripts/ci/check-visual-container.mjs
-      - name: Reject non-Blacksmith runners
-        run: node scripts/ci/check-runners.mjs
-      - name: Reject outside values in run scripts and workflows without permissions
-        run: node scripts/ci/check-workflow-inputs.mjs
-      - name: Validate and install the Claude plugin
-        run: node scripts/ci/check-claude-plugin.mjs
-      - name: Reject dead docs links
-        run: node scripts/ci/check-docs-links.mjs
-      - name: Reject an ADR that the index omits
-        run: node scripts/ci/check-adr.mjs . origin/main
-      - name: Reject new single-use module-scope values
-        run: node scripts/ci/check-module-scope-values.mjs .
-      - name: Chat sandbox AgentCore shim tests
-        run: node --test scripts/tests/chat-sandbox-agentcore-shim.test.mjs
-      - name: CI command regression tests
+      # The output of each check is in .ci-results/checks (the last step
+      # prints it). The Terraform plan runs in terraform-plan-pr.yaml.
+      - name: Every lint and policy check
+        if: needs.merge-gate-plan.outputs.mode != 'gate'
         run: |
-          node --test scripts/tests/ci-*.test.mjs
-          bash scripts/tests/preview-otel-vars.test.sh
-          bash scripts/tests/preview-sandbox-vars.test.sh
-          bash scripts/tests/preview-github-app-vars.test.sh
-          bash scripts/tests/preview-own-secrets.test.sh
-          node --test scripts/tests/railway-sync-variables.test.mjs
-          bash scripts/tests/preview-app-db-password.test.sh
-          bash scripts/tests/preview-neon-branch.test.sh
-          bash scripts/tests/railway-environment-id.test.sh
-          bash scripts/tests/railway-set-images.test.sh
-          bash scripts/tests/preview-ui-private.test.sh
+          set -o pipefail
+          mkdir -p .ci-results/lint
+          pnpm -s checks:list |
+            jq -r '.checks[] | select((.family == "lint" or .family == "policy") and .lane != "terraform-plan") | .id' > "$RUNNER_TEMP/lint.txt"
+          # Three runners at the same time: each check runs in series in its
+          # runner, and the CI script tests ran three at a time before.
+          split -n r/3 "$RUNNER_TEMP/lint.txt" "$RUNNER_TEMP/lint-part-"
+          for part in "$RUNNER_TEMP"/lint-part-*; do
+            node scripts/checks/run.mjs "$part" > "$part.ndjson" &
+          done
+          code=0
+          for runner in $(jobs -p); do wait "$runner" || code=1; done
+          cat "$RUNNER_TEMP"/lint-part-*.ndjson | tee .ci-results/lint/records.ndjson
+          exit "$code"
+      # The plan job gives the check ids of this job in plan.json, by the
+      # artifact id of its upload (scripts/checks/README.md, Merge gate).
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.merge-gate-plan.outputs.mode == 'gate' && needs.merge-gate-plan.outputs.artifact-id != ''
+        with:
+          artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/plan
+      - name: Selected lint and policy checks (merge gate)
+        if: needs.merge-gate-plan.outputs.mode == 'gate'
+        run: node scripts/checks/selected.mjs .ci-results/lint "$RUNNER_TEMP/plan/plan.json" lint
+      - name: Lint and policy output
+        if: always()
+        run: cat .ci-results/checks/*.log || true
+      - name: Preserve the lint and policy results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-results-lint
+          path: .ci-results/
+          include-hidden-files: true
+          if-no-files-found: ignore
 
   typecheck:
     timeout-minutes: 30
@@ -2124,6 +2127,7 @@ jobs:
       artifact-id: ${{ steps.preserve.outputs.artifact-id }}
       mode: ${{ steps.plan.outputs.mode }}
       deploy: ${{ steps.plan.outputs.deploy }}
+      lint: ${{ steps.plan.outputs.lint }}
       typecheck: ${{ steps.plan.outputs.typecheck }}
       test-shards: ${{ steps.plan.outputs.test-shards }}
       package-tests: ${{ steps.plan.outputs.package-tests }}
@@ -2513,6 +2517,18 @@ jobs:
         with:
           path: .merge-gate-store
           key: merge-gate-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+      # These rules run on each pull request, whatever the selection is. The
+      # workflow guards must not depend on what the LLM stage keeps, and the
+      # date decides the unstable screenshot list (an entry older than 7
+      # days), not the files. Each one needs only Node, no install.
+      - name: Workflow guards and the unstable screenshot list
+        if: always()
+        run: |
+          code=0
+          for script in workflow-credentials secret-jobs workflow-inputs runners unstable-list; do
+            node "scripts/ci/check-$script.mjs" || code=1
+          done
+          exit "$code"
       - name: Preserve the decision
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

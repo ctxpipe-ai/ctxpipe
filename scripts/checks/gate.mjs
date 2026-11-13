@@ -20,7 +20,6 @@ import {
 } from "./plan.mjs"
 import {
   checkJobs,
-  lintSteps,
   profiles,
   readTrace,
   runsInOf,
@@ -74,15 +73,11 @@ export const deploySteps = {
     "deploy:preview:",
   "Smoke-test the preview UI": "deploy:preview-ui-smoke:",
 }
-// The step of the Lint and format job that the gated run always runs.
-const ciScriptTests = "CI command regression tests"
-
 // The result of a job or step conclusion.
 const conclusion = (value) =>
   value === "success" ? "passed" : value === "failure" ? "failed" : "unknown"
 
-// The result of each step above in this run, and of the CI script tests.
-// Also the result of each image build: the matrix job `Production build
+// The result of each image build: the matrix job `Production build
 // (<name>)` of ci.yaml is a plain Docker build of the check
 // `build:image-<name>:`, so the job result is the check result. And the
 // result of each deploy check, from the steps of the PR Deploy run (`deploy`).
@@ -112,13 +107,6 @@ export function stepResults(jobs, deploy) {
   for (const job of jobs?.jobs ?? []) {
     const image = /^Production build \((.+)\)$/.exec(job.name)?.[1]
     if (image) results.set(`build:image-${image}:`, conclusion(job.conclusion))
-    if (job.name !== "Lint and format") continue
-    for (const step of job.steps ?? []) {
-      const key =
-        lintSteps[step.name] ??
-        (step.name === ciScriptTests ? ciScriptTests : undefined)
-      if (key) results.set(key, conclusion(step.conclusion))
-    }
   }
   return results
 }
@@ -249,10 +237,11 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
   return { mode: "select", reason: config.mode, ...(jobs.length && { jobs }) }
 }
 
-// The result of each check id in the full run: its own record, else its
-// step of the Lint and format job, else `missing result` with the result of
-// its job. Each job of the full run writes a record for each check that it
-// runs, so a check without one did not run, or its job lost the record.
+// The result of each check id in the full run: its own record, else the
+// result of its image build job or deploy step, else `missing result`
+// with the result of its job. Each job of the full run writes a record for
+// each check that it runs, so a check without one did not run, or its job
+// lost the record.
 export function fullRunResults(records, needs, steps = new Map()) {
   const results = new Map()
   for (const record of records) {
@@ -303,7 +292,6 @@ export function gatedVerdict({
   config,
   result,
   needs,
-  steps = new Map(),
 }) {
   const hits = new Map(
     (selection.cache?.hits ?? []).map((hit) => [hit.id, hit]),
@@ -335,7 +323,6 @@ export function gatedVerdict({
     "migrate",
     "terraform-validate",
   ].filter((job) => ["failure", "cancelled"].includes(needs[job]?.result))
-  if (steps.get(ciScriptTests) === "failed") failedAlwaysRun.push(ciScriptTests)
   const failedChecks = ran.some(
     (item) =>
       ["failed", "error"].includes(item.result) ||
@@ -351,8 +338,8 @@ export function gatedVerdict({
 }
 
 // The failed checks of the full run that the gated run would not run, and why.
-// A failed check has a failed record, or a failed step of the Lint and format
-// job. A check that the gated run would run also fails with an error record or
+// A failed check has a failed record, or a failed image build job or deploy
+// step. A check that the gated run would run also fails with an error record or
 // without a record, as in the gated verdict. An omitted check or a hit with an
 // error record or without a record is `unverified`: the full run did not prove
 // it, and the gated run would not run it.
@@ -461,8 +448,7 @@ export function cost({ ranIds, seconds, jobs }) {
       60_000
     : undefined
   const profileMinutes = shardMinutes(shards)
-  // The CI script tests run in the Lint and format job, on each run.
-  const always = sum(alwaysRunJob) + 0.7
+  const always = sum(alwaysRunJob)
   return {
     fullRunMinutes: round(sum((name) => !shadowJob(name))),
     gatedRunMinutes: round(manifest + select + always + profileMinutes),
@@ -855,7 +841,7 @@ export function shadow({
     decision.gatedRun = { verdict: full.verdict }
     return decision
   }
-  const gated = gatedVerdict({ selection, config, result, needs, steps })
+  const gated = gatedVerdict({ selection, config, result, needs })
   const trace = existsSync(join(inputs, "trace.json.gz"))
     ? readTrace(join(inputs, "trace.json.gz"))
     : undefined
@@ -972,10 +958,9 @@ export function gateDecision({
       })
   }
   // The jobs that run on each gated run.
-  const failedAlwaysRun = ["lint", "terraform-validate", "migrate"].filter(
-    (job) => ["failure", "cancelled"].includes(needs[job]?.result),
+  const failedAlwaysRun = ["terraform-validate", "migrate"].filter((job) =>
+    ["failure", "cancelled"].includes(needs[job]?.result),
   )
-  if (steps.get(ciScriptTests) === "failed") failedAlwaysRun.push(ciScriptTests)
   const bad = (status) =>
     ["failed", "error"].includes(status) || status.startsWith("missing result")
   const failedChecks = ran.filter((item) => bad(item.result))
@@ -1056,9 +1041,7 @@ export function gateDecision({
         fullRunMinutesEstimate: round(
           shardMinutes(shard(all, seconds)) +
             [...measured]
-              .filter(([name]) =>
-                /^(Lint and format|Migrations|Terraform)/.test(name),
-              )
+              .filter(([name]) => /^(Migrations|Terraform)/.test(name))
               .reduce((sum, [, value]) => sum + value, 0),
         ),
       },

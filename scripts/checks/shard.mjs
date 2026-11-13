@@ -67,28 +67,6 @@ const runsIn = {
   ]),
 }
 
-// The steps of the Lint and format job that run one check each, by the
-// `<family>:<lane>:` prefix of its id. The step result is the check result.
-// A test keeps these names equal to the steps in ci.yaml.
-export const lintSteps = {
-  "Run pnpm lint": "lint:oxlint:",
-  "Run pnpm format:check": "lint:format:",
-  "Reject unused files, exports and dependencies": "lint:knip:",
-  "Run node scripts/ci/check-workflow-credentials.mjs":
-    "policy:workflow-credentials:",
-  "Run node scripts/ci/check-secret-jobs.mjs": "policy:secret-jobs:",
-  "Run node scripts/ci/check-agent-harness.mjs": "policy:agent-harness:",
-  "Reject skipped proof and owned mocks": "policy:test-policy:",
-  "Reject slow UI motion": "policy:ui-motion:",
-  "Reject racy Storybook play checks": "policy:story-play-timing:",
-  "Reject a route with no page story": "policy:page-stories:",
-  "Reject non-Blacksmith runners": "policy:runners:",
-  "Reject outside values in run scripts and workflows without permissions":
-    "policy:workflow-inputs:",
-  "Validate and install the Claude plugin": "policy:claude-plugin:",
-  "Reject an ADR that the index omits": "policy:adr:",
-  "Reject new single-use module-scope values": "policy:module-scope-values:",
-}
 // The jobs of today's full run that run a check.
 export const checkJobs = new Set(Object.values(runsIn).map((run) => run.job))
 
