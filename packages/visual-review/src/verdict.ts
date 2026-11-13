@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { rubricId, rubricOf, type Rubric } from "./rubric.ts"
+import { rubricId, type Rubric } from "./rubric.ts"
 import type { NewStoryInput, StoryInput } from "./story.ts"
 
 const fraction = z.number().min(0).max(1)
@@ -148,7 +148,7 @@ type Judgement = Omit<
  * enforced here: `intended` stands only when a brief or a source diff explains
  * every finding, and a page-only quality is dropped when the scope is not
  * `page`. The reply may name only the areas and qualities of the rubric of
- * the story (`rubricOf`).
+ * the story.
  */
 export function parseVerdict(
   text: string,
@@ -159,7 +159,7 @@ export function parseVerdict(
     text,
     story,
     run,
-    schemasOf(rubricOf(story)).judgement,
+    schemasOf(story.rubric).judgement,
     (reply) => reply,
   )
 }
@@ -178,7 +178,7 @@ export function parseNewVerdict(
     text,
     story,
     run,
-    schemasOf(rubricOf(story)).newJudgement,
+    schemasOf(story.rubric).newJudgement,
     ({ observations, qualities, ...rest }) => ({
       ...rest,
       observations: observations.map(({ part, seen }) => ({
@@ -245,7 +245,7 @@ function parseReply<T>(
   if (story.scope !== "page")
     judgement.qualities = judgement.qualities.filter(
       ({ name }) =>
-        !rubricOf(story).qualities.find(({ id }) => id === name)?.pageOnly,
+        !story.rubric.qualities.find(({ id }) => id === name)?.pageOnly,
     )
   if (judgement.verdict === "intended") {
     const reason =

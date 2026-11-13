@@ -10,7 +10,7 @@ import { z } from "zod"
 
 import { pngSize, prepareImage, type Prepared } from "../prepare.ts"
 import { buildNewPrompt, buildPrompt } from "../prompt.ts"
-import { rubricOf, type RubricEntry } from "../rubric.ts"
+import type { RubricEntry } from "../rubric.ts"
 import type { Box, NewStoryInput, StoryImage, StoryInput } from "../story.ts"
 import { parseNewVerdict, parseVerdict, type Verdict } from "../verdict.ts"
 
@@ -107,7 +107,7 @@ export async function judgeWithJev(
         .find((index) => index >= 0)
     : undefined
 
-  const { areas, qualities } = rubricOf(story)
+  const { areas, qualities } = story.rubric
   const askedQualities = qualities.filter(
     ({ pageOnly }) => story.scope === "page" || !pageOnly,
   )
@@ -375,7 +375,7 @@ export async function judgeNewWithJev(
     prepared.push(read)
   }
   const drawsBoxes = requestedModel === "typesafe/jev-1.14"
-  const { areas, qualities } = rubricOf(story)
+  const { areas, qualities } = story.rubric
   const askedQualities = qualities.filter(
     ({ pageOnly }) => story.scope === "page" || !pageOnly,
   )
@@ -539,7 +539,7 @@ function decision({
       kind: area.id,
       region,
       evidence: "",
-      rubricRef: `${area.sources[0]?.file} › ${area.sources[0]?.section}`,
+      rubricRef: `${area.sources[0].file} › ${area.sources[0].section}`,
       explainedByBrief: false,
       suggestion: null,
     })),

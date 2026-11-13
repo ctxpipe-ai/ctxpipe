@@ -104,9 +104,9 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|
   --rubric    A rubric file in the format of packages/visual-review/rubric.json.
               The judges use its areas and qualities. The visual critic of
               the factory gives the rubric of the PR head here (ADR-063).
-              A file that is not a regular file (a symbolic link too), is
-              larger than 64 KiB or does not match the schema gives exit
-              code 2: the command never uses another rubric instead.
+              The exit code is 2 when the file is a symbolic link or not a
+              regular file, is larger than 64 KiB, or does not match the
+              schema. The command never uses another rubric instead.
               Default: packages/visual-review/rubric.json of this checkout.
   --session   Only with --judge agent: the folder that the first call made and
               printed. Without it, the call makes a new folder and reads no
@@ -253,7 +253,7 @@ export async function visualReview(
           resolve(options.images),
           paths,
           work,
-          brief,
+          { brief, rubric },
         )
       } catch (error) {
         print((error as Error).message)
@@ -269,9 +269,7 @@ export async function visualReview(
             judgeNewPaid,
           )),
           ...(await reviewStories(
-            screenshots.flatMap(({ story }) =>
-              story ? [{ ...story, rubric }] : [],
-            ),
+            screenshots.flatMap(({ story }) => (story ? [story] : [])),
             judgeChangedPaid,
           )),
         ]
@@ -348,6 +346,7 @@ export async function visualReview(
       const input = toStoryInput(manifest, story, {
         root,
         ...(briefText === undefined ? {} : { brief: briefText }),
+        rubric,
       })
       // `toStoryInput` checks the paths as text. A symbolic link in the run
       // folder can still point outside it, so check the real paths too.
@@ -356,7 +355,6 @@ export async function visualReview(
       // named snapshots. The verdict is for one screenshot.
       stories.push({
         ...input,
-        rubric,
         storyId: `${story.id}${story.snapshot ? `@${story.snapshot}` : ""}.${story.viewport}`,
       })
     }
@@ -668,7 +666,7 @@ async function compareImages(
   folder: string,
   paths: readonly string[],
   work: string,
-  brief: string | undefined,
+  { brief, rubric }: { brief: string | undefined; rubric: Rubric },
 ): Promise<Screenshot[]> {
   const screenshots: Screenshot[] = []
   for (const [index, path] of paths.entries()) {
@@ -768,6 +766,7 @@ async function compareImages(
           images,
           root: work,
           brief,
+          rubric,
         }),
       })
     } catch (error) {

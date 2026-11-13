@@ -24,6 +24,7 @@ import { writeStoryImages } from "../../src/compare/images.ts"
 import { storyInput } from "../../src/compare/manifest.ts"
 import { pngSize } from "../../src/prepare.ts"
 import { reviewStories } from "../../src/review.ts"
+import { packagedRubric } from "../../src/rubric.ts"
 import type { Box, NewStoryInput, StoryInput } from "../../src/story.ts"
 import { parseVerdict, type Verdict } from "../../src/verdict.ts"
 import { readManifest, type Case, type CaseManifest } from "./cases.ts"
@@ -394,6 +395,7 @@ export async function prepare(
         scope,
         images: [{ path, size }],
         brief: entry.brief,
+        rubric: packagedRubric,
       },
     }
   }
@@ -436,6 +438,7 @@ export async function prepare(
       images: written,
       root: work,
       ...(entry.brief ? { brief: entry.brief } : {}),
+      rubric: packagedRubric,
     }),
   }
 }

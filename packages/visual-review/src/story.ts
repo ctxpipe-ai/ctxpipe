@@ -76,9 +76,9 @@ export type StoryInput = {
   sourceDiff?: string
   /**
    * The rubric that judges the story: for the visual critic, the rubric of
-   * the PR head (`visual:review --rubric`). Absent: the packaged rubric.
+   * the PR head (`visual:review --rubric`), else `packagedRubric`.
    */
-  rubric?: Rubric
+  rubric: Rubric
 }
 
 /**

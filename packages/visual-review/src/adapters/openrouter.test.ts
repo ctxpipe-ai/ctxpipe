@@ -36,6 +36,7 @@ writeFileSync(join(directory, "locator.png"), locatorBytes)
 const story: StoryInput = {
   storyId: "connectors-catalog--default",
   scope: "component",
+  rubric: packagedRubric,
   viewport: { width: 1440, height: 900 },
   regions: [
     {

@@ -1,6 +1,6 @@
 import type { z } from "zod"
 
-import { rubricOf, type Rubric, type RubricEntry } from "./rubric.ts"
+import type { Rubric, RubricEntry } from "./rubric.ts"
 import type { NewStoryInput, StoryImage, StoryInput } from "./story.ts"
 import { judgementJsonSchema, newJudgementJsonSchema } from "./verdict.ts"
 
@@ -145,7 +145,7 @@ function storyText(input: StoryInput): string {
       ? `\nImage ${regionsImage + 1} (regions) has a row only for the largest regions: regions 1 to ${shown} of ${input.regions.length}. The ${omitted} smaller region(s) have no row. The locator image outlines them. Judge them from the locator image and the full images, when they are attached.\n`
       : ""
   return `Story: ${input.storyId}
-${scopeLine(input.scope, rubricOf(input))}
+${scopeLine(input.scope, input.rubric)}
 Viewport: ${input.viewport.width} × ${input.viewport.height}
 
 Measured regions:
@@ -163,14 +163,14 @@ ${data("source-diff", input.sourceDiff)}`
 
 /**
  * Build the prompt for one story: the fixed prefix with the rubric of the
- * story (`rubricOf`), then the story part.
+ * story, then the story part.
  */
 export function buildPrompt(
   input: StoryInput,
   steps: Steps = "describe-first",
 ): Prompt {
   return {
-    prefix: prefixOf(steps, rubricOf(input)),
+    prefix: prefixOf(steps, input.rubric),
     story: storyText(input),
     images: input.images,
   }
@@ -200,10 +200,10 @@ Rules:
 6. Write \`reason\` before \`label\`: in two or three sentences, what changed, and the rubric entry that decides the label (the id in brackets).
 
 Rubric, layer 1, the concrete areas (the id in brackets):
-${areaList(rubricOf(input))}
+${areaList(input.rubric)}
 
 Rubric, layer 2, the design qualities:
-${qualityList(rubricOf(input))}
+${qualityList(input.rubric)}
 
 Reply with one JSON object that matches this JSON Schema, and with no other text:
 ${JSON.stringify(schema)}`
@@ -216,7 +216,7 @@ ${JSON.stringify(schema)}`
  */
 export function buildNewPrompt(input: NewStoryInput): Prompt {
   const story = `Story: ${input.storyId}
-${scopeLine(input.scope, rubricOf(input))}
+${scopeLine(input.scope, input.rubric)}
 
 New screenshots, in the order attached:
 ${input.images
@@ -230,7 +230,7 @@ ${data("brief", input.brief)}
 
 ${data("source-diff", input.sourceDiff)}`
   return {
-    prefix: newPrefix(rubricOf(input)),
+    prefix: newPrefix(input.rubric),
     story,
     images: input.images.map(({ path }) => ({ role: "after", path })),
   }

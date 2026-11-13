@@ -112,7 +112,7 @@ For each suspected regression:
 2. If the change is a defect, fix it, and commit the new baseline.
 3. If the change is intended, say why in the PR description.
 
-No override is needed. A reused verdict (the same images and brief) has no image paths, because the shared store keeps only the verdict word and the severity. Then compare the images yourself: the base image is `git show <merge base>:<path>`, and the head image is the file in your checkout. A change where nothing got worse is `intended` only when the brief or the source diff explains it; else it is `unsure`. A new screenshot goes to Jev too, with the questions of a new screenshot. To get a written explanation of a verdict, run `pnpm visual:review --judge model` or `--judge agent` on your own machine.
+No override is needed. A reused verdict (the same images, brief and head rubric) has no image paths, because the shared store keeps only the verdict word and the severity. Then compare the images yourself: the base image is `git show <merge base>:<path>`, and the head image is the file in your checkout. A change where nothing got worse is `intended` only when the brief or the source diff explains it; else it is `unsure`. A new screenshot goes to Jev too, with the questions of a new screenshot. To get a written explanation of a verdict, run `pnpm visual:review --judge model` or `--judge agent` on your own machine.
 
 A PR that changes a screenshot needs `MODEL_PROVIDER_API_KEY` on the host that runs `factory check`. On a Mac, store the key once in the login keychain item `factory-model-provider`: `security add-generic-password -s factory-model-provider -a "$USER" -w`. Without a key, the visual critic is an `ERROR` and records nothing. A missing key never gives a pass.
 

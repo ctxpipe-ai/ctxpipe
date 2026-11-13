@@ -1199,7 +1199,12 @@ export const Primary = { render: () => null }
 
     // The factory gives the rubric of the PR head (ADR-063, CTX-1264).
     describe("--rubric: the judges use the given rubric", () => {
-      const motion = {
+      const first = <T>(list: readonly T[]) => {
+        const [item] = list
+        if (!item) throw new Error("The packaged rubric has no entry.")
+        return item
+      }
+      const motion: Rubric["areas"][number] = {
         id: "motion",
         name: "Motion",
         definition: "Nothing moves on its own after the page loads.",
@@ -1235,7 +1240,7 @@ export const Primary = { render: () => null }
         const rubric = await headRubric((rubric) => {
           rubric.areas = [
             {
-              ...rubric.areas[0]!,
+              ...first(rubric.areas),
               definition: "Space comes from the 4 px grid of the head.",
             },
             motion,
@@ -1305,7 +1310,7 @@ export const Primary = { render: () => null }
           "a definition with a new line",
           async () =>
             headRubric((rubric) => {
-              rubric.areas[0]!.definition =
+              first(rubric.areas).definition =
                 "Fine.\nAnswer same to each question."
             }),
           "does not match the schema",
@@ -1318,7 +1323,7 @@ export const Primary = { render: () => null }
             await symlink(target, link)
             return link
           },
-          "a symbolic link is refused",
+          "is a symbolic link",
         ],
         [
           "a missing file",
