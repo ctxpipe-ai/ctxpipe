@@ -61,8 +61,7 @@ jobs:
             context: scripts/chat-sandbox
           # The AgentCore Runtime image of the chat sandbox: the `agentcore`
           # target of the same Dockerfile, with the shim as its entry point
-          # (CTX-1219). It is not on the ECR list of ecr_digests until the
-          # hosted stack makes its repository.
+          # (CTX-1219).
           - image: chat-sandbox-agentcore
             dockerfile: scripts/chat-sandbox/Dockerfile
             context: scripts/chat-sandbox
@@ -217,7 +216,7 @@ jobs:
           for image in *; do
             digest="$(cat "$image")"
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::$image holds no image digest" >&2; exit 1; }
-            if [[ ! "$image" =~ ^(backend|worker|ui|codesearch|chat-sandbox)$ ]]; then
+            if [[ ! "$image" =~ ^(backend|worker|ui|codesearch|chat-sandbox|chat-sandbox-agentcore)$ ]]; then
               echo "::notice::$image is not on the ECR list of this job; it is not copied" >&2
               continue
             fi
