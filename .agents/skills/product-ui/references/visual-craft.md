@@ -35,6 +35,9 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | Baseline, not center | Mixed type on one row (title + meta, price + period) shares a baseline |
 | Align for reading | Long copy left-aligned; numbers right-aligned + `tabular-nums` |
 | One left edge | The blocks of one column share a left edge (message, answer, composer; icon row, checklist, step card) |
+| Shared marker axis | Header icon, checkboxes, step numbers and list icons of a stack share one vertical axis, each centered on its text line |
+| Balanced space | Space spread evenly across a row and a column; no element jammed against one neighbor with a large gap on its other side |
+| Dialog fits | The dialog fits the viewport; header and footer stay in place; long content scrolls in the body; nothing cut off at an edge |
 | Chips have room | A chip, badge or icon tab has space on each side from its neighbors |
 | Modal grid | A modal has a header, a body and a footer zone on one aligned grid |
 | Empty copy | ≤2 lines may center; longer copy left-aligns and gets rewritten shorter |
@@ -61,7 +64,8 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | Readable contrast | Text meets WCAG AA on its surface: 4.5:1 for body text, 3:1 for large text and icons. Quiet text uses `text-muted-foreground` |
 | Accent once | At most one teal edge or wash; match an existing house use (alert edge, status wash) |
 | Status color on the dot | Dot + word; the word is one restrained text color, and the dots and words of a list share one column |
-| Accessible warning | Yellow with dark text when that passes AA; else amber-brown. Red is for an error |
+| Accessible warning | A dark surface with a yellow or amber border and icon; a yellow fill only on a small element and only when it passes AA. Red is for an error |
+| No bright areas | No large bright or saturated area on the dark floor; bright color as a small accent. Editors, diff viewers and previews use the dark theme |
 | Clickable list text readable | A file tree or nav item is never so dim that it reads as disabled |
 
 ## Depth, radius, images
@@ -107,6 +111,7 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | Main action labeled | The main action of a page has a label (“Add connection”), not a lone `+` |
 | Peers match | Peer actions in one row have the same weight and type (two buttons, or two links) |
 | One close control | One Close per modal; in a wizard, at the bottom right |
+| Always an exit | Each dialog and each step of a flow shows a way to close, cancel or go back. A cleaner screen is no reason to remove one |
 | Copy at the field | A copy button sits at the right end of its field |
 | Next step is a card | The next step of a flow is a card or a selected item, not loose text |
 | Alert action | On the right of the slab, at the normal secondary size |

@@ -6,6 +6,7 @@
       "image": "7f83dda0082b152f8912baf2b1c6648c4e6a236b42bfced7bb65a8ea0e98704e",
       "storyId": "pages-connections--mixed-health",
       "scope": "page",
+      "round": 1,
       "flag": [
         {
           "issue": "The page is a flat legacy list: no tiles, weak hierarchy and no area boundaries, unlike the chat page.",
@@ -40,6 +41,7 @@
       "image": "59ba41a68fa1ec80be4f0603caf3ce8ef50ef75b74e0ea05ae2f974ea3931bc7",
       "storyId": "pages-home-notices--mixed-stack",
       "scope": "page",
+      "round": 1,
       "flag": [],
       "ok": [
         {
@@ -61,6 +63,7 @@
       "image": "4625b95c4f49348bc13918a3714a38a52c7d089090e15c5b1fe3569b1ca4fc32",
       "storyId": "pages-workspaces--single-create-pr",
       "scope": "page",
+      "round": 1,
       "flag": [
         {
           "issue": "The file tree text is so dim that it reads as disabled.",
@@ -91,6 +94,7 @@
       "image": "349b84ca4e1e9afb0bceeda63d838fcca517e1fe0021e2f5f525bc2ceb920e51",
       "storyId": "pages-workspaces--single-create-pr-pane-closed",
       "scope": "page",
+      "round": 1,
       "flag": [
         {
           "issue": "The blocks of the conversation column do not share a left edge.",
@@ -113,6 +117,7 @@
       "image": "60bd10bb881b1a20e29d5708e3065ba9f8fbbc80e1fb1178bbd950fc193b4a13",
       "storyId": "pages-workspaces--graph-pane",
       "scope": "page",
+      "round": 1,
       "flag": [
         {
           "issue": "The legends are too large and too bright for secondary chrome.",
@@ -139,6 +144,7 @@
       "image": "f91a985764bfb06be3458ace9f2da034c0192f9c8f2cb1e7d469f373379318f2",
       "storyId": "components-connections-connectorcatalog--busy-org",
       "scope": "component",
+      "round": 1,
       "flag": [
         {
           "issue": "The status words have many text colors (green, amber, gray).",
@@ -165,6 +171,7 @@
       "image": "7f265200ff2ad3f11506ebcd7657fb861d689d13db2843c662e97b2e0ff21083",
       "storyId": "components-connections-linear-setupwizard--choose-workspaces",
       "scope": "component",
+      "round": 1,
       "flag": [
         {
           "issue": "The content alignment and spacing are poor: the blocks do not share one grid.",
@@ -195,6 +202,7 @@
       "image": "087b3379bc93ba6610e89fa2330593d9f52f82e459393964f336f8b241c3b06a",
       "storyId": "components-organization-apikeys--create-named-key",
       "scope": "component",
+      "round": 1,
       "flag": [
         {
           "issue": "The Copy button is not at the right end of the secret field.",
@@ -225,6 +233,7 @@
       "image": "7d95d8fdcdc1fe906f510bababfe8e2e307a86ba0ac8449416831ef8e8abaaea",
       "storyId": "components-workspaces-formatupgradebanner--blocked",
       "scope": "component",
+      "round": 1,
       "flag": [
         {
           "issue": "The sizing and spacing of the banner need fixes.",
@@ -251,6 +260,7 @@
       "image": "88fb86525eb1dee45113f690e6b830b29b35b913ae99f59c8ad5793ed9d1a7d0",
       "storyId": "components-org-outleterror--connectors-failed",
       "scope": "component",
+      "round": 1,
       "flag": [
         {
           "issue": "The error copy repeats the title and gives no detail and no next step.",
@@ -265,6 +275,128 @@
         {
           "item": "The error is red.",
           "kinds": ["color-tokens"]
+        }
+      ]
+    },
+    {
+      "path": "apps/ui/src/features/connectors/catalog/screenshots/ConnectorCatalogDialog.NewOrg.desktop.screenshot.png",
+      "image": "8ee2c6cc87881da13333675c3a6bafc06ef65b5ea62c04617ce3627cb7b781a2",
+      "storyId": "components-connections-connectorcatalog--new-org",
+      "scope": "component",
+      "round": 2,
+      "flag": [
+        {
+          "issue": "The status sits close to the description while a large gap stays before the action: the rows are unbalanced.",
+          "kinds": ["balance", "spacing"]
+        }
+      ],
+      "ok": [
+        {
+          "item": "The category sidebar with counts.",
+          "kinds": ["grouping-and-rhythm", "density"]
+        }
+      ]
+    },
+    {
+      "path": "apps/ui/src/features/connectors/components/confluence-setup/screenshots/ConfluenceSetupWizard.AddToWorkspaces.desktop.screenshot.png",
+      "image": "e854a6bc55a6cedc327955f95f3b47277c9d78353345d63e378318114098c973",
+      "storyId": "components-connections-atlassian-setupwizard--add-to-workspaces",
+      "scope": "component",
+      "round": 2,
+      "flag": [
+        {
+          "issue": "The header icon, the checkboxes and the step number of the next-step card are not on one vertical axis.",
+          "kinds": ["alignment"]
+        }
+      ],
+      "ok": [
+        {
+          "item": "The checkboxes are a to-do list of the wizard steps.",
+          "kinds": ["clarity"]
+        },
+        {
+          "item": "One Close button, at the bottom right.",
+          "kinds": ["dialog", "actions"]
+        }
+      ]
+    },
+    {
+      "path": "apps/ui/src/features/connectors/components/confluence-setup/screenshots/ConfluenceSetupWizard.ManageKeepsTheCurrentScope.desktop.screenshot.png",
+      "image": "d12053192ac6317077fd352cbe4c62868b0bc115a9df64bdf1d5b592a941b7bd",
+      "storyId": "components-connections-atlassian-setupwizard--manage-keeps-the-current-scope",
+      "scope": "component",
+      "round": 2,
+      "flag": [
+        {
+          "issue": "The dialog shows no control to close, cancel or go back.",
+          "kinds": ["dialog", "actions", "missing-elements"]
+        }
+      ],
+      "ok": [
+        {
+          "item": "The checkboxes are a to-do list of the wizard steps.",
+          "kinds": ["clarity"]
+        }
+      ]
+    },
+    {
+      "path": "apps/ui/src/features/connectors/components/screenshots/PagerdutySetupDialog.RegisterOAuthApp.desktop.screenshot.png",
+      "image": "2b63e30d19b4d7a2bc14b90146cd7b4ba1b5b9e76c99fd8aa60fc9a0245b460b",
+      "storyId": "components-connections-pagerdutysetupdialog--register-o-auth-app",
+      "scope": "component",
+      "round": 2,
+      "flag": [
+        {
+          "issue": "The dialog is taller than the viewport: its header is clipped at the top edge.",
+          "kinds": ["dialog", "overflow"]
+        }
+      ],
+      "ok": [
+        {
+          "item": "The copy button sits at the right end of the redirect URL field.",
+          "kinds": ["actions"]
+        }
+      ]
+    },
+    {
+      "path": "apps/ui/src/features/workspace-upgrades/screenshots/WorkspaceFormatUpgradeBanner.NoItemYet.desktop.screenshot.png",
+      "image": "8b3cd6326edda885b9e5c35043bef2ad895757a42210e431b6541add53893359",
+      "storyId": "components-workspaces-formatupgradebanner--no-item-yet",
+      "scope": "component",
+      "round": 2,
+      "flag": [
+        {
+          "issue": "The full bright yellow fill of the warning dominates the dark UI.",
+          "kinds": ["color-tokens", "restraint", "brand-fit"]
+        }
+      ],
+      "ok": [
+        {
+          "item": "The action is on the right, at the normal secondary size.",
+          "kinds": ["actions"]
+        },
+        {
+          "item": "Partial UI: a banner alone, with empty space around it.",
+          "kinds": ["missing-elements", "density"]
+        }
+      ]
+    },
+    {
+      "path": "apps/ui/src/features/workspaces/screenshots/WorkspacePane.ConversationWritable.desktop.screenshot.png",
+      "image": "a9b3427e7ac79f55f4c18716d29f6c80aa4bfacb63bdde88be7f050dde22dd80",
+      "storyId": "components-workspaces-pane--conversation-writable",
+      "scope": "component",
+      "round": 2,
+      "flag": [
+        {
+          "issue": "The diff viewer is a white light-theme area in the dark UI.",
+          "kinds": ["color-tokens", "brand-fit", "consistency"]
+        }
+      ],
+      "ok": [
+        {
+          "item": "The conversation area is empty in this story state.",
+          "kinds": ["missing-elements", "feedback-and-state", "density"]
         }
       ]
     }

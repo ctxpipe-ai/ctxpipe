@@ -77,7 +77,21 @@ The product owner decided on 2026-11-13: "Use Jev for this capability and just f
 
     - **Rule 7, the bake-off of a change** (Jev, 1 run). Hold-out set: recall 0.94, precision 0.82, unsure 0.19 (before, the same day: 0.94, 0.86, 0.23; runs 43443275966 and 43443427633). Redesign set: 7 of 15 regressions found and 2 false flags (rule 10: 7 of 15, and 3 or 4; run 43443897071).
     - **Limits.** The count by id is coarse. One finding of an id counts for each issue that names the id, and an id that an issue names never counts as a false flag. Jev flags 3 to 11 ids on most screenshots, so some of its hits are a wide flag that happens to name the id. The before rubric has no `status`, `actions`, `dialog` or `copy` id: counted only on the old ids, the after hits of the first after run (43443450558) are 6 for Jev and 0 for Sonnet. Thus the gain comes from the new areas, which the judges now use. Each Sonnet finding after the change names the issue of the owner in its evidence. Jev still gives `regression` on all 10 screenshots, also on the screenshot where the owner wants nothing flagged ([CTX-1267](https://linear.app/ctxpipe/issue/CTX-1267)). One run each, and Jev does not give the same answer twice (rule 10). The critic code runs from the merge base, so the prompt and the Jev questions act after the merge; the rubric acts at once (rule 9).
+12. **The second owner calibration round (2026-11-14, [CTX-1275](https://linear.app/ctxpipe/issue/CTX-1275)).** The owner reviewed the screenshots of PR #722 and gave five general rules: (19) visual balance, (20) shared axes of leading markers, (21) a way to close, cancel or go back, (22) a dialog that fits the viewport, and (23) no large bright area in the dark UI. Six owner examples are round 2 of the calibration set (6 issues, 8 fine items, with the images in the image release).
+    - **Rules as data.** A new quality, `balance` (Visual balance). `alignment` gets the shared marker axis, `dialog` gets the exit and the fit, and `color-tokens` gets the brightness rule and a dark warning surface with a colored border. `judgingRule` gets (e) judge the whole composition and (f) a dialog with no exit is a defect. On a new screenshot, Jev gets four rule questions: no exit from a dialog, a clipped dialog, markers off one axis, and a large bright area. A rule question can now fail a quality as well as give a finding. On a change, Jev asks if the change leaves a dialog or a flow with no way out: a yes of 0.5 or more is a `dialog` finding.
+    - **Rejected placements.** In the `actions` area, "a change that removes an exit is a regression" made Jev call 4 intended changes of the redesign set worse (run 43525707498). A lost-exit question about any removed control gave 2 `dialog` false flags (run 43525980549). A Jev question about an uneven gap did not find the owner's unbalanced row ([CTX-1276](https://linear.app/ctxpipe/issue/CTX-1276)).
+    - **Result on the full set** (29 issues, 27 fine items; 1 run each; before: `main`, run 43525158174; after: Jev run 43527124632 on the final code, Sonnet run 43525513388). The Sonnet run used the rubric before the two `dialog` and `actions` corrections above; its prompt did not change after it. "Read" counts only the findings whose evidence names the item.
 
+      | Judge | Hits before | Hits after | False flags before | False flags after |
+      | --- | ---: | ---: | ---: | ---: |
+      | Jev 1.14, by id, all | 17 / 29 | 22 / 29 | 7 / 27 | 7 / 27 |
+      | Jev 1.14, by id, round 2 | 3 / 6 | 5 / 6 | 0 / 8 | 2 / 8 |
+      | Claude Sonnet 5.5, read, all | 11 / 29 | 11 / 29 | 1 / 27 | 1 / 27 |
+      | Claude Sonnet 5.5, read, round 2 | 1 / 6 | 4 / 6 | 0 / 8 | 0 / 8 |
+
+    - **Rule 7, the bake-off of a change** (Jev, 1 run, final code). Hold-out set: recall 0.91, precision 0.88, unsure 0.28 (run 43527012419; rule 11: 0.94, 0.82, 0.19). Redesign set: 7 of 15 regressions found and 3 false flags (run 43526972555; rule 11: 2).
+    - **Spend.** About $0.35 for the Jev runs. OpenRouter gave a cost of $0 for each Sonnet call ([CTX-1255](https://linear.app/ctxpipe/issue/CTX-1255)); at about $0.04 for each call, the 32 Sonnet calls cost about $1.30. The total is about $1.65 of the $2 budget.
+    - **Limits.** Sonnet found the same 11 issues in total, but other ones: on round 1 it found 3 fewer than before, with the same rules for those screenshots, so one run of Sonnet differs by a few issues. No judge flagged the unbalanced row of the owner, and Jev fails `balance` on about half of the screenshots ([CTX-1276](https://linear.app/ctxpipe/issue/CTX-1276)). Jev still gives `dialog` findings on a banner and an error alert, which are not dialogs, and `regression` on all 16 screenshots ([CTX-1267](https://linear.app/ctxpipe/issue/CTX-1267)).
 ## Consequences
 
 - A visual review costs fractions of a cent for a normal PR, and it takes seconds.
@@ -117,6 +131,7 @@ Thus the critic was cheap and fast, and it missed nothing in the sample, but it 
 - [CTX-1257](https://linear.app/ctxpipe/issue/CTX-1257): run the useful arms again on all 176 page cases with 3 runs.
 - [CTX-1258](https://linear.app/ctxpipe/issue/CTX-1258): a dataset of component stories.
 - [CTX-1271](https://linear.app/ctxpipe/issue/CTX-1271): the tiles rule of the owner calibration, for new screenshots only.
+- [CTX-1276](https://linear.app/ctxpipe/issue/CTX-1276): a balance check that finds an unbalanced row (rule 12).
 
 ## Alternatives considered
 

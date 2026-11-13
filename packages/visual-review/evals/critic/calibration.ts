@@ -39,7 +39,7 @@ or input error.`
 const kindsSchema = z.array(rubricId).min(1)
 
 export const calibrationSchema = z.strictObject({
-  /** The day of the review of the owner. */
+  /** The day of the first review round of the owner. */
   date: z.iso.date(),
   screenshots: z
     .array(
@@ -51,6 +51,8 @@ export const calibrationSchema = z.strictObject({
         /** The story id, also the case id in the runner. */
         storyId: z.string().regex(/^[a-z0-9-]+$/),
         scope: z.enum(["page", "component"]),
+        /** The review round of the owner that named the items. */
+        round: z.number().int().min(1),
         /** The issues that the owner wants a critic to flag. */
         flag: z.array(
           z.strictObject({ issue: z.string().min(1), kinds: kindsSchema }),
@@ -162,7 +164,7 @@ function calibrationReport(
       const flagged = [...flaggedKinds(result.verdict)].join(", ") || "none"
       return `${result.hits.length} / ${screenshot.flag.length} hits, ${result.falseFlags.length} / ${screenshot.ok.length} false (${flagged})`
     })
-    return `| ${screenshot.storyId} | ${cells.join(" | ")} |`
+    return `| ${screenshot.round} | ${screenshot.storyId} | ${cells.join(" | ")} |`
   })
   return [
     `# Owner calibration, ${calibration.date}`,
@@ -173,8 +175,8 @@ function calibrationReport(
     "| --- | ---: | ---: | ---: | ---: | ---: |",
     ...totals,
     "",
-    `| Screenshot | ${arms.join(" | ")} |`,
-    `| --- | ${arms.map(() => "---").join(" | ")} |`,
+    `| Round | Screenshot | ${arms.join(" | ")} |`,
+    `| ---: | --- | ${arms.map(() => "---").join(" | ")} |`,
     ...rows,
     "",
     `Spend: $${spent.toFixed(4)} (a call without a cost counts as at least $0.10).`,
