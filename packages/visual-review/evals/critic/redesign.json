@@ -2908,6 +2908,586 @@
         "parent": "52452ba7a2e02058020442748e69d518f330bc3d"
       },
       "region": null
+    },
+    {
+      "id": "fix-89b8a607",
+      "storyId": "OnboardingHowItWorksSlide.Joiner",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 808,
+      "images": {
+        "before": "c68ddb52cd7e15f5f19882fa28a8f033c2587a2405f104b9149e4f1611710e10",
+        "after": "a3d1bd29d14895bd757605cc07ce9ea7b1c84790f812b4d6e6ae13068bea39cf"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-5af94d1a",
+      "storyId": "OnboardingHowItWorksSlide.NewOrganization",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 808,
+      "images": {
+        "before": "4cba6a117c9162d899175d3ace0159c1eaa7af95a6b09192e33041c60ee807bc",
+        "after": "79093e0fc1baec425b65080ac2f7ffae7404783025dffab354317e4a78de25ca"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-9d6c1d5a",
+      "storyId": "OnboardingHowItWorksSlide.RowsFadeInInOrder",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 808,
+      "images": {
+        "before": "a6bafb982f6af3f829c4b39d54b03a4b2c7e0fbb718896580ec22bcfe068b95c",
+        "after": "4bc0b05ae3267775f6b3da68a5df530341caa2f4b21952bd439e6f7af6c66af6"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-1ee2ac75",
+      "storyId": "OnboardingHowItWorksSlide.RowsWithReducedMotion",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 808,
+      "images": {
+        "before": "a6bafb982f6af3f829c4b39d54b03a4b2c7e0fbb718896580ec22bcfe068b95c",
+        "after": "4bc0b05ae3267775f6b3da68a5df530341caa2f4b21952bd439e6f7af6c66af6"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-45ab9015",
+      "storyId": "OnboardingPageShell.WithWelcomeSlide",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 815,
+      "images": {
+        "before": "47f8a5a8e70b53303b1dcb0160b0337d13f5d2a52971b41731858e19a733b44f",
+        "after": "dede137bcfeec49a06c043a4b9fc210d301881404f383e40dd2d68b9b34a1634"
+      },
+      "scope": "component",
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-41d54d19",
+      "storyId": "-account.ApiKeysEditOrganizations",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 734,
+      "images": {
+        "before": "16f08b267492326aba006f6cab8aa41f12bc4cbecbab37782e8f43b5364b8eb2",
+        "after": "097309c25212e26de0e39efd96c5fb4adbc6ebadd3567b4e87c3383249b17518"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-eb631e50",
+      "storyId": "-account.ApiKeysEmpty",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 734,
+      "images": {
+        "before": "2210ebe92d322bc0d02b84ac722fbf7777c2ea1baca77e16fa493f3829562351",
+        "after": "747fdee2feb898aef9eafd5aeda14c3234706af69589029b6de47286d55d4a5c"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-a8eb6247",
+      "storyId": "-account.ConnectedAppsEditOrgs",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 734,
+      "images": {
+        "before": "9c99da6e5ec48d0000d75c063b767f0142694222484bc0c8fc94640f83a7578f",
+        "after": "d4b6f6d0ae757dc2b9ca5e11382e12a598a6c932156f6073b179aeb0bb21ccc8"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-e7098158",
+      "storyId": "-account.ConnectedAppsEmpty",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 734,
+      "images": {
+        "before": "8db3d6cd90bddf1ac8350567946b1d9d06f503d13d87294be310d29555125f5b",
+        "after": "96e78d7fd7cb7e5ccc5bfb19a52b3195db0515cae28e2d8f4f36fef71324ed99"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-ebdba773",
+      "storyId": "-account.ConnectedAppsRevoke",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 734,
+      "images": {
+        "before": "20cb6b497c6d8a390f96ace4b93940f315a69bdb4148b4f44bde88527f76d1bf",
+        "after": "12c9e4482b888288e6f3db76faca44644e6df269cf212186b1b84893f73d7468"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-964b298c",
+      "storyId": "-account.ConnectedAppsRevokeError",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 89,
+      "images": {
+        "before": "2461a37ab2f2b18ab5586c7ce3f39d0a1809bc40040a10f1f5e49a6fccd4fe1d",
+        "after": "f37a1bfbac730ee108989e0439a0fa24132873be4a6d81277149f1a1dd5bdc10"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-8714d93e",
+      "storyId": "-account.OrganizationDeletedStaleSelection",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 9744,
+      "images": {
+        "before": "402b99c15adde2e80473cdc09870eb0394159d7222baee66fb3da6cd0172a27f",
+        "after": "37847bbfc7e672336372da2df003d174ee9b0610e0b022d333bb8c525e093a69"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-b7f4e3ef",
+      "storyId": "-account.OrganizationsView",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 9906,
+      "images": {
+        "before": "2da4a713e0803b69a00fa2c87c3ba25c1cd240f6acf2e7e205a75e9908b5ebea",
+        "after": "42ac271828a279fed0fdb9507f5d7e7babda55804808d824a12020f289db582f"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-7396b57f",
+      "storyId": "-account.OrganizationsView",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844
+      },
+      "diffPixels": 9773,
+      "images": {
+        "before": "3c7b46598eef9d67c1990598b6b0fd28f0e3b77229d43c46111fe559a28a8668",
+        "after": "b3b4cd20450e0bc775a2ce9f01be6fa75938721daf59ea4155b2936f1cafb54c"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-d214d96a",
+      "storyId": "-account.Settings",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 13486,
+      "images": {
+        "before": "f68e5022766990217a29b9bc91e08f39d8330ba1e818a08135f3013ea0a12bee",
+        "after": "d830840d76ebc974649dea39617ac2e641ca188db5de2307487462620144e596"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-c7abeb54",
+      "storyId": "-account.Settings",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844
+      },
+      "diffPixels": 12190,
+      "images": {
+        "before": "eeaef491730af09351f96c644b1d19c907f004c8fa3ccc96d9d91c9e1a16b2a3",
+        "after": "4dda074b63d416f452cf497e1edc4264627c0e52398c66975e1ed7ea3ad3cdd4"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-9f43f800",
+      "storyId": "-onboarding.JoinerFinishStaysWhenSessionIsStale",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 815,
+      "images": {
+        "before": "c60f66f18e213755ecad30dd2febb40f50014f9917902e7b269f1fe6a3f86666",
+        "after": "048e3c531703daa8dd3864e3f496ad57338d0da4c4ae78783f4d8a32f56c583c"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-df33b549",
+      "storyId": "-onboarding.JoinerFinishStaysWhenSessionIsStale",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844
+      },
+      "diffPixels": 808,
+      "images": {
+        "before": "cb7c1045bf8ad25b58094326b3eae85223235fe9bcbcce496d7df13f7f07a25c",
+        "after": "613246e89cfbe928d6bbd2eed72bd04e4ee0014b3c2343004aa1fe0de4ba859d"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-2a8d6f7d",
+      "storyId": "-organization.ApiKeysEmpty",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 1458,
+      "images": {
+        "before": "25843a87d8311fabb23d622220f3a3275dedad7ecc828d19b269a7b06b0eeacd",
+        "after": "2ee9b9123a6716cf2a4304643454c9fbe72f522ab9ece072d06ace1ea4456e8c"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-d69e26c3",
+      "storyId": "-organization.ApiKeysMemberForbidden",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 1458,
+      "images": {
+        "before": "fe63b2032ed44ae5e51856ead2f2462568b214750a8d089456b08ecec1c4b6bf",
+        "after": "01c06e696c1113d401cc8bc56ddb2323c42ddcb8bd0312d5043732da99ce42aa"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-46106a58",
+      "storyId": "-organization.ApiKeysPopulated",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 1458,
+      "images": {
+        "before": "f5aeaa97904a0eb7c951a48281fe0ecd85ef056878cf999690ce7a0c034b4ad9",
+        "after": "da52abba3153c00179a912872866b60b5e65445448024a4d69397ed2c0c2ebeb"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-438f292a",
+      "storyId": "-organization.LoadingKeepsFrame",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 1458,
+      "images": {
+        "before": "7dc83de2aee24cdf7c7f3fade3b2ffedd08c65fc720fe69ca50b42c9a008a10c",
+        "after": "e94d45f18142956e04e3f9f05a5680a0318d0190d509ecc4c3c2293dc29fa3e9"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-4289b835",
+      "storyId": "-organization.Settings",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 12326,
+      "images": {
+        "before": "c752de3d79ce78e6625727ab0c715fff7be45036469990691ee30e222327fa24",
+        "after": "aa6ff5430045911afc0b94c3bee9f27a126f8843d676f36a8a35d5dbe5896433"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-179167d6",
+      "storyId": "-organization.Settings",
+      "viewport": {
+        "name": "mobile",
+        "width": 390,
+        "height": 844
+      },
+      "diffPixels": 10383,
+      "images": {
+        "before": "6228e4b4f9a4f946dc06f8bc0a8b351797a190eab47e9382ee748d9ebb5196cb",
+        "after": "c6ace4bcfbb3e21579ddd3a7b8ca3a9b193f37ae38a39e863bf9b410e20babe4"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
+    },
+    {
+      "id": "fix-5cde0de9",
+      "storyId": "-organization.SubPagesKeepOnePosition",
+      "viewport": {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      "diffPixels": 16790,
+      "images": {
+        "before": "c4556deb2643ce28f6821e4619a6c0867ad99b7191810411988f3cf3712d1bf8",
+        "after": "5624a8083399559d348d06a748309d93ef75f95ed476483c5a65e283685e6101"
+      },
+      "kind": "intended",
+      "label": "intended",
+      "class": null,
+      "brief": "Fix the visual regressions of the de-slop change (CTX-1265)\n\nThe welcome slide step label is a label again: a gap of gap-2 separates\nthe teal mono number from the word, and the word is muted (zinc-400,\nmedium). The body text stays the content and keeps mt-3 below the label.\n\nThe user account and organization settings titles are text-xl. The\nBetter Auth card titles use the house CardTitle size (text-base,\nmedium), so the page title is the largest text on the page again.",
+      "commit": {
+        "sha": "0791bbb37dc7e7ea45bfcdfa04871d5c8a9936eb",
+        "parent": "95f15312d866f8c09cf75a6a8c921218611ea44c"
+      },
+      "region": null
     }
   ]
 }

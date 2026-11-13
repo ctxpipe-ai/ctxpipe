@@ -44,7 +44,8 @@ The images are not in git. The manifest holds the SHA-256 of each image. Each im
 
 - The before image is the baseline at the merge base of the PR, and the after image is the baseline at the merge commit. The brief lists the six intended changes of the PR.
 - The labels come from `redesign-717-labels.json`: 15 `regression` (step labels whose number runs into the word, and page titles that are smaller than their card titles) and 239 `intended`.
-- The set has each `regression` screenshot and one `intended` screenshot for each diff signature: 124 cases. A screenshot of a route story, or of a story with a mobile screenshot, has the scope `page`; another one has the scope `component` in its case.
+- The set has each `regression` screenshot and one `intended` screenshot for each diff signature: 124 cases.
+- It also has the 25 screenshots that the fix of these regressions changed (PR #718, CTX-1265), as 25 `intended` cases (ids `fix-…`). The before image is the baseline after PR #717, the after image is the fixed one, and the brief is the message of the fix commit. A judge that flags them prefers the broken state: it sees that something changed, but not the direction of the change. A screenshot of a route story, or of a story with a mobile screenshot, has the scope `page`; another one has the scope `component` in its case.
 - A case can have its own `scope`. Without it, the case has the scope of the manifest.
 
 Run it with `--cases packages/visual-review/evals/critic/redesign.json`. The report puts 30% of the cases in its hold-out table, as for each manifest, but the set has no separate hold-out role: add the two tables.
