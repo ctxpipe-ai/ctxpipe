@@ -62,20 +62,23 @@ s3_env=(-e AWS_ENDPOINT_URL_S3="http://$p-s3:8080" -e AWS_ACCESS_KEY_ID=rehearsa
 
 containers=("$p-source-pg" "$p-target-pg" "$p-source-falkordb" "$p-target-falkordb" "$p-s3")
 volumes=("$p-source-codesearch" "$p-target-codesearch" "$p-target-falkordb")
-cleanup() {
-  [[ -n "${certs:-}" ]] && rm -rf "$certs"
-  if (( keep )); then
-    echo "--keep: the containers ${containers[*]} stay." >&2
-    return
-  fi
+remove_servers() {
   docker rm -f -v "${containers[@]}" >/dev/null 2>&1 || true
   docker volume rm "${volumes[@]}" >/dev/null 2>&1 || true
   docker network rm "$net" >/dev/null 2>&1 || true
 }
+# At the end, also after a failure: --keep keeps the servers for a look.
+cleanup() {
+  rm -rf "${certs:-}" "${work:-}" "${times:-}"
+  if (( keep )); then
+    echo "--keep: the containers ${containers[*]} stay." >&2
+  else
+    remove_servers
+  fi
+}
+# The servers of an earlier run go first.
+remove_servers
 trap cleanup EXIT
-cleanup
-keep_requested=$keep
-keep=0
 
 step() { printf '\n== %s\n' "$*" >&2; }
 fail() { echo "FAILED: $*" >&2; exit 1; }
@@ -95,11 +98,13 @@ timed() {
   local name="$1"
   shift
   local start=$SECONDS
-  "$@"
+  "$@" || return
   printf '%s\t%ss\n' "$name" "$((SECONDS - start))" >>"$times"
 }
 times="$(mktemp)"
+work="$(mktemp -d)"
 # Under the home directory: a Docker VM (Colima) shares only that.
+mkdir -p "$root/node_modules/.cache"
 certs="$(mktemp -d "$root/node_modules/.cache/ctx1217-certs-XXXXXX")"
 bundle=/app/apps/backend/certs/rds-global-bundle.pem
 ca_mount=(-v "$certs/ca.pem:$bundle:ro")
@@ -214,7 +219,6 @@ copy_report() {
   backend_task "${copy_env[@]}" --tmpfs /scratch:size=4g "$backend" \
     bun run apps/backend/src/scripts/copyDatabase.ts --work-dir /scratch/copy --jobs 8 >"$work/copy.json"
 }
-work="$(mktemp -d)"
 timed copy-database copy_report || fail "copy: $(jq -sc 'last | .verify.problems // .' "$work/copy.json" 2>/dev/null)"
 jq -se 'last | .ok and .preflight.sourceReadOnly' "$work/copy.json" >/dev/null || fail "copy report"
 
@@ -270,17 +274,18 @@ reset_indexes() {
     'cd /app/apps/codesearch && exec bun run cutover:reset-indexes --falkordb-data-file /var/lib/falkordb/data/dump.rdb' >"$work/reset-indexes.json"
 }
 timed reset-indexes reset_indexes || fail "reset-indexes: $(cat "$work/reset-indexes.json")"
-left="$(docker exec "$p-s3" sh -c "find /s3/$bucket/shards -type f 2>/dev/null | wc -l")"
-[[ "$left" -eq 0 ]] || fail "$left shard store objects stay"
-left="$(task -v "$p-target-codesearch:/data" -v "$p-target-falkordb:/fdb" --entrypoint sh "$codesearch" \
-  -c 'find /data /fdb -mindepth 2 | wc -l')"
-[[ "$left" -eq 0 ]] || fail "$left entries stay on the target volumes"
+store_left="$(docker exec "$p-s3" sh -c "find /s3/$bucket/shards -type f 2>/dev/null | wc -l")"
+[[ "$store_left" -eq 0 ]] || fail "$store_left shard store objects stay"
+# The contents of zoekt-index and repo-cache, and each file of the FalkorDB volume.
+volume_left="$(task -v "$p-target-codesearch:/data" -v "$p-target-falkordb:/fdb" --entrypoint sh "$codesearch" \
+  -c '{ find /data -mindepth 2; find /fdb -mindepth 1; } | wc -l')"
+[[ "$volume_left" -eq 0 ]] || fail "$volume_left entries stay on the target volumes"
 timed reset-database-rollback reset_database
 tables="$(psql_super "$p-target-pg" rdsadmin ctxpipe -c "SELECT count(*) FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema')")"
 [[ "$tables" -eq 0 ]] || fail "the target has $tables tables after the reset"
 
 step "Report"
-jq -n --slurpfile copy "$work/copy.json" --slurpfile export "$work/export.json" \
+jq -n --slurpfile copy "$work/copy.json" \
   --slurpfile imported "$work/import.json" --slurpfile graph "$work/verify-graph.json" \
   --slurpfile seed "$work/seed.json" --slurpfile reset "$work/reset-indexes.json" \
   --rawfile times "$times" '{
@@ -290,5 +295,3 @@ jq -n --slurpfile copy "$work/copy.json" --slurpfile export "$work/export.json" 
     import: $imported[-1].import,
     seconds: ($times | split("\n") | map(select(length > 0) | split("\t") | {(.[0]): .[1]}) | add)
   }'
-rm -rf "$work" "$times" "$certs"
-keep=$keep_requested

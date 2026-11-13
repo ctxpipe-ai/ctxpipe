@@ -351,12 +351,18 @@ describe("reset-indexes", () => {
       })(),
     )
 
+    // A shard whose Name has another form: no address in the store.
+    await writeFile(
+      join(target.zoektIndexDir, "other-name_v16.00000.zoekt"),
+      "x",
+    )
+
     const report = await resetIndexes(target)
 
     expect(report).toMatchObject({
       ok: true,
       repositories: 1,
-      unknownShards: 0,
+      unknownShards: 1,
     })
     expect(report.zoektIndexEntries).toBeGreaterThan(0)
     expect(
@@ -367,5 +373,30 @@ describe("reset-indexes", () => {
     await expect(stat(target.falkordbDataFile)).rejects.toMatchObject({
       code: "ENOENT",
     })
+
+    // A second run finds nothing and changes nothing.
+    expect(await resetIndexes(target)).toMatchObject({
+      ok: true,
+      repositories: 0,
+      zoektIndexEntries: 0,
+    })
+  })
+
+  it("gives only the kind of an error, without a path", async () => {
+    server.stubEnv("store")
+    const dir = join(root, "reset-error")
+    await mkdir(dir, { recursive: true })
+    // A file where the directory must be: readdir fails with ENOTDIR.
+    await writeFile(join(dir, "zoekt-index"), "x")
+
+    await expect(
+      resetIndexes({
+        zoektIndexDir: join(dir, "zoekt-index"),
+        repoCacheDir: join(dir, "repo-cache"),
+        falkordbDataFile: join(dir, "dump.rdb"),
+      }),
+    ).rejects.toThrow(
+      /^The reset stopped \(Error ENOTDIR\)\. Run it again: it continues\.$/,
+    )
   })
 })

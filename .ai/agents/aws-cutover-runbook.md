@@ -258,7 +258,7 @@ Do the steps that apply, in this order. Skip a step whose change was not made ye
      `aws s3 rm --recursive "s3://<shard bucket>/cutover-transfer/"`.
 - **Expected:** `aws s3 ls "s3://<shard bucket>/cutover-transfer/"` prints nothing.
 
-After a rollback, AWS still holds copies that no step deletes. They age out:
+After a rollback, AWS still holds copies that no step deletes. AWS deletes them after a time:
 
 - Aurora's automated backups: 7 days.
 - The FalkorDB dump for the previews (`production/dump.rdb` in the dump bucket): until the next daily dump.

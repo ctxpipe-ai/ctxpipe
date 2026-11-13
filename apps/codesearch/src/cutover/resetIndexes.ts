@@ -11,7 +11,7 @@ import {
   parseZoektShardBasename,
   zoektRepositoryIdentity,
 } from "../domain/zoekt/shardPrefix.js"
-import { runCli } from "./transfer.js"
+import { errorKind, runCli } from "./transfer.js"
 
 /*
  * reset-indexes (CTX-1217): the rollback of import-indexes and
@@ -38,6 +38,20 @@ export async function resetIndexes(options: {
       "CODESEARCH_SHARD_STORE is not set, or the store is read-only.",
     )
   const start = Date.now()
+  try {
+    return { ...(await reset(store, options)), ms: Date.now() - start }
+  } catch (error) {
+    // Only the kind: a path or an S3 key holds organization and repository ids.
+    throw new Error(
+      `The reset stopped (${errorKind(error)}). Run it again: it continues.`,
+    )
+  }
+}
+
+async function reset(
+  store: NonNullable<ReturnType<typeof writableShardStore>>,
+  options: Parameters<typeof resetIndexes>[0],
+) {
   const repositories = new Map<string, { orgId: string; repoId: string }>()
   let unknown = 0
   for (const name of await entries(options.zoektIndexDir)) {
@@ -62,7 +76,6 @@ export async function resetIndexes(options: {
     unknownShards: unknown,
     zoektIndexEntries,
     repoCacheEntries,
-    ms: Date.now() - start,
   }
 }
 
