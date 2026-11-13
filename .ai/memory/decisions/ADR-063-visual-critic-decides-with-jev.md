@@ -6,7 +6,7 @@
 
 The visual critic (`critics.json`, entry `visual`) judges each changed baseline screenshot of a PR with `pnpm visual:review` ([CTX-1178](https://linear.app/ctxpipe/issue/CTX-1178)). Until this ADR, it sent each screenshot to a Sonnet-class LLM through OpenRouter, and it blocked on a `regression` with severity `major` or `blocker` (an owner decision). The bake-off of the critic ([CTX-1202](https://linear.app/ctxpipe/issue/CTX-1202), `packages/visual-review/evals/critic/`) compares the judges on labeled screenshot pairs. Its selection rule picks the cheapest arm with a recall of 0.9 or more and a precision of 0.7 or more on the hold-out set.
 
-Bake-off run 43202777292 used the page-story dataset ([CTX-1249](https://linear.app/ctxpipe/issue/CTX-1249)). A judge panel (Opus 5.5, GPT-6.1-Sol, Gemini 4 Argon, plain 2-of-3 majority) labeled the real changes. The panel agreed with the known label on 105 of 119 synthetic cases. The 5-hour job limit stopped the run after the 27 hold-out cases (19 `regression`, 8 `intended`), with 1 run each.
+Bake-off run 43202777292 used the page-story dataset ([CTX-1249](https://linear.app/ctxpipe/issue/CTX-1249)). A judge panel (Opus 5.5, GPT-6.1-Sol, Gemini 4 Argon, plain 2-of-3 majority) labeled the real changes. The panel agreed with the known label on 105 of 119 synthetic cases. The 5-hour job limit stopped the run before each arm judged each hold-out case. The table below uses the 27 hold-out cases (19 `regression`, 8 `intended`) that every arm judged, with 1 run each. Correction: the hold-out set has 47 cases. On all 47 cases, a later Jev-only run (43360812931) gave the old rubric a recall of 0.79, a precision of 0.90 and an unsure rate of 0.38 (see rule 8).
 
 Hold-out results:
 
@@ -46,7 +46,7 @@ The product owner decided on 2026-11-13: "Use Jev for this capability and just f
    - In `visual:review --budget-usd`, a Jev reply with no `usage.cost` counts as $0.002 (above the highest Jev cost of the bake-off). An LLM reply with no cost still counts as $0.25. A missing cost never turns the budget off.
 6. **Data receiver.** Each changed screenshot, the brief and the source diff now go to TypeSafe (Jev) through the alpha OpenRouter endpoint `/api/alpha/decisions`. Before, they went to Anthropic, and only an opt-in `--filter jev` reached TypeSafe. The request sets `provider.data_collection: "deny"`, but no one has confirmed that OpenRouter applies it on the alpha endpoint, or the retention terms of TypeSafe. The screenshots are Storybook stories with mock data, and the repository is public.
 7. **Rule.** Run the bake-off again for each new decider model and for each change of the questions or the rubric, before the critic uses it.
-8. **Rubric update (2026-11-13).** The rubric has sharper definitions and one new area, `broken-content`, so that each Jev question names defects that a screenshot shows and ties them to our design docs. The new rules come from two design guides that the product owner recommended, [frontend-design](https://agenticskills.io/skills/frontend-design) and [Impeccable](https://impeccable.style/), with only the rules that agree with `apps/ui/DESIGN.md`. A Jev-only hold-out bake-off before and after the change measures it (rule 7).
+8. **Rubric update (2026-11-13).** The rubric has sharper definitions and one new area, `broken-content`, so that each Jev question names defects that a screenshot shows and ties them to our design docs. The new rules come from two design guides that the product owner recommended, [frontend-design](https://agenticskills.io/skills/frontend-design) and [Impeccable](https://impeccable.style/), with only the rules that agree with `apps/ui/DESIGN.md`. A Jev-only bake-off on all 47 hold-out cases (panel labels, 1 run) measured the change (rule 7). Before (run 43360812931): recall 0.79, precision 0.90, unsure 0.38, $0.0004 per story. After (run 43360825713): recall 0.91, precision 0.83, unsure 0.23, $0.0005 per story. Only the new rubric passes the selection rule (recall 0.9 or more, precision 0.7 or more). The lower precision is acceptable, because a Jev result is feedback that never blocks (rule 3).
 
 ## Consequences
 
@@ -58,7 +58,7 @@ The product owner decided on 2026-11-13: "Use Jev for this capability and just f
 
 ## Limits of the evidence
 
-- 27 hold-out cases and 1 run. No consistency figure.
+- The arm table uses 27 of the 47 hold-out cases and 1 run. The rubric comparison of rule 8 uses all 47 cases and 1 run. No consistency figure.
 - The labels of the real changes come from a judge panel, not from a person. GPT-6.1-Sol and Opus are panel members, so the labels can favor them.
 - Only page stories. Most changed baselines of a PR are component stories.
 - No new-screenshot case got a result, so the judgment of a new screenshot by Jev has no measurement.
