@@ -143,6 +143,21 @@ describe("phaseZoekt with a shard store", () => {
     })
   })
 
+  it("uploads nothing with a read-only shard store, and keeps the shards without a local manifest copy", async () => {
+    server.stubEnv("prod")
+    vi.stubEnv("CODESEARCH_SHARD_STORE_READ_ONLY", "true")
+    const ctx = context("repo_preview")
+    const before = await server.keys()
+
+    await phaseZoekt(ctx)
+
+    expect((await shardsOf(ctx.zoektName)).length).toBeGreaterThan(0)
+    expect(await server.keys()).toEqual(before)
+    await expect(readFile(localCopy(ctx.zoektName))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
+  })
+
   it("uploads nothing when no shard store is set", async () => {
     const ctx = context("repo_local")
     const before = await server.keys()

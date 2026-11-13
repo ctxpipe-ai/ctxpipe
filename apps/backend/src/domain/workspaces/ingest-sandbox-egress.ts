@@ -488,24 +488,28 @@ export function agentCoreIngestSandboxProvider(
   input: IngestShardVaultInput & { sessions: SandboxProvider },
 ): SandboxProvider {
   return vaultedIngestSandboxProvider(input.sessions, input, {
-    afterCreate: assertNoMetadataEndpoint,
+    afterCreate: assertNoOtherMetadataEndpoint,
   })
 }
 
 /**
- * A metadata or credential endpoint must not answer in an ingest sandbox: a
- * prompt-injected agent could read the runtime role's credentials and write
- * them into the shard output. Docker hosts drop 169.254.169.254; nothing in
- * the image does that on AgentCore, so `create` fails closed when one of
- * these answers without the proxy (the instance metadata service over IPv4
- * and IPv6, the ECS and EKS credential endpoints).
+ * Only the instance metadata service (IMDS, `169.254.169.254`) may answer in
+ * an AgentCore ingest sandbox. AgentCore serves the runtime execution role's
+ * credentials there, and nothing in the microVM can close it (probe,
+ * CTX-1219). The execution role is limited to the sandbox image and the
+ * runtime's logs, and the microVM's credentials work only through the
+ * sandbox VPC endpoints (ADR-061, decision 16). Every other metadata or
+ * credential endpoint (IMDS over IPv6, the ECS and EKS credential
+ * endpoints) could serve credentials of another role. A prompt-injected
+ * agent could write them into the shard output. Thus `create` fails closed
+ * when one of them answers without the proxy.
  */
-export async function assertNoMetadataEndpoint(handle: {
+export async function assertNoOtherMetadataEndpoint(handle: {
   process: Pick<SandboxProcess, "exec">
 }): Promise<void> {
   const probe = await handle.process.exec(
     `command -v curl >/dev/null 2>&1 || { echo no-curl; exit 0; }
-for url in http://169.254.169.254/ http://169.254.170.2/ http://169.254.170.23/ 'http://[fd00:ec2::254]/'; do
+for url in http://169.254.170.2/ http://169.254.170.23/ 'http://[fd00:ec2::254]/'; do
   code=$(curl -s --noproxy '*' --connect-timeout 2 -m 4 -o /dev/null -w '%{http_code}' "$url" 2>/dev/null)
   if [ -n "$code" ] && [ "$code" != "000" ]; then echo "open $url"; exit 0; fi
 done
@@ -513,7 +517,7 @@ echo closed`,
   )
   if (probe.stdout.trim() !== "closed")
     throw new Error(
-      `AgentCore ingest sandboxes must not reach a metadata or credential endpoint; the check found: ${probe.stdout.trim() || probe.stderr.trim()}`,
+      `AgentCore ingest sandboxes must not reach a metadata or credential endpoint other than the instance metadata service; the check found: ${probe.stdout.trim() || probe.stderr.trim()}`,
     )
 }
 
