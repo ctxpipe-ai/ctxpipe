@@ -48,6 +48,7 @@ const calibration: Calibration = {
       image: store(100),
       storyId: "pages-a--story",
       scope: "page",
+      round: 1,
       flag: [
         { issue: "Status words in many colors.", kinds: ["color-tokens"] },
         { issue: "The add action is a lone icon.", kinds: ["clarity"] },
@@ -63,6 +64,7 @@ const calibration: Calibration = {
       image: store(200),
       storyId: "components-b--story",
       scope: "component",
+      round: 2,
       flag: [],
       ok: [{ item: "Partial UI.", kinds: ["missing-elements"] }],
     },
@@ -151,7 +153,7 @@ test("counts the owner issues and the fine items that each arm flags", async () 
   // Jev: a hit (clarity) and no false flag.
   expect(printed).toContain("| jev | 2 | 1 / 2 | 0 / 3 | 2 | 0 |")
   expect(printed).toContain(
-    "| pages-a--story | 1 / 2 hits, 0 / 2 false (clarity) | 1 / 2 hits, 1 / 2 false (color-tokens, density) |",
+    "| 1 | pages-a--story | 1 / 2 hits, 0 / 2 false (clarity) | 1 / 2 hits, 1 / 2 false (color-tokens, density) |",
   )
   const results = JSON.parse(
     readFileSync(join(out, "runner", "results.json"), "utf8"),
@@ -177,7 +179,7 @@ test("the owner calibration of 2026-11-14 matches the schema", () => {
     ),
   )
 
-  expect(committed.screenshots).toHaveLength(10)
+  expect(committed.screenshots).toHaveLength(16)
   // Each kind is an id of the rubric, so that a judge can flag it.
   const ids = new Set(
     [...packagedRubric.areas, ...packagedRubric.qualities].map(({ id }) => id),

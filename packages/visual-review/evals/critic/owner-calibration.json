@@ -33,7 +33,8 @@
           "item": "A status is a dot with its word.",
           "kinds": ["accessibility"]
         }
-      ]
+      ],
+      "round": 1
     },
     {
       "path": "apps/ui/src/routes/screenshots/-home-notices.MixedStack.desktop.screenshot.png",
@@ -54,7 +55,8 @@
           "item": "The activity heatmap.",
           "kinds": ["density", "color-tokens"]
         }
-      ]
+      ],
+      "round": 1
     },
     {
       "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.SingleCreatePr.desktop.screenshot.png",
@@ -84,7 +86,8 @@
           "item": "The empty viewer has no icon.",
           "kinds": ["missing-elements"]
         }
-      ]
+      ],
+      "round": 1
     },
     {
       "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.SingleCreatePrPaneClosed.desktop.screenshot.png",
@@ -106,7 +109,8 @@
           "item": "The user message is on the right and the answers are on the left.",
           "kinds": ["alignment", "consistency"]
         }
-      ]
+      ],
+      "round": 1
     },
     {
       "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.GraphPane.desktop.screenshot.png",
@@ -132,7 +136,8 @@
           "item": "The first-run help tour covers a part of the graph.",
           "kinds": ["overflow", "feedback-and-state"]
         }
-      ]
+      ],
+      "round": 1
     },
     {
       "path": "apps/ui/src/features/connectors/catalog/screenshots/ConnectorCatalogDialog.BusyOrg.desktop.screenshot.png",
@@ -158,7 +163,8 @@
           "item": "The category sidebar with counts.",
           "kinds": ["grouping-and-rhythm", "density"]
         }
-      ]
+      ],
+      "round": 1
     },
     {
       "path": "apps/ui/src/features/connectors/components/linear-setup/screenshots/LinearSetupWizard.ChooseWorkspaces.desktop.screenshot.png",
@@ -188,7 +194,8 @@
           "item": "The checkboxes are a to-do list of the wizard steps.",
           "kinds": ["clarity"]
         }
-      ]
+      ],
+      "round": 1
     },
     {
       "path": "apps/ui/src/features/organization/screenshots/OrganizationApiKeysCard.CreateNamedKey.desktop.screenshot.png",
@@ -218,7 +225,8 @@
           "item": "The secret is in a monospace field.",
           "kinds": ["typography"]
         }
-      ]
+      ],
+      "round": 1
     },
     {
       "path": "apps/ui/src/features/workspace-upgrades/screenshots/WorkspaceFormatUpgradeBanner.Blocked.desktop.screenshot.png",
@@ -244,7 +252,8 @@
           "item": "Partial UI: a banner alone, with empty space around it.",
           "kinds": ["missing-elements", "density"]
         }
-      ]
+      ],
+      "round": 1
     },
     {
       "path": "apps/ui/src/features/org/screenshots/OrgOutletError.ConnectorsFailed.desktop.screenshot.png",
@@ -265,6 +274,129 @@
         {
           "item": "The error is red.",
           "kinds": ["color-tokens"]
+        }
+      ],
+      "round": 1
+    },
+    {
+      "path": "apps/ui/src/features/connectors/catalog/screenshots/ConnectorCatalogDialog.NewOrg.desktop.screenshot.png",
+      "image": "8ee2c6cc87881da13333675c3a6bafc06ef65b5ea62c04617ce3627cb7b781a2",
+      "storyId": "components-connections-connectorcatalog--new-org",
+      "scope": "component",
+      "round": 2,
+      "flag": [
+        {
+          "issue": "The status sits close to the description while a large gap stays before the action: the rows are unbalanced.",
+          "kinds": ["balance", "spacing"]
+        }
+      ],
+      "ok": [
+        {
+          "item": "The category sidebar with counts.",
+          "kinds": ["grouping-and-rhythm", "density"]
+        }
+      ]
+    },
+    {
+      "path": "apps/ui/src/features/connectors/components/confluence-setup/screenshots/ConfluenceSetupWizard.AddToWorkspaces.desktop.screenshot.png",
+      "image": "e854a6bc55a6cedc327955f95f3b47277c9d78353345d63e378318114098c973",
+      "storyId": "components-connections-atlassian-setupwizard--add-to-workspaces",
+      "scope": "component",
+      "round": 2,
+      "flag": [
+        {
+          "issue": "The header icon, the checkboxes and the step number of the next-step card are not on one vertical axis.",
+          "kinds": ["alignment"]
+        }
+      ],
+      "ok": [
+        {
+          "item": "The checkboxes are a to-do list of the wizard steps.",
+          "kinds": ["clarity"]
+        },
+        {
+          "item": "One Close button, at the bottom right.",
+          "kinds": ["dialog", "actions"]
+        }
+      ]
+    },
+    {
+      "path": "apps/ui/src/features/connectors/components/confluence-setup/screenshots/ConfluenceSetupWizard.ManageKeepsTheCurrentScope.desktop.screenshot.png",
+      "image": "d12053192ac6317077fd352cbe4c62868b0bc115a9df64bdf1d5b592a941b7bd",
+      "storyId": "components-connections-atlassian-setupwizard--manage-keeps-the-current-scope",
+      "scope": "component",
+      "round": 2,
+      "flag": [
+        {
+          "issue": "The dialog shows no control to close, cancel or go back.",
+          "kinds": ["dialog", "actions", "missing-elements"]
+        }
+      ],
+      "ok": [
+        {
+          "item": "The checkboxes are a to-do list of the wizard steps.",
+          "kinds": ["clarity"]
+        }
+      ]
+    },
+    {
+      "path": "apps/ui/src/features/connectors/components/screenshots/PagerdutySetupDialog.RegisterOAuthApp.desktop.screenshot.png",
+      "image": "2b63e30d19b4d7a2bc14b90146cd7b4ba1b5b9e76c99fd8aa60fc9a0245b460b",
+      "storyId": "components-connections-pagerdutysetupdialog--register-o-auth-app",
+      "scope": "component",
+      "round": 2,
+      "flag": [
+        {
+          "issue": "The dialog is taller than the viewport: its header is clipped at the top edge.",
+          "kinds": ["dialog", "overflow"]
+        }
+      ],
+      "ok": [
+        {
+          "item": "The copy button sits at the right end of the redirect URL field.",
+          "kinds": ["actions"]
+        }
+      ]
+    },
+    {
+      "path": "apps/ui/src/features/workspace-upgrades/screenshots/WorkspaceFormatUpgradeBanner.NoItemYet.desktop.screenshot.png",
+      "image": "8b3cd6326edda885b9e5c35043bef2ad895757a42210e431b6541add53893359",
+      "storyId": "components-workspaces-formatupgradebanner--no-item-yet",
+      "scope": "component",
+      "round": 2,
+      "flag": [
+        {
+          "issue": "The full bright yellow fill of the warning dominates the dark UI.",
+          "kinds": ["color-tokens", "restraint", "brand-fit"]
+        }
+      ],
+      "ok": [
+        {
+          "item": "The action is on the right, at the normal secondary size.",
+          "kinds": ["actions"]
+        },
+        {
+          "item": "Partial UI: a banner alone, with empty space around it.",
+          "kinds": ["missing-elements", "density"]
+        }
+      ]
+    },
+    {
+      "path": "apps/ui/src/features/workspaces/screenshots/WorkspacePane.ConversationWritable.desktop.screenshot.png",
+      "image": "a9b3427e7ac79f55f4c18716d29f6c80aa4bfacb63bdde88be7f050dde22dd80",
+      "storyId": "components-workspaces-pane--conversation-writable",
+      "scope": "component",
+      "round": 2,
+      "flag": [
+        {
+          "issue": "The diff viewer is a white light-theme area in the dark UI.",
+          "kinds": ["color-tokens", "brand-fit", "consistency"]
+        }
+      ],
+      "ok": [
+        {
+          "item": "The conversation area is empty in this story state.",
+          "kinds": ["missing-elements", "feedback-and-state", "density"]
         }
       ]
     }
