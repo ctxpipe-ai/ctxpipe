@@ -77,13 +77,14 @@ const choiceQuestion = (instructions: string): Question => ({
  * Judge one story with Jev, or with another decision model of the OpenRouter
  * Decisions API (`model`). The key comes from `MODEL_PROVIDER_API_KEY` and
  * the OpenRouter API base from `MODEL_PROVIDER_URL`. The verdict says
- * `regression` when an area or a quality is worse with a probability of
- * 0.5 or more, or when a label runs two parts together with a probability of
- * 0.5 or more (a `spacing` finding), and `unsure` when the defect or a worse
- * probability is from 0.2 up to 0.5 or when a question has no answer. The
- * run-together answer counts only for a regression, not for `unsure`. The
- * bake-off of CTX-1262 kept the 0.2 floor: a higher floor turned real
- * regressions into `intended` (ADR-063). Else nothing got worse: the verdict is `intended` when a brief or a
+ * `regression` when an area or a quality other than density is worse with a
+ * probability of 0.5 or more, or when a label runs two parts together with a
+ * probability of 0.5 or more (a `spacing` finding). It says `unsure` when the
+ * defect or a worse probability (density too) is from 0.2 up, or when a
+ * question has no answer. The run-together answer counts only for a
+ * regression, not for `unsure`. The bake-off of CTX-1262 kept the 0.2
+ * floor: a higher floor turned real regressions into `intended` (ADR-063).
+ * Else nothing got worse: the verdict is `intended` when a brief or a
  * source diff explains the change, and `unsure` when none does (the rule of
  * `parseVerdict`). Jev gives no text, so `observations` is empty and each
  * finding has an empty `evidence`. `onAnswers` gets the raw answers of Jev:
@@ -228,6 +229,7 @@ export async function judgeWithJev(
   // finding, since a finding names an area.
   const isWorse = ({ delta, worse }: { delta: string; worse: number }) =>
     delta === "worse" && worse >= 0.5
+  const density = qualityResults.find(({ id }) => id === "density")
   // `parseVerdict` checks the judgment and applies the rules of the prompt.
   return parseVerdict(
     JSON.stringify({
@@ -247,13 +249,23 @@ export async function judgeWithJev(
               ]
             : []),
         ],
+        // A worse density is never a regression: it counts only for
+        // `unsure`. In the bake-off of CTX-1262, density never found a
+        // regression that no other question found, and on the redesign of
+        // PR #717 it gave 12 of the 14 false flags (an intended removal
+        // leaves more space).
         flaggedQualities: qualityResults
-          .filter(isWorse)
+          .filter((result) => isWorse(result) && result.id !== "density")
           .map(({ id, worse }) => ({ id, probability: worse })),
         region,
         defect: defectProbability,
         unanswered,
         strongest,
+        ...(density && isWorse(density)
+          ? {
+              note: `Jev finds the density worse (${density.worse.toFixed(2)}). A density change alone is not a regression: look at the images.`,
+            }
+          : {}),
       }),
       qualities: qualityResults.map(({ id, delta, probability }) => ({
         name: id,
@@ -523,6 +535,7 @@ function decision({
   defect,
   unanswered,
   strongest,
+  note,
 }: {
   word: "worse" | "broken"
   flaggedAreas: readonly {
@@ -535,6 +548,8 @@ function decision({
   defect: number
   unanswered: number
   strongest: number
+  /** The summary of an `unsure` verdict, in place of the default one. */
+  note?: string
 }) {
   const placed = region ? flaggedAreas : []
   const verdict =
@@ -556,8 +571,9 @@ function decision({
     // The region also for a flagged quality, which has no finding.
     regression: `Jev: defect ${defect.toFixed(2)}; ${word}: ${labels.join(", ")}.${region ? ` Region: x ${region.x.toFixed(2)}, y ${region.y.toFixed(2)}, width ${region.width.toFixed(2)}, height ${region.height.toFixed(2)}.` : ""}`,
     intended: `Jev found nothing ${word}: defect ${defect.toFixed(2)}.`,
-    unsure:
-      strongest >= 0.5
+    unsure: note
+      ? note
+      : strongest >= 0.5
         ? "Jev flagged a problem, but it cannot place it in an area and a region."
         : unanswered
           ? `Jev left ${unanswered} questions without an answer.`

@@ -421,6 +421,34 @@ describe("judgeWithJev verdict", () => {
     expect(verdict.verdict).toBe("intended")
   })
 
+  test("a worse density alone is unsure, not a regression, and the summary says why", async () => {
+    serve((name) => {
+      if (name === "quality.density") return choice(0, 0.3, 0.7)
+      if (name === "defect" || name === "run-together") return defect(0.03)
+      if (name === "defect-box") return box(0.2, 0.3, 0.1, 0.4)
+      return fine
+    })
+    const verdict = await judgeWithJev(
+      await story({ brief: "Remove the icon tile above the empty state." }),
+    )
+    expect(verdict.verdict).toBe("unsure")
+    expect(verdict.findings).toEqual([])
+    expect(verdict.summary).toContain("density worse (0.70)")
+  })
+
+  test("a worse density with another worse quality is a regression of that quality", async () => {
+    serve((name) => {
+      if (name === "quality.density") return choice(0, 0.3, 0.7)
+      if (name === "quality.hierarchy") return choice(0, 0.2, 0.8)
+      if (name === "defect-box") return box(0.2, 0.3, 0.1, 0.4)
+      return fine
+    })
+    const verdict = await judgeWithJev(await story())
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.summary).toContain("hierarchy 0.80")
+    expect(verdict.summary).not.toContain("density")
+  })
+
   test("the caller can keep the raw answers of Jev", async () => {
     serve((name) => (name === "run-together" ? defect(0.2) : fine))
     let kept: Record<string, unknown> | undefined
