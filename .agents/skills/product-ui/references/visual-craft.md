@@ -54,7 +54,7 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | No opacity-as-grey | No `text-white/50` or `opacity-95` as hierarchy on chromatic surfaces |
 | Status not color-only | Pill + icon or contrast + the word ([RepositoryStatus](../../../../apps/ui/src/features/repositories/components/RepositoryStatus.tsx)) |
 | Readable contrast | Text meets WCAG AA on its surface: 4.5:1 for body text, 3:1 for large text and icons. Quiet text uses `text-muted-foreground` |
-| Accent once | At most one teal edge or wash; match an existing house use (alert edge, quiet hover) |
+| Accent once | At most one teal edge or wash; match an existing house use (alert edge, status wash) |
 
 ## Depth, radius, images
 

@@ -58,7 +58,7 @@ Dark product floor: zinc-950 / `--background` / `--card`. Ink: `--foreground`. S
 | Token | Role |
 |-------|------|
 | `--primary` (near-white in dark) | Filled primary buttons |
-| `teal-400` (`#40E0D0`) and `teal-*` mix stops | Accent: links that are *the* action, quiet-button hover, status wash, focus-adjacent teal |
+| `teal-400` (`#40E0D0`) and `teal-*` mix stops | Accent: links that are *the* action, status wash, focus-adjacent teal |
 | `--destructive` | Confirm-dialog filled danger only |
 | `--border` / `border-white/10` | Hairlines when gap or bg shift is not enough |
 
