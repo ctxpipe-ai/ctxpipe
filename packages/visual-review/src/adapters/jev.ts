@@ -357,8 +357,8 @@ async function decide(
  * see `parseNewVerdict`). A quality is `fails` from 0.5, `weak` from 0.2, and
  * else `meets`. Only Jev 1.14 takes the box question, on the first image.
  * For another model, the region of a finding is the whole first image.
- * The bake-off of the critic uses it (CTX-1243); the critic itself sends a
- * new screenshot only to an LLM.
+ * The bake-off of the critic uses it (CTX-1243), and the visual critic of
+ * the factory (`visual:review --judge jev`, ADR-063).
  */
 export async function judgeNewWithJev(
   story: NewStoryInput,
@@ -473,7 +473,8 @@ export async function judgeNewWithJev(
  * area is a finding in `region`; with no region, it is not placed, and the
  * verdict stays `unsure`. A flagged quality is a regression with no finding,
  * since a finding names an area. Else a probability from 0.2 up, or a
- * question with no answer, is `unsure`, and the rest is `intended`.
+ * question with no answer, is `unsure`, and the rest is `intended`. A
+ * regression has severity `major`.
  */
 function decision({
   word,
@@ -520,12 +521,9 @@ function decision({
   return {
     observations: [],
     verdict,
-    severity:
-      verdict === "regression"
-        ? strongest >= 0.8
-          ? "major"
-          : "minor"
-        : "none",
+    // Jev gives no severity. The bake-off measured each regression verdict
+    // of Jev, so each one is major and blocks (ADR-063).
+    severity: verdict === "regression" ? "major" : "none",
     confidence:
       verdict === "regression"
         ? strongest

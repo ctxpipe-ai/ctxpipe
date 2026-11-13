@@ -266,6 +266,19 @@ describe("judgeWithJev verdict", () => {
     expect(verdict.qualities.map(({ name }) => name)).not.toContain("focus")
   })
 
+  test("a regression from a worse probability under 0.8 is major too, so it blocks", async () => {
+    serve((name) => {
+      if (name === "area.spacing") return choice(0.1, 0.3, 0.6)
+      if (name === "defect") return defect(0.1)
+      if (name === "defect-box") return box(0.2, 0.5, 0.1, 0.4)
+      return fine
+    })
+    const verdict = await judgeWithJev(await story())
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.severity).toBe("major")
+    expect(verdict.confidence).toBeCloseTo(0.6)
+  })
+
   test("nothing worse is intended when a brief explains the change", async () => {
     serve((name) => (name === "defect" ? defect(0.03) : fine))
     const verdict = await judgeWithJev(
@@ -606,7 +619,7 @@ describe("judgeNewWithJev", () => {
     serve((name) => (name === "area.spacing" ? noul(0.7) : noul(0.02)))
     const verdict = await judgeNewWithJev(await newStory(), "baseten/mammoth-1")
     expect(verdict.verdict).toBe("regression")
-    expect(verdict.severity).toBe("minor")
+    expect(verdict.severity).toBe("major")
     expect(verdict.findings[0]?.region).toEqual({
       x: 0,
       y: 0,

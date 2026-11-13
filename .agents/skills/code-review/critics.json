@@ -139,7 +139,7 @@
     },
     {
       "name": "visual",
-      "intent": "Is each changed baseline screenshot an intended change, rendering noise, or a regression. The command `visual:review` of the merge base compares the base and the head image with its own compare engine and judges the change with the rules of packages/visual-review. It runs only when a screenshot changes.",
+      "intent": "Is each changed baseline screenshot an intended change, rendering noise, or a regression. The command `visual:review` of the merge base compares the base and the head image with its own compare engine and judges the change with Jev 1.14 only (`--judge jev`, ADR-063), with the rules of packages/visual-review. It runs only when a screenshot changes.",
       "inputs": [
         ".agents/skills/code-review/SKILL.md",
         "package.json",
@@ -180,6 +180,8 @@
           "-s",
           "visual:review",
           "--json",
+          "--judge",
+          "jev",
           "--brief",
           "{folder}/brief.md",
           "--images",

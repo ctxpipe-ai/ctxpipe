@@ -978,6 +978,132 @@ export const Primary = { render: () => null }
     })
   })
 
+  describe("--judge jev: the verdict of Jev is final, with no explainer", () => {
+    // The Decisions API: each question gets the answer of `answer`.
+    const decisions: { questions: Record<string, { type: string }> }[] = []
+    const serveJev = (
+      answer: (name: string, type: string) => Record<string, unknown>,
+    ) =>
+      server.use(
+        http.post(
+          "https://openrouter.test/api/alpha/decisions",
+          async ({ request }) => {
+            const body = (await request.json()) as (typeof decisions)[number]
+            decisions.push(body)
+            return HttpResponse.json({
+              model: "typesafe/jev-1.14",
+              answers: Object.fromEntries(
+                Object.entries(body.questions).map(([name, { type }]) => [
+                  name,
+                  answer(name, type),
+                ]),
+              ),
+              usage: { cost: 0.0004 },
+            })
+          },
+        ),
+      )
+    const box = {
+      type: "box",
+      box: { top: 0.5, bottom: 0.8, left: 0.5, right: 0.9 },
+    }
+    beforeEach(() => {
+      decisions.length = 0
+    })
+
+    test("a worse area of a changed screenshot is a major regression that blocks, from one Jev call", async () => {
+      serveJev((name, type) =>
+        name === "defect-box"
+          ? box
+          : type === "noul"
+            ? { type: "noul", noul: 0.1 }
+            : {
+                type: "choice",
+                probabilities:
+                  name === "area.spacing"
+                    ? { better: 0.1, same: 0.3, worse: 0.6 }
+                    : { better: 0.02, same: 0.97, worse: 0.01 },
+              },
+      )
+      await put("base", button, before)
+      await put("head", button, after)
+
+      const code = await run(
+        "--json",
+        "--judge",
+        "jev",
+        "--budget-usd",
+        "5",
+        "--images",
+        images,
+        "--",
+        button,
+      )
+
+      expect(code).toBe(1)
+      expect(decisions).toHaveLength(1)
+      expect(chats).toHaveLength(0)
+      expect(verdicts()).toMatchObject([
+        {
+          path: button,
+          verdict: "regression",
+          severity: "major",
+          model: "typesafe/jev-1.14",
+          costUsd: 0.0004,
+          findings: [{ kind: "spacing" }],
+        },
+      ])
+    })
+
+    test("a new screenshot goes to Jev on its own, and a clean one with a brief passes", async () => {
+      serveJev((name) =>
+        name === "defect-box" ? box : { type: "noul", noul: 0.02 },
+      )
+      await put("head", button, after)
+      const brief = join(root, "brief.md")
+      await writeFile(brief, "Add a primary button.")
+
+      const code = await run(
+        "--json",
+        "--judge",
+        "jev",
+        "--brief",
+        brief,
+        "--images",
+        images,
+        "--",
+        button,
+      )
+
+      expect(code).toBe(0)
+      expect(chats).toHaveLength(0)
+      expect(decisions).toHaveLength(1)
+      // The questions of a new screenshot: does it break a rule.
+      expect(decisions[0]?.questions["area.spacing"]?.type).toBe("noul")
+      expect(verdicts()).toMatchObject([
+        { path: button, verdict: "intended", severity: "none" },
+      ])
+    })
+
+    test("--judge jev takes no --filter", async () => {
+      await put("head", button, after)
+      expect(
+        await run(
+          "--judge",
+          "jev",
+          "--filter",
+          "jev",
+          "--images",
+          images,
+          "--",
+          button,
+        ),
+      ).toBe(2)
+      expect(output.join("\n")).toContain("--judge must be model, jev or agent")
+      expect(decisions).toHaveLength(0)
+    })
+  })
+
   describe("--budget-usd stops the model calls of the run", () => {
     const paths = ["One", "Two", "Three", "Four"].map(
       (name) =>
@@ -1114,6 +1240,74 @@ export const Primary = { render: () => null }
 
       expect(code).toBe(2)
       expect(chats).toHaveLength(2)
+    })
+
+    test("a Jev reply with no cost counts as 0.002 USD, so a small budget still judges a group", async () => {
+      const decisions: unknown[] = []
+      server.use(
+        http.post(
+          "https://openrouter.test/api/alpha/decisions",
+          async ({ request }) => {
+            const body = (await request.json()) as {
+              questions: Record<string, { type: string }>
+            }
+            decisions.push(body)
+            return HttpResponse.json({
+              model: "typesafe/jev-1.14",
+              answers: Object.fromEntries(
+                Object.entries(body.questions).map(([name, { type }]) => [
+                  name,
+                  type === "choice"
+                    ? {
+                        type: "choice",
+                        probabilities: {
+                          better: 0.02,
+                          same: 0.97,
+                          worse: 0.01,
+                        },
+                      }
+                    : { type: "noul", noul: 0.01 },
+                ]),
+              ),
+            })
+          },
+        ),
+      )
+
+      // One group of 4 screenshots: 3 Jev calls, 0.006 USD by the estimate.
+      const code = await run(
+        "--json",
+        "--judge",
+        "jev",
+        "--budget-usd",
+        "0.01",
+        "--images",
+        images,
+        "--",
+        ...paths,
+      )
+
+      expect(code).toBe(0)
+      expect(decisions).toHaveLength(3)
+      expect(verdicts().every(({ error }) => error === undefined)).toBe(true)
+
+      // The estimate still counts: the budget stops the calls.
+      decisions.length = 0
+      output.length = 0
+      expect(
+        await run(
+          "--json",
+          "--judge",
+          "jev",
+          "--budget-usd",
+          "0.003",
+          "--images",
+          images,
+          "--",
+          ...paths,
+        ),
+      ).toBe(2)
+      expect(decisions).toHaveLength(2)
     })
 
     test("a budget of 0 makes no call, also for a new screenshot", async () => {
