@@ -525,6 +525,7 @@ export async function bakeOff(
           default: ".ci-results/visual-bakeoff/images",
         },
         "hold-out-only": { type: "boolean", default: false },
+        "skip-hold-out": { type: "boolean", default: false },
         out: { type: "string", default: ".ci-results/visual-bakeoff/report" },
         runs: { type: "string", default: "3" },
         "max-cost": { type: "string", default: "100" },
@@ -591,7 +592,10 @@ export async function bakeOff(
       held = holdOut(manifest, manifest.seed)
       const cases = manifest.cases.filter(
         ({ id, label }) =>
-          label !== "unsure" && (held.has(id) || !options["hold-out-only"]),
+          label !== "unsure" &&
+          (held.has(id)
+            ? !options["skip-hold-out"]
+            : !options["hold-out-only"]),
       )
       manifest = { ...manifest, cases }
     } catch (error) {
