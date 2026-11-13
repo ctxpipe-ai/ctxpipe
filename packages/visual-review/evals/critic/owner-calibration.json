@@ -6,6 +6,7 @@
       "image": "7f83dda0082b152f8912baf2b1c6648c4e6a236b42bfced7bb65a8ea0e98704e",
       "storyId": "pages-connections--mixed-health",
       "scope": "page",
+      "round": 1,
       "flag": [
         {
           "issue": "The page is a flat legacy list: no tiles, weak hierarchy and no area boundaries, unlike the chat page.",
@@ -33,14 +34,14 @@
           "item": "A status is a dot with its word.",
           "kinds": ["accessibility"]
         }
-      ],
-      "round": 1
+      ]
     },
     {
       "path": "apps/ui/src/routes/screenshots/-home-notices.MixedStack.desktop.screenshot.png",
       "image": "59ba41a68fa1ec80be4f0603caf3ce8ef50ef75b74e0ea05ae2f974ea3931bc7",
       "storyId": "pages-home-notices--mixed-stack",
       "scope": "page",
+      "round": 1,
       "flag": [],
       "ok": [
         {
@@ -55,14 +56,14 @@
           "item": "The activity heatmap.",
           "kinds": ["density", "color-tokens"]
         }
-      ],
-      "round": 1
+      ]
     },
     {
       "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.SingleCreatePr.desktop.screenshot.png",
       "image": "4625b95c4f49348bc13918a3714a38a52c7d089090e15c5b1fe3569b1ca4fc32",
       "storyId": "pages-workspaces--single-create-pr",
       "scope": "page",
+      "round": 1,
       "flag": [
         {
           "issue": "The file tree text is so dim that it reads as disabled.",
@@ -86,14 +87,14 @@
           "item": "The empty viewer has no icon.",
           "kinds": ["missing-elements"]
         }
-      ],
-      "round": 1
+      ]
     },
     {
       "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.SingleCreatePrPaneClosed.desktop.screenshot.png",
       "image": "349b84ca4e1e9afb0bceeda63d838fcca517e1fe0021e2f5f525bc2ceb920e51",
       "storyId": "pages-workspaces--single-create-pr-pane-closed",
       "scope": "page",
+      "round": 1,
       "flag": [
         {
           "issue": "The blocks of the conversation column do not share a left edge.",
@@ -109,14 +110,14 @@
           "item": "The user message is on the right and the answers are on the left.",
           "kinds": ["alignment", "consistency"]
         }
-      ],
-      "round": 1
+      ]
     },
     {
       "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.GraphPane.desktop.screenshot.png",
       "image": "60bd10bb881b1a20e29d5708e3065ba9f8fbbc80e1fb1178bbd950fc193b4a13",
       "storyId": "pages-workspaces--graph-pane",
       "scope": "page",
+      "round": 1,
       "flag": [
         {
           "issue": "The legends are too large and too bright for secondary chrome.",
@@ -136,14 +137,14 @@
           "item": "The first-run help tour covers a part of the graph.",
           "kinds": ["overflow", "feedback-and-state"]
         }
-      ],
-      "round": 1
+      ]
     },
     {
       "path": "apps/ui/src/features/connectors/catalog/screenshots/ConnectorCatalogDialog.BusyOrg.desktop.screenshot.png",
       "image": "f91a985764bfb06be3458ace9f2da034c0192f9c8f2cb1e7d469f373379318f2",
       "storyId": "components-connections-connectorcatalog--busy-org",
       "scope": "component",
+      "round": 1,
       "flag": [
         {
           "issue": "The status words have many text colors (green, amber, gray).",
@@ -163,14 +164,14 @@
           "item": "The category sidebar with counts.",
           "kinds": ["grouping-and-rhythm", "density"]
         }
-      ],
-      "round": 1
+      ]
     },
     {
       "path": "apps/ui/src/features/connectors/components/linear-setup/screenshots/LinearSetupWizard.ChooseWorkspaces.desktop.screenshot.png",
       "image": "7f265200ff2ad3f11506ebcd7657fb861d689d13db2843c662e97b2e0ff21083",
       "storyId": "components-connections-linear-setupwizard--choose-workspaces",
       "scope": "component",
+      "round": 1,
       "flag": [
         {
           "issue": "The content alignment and spacing are poor: the blocks do not share one grid.",
@@ -194,14 +195,14 @@
           "item": "The checkboxes are a to-do list of the wizard steps.",
           "kinds": ["clarity"]
         }
-      ],
-      "round": 1
+      ]
     },
     {
       "path": "apps/ui/src/features/organization/screenshots/OrganizationApiKeysCard.CreateNamedKey.desktop.screenshot.png",
       "image": "087b3379bc93ba6610e89fa2330593d9f52f82e459393964f336f8b241c3b06a",
       "storyId": "components-organization-apikeys--create-named-key",
       "scope": "component",
+      "round": 1,
       "flag": [
         {
           "issue": "The Copy button is not at the right end of the secret field.",
@@ -225,14 +226,14 @@
           "item": "The secret is in a monospace field.",
           "kinds": ["typography"]
         }
-      ],
-      "round": 1
+      ]
     },
     {
       "path": "apps/ui/src/features/workspace-upgrades/screenshots/WorkspaceFormatUpgradeBanner.Blocked.desktop.screenshot.png",
       "image": "7d95d8fdcdc1fe906f510bababfe8e2e307a86ba0ac8449416831ef8e8abaaea",
       "storyId": "components-workspaces-formatupgradebanner--blocked",
       "scope": "component",
+      "round": 1,
       "flag": [
         {
           "issue": "The sizing and spacing of the banner need fixes.",
@@ -252,14 +253,14 @@
           "item": "Partial UI: a banner alone, with empty space around it.",
           "kinds": ["missing-elements", "density"]
         }
-      ],
-      "round": 1
+      ]
     },
     {
       "path": "apps/ui/src/features/org/screenshots/OrgOutletError.ConnectorsFailed.desktop.screenshot.png",
       "image": "88fb86525eb1dee45113f690e6b830b29b35b913ae99f59c8ad5793ed9d1a7d0",
       "storyId": "components-org-outleterror--connectors-failed",
       "scope": "component",
+      "round": 1,
       "flag": [
         {
           "issue": "The error copy repeats the title and gives no detail and no next step.",
@@ -275,8 +276,7 @@
           "item": "The error is red.",
           "kinds": ["color-tokens"]
         }
-      ],
-      "round": 1
+      ]
     },
     {
       "path": "apps/ui/src/features/connectors/catalog/screenshots/ConnectorCatalogDialog.NewOrg.desktop.screenshot.png",

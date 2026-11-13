@@ -149,7 +149,7 @@ export async function judgeWithJev(
       "lost-exit": {
         type: "noul",
         instructions:
-          "Does the before image show a control to close, cancel or go back (a Close or Cancel button, an X, a Back button) that the after image no longer shows?",
+          "Does the change leave a dialog, a wizard or a flow with no visible control to close, cancel or go back (a Close or Cancel button, an X, a Back button), when the before image shows one? Answer no when the after image still shows a way out, or when there is no dialog, wizard or flow.",
       },
     }),
   }
@@ -428,8 +428,8 @@ async function decide(
  * change. There is no base image, so each question asks whether the
  * screenshot breaks a rule of an area or a quality of the rubric, with a
  * probability (a `noul` question). Literal rule questions ask about defects
- * of the owner calibration (up to four, one for each area that the rubric
- * has, and a flat page on a page screenshot), and the state gives Jev
+ * of the owner calibration (each one only when the rubric has its area or
+ * quality, and the flat-page question only on a page screenshot), and the state gives Jev
  * `judgingRule`, what not to report. The verdict says `regression` when an
  * area, a rule question or a quality breaks a rule with a probability of 0.5
  * or more (a rule answer under 0.5 does not count for `unsure`), and
@@ -532,12 +532,6 @@ export async function judgeNewWithJev(
         "Is a large area much brighter or more saturated than the dark rest of the screen, for example a bright yellow fill or a white editor panel?",
     },
     {
-      name: "rule.uneven-space",
-      target: "balance",
-      instructions:
-        "In one row or one column, does an element sit close to one neighbor while a large empty gap stays on its other side?",
-    },
-    {
       name: "rule.flat-page",
       target: "grouping-and-rhythm",
       page: true,
@@ -549,12 +543,10 @@ export async function judgeNewWithJev(
       target,
       page,
       ...rule
-    }): {
-      name: string
-      instructions: string
-      area?: RubricEntry
-      quality?: string
-    }[] => {
+    }): ({ name: string; instructions: string } & (
+      | { area: RubricEntry; quality?: never }
+      | { area?: never; quality: string }
+    ))[] => {
       if (page && story.scope !== "page") return []
       const area = areas.find(({ id }) => id === target)
       if (area) return [{ ...rule, area }]

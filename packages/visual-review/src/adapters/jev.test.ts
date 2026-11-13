@@ -398,7 +398,14 @@ describe("judgeWithJev verdict", () => {
     const verdict = await judgeWithJev(
       await story({ brief: "Make the wizard look cleaner." }),
     )
-    expect(seen.body.questions["lost-exit"]).toMatchObject({ type: "noul" })
+    // The question asks about a dialog or a flow with no way out, not
+    // about one removed control.
+    expect(seen.body.questions["lost-exit"]).toMatchObject({
+      type: "noul",
+      instructions: expect.stringMatching(
+        /Answer no when the after image still shows a way out/,
+      ),
+    })
     expect(verdict.verdict).toBe("regression")
     expect(verdict.findings.map(({ kind }) => kind)).toEqual(["dialog"])
     expect(verdict.summary).toContain("dialog (exit removed) 0.80")
@@ -786,7 +793,6 @@ describe("judgeNewWithJev", () => {
       "rule.dialog-clipped",
       "rule.off-axis",
       "rule.bright-area",
-      "rule.uneven-space",
       "defect-box",
     ])
     expect(
@@ -861,18 +867,6 @@ describe("judgeNewWithJev", () => {
     expect(Object.keys(component.body.questions)).not.toContain(
       "rule.flat-page",
     )
-  })
-
-  test("a yes to a rule question of a quality fails the quality", async () => {
-    serve((name) => (name === "rule.uneven-space" ? noul(0.75) : noul(0.02)))
-    const verdict = await judgeNewWithJev(await newStory())
-    expect(verdict.verdict).toBe("regression")
-    expect(verdict.findings).toEqual([])
-    expect(verdict.qualities).toContainEqual({
-      name: "balance",
-      delta: "fails",
-      confidence: 0.75,
-    })
   })
 
   test("a rule question goes only with its area: a head rubric can leave it out", async () => {
