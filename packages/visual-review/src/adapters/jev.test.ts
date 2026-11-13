@@ -17,8 +17,10 @@ import {
   vi,
 } from "vitest"
 
-import { areas, qualities, verdictSchema, type StoryInput } from "../index.ts"
+import { packagedRubric, verdictSchema, type StoryInput } from "../index.ts"
 import { judgeNewWithJev, judgeWithJev } from "./jev.ts"
+
+const { areas, qualities } = packagedRubric
 
 type DecisionsBody = {
   model: string
@@ -78,6 +80,7 @@ const story = async (overrides: Partial<StoryInput> = {}) =>
   ({
     storyId: "connectors-card--connected",
     scope: "component",
+    rubric: packagedRubric,
     viewport: { width: 1440, height: 900 },
     regions: [
       {
@@ -595,6 +598,7 @@ describe("judgeNewWithJev", () => {
   const newStory = async (brief?: string) => ({
     storyId: "connectors-card--new",
     scope: "component" as const,
+    rubric: packagedRubric,
     images: [
       {
         path: await png("new.png", 800, 500),

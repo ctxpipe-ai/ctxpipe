@@ -131,7 +131,7 @@ export async function judgeWithOpenRouter(
 ): Promise<Verdict> {
   const { content, run } = await askOpenRouter(
     buildPrompt(story, steps),
-    judgementJsonSchema,
+    judgementJsonSchema(story.rubric),
     model,
     env,
   )
@@ -149,7 +149,7 @@ export async function judgeNewWithOpenRouter(
 ): Promise<Verdict> {
   const { content, run } = await askOpenRouter(
     buildNewPrompt(story),
-    newJudgementJsonSchema,
+    newJudgementJsonSchema(story.rubric),
     model,
     env,
   )

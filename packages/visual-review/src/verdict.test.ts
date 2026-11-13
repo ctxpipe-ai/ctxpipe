@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest"
 
 import {
   judgementJsonSchema,
+  packagedRubric,
   parseVerdict,
   verdictSchema,
   type StoryInput,
@@ -10,6 +11,7 @@ import {
 const story: StoryInput = {
   storyId: "connectors-catalog--default",
   scope: "component",
+  rubric: packagedRubric,
   viewport: { width: 1440, height: 900 },
   regions: [
     {
@@ -181,10 +183,11 @@ describe("parseVerdict", () => {
         walk(child, `${path}.${key}`)
     }
 
-    walk(judgementJsonSchema, "$")
+    const schema = judgementJsonSchema(packagedRubric)
+    walk(schema, "$")
 
     expect(loose).toEqual([])
-    expect(judgementJsonSchema.required).toEqual([
+    expect(schema.required).toEqual([
       "observations",
       "verdict",
       "severity",

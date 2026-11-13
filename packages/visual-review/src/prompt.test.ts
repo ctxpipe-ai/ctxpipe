@@ -1,10 +1,11 @@
 import { describe, expect, test } from "vitest"
 
-import { buildPrompt, type StoryInput } from "./index.ts"
+import { buildPrompt, packagedRubric, type StoryInput } from "./index.ts"
 
 const story: StoryInput = {
   storyId: "connectors-catalog--default",
   scope: "component",
+  rubric: packagedRubric,
   viewport: { width: 1440, height: 900 },
   regions: [
     {
@@ -33,6 +34,7 @@ describe("buildPrompt", () => {
     const other: StoryInput = {
       storyId: "home-page--empty",
       scope: "page",
+      rubric: packagedRubric,
       viewport: { width: 390, height: 844 },
       regions: [],
       images: [{ role: "after", path: "after.png" }],

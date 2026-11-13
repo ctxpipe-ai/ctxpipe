@@ -39,6 +39,7 @@ import {
 import { pngSize, prepareImage } from "./prepare.ts"
 import { buildNewPrompt, buildPrompt, type Prompt } from "./prompt.ts"
 import { reviewStories } from "./review.ts"
+import { packagedRubric, readRubric, type Rubric } from "./rubric.ts"
 import { storiesOf } from "./story-tags.ts"
 import type { NewStoryInput, StoryInput } from "./story.ts"
 import {
@@ -59,8 +60,8 @@ const unknownCallUsd = 0.25
 // of a whole run (ADR-063).
 const unknownJevCallUsd = 0.002
 
-const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|agent] [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--session <folder>] [--json]
-       pnpm visual:review --images <folder> [--judge model|jev] [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--json] -- <path>...
+const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|agent] [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--rubric <file>] [--session <folder>] [--json]
+       pnpm visual:review --images <folder> [--judge model|jev] [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--rubric <file>] [--json] -- <path>...
 
   --manifest  The manifest of the visual run. Default: .ci-results/visual/manifest.json
               The command judges each changed story, and each new story on
@@ -100,6 +101,13 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|
               screenshot goes to the explainer. Default: none.
   --brief     A file with the ticket or the brief of the change. Without it, no
               verdict can be intended.
+  --rubric    A rubric file in the format of packages/visual-review/rubric.json.
+              The judges use its areas and qualities. The visual critic of
+              the factory gives the rubric of the PR head here (ADR-063).
+              The exit code is 2 when the file is a symbolic link or not a
+              regular file, is larger than 64 KiB, or does not match the
+              schema. The command never uses another rubric instead.
+              Default: packages/visual-review/rubric.json of this checkout.
   --session   Only with --judge agent: the folder that the first call made and
               printed. Without it, the call makes a new folder and reads no
               verdict.
@@ -139,6 +147,7 @@ export async function visualReview(
         model: { type: "string" },
         filter: { type: "string", default: "none" },
         brief: { type: "string" },
+        rubric: { type: "string" },
         session: { type: "string" },
         "budget-usd": { type: "string" },
         json: { type: "boolean", default: false },
@@ -178,6 +187,18 @@ export async function visualReview(
     print(
       `--judge must be model, jev or agent, and --filter must be jev or none (--filter jev and --model only with --judge model, --session only with --judge agent). --images needs the paths after --, and only goes with --judge model or jev and no --manifest.\n\n${usage}`,
     )
+    return 2
+  }
+  // The rubric of the judges. A head rubric is data of the PR author: a file
+  // that is not valid stops the review, with no fallback to another rubric.
+  let rubric: Rubric
+  try {
+    rubric =
+      options.rubric === undefined
+        ? packagedRubric
+        : await readRubric(resolve(options.rubric))
+  } catch (error) {
+    print((error as Error).message)
     return 2
   }
   // The paid judges of a new and of a changed screenshot: `--judge jev` asks
@@ -232,7 +253,7 @@ export async function visualReview(
           resolve(options.images),
           paths,
           work,
-          brief,
+          { brief, rubric },
         )
       } catch (error) {
         print((error as Error).message)
@@ -244,7 +265,7 @@ export async function visualReview(
         judged = [
           ...(await judgeNewScreenshots(
             screenshots.flatMap(({ fresh }) => (fresh ? [fresh] : [])),
-            brief,
+            { brief, rubric },
             judgeNewPaid,
           )),
           ...(await reviewStories(
@@ -325,6 +346,7 @@ export async function visualReview(
       const input = toStoryInput(manifest, story, {
         root,
         ...(briefText === undefined ? {} : { brief: briefText }),
+        rubric,
       })
       // `toStoryInput` checks the paths as text. A symbolic link in the run
       // folder can still point outside it, so check the real paths too.
@@ -358,13 +380,16 @@ export async function visualReview(
         "--judge agent",
         ...["--manifest", path, "--session", session].map(quote),
         ...(brief === undefined ? [] : ["--brief", quote(brief)]),
+        ...(options.rubric === undefined
+          ? []
+          : ["--rubric", quote(resolve(options.rubric))]),
       ].join(" ")
       agent = { session, rerun, read: options.session !== undefined }
     }
     verdicts = [
       ...(await judgeNewScreenshots(
         fresh,
-        briefText,
+        { brief: briefText, rubric },
         agent
           ? (story) =>
               judgeByAgent(
@@ -543,7 +568,7 @@ type NewShot = {
  */
 async function judgeNewScreenshots(
   shots: readonly NewShot[],
-  brief: string | undefined,
+  { brief, rubric }: { brief: string | undefined; rubric: Rubric },
   judge: (story: NewStoryInput) => Promise<Verdict>,
 ): Promise<Verdict[]> {
   const stories = new Map<string, [NewShot, ...NewShot[]]>()
@@ -559,6 +584,7 @@ async function judgeNewScreenshots(
       scope: first.scope,
       images: [first, ...rest].map(({ image }) => image),
       ...(brief === undefined ? {} : { brief }),
+      rubric,
     })
     verdicts.push(verdict)
     // A copy keeps the verdict and the error of the call, but not its
@@ -640,7 +666,7 @@ async function compareImages(
   folder: string,
   paths: readonly string[],
   work: string,
-  brief: string | undefined,
+  { brief, rubric }: { brief: string | undefined; rubric: Rubric },
 ): Promise<Screenshot[]> {
   const screenshots: Screenshot[] = []
   for (const [index, path] of paths.entries()) {
@@ -740,6 +766,7 @@ async function compareImages(
           images,
           root: work,
           brief,
+          rubric,
         }),
       })
     } catch (error) {

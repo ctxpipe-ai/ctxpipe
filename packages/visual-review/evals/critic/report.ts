@@ -3,7 +3,7 @@
 // quality. See README.md beside this file for the definitions.
 
 import { openRouterModelId } from "../../src/adapters/openrouter.ts"
-import { qualities } from "../../src/rubric.ts"
+import { packagedRubric } from "../../src/rubric.ts"
 import type { Box } from "../../src/story.ts"
 import type { Verdict } from "../../src/verdict.ts"
 import type { CaseManifest } from "./cases.ts"
@@ -108,7 +108,7 @@ function measure(
     [...byTask].map(([task, results]) => [
       task,
       new Map(
-        qualities.map(({ id }) => {
+        packagedRubric.qualities.map(({ id }) => {
           const deltas = results.flatMap(
             ({ verdict }) => deltaIn(verdict, id) ?? [],
           )
@@ -140,7 +140,7 @@ function measure(
         (result) => actual(result) === expected(result),
       )
     const byQuality = new Map(
-      qualities.map(({ id }) => [
+      packagedRubric.qualities.map(({ id }) => [
         id,
         agreement(
           (result) => deltaOf.get(key(result))?.get(id),
@@ -419,11 +419,11 @@ export function report({
     "",
     "## Agreement on each quality (hold-out set)",
     "",
-    `| Arm | ${qualities.map(({ id }) => id).join(" | ")} |`,
-    `| --- | ${qualities.map(() => "---:").join(" | ")} |`,
+    `| Arm | ${packagedRubric.qualities.map(({ id }) => id).join(" | ")} |`,
+    `| --- | ${packagedRubric.qualities.map(() => "---:").join(" | ")} |`,
     ...[...heldMetrics].map(
       ([arm, m]) =>
-        `| ${name(arm)} | ${qualities.map(({ id }) => ratio(m.byQuality.get(id))).join(" | ")} |`,
+        `| ${name(arm)} | ${packagedRubric.qualities.map(({ id }) => ratio(m.byQuality.get(id))).join(" | ")} |`,
     ),
   ]
   return lines.join("\n")
