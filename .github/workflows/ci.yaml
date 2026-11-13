@@ -99,8 +99,16 @@ jobs:
           mkdir -p .ci-results/lint
           pnpm -s checks:list |
             jq -r '.checks[] | select((.family == "lint" or .family == "policy") and .lane != "terraform-plan") | .id' > "$RUNNER_TEMP/lint.txt"
-          node scripts/checks/run.mjs "$RUNNER_TEMP/lint.txt" |
-            tee .ci-results/lint/records.ndjson
+          # Three runners at the same time: each check runs in series in its
+          # runner, and the CI script tests ran three at a time before.
+          split -n r/3 "$RUNNER_TEMP/lint.txt" "$RUNNER_TEMP/lint-part-"
+          for part in "$RUNNER_TEMP"/lint-part-*; do
+            node scripts/checks/run.mjs "$part" > "$part.ndjson" &
+          done
+          code=0
+          for runner in $(jobs -p); do wait "$runner" || code=1; done
+          cat "$RUNNER_TEMP"/lint-part-*.ndjson | tee .ci-results/lint/records.ndjson
+          exit "$code"
       # The plan job gives the check ids of this job in plan.json, by the
       # artifact id of its upload (scripts/checks/README.md, Merge gate).
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -2509,6 +2517,11 @@ jobs:
         with:
           path: .merge-gate-store
           key: merge-gate-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+      # The date decides this rule, not the files, so it is not a check of
+      # the manifest: it runs on each pull request.
+      - name: Reject an unstable screenshot entry older than 7 days
+        if: always()
+        run: node scripts/ci/check-unstable-list.mjs
       - name: Preserve the decision
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

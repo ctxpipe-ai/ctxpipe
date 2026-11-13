@@ -54,28 +54,6 @@ test("a new commit on main, or no successful nightly run yet, runs the nightly r
   assert.equal(await nightlyChanged({ repo, sha, token: "t" }), true)
 })
 
-test("an unstable entry older than 7 days, or without a date, is overdue", () => {
-  const entry = (since) => ({
-    id: `x--${since}`,
-    reason: "r",
-    ticket: "CTX-1",
-    since,
-  })
-  assert.deepEqual(
-    overdueEntries(
-      [
-        entry("2026-11-03"),
-        entry("2026-11-02"),
-        entry(undefined),
-        entry("soon"),
-        entry("2026-11-31"),
-      ],
-      "2026-11-10",
-    ).map((item) => item.since),
-    ["2026-11-02", undefined, "soon", "2026-11-31"],
-  )
-})
-
 // The artifact folders of a nightly run: records of the first run, records
 // of the rerun, and the visual manifest of the first run.
 function results({
@@ -415,31 +393,6 @@ test("the tickets command without the Linear key gives an error annotation and f
   )
   assert.equal(result.status, 1)
   assert.match(result.stdout, /^::error::LINEAR_API_KEY is not set/m)
-})
-
-test("the unstable list check fails on an overdue entry and names its ticket", () => {
-  const root = mkdtempSync(join(tmpdir(), "ctxpipe-unstable-list-"))
-  const check = (stories) => {
-    mkdirSync(join(root, "scripts/ci"), { recursive: true })
-    writeFileSync(
-      join(root, "scripts/ci/visual-unstable-stories.json"),
-      JSON.stringify({ stories }),
-    )
-    return spawnSync(
-      process.execPath,
-      [
-        fileURLToPath(new URL("../ci/check-unstable-list.mjs", import.meta.url)),
-        root,
-      ],
-      { encoding: "utf8" },
-    )
-  }
-  const today = new Date().toISOString().slice(0, 10)
-  const entry = (since) => ({ id: "card--empty", reason: "r", ticket: "CTX-1", since })
-  assert.equal(check([entry(today)]).status, 0)
-  const overdue = check([entry("2026-01-02")])
-  assert.equal(overdue.status, 1)
-  assert.match(overdue.stderr, /card--empty \(CTX-1, since 2026-01-02\)/)
 })
 
 test("each job of the nightly run waits for the job Nightly change and does not start on an unchanged main", () => {

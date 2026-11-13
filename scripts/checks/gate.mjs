@@ -238,8 +238,8 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
 }
 
 // The result of each check id in the full run: its own record, else the
-// result of its image build job or deploy step, else `missing result` with
-// the result of its job. Each job of the full run writes a record for each check that it
+// result of its image build job or deploy step, else `missing result`
+// with the result of its job. Each job of the full run writes a record for each check that it
 // runs, so a check without one did not run, or its job lost the record.
 export function fullRunResults(records, needs, steps = new Map()) {
   const results = new Map()

@@ -15,6 +15,8 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { gunzipSync } from "node:zlib"
 
+import { parse as parseYaml } from "yaml"
+
 import { markPortable } from "../checks/families.mjs"
 import { deploySteps, fullRunResults, stepResults } from "../checks/gate.mjs"
 import { jobPlans, placeOf } from "../checks/plan.mjs"
@@ -223,9 +225,7 @@ test("the manifest matches its schema and lists each check of each family", asyn
         check.lane.startsWith("image-") ||
         check.family === "deploy" ||
         // This policy check reads the git diff, not only the files.
-        check.lane === "adr" ||
-        // This policy check reads the date.
-        check.lane === "unstable-list"
+        check.lane === "adr"
       ),
       check.id,
     )
@@ -1574,15 +1574,15 @@ test("the project check times job selects the typecheck, lint and policy checks 
 })
 
 test("the Lint and format job runs each lint and policy check of CI through the check runner, and no other command", () => {
-  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
-  const start = workflow.indexOf("\n  lint:\n")
-  const job = workflow.slice(start, workflow.indexOf("\n\n  ", start + 1))
+  const { jobs } = parseYaml(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+  )
   // Each rule of the job is a check of the manifest, so the merge gate can
   // select it and accept a stored pass. A step that runs a command outside
   // the check runner would run a rule that the gate cannot select or cache.
-  const commands = [
-    ...job.matchAll(/\n {8}run: (?:\|\n((?: {10}.*\n?)+)|(.*))/g),
-  ].map(([, block, line]) => (block ?? line).trim())
+  const commands = jobs.lint.steps
+    .filter((step) => step.run)
+    .map((step) => step.run.trim())
   const runners = commands.filter((command) =>
     /scripts\/checks\/(run|selected)\.mjs/.test(command),
   )
@@ -1622,6 +1622,15 @@ test("the Lint and format job runs each lint and policy check of CI through the 
   assert.deepEqual(
     selected.stdout.split("\n").filter(Boolean).sort(),
     expected.sort(),
+  )
+  // The overdue entries of the unstable screenshot list depend on the
+  // date, so the Merge gate job checks them on each pull request.
+  assert.ok(
+    jobs["merge-gate"].steps.some(
+      (step) =>
+        step.run === "node scripts/ci/check-unstable-list.mjs" &&
+        step.if === "always()",
+    ),
   )
   // In gate mode, the job runs the checks of its plan.
   assert.ok(
@@ -1673,13 +1682,8 @@ test("each test file of the CI scripts is a policy check that selects on the fil
     !checks.get("scripts/tests/ci-runners.test.mjs").inputs.includes("apps/**"),
   )
   // The policy scripts that ran only as steps of the lint job are checks too.
-  for (const lane of ["docs-links", "visual-container", "unstable-list"])
+  for (const lane of ["docs-links", "visual-container"])
     assert.ok(checks.get(`scripts/ci/check-${lane}.mjs`), lane)
-  // The unstable list expires by date, so a stored pass is never reused.
-  assert.equal(
-    checks.get("scripts/ci/check-unstable-list.mjs").cacheable,
-    false,
-  )
 })
 
 test("the rerun of selected.mjs reads MANIFEST and lists no checks", () => {

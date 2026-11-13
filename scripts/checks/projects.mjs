@@ -242,14 +242,11 @@ const definitions = () => [
       "docs-links",
       ["apps/**", "packages/**", "plugins/**", "examples/**", "README.md"],
     ],
-    ["unstable-list", ["scripts/ci/visual-unstable-stories.json"]],
   ].map(([lane, reads, intent]) => {
     const file = `scripts/ci/check-${lane}.mjs`
-    // The ADR check reads the git diff against origin/main, and the unstable
-    // list check reads the date, so a result cannot be reused from the files
-    // alone.
+    // The ADR check reads the git diff against origin/main, so a result
+    // cannot be reused from the files alone.
     const diff = lane === "adr"
-    const cacheable = !diff && lane !== "unstable-list"
     return {
       family: "policy",
       lane,
@@ -262,7 +259,7 @@ const definitions = () => [
         ...reads,
       ],
       ...(intent && { intent }),
-      ...(!cacheable && { cacheable: false }),
+      ...(diff && { cacheable: false }),
       commands: [node(file)],
     }
   }),
@@ -514,8 +511,6 @@ export function listProjects() {
   )
 }
 
-// Runs each check's commands in order; the check fails at the first command
-// that fails.
 // The commands of each project check, by id.
 export const projectCommands = () =>
   new Map(
@@ -525,6 +520,8 @@ export const projectCommands = () =>
     ]),
   )
 
+// Runs each check's commands in order; the check fails at the first command
+// that fails.
 export function runProjects(checks) {
   const commands = projectCommands()
   const records = checks.map(({ id, family, lane }) => {
