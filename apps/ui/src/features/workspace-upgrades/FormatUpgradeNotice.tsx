@@ -119,7 +119,7 @@ export function FormatUpgradeNotice(props: {
             : "bg-amber-300 text-zinc-950"
         }`}
       >
-        <div className="flex min-w-0 flex-1 basis-80 gap-3">
+        <div className="flex min-w-0 flex-1 basis-64 gap-3">
           <Icon className="mt-0.5 size-4 shrink-0" aria-hidden />
           <div className="min-w-0 text-sm">
             <p className="font-medium">{title}</p>

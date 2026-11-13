@@ -127,9 +127,12 @@ export const ClosingTipsIsRemembered: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const tips = await canvas.findByRole("dialog", {
-      name: "Knowledge graph tips",
-    })
+    // The graph controls and the tips show when the layout has settled.
+    const tips = await canvas.findByRole(
+      "dialog",
+      { name: "Knowledge graph tips" },
+      { timeout: 15_000 },
+    )
     await userEvent.click(
       within(tips).getByRole("button", { name: "Close tips" }),
     )
@@ -155,7 +158,12 @@ export const TipsClosedEarlier: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByRole("button", { name: "Show tips" })
+    // The graph controls show when the layout has settled.
+    await canvas.findByRole(
+      "button",
+      { name: "Show tips" },
+      { timeout: 15_000 },
+    )
     await expect(
       canvas.queryByRole("dialog", { name: "Knowledge graph tips" }),
     ).toBeNull()

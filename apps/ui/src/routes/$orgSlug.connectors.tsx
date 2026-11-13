@@ -598,8 +598,7 @@ function ConnectorsHeader(props: { actions: ReactNode }) {
             Connectors
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Connect external tools and choose what content ctxpipe should
-            ingest.
+            Connect your tools and choose what ctxpipe reads from them.
           </p>
         </div>
         {props.actions ? (

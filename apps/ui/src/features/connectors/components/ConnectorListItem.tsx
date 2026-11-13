@@ -50,7 +50,7 @@ function TileTrigger({
       aria-describedby={describedBy}
       slot="trigger"
       variant="ghost"
-      className="h-auto min-w-0 flex-1 justify-start gap-3 rounded-md px-1.5 py-1.5 text-left"
+      className="h-auto min-w-0 justify-start gap-3 rounded-md px-1.5 py-1.5 text-left"
     >
       <span aria-hidden className="ctx-node h-9 w-9 shrink-0">
         {icon}
@@ -216,26 +216,31 @@ export function ConnectorListItem({
           </span>
         ) : null}
         {/* The Disclosure keeps its own `id` off the DOM: the anchor is here. */}
-        <div id={connectionAnchorId(connectionId)}>
-          <div className="flex items-center gap-3 p-2 sm:gap-4">
+        <div id={connectionAnchorId(connectionId)} className="@container">
+          <div className={tileHeadClassName}>
             <TileTrigger
               name={name}
               icon={icon}
               ref={triggerRef}
               describedBy={marked ? markedHintId : undefined}
             />
-            {/* One column for the status of every tile, so the dots align. */}
-            <div className="flex w-32 shrink-0 sm:w-36">
+            {/*
+             * One column for the status of every tile, so the dots align. A
+             * narrow tile puts the status under the name.
+             */}
+            <div className={tileStatusClassName}>
               <ConnectorHealthIndicator health={health} />
             </div>
             {pending ? (
-              <span aria-hidden className="size-8 shrink-0" />
+              <span aria-hidden className={`size-8 ${tileMenuClassName}`} />
             ) : (
-              <ConnectorActionsMenu
-                ariaLabel={`${name} connector actions`}
-                sync={sync}
-                onRemove={() => setRemoveOpen(true)}
-              />
+              <span className={tileMenuClassName}>
+                <ConnectorActionsMenu
+                  ariaLabel={`${name} connector actions`}
+                  sync={sync}
+                  onRemove={() => setRemoveOpen(true)}
+                />
+              </span>
             )}
           </div>
           {pending ? (
@@ -297,6 +302,17 @@ export function ConnectorListItem({
   )
 }
 
+/**
+ * The head of a tile: the trigger, the status column and the menu. Below a
+ * container width of 28rem, the status moves to a second row under the name
+ * (the trigger padding, the mark and the gap: 3.375rem).
+ */
+const tileHeadClassName =
+  "grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 p-2 @max-md:grid-cols-[minmax(0,1fr)_auto]"
+const tileStatusClassName =
+  "flex w-36 @max-md:col-start-1 @max-md:row-start-2 @max-md:w-auto @max-md:pb-1.5 @max-md:pl-13.5"
+const tileMenuClassName = "@max-md:col-start-2 @max-md:row-start-1"
+
 export function connectorDash(value: string | null | undefined): string {
   return value?.trim() ? value : "—"
 }
@@ -304,9 +320,9 @@ export function connectorDash(value: string | null | undefined): string {
 /** The collapsed `ConnectorListItem` tile while the connections load. */
 export function ConnectorListItemSkeleton() {
   return (
-    <div className="rounded-md border border-white/[0.08] bg-zinc-900/40">
-      <div className="flex items-center gap-3 p-2 sm:gap-4">
-        <div className="flex min-w-0 flex-1 items-center gap-3 px-1.5 py-1.5">
+    <div className="@container rounded-md border border-white/[0.08] bg-zinc-900/40">
+      <div className={tileHeadClassName}>
+        <div className="flex min-w-0 items-center gap-3 px-1.5 py-1.5">
           <Skeleton className="size-9 shrink-0" />
           <SkeletonText
             className="min-w-0 flex-1 text-sm"
@@ -314,10 +330,10 @@ export function ConnectorListItemSkeleton() {
           />
         </div>
         <SkeletonText
-          className="w-32 shrink-0 text-xs sm:w-36"
+          className={`text-xs ${tileStatusClassName}`}
           boneClassName="w-20"
         />
-        <Skeleton className="size-8 shrink-0" />
+        <Skeleton className={`size-8 ${tileMenuClassName}`} />
       </div>
     </div>
   )
