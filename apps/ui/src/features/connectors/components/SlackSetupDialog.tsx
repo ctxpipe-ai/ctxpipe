@@ -164,7 +164,7 @@ export function SlackSetupDialog({
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       isDismissable
-      className="max-w-[min(92vw,720px)]"
+      className="flex max-w-[min(92vw,720px)] flex-col"
     >
       <ConnectorSetupFrame
         icon={<IconBrandSlack className="size-5 text-foreground" aria-hidden />}
@@ -174,6 +174,7 @@ export function SlackSetupDialog({
       >
         {status && !statusQuery.isPending && !statusQuery.isError ? (
           <ConnectorSetupStepper
+            className="pl-2"
             steps={SLACK_SETUP_STEPS}
             currentIndex={
               pullRequests.length ? SLACK_SETUP_STEPS.length : setupStepIndex

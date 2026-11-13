@@ -34,6 +34,9 @@ const FILE_UNSAFE_CSS = `
 `
 
 const FILE_OPTIONS = {
+  // The product UI is dark. The default "system" follows the OS, and a light
+  // OS painted a white editor inside the dark pane.
+  themeType: "dark" as const,
   theme: { dark: "pierre-dark" as const, light: "pierre-light" as const },
   disableFileHeader: true,
   overflow: "scroll" as const,

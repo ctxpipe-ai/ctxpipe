@@ -134,7 +134,7 @@ export function LinearSetupWizard({
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       isDismissable
-      className="max-w-[min(92vw,720px)]"
+      className="flex max-w-[min(92vw,720px)] flex-col"
     >
       <ConnectorSetupFrame
         icon={<LinearMark className="size-5 text-foreground" />}
@@ -144,6 +144,7 @@ export function LinearSetupWizard({
       >
         {status && !loading ? (
           <ConnectorSetupStepper
+            className="pl-2"
             steps={setupSteps}
             currentIndex={
               pullRequests.length

@@ -47,8 +47,6 @@ export function FormatUpgradeNotice(props: {
   const cause = item?.failure
     ? upgradeFailureCopy(item.failure).reason
     : (item?.failureReason ?? "ctxpipe gives no reason.")
-  // The yellow banner needs dark buttons; the failed banner is a red slab.
-  const onYellow = banner && !failed
   const size = banner ? "default" : "sm"
   const actions = (
     <>
@@ -56,7 +54,6 @@ export function FormatUpgradeNotice(props: {
         <Button
           variant="primary"
           size={size}
-          className={onYellow ? onYellowButton.primary : undefined}
           isPending={start.isPending}
           onPress={() => start.mutate()}
         >
@@ -65,9 +62,8 @@ export function FormatUpgradeNotice(props: {
       ) : null}
       {item?.status === "pr_open" && item.pullRequest ? (
         <Button
-          variant={onYellow ? "primary" : "secondary"}
+          variant={banner ? "primary" : "secondary"}
           size={size}
-          className={onYellow ? onYellowButton.primary : undefined}
           href={item.pullRequest.url}
           target="_blank"
           rel="noreferrer"
@@ -76,9 +72,8 @@ export function FormatUpgradeNotice(props: {
         </Button>
       ) : null}
       <Button
-        variant={banner ? "outline" : "secondary"}
+        variant="secondary"
         size={size}
-        className={onYellow ? onYellowButton.outline : undefined}
         href={workspaceUpgradesHref(orgSlug, workspaceSlug)}
       >
         Review upgrade
@@ -111,15 +106,4 @@ export function FormatUpgradeNotice(props: {
       )}
     </InlineAlert>
   )
-}
-
-/**
- * The buttons on the yellow `attention` slab: dark fills and outlines, with a
- * dark focus ring, so they keep their contrast on the yellow.
- */
-const onYellowButton = {
-  primary:
-    "border-transparent bg-zinc-950 text-amber-50 outline-zinc-950 hover:bg-zinc-800 pressed:bg-zinc-800",
-  outline:
-    "border-zinc-950/40 text-zinc-950 outline-zinc-950 hover:border-zinc-950/60 hover:bg-zinc-950/10 pressed:bg-zinc-950/15 dark:border-zinc-950/40 dark:hover:border-zinc-950/60",
 }

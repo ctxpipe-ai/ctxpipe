@@ -189,7 +189,7 @@ export function NotionSetupDialog({
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       isDismissable
-      className="max-w-[min(92vw,720px)]"
+      className="flex max-w-[min(92vw,720px)] flex-col"
     >
       <ConnectorSetupFrame
         icon={
@@ -201,6 +201,7 @@ export function NotionSetupDialog({
       >
         {status?.isInstalled || oauthAppQuery.data ? (
           <ConnectorSetupStepper
+            className="pl-2"
             steps={setupSteps}
             currentIndex={setupStepIndex}
             finalStep={

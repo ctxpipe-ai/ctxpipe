@@ -4,8 +4,11 @@ import { Button } from "@/components/ui/Button"
 
 /**
  * The frame of each connector setup dialog: a header, a body and a footer
- * on one grid. The mark of the header, the setup steps and the step card
- * share one left edge. The footer has the one Close control of the dialog.
+ * on one grid. The header and the footer stay in view, and only the body
+ * scrolls: the dialog (`Modal` with `flex flex-col`) is never taller than the
+ * viewport, so the one Close control always shows. The mark of the header
+ * and the body share one left edge; the step markers (`pl-2` on the steps)
+ * share the center line of the mark.
  */
 export function ConnectorSetupFrame(props: {
   icon: ReactNode
@@ -15,8 +18,8 @@ export function ConnectorSetupFrame(props: {
   children: ReactNode
 }) {
   return (
-    <div className="flex flex-col">
-      <header className="flex items-start gap-3 border-b border-white/[0.06] px-6 pt-6 pb-5">
+    <div className="flex min-h-0 flex-col">
+      <header className="flex shrink-0 items-start gap-3 border-b border-white/[0.06] px-6 pt-6 pb-5">
         <span aria-hidden className="ctx-node h-9 w-9 shrink-0">
           {props.icon}
         </span>
@@ -29,8 +32,10 @@ export function ConnectorSetupFrame(props: {
           </p>
         </div>
       </header>
-      <div className="flex flex-col gap-6 p-6">{props.children}</div>
-      <footer className="flex justify-end border-t border-white/[0.06] px-6 py-4">
+      <div className="flex min-h-0 flex-col gap-6 overflow-y-auto p-6">
+        {props.children}
+      </div>
+      <footer className="flex shrink-0 justify-end border-t border-white/[0.06] px-6 py-4">
         <Button variant="secondary" onPress={props.onClose}>
           Close
         </Button>

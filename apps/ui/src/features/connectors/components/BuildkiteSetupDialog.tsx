@@ -152,7 +152,7 @@ export function BuildkiteSetupDialog({
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       isDismissable
-      className="max-w-[min(92vw,720px)]"
+      className="flex max-w-[min(92vw,720px)] flex-col"
     >
       <ConnectorSetupFrame
         icon={<BuildkiteMark className="size-5 text-foreground" />}
@@ -161,6 +161,7 @@ export function BuildkiteSetupDialog({
         onClose={() => onOpenChange(false)}
       >
         <ConnectorSetupStepper
+          className="pl-2"
           steps={BUILDKITE_SETUP_STEPS}
           currentIndex={stepIndex}
           finalStep={

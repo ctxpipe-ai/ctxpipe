@@ -199,7 +199,7 @@ export function PagerdutySetupDialog({
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       isDismissable
-      className="max-w-[min(92vw,720px)]"
+      className="flex max-w-[min(92vw,720px)] flex-col"
     >
       <ConnectorSetupFrame
         icon={<PagerdutyMark className="size-5 text-foreground" />}
@@ -209,6 +209,7 @@ export function PagerdutySetupDialog({
       >
         {status || !connectionId ? (
           <ConnectorSetupStepper
+            className="pl-2"
             steps={setupSteps}
             currentIndex={setupStepIndex}
             finalStep={

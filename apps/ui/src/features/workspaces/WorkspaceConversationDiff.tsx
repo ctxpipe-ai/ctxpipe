@@ -403,6 +403,8 @@ function ConversationFileDiff(props: {
       <FileDiff
         fileDiff={fileDiff}
         options={{
+          // Dark always: the product UI is dark, whatever the OS setting.
+          themeType: "dark",
           theme: { dark: "pierre-dark", light: "pierre-light" },
           disableFileHeader: true,
           diffStyle: props.split ? "split" : "unified",

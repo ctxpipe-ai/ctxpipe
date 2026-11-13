@@ -134,7 +134,7 @@ export function PlainSetupDialog({
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       isDismissable
-      className="max-w-[min(92vw,720px)]"
+      className="flex max-w-[min(92vw,720px)] flex-col"
     >
       <ConnectorSetupFrame
         icon={<PlainMark className="size-5 text-foreground" />}
@@ -143,6 +143,7 @@ export function PlainSetupDialog({
         onClose={() => onOpenChange(false)}
       >
         <ConnectorSetupStepper
+          className="pl-2"
           steps={PLAIN_SETUP_STEPS}
           currentIndex={stepIndex}
           finalStep={

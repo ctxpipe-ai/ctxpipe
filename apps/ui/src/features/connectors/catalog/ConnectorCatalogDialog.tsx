@@ -250,10 +250,12 @@ function CatalogRowItem({
 
 /**
  * The status of each row in one column of the same width, so that the dots
- * align. A row without a status keeps the empty column.
+ * align. A row without a status keeps the empty column. The row is three
+ * columns with the same 24px gap: the text, the status and the actions (left
+ * aligned), so no wide gap opens between the status and its actions.
  */
 function StatusColumn({ children }: { children?: ReactNode }) {
-  return <div className="flex w-36 shrink-0">{children}</div>
+  return <div className="flex w-36 shrink-0 sm:ml-3">{children}</div>
 }
 
 /** The state of the provider and its actions, for each availability. */
@@ -281,7 +283,7 @@ function RowStateAndActions({
               Coming soon
             </span>
           </StatusColumn>
-          <div className="flex shrink-0 justify-end gap-2 sm:w-48">
+          <div className="flex shrink-0 gap-2 sm:ml-3 sm:w-36">
             <Button
               variant="ghost"
               size="sm"
@@ -306,7 +308,7 @@ function RowStateAndActions({
               />
             ) : null}
           </StatusColumn>
-          <div className="flex shrink-0 justify-end gap-2 sm:w-48">
+          <div className="flex shrink-0 gap-2 sm:ml-3 sm:w-36">
             {fixConnectionId ? (
               <Button
                 variant="secondary"

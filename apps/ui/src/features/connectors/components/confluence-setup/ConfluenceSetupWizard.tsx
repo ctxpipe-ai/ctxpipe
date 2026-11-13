@@ -210,7 +210,7 @@ export function ConfluenceSetupWizard({
       isOpen={isOpen}
       onOpenChange={(open) => (open ? onOpenChange(true) : close())}
       isDismissable
-      className="max-w-[min(92vw,720px)]"
+      className="flex max-w-[min(92vw,720px)] flex-col"
     >
       <ConnectorSetupFrame
         icon={
@@ -225,6 +225,7 @@ export function ConfluenceSetupWizard({
       >
         {status && !statusPending && !orgOauthBlocking ? (
           <ConnectorSetupStepper
+            className="pl-2"
             steps={wizardStepDefs}
             currentIndex={
               workspacesDone ? wizardStepDefs.length : cardIndexForStepper
