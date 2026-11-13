@@ -1,8 +1,9 @@
-// The Jev adapter: a cheap first filter for the visual critic. Jev (TypeSafe)
-// answers typed questions with probabilities and no text, through the
-// OpenRouter Decisions API. The adapter asks one question for each area and
-// each quality, one question for a visible defect, and one for its region.
-// It maps the answers onto the same verdict as the other judges.
+// The Jev adapter: the decider of the visual critic (ADR-063), and the filter
+// of `--filter jev`. Jev (TypeSafe) answers typed questions with
+// probabilities and no text, through the OpenRouter Decisions API. The
+// adapter asks one question for each area and each quality, one question for
+// a visible defect, and one for its region. It maps the answers onto the same
+// verdict as the other judges.
 import { readFile } from "node:fs/promises"
 
 import { z } from "zod"
@@ -242,7 +243,7 @@ const noAnswer = (
   verdict: "unsure",
   severity: "none",
   confidence: 0,
-  summary: "The Jev filter gave no usable answer.",
+  summary: "Jev gave no usable answer.",
   qualities: [],
   findings: [],
   model,
@@ -357,8 +358,8 @@ async function decide(
  * see `parseNewVerdict`). A quality is `fails` from 0.5, `weak` from 0.2, and
  * else `meets`. Only Jev 1.14 takes the box question, on the first image.
  * For another model, the region of a finding is the whole first image.
- * The bake-off of the critic uses it (CTX-1243); the critic itself sends a
- * new screenshot only to an LLM.
+ * The bake-off of the critic uses it (CTX-1243), and the visual critic of
+ * the factory (`visual:review --judge jev`, ADR-063).
  */
 export async function judgeNewWithJev(
   story: NewStoryInput,
@@ -473,7 +474,8 @@ export async function judgeNewWithJev(
  * area is a finding in `region`; with no region, it is not placed, and the
  * verdict stays `unsure`. A flagged quality is a regression with no finding,
  * since a finding names an area. Else a probability from 0.2 up, or a
- * question with no answer, is `unsure`, and the rest is `intended`.
+ * question with no answer, is `unsure`, and the rest is `intended`. A
+ * regression has severity `minor`: it does not block.
  */
 function decision({
   word,
@@ -508,24 +510,22 @@ function decision({
     ),
   ]
   const summary = {
-    regression: `Jev filter: defect ${defect.toFixed(2)}; ${word}: ${labels.join(", ")}.`,
-    intended: `Jev filter found nothing ${word}: defect ${defect.toFixed(2)}.`,
+    // The region also for a flagged quality, which has no finding.
+    regression: `Jev: defect ${defect.toFixed(2)}; ${word}: ${labels.join(", ")}.${region ? ` Region: x ${region.x.toFixed(2)}, y ${region.y.toFixed(2)}, width ${region.width.toFixed(2)}, height ${region.height.toFixed(2)}.` : ""}`,
+    intended: `Jev found nothing ${word}: defect ${defect.toFixed(2)}.`,
     unsure:
       strongest >= 0.5
-        ? "Jev filter flagged a problem, but it cannot place it in an area and a region."
+        ? "Jev flagged a problem, but it cannot place it in an area and a region."
         : unanswered
-          ? `Jev filter left ${unanswered} questions without an answer.`
-          : `Jev filter is not sure: the strongest ${word} probability is ${strongest.toFixed(2)}.`,
+          ? `Jev left ${unanswered} questions without an answer.`
+          : `Jev is not sure: the strongest ${word} probability is ${strongest.toFixed(2)}.`,
   }[verdict]
   return {
     observations: [],
     verdict,
-    severity:
-      verdict === "regression"
-        ? strongest >= 0.8
-          ? "major"
-          : "minor"
-        : "none",
+    // Jev gives no severity. A Jev regression is feedback for the agent,
+    // never a block (owner decision, ADR-063), so each one is minor.
+    severity: verdict === "regression" ? "minor" : "none",
     confidence:
       verdict === "regression"
         ? strongest

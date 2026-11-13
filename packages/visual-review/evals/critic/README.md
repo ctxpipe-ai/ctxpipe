@@ -1,24 +1,32 @@
 # Bake-off of the visual critic
 
-The bake-off compares critic models on a fixed set of labeled screenshot pairs ([CTX-1178](https://linear.app/ctxpipe/issue/CTX-1178), Phase 4). This folder holds the builder of that set, the runner, and the report. The runner sends a `new` case to the judge of a new screenshot, not to the judge of a change ([CTX-1243](https://linear.app/ctxpipe/issue/CTX-1243)).
+The bake-off compares critic models on a fixed set of labeled screenshot pairs ([CTX-1178](https://linear.app/ctxpipe/issue/CTX-1178), Phase 4). This folder holds the builder of that set, the judge panel that labels the real changes, the runner, and the report. The runner sends a `new` case to the judge of a new screenshot, not to the judge of a change ([CTX-1243](https://linear.app/ctxpipe/issue/CTX-1243)).
 
 ## Cases
 
+All cases are page stories: the stories with the `page` tag, at the desktop viewport (1440 × 900) and at the mobile viewport (390 × 844) of the visual check ([CTX-1249](https://linear.app/ctxpipe/issue/CTX-1249)). A page shows a change in its context, so a judge can tell if the change is an improvement. Component stories become a second set later.
+
 | Kind | Count | How the builder makes it | Label |
 | --- | --- | --- | --- |
-| `intended` | 60 | A real commit that changed a story file, a component beside a story file, or a module that a story file imports directly. The builder renders the story at the first parent and at the commit. The brief is the commit message, with the pull request title when the GitHub CLI finds it. The old name of the required story set becomes `required` in a brief. | `intended` (the owner can change it) |
+| `intended` | up to 60 | A real commit that changed `apps/ui/src`. The builder renders each page story at the first parent and at the commit. The brief is the commit message, with the pull request title when the GitHub CLI finds it. The old name of the required story set becomes `required` in a brief. | The label of the judge panel: `intended` for `improvement`, `regression` for `regression`, `noise` for `no-change`. `unsure` until the panel agrees (then the case does not run), or the label of the owner |
 | `regression` | 8 × 10 | One CSS or DOM change on one element of a clean render, before the screenshot. The source does not change. The classes are in `mutations.ts`. | `regression`, with the class and the known region |
 | `noise` | 2 × 10 | A transform below one pixel, or a thin text stroke, on the whole story. | `noise` |
 | `mixed` | 20 | A real commit, with a synthetic regression in the after image. A mixed case can use the pair of an intended case; then the two cases differ only by the regression. | `regression`, with the class and the known region |
 | `new` | up to 10 + 10 | A story that a real commit added: the first parent does not have it. The case has only the after image and no diff (`diffPixels` is null), because the critic judges a new screenshot on its own ([CTX-1224](https://linear.app/ctxpipe/issue/CTX-1224)). The brief is the commit message. Up to 10 cases are the clean render. Up to 10 more have a synthetic regression of `class` in the render. | `intended` for the clean render; `regression`, with the class and the known region, for the broken one |
 
-The builder keeps only the pairs that differ by more than the tolerance of the visual check (10 pixels). A broken new case must differ from its clean render by more than that tolerance. A mixed case must also show both parts: the real change and the regression. The stories in `scripts/ci/visual-unstable-stories.json` (desktop) give no case. A run that gives fewer than 150 cases stops and does not change the manifest. The known region is the box of the changed element before and after the change, 2 pixels wider on each side.
+The builder keeps only the pairs that differ by more than the tolerance of the visual check (10 pixels). A broken new case must differ from its clean render by more than that tolerance. A mixed case must also show both parts: the real change and the regression. The screenshots in `scripts/ci/visual-unstable-stories.json` give no case. A run that gives fewer than 100 cases stops and does not change the manifest.
+
+**Visibility rule.** A real change (an `intended` case, and the real part of a `mixed` case) must be clearly visible. The BlazeDiff interpreter labels each changed region. The changed pixels of the regions that it does not label `rendering-noise` must cover at least 0.2% of the image: 2,592 pixels at the desktop viewport, 659 at the mobile one. The first owner queue had 60 real changes, and most of them were noise for a judge. 52 were component stories in an empty frame. 13 changed fewer than 200 pixels (a status dot of 12 × 12 pixels, a small icon). Many changed one line of text. Two commits gave 29 of the 60 cases, and one diff came again on many stories. The rule drops 26 of those 60 cases.
+
+**One case for each change.** A change to a shared part, such as the sidebar, shows the same diff on many pages. The builder keeps one real change for each commit, viewport and region signature (the change types, positions and sizes of the regions), and at most 6 real changes of each commit. Two stories or two commits can also give the same pair of images (a page in the same state, or a focus ring that one build shows and the next does not): each kind keeps one case of each pair. The known region is the box of the changed element before and after the change, 2 pixels wider on each side.
 
 ## Files
 
 - `cases.json`: the case manifest. It is in git. Its schema is `cases.schema.json`, from `cases.ts`.
 - `build.ts`: the builder (`pnpm visual:bakeoff:build`).
+- `panel.ts`: the judge panel that labels the real changes (`node packages/visual-review/evals/critic/panel.ts`).
 - `run.ts`: the runner (`pnpm visual:bakeoff:run`).
+- `spend.ts`: the spend cap of the runner and of the panel.
 - `report.ts`: the metrics, the report tables and the selection rule.
 - `images.ts`: the case images. Each image is one asset of the release `visual-bakeoff-images`, named by its SHA-256.
 - `publish.ts`: the publish step of the images (`pnpm visual:bakeoff:publish`).
@@ -38,14 +46,29 @@ pnpm visual:bakeoff:build [--seed 1] [--until <commit>] [--out .ci-results/visua
 
 The command does these steps:
 
-1. It reads the first-parent history of `apps/ui/src` up to `--until`, and selects the newest 60 commits that change a story.
+1. It reads the first-parent history of `apps/ui/src` up to `--until`, and selects the newest 40 commits. A page renders many components, so the builder renders each page story of each commit, and the pixel diff finds the pages that changed. The page stories are the stories with the `page` tag in the build of `--until`. An older build has the same story ids.
 2. It builds Storybook for each commit and each first parent, from a `git archive` export in a temporary folder. Commits with the same `apps/ui`, `packages` and lockfile trees share one build. Each build stays in `<out>/builds/`, so a second run builds only the missing ones.
-3. It captures all screenshots two times, each time in 4 capture containers at the same time. A screenshot that is not the same in the two rounds gives no case. Each candidate has its own seeded rank, so a story that is steady in one run and not in another changes only its own case.
+3. It captures all screenshots at both viewports, in parts of at most 800 stories, with 8 capture containers at the same time. Then it captures again the screenshots of the candidates that make a case. A screenshot that is not the same in the two rounds gives no case. Each candidate has its own seeded rank, so a story that is steady in one run and not in another changes only its own case.
 4. It compares each pair with the compare engine of the package, selects the cases with the seed, writes each image to `<out>/images/<sha256>.png`, and writes `cases.json`. A new case has only an after image.
 
 The same seed and the same `--until` commit give the same cases. The `--until` commit must be in the history of `origin/main`, because the builder installs and builds each commit on the host. The output folder must be in the repository, because the capture container mounts only the repository.
 
-A new build writes a new `cases.json`. It does not keep the labels that the owner changed or the taste picks. Copy them to the new manifest.
+A new build writes a new `cases.json`. It does not keep the panel votes, the labels of the owner or the taste picks. Run the panel again, or copy them to the new manifest.
+
+## The judge panel
+
+The judge panel labels the real changes ([CTX-1249](https://linear.app/ctxpipe/issue/CTX-1249)). Run the command from the repository root, after a build. It uses `MODEL_PROVIDER_API_KEY` (and `MODEL_PROVIDER_URL`).
+
+```sh
+node packages/visual-review/evals/critic/panel.ts [--models <list>] [--max-cost 40] [--images .ci-results/visual-bakeoff/images] [--cases <path>]
+```
+
+- **Members.** The default panel is `anthropic/claude-opus-5.5`, `openai/gpt-6.1-sol` and `google/gemini-4-argon`: one strong vision model of each of three families, through OpenRouter. `--models` gives another panel of 3 or more models.
+- **Votes.** Each member judges each case that has a before image, on its own: no member sees the vote of another one. Each member gets the same prompt (`buildPanelPrompt` in `src/prompt.ts`): the scope, the measured regions, the brief, the two-layer rubric, and the images of the compare engine, as the critic gets them. The reply is a reason and one label: `improvement`, `regression` or `no-change`. A reply that is not usable, or a call that fails two times, gives no vote and an error.
+- **Agreement rule.** A plain majority: a label counts when more than half of the members give it (2 of 3). Without a majority (for example, a failed vote and a tie), the case stays `unsure` and goes to the owner queue. A member with no vote stays in the count of the members.
+- **Evidence for the rule.** The first panel run judged 156 page cases for $4.81. The plain majority is right on 105 of 119 synthetic cases and labels all 37 real changes. Each disagreement on a real change was 2 against 1.
+- **Labels.** The votes, with their reasons, and the panel label go into `cases.json` (the `panel` of each case, and `panelModels`). A real change gets the case label of the panel label: `intended` for `improvement`, `regression` for `regression`, `noise` for `no-change`. A real change without agreement keeps the label `unsure`: it leaves the scored set and goes to the owner queue. A synthetic case (`regression`, `noise`, `mixed`) keeps its known label: the panel result on it measures the panel, and the command prints how often each member and the panel are right. A `new` case has no before image, so the panel does not judge it, and it keeps the label of the builder.
+- **Spend.** A call starts only while the spend is below `--max-cost`, with the rules of the runner. A case gets its panel only when each member gave its answer or an error. A second run, with the same models, judges the cases that have no panel yet, and again each case with an error vote: a short outage does not fill the owner queue. Run the panel again before `push` when the output gives errors.
 
 ## Publish the images
 
@@ -87,9 +110,9 @@ A `new` case has no before image. Each arm judges it with its judge of a new scr
 - A `cascade` arm sends a new screenshot to its model, never to the filter, as `pnpm visual:review --filter jev` does.
 - `blazediff-local` judges a pair of images, so it cannot judge a new screenshot. The report says "not applicable" for it, and the run makes no call.
 
-The runner compares each pair with the compare engine of the package and gives each arm the same story input as `pnpm visual:review`. As in the critic, a case whose regions are all `rendering-noise` is `noise` with no call. An `llm-no-facts` arm has no change types, so this step does not apply to it. The case manifest has no scope, so each case is judged as a part of the UI, and the page-only qualities are not judged.
+The runner compares each pair with the compare engine of the package and gives each arm the same story input as `pnpm visual:review`. As in the critic, a case whose regions are all `rendering-noise` is `noise` with no call. An `llm-no-facts` arm has no change types, so this step does not apply to it. Each case has the scope of the manifest (`page`), so the page-only qualities apply.
 
-The runner holds out 30% of the cases of each kind of change. A hash of the seed of the manifest and the case id selects them, so the same manifest gives the same set. A label of the owner does not change the set. All arms do all runs of the hold-out cases first. Then they do the other cases. A failed call gets one retry. If the retry fails, the verdict is `unsure` with an error.
+The real changes have the labels of the judge panel. A real change with the label `unsure` (no panel label yet, no agreement, or the owner was not sure) does not run. The runner holds out 30% of the cases of each kind of change. A hash of the seed of the manifest and the case id selects them, so the same manifest gives the same set. A label of the owner does not change the set. All arms do all runs of the hold-out cases first. Then they do the other cases. A failed call gets one retry. If the retry fails, the verdict is `unsure` with an error.
 
 Two limits stop the run. A paid call starts only while the spend is below `--max-cost`. After `--max-minutes`, no call starts. Each call checks both limits, also a retry, and a case gets its images only after the same check. Calls that already run finish, so a run can end above the cap by at most the cost of the calls in flight. A call without `usage.cost`, and a failed call, count as the most expensive call so far, and at least $0.10. The report gives the number of such calls. When a limit stops the run, the report counts only the cases and runs that every arm judged.
 
@@ -97,7 +120,7 @@ The runner writes `results.json` (each verdict of each arm, case and run) and `r
 
 ## Report
 
-The report has a table for the hold-out set and a table for the other cases. Each table has one row for each arm:
+The report has a table for the hold-out set and a table for the other cases. The labels of the real changes come from the judge panel. An arm whose model is a member of the panel has the mark "(panel)" after its name, because the panel labels can favor that model. Each table has one row for each arm:
 
 - **Recall**: the share of the verdicts on `regression` cases that are `regression`. This is the main metric.
 - **Precision**: the share of the `regression` verdicts that are on `regression` cases.
@@ -115,7 +138,9 @@ The report has a table for the hold-out set and a table for the other cases. Eac
 
 ## The workflow
 
-`.github/workflows/visual-bakeoff.yaml` runs the bake-off by hand in the `workbench` environment, with its spend-capped `MODEL_PROVIDER_API_KEY`. The runner downloads the images of the cases that run from the release. `hold_out_only` runs only the hold-out cases. The workflow installs the local judge of BlazeDiff in its own folder, and runs the arms with `--max-cost` (default 90, a margin for the calls that already started below the $100 limit of the key) and `--max-minutes 300`. The job summary shows the report, and the artifact `visual-bakeoff-report` holds `report.md` and `results.json`.
+`.github/workflows/visual-bakeoff.yaml` runs the bake-off or the judge panel by hand in the `workbench` environment, with its spend-capped `MODEL_PROVIDER_API_KEY`. The runner downloads the images of the cases that run from the release. `hold_out_only` runs only the hold-out cases. The workflow installs the local judge of BlazeDiff in its own folder, and runs the arms with `--max-cost` (default 90, a margin for the calls that already started below the $100 limit of the key) and `--max-minutes 300`. The job summary shows the report, and the artifact `visual-bakeoff-report` holds `report.md` and `results.json`.
+
+With `panel`, the job runs the judge panel instead of the bake-off, with the spend cap of the panel ($40, the default of `panel.ts`; see the cost estimate in the pull request of [CTX-1249](https://linear.app/ctxpipe/issue/CTX-1249)). `panel_models` replaces the default panel when it is set. The artifact then holds the new `cases.json` with the votes: commit it in a pull request, and push the owner queue.
 
 The default arms are the models of the plan in the three prompt arms, the three decision models (Jev, Elephant and Mammoth) alone, the cascade from each of them to Sonnet, and the local judge. A decision call costs much less than an LLM call, and a cascade calls Sonnet only when its filter does not accept the change, so a cascade arm costs at most the Sonnet arm. A full run of all the default arms costs more than $100. The hold-out cases go first, so a run that the cap stops still has the cases of the selection rule. To spend less, give fewer arms or fewer runs.
 
@@ -123,7 +148,7 @@ The default arms are the models of the plan in the three prompt arms, the three 
 
 The owner labels in the Langfuse annotation queue `visual-bakeoff`. It has two score configs:
 
-- `bakeoff-label`: `intended`, `regression` or `unsure`, for each real change (an `intended` case). The item shows the brief and the before and after images from the release.
+- `bakeoff-label`: `intended`, `regression` or `unsure`, for each real change (an `intended` case) on which the judge panel does not agree. `intended` is an improvement, or a change that is as good and adds no defect. The item shows the brief, the votes of the panel with their reasons, and the before and after images from the release.
 - `bakeoff-pick`: `A`, `B` or `tie`, the blind pick of two critic outputs of one case. The item shows the case and the two outputs, with no arm and no model.
 
 Run the commands from the repository root. `LANGFUSE_AUTH_STRING` is base64(`<public key>:<secret key>`) of the Langfuse project.
@@ -133,5 +158,5 @@ pnpm visual:bakeoff:queue push [--results <results.json>] [--pairs 60]
 pnpm visual:bakeoff:queue export [--results <results.json>]
 ```
 
-- `push` puts a label item for each real change into the queue. With the `results.json` of a run, it also puts in the blind picks: for each case, one pair of the arms that judged it in run 1 (a hash selects the pair and the order A, B), up to `--pairs` cases. A case that no judge saw (the noise step) gives no pair. An item that is in the queue already does not go in again.
-- `export` writes the newest label of each real change into `cases.json`. With the same `results.json`, it also writes the picks into `taste`. A new pick of a case and two arms replaces the old one.
+- `push` puts a label item for each real change without panel agreement into the queue. With the `results.json` of a run, it also puts in the blind picks: for each case, one pair of the arms that judged it in run 1 (a hash selects the pair and the order A, B), up to `--pairs` cases. A case that no judge saw (the noise step) gives no pair. An item that is in the queue already does not go in again.
+- `export` writes the newest label of each queued real change into `cases.json`. With the same `results.json`, it also writes the picks into `taste`. A new pick of a case and two arms replaces the old one.

@@ -11,7 +11,7 @@ import {
   zoektStagingDirFromIndexDir,
 } from "./config/paths.js"
 import { resetCacheForLayout } from "./domain/repositories/layoutReset.js"
-import { shardStore } from "./domain/store/shardStore.js"
+import { isShardStoreReadOnly, shardStore } from "./domain/store/shardStore.js"
 import { flushEvlog, initEvlog } from "./observability/logger.js"
 import { initOtel, shutdownOtel } from "./observability/otel.js"
 
@@ -28,8 +28,10 @@ await rm(zoektStagingDirFromIndexDir(ZOEKT_INDEX_DIR), {
   recursive: true,
   force: true,
 })
-// Fails the start on a malformed CODESEARCH_SHARD_STORE.
+// Fails the start on a malformed CODESEARCH_SHARD_STORE or
+// CODESEARCH_SHARD_STORE_READ_ONLY.
 shardStore()
+isShardStoreReadOnly()
 const app = createApp(env)
 
 async function shutdownResources() {
