@@ -3,9 +3,9 @@ import type { ReactNode } from "react"
 import { Button } from "@/components/ui/Button"
 
 /**
- * The frame of each connector setup dialog: a header, a body and a footer.
- * The body starts at the left edge of the title, so the mark sits alone in
- * its column. The footer has the one Close control of the dialog.
+ * The frame of each connector setup dialog: a header, a body and a footer
+ * on one grid. The mark of the header, the setup steps and the step card
+ * share one left edge. The footer has the one Close control of the dialog.
  */
 export function ConnectorSetupFrame(props: {
   icon: ReactNode
@@ -29,7 +29,7 @@ export function ConnectorSetupFrame(props: {
           </p>
         </div>
       </header>
-      <div className="px-6 py-6 sm:pl-18">{props.children}</div>
+      <div className="p-6">{props.children}</div>
       <footer className="flex justify-end border-t border-white/[0.06] px-6 py-4">
         <Button variant="secondary" onPress={props.onClose}>
           Close

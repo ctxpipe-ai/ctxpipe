@@ -16,7 +16,7 @@ const meta = {
   component: PullRequestsToMerge,
   decorators: [
     (Story) => (
-      <ol className="max-w-xl bg-zinc-950 p-4 px-7">
+      <ol className="max-w-xl bg-zinc-950 p-4">
         <Story />
       </ol>
     ),

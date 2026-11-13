@@ -36,6 +36,7 @@ export function OrgOutletError(props: {
       <InlineAlert
         variant="error"
         title={props.title}
+        actionsPlacement="end"
         actions={
           props.reset ? (
             <Button variant="secondary" onPress={props.reset}>
