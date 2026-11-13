@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest"
 
 import {
   judgementJsonSchema,
+  packagedRubric,
   parseVerdict,
   verdictSchema,
   type StoryInput,
@@ -181,10 +182,11 @@ describe("parseVerdict", () => {
         walk(child, `${path}.${key}`)
     }
 
-    walk(judgementJsonSchema, "$")
+    const schema = judgementJsonSchema(packagedRubric)
+    walk(schema, "$")
 
     expect(loose).toEqual([])
-    expect(judgementJsonSchema.required).toEqual([
+    expect(schema.required).toEqual([
       "observations",
       "verdict",
       "severity",

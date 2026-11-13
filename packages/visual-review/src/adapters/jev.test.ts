@@ -17,8 +17,10 @@ import {
   vi,
 } from "vitest"
 
-import { areas, qualities, verdictSchema, type StoryInput } from "../index.ts"
+import { packagedRubric, verdictSchema, type StoryInput } from "../index.ts"
 import { judgeNewWithJev, judgeWithJev } from "./jev.ts"
+
+const { areas, qualities } = packagedRubric
 
 type DecisionsBody = {
   model: string

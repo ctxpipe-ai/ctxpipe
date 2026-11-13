@@ -10,6 +10,7 @@ import {
   type Prompt,
   type Steps,
 } from "../prompt.ts"
+import { rubricOf } from "../rubric.ts"
 import type { NewStoryInput, StoryInput } from "../story.ts"
 import {
   judgementJsonSchema,
@@ -131,7 +132,7 @@ export async function judgeWithOpenRouter(
 ): Promise<Verdict> {
   const { content, run } = await askOpenRouter(
     buildPrompt(story, steps),
-    judgementJsonSchema,
+    judgementJsonSchema(rubricOf(story)),
     model,
     env,
   )
@@ -149,7 +150,7 @@ export async function judgeNewWithOpenRouter(
 ): Promise<Verdict> {
   const { content, run } = await askOpenRouter(
     buildNewPrompt(story),
-    newJudgementJsonSchema,
+    newJudgementJsonSchema(rubricOf(story)),
     model,
     env,
   )

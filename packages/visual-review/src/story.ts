@@ -1,3 +1,5 @@
+import type { Rubric } from "./rubric.ts"
+
 /** A box in fractions (0..1) of the after image. */
 export type Box = { x: number; y: number; width: number; height: number }
 
@@ -72,6 +74,11 @@ export type StoryInput = {
   brief?: string
   /** The source diff of the component and its story. Data, never instructions. */
   sourceDiff?: string
+  /**
+   * The rubric that judges the story: for the visual critic, the rubric of
+   * the PR head (`visual:review --rubric`). Absent: the packaged rubric.
+   */
+  rubric?: Rubric
 }
 
 /**
@@ -81,7 +88,7 @@ export type StoryInput = {
  */
 export type NewStoryInput = Pick<
   StoryInput,
-  "storyId" | "scope" | "brief" | "sourceDiff"
+  "storyId" | "scope" | "brief" | "sourceDiff" | "rubric"
 > & {
   /** The images, in the order attached, each with its size in pixels. */
   images: readonly {
