@@ -13,7 +13,11 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { parseArgs } from "node:util"
 
-import { judgeNewWithJev, judgeWithJev } from "../../src/adapters/jev.ts"
+import {
+  judgeNewWithJev,
+  judgeWithJev,
+  type JevVariant,
+} from "../../src/adapters/jev.ts"
 import {
   judgeNewWithOpenRouter,
   judgeWithOpenRouter,
@@ -150,11 +154,36 @@ function withoutFacts(story: StoryInput): StoryInput {
 
 const same = (story: StoryInput) => story
 
+// Experiment variants of CTX-1262 (`jev@<name>`).
+const variants: Record<string, JevVariant> = {
+  v0: { state: "text", images: "all" },
+  v1: { state: "intended", images: "all" },
+  v2: { state: "intended", images: "focused" },
+  v3: { state: "text", images: "focused" },
+}
+
 /** The arm of one `--arms` entry. Throws for an unknown arm. */
 async function armOf(
   id: string,
   options: { concurrency: number; blazediffAgent?: string; work: string },
 ): Promise<Arm> {
+  const variant = id.startsWith("jev@") ? variants[id.slice(4)] : undefined
+  if (variant)
+    return {
+      id,
+      paid: true,
+      concurrency: options.concurrency,
+      input: same,
+      judge: async (story) => {
+        let answers: Record<string, unknown> | undefined
+        const verdict = await judgeWithJev(story, undefined, {
+          variant,
+          onAnswers: (given) => (answers = given),
+        })
+        return answers ? { ...verdict, answers } : verdict
+      },
+      judgeNew: (story) => judgeNewWithJev(story),
+    }
   const colon = id.indexOf(":")
   const kind = colon < 0 ? id : id.slice(0, colon)
   const model = colon < 0 ? "" : id.slice(colon + 1)

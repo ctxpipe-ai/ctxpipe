@@ -42,6 +42,11 @@ on:
         required: false
         type: boolean
         default: false
+      cases:
+        description: "The case manifest of the bake-off, from the repository root. Empty: cases.json. The redesign set is packages/visual-review/evals/critic/redesign.json."
+        required: false
+        type: string
+        default: ""
 
 concurrency:
   group: ${{ github.workflow }}
@@ -118,9 +123,11 @@ jobs:
           RUNS: ${{ inputs.runs }}
           MAX_COST: ${{ inputs.max_cost }}
           HOLD_OUT_ONLY: ${{ inputs.hold_out_only }}
+          CASES: ${{ inputs.cases }}
         run: |
           extra=()
           if [[ "$HOLD_OUT_ONLY" == true ]]; then extra+=(--hold-out-only); fi
+          if [[ -n "$CASES" ]]; then extra+=(--cases "$CASES"); fi
           pnpm visual:bakeoff:run \
             --arms "$ARMS" \
             --runs "$RUNS" \
