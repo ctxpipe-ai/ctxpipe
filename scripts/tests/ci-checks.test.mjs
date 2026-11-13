@@ -24,6 +24,7 @@ import { prerequisites, withNeeds } from "../checks/prerequisites.mjs"
 import { uiBundledImports } from "../checks/projects.mjs"
 import { failedChecks, failedIds } from "../checks/rerun-failed.mjs"
 import { runsInOf } from "../checks/shard.mjs"
+import { noteTables } from "../checks/trace-tables.mjs"
 import { vitestCommand } from "../ci/vitest-launch.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -223,13 +224,20 @@ test("the manifest matches its schema and lists each check of each family", asyn
       !(
         check.lane === "terraform-plan" ||
         check.lane.startsWith("image-") ||
-        check.family === "deploy" ||
-        // This policy check reads the git diff, not only the files.
-        check.lane === "adr"
+        check.family === "deploy"
       ),
       check.id,
     )
   }
+  // The ADR check reads only the decisions directory, so a change outside
+  // it keeps its key.
+  assert.deepEqual(
+    manifest.checks
+      .find((check) => check.lane === "adr")
+      .inputs.filter((input) => !input.startsWith("scripts/checks/"))
+      .filter((input) => !/^(package\.json|pnpm-|\.node-version)/.test(input)),
+    ["scripts/ci/check-adr.mjs", ".ai/memory/decisions/**"],
+  )
   assert.ok(manifest.checks.some((check) => check.lane === "codesearch"))
   assert.ok(manifest.checks.some((check) => check.lane === "codesearch-bun"))
   // A cache key hashes a `value` variable, and holds only set or unset for a
@@ -368,10 +376,6 @@ test("the manifest marks exactly the platform-independent checks portable", () =
     [
       "build:image",
       ...notPortable.filter((lane) => lane.startsWith("deploy:")),
-      // The shell tests of the CI scripts.
-      ...readdirSync(join(root, "scripts/tests"))
-        .filter((name) => name.endsWith(".test.sh"))
-        .map((name) => `policy:tests-${name.replace(/\.test\.sh$/, "")}`),
       // Only the contracts file of the denylist.
       "vitest:contracts",
       "vitest:latency",
@@ -791,10 +795,9 @@ test("the edge hooks record names, never statement text or data", () => {
   )
 })
 
-test("the table hook reads the tables of a query and skips schema statements", async () => {
-  const { emptyEdges, noteTables } = await import("../checks/trace-edges.mjs")
+test("the table hook reads the tables of a query and skips schema statements", () => {
   const tables = (text) => {
-    const edges = emptyEdges()
+    const edges = { read: new Set(), write: new Set() }
     noteTables(text, edges)
     return [[...edges.read], [...edges.write]]
   }
@@ -831,10 +834,9 @@ test("the table hook reads the tables of a query and skips schema statements", a
   assert.deepEqual(tables('TRUNCATE "users"'), [[], []])
 })
 
-test("the table hook never takes a name from literal text or a comment", async () => {
-  const { emptyEdges, noteTables } = await import("../checks/trace-edges.mjs")
+test("the table hook never takes a name from literal text or a comment", () => {
   const tables = (text) => {
-    const edges = emptyEdges()
+    const edges = { read: new Set(), write: new Set() }
     noteTables(text, edges)
     return [[...edges.read], [...edges.write]]
   }
@@ -1128,13 +1130,16 @@ test("an eval case verdict is the eval gate for that case", async () => {
   )
 })
 
-test("the files that the runner loads import only by literal specifiers", () => {
-  // The cache key of a check follows each import() of the runner's closure.
-  // A computed specifier makes the selector refuse a key for every check.
+test("the runner and the tests of the CI scripts import only by literal specifiers", () => {
+  // The cache key of a check follows each import() of the runner's closure,
+  // and of the test file of a policy check. A computed specifier makes the
+  // selector refuse a key for every check, or for that test, and then the
+  // merge gate runs that test on each pull request that changes its inputs.
   const seen = new Set()
   const computed = []
   const visit = (file) => {
-    if (seen.has(file)) return
+    // A test can name a path in a string that is not an import.
+    if (seen.has(file) || !existsSync(file)) return
     seen.add(file)
     const text = readFileSync(file, "utf8")
     for (const match of text.matchAll(/\bimport\(\s*(?![\s"'`)])/g))
@@ -1145,6 +1150,8 @@ test("the files that the runner loads import only by literal specifiers", () => 
       visit(join(file, "..", match[1]))
   }
   visit(script("run.mjs"))
+  for (const name of readdirSync(join(root, "scripts/tests")))
+    if (name.endsWith(".test.mjs")) visit(join(root, "scripts/tests", name))
   assert.ok(seen.size > 5)
   assert.deepEqual(computed, [])
 })
@@ -1666,9 +1673,9 @@ test("each test file of the CI scripts is a policy check that selects on the fil
     assert.deepEqual(placeOf(check.id), { job: "lint" })
     for (const input of ["scripts/**", ".github/**", "pnpm-lock.yaml"])
       assert.ok(check.inputs.includes(input), `${name}: ${input}`)
-    // A shell test runs the tools of its host (bash, sed, jq), so a pass on
-    // macOS does not count on Linux.
-    assert.equal(check.portable, name.endsWith(".sh") ? undefined : true, name)
+    // A shell test runs fixed fixtures through POSIX options of bash, grep,
+    // sed, jq and python3 only, so a pass on macOS counts on Linux.
+    assert.equal(check.portable, true, name)
   }
   // A test that reads the whole manifest or the files of the apps selects
   // on them.

@@ -6,50 +6,6 @@ import { dirname, join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 
-// Each case builds a real git history: a base commit, then a change.
-function run(script, files, base = {}) {
-  const root = mkdtempSync(join(tmpdir(), "ctxpipe-repeat-checks-"))
-  const git = (...args) =>
-    execFileSync(
-      "git",
-      ["-c", "user.name=t", "-c", "user.email=t@t", ...args],
-      {
-        cwd: root,
-        encoding: "utf8",
-      },
-    )
-  const write = (tree) => {
-    for (const [path, text] of Object.entries(tree)) {
-      if (text === null) rmSync(join(root, path))
-      else {
-        mkdirSync(dirname(join(root, path)), { recursive: true })
-        writeFileSync(join(root, path), text)
-      }
-    }
-  }
-  try {
-    git("init", "-q", "-b", "main")
-    write({ "README.md": "x\n", ...base })
-    git("add", "-A")
-    git("commit", "-q", "-m", "base")
-    git("tag", "base")
-    write(files)
-    git("add", "-A")
-    git("commit", "-q", "-m", "change")
-    return spawnSync(
-      process.execPath,
-      [
-        fileURLToPath(new URL(`../ci/${script}`, import.meta.url)),
-        root,
-        "base",
-      ],
-      { encoding: "utf8" },
-    )
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-}
-
 // The module-scope value check reads the files of the working tree, so each
 // case is a git repository with no commit. The baseline is empty unless the
 // case gives one.
@@ -80,42 +36,50 @@ function scan(files) {
   }
 }
 
-test("a new ADR that the index omits fails", () => {
-  const result = run("check-adr.mjs", {
+// The ADR check reads only the files of the decisions directory, so that its
+// cache key holds all that it reads. Each case has no git repository.
+function adrs(files) {
+  const root = mkdtempSync(join(tmpdir(), "ctxpipe-repeat-checks-"))
+  try {
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(dirname(join(root, path)), { recursive: true })
+      writeFileSync(join(root, path), text)
+    }
+    return spawnSync(
+      process.execPath,
+      [fileURLToPath(new URL("../ci/check-adr.mjs", import.meta.url)), root],
+      { encoding: "utf8" },
+    )
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
+test("an ADR file that the index omits fails, without git history", () => {
+  const result = adrs({
     ".ai/memory/decisions/ADR-900-tool.md": "# ADR\n",
+    ".ai/memory/decisions/ADR-901-other.md": "# ADR\n",
+    ".ai/memory/decisions/index.md": "- ADR-900-tool\n",
   })
   assert.equal(result.status, 1)
-  assert.match(result.stderr, /list the new ADR/)
+  assert.match(
+    result.stderr,
+    /ADR-901-other\.md: list the ADR in \.ai\/memory\/decisions\/index\.md/,
+  )
+  assert.doesNotMatch(result.stderr, /ADR-900-tool/)
 })
 
-test("a new ADR that the index lists passes", () => {
-  const result = run("check-adr.mjs", {
+test("each ADR file that the index lists passes, without git history", () => {
+  const result = adrs({
     ".ai/memory/decisions/ADR-900-tool.md": "# ADR\n",
     ".ai/memory/decisions/index.md": "- ADR-900-tool\n",
+    ".ai/memory/decisions/README.md": "# Decisions\n",
   })
   assert.equal(result.status, 0, result.stderr)
 })
 
-test("a renamed ADR that the index omits fails", () => {
-  const result = run(
-    "check-adr.mjs",
-    {
-      ".ai/memory/decisions/ADR-900-tool.md": null,
-      ".ai/memory/decisions/ADR-901-tool.md": "# ADR\n",
-    },
-    {
-      ".ai/memory/decisions/ADR-900-tool.md": "# ADR\n",
-      ".ai/memory/decisions/index.md": "- ADR-900-tool\n",
-    },
-  )
-  assert.equal(result.status, 1)
-  assert.match(result.stderr, /ADR-901-tool/)
-})
-
-test("a new package needs no ADR for this check", () => {
-  const result = run("check-adr.mjs", {
-    "packages/tool/package.json": '{"name":"tool"}\n',
-  })
+test("a repository without a decisions directory passes", () => {
+  const result = adrs({ "packages/tool/package.json": '{"name":"tool"}\n' })
   assert.equal(result.status, 0, result.stderr)
 })
 
