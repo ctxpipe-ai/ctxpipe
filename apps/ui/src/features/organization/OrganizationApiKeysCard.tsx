@@ -13,7 +13,7 @@
  * `organizationRoles` config (apps/backend/src/auth/config.ts) which only
  * grants `apiKey` actions to owner/admin — this card surfaces that 403.
  */
-import { IconCopy, IconKey, IconTrash } from "@tabler/icons-react"
+import { IconCheck, IconCopy, IconKey, IconTrash } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { useState } from "react"
@@ -706,18 +706,18 @@ function CreatedSecretDialog(props: {
       <DialogHeader>
         <DialogTitle>API key created</DialogTitle>
         <DialogDescription>
-          Copy this secret now. Store it in{" "}
-          <code className="font-mono text-xs">CTXPIPE_API_KEY</code> and never
-          commit it; it will not be shown again.
+          Copy the key now. ctxpipe shows it only one time.
         </DialogDescription>
       </DialogHeader>
-      <p className="mt-4 break-all rounded-md border border-border bg-zinc-900 px-3 py-3 font-mono text-sm text-zinc-100">
-        {secret}
-      </p>
-      <div className="mt-5 flex justify-end gap-2">
+      <div className="mt-4 flex items-center gap-2 rounded-md border border-border bg-zinc-900 py-1 pr-1 pl-3">
+        <code className="min-w-0 flex-1 break-all py-1.5 font-mono text-sm text-zinc-100">
+          {secret}
+        </code>
         <Button
-          variant="outline"
-          className="rounded-md"
+          variant="secondary"
+          size="sm"
+          className="shrink-0"
+          aria-label={copied ? "API key copied" : "Copy API key"}
           onPress={() => {
             void copyToClipboard(secret).then(() => {
               setCopied(true)
@@ -725,10 +725,21 @@ function CreatedSecretDialog(props: {
             }, onCopyFailed)
           }}
         >
-          <IconCopy className="size-4" aria-hidden />
+          {copied ? (
+            <IconCheck className="size-3.5" aria-hidden />
+          ) : (
+            <IconCopy className="size-3.5" aria-hidden />
+          )}
           {copied ? "Copied" : "Copy"}
         </Button>
-        <Button variant="primary" className="rounded-md" onPress={onDone}>
+      </div>
+      <p className="mt-3 text-sm text-zinc-400">
+        Keep it in a secret manager, or set it as{" "}
+        <code className="font-mono text-xs text-zinc-300">CTXPIPE_API_KEY</code>{" "}
+        in your environment. Do not commit it to Git.
+      </p>
+      <div className="mt-6 flex justify-end">
+        <Button variant="primary" onPress={onDone}>
           Done
         </Button>
       </div>

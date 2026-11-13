@@ -1,5 +1,7 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite"
-import { expect, waitFor, within } from "storybook/test"
+import { expect, userEvent, waitFor, within } from "storybook/test"
+
+import { knowledgeGraphIntroStorageKey } from "@/features/knowledge-graph/knowledgeGraphIntroStorage"
 
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -108,5 +110,54 @@ export const NodesWithoutRelationships: Story = {
     await waitFor(() =>
       expect(canvas.getByText(/has 28 nodes but no edges yet/)).toBeVisible(),
     )
+  },
+}
+
+/**
+ * Close the tips: the browser keeps the choice for the org, so the tips do
+ * not open again on the next visit.
+ */
+export const ClosingTipsIsRemembered: Story = {
+  args: {
+    pending: false,
+    graph: docsWorkspaceGraph,
+  },
+  parameters: {
+    visual: { skip: "The end state is the same as TipsClosedEarlier." },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const tips = await canvas.findByRole("dialog", {
+      name: "Knowledge graph tips",
+    })
+    await userEvent.click(
+      within(tips).getByRole("button", { name: "Close tips" }),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("dialog", { name: "Knowledge graph tips" }),
+      ).toBeNull(),
+    )
+    await expect(
+      window.localStorage.getItem(knowledgeGraphIntroStorageKey("acme")),
+    ).toBe("1")
+  },
+}
+
+/** The user closed the tips on an earlier visit: the graph opens without them. */
+export const TipsClosedEarlier: Story = {
+  args: {
+    pending: false,
+    graph: docsWorkspaceGraph,
+  },
+  beforeEach: () => {
+    window.localStorage.setItem(knowledgeGraphIntroStorageKey("acme"), "1")
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("button", { name: "Show tips" })
+    await expect(
+      canvas.queryByRole("dialog", { name: "Knowledge graph tips" }),
+    ).toBeNull()
   },
 }

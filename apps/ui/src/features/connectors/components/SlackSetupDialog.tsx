@@ -26,6 +26,7 @@ import {
   getSlackSetupStepIndex,
   getSlackSetupView,
 } from "../slack-setup-model"
+import { ConnectorSetupFrame } from "./ConnectorSetupFrame"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { GitHubPrerequisiteStep } from "./GitHubPrerequisiteStep"
 
@@ -155,6 +156,9 @@ export function SlackSetupDialog({
     isError: statusQuery.isError,
   })
 
+  // The merge step is the last item of the setup steps.
+  const mergeStep = setupView === "workspaces" && pullRequests.length > 0
+
   return (
     <Modal
       isOpen={isOpen}
@@ -162,37 +166,28 @@ export function SlackSetupDialog({
       isDismissable
       className="max-w-[min(92vw,720px)]"
     >
-      <div className="p-6">
-        <div className="mb-5 flex items-start justify-between gap-3">
-          <div className="flex min-w-0 gap-3">
-            <span className="ctx-node h-9 w-9">
-              <IconBrandSlack className="size-5 text-foreground" aria-hidden />
-            </span>
-            <div>
-              <h2 className="text-lg font-medium tracking-tight text-foreground">
-                Set up Slack connector
-              </h2>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Save a Slack thread to your Workspaces when someone mentions the
-                ctxpipe bot in it. The bot reads nothing else.
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="secondary"
-            className="rounded-md"
-            onPress={() => onOpenChange(false)}
-          >
-            Close
-          </Button>
-        </div>
-
+      <ConnectorSetupFrame
+        icon={<IconBrandSlack className="size-5 text-foreground" aria-hidden />}
+        title="Set up Slack connector"
+        description="Save a Slack thread to your Workspaces when someone mentions the ctxpipe bot in it. The bot reads nothing else."
+        onClose={() => onOpenChange(false)}
+      >
         {status && !statusQuery.isPending && !statusQuery.isError ? (
-          <div className="mb-6">
+          <div className={mergeStep ? "" : "mb-6"}>
             <ConnectorSetupStepper
               steps={SLACK_SETUP_STEPS}
               currentIndex={
                 pullRequests.length ? SLACK_SETUP_STEPS.length : setupStepIndex
+              }
+              finalStep={
+                mergeStep ? (
+                  <PullRequestsToMerge
+                    orgSlug={orgSlug}
+                    pullRequests={pullRequests}
+                    stepNumber={SLACK_SETUP_STEPS.length + 1}
+                    detail="The Slack source change applies after the merge. Until then, a mention in a new channel replies that no Workspace has the channel."
+                  />
+                ) : null
               }
             />
           </div>
@@ -261,22 +256,7 @@ export function SlackSetupDialog({
               })
             }}
           />
-        ) : setupView === "workspaces" && pullRequests.length ? (
-          <div className="space-y-4">
-            <PullRequestsToMerge
-              orgSlug={orgSlug}
-              pullRequests={pullRequests}
-              detail="The Slack source change applies after the merge. Until then, a mention in a new channel replies that no Workspace has the channel."
-            />
-            <Button
-              variant="secondary"
-              className="rounded-md"
-              onPress={() => onOpenChange(false)}
-            >
-              Close
-            </Button>
-          </div>
-        ) : setupView === "workspaces" && connectionId ? (
+        ) : mergeStep ? null : setupView === "workspaces" && connectionId ? (
           <div className="flex flex-col gap-5">
             <section
               aria-label="How capture works"
@@ -321,7 +301,7 @@ export function SlackSetupDialog({
             reopen setup from the connector card.
           </p>
         )}
-      </div>
+      </ConnectorSetupFrame>
     </Modal>
   )
 }

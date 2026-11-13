@@ -27,6 +27,7 @@ import {
 } from "../queries/buildkite-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import { BuildkiteMark } from "./BuildkiteMark"
+import { ConnectorSetupFrame } from "./ConnectorSetupFrame"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { CopyableUrl } from "./notion-setup/CopyableUrl"
 
@@ -142,18 +143,8 @@ export function BuildkiteSetupDialog({
         />
       )
     }
-    return (
-      <div className="space-y-4">
-        <PullRequestsToMerge orgSlug={orgSlug} pullRequests={pullRequests} />
-        <Button
-          variant="secondary"
-          className="rounded-md"
-          onPress={() => onOpenChange(false)}
-        >
-          Close
-        </Button>
-      </div>
-    )
+    // The merge step is the last item of the setup steps.
+    return null
   })()
 
   return (
@@ -163,37 +154,29 @@ export function BuildkiteSetupDialog({
       isDismissable
       className="max-w-[min(92vw,720px)]"
     >
-      <div className="p-6">
-        <div className="mb-5 flex items-start justify-between gap-3">
-          <div className="flex min-w-0 gap-3">
-            <span className="ctx-node h-9 w-9">
-              <BuildkiteMark className="size-5 text-foreground" />
-            </span>
-            <div>
-              <h2 className="text-lg font-medium tracking-tight text-foreground">
-                Set up Buildkite connector
-              </h2>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Connect Buildkite, then select the pipelines for each Workspace.
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="secondary"
-            className="rounded-md"
-            onPress={() => onOpenChange(false)}
-          >
-            Close
-          </Button>
-        </div>
-        <div className="mb-6">
+      <ConnectorSetupFrame
+        icon={<BuildkiteMark className="size-5 text-foreground" />}
+        title="Set up Buildkite connector"
+        description="Connect Buildkite, then select the pipelines for each Workspace."
+        onClose={() => onOpenChange(false)}
+      >
+        <div className={workspacesDone ? "" : "mb-6"}>
           <ConnectorSetupStepper
             steps={BUILDKITE_SETUP_STEPS}
             currentIndex={stepIndex}
+            finalStep={
+              workspacesDone ? (
+                <PullRequestsToMerge
+                  orgSlug={orgSlug}
+                  pullRequests={pullRequests}
+                  stepNumber={BUILDKITE_SETUP_STEPS.length + 1}
+                />
+              ) : null
+            }
           />
         </div>
         {body}
-      </div>
+      </ConnectorSetupFrame>
     </Modal>
   )
 }

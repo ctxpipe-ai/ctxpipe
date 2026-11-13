@@ -176,7 +176,7 @@ export const ConnectedNotInAWorkspace: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Connected")
-    await userEvent.click(canvas.getByRole("button", { name: "Expand Linear" }))
+    await userEvent.click(canvas.getByRole("button", { name: "Linear" }))
     await canvas.findByText("No Workspaces yet")
     await expect(
       canvas.getByText(

@@ -23,6 +23,7 @@ import {
   fetchNotionOauthApp,
   notionConnectorKeys,
 } from "../queries/notion-connector"
+import { ConnectorSetupFrame } from "./ConnectorSetupFrame"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { AddNotionWebhookStep } from "./notion-setup/AddNotionWebhookStep"
 import { RegisterNotionOauthStep } from "./notion-setup/RegisterNotionOauthStep"
@@ -179,18 +180,8 @@ export function NotionSetupDialog({
         />
       )
     }
-    return (
-      <div className="space-y-4">
-        <PullRequestsToMerge orgSlug={orgSlug} pullRequests={pullRequests} />
-        <Button
-          variant="secondary"
-          className="rounded-md"
-          onPress={() => onOpenChange(false)}
-        >
-          Close
-        </Button>
-      </div>
-    )
+    // The merge step is the last item of the setup steps.
+    return null
   })()
 
   return (
@@ -200,40 +191,33 @@ export function NotionSetupDialog({
       isDismissable
       className="max-w-[min(92vw,720px)]"
     >
-      <div className="p-6">
-        <div className="mb-5 flex items-start justify-between gap-3">
-          <div className="flex min-w-0 gap-3">
-            <span className="ctx-node h-9 w-9">
-              <IconBrandNotion className="size-5 text-foreground" aria-hidden />
-            </span>
-            <div>
-              <h2 className="text-lg font-medium tracking-tight text-foreground">
-                Set up Notion connector
-              </h2>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Connect Notion, then select the pages and databases for each
-                Workspace.
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="secondary"
-            className="rounded-md"
-            onPress={() => onOpenChange(false)}
-          >
-            Close
-          </Button>
-        </div>
+      <ConnectorSetupFrame
+        icon={
+          <IconBrandNotion className="size-5 text-foreground" aria-hidden />
+        }
+        title="Set up Notion connector"
+        description="Connect Notion, then select the pages and databases for each Workspace."
+        onClose={() => onOpenChange(false)}
+      >
         {status?.isInstalled || oauthAppQuery.data ? (
-          <div className="mb-6">
+          <div className={workspacesDone ? "" : "mb-6"}>
             <ConnectorSetupStepper
               steps={setupSteps}
               currentIndex={setupStepIndex}
+              finalStep={
+                workspacesDone ? (
+                  <PullRequestsToMerge
+                    orgSlug={orgSlug}
+                    pullRequests={pullRequests}
+                    stepNumber={setupSteps.length + 1}
+                  />
+                ) : null
+              }
             />
           </div>
         ) : null}
         {body}
-      </div>
+      </ConnectorSetupFrame>
     </Modal>
   )
 }

@@ -83,9 +83,7 @@ export const Connected: Story = {
     // As on the other connector cards, Manage opens the setup at the
     // Workspaces step.
     onOpenSetup.mockClear()
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Expand Buildkite" }),
-    )
+    await userEvent.click(canvas.getByRole("button", { name: "Buildkite" }))
     await userEvent.click(await canvas.findByRole("button", { name: "Manage" }))
     await expect(onOpenSetup).toHaveBeenCalledWith()
   },
@@ -105,9 +103,7 @@ export const WebhookMissing: Story = {
       expect(canvas.getByText("Connected")).toBeInTheDocument(),
     )
     onOpenSetup.mockClear()
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Expand Buildkite" }),
-    )
+    await userEvent.click(canvas.getByRole("button", { name: "Buildkite" }))
     await waitFor(() =>
       expect(
         canvas.getByText(/Builds sync once a day until you add the webhook/),
@@ -142,9 +138,7 @@ export const ReplaceWebhookToken: Story = {
       expect(canvas.getByText("Connected")).toBeInTheDocument(),
     )
     onOpenSetup.mockClear()
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Expand Buildkite" }),
-    )
+    await userEvent.click(canvas.getByRole("button", { name: "Buildkite" }))
     await userEvent.click(
       await canvas.findByRole("button", { name: "Replace the webhook token" }),
     )
@@ -175,9 +169,7 @@ export const RevokedOpensReconnect: Story = {
       expect(canvas.getByText("Needs reconnect")).toBeInTheDocument(),
     )
     onOpenSetup.mockClear()
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Expand Buildkite" }),
-    )
+    await userEvent.click(canvas.getByRole("button", { name: "Buildkite" }))
     await waitFor(() =>
       expect(
         canvas.getByText(/Buildkite does not accept the saved token/),

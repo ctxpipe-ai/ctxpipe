@@ -16,9 +16,9 @@ const meta = {
   component: PullRequestsToMerge,
   decorators: [
     (Story) => (
-      <div className="max-w-xl bg-zinc-950 p-4">
+      <ol className="max-w-xl bg-zinc-950 p-4 px-7">
         <Story />
-      </div>
+      </ol>
     ),
     ...entryPageInnerDecorators,
   ],
@@ -31,6 +31,7 @@ const meta = {
   },
   args: {
     orgSlug: "acme",
+    stepNumber: 3,
     pullRequests: [
       {
         url: "https://github.com/acme/docs/pull/8",

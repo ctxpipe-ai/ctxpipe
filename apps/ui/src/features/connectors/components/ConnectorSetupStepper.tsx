@@ -1,4 +1,5 @@
 import { IconCheck } from "@tabler/icons-react"
+import type { ReactNode } from "react"
 
 type StepVisualState = "done" | "current" | "upcoming" | "done_after"
 
@@ -36,7 +37,46 @@ type ConnectorSetupStepperProps = {
   focusOverride?: number | null
   /** Previous / current step clicks (wizard only). */
   onStepSelect?: (index: number) => void
+  /**
+   * A step after the listed steps, as a list item with its own content: for
+   * example the merge step (`PullRequestsToMerge`).
+   */
+  finalStep?: ReactNode
   className?: string
+}
+
+/**
+ * The marker of a setup step: a check when the step is done, else its
+ * number. The marker of the current step has the primary border.
+ */
+export function StepMarker({
+  state,
+  number,
+}: {
+  state: StepVisualState
+  number: number
+}) {
+  if (state === "done" || state === "done_after") {
+    return (
+      <span
+        className={`flex size-5 shrink-0 items-center justify-center rounded-md border border-emerald-500 bg-zinc-900 ${state === "done_after" ? "opacity-60" : ""}`}
+        aria-hidden
+      >
+        <IconCheck className="size-3.5 text-emerald-500" stroke={2.5} />
+      </span>
+    )
+  }
+  return (
+    <span
+      className={
+        state === "current"
+          ? "flex size-5 shrink-0 items-center justify-center rounded-md border border-primary bg-zinc-900 text-xs font-medium text-primary"
+          : "flex size-5 shrink-0 items-center justify-center rounded-md border border-zinc-600 bg-zinc-900 text-xs text-muted-foreground"
+      }
+    >
+      {number}
+    </span>
+  )
 }
 
 export function ConnectorSetupStepper({
@@ -44,6 +84,7 @@ export function ConnectorSetupStepper({
   currentIndex,
   focusOverride = null,
   onStepSelect,
+  finalStep,
   className = "",
 }: ConnectorSetupStepperProps) {
   return (
@@ -68,25 +109,7 @@ export function ConnectorSetupStepper({
                 ? "text-muted-foreground"
                 : "text-muted-foreground"
 
-        const icon =
-          state === "done" || state === "done_after" ? (
-            <span
-              className={`flex size-5 shrink-0 items-center justify-center rounded-md border border-emerald-500 bg-zinc-900 ${state === "done_after" ? "opacity-60" : ""}`}
-              aria-hidden
-            >
-              <IconCheck className="size-3.5 text-emerald-500" stroke={2.5} />
-            </span>
-          ) : (
-            <span
-              className={
-                state === "current"
-                  ? "flex size-5 shrink-0 items-center justify-center rounded-md border border-primary bg-zinc-900 text-xs font-medium text-primary"
-                  : "flex size-5 shrink-0 items-center justify-center rounded-md border border-zinc-600 bg-zinc-900 text-xs text-muted-foreground"
-              }
-            >
-              {i + 1}
-            </span>
-          )
+        const icon = <StepMarker state={state} number={i + 1} />
 
         const label = (
           <div className={`min-w-0 pt-0.5 ${labelClasses}`}>{step.label}</div>
@@ -117,6 +140,7 @@ export function ConnectorSetupStepper({
           </li>
         )
       })}
+      {finalStep}
     </ol>
   )
 }

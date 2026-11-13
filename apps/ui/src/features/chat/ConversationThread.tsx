@@ -329,7 +329,10 @@ export function ConversationThread(props: {
         <Conversation className="min-h-0 flex-1">
           <ConversationContent
             className={cn(
-              "mx-auto gap-6 p-5",
+              // The same column as the composer: 12 px from the pane, then
+              // the column width. The answers start at its left edge and
+              // the questions end at its right edge.
+              "mx-auto box-content gap-6 px-3 py-5",
               chatColumnClassName,
               contentClassName,
             )}
@@ -390,7 +393,7 @@ export function ConversationThread(props: {
           <ConversationScrollButton />
         </Conversation>
         {props.onRetryStoppedTurn ? (
-          <div className="px-4 pb-2">
+          <div className="px-3 pb-2">
             <div className={cn("mx-auto", chatColumnClassName)}>
               <InlineAlert
                 variant="warning"
@@ -411,7 +414,7 @@ export function ConversationThread(props: {
           </div>
         ) : null}
         {error ? (
-          <div className="px-4 pb-2">
+          <div className="px-3 pb-2">
             <div className={cn("mx-auto", chatColumnClassName)}>
               <InlineAlert variant="error" title="Could not send">
                 {error.message || "Chat request failed."} Send again to retry.

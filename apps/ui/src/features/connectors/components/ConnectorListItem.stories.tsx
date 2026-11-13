@@ -80,7 +80,7 @@ export const PendingSetup: Story = {
     expect(
       canvas.queryByRole("button", { name: /connector actions/ }),
     ).toBeNull()
-    await userEvent.click(canvas.getByRole("button", { name: "Expand GitHub" }))
+    await userEvent.click(canvas.getByRole("button", { name: "GitHub" }))
     await canvas.findByText("Account")
     expect(
       canvas.getAllByRole("button", { name: /Complete GitHub install/ }),
@@ -114,7 +114,7 @@ export const PendingSetupNarrow: Story = {
     const nameBox = name.getBoundingClientRect()
     expect(remove.getBoundingClientRect().top).toBeGreaterThan(nameBox.bottom)
     const expand = canvas.getByRole("button", {
-      name: "Expand Confluence",
+      name: "Confluence",
     })
     expect(expand.getBoundingClientRect().top).toBeLessThan(nameBox.bottom)
     const action = canvas.getByRole("button", {

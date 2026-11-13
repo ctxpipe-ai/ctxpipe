@@ -22,6 +22,7 @@ import {
   fetchLinearOauthApp,
   linearConnectorKeys,
 } from "../../queries/linear-connector"
+import { ConnectorSetupFrame } from "../ConnectorSetupFrame"
 import { ConnectorSetupStepper } from "../ConnectorSetupStepper"
 import { LinearMark } from "../LinearMark"
 import { LinearConnectStep } from "./LinearConnectStep"
@@ -135,35 +136,29 @@ export function LinearSetupWizard({
       isDismissable
       className="max-w-[min(92vw,720px)]"
     >
-      <div className="p-6">
-        <div className="mb-5 flex items-start justify-between gap-3">
-          <div className="flex min-w-0 gap-3">
-            <span className="ctx-node h-9 w-9">
-              <LinearMark className="size-5 text-foreground" />
-            </span>
-            <div>
-              <h2 className="text-lg font-medium tracking-tight text-foreground">
-                Set up Linear connector
-              </h2>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Connect Linear, then select the teams and projects for each
-                Workspace.
-              </p>
-            </div>
-          </div>
-          <Button variant="secondary" className="rounded-md" onPress={close}>
-            Close
-          </Button>
-        </div>
-
+      <ConnectorSetupFrame
+        icon={<LinearMark className="size-5 text-foreground" />}
+        title="Set up Linear connector"
+        description="Connect Linear, then select the teams and projects for each Workspace."
+        onClose={close}
+      >
         {status && !loading ? (
-          <div className="mb-6">
+          <div className={pullRequests.length ? "" : "mb-6"}>
             <ConnectorSetupStepper
               steps={setupSteps}
               currentIndex={
                 pullRequests.length
                   ? setupSteps.length
                   : getLinearSetupCurrentIndex(status, oauthMeta)
+              }
+              finalStep={
+                pullRequests.length ? (
+                  <PullRequestsToMerge
+                    orgSlug={orgSlug}
+                    pullRequests={pullRequests}
+                    stepNumber={setupSteps.length + 1}
+                  />
+                ) : null
               }
             />
           </div>
@@ -191,17 +186,8 @@ export function LinearSetupWizard({
           />
         ) : body === "connect" ? (
           <LinearConnectStep orgSlug={orgSlug} connectionId={connectionId} />
-        ) : body === "workspaces" && pullRequests.length ? (
-          <div className="space-y-4">
-            <PullRequestsToMerge
-              orgSlug={orgSlug}
-              pullRequests={pullRequests}
-            />
-            <Button variant="secondary" className="rounded-md" onPress={close}>
-              Close
-            </Button>
-          </div>
-        ) : body === "workspaces" && connectionId ? (
+        ) : body === "workspaces" && pullRequests.length ? null : body ===
+            "workspaces" && connectionId ? (
           <AddToWorkspacesStep
             orgSlug={orgSlug}
             provider="linear"
@@ -217,7 +203,7 @@ export function LinearSetupWizard({
             reopen setup from the connector card.
           </p>
         )}
-      </div>
+      </ConnectorSetupFrame>
     </Modal>
   )
 }

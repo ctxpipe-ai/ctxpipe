@@ -22,6 +22,7 @@ import {
   fetchPlainConnectorStatus,
   plainConnectorKeys,
 } from "../queries/plain-connector"
+import { ConnectorSetupFrame } from "./ConnectorSetupFrame"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { PlainMark } from "./PlainMark"
 
@@ -124,18 +125,8 @@ export function PlainSetupDialog({
         />
       )
     }
-    return (
-      <div className="space-y-4">
-        <PullRequestsToMerge orgSlug={orgSlug} pullRequests={pullRequests} />
-        <Button
-          variant="secondary"
-          className="rounded-md"
-          onPress={() => onOpenChange(false)}
-        >
-          Close
-        </Button>
-      </div>
-    )
+    // The merge step is the last item of the setup steps.
+    return null
   })()
 
   return (
@@ -145,38 +136,29 @@ export function PlainSetupDialog({
       isDismissable
       className="max-w-[min(92vw,720px)]"
     >
-      <div className="p-6">
-        <div className="mb-5 flex items-start justify-between gap-3">
-          <div className="flex min-w-0 gap-3">
-            <span className="ctx-node h-9 w-9">
-              <PlainMark className="size-5 text-foreground" />
-            </span>
-            <div>
-              <h2 className="text-lg font-medium tracking-tight text-foreground">
-                Set up Plain connector
-              </h2>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Connect Plain, then select the Help Centers and thread labels
-                for each Workspace.
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="secondary"
-            className="rounded-md"
-            onPress={() => onOpenChange(false)}
-          >
-            Close
-          </Button>
-        </div>
-        <div className="mb-6">
+      <ConnectorSetupFrame
+        icon={<PlainMark className="size-5 text-foreground" />}
+        title="Set up Plain connector"
+        description="Connect Plain, then select the Help Centers and thread labels for each Workspace."
+        onClose={() => onOpenChange(false)}
+      >
+        <div className={workspacesDone ? "" : "mb-6"}>
           <ConnectorSetupStepper
             steps={PLAIN_SETUP_STEPS}
             currentIndex={stepIndex}
+            finalStep={
+              workspacesDone ? (
+                <PullRequestsToMerge
+                  orgSlug={orgSlug}
+                  pullRequests={pullRequests}
+                  stepNumber={PLAIN_SETUP_STEPS.length + 1}
+                />
+              ) : null
+            }
           />
         </div>
         {body}
-      </div>
+      </ConnectorSetupFrame>
     </Modal>
   )
 }

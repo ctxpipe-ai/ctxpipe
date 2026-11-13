@@ -60,6 +60,10 @@ const TREE_HOST_STYLE = {
   background: "transparent",
   "--trees-bg-override": "transparent",
   "--trees-theme-sidebar-bg": "transparent",
+  // Set the ink: the library default can resolve to its light-scheme gray,
+  // so the names read as disabled on the dark pane.
+  "--trees-fg-override": "var(--color-zinc-300)",
+  "--trees-fg-muted-override": "var(--color-zinc-400)",
   "--trees-theme-input-bg": "var(--color-zinc-900)",
   "--trees-theme-list-active-selection-bg": "var(--color-zinc-800)",
   "--trees-theme-list-hover-bg": "var(--color-zinc-900)",
