@@ -33,7 +33,7 @@ The product owner decided on 2026-11-13: "Use Jev for this capability and just f
    - A highest probability from 0.2 up to 0.5, or a question with no answer, is `unsure`.
    - Else the verdict is `intended` when the brief or the source diff explains the change, and `unsure` when nothing explains it.
    - An image pair in the tolerance of the visual check is `noise`, and a removed screenshot is `unsure`. Neither calls Jev.
-3. **A Jev result is feedback, never a block** (owner decision, 2026-11-13). Each Jev `regression` has severity `minor`, so the factory makes it a nit, and the critic passes. The visual critic is a feedback loop for the implementing agent, not a gate that needs an override. Jev found 18 of the 19 hold-out regressions (recall 0.95), but its precision is 0.90: it also flagged 2 of the 8 intended changes. A block on each of those needs an override; feedback does not.
+3. **A Jev result is feedback, never a block** (owner decision, 2026-11-13). Each Jev `regression` has severity `minor`, so the factory makes it a nit, and the critic passes. The visual critic is a feedback loop for the implementing agent, not a gate that needs an override. On the 27 cases that every arm judged, Jev with the first rubric found 18 of the 19 regressions (recall 0.95), but its precision was 0.90: it also flagged 2 of the 8 intended changes. With the rubric of rule 8, the precision on all 47 hold-out cases is 0.83. A block on each of those needs an override; feedback does not.
    - In `--images` mode, `visual:review --judge jev` copies the `before`, `after` and `diff` images of each suspected regression (only `after` for a new screenshot) to a new private folder of the system temporary folder, which the command keeps. The summary of the verdict names the area or quality, the probability of Jev, the region when Jev placed one, and the paths of these copies. The factory shows the summary in the finding.
    - The agent looks at the images of each suspected regression. It fixes the defect, or it says in the PR description why the change is intended.
    - The shared store keeps only the verdict word and the severity. A reused verdict has no image paths. Then the agent compares the base image (`git show <merge base>:<path>`) with the head image in its checkout.
@@ -53,8 +53,7 @@ The product owner decided on 2026-11-13: "Use Jev for this capability and just f
 - A visual review costs fractions of a cent for a normal PR, and it takes seconds.
 - A visual finding has an area, a region, a probability and the images, but no written evidence: Jev gives no text. The agent must find the defect in the images. To get a written verdict, run `pnpm visual:review --judge model` or `--judge agent` on your own machine.
 - No visual finding stops a merge. A real regression that the agent ignores can merge. The agent must answer each suspected regression with a fix or a reason in the PR.
-- About one intended change in four gets a feedback finding that the agent answers with a reason.
-- A quarter of the verdicts are `unsure` nits.
+- With the first rubric (27 cases), about one intended change in four got a feedback finding that the agent answers with a reason, and a quarter of the verdicts were `unsure` nits. With the rubric of rule 8 (47 cases), the precision is 0.83 and 0.23 of the verdicts are `unsure`.
 
 ## Limits of the evidence
 
