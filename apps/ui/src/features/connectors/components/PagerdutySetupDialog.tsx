@@ -208,21 +208,21 @@ export function PagerdutySetupDialog({
         onClose={() => onOpenChange(false)}
       >
         {status || !connectionId ? (
-          <div className={workspacesDone ? "" : "mb-6"}>
-            <ConnectorSetupStepper
-              steps={setupSteps}
-              currentIndex={setupStepIndex}
-              finalStep={
-                workspacesDone ? (
-                  <PullRequestsToMerge
-                    orgSlug={orgSlug}
-                    pullRequests={pullRequests}
-                    stepNumber={setupSteps.length + 1}
-                  />
-                ) : null
-              }
-            />
-          </div>
+          <ConnectorSetupStepper
+            steps={setupSteps}
+            currentIndex={setupStepIndex}
+            finalStep={
+              workspacesDone
+                ? (stepNumber) => (
+                    <PullRequestsToMerge
+                      orgSlug={orgSlug}
+                      pullRequests={pullRequests}
+                      stepNumber={stepNumber}
+                    />
+                  )
+                : undefined
+            }
+          />
         ) : null}
         {body}
       </ConnectorSetupFrame>

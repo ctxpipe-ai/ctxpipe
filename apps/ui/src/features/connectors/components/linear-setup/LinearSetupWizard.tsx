@@ -143,25 +143,25 @@ export function LinearSetupWizard({
         onClose={close}
       >
         {status && !loading ? (
-          <div className={pullRequests.length ? "" : "mb-6"}>
-            <ConnectorSetupStepper
-              steps={setupSteps}
-              currentIndex={
-                pullRequests.length
-                  ? setupSteps.length
-                  : getLinearSetupCurrentIndex(status, oauthMeta)
-              }
-              finalStep={
-                pullRequests.length ? (
-                  <PullRequestsToMerge
-                    orgSlug={orgSlug}
-                    pullRequests={pullRequests}
-                    stepNumber={setupSteps.length + 1}
-                  />
-                ) : null
-              }
-            />
-          </div>
+          <ConnectorSetupStepper
+            steps={setupSteps}
+            currentIndex={
+              pullRequests.length
+                ? setupSteps.length
+                : getLinearSetupCurrentIndex(status, oauthMeta)
+            }
+            finalStep={
+              pullRequests.length
+                ? (stepNumber) => (
+                    <PullRequestsToMerge
+                      orgSlug={orgSlug}
+                      pullRequests={pullRequests}
+                      stepNumber={stepNumber}
+                    />
+                  )
+                : undefined
+            }
+          />
         ) : null}
 
         {loading ? (

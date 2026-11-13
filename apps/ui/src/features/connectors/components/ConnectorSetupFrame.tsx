@@ -29,7 +29,7 @@ export function ConnectorSetupFrame(props: {
           </p>
         </div>
       </header>
-      <div className="p-6">{props.children}</div>
+      <div className="flex flex-col gap-6 p-6">{props.children}</div>
       <footer className="flex justify-end border-t border-white/[0.06] px-6 py-4">
         <Button variant="secondary" onPress={props.onClose}>
           Close

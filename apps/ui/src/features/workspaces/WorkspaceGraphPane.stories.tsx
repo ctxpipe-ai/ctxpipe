@@ -114,8 +114,8 @@ export const NodesWithoutRelationships: Story = {
 }
 
 /**
- * Close the tips: the browser keeps the choice for the org, so the tips do
- * not open again on the next visit.
+ * Close the tips, or hide them on the tool rail: the browser keeps the
+ * choice for the org, so the tips do not open again on the next visit.
  */
 export const ClosingTipsIsRemembered: Story = {
   args: {
@@ -143,6 +143,14 @@ export const ClosingTipsIsRemembered: Story = {
         canvas.queryByRole("dialog", { name: "Knowledge graph tips" }),
       ).toBeNull(),
     )
+    await expect(
+      window.localStorage.getItem(knowledgeGraphIntroStorageKey("acme")),
+    ).toBe("1")
+    // Hide tips on the tool rail is also a dismissal.
+    window.localStorage.removeItem(knowledgeGraphIntroStorageKey("acme"))
+    await userEvent.click(canvas.getByRole("button", { name: "Show tips" }))
+    await canvas.findByRole("dialog", { name: "Knowledge graph tips" })
+    await userEvent.click(canvas.getByRole("button", { name: "Hide tips" }))
     await expect(
       window.localStorage.getItem(knowledgeGraphIntroStorageKey("acme")),
     ).toBe("1")

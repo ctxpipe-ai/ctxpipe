@@ -224,35 +224,35 @@ export function ConfluenceSetupWizard({
         onClose={close}
       >
         {status && !statusPending && !orgOauthBlocking ? (
-          <div className={bodyId === "complete" ? "" : "mb-6"}>
-            <ConnectorSetupStepper
-              steps={wizardStepDefs}
-              currentIndex={
-                workspacesDone ? wizardStepDefs.length : cardIndexForStepper
+          <ConnectorSetupStepper
+            steps={wizardStepDefs}
+            currentIndex={
+              workspacesDone ? wizardStepDefs.length : cardIndexForStepper
+            }
+            focusOverride={effectiveManual}
+            finalStep={
+              bodyId === "complete"
+                ? (stepNumber) => (
+                    <PullRequestsToMerge
+                      orgSlug={orgSlug}
+                      pullRequests={pullRequests}
+                      stepNumber={stepNumber}
+                    />
+                  )
+                : undefined
+            }
+            onStepSelect={(i) => {
+              if (i === cardIndexForStepper && manualStepIndex != null) {
+                setManualStepIndex(null)
+                return
               }
-              focusOverride={effectiveManual}
-              finalStep={
-                bodyId === "complete" ? (
-                  <PullRequestsToMerge
-                    orgSlug={orgSlug}
-                    pullRequests={pullRequests}
-                    stepNumber={wizardStepDefs.length + 1}
-                  />
-                ) : null
+              if (i >= cardIndexForStepper) return
+              if (wizardStepDefs[i]?.id === "forge") {
+                setWaitForInstall(false)
               }
-              onStepSelect={(i) => {
-                if (i === cardIndexForStepper && manualStepIndex != null) {
-                  setManualStepIndex(null)
-                  return
-                }
-                if (i >= cardIndexForStepper) return
-                if (wizardStepDefs[i]?.id === "forge") {
-                  setWaitForInstall(false)
-                }
-                setManualStepIndex(i)
-              }}
-            />
-          </div>
+              setManualStepIndex(i)
+            }}
+          />
         ) : null}
 
         {statusPending ? (

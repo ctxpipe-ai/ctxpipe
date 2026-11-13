@@ -7,11 +7,14 @@ import {
 } from "lucide-react"
 import type { ReactNode } from "react"
 
-type InlineAlertVariant = "error" | "warning" | "success"
+type InlineAlertVariant = "error" | "warning" | "attention" | "success"
 
 const variantClass: Record<InlineAlertVariant, string> = {
   error: "border-red-500/40 bg-red-950/35 text-red-50",
   warning: "border-amber-500/45 bg-amber-950/30 text-amber-50",
+  // A warning that blocks the work on the page: yellow with dark text, 13.8:1
+  // (WCAG AA). Its buttons need dark styles on the yellow.
+  attention: "border-amber-300 bg-amber-300 text-zinc-950",
   success: "border-teal-500/40 bg-teal-950/25 text-teal-50",
 }
 
@@ -35,9 +38,9 @@ export function InlineAlert({
   const Icon =
     variant === "error"
       ? AlertCircleIcon
-      : variant === "warning"
-        ? AlertTriangleIcon
-        : CheckCircle2Icon
+      : variant === "success"
+        ? CheckCircle2Icon
+        : AlertTriangleIcon
 
   const text = (
     <>

@@ -39,9 +39,9 @@ type ConnectorSetupStepperProps = {
   onStepSelect?: (index: number) => void
   /**
    * A step after the listed steps, as a list item with its own content: for
-   * example the merge step (`PullRequestsToMerge`).
+   * example the merge step (`PullRequestsToMerge`). It gets its number.
    */
-  finalStep?: ReactNode
+  finalStep?: (stepNumber: number) => ReactNode
   className?: string
 }
 
@@ -140,7 +140,7 @@ export function ConnectorSetupStepper({
           </li>
         )
       })}
-      {finalStep}
+      {finalStep?.(steps.length + 1)}
     </ol>
   )
 }

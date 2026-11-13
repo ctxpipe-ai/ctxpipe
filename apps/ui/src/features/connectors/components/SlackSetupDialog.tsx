@@ -173,24 +173,24 @@ export function SlackSetupDialog({
         onClose={() => onOpenChange(false)}
       >
         {status && !statusQuery.isPending && !statusQuery.isError ? (
-          <div className={mergeStep ? "" : "mb-6"}>
-            <ConnectorSetupStepper
-              steps={SLACK_SETUP_STEPS}
-              currentIndex={
-                pullRequests.length ? SLACK_SETUP_STEPS.length : setupStepIndex
-              }
-              finalStep={
-                mergeStep ? (
-                  <PullRequestsToMerge
-                    orgSlug={orgSlug}
-                    pullRequests={pullRequests}
-                    stepNumber={SLACK_SETUP_STEPS.length + 1}
-                    detail="The Slack source change applies after the merge. Until then, a mention in a new channel replies that no Workspace has the channel."
-                  />
-                ) : null
-              }
-            />
-          </div>
+          <ConnectorSetupStepper
+            steps={SLACK_SETUP_STEPS}
+            currentIndex={
+              pullRequests.length ? SLACK_SETUP_STEPS.length : setupStepIndex
+            }
+            finalStep={
+              mergeStep
+                ? (stepNumber) => (
+                    <PullRequestsToMerge
+                      orgSlug={orgSlug}
+                      pullRequests={pullRequests}
+                      stepNumber={stepNumber}
+                      detail="The Slack source change applies after the merge. Until then, a mention in a new channel replies that no Workspace has the channel."
+                    />
+                  )
+                : undefined
+            }
+          />
         ) : null}
 
         {setupView === "loading" ? (

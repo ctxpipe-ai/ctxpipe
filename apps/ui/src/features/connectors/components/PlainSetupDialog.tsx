@@ -142,21 +142,21 @@ export function PlainSetupDialog({
         description="Connect Plain, then select the Help Centers and thread labels for each Workspace."
         onClose={() => onOpenChange(false)}
       >
-        <div className={workspacesDone ? "" : "mb-6"}>
-          <ConnectorSetupStepper
-            steps={PLAIN_SETUP_STEPS}
-            currentIndex={stepIndex}
-            finalStep={
-              workspacesDone ? (
-                <PullRequestsToMerge
-                  orgSlug={orgSlug}
-                  pullRequests={pullRequests}
-                  stepNumber={PLAIN_SETUP_STEPS.length + 1}
-                />
-              ) : null
-            }
-          />
-        </div>
+        <ConnectorSetupStepper
+          steps={PLAIN_SETUP_STEPS}
+          currentIndex={stepIndex}
+          finalStep={
+            workspacesDone
+              ? (stepNumber) => (
+                  <PullRequestsToMerge
+                    orgSlug={orgSlug}
+                    pullRequests={pullRequests}
+                    stepNumber={stepNumber}
+                  />
+                )
+              : undefined
+          }
+        />
         {body}
       </ConnectorSetupFrame>
     </Modal>

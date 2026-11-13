@@ -556,7 +556,12 @@ export function KnowledgeGraphExplorer({
                 </div>
               ) : null
             }
-            onTips={() => setKgIntroOpen((open) => !open)}
+            onTips={() => {
+              // Hide tips is also a dismissal: the tips stay closed on the
+              // next visit, as after Close tips.
+              if (kgIntroOpen) dismissKnowledgeGraphIntro(orgSlug)
+              setKgIntroOpen(!kgIntroOpen)
+            }}
             tipsActive={kgIntroOpen}
             drawerOpen={drawerOpen}
             tipsPanel={
