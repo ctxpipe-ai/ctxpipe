@@ -25,9 +25,14 @@ function CornerCross({ className }: { className?: string }) {
 function Card({
   className,
   size = "default",
+  corners = false,
   children,
   ...props
-}: ComponentProps<"div"> & { size?: "default" | "sm" }) {
+}: ComponentProps<"div"> & {
+  size?: "default" | "sm"
+  /** Corner crosses: only for a hero or summary card (the lead card of a page, an overview of metrics). */
+  corners?: boolean
+}) {
   return (
     <div
       data-slot="card"
@@ -38,10 +43,14 @@ function Card({
       )}
       {...props}
     >
-      <CornerCross className="left-0 top-0 -translate-x-[calc(50%+0.5px)] -translate-y-[calc(50%+0.5px)]" />
-      <CornerCross className="right-0 top-0 translate-x-[calc(50%+0.5px)] -translate-y-[calc(50%+0.5px)]" />
-      <CornerCross className="bottom-0 left-0 -translate-x-[calc(50%+0.5px)] translate-y-[calc(50%+0.5px)]" />
-      <CornerCross className="bottom-0 right-0 translate-x-[calc(50%+0.5px)] translate-y-[calc(50%+0.5px)]" />
+      {corners ? (
+        <>
+          <CornerCross className="left-0 top-0 -translate-x-[calc(50%+0.5px)] -translate-y-[calc(50%+0.5px)]" />
+          <CornerCross className="right-0 top-0 translate-x-[calc(50%+0.5px)] -translate-y-[calc(50%+0.5px)]" />
+          <CornerCross className="bottom-0 left-0 -translate-x-[calc(50%+0.5px)] translate-y-[calc(50%+0.5px)]" />
+          <CornerCross className="bottom-0 right-0 translate-x-[calc(50%+0.5px)] translate-y-[calc(50%+0.5px)]" />
+        </>
+      ) : null}
       {children}
     </div>
   )

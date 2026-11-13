@@ -595,11 +595,6 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
 function ConnectorsHeader(props: { actions: ReactNode }) {
   return (
     <>
-      <header className="mb-8">
-        <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-          Connectors
-        </span>
-      </header>
       <section>
         <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
           <div className="min-w-0 flex-1">

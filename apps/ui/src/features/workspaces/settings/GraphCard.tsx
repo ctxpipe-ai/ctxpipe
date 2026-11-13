@@ -68,7 +68,9 @@ export function GraphCard(props: {
                 "size-1.5 shrink-0 rounded-full",
                 workspace.hydrateStatus === "ready"
                   ? "bg-teal-400"
-                  : "ctx-status-pulse bg-zinc-400",
+                  : workspace.hydrateStatus === "running"
+                    ? "ctx-status-pulse bg-zinc-400"
+                    : "bg-zinc-400",
               )}
             />
             {workspace.hydrateStatus === "ready"

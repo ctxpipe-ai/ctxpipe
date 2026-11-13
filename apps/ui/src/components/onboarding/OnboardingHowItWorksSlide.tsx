@@ -62,8 +62,10 @@ export function OnboardingHowItWorksSlide({
             key={step.number}
             className={cn("flex flex-col p-5", rowFadeClassName, step.delay)}
           >
-            <p className="ctx-label">
-              <span className="text-teal-400">{step.number}</span> ·{" "}
+            <p className="text-sm font-medium text-zinc-100">
+              <span className="font-mono text-teal-400 tabular-nums">
+                {step.number}
+              </span>{" "}
               {step.label}
             </p>
             <p className="mt-3 text-pretty text-base text-zinc-200">

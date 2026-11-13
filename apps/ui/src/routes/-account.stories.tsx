@@ -82,7 +82,7 @@ export const Settings: Story = {
     const canvas = within(canvasElement)
     await waitFor(() =>
       expect(
-        canvas.getByRole("heading", { name: "user account" }),
+        canvas.getByRole("heading", { name: "User account" }),
       ).toBeVisible(),
     )
   },
@@ -104,7 +104,7 @@ export const OrganizationsView: Story = {
     const canvas = within(canvasElement)
     await waitFor(() =>
       expect(
-        canvas.getByRole("heading", { name: "user account" }),
+        canvas.getByRole("heading", { name: "User account" }),
       ).toBeVisible(),
     )
   },
@@ -602,7 +602,7 @@ export const OrganizationDeletedStaleSelection: Story = {
     const canvas = within(canvasElement)
     await waitFor(() =>
       expect(
-        canvas.getByRole("heading", { name: "user account" }),
+        canvas.getByRole("heading", { name: "User account" }),
       ).toBeVisible(),
     )
     // The first organization replaces the stale one in the shell.
