@@ -82,6 +82,38 @@ export function shardStore(): ShardStore | null {
   return cached.store
 }
 
+/**
+ * The store for writes (upload and delete), or null when no store is set
+ * or `CODESEARCH_SHARD_STORE_READ_ONLY=true`. A preview reads the production
+ * store in read-only mode: it fetches shards, and it never uploads, deletes
+ * or sweeps in S3.
+ *
+ * This flag is not the security boundary: a preview runs code that nobody
+ * reviewed yet. On AWS (ADR-061), the boundary is the preview codesearch task
+ * role, which may only get and list objects under the production prefix (no
+ * put, no delete). The flag only keeps a preview from trying writes that its
+ * role refuses. Railway previews copy the production variables, so the store
+ * is not for Railway: do not set it or AWS keys on a Railway codesearch.
+ */
+export function writableShardStore(): ShardStore | null {
+  return isShardStoreReadOnly() ? null : shardStore()
+}
+
+/**
+ * True when `CODESEARCH_SHARD_STORE_READ_ONLY=true` (a preview). Any value
+ * other than `true`, `false` or unset stops the start (fail-closed): a typo
+ * must not make a preview writable. An empty value is unset, as in
+ * `parseEnv` (a cleared Railway variable is an empty string).
+ */
+export function isShardStoreReadOnly(): boolean {
+  const value = process.env["CODESEARCH_SHARD_STORE_READ_ONLY"] || "false"
+  if (value !== "true" && value !== "false")
+    throw new Error(
+      "CODESEARCH_SHARD_STORE_READ_ONLY must be true, false or unset",
+    )
+  return value === "true"
+}
+
 function storeFromUrl(url: string, endpoint: string | undefined): ShardStore {
   const location = parseS3Url(url)
   if (!location)

@@ -167,6 +167,31 @@ export function parseNewVerdict(
   )
 }
 
+/**
+ * Read the text of a model reply as JSON that matches `schema`. A reply in a
+ * Markdown code fence is read without the fence. Returns the data, or the
+ * cause when the reply is not usable. The judge panel of the bake-off
+ * (evals/critic/panel.ts) reads its replies with it too.
+ */
+export function parseJsonReply<T>(
+  text: string,
+  schema: z.ZodType<T>,
+): { data: T } | { error: string } {
+  const body = /^```(?:json)?\s*([\s\S]*?)\s*```$/.exec(text.trim())?.[1]
+  let json: unknown
+  try {
+    json = JSON.parse(body ?? text)
+  } catch (error) {
+    return { error: `The reply is not JSON: ${(error as Error).message}` }
+  }
+  const parsed = schema.safeParse(json)
+  return parsed.success
+    ? { data: parsed.data }
+    : {
+        error: `The reply does not match the schema:\n${z.prettifyError(parsed.error)}`,
+      }
+}
+
 function parseReply<T>(
   text: string,
   story: StoryInput | NewStoryInput,
@@ -186,19 +211,9 @@ function parseReply<T>(
     ...run,
     error,
   })
-  const body = /^```(?:json)?\s*([\s\S]*?)\s*```$/.exec(text.trim())?.[1]
-  let json: unknown
-  try {
-    json = JSON.parse(body ?? text)
-  } catch (error) {
-    return unusable(`The reply is not JSON: ${(error as Error).message}`)
-  }
-  const parsed = schema.safeParse(json)
-  if (!parsed.success)
-    return unusable(
-      `The reply does not match the schema:\n${z.prettifyError(parsed.error)}`,
-    )
-  const judgement = toJudgement(parsed.data)
+  const reply = parseJsonReply(text, schema)
+  if ("error" in reply) return unusable(reply.error)
+  const judgement = toJudgement(reply.data)
   if (story.scope !== "page")
     judgement.qualities = judgement.qualities.filter(
       ({ name }) => !qualities.find(({ id }) => id === name)?.pageOnly,
