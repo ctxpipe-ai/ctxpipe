@@ -1056,7 +1056,7 @@ export const Primary = { render: () => null }
       const summary = verdicts()[0]?.summary ?? ""
       expect(summary).toContain("spacing 0.60")
       expect(summary).toMatch(
-        /Region: spacing at x 0\.50, y 0\.50, width 0\.40, height 0\.30\./,
+        /Region: x 0\.50, y 0\.50, width 0\.40, height 0\.30\./,
       )
       // The copies outlive the run, in a private folder of the temporary
       // folder: the agent opens them after the command ends.
@@ -1105,6 +1105,49 @@ export const Primary = { render: () => null }
       expect(verdicts()).toMatchObject([
         { path: button, verdict: "intended", severity: "none" },
       ])
+    })
+
+    test("a screenshot of a group that Jev did not judge gets the judgment of the judged one, and its own images", async () => {
+      serveJev((name, type) =>
+        name === "defect-box"
+          ? box
+          : type === "noul"
+            ? { type: "noul", noul: 0.1 }
+            : {
+                type: "choice",
+                probabilities:
+                  name === "area.spacing"
+                    ? { better: 0.1, same: 0.3, worse: 0.6 }
+                    : { better: 0.02, same: 0.97, worse: 0.01 },
+              },
+      )
+      const group = ["One", "Two", "Three", "Four"].map(
+        (name) =>
+          `apps/ui/src/components/screenshots/Button.${name}.desktop.screenshot.png`,
+      )
+      for (const path of group) {
+        await put("base", path, before)
+        await put("head", path, after)
+      }
+
+      expect(
+        await run(
+          "--json",
+          "--judge",
+          "jev",
+          "--images",
+          images,
+          "--",
+          ...group,
+        ),
+      ).toBe(0)
+
+      expect(decisions).toHaveLength(3)
+      const member = verdicts().find(({ groupedWith }) => groupedWith)
+      expect(member?.severity).toBe("minor")
+      expect(member?.summary).toContain(`Jev on ${member?.groupedWith}:`)
+      expect(member?.summary).toContain("spacing 0.60")
+      expect(member?.summary).toMatch(/Look at the images: before \S+\.png/)
     })
 
     test("a broken new screenshot is minor feedback with a kept copy of the new image", async () => {

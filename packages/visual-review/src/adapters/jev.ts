@@ -1,7 +1,6 @@
 // The Jev adapter: the decider of the visual critic (ADR-063), and the filter
-// of `--filter jev`. Jev (TypeSafe)
-// answers typed questions with probabilities and no text, through the
-// OpenRouter Decisions API. The adapter asks one question for each area and
+// of `--filter jev`. Jev (TypeSafe) answers typed questions with
+// probabilities and no text, through the OpenRouter Decisions API. The adapter asks one question for each area and
 // each quality, one question for a visible defect, and one for its region.
 // It maps the answers onto the same verdict as the other judges.
 import { readFile } from "node:fs/promises"
@@ -510,7 +509,8 @@ function decision({
     ),
   ]
   const summary = {
-    regression: `Jev: defect ${defect.toFixed(2)}; ${word}: ${labels.join(", ")}.`,
+    // The region also for a flagged quality, which has no finding.
+    regression: `Jev: defect ${defect.toFixed(2)}; ${word}: ${labels.join(", ")}.${region ? ` Region: x ${region.x.toFixed(2)}, y ${region.y.toFixed(2)}, width ${region.width.toFixed(2)}, height ${region.height.toFixed(2)}.` : ""}`,
     intended: `Jev found nothing ${word}: defect ${defect.toFixed(2)}.`,
     unsure:
       strongest >= 0.5

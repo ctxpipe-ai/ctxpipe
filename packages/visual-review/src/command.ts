@@ -89,9 +89,10 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|
               Decisions API, with the same key, and no explainer: the verdict
               of Jev is the final verdict, also for a new screenshot. A Jev
               regression has severity minor: it is feedback, and it does not
-              block. The visual critic of the factory uses jev (ADR-063). agent: write a judgment
-              request for each story; your coding agent writes its
-              verdict.json; run again to read it. Default: model.
+              block. The visual critic of the factory uses jev (ADR-063).
+              agent: write a judgment request for each story; your coding
+              agent writes its verdict.json; run again to read it.
+              Default: model.
   --model     The explainer model. Only with --judge model. Default:
               ${defaultModel}
   --filter    jev: ask the Jev filter first, and call the explainer only when Jev
@@ -182,32 +183,28 @@ export async function visualReview(
   // The paid judges of a new and of a changed screenshot: `--judge jev` asks
   // only Jev, `--judge model` the explainer (after the Jev filter, if asked).
   const model = options.model ?? defaultModel
-  const { judgeNewPaid, judgeChangedPaid } =
+  // A paid call, or the verdict "Budget reached" with no call.
+  const paidOrStop = async (
+    storyId: string,
+    call: () => Promise<Verdict>,
+    unknownUsd: number,
+  ) => (await paid(budget, call, unknownUsd)) ?? budgetReached(storyId, budget)
+  const judgeNewPaid = (story: NewStoryInput) =>
     judge === "jev"
-      ? {
-          judgeNewPaid: async (story: NewStoryInput) =>
-            (await paid(
-              budget,
-              () => judgeNewWithJev(story),
-              unknownJevCallUsd,
-            )) ?? budgetReached(story.storyId, budget),
-          judgeChangedPaid: async (story: StoryInput) =>
-            (await paid(
-              budget,
-              () => judgeWithJev(story),
-              unknownJevCallUsd,
-            )) ?? budgetReached(story.storyId, budget),
-        }
-      : {
-          judgeNewPaid: async (story: NewStoryInput) =>
-            (await paid(
-              budget,
-              () => judgeNewWithOpenRouter(story, model, process.env),
-              unknownCallUsd,
-            )) ?? budgetReached(story.storyId, budget),
-          judgeChangedPaid: (story: StoryInput) =>
-            judgeByModel(story, model, filter, undefined, budget),
-        }
+      ? paidOrStop(
+          story.storyId,
+          () => judgeNewWithJev(story),
+          unknownJevCallUsd,
+        )
+      : paidOrStop(
+          story.storyId,
+          () => judgeNewWithOpenRouter(story, model, process.env),
+          unknownCallUsd,
+        )
+  const judgeChangedPaid = (story: StoryInput) =>
+    judge === "jev"
+      ? paidOrStop(story.storyId, () => judgeWithJev(story), unknownJevCallUsd)
+      : judgeByModel(story, model, filter, undefined, budget)
 
   if (options.images !== undefined) {
     // The factory runs this mode as the visual critic. A missing key is an
@@ -755,10 +752,11 @@ async function compareImages(
 }
 
 /**
- * Copy the images of each `regression` of `--images --judge jev` (one verdict for each
- * screenshot, in the order of `screenshots`) to a new private folder that the
- * command keeps, and name them, with the region of each finding, in the
- * summary of the verdict. The factory shows the summary as a finding: the
+ * Copy the images of each `regression` of `--images --judge jev` (one verdict
+ * for each screenshot, in the order of `screenshots`) to a new private folder
+ * that the command keeps, and name them in the summary of the verdict. The
+ * summary of Jev names the areas and qualities, their probabilities and the
+ * region; a screenshot of a group gets the summary of the judged one. The factory shows the summary as a finding: the
  * agent looks at the images, and fixes the screenshot or says in the PR why
  * the change is intended (ADR-063). The command removes the work folder of
  * the compare engine at the end of the run, so the copies are the images to
@@ -795,15 +793,18 @@ async function withFeedbackImages<T extends Verdict>(
       await copyFile(path, copy)
       named.push(`${role} ${copy}`)
     }
-    const regions = verdict.findings.map(
-      ({ kind, region }) =>
-        `${kind} at x ${region.x.toFixed(2)}, y ${region.y.toFixed(2)}, width ${region.width.toFixed(2)}, height ${region.height.toFixed(2)}`,
-    )
+    // A screenshot of a group has no judgment of its own: give the one of
+    // the screenshot that Jev judged (its areas, probabilities and region).
+    const judged = verdict.groupedWith
+      ? verdicts.find(({ storyId }) => storyId === verdict.groupedWith)
+      : undefined
     result.push({
       ...verdict,
       summary: [
         verdict.summary,
-        ...(regions.length ? [`Region: ${regions.join("; ")}.`] : []),
+        ...(judged && !verdict.summary.includes(judged.summary)
+          ? [`Jev on ${judged.storyId}: ${judged.summary}`]
+          : []),
         ...(named.length ? [`Look at the images: ${named.join(", ")}.`] : []),
       ].join(" "),
     })

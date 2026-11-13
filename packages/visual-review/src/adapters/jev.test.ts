@@ -279,6 +279,22 @@ describe("judgeWithJev verdict", () => {
     expect(verdict.confidence).toBeCloseTo(0.6)
   })
 
+  test("a worse quality with no worse area names the region of the box in the summary", async () => {
+    serve((name) => {
+      if (name === "quality.consistency") return choice(0, 0.2, 0.8)
+      if (name === "defect") return defect(0.1)
+      if (name === "defect-box") return box(0.2, 0.5, 0.1, 0.4)
+      return fine
+    })
+    const verdict = await judgeWithJev(await story())
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.findings).toEqual([])
+    expect(verdict.summary).toContain("consistency 0.80")
+    expect(verdict.summary).toMatch(
+      /Region: x 0\.10, y 0\.20, width 0\.30, height 0\.30\./,
+    )
+  })
+
   test("nothing worse is intended when a brief explains the change", async () => {
     serve((name) => (name === "defect" ? defect(0.03) : fine))
     const verdict = await judgeWithJev(
