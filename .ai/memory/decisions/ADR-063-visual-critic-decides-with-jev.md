@@ -98,11 +98,7 @@ Thus the critic was cheap and fast, and it missed nothing in the sample, but it 
 
 ## Alternatives considered
 
-- **The intended changes of the brief as a list in the state, with criteria that call an explained change `same`** (CTX-1262). The false flags on the redesign set fell to 2, but recall fell to 0.88 on the hold-out set, and no regression of the redesign set was found.
-- **Fewer images** (CTX-1262). Without the full before and after images, Jev flagged 44 of 65 redesign screenshots. Without the locator and diff images, precision on the page cases rose, but recall fell below 0.9.
-- **A `score` question in place of the choice** (CTX-1262). Recall 0.80 at the same threshold.
-- **Literal yes/no questions on spacing and hierarchy** (CTX-1262). They found up to 12 of the 15 redesign regressions, with 47 or more false flags. Only the run-together question separated cleanly.
-- **A higher `unsure` floor** (CTX-1262). It turned real regressions into `intended` (rule 9).
+- **Other Jev questions and options** (CTX-1262): the intended changes of the brief as a list in the state, fewer images, a `score` question, literal yes/no questions on spacing and hierarchy, and a higher `unsure` floor. Each one lost recall, gave more false flags, or turned real regressions into `intended`. The pull request of CTX-1262 has the measurements.
 - **The cascade (Jev filters, an LLM decides).** The LLM overrode correct Jev regressions, and the recall fell to 0.74. An LLM that only explains a Jev block is CTX-1256.
 - **Each Jev regression blocks (`major`).** This was the first version of this ADR. It matched the measured 0.95 recall, but 2 of the 8 intended changes would block and need an override. The owner chose feedback over a gate.
 - **Keep the Jev severity split at 0.8** (`major` from 0.8 blocks, `minor` below is a nit). A block recall of 0.79, and the same false-block problem.
