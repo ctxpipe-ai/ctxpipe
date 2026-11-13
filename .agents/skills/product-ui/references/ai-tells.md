@@ -26,6 +26,10 @@ Keep and reuse:
 | Glowing dot with no word | House pill + pulse/dot **and** the word |
 | Centered six-line empty essay + outline CTA + visible empty tabs | Short copy; primary CTA; hide chrome until there is data |
 | `list-disc` feature/benefit rows | Icon + title + one-line rows |
+| Gradient text on a title or a number | Solid `text-foreground` ink |
+| A thick colored stripe on one side of a card, a hard offset shadow, or a hairline border with a wide shadow | A surface lightness shift or one hairline (DESIGN.md **Elevation**) |
+| A pill badge or an icon tile stacked above a title, or numbers on sections that are not a sequence | The title alone. Numbers only for real steps. A `.ctx-label` eyebrow only where the house already uses one |
+| A button that does not say what it does (“Submit”, “OK”, “Go”) | A verb and its object that name the result (“Add connection”, “Save token”) |
 | Cute or corporate-filler copy (“Let’s get you set up!”, “Utilize…”, “Unlock the power of…”) | Plain, specific US English. ASD-STE100 at about 80% strength |
 | A second icon library or custom SVG set | Tabler first; Lucide only if Tabler has no equivalent |
 

@@ -46,6 +46,7 @@ The product owner decided on 2026-11-13: "Use Jev for this capability and just f
    - In `visual:review --budget-usd`, a Jev reply with no `usage.cost` counts as $0.002 (above the highest Jev cost of the bake-off). An LLM reply with no cost still counts as $0.25. A missing cost never turns the budget off.
 6. **Data receiver.** Each changed screenshot, the brief and the source diff now go to TypeSafe (Jev) through the alpha OpenRouter endpoint `/api/alpha/decisions`. Before, they went to Anthropic, and only an opt-in `--filter jev` reached TypeSafe. The request sets `provider.data_collection: "deny"`, but no one has confirmed that OpenRouter applies it on the alpha endpoint, or the retention terms of TypeSafe. The screenshots are Storybook stories with mock data, and the repository is public.
 7. **Rule.** Run the bake-off again for each new decider model and for each change of the questions or the rubric, before the critic uses it.
+8. **Rubric update (2026-11-13).** The rubric got sharper definitions and one new area, `broken-content`, so that each Jev question names defects that a screenshot shows and ties them to our design docs. The new rules come from two design guides that the product owner recommended, [frontend-design](https://agenticskills.io/skills/frontend-design) and [Impeccable](https://impeccable.style/), with only the rules that agree with `apps/ui/DESIGN.md`. A Jev-only hold-out bake-off before and after the change measures it (rule 7).
 
 ## Consequences
 
