@@ -51,7 +51,7 @@ export function AccountSettingsBody(props: { accountView: string }) {
         isApiKeys || isConnectedApps ? "max-w-4xl" : "max-w-3xl",
       )}
     >
-      <h1 className="mb-6 text-lg font-medium text-foreground sm:mb-8">
+      <h1 className="mb-6 text-xl font-medium text-foreground sm:mb-8">
         User account
       </h1>
       {isApiKeys || isConnectedApps ? (

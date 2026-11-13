@@ -60,7 +60,7 @@ export function OrganizationSettingsShell(props: {
 }) {
   return (
     <main className="mx-auto max-w-4xl px-2 py-2 text-zinc-100 sm:px-6 sm:py-10">
-      <h1 className="mb-6 text-lg font-medium text-foreground sm:mb-8">
+      <h1 className="mb-6 text-xl font-medium text-foreground sm:mb-8">
         Organization settings
       </h1>
       {/* Our nav lists every view, so Settings and Members also link to API Keys. */}

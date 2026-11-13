@@ -24,7 +24,6 @@ The builder keeps only the pairs that differ by more than the tolerance of the v
 
 - `cases.json`: the case manifest. It is in git. Its schema is `cases.schema.json`, from `cases.ts`.
 - `redesign.json`: the redesign set, a second manifest with the same schema (see below).
-- `redesign-717-labels.json`: the label of each of the 254 screenshots that PR #717 changed, from the review of [CTX-1265](https://linear.app/ctxpipe/issue/CTX-1265).
 - `build.ts`: the builder (`pnpm visual:bakeoff:build`).
 - `panel.ts`: the judge panel that labels the real changes (`node packages/visual-review/evals/critic/panel.ts`).
 - `run.ts`: the runner (`pnpm visual:bakeoff:run`).
@@ -35,6 +34,7 @@ The builder keeps only the pairs that differ by more than the tolerance of the v
 - `queue.ts`: the labeling queue of the owner in Langfuse (`pnpm visual:bakeoff:queue`).
 - `capture.ts`: the capture step. It runs in the pinned capture container (`scripts/ci/visual-container.json`) with the play runner and the pins of the visual check.
 - `mutations.ts`: the synthetic changes and their known regions.
+- `redesign-717-labels.json`: the labels of the 254 screenshots that PR 717 changed (`{ path, viewport, label, reason }`, `label` is `regression` or `intended`). A design review made them for CTX-1265. `redesign.json` takes its labels from it (CTX-1262).
 
 The images are not in git. The manifest holds the SHA-256 of each image. Each image is one asset of the pre-release [`visual-bakeoff-images`](https://github.com/ctxpipe-ai/ctxpipe/releases/tag/visual-bakeoff-images) of this repository, named `<sha256>.png`. The images are screenshots of the Storybook stories, with their mock data, so they can be public.
 

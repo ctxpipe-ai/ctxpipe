@@ -62,11 +62,12 @@ export function OnboardingHowItWorksSlide({
             key={step.number}
             className={cn("flex flex-col p-5", rowFadeClassName, step.delay)}
           >
-            <p className="text-sm font-medium text-zinc-100">
+            {/* A label, not a heading: the muted word has less contrast than the body text. */}
+            <p className="flex items-baseline gap-2 text-sm font-medium">
               <span className="font-mono text-teal-400 tabular-nums">
                 {step.number}
-              </span>{" "}
-              {step.label}
+              </span>
+              <span className="text-zinc-400">{step.label}</span>
             </p>
             <p className="mt-3 text-pretty text-base text-zinc-200">
               {step.body}
