@@ -39,41 +39,34 @@ export function InlineAlert({
         ? AlertTriangleIcon
         : CheckCircle2Icon
 
+  const text = (
+    <>
+      {title ? <p className="text-sm font-medium">{title}</p> : null}
+      <div className="text-sm leading-snug opacity-95">{children}</div>
+    </>
+  )
+
   return (
     <div
       role="alert"
       className={`flex gap-3 rounded-md border p-3 ${variantClass[variant]}`}
     >
       <Icon className="mt-0.5 size-4 shrink-0 opacity-90" aria-hidden />
-      <div
-        className={
-          actionsPlacement === "end"
-            ? "flex min-w-0 flex-1 flex-wrap items-center gap-x-6 gap-y-3"
-            : "min-w-0 flex-1 space-y-2"
-        }
-      >
-        <div
-          className={
-            actionsPlacement === "end"
-              ? "min-w-0 flex-1 basis-64 space-y-2"
-              : "contents"
-          }
-        >
-          {title ? <p className="text-sm font-medium">{title}</p> : null}
-          <div className="text-sm leading-snug opacity-95">{children}</div>
+      {actionsPlacement === "end" ? (
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-6 gap-y-3">
+          <div className="min-w-0 flex-1 basis-64 space-y-2">{text}</div>
+          {actions ? (
+            <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>
+          ) : null}
         </div>
-        {actions ? (
-          <div
-            className={
-              actionsPlacement === "end"
-                ? "flex shrink-0 flex-wrap gap-2"
-                : "flex flex-wrap gap-2 pt-0.5"
-            }
-          >
-            {actions}
-          </div>
-        ) : null}
-      </div>
+      ) : (
+        <div className="min-w-0 flex-1 space-y-2">
+          {text}
+          {actions ? (
+            <div className="flex flex-wrap gap-2 pt-0.5">{actions}</div>
+          ) : null}
+        </div>
+      )}
     </div>
   )
 }
