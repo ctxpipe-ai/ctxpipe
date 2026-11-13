@@ -32,6 +32,7 @@ writeFileSync(
     seed: 1,
     until: "c".repeat(40),
     container: "mcr.microsoft.com/playwright:v1.63.0-noble@sha256:0",
+    scope: "page",
     cases: [
       {
         id: "intended-1",

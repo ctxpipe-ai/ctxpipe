@@ -15,6 +15,11 @@
  * restored objects (on Aurora, the master user). Run migrate after the copy:
  * it makes `ctxpipe_app` and its grants.
  *
+ * TARGET_DATABASE_PASSWORD (optional) gives the password of a target URL
+ * that has none: on AWS, the task injects it from the managed master secret
+ * of Aurora, so that no stored URL holds the password. The source URL holds
+ * its own password; no other password goes to the source.
+ *
  *   SOURCE_DATABASE_URL=… TARGET_DATABASE_URL=… \
  *     bun run src/scripts/copyDatabase.ts --work-dir /scratch/copy [--jobs 8]
  *     [--preflight-only] [--cancel-open-runs]
@@ -22,7 +27,7 @@
  * `--cancel-open-runs` is for a rehearsal only: it cancels the unfinished
  * OpenWorkflow runs in the copy before a worker starts on it.
  */
-import { copyDatabase, preflight } from "../db/copy-database.js"
+import { copyDatabase, preflight, withPassword } from "../db/copy-database.js"
 import { flushEvlog, initEvlog, log } from "../observability/logger.js"
 import { flag } from "./cli-args.js"
 
@@ -41,7 +46,10 @@ function required(name: string): string {
 
 async function main(argv: string[]): Promise<number> {
   const sourceUrl = required("SOURCE_DATABASE_URL")
-  const targetUrl = required("TARGET_DATABASE_URL")
+  const targetUrl = withPassword(
+    required("TARGET_DATABASE_URL"),
+    process.env.TARGET_DATABASE_PASSWORD,
+  )
   if (argv.includes("--preflight-only")) {
     const report = await preflight(sourceUrl, targetUrl)
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
