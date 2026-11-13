@@ -25,6 +25,7 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | House density | Chat / connectors tightness after a loose first pass — not landing-page air |
 | Proximity | More space around a group than within it |
 | Four proximity smells fixed | (1) label–input tighter than group–group (2) extra space *above* a heading (3) list gap > line-height (4) horizontal clusters share one gap |
+| Inner padding | Text does not touch the edge of its button, card, pill or page |
 | Form width | `max-w-*` on the fields; optional help column; inputs do not stretch to the nav |
 | Prose width | `max-w-prose` / ~45–75ch even if a sibling screenshot is wider |
 | Chrome width | AppShell sidebar stays fixed; do not percentage-size chrome |
@@ -41,6 +42,7 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | Scale only | Neighbors on the Tailwind type scale; no `text-[15px]` / `text-5xl` on product screens |
 | Leading proportional | Tighter on large titles; looser on small / wide help |
 | Tracking | Body untracked; short all-caps use `.ctx-label` tracking |
+| Title line breaks | A title of two or more lines does not end with one word alone on its line (`text-balance`) |
 | Links in a dense list | Weight or darker color; teal reserved for the one action. Hover-only for ancillary |
 
 ## Color on color
@@ -50,6 +52,7 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | Same-hue muted on slabs | Dark red/teal/amber alert: secondary text is a lighter stop of that hue, full opacity |
 | No opacity-as-grey | No `text-white/50` or `opacity-95` as hierarchy on chromatic surfaces |
 | Status not color-only | Pill + icon or contrast + the word ([RepositoryStatus](../../../../apps/ui/src/features/repositories/components/RepositoryStatus.tsx)) |
+| Readable contrast | Text meets WCAG AA on its surface: 4.5:1 for body text, 3:1 for large text and icons. Quiet text uses `text-muted-foreground` |
 | Accent once | At most one teal edge or wash; match an existing house use (alert edge, quiet hover) |
 
 ## Depth, radius, images
@@ -79,6 +82,9 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | Splitter / resize a11y | Focus shows the hover line (not a box outline); arrow keys nudge the value |
 | Selected chrome on press | Tab, nav row, and switcher highlight move in the click handler. Skeleton stays inside the region. First HTML still has the landing files/data |
 | Loading matches the pattern | Region wait is a skeleton of the populated rows. `"Loading…"` and a centered spinner are not the UI when the shape is already a list, tree, or pane |
+| No raw values | Labels, copy and field values show no `undefined`, `null`, `NaN`, `[object Object]`, untranslated key, lorem ipsum or broken image. A missing value shows a dash or a short empty text. A code or file preview shows its content as it is |
+| Visible labels | Each form field has a visible label. A placeholder is an example value, not the label |
+| No repeated text | One row, card or dialog does not show the same text twice (a title and a body that say the same thing) |
 | Named Tailwind first | `tracking-tighter`, `p-2`, `text-sm` — not `tracking-[-0.5px]`, `p-[13px]`, or `text-[15px]` unless no named token is close |
 
 ## Actions

@@ -8,7 +8,7 @@ import { areas, qualities } from "./index.ts"
 const root = fileURLToPath(new URL("../../../", import.meta.url))
 
 describe("rubric", () => {
-  test("has the seven concrete areas and the ten design qualities", () => {
+  test("has the eight concrete areas and the ten design qualities", () => {
     expect(areas.map(({ name }) => name)).toEqual([
       "Spacing",
       "Color tokens",
@@ -17,6 +17,7 @@ describe("rubric", () => {
       "Contrast",
       "Alignment",
       "Missing elements",
+      "Broken content",
     ])
     expect(qualities.map(({ name }) => name)).toEqual([
       "Clarity",

@@ -173,6 +173,22 @@ describe("judgeWithJev questions", () => {
     ).toEqual(["better", "same", "worse"])
   })
 
+  test("each question holds the definition of its rubric entry, with the house brand signatures that are not tells", async () => {
+    const seen = serve(() => fine)
+    await judgeWithJev(await story())
+    const instructions = (name: string) =>
+      String(defined(seen.body.questions[name]).instructions)
+    expect(instructions("area.broken-content")).toMatch(
+      /^Area: Broken content\. .*undefined, null, NaN, \[object Object\].* Does the change make this area better, the same or worse\?/,
+    )
+    expect(instructions("quality.restraint")).toContain(
+      "The house brand signatures are not tells: the mono uppercase .ctx-label",
+    )
+    expect(instructions("quality.clarity")).toContain(
+      "Each form field has a visible label",
+    )
+  })
+
   test("asks the page-only qualities for a page", async () => {
     const seen = serve(() => fine)
     await judgeWithJev(await story({ scope: "page" }))
@@ -629,6 +645,25 @@ describe("judgeNewWithJev", () => {
     expect(verdict.findings[0]?.region.x).toBeCloseTo(0.1)
     expect(verdict.findings[0]?.region.height).toBeCloseTo(0.3)
     expect(verdict.qualities.every(({ delta }) => delta === "meets")).toBe(true)
+  })
+
+  test("broken content, such as a raw undefined, is a regression of its own kind", async () => {
+    const seen = serve((name) => {
+      if (name === "area.broken-content") return noul(0.88)
+      if (name === "defect") return noul(0.9)
+      if (name === "defect-box") return box(0.6, 0.7, 0.2, 0.5)
+      return noul(0.02)
+    })
+    const verdict = await judgeNewWithJev(await newStory())
+    expect(
+      String(defined(seen.body.questions["area.broken-content"]).instructions),
+    ).toMatch(/Does the new screenshot break a rule of this area\?$/)
+    expect(verdictSchema.parse(verdict)).toEqual(verdict)
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.findings.map(({ kind }) => kind)).toEqual(["broken-content"])
+    expect(verdict.findings[0]?.rubricRef).toBe(
+      ".agents/skills/product-ui/references/visual-craft.md › Finishing",
+    )
   })
 
   test("another decision model places a finding on the whole image", async () => {
