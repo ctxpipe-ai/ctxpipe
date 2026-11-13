@@ -42,6 +42,7 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | Scale only | Neighbors on the Tailwind type scale; no `text-[15px]` / `text-5xl` on product screens |
 | Leading proportional | Tighter on large titles; looser on small / wide help |
 | Tracking | Body untracked; short all-caps use `.ctx-label` tracking |
+| Minimum size | No text below `text-xs` (12 px) |
 | Title line breaks | A title of two or more lines does not end with one word alone on its line (`text-balance`) |
 | Links in a dense list | Weight or darker color; teal reserved for the one action. Hover-only for ancillary |
 
@@ -71,7 +72,7 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | Check | Yes looks like |
 |-------|----------------|
 | Fewer borders | Gap or bg shift first; one hairline if needed; no card-in-card |
-| Undecorated floor | No gradient, grid, grain, or map fill on Operate surfaces. Empty-state `.ctx-node` is the illustration exception |
+| Undecorated floor | No gradient, grid, grain, or map fill on Operate surfaces. No icon tile above an empty-state title |
 | Defaults upgraded | React Aria controls; branded selected state; no native radio / default underline as the design |
 | Operate, not Persuade | No landing-page heroes, atmosphere, or marketing type scale on settings / connectors / chat |
 | Focus ring readable | `outline-2` / `offset-1` / `teal-400/60`; `focus-visible:z-10` over neighbors. Use [`focus-styles.ts`](../../../../apps/ui/src/lib/focus-styles.ts). Not full-bright teal; not browser-default |

@@ -319,8 +319,8 @@ export function InstallForgeStep({
             </p>
             <p className="mt-2 text-xs text-amber-100/80">
               Bundled default (
-              <code className="text-xs">CONFLUENCE_FORGE_INSTALL_URL</code>)
-              is not used to choose the UI until the server responds; runtime
+              <code className="text-xs">CONFLUENCE_FORGE_INSTALL_URL</code>) is
+              not used to choose the UI until the server responds; runtime
               fallback is still{" "}
               {pickHttps(forgeRuntime.installUrlFallback) ??
                 pickHttps(CONFLUENCE_FORGE_INSTALL_URL) ??

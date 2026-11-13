@@ -173,7 +173,7 @@ describe("judgeWithJev questions", () => {
     ).toEqual(["better", "same", "worse"])
   })
 
-  test("each question holds the definition of its rubric entry, with the house brand signatures that are not tells", async () => {
+  test("each question holds the definition of its rubric entry, with the narrowed house exemptions", async () => {
     const seen = serve(() => fine)
     await judgeWithJev(await story())
     const instructions = (name: string) =>
@@ -182,7 +182,7 @@ describe("judgeWithJev questions", () => {
       /^Area: Broken content\. .*undefined, null, NaN, \[object Object\].* Does the change make this area better, the same or worse\?/,
     )
     expect(instructions("quality.restraint")).toContain(
-      "The house brand signatures are not tells: the mono uppercase .ctx-label",
+      "the mono uppercase .ctx-label as a section label in a dense panel (not as an eyebrow above a page title or a card heading)",
     )
     expect(instructions("quality.clarity")).toContain(
       "Each form field has a visible label",

@@ -1,7 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect } from "storybook/test"
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./Card"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "./Card"
 
 const meta = {
   title: "Components/Card",
