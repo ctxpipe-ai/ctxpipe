@@ -9,6 +9,7 @@ import {
   publishArtifact,
   readManifest,
   shardStore,
+  writableShardStore,
 } from "./shardStore.js"
 
 type Checkout = { orgId: string; repoId: string; checkoutKey: string }
@@ -35,7 +36,7 @@ const exists = (path: string) =>
   )
 
 /**
- * Uploads the merged SCIP index of a checkout to the shard store, or
+ * Uploads the merged SCIP index of a checkout to a writable shard store, or
  * an empty manifest when the merge wrote no file, so a reader never gets an
  * older index. The caller holds `withScipLock`. A failure does not fail the
  * merge: it is logged, and the next merge uploads again.
@@ -44,7 +45,7 @@ export async function uploadScipIndex(
   checkout: Checkout,
   scipPath: string,
 ): Promise<void> {
-  const store = shardStore()
+  const store = writableShardStore()
   if (!store) return
   const startMs = Date.now()
   try {

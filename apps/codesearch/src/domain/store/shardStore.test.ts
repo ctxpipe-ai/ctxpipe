@@ -16,6 +16,7 @@ import {
 
 import { startS3Server } from "../../test/s3Server.js"
 import {
+  isShardStoreReadOnly,
   publishArtifact,
   readManifest,
   shardStore,
@@ -78,6 +79,13 @@ describe("shardStore", () => {
   it("refuses a URL that is not s3://bucket/prefix", () => {
     vi.stubEnv("CODESEARCH_SHARD_STORE", "https://example.com/bucket")
     expect(() => shardStore()).toThrow(/s3:\/\/bucket/)
+  })
+
+  it("refuses a read-only flag other than true, false or unset", () => {
+    vi.stubEnv("CODESEARCH_SHARD_STORE_READ_ONLY", "True")
+    expect(() => isShardStoreReadOnly()).toThrow(/true, false or unset/)
+    vi.stubEnv("CODESEARCH_SHARD_STORE_READ_ONLY", "")
+    expect(isShardStoreReadOnly()).toBe(false)
   })
 
   it("puts the layout version after the prefix", () => {

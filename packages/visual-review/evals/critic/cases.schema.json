@@ -22,6 +22,16 @@
     "container": {
       "type": "string"
     },
+    "scope": {
+      "type": "string",
+      "const": "page"
+    },
+    "panelModels": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "cases": {
       "type": "array",
       "items": {
@@ -38,23 +48,46 @@
                 "minLength": 1
               },
               "viewport": {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "const": "desktop"
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "const": "desktop"
+                      },
+                      "width": {
+                        "type": "number",
+                        "const": 1440
+                      },
+                      "height": {
+                        "type": "number",
+                        "const": 900
+                      }
+                    },
+                    "required": ["name", "width", "height"],
+                    "additionalProperties": false
                   },
-                  "width": {
-                    "type": "number",
-                    "const": 1440
-                  },
-                  "height": {
-                    "type": "number",
-                    "const": 900
+                  {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "const": "mobile"
+                      },
+                      "width": {
+                        "type": "number",
+                        "const": 390
+                      },
+                      "height": {
+                        "type": "number",
+                        "const": 844
+                      }
+                    },
+                    "required": ["name", "width", "height"],
+                    "additionalProperties": false
                   }
-                },
-                "required": ["name", "width", "height"],
-                "additionalProperties": false
+                ]
               },
               "diffPixels": {
                 "type": "integer",
@@ -74,6 +107,54 @@
                   }
                 },
                 "required": ["before", "after"],
+                "additionalProperties": false
+              },
+              "panel": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": ["improvement", "regression", "no-change"]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "votes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "model": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["improvement", "regression", "no-change"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "error": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["model", "label", "reason"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["label", "votes"],
                 "additionalProperties": false
               },
               "kind": {
@@ -137,23 +218,46 @@
                 "minLength": 1
               },
               "viewport": {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "const": "desktop"
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "const": "desktop"
+                      },
+                      "width": {
+                        "type": "number",
+                        "const": 1440
+                      },
+                      "height": {
+                        "type": "number",
+                        "const": 900
+                      }
+                    },
+                    "required": ["name", "width", "height"],
+                    "additionalProperties": false
                   },
-                  "width": {
-                    "type": "number",
-                    "const": 1440
-                  },
-                  "height": {
-                    "type": "number",
-                    "const": 900
+                  {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "const": "mobile"
+                      },
+                      "width": {
+                        "type": "number",
+                        "const": 390
+                      },
+                      "height": {
+                        "type": "number",
+                        "const": 844
+                      }
+                    },
+                    "required": ["name", "width", "height"],
+                    "additionalProperties": false
                   }
-                },
-                "required": ["name", "width", "height"],
-                "additionalProperties": false
+                ]
               },
               "diffPixels": {
                 "type": "integer",
@@ -173,6 +277,54 @@
                   }
                 },
                 "required": ["before", "after"],
+                "additionalProperties": false
+              },
+              "panel": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": ["improvement", "regression", "no-change"]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "votes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "model": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["improvement", "regression", "no-change"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "error": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["model", "label", "reason"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["label", "votes"],
                 "additionalProperties": false
               },
               "kind": {
@@ -257,23 +409,46 @@
                 "minLength": 1
               },
               "viewport": {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "const": "desktop"
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "const": "desktop"
+                      },
+                      "width": {
+                        "type": "number",
+                        "const": 1440
+                      },
+                      "height": {
+                        "type": "number",
+                        "const": 900
+                      }
+                    },
+                    "required": ["name", "width", "height"],
+                    "additionalProperties": false
                   },
-                  "width": {
-                    "type": "number",
-                    "const": 1440
-                  },
-                  "height": {
-                    "type": "number",
-                    "const": 900
+                  {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "const": "mobile"
+                      },
+                      "width": {
+                        "type": "number",
+                        "const": 390
+                      },
+                      "height": {
+                        "type": "number",
+                        "const": 844
+                      }
+                    },
+                    "required": ["name", "width", "height"],
+                    "additionalProperties": false
                   }
-                },
-                "required": ["name", "width", "height"],
-                "additionalProperties": false
+                ]
               },
               "diffPixels": {
                 "type": "integer",
@@ -293,6 +468,54 @@
                   }
                 },
                 "required": ["before", "after"],
+                "additionalProperties": false
+              },
+              "panel": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": ["improvement", "regression", "no-change"]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "votes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "model": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["improvement", "regression", "no-change"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "error": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["model", "label", "reason"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["label", "votes"],
                 "additionalProperties": false
               },
               "kind": {
@@ -344,23 +567,46 @@
                 "minLength": 1
               },
               "viewport": {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "const": "desktop"
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "const": "desktop"
+                      },
+                      "width": {
+                        "type": "number",
+                        "const": 1440
+                      },
+                      "height": {
+                        "type": "number",
+                        "const": 900
+                      }
+                    },
+                    "required": ["name", "width", "height"],
+                    "additionalProperties": false
                   },
-                  "width": {
-                    "type": "number",
-                    "const": 1440
-                  },
-                  "height": {
-                    "type": "number",
-                    "const": 900
+                  {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "const": "mobile"
+                      },
+                      "width": {
+                        "type": "number",
+                        "const": 390
+                      },
+                      "height": {
+                        "type": "number",
+                        "const": 844
+                      }
+                    },
+                    "required": ["name", "width", "height"],
+                    "additionalProperties": false
                   }
-                },
-                "required": ["name", "width", "height"],
-                "additionalProperties": false
+                ]
               },
               "diffPixels": {
                 "type": "integer",
@@ -380,6 +626,54 @@
                   }
                 },
                 "required": ["before", "after"],
+                "additionalProperties": false
+              },
+              "panel": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "enum": ["improvement", "regression", "no-change"]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "votes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "model": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["improvement", "regression", "no-change"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "error": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["model", "label", "reason"],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": ["label", "votes"],
                 "additionalProperties": false
               },
               "kind": {
@@ -477,23 +771,46 @@
                 "minLength": 1
               },
               "viewport": {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "const": "desktop"
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "const": "desktop"
+                      },
+                      "width": {
+                        "type": "number",
+                        "const": 1440
+                      },
+                      "height": {
+                        "type": "number",
+                        "const": 900
+                      }
+                    },
+                    "required": ["name", "width", "height"],
+                    "additionalProperties": false
                   },
-                  "width": {
-                    "type": "number",
-                    "const": 1440
-                  },
-                  "height": {
-                    "type": "number",
-                    "const": 900
+                  {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "const": "mobile"
+                      },
+                      "width": {
+                        "type": "number",
+                        "const": 390
+                      },
+                      "height": {
+                        "type": "number",
+                        "const": 844
+                      }
+                    },
+                    "required": ["name", "width", "height"],
+                    "additionalProperties": false
                   }
-                },
-                "required": ["name", "width", "height"],
-                "additionalProperties": false
+                ]
               },
               "diffPixels": {
                 "type": "null"
@@ -512,6 +829,9 @@
               "kind": {
                 "type": "string",
                 "const": "new"
+              },
+              "panel": {
+                "not": {}
               },
               "label": {
                 "type": "string",
@@ -640,6 +960,14 @@
       }
     }
   },
-  "required": ["$schema", "version", "seed", "until", "container", "cases"],
+  "required": [
+    "$schema",
+    "version",
+    "seed",
+    "until",
+    "container",
+    "scope",
+    "cases"
+  ],
   "additionalProperties": false
 }
