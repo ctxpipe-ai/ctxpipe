@@ -32,7 +32,7 @@ export const areas = [
     id: "spacing",
     name: "Spacing",
     definition:
-      "Space comes from the Tailwind scale. A group has more space around it than within it. A label is closer to its field than one field group is to the next.",
+      "Space comes from the Tailwind scale. A group has more space around it than within it. A label is closer to its field than one field group is to the next. A heading is closer to its own content than to the block above it. Text does not touch the edge of its button, card, pill or page.",
     sources: [design("Space"), craft("Space and layout")],
   },
   {
@@ -46,28 +46,28 @@ export const areas = [
     id: "typography",
     name: "Typography",
     definition:
-      "UI text is Geist; ids, paths, hashes and counts are Geist Mono. Body is text-sm, meta is text-xs, a product title is text-lg or text-xl. Weights are 400 and 500 only. Sizes come from the Tailwind scale.",
-    sources: [design("Type"), craft("Type")],
+      "UI text is Geist; ids, paths, hashes and counts are Geist Mono. Body is text-sm, meta is text-xs, a product title is text-lg or text-xl. Weights are 400 and 500 only. Sizes come from the Tailwind scale. Prose lines stay at about 75 characters or less. A title of two or more lines does not end with one word alone.",
+    sources: [design("Type"), craft("Type"), craft("Space and layout")],
   },
   {
     id: "overflow",
     name: "Overflow and truncation",
     definition:
-      "Text, icons and focus rings fit their box. Nothing is cut off by a parent, and nothing runs over a neighbor.",
+      "Text, icons and focus rings fit their box. Nothing is cut off by a parent, nothing runs over a neighbor, and no element covers text.",
     sources: [design("Focus / keyboard"), craft("Finishing")],
   },
   {
     id: "contrast",
     name: "Contrast",
     definition:
-      "Text is readable on its surface. On a teal, red or amber slab, secondary text is a lighter stop of the same hue at full opacity, not white at reduced opacity.",
+      "Text is readable on its surface: about 4.5:1 for body text and 3:1 for large text and icons. On a teal, red or amber slab, secondary text is a lighter stop of the same hue at full opacity, not white at reduced opacity.",
     sources: [design("Color"), craft("Color on color")],
   },
   {
     id: "alignment",
     name: "Alignment",
     definition:
-      "Long copy is left-aligned. Numbers are right-aligned with tabular figures. Mixed type on one row shares a baseline.",
+      "Items in one column share one left edge. Long copy is left-aligned, never justified. Numbers are right-aligned with tabular figures. Mixed type on one row shares a baseline.",
     sources: [craft("Space and layout")],
   },
   {
@@ -76,6 +76,13 @@ export const areas = [
     definition:
       "An addition or deletion region adds or removes an element. A label, an icon, a status word or a control does not disappear without a reason. A status keeps its dot and its word.",
     sources: [design("Targets (new or touched UI)")],
+  },
+  {
+    id: "broken-content",
+    name: "Broken content",
+    definition:
+      "Labels, copy and field values show no rendering artifact: no undefined, null, NaN, [object Object], untranslated key, lorem ipsum or broken image. A code or file preview that shows such text as content is not broken.",
+    sources: [craft("Finishing")],
   },
 ] as const satisfies readonly RubricEntry[]
 
@@ -89,10 +96,12 @@ export const qualities = [
     id: "clarity",
     name: "Clarity",
     definition:
-      "The user can tell what each element is and what it does. Copy is plain and specific. A status shows its word, not only a color.",
+      'The user can tell what each element is and what it does. Copy is plain and specific, with no marketing claims. A button names its result with a verb and an object ("Save token", not "Submit"). Each form field has a visible label, not only a placeholder. A status shows its word, not only a color.',
     sources: [
       design("Personality (copy these)"),
       design("Targets (new or touched UI)"),
+      craft("Finishing"),
+      tells("Tells to remove"),
     ],
     pageOnly: false,
   },
@@ -100,7 +109,7 @@ export const qualities = [
     id: "hierarchy",
     name: "Hierarchy",
     definition:
-      "Hierarchy comes from weight and muted color, not from a size jump. The title is the loudest ink. Neighbors and decorative icons are muted first.",
+      "One element leads: the title is the loudest ink. Hierarchy comes from weight and muted color, not from a size jump. Neighbors and decorative icons are muted first. Items of different importance do not get the same weight, as in a grid of equal cards.",
     sources: [craft("Hierarchy"), skill("4. Hierarchy + layout pass")],
     pageOnly: false,
   },
@@ -116,7 +125,7 @@ export const qualities = [
     id: "consistency",
     name: "Consistency",
     definition:
-      "The change reuses the house primitives and patterns: one corner radius (rounded-md), the button variants, the status pill, the .ctx-label. No new font, hex color, corner treatment or card style.",
+      "The change reuses the house primitives and patterns: one corner radius (rounded-md), the button variants, the status pill, the .ctx-label. No new font, hex color, corner treatment, shadow or card style.",
     sources: [design("Personality (copy these)"), design("What not to invent")],
     pageOnly: false,
   },
@@ -156,7 +165,7 @@ export const qualities = [
     id: "restraint",
     name: "Restraint",
     definition:
-      "No AI tells: no gradient, glass, grain, glow or grid on product chrome, no hero type, no four equal KPI tiles, no teal on every row. The house brand signatures are not tells.",
+      "No AI tells: no gradient, gradient text, glass, grain, glow or grid on product chrome, no hero type, no four equal KPI tiles, no teal on every row, no colored stripe on one side of a card, no hard offset or wide black shadow on an in-page card, no badge stacked above a title. A dialog, popover, menu or toast keeps its house shadow. The house brand signatures are not tells: the mono uppercase .ctx-label, the card corner crosses, a status dot with its word, and the teal hover glow of a quiet button.",
     sources: [tells("Tells to remove"), tells("Brand, not tells")],
     pageOnly: false,
   },
