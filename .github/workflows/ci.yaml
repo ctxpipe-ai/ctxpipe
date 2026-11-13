@@ -2517,11 +2517,18 @@ jobs:
         with:
           path: .merge-gate-store
           key: merge-gate-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
-      # The date decides this rule, not the files, so it is not a check of
-      # the manifest: it runs on each pull request.
-      - name: Reject an unstable screenshot entry older than 7 days
+      # These rules run on each pull request, whatever the selection is. The
+      # workflow guards must not depend on what the LLM stage keeps, and the
+      # date decides the unstable screenshot list (an entry older than 7
+      # days), not the files. Each one needs only Node, no install.
+      - name: Workflow guards and the unstable screenshot list
         if: always()
-        run: node scripts/ci/check-unstable-list.mjs
+        run: |
+          code=0
+          for script in workflow-credentials secret-jobs workflow-inputs runners unstable-list; do
+            node "scripts/ci/check-$script.mjs" || code=1
+          done
+          exit "$code"
       - name: Preserve the decision
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

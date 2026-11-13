@@ -1623,15 +1623,21 @@ test("the Lint and format job runs each lint and policy check of CI through the 
     selected.stdout.split("\n").filter(Boolean).sort(),
     expected.sort(),
   )
-  // The overdue entries of the unstable screenshot list depend on the
-  // date, so the Merge gate job checks them on each pull request.
-  assert.ok(
-    jobs["merge-gate"].steps.some(
-      (step) =>
-        step.run === "node scripts/ci/check-unstable-list.mjs" &&
-        step.if === "always()",
-    ),
+  // The workflow guards must not depend on the LLM stage, and the date
+  // decides the unstable screenshot list: the Merge gate job runs them on
+  // each pull request.
+  const always = jobs["merge-gate"].steps.find(
+    (step) => step.name === "Workflow guards and the unstable screenshot list",
   )
+  assert.equal(always.if, "always()")
+  for (const name of [
+    "workflow-credentials",
+    "secret-jobs",
+    "workflow-inputs",
+    "runners",
+    "unstable-list",
+  ])
+    assert.ok(always.run.includes(` ${name} `) || always.run.includes(` ${name};`), name)
   // In gate mode, the job runs the checks of its plan.
   assert.ok(
     runners.includes(
