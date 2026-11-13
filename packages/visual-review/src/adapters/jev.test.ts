@@ -395,6 +395,22 @@ describe("judgeWithJev verdict", () => {
     expect(verdict.severity).toBe("minor")
     expect(verdict.findings.map(({ kind }) => kind)).toEqual(["spacing"])
     expect(verdict.summary).toContain("spacing (parts run together) 0.86")
+    expect(verdict.confidence).toBe(0.86)
+  })
+
+  test("a run-together label with no usable box is unsure, not intended", async () => {
+    serve((name) => {
+      if (name === "run-together") return defect(0.86)
+      if (name === "defect") return defect(0.03)
+      if (name === "defect-box") return box(0.5, 0.5, 0.1, 0.4)
+      return fine
+    })
+    const verdict = await judgeWithJev(
+      await story({ brief: "Show the step number before the step name." }),
+    )
+    expect(verdict.verdict).toBe("unsure")
+    expect(verdict.findings).toEqual([])
+    expect(verdict.summary).toContain("cannot place it")
   })
 
   test("a worse spacing area and a run-together label give one spacing finding", async () => {
@@ -434,6 +450,22 @@ describe("judgeWithJev verdict", () => {
     expect(verdict.verdict).toBe("unsure")
     expect(verdict.findings).toEqual([])
     expect(verdict.summary).toContain("density worse (0.70)")
+  })
+
+  test("the density note follows the other reason of an unsure verdict", async () => {
+    serve((name) => {
+      if (name === "quality.density") return choice(0, 0.3, 0.7)
+      if (name === "quality.clarity") return { type: "refusal" }
+      if (name === "defect" || name === "run-together") return defect(0.03)
+      return fine
+    })
+    const verdict = await judgeWithJev(
+      await story({ brief: "Remove the icon tile above the empty state." }),
+    )
+    expect(verdict.verdict).toBe("unsure")
+    expect(verdict.summary).toMatch(
+      /^Jev left 1 questions without an answer\. Jev also finds the density worse \(0\.70\)\./,
+    )
   })
 
   test("a worse density with another worse quality is a regression of that quality", async () => {

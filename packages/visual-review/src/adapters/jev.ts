@@ -25,12 +25,6 @@ type Question =
 
 const clamp = (value: number) => Math.min(1, Math.max(0, value))
 
-const spacing = (() => {
-  const area = areas.find(({ id }) => id === "spacing")
-  if (!area) throw new Error("The rubric has no spacing area.")
-  return area
-})()
-
 /**
  * Read one PNG for Jev. Jev takes each side from 280 to 1568 px, which also
  * keeps the total pixels within its limits, so `prepareImage` scales or pads
@@ -52,16 +46,6 @@ async function readImage({
     content,
   }
 }
-
-/**
- * The question on parts of a label that run together, such as a number and a
- * word with no space ("01Connect"). The area and quality questions do not
- * see this spacing defect: on the deliberate redesign of PR #717, they flagged
- * none of the 7 screenshots that had it, and this question flagged all 7 with
- * no false flag (CTX-1262). A yes is a `spacing` finding.
- */
-const runTogether =
-  "Look at the after image only. Does a label put two parts side by side with no space and no separator, so that they read as one word (for example a number and a word)?"
 
 const choiceQuestion = (instructions: string): Question => ({
   type: "choice",
@@ -138,7 +122,16 @@ export async function judgeWithJev(
       instructions:
         "Is there a visible defect in a measured region of the after image, one that breaks a rule of the rubric?",
     },
-    "run-together": { type: "noul", instructions: runTogether },
+    // Parts of a label that run together, such as a number and a word with
+    // no space ("01Connect"). The area and quality questions do not see this
+    // spacing defect: on the deliberate redesign of PR #717, they flagged
+    // none of the 7 screenshots that had it, and this question flagged all 7
+    // with no false flag (CTX-1262). A yes is a `spacing` finding.
+    "run-together": {
+      type: "noul",
+      instructions:
+        "Look at the after image only. Does a label put two parts side by side with no space and no separator, so that they read as one word (for example a number and a word)?",
+    },
   }
   for (const { id, name, definition } of areas)
     questions[`area.${id}`] = choiceQuestion(
@@ -230,6 +223,9 @@ export async function judgeWithJev(
   const isWorse = ({ delta, worse }: { delta: string; worse: number }) =>
     delta === "worse" && worse >= 0.5
   const density = qualityResults.find(({ id }) => id === "density")
+  // A label whose parts run together is a spacing finding.
+  const spacing = areas.find(({ id }) => id === "spacing")
+  if (!spacing) throw new Error("The rubric has no spacing area.")
   // `parseVerdict` checks the judgment and applies the rules of the prompt.
   return parseVerdict(
     JSON.stringify({
@@ -263,7 +259,7 @@ export async function judgeWithJev(
         strongest,
         ...(density && isWorse(density)
           ? {
-              note: `Jev finds the density worse (${density.worse.toFixed(2)}). A density change alone is not a regression: look at the images.`,
+              note: `Jev also finds the density worse (${density.worse.toFixed(2)}). A density change alone is not a regression: look at the images.`,
             }
           : {}),
       }),
@@ -548,14 +544,16 @@ function decision({
   defect: number
   unanswered: number
   strongest: number
-  /** The summary of an `unsure` verdict, in place of the default one. */
+  /** A sentence to add to the summary of an `unsure` verdict. */
   note?: string
 }) {
   const placed = region ? flaggedAreas : []
+  // A flagged area with no region is `unsure`, also when its probability is
+  // not in `strongest` (the run-together question).
   const verdict =
     placed.length || flaggedQualities.length
       ? "regression"
-      : unanswered || strongest >= 0.2
+      : unanswered || strongest >= 0.2 || flaggedAreas.length
         ? "unsure"
         : "intended"
   const labels = [
@@ -571,13 +569,14 @@ function decision({
     // The region also for a flagged quality, which has no finding.
     regression: `Jev: defect ${defect.toFixed(2)}; ${word}: ${labels.join(", ")}.${region ? ` Region: x ${region.x.toFixed(2)}, y ${region.y.toFixed(2)}, width ${region.width.toFixed(2)}, height ${region.height.toFixed(2)}.` : ""}`,
     intended: `Jev found nothing ${word}: defect ${defect.toFixed(2)}.`,
-    unsure: note
-      ? note
-      : strongest >= 0.5
+    unsure: [
+      defect >= 0.5 || flaggedAreas.length
         ? "Jev flagged a problem, but it cannot place it in an area and a region."
         : unanswered
           ? `Jev left ${unanswered} questions without an answer.`
           : `Jev is not sure: the strongest ${word} probability is ${strongest.toFixed(2)}.`,
+      ...(note ? [note] : []),
+    ].join(" "),
   }[verdict]
   return {
     observations: [],
@@ -587,7 +586,11 @@ function decision({
     severity: verdict === "regression" ? "minor" : "none",
     confidence:
       verdict === "regression"
-        ? strongest
+        ? Math.max(
+            strongest,
+            ...placed.map(({ probability }) => probability),
+            ...flaggedQualities.map(({ probability }) => probability),
+          )
         : verdict === "unsure"
           ? 0
           : 1 - strongest,
