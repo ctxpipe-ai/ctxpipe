@@ -802,9 +802,7 @@ describe("judgeNewWithJev", () => {
   })
 
   test("a flat page fails the grouping quality, only on a page screenshot", async () => {
-    const seen = serve((name) =>
-      name === "rule.flat-page" ? noul(0.8) : noul(0.02),
-    )
+    serve((name) => (name === "rule.flat-page" ? noul(0.8) : noul(0.02)))
     const story = await newStory()
     const verdict = await judgeNewWithJev({ ...story, scope: "page" })
     expect(verdict.verdict).toBe("regression")
@@ -814,8 +812,22 @@ describe("judgeNewWithJev", () => {
       confidence: 0.8,
     })
 
+    // Also when the grouping quality has no answer.
+    serve((name) =>
+      name === "rule.flat-page"
+        ? noul(0.7)
+        : name === "quality.grouping-and-rhythm"
+          ? {}
+          : noul(0.02),
+    )
+    const unanswered = await judgeNewWithJev({ ...story, scope: "page" })
+    expect(unanswered.verdict).toBe("regression")
+
+    const component = serve(() => noul(0.02))
     await judgeNewWithJev(story)
-    expect(Object.keys(seen.body.questions)).not.toContain("rule.flat-page")
+    expect(Object.keys(component.body.questions)).not.toContain(
+      "rule.flat-page",
+    )
   })
 
   test("a rule question goes only with its area: a head rubric can leave it out", async () => {
