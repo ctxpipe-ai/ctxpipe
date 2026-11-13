@@ -29,12 +29,15 @@ The product owner decided on 2026-11-13: "Use Jev for this capability and just f
 
 1. **Jev decides.** The `visual` entry runs `visual:review --judge jev`. Jev 1.14 (`typesafe/jev-1.14`, OpenRouter Decisions API, `judgeWithJev`) gives the final verdict of each changed screenshot. A new screenshot (no base image) goes to Jev too (`judgeNewWithJev`). No LLM explains or changes the verdict. `--judge model` (an LLM, with an optional `--filter jev`) and `--judge agent` stay for a person or a fork.
 2. **Thresholds.** For a change, Jev answers one question for each area and each quality of the rubric (better, same or worse), one defect question, and one box question for the region. For a new screenshot, each question asks whether the screenshot breaks a rule.
-   - A worse (or broken) area or quality with a probability of 0.5 or more is a `regression` with severity `major`. It blocks. An area needs the region of the box; without a box, the verdict is `unsure`.
+   - A worse (or broken) area or quality with a probability of 0.5 or more is a `regression` with severity `minor`. An area needs the region of the box; without a box, the verdict is `unsure`.
    - A highest probability from 0.2 up to 0.5, or a question with no answer, is `unsure`.
    - Else the verdict is `intended` when the brief or the source diff explains the change, and `unsure` when nothing explains it.
    - An image pair in the tolerance of the visual check is `noise`, and a removed screenshot is `unsure`. Neither calls Jev.
-3. **Each Jev regression blocks.** Before this ADR, the Jev adapter gave `major` only from a probability of 0.8, and `minor` below it. With that split, 15 of the 19 hold-out regressions blocked (block recall 0.79, with no false block). The selection rule measured each `regression` verdict, so the gate uses the same line: all 18 regressions that Jev found block, and 2 of the 8 intended changes block falsely (precision 0.90). An override with a reason (`code-review` skill) clears a false block.
-4. **`unsure` stays a nit.** The factory makes `unsure` a nit for a person, as before. The code does not change this. A Jev reply that is not usable (a 400 or 413 answer, a reply out of the schema) is `unsure` with an error, and the command exits with code 2: the critic gives `ERROR`, never a pass.
+3. **A Jev result is feedback, never a block** (owner decision, 2026-11-13). Each Jev `regression` has severity `minor`, so the factory makes it a nit, and the critic passes. The visual critic is a feedback loop for the implementing agent, not a gate that needs an override. Jev found 18 of the 19 hold-out regressions (recall 0.95), but its precision is 0.90: it also flagged 2 of the 8 intended changes. A block on each of those needs an override; feedback does not.
+   - In `--images` mode, `visual:review --judge jev` copies the `before`, `after` and `diff` images of each suspected regression (only `after` for a new screenshot) to a new private folder of the system temporary folder, which the command keeps. The summary of the verdict names the area or quality, the probability of Jev, the region when Jev placed one, and the paths of these copies. The factory shows the summary in the finding.
+   - The agent looks at the images of each suspected regression. It fixes the defect, or it says in the PR description why the change is intended.
+   - The shared store keeps only the verdict word and the severity. A reused verdict has no image paths; `pnpm visual:review --judge jev` on the agent's own machine shows them again.
+4. **`unsure` stays a nit.** The factory makes `unsure` a nit, as before. The code does not change this. **The critic passes unless the run fails.** A Jev reply that is not usable (a 400 or 413 answer, a reply out of the schema), a missing key, or a spend stop gives exit code 2, and the critic gives `ERROR`, never a pass.
 5. **Spend.** The spend limit of the visual critic is $0.10 for each PR, across all runs (lead decision, 2026-11-13; it was $5). A change of a shared component (about 166 stories) costs about $0.07. A higher spend is unusual: the critic gives `ERROR`, and a person decides with `factory check --critic-limit-usd`. The limit is `LIMIT_USD` of the factory (`machines/cli/src/command.rs`, factory PR [#172](https://github.com/ctxpipe-ai/factory/pull/172)), and `.github/merge-gate.json` pins that release. There:
    - A path with no known cost counts at $0.0005 when the branch has no known cost yet (the Jev cost of a story, rounded up). Thus a first run can take about 200 paths.
    - The `{budgetUsd}` of a run is rounded down to $0.0001, not to a cent. A budget in whole cents would drop up to 25 Jev calls of the $0.10 limit.
@@ -45,8 +48,9 @@ The product owner decided on 2026-11-13: "Use Jev for this capability and just f
 ## Consequences
 
 - A visual review costs fractions of a cent for a normal PR, and it takes seconds.
-- A blocking finding has an area, a region and a probability, but no written evidence: Jev gives no text. A person must find the defect in the image. To get a written verdict, run `pnpm visual:review --judge model` or `--judge agent` on your own machine.
-- About one intended change in four can block falsely. Each false block needs an override with a reason.
+- A visual finding has an area, a region, a probability and the images, but no written evidence: Jev gives no text. The agent must find the defect in the images. To get a written verdict, run `pnpm visual:review --judge model` or `--judge agent` on your own machine.
+- No visual finding stops a merge. A real regression that the agent ignores can merge. The agent must answer each suspected regression with a fix or a reason in the PR.
+- About one intended change in four gets a feedback finding that the agent answers with a reason.
 - A quarter of the verdicts are `unsure` nits.
 
 ## Limits of the evidence
@@ -60,13 +64,14 @@ The product owner decided on 2026-11-13: "Use Jev for this capability and just f
 ## Follow-ups
 
 - [CTX-1255](https://linear.app/ctxpipe/issue/CTX-1255): Anthropic calls through OpenRouter give no `usage.cost` in the runner.
-- [CTX-1256](https://linear.app/ctxpipe/issue/CTX-1256): an LLM explains a Jev block, and never overrides it.
+- [CTX-1256](https://linear.app/ctxpipe/issue/CTX-1256): an LLM explains a suspected Jev regression, and never overrides it.
 - [CTX-1257](https://linear.app/ctxpipe/issue/CTX-1257): run the useful arms again on all 176 page cases with 3 runs.
 - [CTX-1258](https://linear.app/ctxpipe/issue/CTX-1258): a dataset of component stories.
 
 ## Alternatives considered
 
 - **The cascade (Jev filters, an LLM decides).** The LLM overrode correct Jev regressions, and the recall fell to 0.74. An LLM that only explains a Jev block is CTX-1256.
-- **Keep the Jev severity split at 0.8.** A block recall of 0.79 is below the 0.9 of the selection rule that picked Jev.
+- **Each Jev regression blocks (`major`).** This was the first version of this ADR. It matched the measured 0.95 recall, but 2 of the 8 intended changes would block and need an override. The owner chose feedback over a gate.
+- **Keep the Jev severity split at 0.8** (`major` from 0.8 blocks, `minor` below is a nit). A block recall of 0.79, and the same false-block problem.
 - **GPT-6.1-Sol alone.** Recall 0.89, below the rule. It is a panel member, so its numbers can be too high. It costs about 25 times more and takes about 13 times longer.
 - **Elephant or Mammoth.** Recall 0.79.

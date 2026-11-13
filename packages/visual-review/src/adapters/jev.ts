@@ -475,7 +475,7 @@ export async function judgeNewWithJev(
  * verdict stays `unsure`. A flagged quality is a regression with no finding,
  * since a finding names an area. Else a probability from 0.2 up, or a
  * question with no answer, is `unsure`, and the rest is `intended`. A
- * regression has severity `major`.
+ * regression has severity `minor`: it does not block.
  */
 function decision({
   word,
@@ -522,9 +522,9 @@ function decision({
   return {
     observations: [],
     verdict,
-    // Jev gives no severity. The bake-off measured each regression verdict
-    // of Jev, so each one is major and blocks (ADR-063).
-    severity: verdict === "regression" ? "major" : "none",
+    // Jev gives no severity. A Jev regression is feedback for the agent,
+    // never a block (owner decision, ADR-063), so each one is minor.
+    severity: verdict === "regression" ? "minor" : "none",
     confidence:
       verdict === "regression"
         ? strongest

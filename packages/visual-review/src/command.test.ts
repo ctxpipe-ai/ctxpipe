@@ -1011,7 +1011,7 @@ export const Primary = { render: () => null }
       decisions.length = 0
     })
 
-    test("a worse area of a changed screenshot is a major regression that blocks, from one Jev call", async () => {
+    test("a worse area of a changed screenshot is minor feedback from one Jev call: it names the area, the region and kept copies of the images, and it does not block", async () => {
       serveJev((name, type) =>
         name === "defect-box"
           ? box
@@ -1040,19 +1040,41 @@ export const Primary = { render: () => null }
         button,
       )
 
-      expect(code).toBe(1)
+      expect(code).toBe(0)
       expect(decisions).toHaveLength(1)
       expect(chats).toHaveLength(0)
       expect(verdicts()).toMatchObject([
         {
           path: button,
           verdict: "regression",
-          severity: "major",
+          severity: "minor",
           model: "typesafe/jev-1.14",
           costUsd: 0.0004,
           findings: [{ kind: "spacing" }],
         },
       ])
+      const summary = verdicts()[0]?.summary ?? ""
+      expect(summary).toContain("spacing 0.60")
+      expect(summary).toMatch(
+        /Region: spacing at x 0\.50, y 0\.50, width 0\.40, height 0\.30\./,
+      )
+      // The copies outlive the run, in a private folder of the temporary
+      // folder: the agent opens them after the command ends.
+      const copies = [
+        ...summary.matchAll(/(before|after|diff) (\S+\.png)/g),
+      ].map(([, role, file]) => ({ role, file: file ?? "" }))
+      expect(copies.map(({ role }) => role)).toEqual([
+        "before",
+        "after",
+        "diff",
+      ])
+      for (const { file } of copies) {
+        expect(file.startsWith(join(work, "visual-review-feedback-"))).toBe(
+          true,
+        )
+        expect(existsSync(file)).toBe(true)
+      }
+      expect(await readFile(copies[1]?.file ?? "")).toEqual(Buffer.from(after))
     })
 
     test("a new screenshot goes to Jev on its own, and a clean one with a brief passes", async () => {
@@ -1083,6 +1105,33 @@ export const Primary = { render: () => null }
       expect(verdicts()).toMatchObject([
         { path: button, verdict: "intended", severity: "none" },
       ])
+    })
+
+    test("a broken new screenshot is minor feedback with a kept copy of the new image", async () => {
+      serveJev((name) =>
+        name === "defect-box"
+          ? box
+          : { type: "noul", noul: name === "area.spacing" ? 0.9 : 0.02 },
+      )
+      await put("head", button, after)
+
+      const code = await run(
+        "--json",
+        "--judge",
+        "jev",
+        "--images",
+        images,
+        "--",
+        button,
+      )
+
+      expect(code).toBe(0)
+      expect(verdicts()).toMatchObject([
+        { path: button, verdict: "regression", severity: "minor" },
+      ])
+      const copy = /after (\S+\.png)/.exec(verdicts()[0]?.summary ?? "")?.[1]
+      expect(copy && existsSync(copy)).toBe(true)
+      expect(verdicts()[0]?.summary).not.toMatch(/before |diff /)
     })
 
     test("--judge jev takes no --filter", async () => {

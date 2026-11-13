@@ -9,6 +9,7 @@
 // cost. The factory runs `--judge jev` (ADR-063).
 import { createHash } from "node:crypto"
 import {
+  copyFile,
   lstat,
   mkdir,
   mkdtemp,
@@ -87,8 +88,8 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|
               (and MODEL_PROVIDER_URL). jev: Jev 1.14 through the OpenRouter
               Decisions API, with the same key, and no explainer: the verdict
               of Jev is the final verdict, also for a new screenshot. A Jev
-              regression has severity major, so it blocks. The visual critic
-              of the factory uses jev (ADR-063). agent: write a judgment
+              regression has severity minor: it is feedback, and it does not
+              block. The visual critic of the factory uses jev (ADR-063). agent: write a judgment
               request for each story; your coding agent writes its
               verdict.json; run again to read it. Default: model.
   --model     The explainer model. Only with --judge model. Default:
@@ -261,7 +262,7 @@ export async function visualReview(
       const byPath = new Map(
         judged.map((verdict) => [verdict.storyId, verdict]),
       )
-      const verdicts = screenshots.map(({ path, verdict, note }) => {
+      const named = screenshots.map(({ path, verdict, note }) => {
         const found = verdict ?? byPath.get(path)
         if (!found) throw new Error(`No verdict for ${path}.`)
         return {
@@ -270,6 +271,10 @@ export async function visualReview(
           path,
         }
       })
+      // A Jev regression is feedback: the agent needs the images to act on
+      // it, and Jev gives no text.
+      const verdicts =
+        judge === "jev" ? await withFeedbackImages(named, screenshots) : named
       return finish(verdicts, options.json, { print, printError }, budget)
     } finally {
       await rm(work, { recursive: true, force: true })
@@ -747,6 +752,63 @@ async function compareImages(
     }
   }
   return screenshots
+}
+
+/**
+ * Copy the images of each `regression` of `--images --judge jev` (one verdict for each
+ * screenshot, in the order of `screenshots`) to a new private folder that the
+ * command keeps, and name them, with the region of each finding, in the
+ * summary of the verdict. The factory shows the summary as a finding: the
+ * agent looks at the images, and fixes the screenshot or says in the PR why
+ * the change is intended (ADR-063). The command removes the work folder of
+ * the compare engine at the end of the run, so the copies are the images to
+ * look at.
+ */
+async function withFeedbackImages<T extends Verdict>(
+  verdicts: readonly T[],
+  screenshots: readonly Screenshot[],
+): Promise<T[]> {
+  if (!verdicts.some(({ verdict }) => verdict === "regression"))
+    return [...verdicts]
+  const kept = await mkdtemp(
+    join(await realpath(tmpdir()), "visual-review-feedback-"),
+  )
+  const result: T[] = []
+  for (const [index, verdict] of verdicts.entries()) {
+    const shot = screenshots[index]
+    if (verdict.verdict !== "regression" || !shot) {
+      result.push(verdict)
+      continue
+    }
+    const images = shot.story
+      ? shot.story.images.filter(({ role }) =>
+          ["before", "after", "diff"].includes(role),
+        )
+      : shot.fresh
+        ? [{ role: "after", path: shot.fresh.image.path }]
+        : []
+    const folder = join(kept, String(index))
+    await mkdir(folder)
+    const named: string[] = []
+    for (const { role, path } of images) {
+      const copy = join(folder, `${role}.png`)
+      await copyFile(path, copy)
+      named.push(`${role} ${copy}`)
+    }
+    const regions = verdict.findings.map(
+      ({ kind, region }) =>
+        `${kind} at x ${region.x.toFixed(2)}, y ${region.y.toFixed(2)}, width ${region.width.toFixed(2)}, height ${region.height.toFixed(2)}`,
+    )
+    result.push({
+      ...verdict,
+      summary: [
+        verdict.summary,
+        ...(regions.length ? [`Region: ${regions.join("; ")}.`] : []),
+        ...(named.length ? [`Look at the images: ${named.join(", ")}.`] : []),
+      ].join(" "),
+    })
+  }
+  return result
 }
 
 /** The blocking rule of the product owner. */
