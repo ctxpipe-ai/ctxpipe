@@ -132,8 +132,9 @@ export const NotLinkedShowsLinkError: Story = {
       ),
     )
     await expect(canvas.queryByText("Repositories")).not.toBeInTheDocument()
-    await waitFor(() =>
-      expect(canvas.getByText("GitHub", { exact: true })).toBeVisible(),
-    )
+    // The page title stands alone: no "GitHub" eyebrow label above it (DESIGN.md).
+    await expect(
+      canvas.queryByText("GitHub", { exact: true }),
+    ).not.toBeInTheDocument()
   },
 }
