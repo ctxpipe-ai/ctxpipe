@@ -498,10 +498,11 @@ export function agentCoreIngestSandboxProvider(
  * credentials there, and nothing in the microVM can close it (probe,
  * CTX-1219). The execution role is limited to the sandbox image and the
  * runtime's logs, and the microVM's credentials work only through the
- * sandbox VPC endpoints (ADR-061, decision 16). Every other metadata or credential endpoint (IMDS
- * over IPv6, the ECS and EKS credential endpoints) could serve another role
- * that a prompt-injected agent could write into the shard output, so
- * `create` fails closed when one of them answers without the proxy.
+ * sandbox VPC endpoints (ADR-061, decision 16). Every other metadata or
+ * credential endpoint (IMDS over IPv6, the ECS and EKS credential
+ * endpoints) could serve credentials of another role. A prompt-injected
+ * agent could write them into the shard output. Thus `create` fails closed
+ * when one of them answers without the proxy.
  */
 export async function assertNoOtherMetadataEndpoint(handle: {
   process: Pick<SandboxProcess, "exec">
