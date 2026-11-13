@@ -356,7 +356,12 @@ export async function countVercelSandboxRows(
       db
         .select({ rows: count() })
         .from(workspaceSandboxInstances)
-        .where(eq(workspaceSandboxInstances.provider, "vercel")),
+        .where(
+          and(
+            eq(workspaceSandboxInstances.orgId, orgId),
+            eq(workspaceSandboxInstances.provider, "vercel"),
+          ),
+        ),
     )
     total += row?.rows ?? 0
   }
