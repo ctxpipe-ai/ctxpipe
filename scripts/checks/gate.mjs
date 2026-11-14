@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   writeFileSync,
 } from "node:fs"
 import { join } from "node:path"
@@ -37,7 +38,10 @@ import {
 //     Prints {"mode", "reason"}: `select` when the selector runs for this
 //     run, else `full` and why. <file> lists the changed paths of the PR.
 //     With `select`, "jobs" names the jobs of a ci.yaml change whose checks
-//     all run. It runs git on the checkout (HEAD^1 and HEAD).
+//     all run, and "gateInputs" the changed gate inputs that the base
+//     revision decides. It runs git on the checkout (HEAD^1 and HEAD). The
+//     gate jobs of ci.yaml run each command of this file from the base
+//     revision of a PR.
 //
 //   gate.mjs plan --config <merge-gate.json> --inputs <dir> --needs <file>
 //                 --store <file> --fork <true|false> --out <dir>
@@ -187,15 +191,17 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
   const full = (reason) => ({ mode: "full", reason })
   if (event !== "pull_request") return full(`event ${event}`)
   if (fork) return full("fork PR")
-  // A change to one of these can change how the gate decides, so the run is
-  // full: the workflow that runs the gate, its actions, its pin, and the code
-  // that the gate and the runner execute. The manifest job runs the code of
-  // the PR (`pnpm install`, `pnpm -s checks:list`), so a file that changes
-  // how the manifest is made is here too: .npmrc, the patches, and each file
-  // that scripts/checks/list.mjs runs outside scripts/checks/ (a test keeps
-  // this list complete). Package files and the lockfile are lane inputs that
-  // the selector reads, not gate inputs. Other workflows, Markdown files and
+  // A change to one of these can change how the gate decides: the workflow
+  // that runs the gate, its actions, its pin, and the code that the gate and
+  // the runner execute. The manifest job runs the code of the PR (`pnpm
+  // install`, `pnpm -s checks:list`), so a file that changes how the manifest
+  // is made is here too: .npmrc, the patches, and each file that
+  // scripts/checks/list.mjs runs outside scripts/checks/ (a test keeps this
+  // list complete). Package files and the lockfile are lane inputs that the
+  // selector reads, not gate inputs. Other workflows, Markdown files and
   // .node-version are lane inputs too, and the toolchain is part of each key.
+  // The run is full, except for the inputs that the base revision decides
+  // and a ci.yaml change in the steps of check jobs.
   let inputs = changed.filter((path) =>
     [
       /^\.github\/workflows\/ci\.yaml$/,
@@ -211,6 +217,19 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
       /^apps\/codesearch\/scripts\/run-vitest-contracts\.mjs$/,
     ].some((input) => input.test(path)),
   )
+  // The gate inputs whose PR version no job of a PR run executes: the gate
+  // jobs of ci.yaml run the gate code and read the pin of the base revision
+  // (the step "The gate of the base revision"). Only the tests of the CI
+  // scripts read the PR version, and the plan runs each of them
+  // (withGateTests in plan.mjs). A test keeps each other importer out.
+  const decided = inputs.filter((path) =>
+    [
+      /^\.github\/merge-gate\.json$/,
+      /^scripts\/checks\/(?:gate|plan|shard|schema)\.mjs$/,
+      /^scripts\/checks\/schema\/[^/]+\.json$/,
+    ].some((input) => input.test(path)),
+  )
+  inputs = inputs.filter((path) => !decided.includes(path))
   // A change to ci.yaml only in the `steps` of check jobs runs
   // the selector; the shadow job then runs each check of those jobs.
   let jobs = []
@@ -234,7 +253,12 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
     !/^[0-9a-f]{64}$/.test(config.factory?.sha256 ?? "")
   )
     return full("selector unavailable: no pinned factory release")
-  return { mode: "select", reason: config.mode, ...(jobs.length && { jobs }) }
+  return {
+    mode: "select",
+    reason: config.mode,
+    ...(jobs.length && { jobs }),
+    ...(decided.length && { gateInputs: decided }),
+  }
 }
 
 // The result of each check id in the full run: its own record, else the
@@ -737,6 +761,8 @@ export function describe(reason) {
       return `reads ${reason.path}${share(reason)}`
     case "jobs":
       return `ci.yaml changed in job ${reason.jobs?.join(", ")}`
+    case "gate":
+      return `gate input ${reason.inputs?.join(", ")} changed`
     case "added":
       return `added by the LLM: ${reason.why}`
     case "contract":
@@ -990,6 +1016,8 @@ export function gateDecision({
       schemaVersion: 1,
       mode: "gate",
       reason: "gate: the gated run gates",
+      // The changed gate inputs that the base revision decided (decideMode).
+      gateInputs: planned.gateInputs ?? [],
       factory: config.factory?.version ?? null,
       acceptAgentResults: config.acceptAgentResults === true,
       acceptPrResults: config.acceptPrResults === true,
@@ -1118,6 +1146,11 @@ export function gateText(
     "",
     `**Runner minutes:** this run ${decision.cost.gatedRunMinutes}; a full run about ${decision.cost.fullRunMinutesEstimate} (estimate of the tests and their setup, without builds).`,
   )
+  if (decision.gateInputs?.length)
+    lines.push(
+      "",
+      `**Gate inputs changed:** ${decision.gateInputs.map((path) => code(path)).join(", ")}. The gate code and the pin of the base revision decided this run, not the code of this PR, and every test of the CI scripts was selected.`,
+    )
   const shards = Object.entries(decision.shards ?? {})
   if (shards.length)
     lines.push(
@@ -1369,7 +1402,12 @@ function args(list) {
   return out
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+// The gate jobs run this file from a temporary directory, which can be a
+// symbolic link; Node resolves the module path.
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
+)
   try {
     const [command, ...rest] = process.argv.slice(2)
     const options = args(rest)
