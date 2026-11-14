@@ -1,6 +1,8 @@
 import { BackendPostgres } from "openworkflow/postgres"
 import postgres from "postgres"
 
+import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
+
 /**
  * Cancels the open runs of one OpenWorkflow namespace and returns their ids.
  * Each test file has its own namespace, so its open runs cannot slow the
@@ -52,5 +54,71 @@ export async function cancelWorkflowRunIfOpen(
     const run = await backend.getWorkflowRun({ workflowRunId })
     if (run && ["completed", "failed", "canceled"].includes(run.status)) return
     throw error
+  }
+}
+
+type QueuedWorkflowRun = {
+  workflowName: string
+  input: unknown
+  idempotencyKey: string | null
+}
+
+/**
+ * Returns the runs that this test file queued, oldest first, and deletes
+ * them. The runs are in the namespace of the file (see
+ * `setup-openworkflow-runs.ts`). Call it before each test. Then each test
+ * reads only its own runs, and an idempotency key of an earlier test does
+ * not return the run of that test.
+ */
+export async function takeQueuedWorkflowRuns(): Promise<QueuedWorkflowRun[]> {
+  const databaseUrl = process.env.DATABASE_URL
+  if (!databaseUrl) throw new Error("DATABASE_URL is required")
+  const sql = postgres(databaseUrl, { max: 1, onnotice: () => undefined })
+  try {
+    return await sql<QueuedWorkflowRun[]>`
+      with taken as (
+        delete from openworkflow.workflow_runs
+        where namespace_id = ${openWorkflowNamespaceId()}
+        returning workflow_name, input, idempotency_key, created_at
+      )
+      select workflow_name as "workflowName", input,
+        idempotency_key as "idempotencyKey"
+      from taken order by created_at
+    `
+  } finally {
+    await sql.end()
+  }
+}
+
+/**
+ * Queues a run of another version of the workflow under the idempotency key.
+ * `enqueueWorkflow` then refuses that key, so a test can make an enqueue fail
+ * through the real queue.
+ */
+export async function queueRunOfOtherVersion(
+  workflowName: string,
+  idempotencyKey: string,
+): Promise<void> {
+  const databaseUrl = process.env.DATABASE_URL
+  if (!databaseUrl) throw new Error("DATABASE_URL is required")
+  const backend = await BackendPostgres.connect(databaseUrl, {
+    runMigrations: false,
+    namespaceId: openWorkflowNamespaceId(),
+  })
+  try {
+    await backend.createWorkflowRun({
+      workflowName,
+      version: "other-version",
+      idempotencyKey,
+      config: {},
+      context: null,
+      input: null,
+      parentStepAttemptNamespaceId: null,
+      parentStepAttemptId: null,
+      availableAt: null,
+      deadlineAt: null,
+    })
+  } finally {
+    await backend.stop()
   }
 }

@@ -1,7 +1,6 @@
 import { OpenWorkflow } from "openworkflow"
 
 import { attachJobTelemetryForSchema } from "../observability/jobTelemetry.js"
-import { scheduleEnsureWorkerRunning } from "./railway-wake.js"
 import { connectOpenWorkflowBackend } from "./storable-backend.js"
 
 const databaseUrl = process.env.DATABASE_URL
@@ -29,27 +28,20 @@ function assertNativeWorkflowVersion(
   return handle
 }
 
-/** Prefer this over `ow.runWorkflow` so PR workers are woken on Railway after enqueue. */
-export function runWorkflowWithWorkerWake(
+/**
+ * Prefer this over `ow.runWorkflow`: it attaches the job telemetry to the
+ * input and checks that a reused idempotency key belongs to this workflow
+ * version.
+ */
+export function enqueueWorkflow(
   ...args: Parameters<typeof ow.runWorkflow>
 ): ReturnType<typeof ow.runWorkflow> {
   const [spec, input, options] = args
-  const queued = ow
+  return ow
     .runWorkflow(
       spec,
       attachJobTelemetryForSchema(spec.schema, input) as typeof input,
       options,
     )
     .then((handle) => assertNativeWorkflowVersion(spec, handle))
-  // Swallow the side-promise rejection. Callers observe the same failure on `queued`.
-  // A repeated idempotency key can return a run that a worker already holds
-  // or finished. Wake the worker only for a pending run; the wake debounce
-  // limits repeats.
-  void queued.then(
-    (handle) => {
-      if (handle.workflowRun.status === "pending") scheduleEnsureWorkerRunning()
-    },
-    () => undefined,
-  )
-  return queued
 }

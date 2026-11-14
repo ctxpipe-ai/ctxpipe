@@ -19,6 +19,9 @@ run_sync() {
   : >"$tmp/upserts"
   : >"$tmp/mints"
   : >"$tmp/psql"
+  : >"$tmp/revokes"
+  : >"$tmp/deletes"
+  : >"$tmp/order"
   (
     # shellcheck disable=SC1090
     source "$script"
@@ -27,7 +30,25 @@ run_sync() {
       case "$1" in
         *"query variables"*)
           printf '%s\n' "$2" >"$tmp/read"
-          jq -nc --arg m "$MARKER" '{data:{variables:({AUTH_SECRET:"production-auth"} + (if $m == "" then {} else {PREVIEW_OWN_SECRETS:$m} end))}}'
+          jq -nc --arg m "$MARKER" --arg t "${OLD_TOKEN:-}" '{data:{variables:({AUTH_SECRET:"production-auth"} + (if $m == "" then {} else {PREVIEW_OWN_SECRETS:$m} end) + (if $t == "" then {} else {RAILWAY_TOKEN:$t} end))}}'
+          ;;
+        *"query projectTokens"*)
+          # Two pages: the token of this preview is on the second one.
+          if jq -e 'has("after")' <<<"$2" >/dev/null; then
+            echo '{"data":{"projectTokens":{"edges":[{"node":{"id":"tok_preview","environmentId":"env_preview"}}],"pageInfo":{"hasNextPage":false,"endCursor":"c2"}}}}'
+          else
+            echo '{"data":{"projectTokens":{"edges":[{"node":{"id":"tok_other","environmentId":"env_other"}}],"pageInfo":{"hasNextPage":true,"endCursor":"c1"}}}}'
+          fi
+          ;;
+        *projectTokenDelete*)
+          echo revoke >>"$tmp/order"
+          printf '%s\n' "$2" >>"$tmp/revokes"
+          echo '{"data":{"projectTokenDelete":true}}'
+          ;;
+        *variableDelete*)
+          echo delete >>"$tmp/order"
+          printf '%s\n' "$2" >>"$tmp/deletes"
+          echo '{"data":{"variableDelete":true}}'
           ;;
         *projectTokenCreate*)
           printf '%s\n' "$2" >>"$tmp/mints"
@@ -35,6 +56,7 @@ run_sync() {
           jq -nc --arg t "$TOKEN" '{data:{projectTokenCreate:$t}}'
           ;;
         *variableCollectionUpsert*)
+          echo upsert >>"$tmp/order"
           printf '%s\n' "$2" >>"$tmp/upserts"
           echo '{"data":{"variableCollectionUpsert":true}}'
           ;;
@@ -67,8 +89,7 @@ for secret in scoped-token-value account-token-value production-auth; do
   fi
 done
 printf '%s' "$out" | grep -Fq "do not decrypt" || fail "sync should say that production connection secrets do not decrypt"
-jq -e '.input == {projectId:"proj_test", environmentId:"env_preview", name:"pr-7 worker wake"}' "$tmp/new/mints" >/dev/null \
-  || fail "the wake token must be scoped to the preview environment"
+[[ ! -s "$tmp/new/mints" ]] || fail "sync must not mint a Railway project token"
 jq -se '
   map(.input) as $rows
   | ($rows | map(.serviceId)) == ["svc_worker", "svc_ui", "svc_codesearch", "svc_backend"]
@@ -79,10 +100,10 @@ jq -se '
   and ($rows[0].variables.CONNECTION_SECRETS_ENCRYPTION_KEY | test("^[0-9a-f]{64}$"))
   and $rows[0].variables.AUTH_SECRET != $rows[0].variables.CONNECTION_SECRETS_ENCRYPTION_KEY
   and ($rows[0:3] | all(.variables | keys == ["AUTH_SECRET", "CONNECTION_SECRETS_ENCRYPTION_KEY"]))
-  and $rows[3].variables.RAILWAY_TOKEN == "scoped-token-value"
+  and ($rows[3].variables | has("RAILWAY_TOKEN") | not)
   and $rows[3].variables.PREVIEW_OWN_SECRETS == "v1"
 ' "$tmp/new/upserts" >/dev/null \
-  || fail "every service should get one new AUTH_SECRET and key; the backend last, with the scoped token and the marker"
+  || fail "every service should get one new AUTH_SECRET and key; the backend last, with the marker and no Railway token"
 if grep -Fq "account-token-value" "$tmp/new/upserts"; then
   fail "the workspace token must never reach a service variable"
 fi
@@ -96,14 +117,31 @@ out="$(MARKER="" TOKEN=scoped-token-value run_sync "$tmp/no-db" 2>&1)" || fail "
 [[ ! -s "$tmp/no-db/psql" ]] || fail "without OWNER_DB_URL, sync must not run psql"
 
 out="$(MARKER=v1 TOKEN=scoped-token-value DB_URL=postgresql://owner@preview-branch/neondb run_sync "$tmp/kept" 2>&1)" || fail "a marked preview should pass: $out"
-[[ ! -s "$tmp/kept/upserts" && ! -s "$tmp/kept/mints" && ! -s "$tmp/kept/psql" ]] \
-  || fail "a preview that has its own secrets keeps them for its life"
+[[ ! -s "$tmp/kept/upserts" && ! -s "$tmp/kept/mints" && ! -s "$tmp/kept/psql" && ! -s "$tmp/kept/deletes" ]] \
+  || fail "a preview that has its own secrets and no old variable keeps them"
+jq -se 'map(.id) == ["tok_preview"]' "$tmp/kept/revokes" >/dev/null \
+  || fail "a project token of the environment is revoked even when the variable is already gone"
 
-if out="$(MARKER="" TOKEN="" run_sync "$tmp/no-token" 2>&1)"; then
-  fail "sync should fail when Railway does not create the scoped token"
-fi
-printf '%s' "$out" | grep -Fq "projectTokenCreate" || fail "the error should name projectTokenCreate: $out"
-[[ ! -s "$tmp/no-token/upserts" ]] || fail "nothing should be written without the scoped token"
+out="$(MARKER=v1 OLD_TOKEN=old-wake-token run_sync "$tmp/old" 2>&1)" || fail "a marked preview with an old token should pass: $out"
+printf '%s' "$out" | grep -Fq "old-wake-token" && fail "sync must not print the old token"
+jq -se 'map(.id) == ["tok_preview"]' "$tmp/old/revokes" >/dev/null \
+  || fail "only the project token of this preview environment should be revoked"
+[[ ! -s "$tmp/old/deletes" ]] || fail "no variable delete: Railway redeploys on a delete"
+jq -se 'map(.input) | any(.serviceId == "svc_backend" and .skipDeploys == true and .variables == {RAILWAY_TOKEN:""})' "$tmp/old/upserts" >/dev/null \
+  || fail "RAILWAY_TOKEN should be emptied on the preview backend, with no deploy"
+[[ ! -s "$tmp/old/mints" ]] && ! grep -q "AUTH_SECRET" "$tmp/old/upserts" || fail "an old preview keeps its own secrets"
+
+out="$(MARKER="" OLD_TOKEN=old-wake-token run_sync "$tmp/legacy" 2>&1)" || fail "an unmarked preview with an old token should pass: $out"
+printf '%s' "$out" | grep -Fq "old-wake-token" && fail "sync must not print the old token"
+jq -se 'map(.id) == ["tok_preview"]' "$tmp/legacy/revokes" >/dev/null \
+  || fail "an unmarked preview should also lose the project token of its environment"
+[[ ! -s "$tmp/legacy/deletes" ]] || fail "no variable delete on an unmarked preview either"
+jq -se 'map(.input) | any(.variables == {RAILWAY_TOKEN:""} and .skipDeploys == true)' "$tmp/legacy/upserts" >/dev/null \
+  || fail "an unmarked preview should also get an empty RAILWAY_TOKEN, with no deploy"
+grep -q "PREVIEW_OWN_SECRETS" "$tmp/legacy/upserts" || fail "an unmarked preview still gets its own secrets"
+[[ "$(head -1 "$tmp/legacy/order")" == "revoke" ]] && ! grep -q delete "$tmp/legacy/order" \
+  || fail "revoke first, and never delete a variable: $(tr '\n' ' ' <"$tmp/legacy/order")"
+
 
 # The deploy job must not give the workspace token to steps that run branch code
 # (pnpm install, migrations), and must not write it into a service variable.

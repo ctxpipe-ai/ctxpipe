@@ -16,10 +16,8 @@
 #   `env:`. A job with a secret installs no package: the Railway CLI is the
 #   pinned release binary, checked against the sha256 in this file.
 # - scripts/ci/check-secret-jobs.mjs keeps these rules true. The token never
-#   goes into a preview service variable. The preview backend wakes its
-#   worker with a Railway project token that the deploy creates for the
-#   preview environment only (scripts/preview-own-secrets.sh), and that the
-#   PR-close cleanup revokes.
+#   goes into a preview service variable, and no other Railway token does
+#   either (scripts/preview-own-secrets.sh).
 #   Limit: GitHub runs this file from the branch, so a person who can push a
 #   branch can change this file. Required reviewers on `Preview` would be
 #   the control for that case.
@@ -1353,8 +1351,10 @@ jobs:
 
             # The duplicate carries the production AUTH_SECRET and
             # CONNECTION_SECRETS_ENCRYPTION_KEY. Give the preview its own
-            # values, and give the backend a worker-wake token that Railway
-            # scopes to this environment. Once per preview; later rolls keep them.
+            # values, once per preview; later rolls keep them. This step
+            # mints no Railway token. It revokes each project token of this
+            # environment that an older deploy made, and empties the backend
+            # RAILWAY_TOKEN.
             # shellcheck disable=SC1091
             source "${GITHUB_WORKSPACE}/scripts/preview-own-secrets.sh"
             sync_preview_own_secrets
@@ -1569,12 +1569,13 @@ jobs:
           fi
           echo "env_id=$ENV_ID" >>"$GITHUB_OUTPUT"
 
-      - name: Revoke the preview worker-wake token
-        # PR Deploy creates one Railway project token per preview environment
-        # (scripts/preview-own-secrets.sh). Delete each token of this
-        # environment before the environment goes. Prints no token value.
-        # A failure here must not stop the environment delete, because the
-        # token is scoped to that environment.
+      - name: Revoke the old Railway tokens of the preview
+        # PR Deploy mints no Railway token now. An older deploy made one
+        # project token for each preview environment, and the deploy revokes
+        # it (scripts/preview-own-secrets.sh). Delete each token of this
+        # environment that is still there before the environment goes.
+        # Prints no token value. A failure here must not stop the environment
+        # delete, because the token is scoped to that environment.
         if: steps.railway_env.outputs.env_id != ''
         continue-on-error: true
         env:

@@ -47,7 +47,7 @@ import {
   plainGitRefusalReason,
   resolvePlainGitTip,
 } from "../../services/git/plain-git-remote.js"
-import { runWorkflowWithWorkerWake } from "../client.js"
+import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
@@ -242,7 +242,7 @@ export function defineWorkspaceUpgradeReingestRepository(
     async ({ input: queuedInput, step }): Promise<RepositoryResult> => {
       const input = repositoryInputSchema.parse(queuedInput)
       const runId = await step.run({ name: "start" }, async () => {
-        const handle = await runWorkflowWithWorkerWake(
+        const handle = await enqueueWorkflow(
           repositoryIngestionV2.spec,
           {
             orgId: input.orgId,
@@ -837,7 +837,7 @@ export async function enqueueWorkspaceUpgradeReingest(input: {
   key: string
   approvedAt: string
 }): Promise<void> {
-  await runWorkflowWithWorkerWake(
+  await enqueueWorkflow(
     workspaceUpgradeReingest.spec,
     { orgId: input.orgId, workspaceId: input.workspaceId, key: input.key },
     {

@@ -21,7 +21,7 @@ import {
   listOrgWorkspaces,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
-import { runWorkflowWithWorkerWake } from "../client.js"
+import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueWorkspaceTipCheck } from "../enqueue-workspace-tip-check.js"
 import { listOrgIdsWithWorkspaces } from "../orgs-with-workspaces.js"
@@ -195,7 +195,7 @@ export async function enqueueWorkspaceUpgradeScan(input: {
   const release =
     input.release ??
     upgradeRelease(GIT_UPGRADE_STEPS, (await readIngestSkillBundle()).version)
-  await runWorkflowWithWorkerWake(
+  await enqueueWorkflow(
     workspaceUpgradeScan.spec,
     { orgId: input.orgId, release, trigger: input.trigger },
     {

@@ -19,7 +19,7 @@ import {
 } from "../../../models/notion-connector.js"
 import { listConnectionSourceRows } from "../../../models/workspace-sources.js"
 import { getLogger } from "../../../observability/logger.js"
-import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
+import { enqueueWorkflow } from "../../../openworkflow/client.js"
 import { notionSyncEntity } from "../../../openworkflow/workflows/notion-sync-entity.js"
 import type { NotionEntityChange } from "../../../services/notion/incremental.js"
 import type { NotionSourceEvent } from "../../../services/notion/workspace-source-adapter.js"
@@ -71,7 +71,7 @@ async function enqueueNotionEntitySync(input: {
   entity: NotionEntityChange
   eventId?: string
 }) {
-  await runWorkflowWithWorkerWake(
+  await enqueueWorkflow(
     notionSyncEntity.spec,
     {
       orgId: input.orgId,

@@ -6,7 +6,7 @@ import {
 } from "../../domain/workspaces/agent-vault.js"
 import { RUN_VAULT_TTL_SECONDS } from "../../domain/workspaces/docker-run-vault.js"
 import { pruneDockerSandboxHost } from "../../domain/workspaces/docker-sandbox-host-prune.js"
-import { runWorkflowWithWorkerWake } from "../client.js"
+import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 
 /**
@@ -35,7 +35,7 @@ export async function requestDockerSandboxHostPrune(
   now: Date = new Date(),
 ): Promise<void> {
   const window = Math.floor(now.getTime() / (5 * 60_000))
-  await runWorkflowWithWorkerWake(
+  await enqueueWorkflow(
     dockerSandboxHostPrune.spec,
     {},
     { idempotencyKey: `docker-sandbox-host-prune:${window}` },

@@ -169,7 +169,6 @@
     "HEAP_SHARE",
     "MAX_HEAP_MIB"
   ],
-  "apps/backend/src/openworkflow/worker-supervisor.ts": ["DEFAULT_SCHEMA"],
   "apps/backend/src/openworkflow/workflows/forge-provision.ts": [
     "FORGE_ECOSYSTEM_GRAPHQL",
     "MUTATION_CREATE_DEV_SPACE",

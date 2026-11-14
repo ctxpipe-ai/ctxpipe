@@ -41,7 +41,7 @@ vi.mock("./workspaces.js", () => ({
 
 vi.mock("../../openworkflow/client.js", () => ({
   ow: { runWorkflow: vi.fn() },
-  runWorkflowWithWorkerWake: vi.fn(),
+  enqueueWorkflow: vi.fn(),
 }))
 
 import { registerV1Routes } from "./index.js"

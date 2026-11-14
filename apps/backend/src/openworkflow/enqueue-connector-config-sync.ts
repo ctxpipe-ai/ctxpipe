@@ -6,7 +6,7 @@ import {
 import { confluenceSpaceSelection } from "../services/confluence/config-yaml.js"
 import { linearScopeSelection } from "../services/linear/config-yaml.js"
 import { renderNotionConfigYaml } from "../services/notion/config-yaml.js"
-import { runWorkflowWithWorkerWake } from "./client.js"
+import { enqueueWorkflow } from "./client.js"
 import { connectorConfigKey } from "./enqueue-connector-content-sync.js"
 import {
   type ConfluenceConfigSyncInput,
@@ -70,18 +70,18 @@ export async function enqueueConnectorConfigSync(
   try {
     const handle =
       input.provider === "linear"
-        ? await runWorkflowWithWorkerWake(
+        ? await enqueueWorkflow(
             linearSyncConfig.spec,
             { ...common, scopes: input.scopes },
             { idempotencyKey },
           )
         : input.provider === "notion"
-          ? await runWorkflowWithWorkerWake(
+          ? await enqueueWorkflow(
               notionSyncConfig.spec,
               { ...common, resources: input.resources },
               { idempotencyKey },
             )
-          : await runWorkflowWithWorkerWake(
+          : await enqueueWorkflow(
               confluenceSyncConfig.spec,
               { ...common, spaces: input.spaces },
               { idempotencyKey },

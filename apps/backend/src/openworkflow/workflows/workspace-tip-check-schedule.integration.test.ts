@@ -15,7 +15,7 @@ import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
-import { runWorkflowWithWorkerWake } from "../client.js"
+import { enqueueWorkflow } from "../client.js"
 import { openWorkflowNamespaceId } from "../namespace.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 import { workspaceTipCheckSchedule } from "./workspace-tip-check-schedule.js"
@@ -51,7 +51,7 @@ async function phaseFailure(
 }
 
 async function runTipCheck(f: NativeHydrationFixture, hour: string) {
-  const handle = await runWorkflowWithWorkerWake(workspaceTipCheck.spec, {
+  const handle = await enqueueWorkflow(workspaceTipCheck.spec, {
     orgId: f.org.id,
     hour,
   })
@@ -167,7 +167,7 @@ it(
         }),
       )
       // A hydrate of the same SHA that is queued and not due yet.
-      const unfinished = await runWorkflowWithWorkerWake(
+      const unfinished = await enqueueWorkflow(
         workspaceHydrate.spec,
         { orgId: f.org.id, workspaceId: f.workspaceId, revision },
         { availableAt: new Date(Date.now() + 86_400_000) },
@@ -256,7 +256,7 @@ it(
         const now = Date.now()
         const current = hourAfter(now, 0)
         const schedule = (hour: string) =>
-          runWorkflowWithWorkerWake(workspaceTipCheckSchedule.spec, { hour })
+          enqueueWorkflow(workspaceTipCheckSchedule.spec, { hour })
 
         // The hour before the last one is over: its run queues only the
         // next hour. That run is over too, and it queues the current hour.

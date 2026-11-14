@@ -52,7 +52,7 @@ import {
   findRepositoriesByNormalizedGitUrls,
 } from "../models/repositories.js"
 import { replaceWorkspaceSourceRows } from "../models/workspace-sources.js"
-import { ow, runWorkflowWithWorkerWake } from "../openworkflow/client.js"
+import { ow, enqueueWorkflow } from "../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../openworkflow/enqueue-repository-ingestion.js"
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 import { repositoryIngestionV2 } from "../openworkflow/workflows/repository-ingestion-v2.js"
@@ -290,11 +290,9 @@ async function start(argv: string[]): Promise<void> {
     sha,
     authorTime: new Date().toISOString(),
   } satisfies IngestionV2Input
-  const handle = await runWorkflowWithWorkerWake(
-    repositoryIngestionV2.spec,
-    input,
-    { idempotencyKey: `ingestion-v2-proof:${orgId}:${sha}:${url}` },
-  )
+  const handle = await enqueueWorkflow(repositoryIngestionV2.spec, input, {
+    idempotencyKey: `ingestion-v2-proof:${orgId}:${sha}:${url}`,
+  })
   emit("START", { runId: handle.workflowRun.id })
 }
 

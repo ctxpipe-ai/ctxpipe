@@ -8,9 +8,8 @@
 #   backend, worker, ui and codesearch (codesearch checks backend JWTs with
 #   AUTH_SECRET). Connection secrets copied from production do not decrypt on
 #   the preview.
-# - RAILWAY_TOKEN on the backend (worker wake): a Railway project token that
-#   Railway scopes to this preview environment only. The script never writes
-#   the workspace token RAILWAY_API_TOKEN into a service variable.
+# - No Railway token goes into a service variable: the backend has no use for
+#   one (the worker no longer needs a wake), and branch code runs there.
 #
 # - The `jwkss` rows: the Neon branch copies the production JWKS keys, whose
 #   private keys the production AUTH_SECRET encrypted. The step deletes them in
@@ -35,8 +34,47 @@ preview_own_secrets_mask() {
   fi
 }
 
+# drop_preview_wake_token: a preview made before the removal of the worker wake can
+# have a Railway token in its backend variable RAILWAY_TOKEN (a project token,
+# or on the oldest previews another token). Revoke each project token of this
+# preview environment; this starts no deploy. empty_preview_wake_token_var
+# then empties the variable, also with no deploy. No value enters a shell variable.
+drop_preview_wake_token() {
+  local has_token token_ids id after page
+  has_token="$(service_vars "$ENV_ID" "$BACKEND_SERVICE_ID" RAILWAY_TOKEN \
+    | jq -r 'has("RAILWAY_TOKEN")')" || return 1
+  # The variable decides only the delete: a token of this environment is
+  # revoked even when an earlier run already deleted the variable.
+  PREVIEW_HAD_WAKE_TOKEN="$has_token"
+  # Read every page of project tokens, so no token of this environment stays.
+  token_ids="" after="" page=""
+  while :; do
+    page="$(railway_graphql \
+      'query projectTokens($projectId: String!, $after: String) { projectTokens(projectId: $projectId, first: 100, after: $after) { edges { node { id environmentId } } pageInfo { hasNextPage endCursor } } }' \
+      "$(jq -nc --arg p "$RAILWAY_PROJECT_ID" --arg a "$after" '{projectId:$p} + (if $a == "" then {} else {after:$a} end)')")" || return 1
+    token_ids+="$(jq -r --arg env "$ENV_ID" '.data.projectTokens.edges[]?.node | select(.environmentId == $env) | .id' <<<"$page")"$'\n'
+    [[ "$(jq -r '.data.projectTokens.pageInfo.hasNextPage // false' <<<"$page")" == "true" ]] || break
+    after="$(jq -r '.data.projectTokens.pageInfo.endCursor // empty' <<<"$page")"
+    [[ -n "$after" ]] || break
+  done
+  for id in $token_ids; do
+    railway_graphql 'mutation projectTokenDelete($id: String!) { projectTokenDelete(id: $id) }' \
+      "$(jq -nc --arg id "$id" '{id:$id}')" >/dev/null || return 1
+    echo "Revoked Railway project token $id of $PR_ENV"
+  done
+}
+
+# empty_preview_wake_token_var: empty RAILWAY_TOKEN on the backend after
+# drop_preview_wake_token found it. Railway redeploys a service on a variable
+# delete, so the value is written empty with skipDeploys instead: no deploy
+# starts, and no token stays in the variable.
+empty_preview_wake_token_var() {
+  [[ "${PREVIEW_HAD_WAKE_TOKEN:-}" == "true" ]] || return 0
+  upsert_service_vars "an empty RAILWAY_TOKEN" '{"RAILWAY_TOKEN":""}' "$BACKEND_SERVICE_ID" || return 1
+}
+
 sync_preview_own_secrets() {
-  local name marker auth_secret connection_key wake_token
+  local name marker auth_secret connection_key
   for name in RAILWAY_PROJECT_ID ENV_ID PR_ENV BACKEND_SERVICE_ID WORKER_SERVICE_ID UI_SERVICE_ID CODESEARCH_SERVICE_ID; do
     if [[ -z "${!name:-}" ]]; then
       echo "preview-own-secrets: $name is required" >&2
@@ -45,8 +83,10 @@ sync_preview_own_secrets() {
   done
   marker="$(service_vars "$ENV_ID" "$BACKEND_SERVICE_ID" PREVIEW_OWN_SECRETS \
     | jq -r '.PREVIEW_OWN_SECRETS // ""')" || return 1
+  drop_preview_wake_token || return 1
   if [[ "$marker" == "v1" ]]; then
-    echo "Preview $PR_ENV keeps its own AUTH_SECRET, connection-secrets key and wake token"
+    empty_preview_wake_token_var || return 1
+    echo "Preview $PR_ENV keeps its own AUTH_SECRET and connection-secrets key"
     return 0
   fi
 
@@ -54,17 +94,6 @@ sync_preview_own_secrets() {
   connection_key="$(openssl rand -hex 32)"
   preview_own_secrets_mask "$auth_secret"
   preview_own_secrets_mask "$connection_key"
-  wake_token="$(railway_graphql \
-    'mutation projectTokenCreate($input: ProjectTokenCreateInput!) { projectTokenCreate(input: $input) }' \
-    "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg name "$PR_ENV worker wake" \
-      '{input:{projectId:$project, environmentId:$env, name:$name}}')" \
-    | jq -r '.data.projectTokenCreate // empty')" || wake_token=""
-  if [[ -z "$wake_token" ]]; then
-    echo "preview-own-secrets: Railway did not create a project token for $PR_ENV (projectTokenCreate)." >&2
-    echo "preview-own-secrets: the backend must not wake the worker with the workspace token RAILWAY_API_TOKEN, so the deploy stops." >&2
-    return 1
-  fi
-  preview_own_secrets_mask "$wake_token"
 
   if [[ -n "${OWNER_DB_URL:-}" ]]; then
     psql "$OWNER_DB_URL" -v ON_ERROR_STOP=1 -qc 'DELETE FROM jwkss' >/dev/null || {
@@ -80,9 +109,10 @@ sync_preview_own_secrets() {
     "$(jq -nc --arg auth "$auth_secret" --arg key "$connection_key" \
       '{AUTH_SECRET:$auth, CONNECTION_SECRETS_ENCRYPTION_KEY:$key}')" \
     "$WORKER_SERVICE_ID" "$UI_SERVICE_ID" "$CODESEARCH_SERVICE_ID" || return 1
-  upsert_service_vars "own AUTH_SECRET, connection-secrets key and environment-scoped wake token" \
-    "$(jq -nc --arg auth "$auth_secret" --arg key "$connection_key" --arg token "$wake_token" \
-      '{AUTH_SECRET:$auth, CONNECTION_SECRETS_ENCRYPTION_KEY:$key, RAILWAY_TOKEN:$token, PREVIEW_OWN_SECRETS:"v1"}')" \
+  upsert_service_vars "own AUTH_SECRET and connection-secrets key" \
+    "$(jq -nc --arg auth "$auth_secret" --arg key "$connection_key" \
+      '{AUTH_SECRET:$auth, CONNECTION_SECRETS_ENCRYPTION_KEY:$key, PREVIEW_OWN_SECRETS:"v1"}')" \
     "$BACKEND_SERVICE_ID" || return 1
+  empty_preview_wake_token_var || return 1
   echo "Preview $PR_ENV now has its own AUTH_SECRET and connection-secrets key. Connection secrets copied from production do not decrypt on it."
 }

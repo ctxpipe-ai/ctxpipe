@@ -2,11 +2,7 @@ import { readdir } from "node:fs/promises"
 import { dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { describe, expect, it, vi } from "vitest"
-
-vi.mock("../client.js", () => ({
-  runWorkflowWithWorkerWake: vi.fn(),
-}))
+import { describe, expect, it } from "vitest"
 
 describe("PagerDuty workflow discovery", () => {
   it("keeps PagerDuty workflows in the OpenWorkflow CLI discovery directory", async () => {
