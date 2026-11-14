@@ -18,7 +18,8 @@ import { parse as parseYaml } from "yaml"
 // The Terraform plan start and the MCP evals reminder (scripts/checks/README.md,
 // Other pull request workflows). Each runs as the workflow runs it (a script,
 // or the `run` text of the step in ci.yaml), with a `gh` on PATH that answers from files: the
-// GitHub API is the environment, so it is the only fake.
+// GitHub API is the environment, so it is the only fake. The changed paths
+// come from a real git repository with a merge revision, as CI checks it out.
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 const repo = "acme/widgets"
@@ -27,12 +28,25 @@ const head = "a".repeat(40)
 
 // `gh api <path> [--paginate|--silent] [--jq <expr>]` prints the file of that
 // path (slashes become underscores), through jq when --jq is given, or fails
-// with the text in `<name>.error`. `gh pr view` prints the state file.
-// `gh workflow run` appends its arguments to calls.log.
+// with the text in `<name>.error`, or one time with the text in
+// `<name>.error-once` (each command fails in the same way). `gh pr view` prints the state file (name `pr-state`).
+// `gh workflow run` and `gh api --method <verb>` append their arguments to
+// calls.log.
 const fakeGh = `#!/usr/bin/env bash
 set -euo pipefail
 dir="$FAKE_GH_DIR"
-if [ "$1" = workflow ]; then
+name="$(printf '%s' "$2" | tr '/' '_')"
+[ "$1" = pr ] && name=pr-state
+if [ -f "$dir/$name.error-once" ]; then
+  cat "$dir/$name.error-once" >&2
+  rm "$dir/$name.error-once"
+  exit 1
+fi
+if [ -f "$dir/$name.error" ]; then
+  cat "$dir/$name.error" >&2
+  exit 1
+fi
+if [ "$1" = workflow ] || [ "$2" = --method ]; then
   echo "$*" >> "$dir/calls.log"
   exit 0
 fi
@@ -40,20 +54,20 @@ if [ "$1" = pr ]; then
   cat "$dir/pr-state"
   exit 0
 fi
-name="$(printf '%s' "$2" | tr '/' '_')"
 expr=""
 args=("\${@:3}")
 for ((i = 0; i < \${#args[@]}; i++)); do
   [ "\${args[$i]}" = --jq ] && expr="\${args[$((i + 1))]}"
 done
-if [ -f "$dir/$name.error" ]; then
-  cat "$dir/$name.error" >&2
-  exit 1
-fi
 if [ -n "$expr" ]; then jq -r "$expr" "$dir/$name.json"; else cat "$dir/$name.json"; fi
 `
 
-const setup = ({ api = {}, errors = {}, state = "OPEN" } = {}) => {
+const setup = ({
+  api = {},
+  errors = {},
+  errorsOnce = {},
+  state = "OPEN",
+} = {}) => {
   const dir = mkdtempSync(join(tmpdir(), "terraform-plan-"))
   const bin = join(dir, "bin")
   mkdirSync(bin)
@@ -64,6 +78,8 @@ const setup = ({ api = {}, errors = {}, state = "OPEN" } = {}) => {
     writeFileSync(join(dir, `${file(path)}.json`), JSON.stringify(body))
   for (const [path, text] of Object.entries(errors))
     writeFileSync(join(dir, `${file(path)}.error`), text)
+  for (const [path, text] of Object.entries(errorsOnce))
+    writeFileSync(join(dir, `${file(path)}.error-once`), text)
   writeFileSync(join(dir, "pr-state"), state)
   return dir
 }
@@ -83,20 +99,25 @@ const steps = {
   ],
   "start-pr-deploy": ["merge-gate-deploy", "Start PR Deploy on the PR branch"],
 }
+const sourcedSteps = {
+  "post-comment": ["merge-gate", "Post or update the PR comment"],
+}
 
-const run = (script, dir, env, args = []) => {
+const run = (script, dir, env, args = [], cwd = undefined) => {
   const output = join(dir, "github-output")
   writeFileSync(output, "")
-  const command =
-    script in steps
-      ? ["-c", `set -eo pipefail\n${stepShell(...steps[script])}`]
-      : [join(root, "scripts/ci", script), ...args]
+  const step = steps[script] ?? sourcedSteps[script]
+  const command = step
+    ? ["-c", `set -eo pipefail\n${stepShell(...step)}`]
+    : [join(root, "scripts/ci", script), ...args]
   const result = spawnSync("bash", command, {
+    cwd,
     encoding: "utf8",
     env: {
       PATH: `${join(dir, "bin")}:${process.env.PATH}`,
       FAKE_GH_DIR: dir,
       GITHUB_OUTPUT: output,
+      RUNNER_TEMP: dir,
       ...env,
     },
   })
@@ -226,76 +247,198 @@ test("resolve fails when the PR has no merge commit", () => {
   }
 })
 
-const files = (...names) => names.map((filename) => ({ filename }))
-const start = (names, options = {}) =>
+// A git repository whose HEAD is the merge revision of a PR, as the checkout
+// of a pull_request run: its first parent is main, which moved on after the
+// branch started. `change` runs on the PR branch: write a file with
+// `write`, move one with `move`, delete one with `remove`.
+const git = (cwd, ...args) => {
+  const result = spawnSync("git", args, { cwd, encoding: "utf8" })
+  assert.equal(
+    result.status,
+    0,
+    `git ${args.join(" ")}: ${result.stdout}${result.stderr}`,
+  )
+  return result.stdout
+}
+const mergeRevision = (change) => {
+  const dir = mkdtempSync(join(tmpdir(), "merge-revision-"))
+  git(dir, "init", "-q", "-b", "main")
+  git(dir, "config", "user.email", "ci@example.com")
+  git(dir, "config", "user.name", "CI")
+  const write = (path, text = path) => {
+    mkdirSync(join(dir, path, ".."), { recursive: true })
+    writeFileSync(join(dir, path), `${text}\n`)
+  }
+  for (const path of [
+    "README.md",
+    "infra/a.tf",
+    "infra/old.tf",
+    "docs/infra/readme.md",
+    "apps/backend/src/mcp/index.ts",
+    "apps/backend/src/mcp/tools.ts",
+  ])
+    write(path)
+  git(dir, "add", "-A")
+  git(dir, "commit", "-q", "-m", "base")
+  git(dir, "checkout", "-q", "-b", "feature")
+  change({
+    write,
+    move: (from, to) => {
+      mkdirSync(join(dir, to, ".."), { recursive: true })
+      git(dir, "mv", from, to)
+    },
+    remove: (path) => git(dir, "rm", "-q", path),
+  })
+  git(dir, "add", "-A")
+  git(dir, "commit", "-q", "-m", "change")
+  // main moves on with an infra/ change of its own: it is not a PR change.
+  git(dir, "checkout", "-q", "main")
+  write("infra/main-only.tf")
+  write("apps/backend/src/mcp/main-only.ts")
+  git(dir, "add", "-A")
+  git(dir, "commit", "-q", "-m", "main")
+  git(dir, "merge", "-q", "--no-ff", "-m", "merge", "feature")
+  return dir
+}
+
+const start = (change, options = {}, branch = "feature") =>
   run(
     "start-terraform-plan",
     setup({
       api: {
-        [`repos/${repo}/pulls/7/files`]: files(...names),
-        [`repos/${repo}/branches/feature`]: {},
+        [`repos/${repo}/branches/${encodeURIComponent(branch)}`]: {},
+        rate_limit: { resources: { core: { remaining: 0, reset: 0 } } },
       },
       ...options,
     }),
-    { REPO: repo, PR: "7", BRANCH: "feature" },
+    { REPO: repo, PR: "7", BRANCH: branch },
+    [],
+    mergeRevision(change),
   )
 
 test("the plan is called for a change under infra/, whatever else changes", () => {
-  for (const names of [
-    ["infra/main.tf"],
-    ["pnpm-lock.yaml", "infra/modules/a/main.tf"],
+  for (const change of [
+    ({ write }) => write("infra/a.tf", "changed"),
+    ({ write }) => {
+      write("pnpm-lock.yaml")
+      write("infra/modules/a/main.tf")
+    },
+    ({ remove }) => remove("infra/old.tf"),
   ]) {
-    const result = start(names)
-    assert.equal(result.status, 0)
+    const result = start(change)
+    assert.equal(result.status, 0, result.stderr)
     assert.deepEqual(result.outputs, ["plan=false", "plan=true"])
   }
 })
 
 test("the plan is called when a file moves out of infra/", () => {
-  const result = run(
-    "start-terraform-plan",
-    setup({
-      api: {
-        [`repos/${repo}/pulls/7/files`]: [
-          { filename: "modules/a.tf", previous_filename: "infra/a.tf" },
-        ],
-        [`repos/${repo}/branches/feature`]: {},
-      },
-    }),
-    { REPO: repo, PR: "7", BRANCH: "feature" },
-  )
-  assert.equal(result.status, 0)
+  const result = start(({ move }) => move("infra/old.tf", "modules/old.tf"))
+  assert.equal(result.status, 0, result.stderr)
   assert.equal(result.outputs.at(-1), "plan=true")
 })
 
 test("the plan is not called for a PR with no change under infra/", () => {
-  for (const names of [
-    ["pnpm-lock.yaml"],
-    ["package.json", "apps/backend/src/a.ts"],
-    ["docs/infra/readme.md", "apps/infra/main.tf"],
+  for (const change of [
+    ({ write }) => write("pnpm-lock.yaml"),
+    ({ write }) => {
+      write("package.json")
+      write("apps/backend/src/a.ts")
+    },
+    ({ write }) => {
+      write("docs/infra/readme.md", "changed")
+      write("apps/infra/main.tf")
+    },
   ]) {
-    const result = start(names)
+    const result = start(change)
     assert.equal(result.status, 0)
     assert.match(result.stdout, /no file under infra\//)
     assert.deepEqual(result.outputs, ["plan=false"])
   }
 })
 
+test("the step lists the changed files without the GitHub API", () => {
+  // Each API call fails: the answer for a PR without an infra/ change comes
+  // from git alone.
+  const result = start(({ write }) => write("README.md", "changed"), {
+    api: {},
+    errors: {
+      [`repos/${repo}/pulls/7/files`]: "API rate limit exceeded (HTTP 403)",
+    },
+  })
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(result.outputs, ["plan=false"])
+})
+
+test("a rate limit makes the step wait for the reset and call again", () => {
+  const result = start(({ write }) => write("infra/a.tf", "changed"), {
+    errorsOnce: {
+      "pr-state": "API rate limit exceeded for installation ID 1 (HTTP 403)",
+      [`repos/${repo}/branches/feature`]:
+        "API rate limit exceeded for installation ID 1 (HTTP 403)",
+    },
+  })
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stderr, /the call runs again in 1s/)
+  assert.deepEqual(result.outputs, ["plan=false", "plan=true"])
+})
+
+test("a rate limit that stays skips the plan with a warning, and does not fail the step", () => {
+  const limit = "API rate limit exceeded for installation ID 1 (HTTP 403)"
+  for (const errors of [
+    { "pr-state": limit },
+    { [`repos/${repo}/branches/feature`]: limit },
+  ]) {
+    const result = start(({ write }) => write("infra/a.tf", "changed"), {
+      errors,
+    })
+    assert.equal(result.status, 0, result.stderr)
+    assert.match(result.stdout, /::warning::The GitHub API rate limit stays/)
+    assert.deepEqual(result.outputs, ["plan=false"])
+  }
+  // A reset more than 5 minutes away: no wait, and no failure.
+  const far = start(({ write }) => write("infra/a.tf", "changed"), {
+    api: {
+      rate_limit: {
+        resources: {
+          core: { remaining: 0, reset: Math.floor(Date.now() / 1000) + 3600 },
+        },
+      },
+    },
+    errorsOnce: { "pr-state": limit },
+  })
+  assert.equal(far.status, 0, far.stderr)
+  assert.doesNotMatch(far.stderr, /runs again/)
+  assert.match(far.stdout, /rate limit stays/)
+})
+
+test("the steps without a repository script hold the same gh_retry as scripts/ci/gh-retry.sh", () => {
+  const text = readFileSync(join(root, "scripts/ci/gh-retry.sh"), "utf8")
+  const fn = text.slice(
+    text.indexOf("# gh_retry begin\n") + "# gh_retry begin\n".length,
+    text.indexOf("# gh_retry end\n"),
+  )
+  assert.match(fn, /^gh_retry\(\) \{\n/)
+  for (const step of Object.values(steps))
+    assert.ok(stepShell(...step).includes(fn), step.join(": "))
+})
+
+const infraChange = ({ write }) => write("infra/main.tf")
+
 test("the plan is not called for a closed PR", () => {
-  const result = start(["infra/main.tf"], { state: "MERGED" })
+  const result = start(infraChange, { state: "MERGED" })
   assert.equal(result.status, 0)
   assert.match(result.stdout, /PR is closed/)
   assert.deepEqual(result.outputs, ["plan=false"])
 })
 
 test("the plan is not called when the branch is gone, and the step fails on another error", () => {
-  const gone = start(["infra/main.tf"], {
+  const gone = start(infraChange, {
     errors: { [`repos/${repo}/branches/feature`]: "gh: Not Found (HTTP 404)" },
   })
   assert.equal(gone.status, 0)
   assert.match(gone.stdout, /closed or its branch is gone/)
   assert.deepEqual(gone.outputs, ["plan=false"])
-  const broken = start(["infra/main.tf"], {
+  const broken = start(infraChange, {
     errors: {
       [`repos/${repo}/branches/feature`]: "gh: Server Error (HTTP 500)",
     },
@@ -308,16 +451,7 @@ test("the plan is not called when the branch is gone, and the step fails on anot
 test("both dispatch steps look up a branch with a slash by its encoded name", () => {
   const branch = "jakub/ctx-1-topic"
   const encoded = `repos/${repo}/branches/jakub%2Fctx-1-topic`
-  const terraform = run(
-    "start-terraform-plan",
-    setup({
-      api: {
-        [`repos/${repo}/pulls/7/files`]: files("infra/main.tf"),
-        [encoded]: {},
-      },
-    }),
-    { REPO: repo, PR: "7", BRANCH: branch },
-  )
+  const terraform = start(infraChange, {}, branch)
   assert.equal(terraform.status, 0, terraform.stderr)
   assert.equal(terraform.outputs.at(-1), "plan=true")
   const deploy = run("start-pr-deploy", setup({ api: { [encoded]: {} } }), {
@@ -339,66 +473,100 @@ test("both dispatch steps look up a branch with a slash by its encoded name", ()
   assert.deepEqual(gone.calls, [])
 })
 
-const remind = ({ names, labels }) => {
+const remind = ({ change, labels }) => {
   const dir = setup({
     api: {
-      [`repos/${repo}/pulls/7/files`]: files(...names),
       [`repos/${repo}/issues/7/labels`]: labels.map((name) => ({ name })),
     },
   })
   const comment = join(dir, "comment.md")
   writeFileSync(comment, "<!-- merge-gate -->\n### Merge gate\n")
-  const result = run("mcp-evals-reminder.sh", dir, { REPO: repo, PR: "7" }, [
-    comment,
-  ])
+  const result = run(
+    "mcp-evals-reminder.sh",
+    dir,
+    { REPO: repo, PR: "7" },
+    [comment],
+    mergeRevision(change),
+  )
   return { ...result, comment: readFileSync(comment, "utf8") }
 }
 
 test("the evals reminder shows for a change under apps/backend/src/mcp/ without the label", () => {
-  for (const names of [
-    ["apps/backend/src/mcp/tools.ts"],
-    ["pnpm-lock.yaml", "apps/backend/src/mcp/nested/a.ts"],
+  for (const change of [
+    ({ write }) => write("apps/backend/src/mcp/tools.ts", "changed"),
+    ({ write }) => {
+      write("pnpm-lock.yaml")
+      write("apps/backend/src/mcp/nested/a.ts")
+    },
+    // A file that moves out of apps/backend/src/mcp/ counts at its old path.
+    ({ move }) =>
+      move("apps/backend/src/mcp/tools.ts", "apps/backend/src/tools.ts"),
   ]) {
-    const result = remind({ names, labels: ["bug"] })
-    assert.equal(result.status, 0)
+    const result = remind({ change, labels: ["bug"] })
+    assert.equal(result.status, 0, result.stderr)
     assert.match(result.comment, /\*\*MCP evals:\*\*/)
     assert.match(result.comment, /label `mcp-evals`/)
   }
 })
 
-test("the evals reminder shows when a file moves out of apps/backend/src/mcp/", () => {
-  const dir = setup({
-    api: {
-      [`repos/${repo}/pulls/7/files`]: [
-        {
-          filename: "apps/backend/src/tools.ts",
-          previous_filename: "apps/backend/src/mcp/tools.ts",
-        },
-      ],
-      [`repos/${repo}/issues/7/labels`]: [],
-    },
-  })
-  const comment = join(dir, "comment.md")
-  writeFileSync(comment, "<!-- merge-gate -->\n")
-  run("mcp-evals-reminder.sh", dir, { REPO: repo, PR: "7" }, [comment])
-  assert.match(readFileSync(comment, "utf8"), /\*\*MCP evals:\*\*/)
-})
-
 test("the evals reminder stays away with the label or without an MCP change", () => {
   const labeled = remind({
-    names: ["apps/backend/src/mcp/tools.ts"],
+    change: ({ write }) => write("apps/backend/src/mcp/tools.ts", "changed"),
     labels: ["bug", "mcp-evals"],
   })
-  assert.equal(labeled.status, 0)
+  assert.equal(labeled.status, 0, labeled.stderr)
   assert.doesNotMatch(labeled.comment, /MCP evals/)
-  for (const names of [
-    ["pnpm-lock.yaml"],
-    ["apps/backend/src/mcp-other/a.ts", "apps/backend/evals/mcp/cases.ts"],
+  for (const change of [
+    ({ write }) => write("pnpm-lock.yaml"),
+    ({ write }) => {
+      write("apps/backend/src/mcp-other/a.ts")
+      write("apps/backend/evals/mcp/cases.ts")
+    },
   ]) {
-    const result = remind({ names, labels: [] })
-    assert.equal(result.status, 0)
+    const result = remind({ change, labels: [] })
+    assert.equal(result.status, 0, result.stderr)
     assert.doesNotMatch(result.comment, /MCP evals/)
   }
+})
+
+// The comment step sources scripts/ci/gh-retry.sh of the checkout.
+const comment = (options) => {
+  const dir = setup({
+    api: {
+      [`repos/${repo}/issues/7/comments`]: [
+        { id: 5, user: { login: "github-actions[bot]" }, body: "<!-- merge-gate -->\nold" },
+      ],
+      rate_limit: { resources: { core: { remaining: 0, reset: 0 } } },
+    },
+    ...options,
+  })
+  mkdirSync(join(dir, "decision"))
+  writeFileSync(join(dir, "decision/comment.md"), "<!-- merge-gate -->\nnew")
+  return run("post-comment", dir, { REPO: repo, PR: "7" }, [], root)
+}
+
+test("the PR comment waits for the rate limit reset, and a limit that stays does not fail the job", () => {
+  const limit = "API rate limit exceeded for installation ID 1 (HTTP 403)"
+  const once = comment({
+    errorsOnce: { [`repos/${repo}/issues/7/comments`]: limit },
+  })
+  assert.equal(once.status, 0, once.stderr)
+  assert.match(once.stderr, /the call runs again in 1s/)
+  assert.equal(
+    once.calls[0],
+    `api --method PATCH repos/${repo}/issues/comments/5 -f body=<!-- merge-gate -->`,
+  )
+  const stays = comment({
+    errors: { [`repos/${repo}/issues/7/comments`]: limit },
+  })
+  assert.equal(stays.status, 0, stays.stderr)
+  assert.match(stays.stdout, /::warning::The GitHub API rate limit stays/)
+  assert.deepEqual(stays.calls, [])
+  const broken = comment({
+    errors: { [`repos/${repo}/issues/7/comments`]: "gh: Server Error (HTTP 500)" },
+  })
+  assert.equal(broken.status, 1)
+  assert.match(broken.stderr, /HTTP 500/)
 })
 
 test("the evals reminder writes nothing when the comment file is missing", () => {

@@ -2015,28 +2015,65 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           echo "plan=false" >> "$GITHUB_OUTPUT"
-          # A renamed file counts at its old path too.
-          files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate \
-            --jq '.[] | .filename, (.previous_filename // empty)')
-          if ! grep -q '^infra/' <<<"$files"; then
+          # The changed paths come from git, not from the GitHub API (its rate
+          # limit failed this step). The checkout is the merge revision, and
+          # its first parent is main. With no rename detection, a renamed
+          # file counts at its old path too.
+          if ! git diff-tree -r --no-commit-id --name-only HEAD^1 HEAD | grep -q '^infra/'; then
             echo "::notice::The PR changes no file under infra/; no Terraform plan"
             exit 0
           fi
+          gh_retry() {
+            local out err try remaining reset wait code=1
+            out="$(mktemp)"
+            err="$(mktemp)"
+            for try in 1 2; do
+              if gh "$@" > "$out" 2> "$err"; then
+                cat "$out"
+                rm -f "$out" "$err"
+                return 0
+              fi
+              grep -qi 'rate limit' "$err" || break
+              code=2
+              [ "$try" = 1 ] || break
+              # No calls left: wait until the reset. Calls left (a secondary limit):
+              # GitHub tells the client to wait one minute.
+              read -r remaining reset < <(gh api rate_limit \
+                --jq '.resources.core | "\(.remaining) \(.reset)"' 2> /dev/null) || break
+              wait=60
+              [ "$remaining" -gt 0 ] || wait=$((reset - $(date +%s) + 1))
+              [ "$wait" -le 300 ] || break
+              [ "$wait" -ge 1 ] || wait=1
+              echo "::notice::GitHub API rate limit: the call runs again in ${wait}s" >&2
+              sleep "$wait"
+              code=1
+            done
+            cat "$err" >&2
+            rm -f "$out" "$err"
+            return "$code"
+          }
+          limited() {
+            echo "::warning::The GitHub API rate limit stays; no Terraform plan. Start it with Run workflow of terraform-plan-pr.yaml."
+            exit 0
+          }
           # The PR can merge and lose its branch while the gate goes on.
-          # Skip only on a definite answer; any other failure fails the step.
-          state=$(gh pr view "$PR" --repo "$REPO" --json state --jq .state)
+          # Skip only on a definite answer; a rate limit that stays skips with
+          # a warning, and any other failure fails the step.
+          state=$(gh_retry pr view "$PR" --repo "$REPO" --json state --jq .state) ||
+            { [ $? = 2 ] && limited; exit 1; }
           if [ "$state" != "OPEN" ]; then
             echo "::notice::PR is closed or its branch is gone; no Terraform plan"
             exit 0
           fi
           # A branch name can hold a slash: encode it for the path.
           encoded=$(jq -rn --arg branch "$BRANCH" '$branch | @uri')
-          if ! out=$(gh api "repos/$REPO/branches/$encoded" --silent 2>&1); then
+          if ! out=$(gh_retry api "repos/$REPO/branches/$encoded" --silent 2>&1); then
             case "$out" in
               *"HTTP 404"*)
                 echo "::notice::PR is closed or its branch is gone; no Terraform plan"
                 exit 0
                 ;;
+              *[Rr]"ate limit"*) limited ;;
             esac
             echo "$out" >&2
             exit 1
@@ -2416,16 +2453,47 @@ jobs:
           BRANCH: ${{ github.head_ref }}
           PR: ${{ github.event.pull_request.number }}
         run: |
+          gh_retry() {
+            local out err try remaining reset wait code=1
+            out="$(mktemp)"
+            err="$(mktemp)"
+            for try in 1 2; do
+              if gh "$@" > "$out" 2> "$err"; then
+                cat "$out"
+                rm -f "$out" "$err"
+                return 0
+              fi
+              grep -qi 'rate limit' "$err" || break
+              code=2
+              [ "$try" = 1 ] || break
+              # No calls left: wait until the reset. Calls left (a secondary limit):
+              # GitHub tells the client to wait one minute.
+              read -r remaining reset < <(gh api rate_limit \
+                --jq '.resources.core | "\(.remaining) \(.reset)"' 2> /dev/null) || break
+              wait=60
+              [ "$remaining" -gt 0 ] || wait=$((reset - $(date +%s) + 1))
+              [ "$wait" -le 300 ] || break
+              [ "$wait" -ge 1 ] || wait=1
+              echo "::notice::GitHub API rate limit: the call runs again in ${wait}s" >&2
+              sleep "$wait"
+              code=1
+            done
+            cat "$err" >&2
+            rm -f "$out" "$err"
+            return "$code"
+          }
           # The PR can merge and lose its branch while this run goes on.
           # Skip only on a definite answer; any other failure fails the step.
-          state=$(gh pr view "$PR" --repo "$REPO" --json state --jq .state)
+          # Without the deploy the gate cannot pass, so a rate limit that
+          # stays after the wait fails the step too.
+          state=$(gh_retry pr view "$PR" --repo "$REPO" --json state --jq .state)
           if [ "$state" != "OPEN" ]; then
             echo "::notice::PR is closed or its branch is gone; no preview deploy"
             exit 0
           fi
           # A branch name can hold a slash: encode it for the path.
           encoded=$(jq -rn --arg branch "$BRANCH" '$branch | @uri')
-          if ! out=$(gh api "repos/$REPO/branches/$encoded" --silent 2>&1); then
+          if ! out=$(gh_retry api "repos/$REPO/branches/$encoded" --silent 2>&1); then
             case "$out" in
               *"HTTP 404"*)
                 echo "::notice::PR is closed or its branch is gone; no preview deploy"
@@ -2435,7 +2503,7 @@ jobs:
             echo "$out" >&2
             exit 1
           fi
-          gh workflow run pr-deploy.yaml --repo "$REPO" --ref "$BRANCH" -f pr_number="$PR"
+          gh_retry workflow run pr-deploy.yaml --repo "$REPO" --ref "$BRANCH" -f pr_number="$PR"
 
   # Calls terraform-plan-pr.yaml when the critics job found a change under
   # infra/ (see that job). A call keeps the PR author as the actor, so
@@ -2584,19 +2652,20 @@ jobs:
         # in an earlier attempt and passed in this one. The jobs of the newest
         # PR Deploy run of the PR head give the deploy checks their results.
         run: |
-          gh api "repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=100" --paginate \
+          source scripts/ci/gh-retry.sh
+          gh_retry api "repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=100" --paginate \
             --jq '.jobs[]' | jq -s '{jobs: .}' > "$RUNNER_TEMP/jobs.json"
           for ((attempt = 1; attempt < ATTEMPT; attempt++)); do
-            gh api "repos/$REPO/actions/runs/$RUN/attempts/$attempt/jobs?per_page=100" --paginate \
+            gh_retry api "repos/$REPO/actions/runs/$RUN/attempts/$attempt/jobs?per_page=100" --paginate \
               --jq '.jobs[]'
           done | jq -s '{jobs: .}' > "$RUNNER_TEMP/earlier.json"
           # The newest PR Deploy run of the head whose deploy job did not
           # skip. A run that a newer push cancelled early has no deploy job.
-          gh api "repos/$REPO/actions/workflows/pr-deploy.yaml/runs?head_sha=$HEAD_SHA&per_page=20" \
+          gh_retry api "repos/$REPO/actions/workflows/pr-deploy.yaml/runs?head_sha=$HEAD_SHA&per_page=20" \
             --jq '.workflow_runs[] | [.id, .status] | @tsv' > "$RUNNER_TEMP/deploy-runs.tsv"
           echo '{"jobs": []}' > "$RUNNER_TEMP/deploy.json"
           while read -r id status; do
-            gh api "repos/$REPO/actions/runs/$id/jobs?per_page=100" --paginate \
+            gh_retry api "repos/$REPO/actions/runs/$id/jobs?per_page=100" --paginate \
               --jq '.jobs[]' | jq -s --arg status "$status" '{status: $status, jobs: .}' > "$RUNNER_TEMP/candidate.json"
             if [[ -z "$(jq -r '.jobs[] | select(.name == "Deploy PR environment (Railway + Neon)" and .conclusion != "skipped") | .name' "$RUNNER_TEMP/candidate.json")" ]]; then
               # Keep the first run as the answer if no run has a deploy job.
@@ -2679,7 +2748,9 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: bash scripts/ci/mcp-evals-reminder.sh "$RUNNER_TEMP/decision/comment.md"
-      # A fork PR has a read-only token, so it gets only the summary.
+      # A fork PR has a read-only token, so it gets only the summary. A rate
+      # limit that stays after the wait does not fail the job: the job
+      # summary and the status of the job have the decision.
       - name: Post or update the PR comment
         if: always() && github.event.pull_request.head.repo.full_name == github.repository
         env:
@@ -2687,13 +2758,22 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: |
+          source scripts/ci/gh-retry.sh
+          limited() {
+            echo "::warning::The GitHub API rate limit stays; the PR comment is not updated. The job summary has the decision."
+            exit 0
+          }
           body="$(cat "$RUNNER_TEMP/decision/comment.md")"
-          existing=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
-            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- merge-gate -->"))) | .id' | head -1)
+          ids=$(gh_retry api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- merge-gate -->"))) | .id') ||
+            { [ $? = 2 ] && limited; exit 1; }
+          existing=$(head -1 <<<"$ids")
           if [ -n "$existing" ]; then
-            gh api --method PATCH "repos/$REPO/issues/comments/$existing" -f body="$body" > /dev/null
+            gh_retry api --method PATCH "repos/$REPO/issues/comments/$existing" -f body="$body" > /dev/null ||
+              { [ $? = 2 ] && limited; exit 1; }
           else
-            gh api --method POST "repos/$REPO/issues/$PR/comments" -f body="$body" > /dev/null
+            gh_retry api --method POST "repos/$REPO/issues/$PR/comments" -f body="$body" > /dev/null ||
+              { [ $? = 2 ] && limited; exit 1; }
           fi
 
   # The trusted writer of the result store, after a full run on main (the
