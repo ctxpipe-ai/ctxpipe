@@ -6,7 +6,7 @@ FROM node@sha256:b7087bc4d973034b30854b378ba107f9fab622b47514cb7e2592e41b8bab8d4
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates git gh findutils ripgrep \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install --global opencode-ai@1.18.34 undici@7.30.0 @ast-grep/cli@0.45.0 \
+    && npm install --global opencode-ai@1.18.34 undici@8.12.4 @ast-grep/cli@0.45.0 \
     && npm cache clean --force \
     && mkdir -p /workspace /home/node/.config /home/node/.local/share /home/node/.local/state /home/node/.cache \
     && chown -R 1000:1000 /workspace /home/node

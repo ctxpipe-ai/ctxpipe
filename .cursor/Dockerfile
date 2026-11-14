@@ -19,8 +19,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # NODE + PNPM (repo uses packageManager pnpm@10.12.1)
 ########################################################
 
-RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
-  && apt-get update && apt-get install -y --no-install-recommends nodejs \
+RUN curl -fsSL https://deb.nodesource.com/setup_26.x | bash - \
+  && apt-get update && apt-get install -y --no-install-recommends nodejs=26.13.1-1nodesource1 \
   && rm -rf /var/lib/apt/lists/*
 
 RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
