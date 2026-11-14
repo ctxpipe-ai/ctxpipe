@@ -599,6 +599,13 @@ jobs:
           echo "prs=${prs% }" >> "$GITHUB_OUTPUT"
           echo "Previews without the Access token: ${prs:-none}"
 
+      # Each production deploy scans again (it reads the state), so the next
+      # one retries what this one could not read; this says so where people look.
+      - name: Say that the preview scan failed
+        if: steps.otel_previews.outcome == 'failure'
+        run: |
+          echo "::warning title=Previews not rolled::The scan for previews without the Access token failed; the next production deploy scans again." | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Deploy production images
         working-directory: ${{ github.workspace }}
         env:
