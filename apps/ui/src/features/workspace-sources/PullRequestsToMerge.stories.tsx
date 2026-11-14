@@ -9,11 +9,26 @@ import {
 
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { PullRequestsToMerge } from "./PullRequestsToMerge"
+import {
+  PullRequestsToMerge,
+  usePullRequestMerges,
+} from "./PullRequestsToMerge"
+import type { OpenedPullRequest } from "./useAddToWorkspaces"
+
+/** The merge-step content with the merge state that it shows in a setup. */
+function PullRequestsToMergeWithMerges(props: {
+  orgSlug: string
+  pullRequests: OpenedPullRequest[]
+}) {
+  const merged = usePullRequestMerges(props.orgSlug, props.pullRequests)
+  return (
+    <PullRequestsToMerge pullRequests={props.pullRequests} merged={merged} />
+  )
+}
 
 const meta = {
   title: "Components/WorkspaceSources/PullRequestsToMerge",
-  component: PullRequestsToMerge,
+  component: PullRequestsToMergeWithMerges,
   decorators: [
     (Story) => (
       <div className="max-w-xl bg-zinc-950 p-4">
@@ -46,7 +61,7 @@ const meta = {
       },
     ],
   },
-} satisfies Meta<typeof PullRequestsToMerge>
+} satisfies Meta<typeof PullRequestsToMergeWithMerges>
 
 export default meta
 

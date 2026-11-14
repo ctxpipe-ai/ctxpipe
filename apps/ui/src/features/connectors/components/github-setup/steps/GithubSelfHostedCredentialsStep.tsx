@@ -2,12 +2,11 @@ import { type DragEvent, useState } from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/Button"
+import { CopyableBlock } from "@/components/ui/CopyableBlock"
 import { ExternalLink } from "@/components/ui/ExternalLink"
 import { Textarea } from "@/components/ui/textarea"
 import { TextField } from "@/components/ui/TextField"
 import { cn } from "@/lib/utils"
-
-import { CopyableBlock } from "../CopyableBlock"
 
 type GithubSelfHostedCredentialsStepProps = {
   githubAppId: string

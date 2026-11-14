@@ -1,4 +1,11 @@
 import { IconCheck } from "@tabler/icons-react"
+import type { ReactNode } from "react"
+
+import {
+  PullRequestsToMerge,
+  usePullRequestMerges,
+} from "@/features/workspace-sources/PullRequestsToMerge"
+import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 
 type StepVisualState = "done" | "current" | "upcoming" | "done_after"
 
@@ -36,7 +43,51 @@ type ConnectorSetupStepperProps = {
   focusOverride?: number | null
   /** Previous / current step clicks (wizard only). */
   onStepSelect?: (index: number) => void
+  /**
+   * The merge step after the listed steps, when the save opened source pull
+   * requests: a selected card with its number, its state and the links.
+   */
+  mergeStep?: {
+    orgSlug: string
+    pullRequests: OpenedPullRequest[]
+    /** Replaces the default sentence, for a provider-specific note. */
+    detail?: ReactNode
+  }
   className?: string
+}
+
+/**
+ * The marker of a setup step: a check when the step is done, else its
+ * number. The marker of the current step has the primary border.
+ */
+function StepMarker({
+  state,
+  number,
+}: {
+  state: StepVisualState
+  number: number
+}) {
+  if (state === "done" || state === "done_after") {
+    return (
+      <span
+        className={`flex size-5 shrink-0 items-center justify-center rounded-md border border-emerald-500 bg-zinc-900 ${state === "done_after" ? "opacity-60" : ""}`}
+        aria-hidden
+      >
+        <IconCheck className="size-3.5 text-emerald-500" stroke={2.5} />
+      </span>
+    )
+  }
+  return (
+    <span
+      className={
+        state === "current"
+          ? "flex size-5 shrink-0 items-center justify-center rounded-md border border-primary bg-zinc-900 text-xs font-medium text-primary"
+          : "flex size-5 shrink-0 items-center justify-center rounded-md border border-zinc-600 bg-zinc-900 text-xs text-muted-foreground"
+      }
+    >
+      {number}
+    </span>
+  )
 }
 
 export function ConnectorSetupStepper({
@@ -44,6 +95,7 @@ export function ConnectorSetupStepper({
   currentIndex,
   focusOverride = null,
   onStepSelect,
+  mergeStep,
   className = "",
 }: ConnectorSetupStepperProps) {
   return (
@@ -68,25 +120,7 @@ export function ConnectorSetupStepper({
                 ? "text-muted-foreground"
                 : "text-muted-foreground"
 
-        const icon =
-          state === "done" || state === "done_after" ? (
-            <span
-              className={`flex size-5 shrink-0 items-center justify-center rounded-md border border-emerald-500 bg-zinc-900 ${state === "done_after" ? "opacity-60" : ""}`}
-              aria-hidden
-            >
-              <IconCheck className="size-3.5 text-emerald-500" stroke={2.5} />
-            </span>
-          ) : (
-            <span
-              className={
-                state === "current"
-                  ? "flex size-5 shrink-0 items-center justify-center rounded-md border border-primary bg-zinc-900 text-xs font-medium text-primary"
-                  : "flex size-5 shrink-0 items-center justify-center rounded-md border border-zinc-600 bg-zinc-900 text-xs text-muted-foreground"
-              }
-            >
-              {i + 1}
-            </span>
-          )
+        const icon = <StepMarker state={state} number={i + 1} />
 
         const label = (
           <div className={`min-w-0 pt-0.5 ${labelClasses}`}>{step.label}</div>
@@ -117,6 +151,36 @@ export function ConnectorSetupStepper({
           </li>
         )
       })}
+      {mergeStep ? (
+        <MergeStepItem number={steps.length + 1} {...mergeStep} />
+      ) : null}
     </ol>
+  )
+}
+
+/** The merge step: the stepper frames the content of `PullRequestsToMerge`. */
+function MergeStepItem(props: {
+  number: number
+  orgSlug: string
+  pullRequests: OpenedPullRequest[]
+  detail?: ReactNode
+}) {
+  const merged = usePullRequestMerges(props.orgSlug, props.pullRequests)
+  const done = merged.every(Boolean)
+  return (
+    <li
+      className="-mx-3 mt-3 flex gap-3 rounded-md bg-muted/40 p-3 ring-1 ring-border ring-inset"
+      data-state={done ? "done" : "current"}
+      aria-current={done ? undefined : "step"}
+    >
+      <span className="mt-0.5 shrink-0">
+        <StepMarker state={done ? "done" : "current"} number={props.number} />
+      </span>
+      <PullRequestsToMerge
+        pullRequests={props.pullRequests}
+        merged={merged}
+        detail={props.detail}
+      />
+    </li>
   )
 }

@@ -20,7 +20,7 @@ const meta = {
   },
   decorators: [
     (Story) => (
-      <div className="w-full max-w-xl border-t border-white/[0.06]">
+      <div className="flex w-xl max-w-full flex-col gap-2">
         <Story />
       </div>
     ),
@@ -80,7 +80,7 @@ export const PendingSetup: Story = {
     expect(
       canvas.queryByRole("button", { name: /connector actions/ }),
     ).toBeNull()
-    await userEvent.click(canvas.getByRole("button", { name: "Expand GitHub" }))
+    await userEvent.click(canvas.getByRole("button", { name: "GitHub" }))
     await canvas.findByText("Account")
     expect(
       canvas.getAllByRole("button", { name: /Complete GitHub install/ }),
@@ -113,10 +113,15 @@ export const PendingSetupNarrow: Story = {
     })
     const nameBox = name.getBoundingClientRect()
     expect(remove.getBoundingClientRect().top).toBeGreaterThan(nameBox.bottom)
-    const expand = canvas.getByRole("button", {
-      name: "Expand Confluence",
-    })
-    expect(expand.getBoundingClientRect().top).toBeLessThan(nameBox.bottom)
+    // A narrow tile puts the status under the name, left-aligned with it,
+    // so the name keeps its width.
+    // The indicator (the dot, then the word) starts at the left edge of the name.
+    const status = canvas.getByText("Setup not finished").parentElement
+    if (!status) throw new Error("No status indicator")
+    const statusBox = status.getBoundingClientRect()
+    expect(statusBox.top).toBeGreaterThanOrEqual(nameBox.bottom)
+    expect(Math.abs(statusBox.left - nameBox.left)).toBeLessThanOrEqual(2)
+    expect(remove.getBoundingClientRect().top).toBeGreaterThan(statusBox.bottom)
     const action = canvas.getByRole("button", {
       name: "Link Atlassian account for Confluence",
     })

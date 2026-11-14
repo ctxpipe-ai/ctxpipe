@@ -23,7 +23,7 @@ export function CopyableBlock({
   value,
   copiedAriaLabel,
   copyAriaLabel,
-  copyErrorMessage = "Could not copy — copy the URL manually.",
+  copyErrorMessage = "Could not copy. Select the text and copy it.",
   onCopied,
   onCopyFailed,
   variant = "default",

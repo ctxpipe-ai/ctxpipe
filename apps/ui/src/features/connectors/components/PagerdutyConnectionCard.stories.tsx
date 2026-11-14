@@ -272,9 +272,7 @@ export const RevokedOpensReconnect: Story = {
     const canvas = within(canvasElement.ownerDocument.body)
     await expect(await canvas.findByText("Needs reconnect")).toBeInTheDocument()
     onOpenSetup.mockClear()
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Expand PagerDuty" }),
-    )
+    await userEvent.click(canvas.getByRole("button", { name: "PagerDuty" }))
     const [reconnect] = await canvas.findAllByRole("button", {
       name: /^Reconnect PagerDuty/,
     })

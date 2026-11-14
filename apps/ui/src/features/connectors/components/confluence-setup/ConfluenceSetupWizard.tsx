@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/Button"
 import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Modal } from "@/components/ui/Modal"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
-import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import { pollWhileOk } from "@/lib/api-result"
 
@@ -32,6 +31,7 @@ import {
 import { orgConnectionsKeys } from "../../queries/org-connections"
 import type { AtlassianConnectorStatus } from "../../types"
 import { ConfluenceMark } from "../ConfluenceMark"
+import { ConnectorSetupFrame } from "../ConnectorSetupFrame"
 import { ConnectorSetupStepper } from "../ConnectorSetupStepper"
 import { InstallForgeStep } from "./steps/InstallForgeStep"
 import { LinkAtlassianStep } from "./steps/LinkAtlassianStep"
@@ -209,53 +209,41 @@ export function ConfluenceSetupWizard({
       isOpen={isOpen}
       onOpenChange={(open) => (open ? onOpenChange(true) : close())}
       isDismissable
-      className="max-w-[min(92vw,720px)]"
+      className="flex max-w-[min(92vw,720px)] flex-col"
     >
-      <div className="p-6">
-        <div className="mb-5 flex items-start justify-between gap-3">
-          <div className="flex min-w-0 gap-3">
-            <span className="ctx-node h-9 w-9">
-              <ConfluenceMark
-                className="size-5 text-foreground"
-                variant="outline"
-              />
-            </span>
-            <div>
-              <h2 className="text-lg font-medium tracking-tight text-foreground">
-                Set up Confluence connector
-              </h2>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Connect Confluence, then select the spaces and pages for each
-                Workspace.
-              </p>
-            </div>
-          </div>
-          <Button variant="secondary" className="rounded-md" onPress={close}>
-            Close
-          </Button>
-        </div>
-
+      <ConnectorSetupFrame
+        icon={
+          <ConfluenceMark
+            className="size-5 text-foreground"
+            variant="outline"
+          />
+        }
+        title="Set up Confluence connector"
+        description="Connect Confluence, then select the spaces and pages for each Workspace."
+        onClose={close}
+      >
         {status && !statusPending && !orgOauthBlocking ? (
-          <div className="mb-6">
-            <ConnectorSetupStepper
-              steps={wizardStepDefs}
-              currentIndex={
-                workspacesDone ? wizardStepDefs.length : cardIndexForStepper
+          <ConnectorSetupStepper
+            steps={wizardStepDefs}
+            currentIndex={
+              workspacesDone ? wizardStepDefs.length : cardIndexForStepper
+            }
+            focusOverride={effectiveManual}
+            mergeStep={
+              bodyId === "complete" ? { orgSlug, pullRequests } : undefined
+            }
+            onStepSelect={(i) => {
+              if (i === cardIndexForStepper && manualStepIndex != null) {
+                setManualStepIndex(null)
+                return
               }
-              focusOverride={effectiveManual}
-              onStepSelect={(i) => {
-                if (i === cardIndexForStepper && manualStepIndex != null) {
-                  setManualStepIndex(null)
-                  return
-                }
-                if (i >= cardIndexForStepper) return
-                if (wizardStepDefs[i]?.id === "forge") {
-                  setWaitForInstall(false)
-                }
-                setManualStepIndex(i)
-              }}
-            />
-          </div>
+              if (i >= cardIndexForStepper) return
+              if (wizardStepDefs[i]?.id === "forge") {
+                setWaitForInstall(false)
+              }
+              setManualStepIndex(i)
+            }}
+          />
         ) : null}
 
         {statusPending ? (
@@ -342,24 +330,9 @@ export function ConfluenceSetupWizard({
                 Confluence connector card.
               </p>
             ) : null}
-            {bodyId === "complete" ? (
-              <div className="space-y-4">
-                <PullRequestsToMerge
-                  orgSlug={orgSlug}
-                  pullRequests={pullRequests}
-                />
-                <Button
-                  variant="secondary"
-                  className="rounded-md"
-                  onPress={close}
-                >
-                  Close
-                </Button>
-              </div>
-            ) : null}
           </div>
         )}
-      </div>
+      </ConnectorSetupFrame>
     </Modal>
   )
 }

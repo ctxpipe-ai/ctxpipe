@@ -109,7 +109,7 @@ export function PagerdutyScopeEditor(props: SourceScopeEditorProps) {
         value={search}
         onChange={setSearch}
       />
-      <div className="max-h-[min(280px,calc(var(--visual-viewport-height)*0.4))] min-h-0 overflow-auto border border-border p-3">
+      <div className="max-h-[min(280px,calc(var(--visual-viewport-height)*0.4))] min-h-0 overflow-auto border-y border-border py-3">
         {loading ? (
           <div className="flex flex-col gap-2" aria-busy>
             <span className="sr-only">Searching PagerDuty</span>

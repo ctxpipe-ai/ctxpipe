@@ -78,7 +78,7 @@ type ConversationBranchChrome = {
 function BranchLabel(props: { branch: ConversationBranchChrome }) {
   const { shortName, href } = props.branch
   const labelClassName =
-    "ml-2 inline-flex min-w-0 max-w-40 shrink items-center gap-1 rounded-md border border-border bg-zinc-800 px-1.5 py-0.5 font-mono text-xs font-normal text-muted-foreground"
+    "ml-3 inline-flex min-w-0 max-w-40 shrink items-center gap-1.5 rounded-md border border-border bg-zinc-800 px-2 py-0.5 font-mono text-xs font-normal text-muted-foreground"
   const content = (
     <>
       <IconGitBranch className="size-3 shrink-0" stroke={1.8} aria-hidden />
@@ -93,7 +93,7 @@ function BranchLabel(props: { branch: ConversationBranchChrome }) {
           target="_blank"
           rel="noopener noreferrer"
           className={cn(
-            "inline-flex min-w-0 items-center gap-1 rounded-sm hover:text-teal-400",
+            "inline-flex min-w-0 items-center gap-1.5 rounded-sm hover:text-teal-400",
             focusVisibleClassName,
           )}
         >

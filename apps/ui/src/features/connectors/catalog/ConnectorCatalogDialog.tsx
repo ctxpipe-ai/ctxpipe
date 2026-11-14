@@ -2,7 +2,7 @@
 
 import HyperDX from "@hyperdx/browser"
 import { IconX } from "@tabler/icons-react"
-import { useState } from "react"
+import { type ReactNode, useState } from "react"
 import {
   Dialog,
   Heading,
@@ -248,6 +248,16 @@ function CatalogRowItem({
   )
 }
 
+/**
+ * The status of each row in one column of the same width, so that the dots
+ * align. A row without a status keeps the empty column. The row is three
+ * columns with the same 24px gap: the text, the status and the actions (left
+ * aligned), so no wide gap opens between the status and its actions.
+ */
+function StatusColumn({ children }: { children?: ReactNode }) {
+  return <div className="flex w-36 shrink-0 sm:ml-3">{children}</div>
+}
+
 /** The state of the provider and its actions, for each availability. */
 function RowStateAndActions({
   row,
@@ -264,11 +274,13 @@ function RowStateAndActions({
     case "coming_soon":
       return (
         <>
-          <span className="inline-flex shrink-0 items-center gap-1.5 font-mono text-xs text-muted-foreground">
-            <span aria-hidden className="size-1.5 rounded-full bg-zinc-500" />
-            Coming soon
-          </span>
-          <div className="flex shrink-0 justify-end gap-1 sm:w-44">
+          <StatusColumn>
+            <ConnectorHealthIndicator
+              health="setup_pending"
+              label="Coming soon"
+            />
+          </StatusColumn>
+          <div className="flex shrink-0 gap-2 sm:ml-3 sm:w-36">
             <Button
               variant="ghost"
               size="sm"
@@ -285,10 +297,15 @@ function RowStateAndActions({
       const chip = statusChip(row)
       return (
         <>
-          {chip ? (
-            <ConnectorHealthIndicator health={chip.health} label={chip.label} />
-          ) : null}
-          <div className="flex shrink-0 justify-end gap-1 sm:w-44">
+          <StatusColumn>
+            {chip ? (
+              <ConnectorHealthIndicator
+                health={chip.health}
+                label={chip.label}
+              />
+            ) : null}
+          </StatusColumn>
+          <div className="flex shrink-0 gap-2 sm:ml-3 sm:w-36">
             {fixConnectionId ? (
               <Button
                 variant="secondary"
@@ -301,7 +318,7 @@ function RowStateAndActions({
             ) : null}
             {row.count > 0 ? (
               <Button
-                variant="ghost"
+                variant="secondary"
                 size="sm"
                 isPending={pending}
                 aria-label={`Add another ${entry.name} connection`}

@@ -783,8 +783,9 @@ export const TextTabsKeepPadding: Story = {
     expectFadeCue(idle)
     const files = await canvas.findByRole("tab", { name: "Files" })
     await document.fonts.ready
-    // The icon tab is square: 7px + 1px border + 16px icon on each side.
-    expect(files.getBoundingClientRect().width).toBe(32)
+    // The icon tab is about square: 10px + 1px border on each side of the
+    // 16px icon.
+    expect(files.getBoundingClientRect().width).toBe(38)
   },
 }
 

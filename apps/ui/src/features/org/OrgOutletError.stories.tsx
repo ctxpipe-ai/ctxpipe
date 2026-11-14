@@ -9,6 +9,8 @@ import {
 import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import { ApiError } from "@/lib/api-result"
+
 import { OrgGateError } from "./OrgGateError"
 import { OrgOutletError } from "./OrgOutletError"
 
@@ -21,11 +23,28 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * The connections read failed with a server error and no reason in the body.
+ * The alert says where it failed and the next step, and does not say the
+ * title again with the fallback message of the query.
+ */
 export const ConnectorsFailed: Story = {
   args: {
     title: "Could not load connectors",
-    error: new Error("Failed to load connections"),
+    error: new ApiError("Failed to load connections", 503, {
+      requestId: "req_01hx7f3a9c",
+    }),
     reset: () => undefined,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      canvas.getByText("The server had an error (status 503)."),
+    ).toBeVisible()
+    await expect(canvas.getByText("req_01hx7f3a9c")).toBeVisible()
+    await expect(
+      canvas.queryByText("Failed to load connections"),
+    ).not.toBeInTheDocument()
   },
 }
 

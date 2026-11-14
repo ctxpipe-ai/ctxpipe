@@ -1,23 +1,18 @@
 "use client"
 
-import {
-  IconChevronRight,
-  IconDotsVertical,
-  IconRefresh,
-} from "@tabler/icons-react"
+import { IconDotsVertical, IconRefresh } from "@tabler/icons-react"
 import {
   type ReactNode,
   type Ref,
-  useContext,
   useEffect,
   useId,
   useRef,
   useState,
 } from "react"
-import { DisclosureStateContext } from "react-aria-components"
 
 import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Button } from "@/components/ui/Button"
+import { Card } from "@/components/ui/Card"
 import { Disclosure, DisclosurePanel } from "@/components/ui/Disclosure"
 import {
   DropdownMenu,
@@ -35,33 +30,35 @@ import { ConnectorHealthIndicator } from "./ConnectorHealthIndicator"
 
 type ConnectorSyncAction = { start: () => void; isPending: boolean }
 
-function ExpandTrigger({
+/**
+ * The head of the tile opens and closes its details: the connector mark and
+ * the name are one button, so there is no separate expand icon.
+ */
+function TileTrigger({
   name,
+  icon,
   ref,
   describedBy,
 }: {
   name: string
+  icon: ReactNode
   ref: Ref<HTMLButtonElement>
   describedBy?: string
 }) {
-  const state = useContext(DisclosureStateContext)
-  const isExpanded = state?.isExpanded ?? false
   return (
     <Button
       ref={ref}
       aria-describedby={describedBy}
       slot="trigger"
       variant="ghost"
-      size="icon-sm"
-      className="rounded-md"
-      aria-label={isExpanded ? `Collapse ${name}` : `Expand ${name}`}
+      className="h-auto min-w-0 justify-start gap-3 rounded-md px-1.5 py-1.5 text-left"
     >
-      <IconChevronRight
-        aria-hidden
-        className={`size-4 text-muted-foreground transition-transform ${
-          isExpanded ? "rotate-90" : ""
-        }`}
-      />
+      <span aria-hidden className="ctx-node h-9 w-9 shrink-0">
+        {icon}
+      </span>
+      <span className="min-w-0 truncate text-sm font-medium text-foreground">
+        {name}
+      </span>
     </Button>
   )
 }
@@ -140,6 +137,10 @@ function ConnectorRemoveDialog({
   )
 }
 
+/**
+ * One connection on the Connectors page, as a tile. The rules of the tile
+ * (head, status column, actions, details) are in README.md in this folder.
+ */
 export function ConnectorListItem({
   connectionId,
   marked = false,
@@ -206,91 +207,95 @@ export function ConnectorListItem({
   }, [marked, modalOpen, connectionId])
   return (
     <>
-      <Disclosure
-        defaultExpanded={defaultExpanded}
-        className={`border-b border-white/[0.06] transition-colors ${
+      <Card
+        className={`gap-0 transition-colors ${
           marked
-            ? "bg-teal-400/10 outline-2 -outline-offset-2 outline-teal-400"
+            ? "bg-teal-400/10 outline-2 -outline-offset-2 outline-teal-400 ring-teal-400/40"
             : ""
         }`}
       >
-        {marked ? (
-          <span id={markedHintId} className="sr-only">
-            Needs your attention
-          </span>
-        ) : null}
-        {/* The Disclosure keeps its own `id` off the DOM: the anchor is here. */}
-        <div id={connectionAnchorId(connectionId)} className="@container">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1 py-3 sm:px-2">
-            <span className="ctx-node h-9 w-9 shrink-0">{icon}</span>
-            <p className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
-              {name}
-            </p>
+        <Disclosure defaultExpanded={defaultExpanded} className="min-w-0">
+          {marked ? (
+            <span id={markedHintId} className="sr-only">
+              Needs your attention
+            </span>
+          ) : null}
+          {/* The Disclosure keeps its own `id` off the DOM: the anchor is here. */}
+          <div id={connectionAnchorId(connectionId)} className="@container">
+            <div className={tileHeadClassName}>
+              <TileTrigger
+                name={name}
+                icon={icon}
+                ref={triggerRef}
+                describedBy={marked ? markedHintId : undefined}
+              />
+              {/*
+               * One column for the status of every tile, so the dots align. A
+               * narrow tile puts the status under the name.
+               */}
+              <div className={tileStatusClassName}>
+                <ConnectorHealthIndicator health={health} />
+              </div>
+              {pending ? (
+                <span aria-hidden className={`size-8 ${tileMenuClassName}`} />
+              ) : (
+                <span className={tileMenuClassName}>
+                  <ConnectorActionsMenu
+                    ariaLabel={`${name} connector actions`}
+                    sync={sync}
+                    onRemove={() => setRemoveOpen(true)}
+                  />
+                </span>
+              )}
+            </div>
             {pending ? (
-              <div className="flex flex-wrap items-center gap-2 @max-2xl:order-last @max-2xl:w-full @max-2xl:pl-12">
-                <ConnectorHealthIndicator health={health} />
-                <div className="ml-auto flex items-center gap-2">
-                  <Button
-                    variant="quiet"
-                    className="whitespace-nowrap"
-                    aria-label={`Remove ${name} setup`}
-                    onPress={() => setRemoveOpen(true)}
-                  >
-                    Remove
-                  </Button>
-                  {action ? (
-                    <Button
-                      variant="secondary"
-                      className="whitespace-nowrap"
-                      aria-label={`${action.actionLabel} for ${name}`}
-                      onPress={action.onAction}
-                    >
-                      {action.actionLabel}
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-            ) : (
-              <>
-                <ConnectorHealthIndicator health={health} />
-                <ConnectorActionsMenu
-                  ariaLabel={`${name} connector actions`}
-                  sync={sync}
-                  onRemove={() => setRemoveOpen(true)}
-                />
-              </>
-            )}
-            <ExpandTrigger
-              name={name}
-              ref={triggerRef}
-              describedBy={marked ? markedHintId : undefined}
-            />
-          </div>
-        </div>
-        <DisclosurePanel>
-          <div className="space-y-4 px-1 pb-4 sm:px-2 sm:pl-[3.25rem]">
-            {children}
-            {usedIn}
-            <dl className="grid gap-4 text-sm sm:grid-cols-2">
-              <div>
-                <dt className="text-muted-foreground">Account</dt>
-                <dd className="mt-1 text-foreground">{workspace}</dd>
-              </div>
-            </dl>
-            {action && !pending ? (
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  className="text-sm text-teal-400 underline-offset-4 transition-colors hover:text-teal-300 hover:underline"
-                  onClick={action.onAction}
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-white/[0.06] px-3 py-2.5">
+                <Button
+                  variant="quiet"
+                  className="whitespace-nowrap"
+                  aria-label={`Remove ${name} setup`}
+                  onPress={() => setRemoveOpen(true)}
                 >
-                  {action.actionLabel}
-                </button>
+                  Remove
+                </Button>
+                {action ? (
+                  <Button
+                    variant="secondary"
+                    className="whitespace-nowrap"
+                    aria-label={`${action.actionLabel} for ${name}`}
+                    onPress={action.onAction}
+                  >
+                    {action.actionLabel}
+                  </Button>
+                ) : null}
               </div>
             ) : null}
           </div>
-        </DisclosurePanel>
-      </Disclosure>
+          <DisclosurePanel>
+            <div className="space-y-4 border-t border-white/[0.06] px-3 py-4 sm:pl-14">
+              {children}
+              {usedIn}
+              <dl className="grid gap-4 text-sm sm:grid-cols-2">
+                <div>
+                  <dt className="text-muted-foreground">Account</dt>
+                  <dd className="mt-1 text-foreground">{workspace}</dd>
+                </div>
+              </dl>
+              {action && !pending ? (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    className="text-sm text-teal-400 underline-offset-4 transition-colors hover:text-teal-300 hover:underline"
+                    onClick={action.onAction}
+                  >
+                    {action.actionLabel}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </DisclosurePanel>
+        </Disclosure>
+      </Card>
       <ConnectorRemoveDialog
         name={name}
         pending={pending}
@@ -303,27 +308,47 @@ export function ConnectorListItem({
   )
 }
 
+/**
+ * The head of a tile: the trigger, the status column and the menu. Below a
+ * container width of 28rem, the status moves to a second row under the name
+ * (the trigger padding, the mark and the gap: 3.375rem).
+ */
+const tileHeadClassName =
+  "grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 p-2 @max-md:grid-cols-[minmax(0,1fr)_auto]"
+const tileStatusClassName =
+  "flex w-36 @max-md:col-start-1 @max-md:row-start-2 @max-md:w-auto @max-md:pb-1.5 @max-md:pl-13.5"
+const tileMenuClassName = "@max-md:col-start-2 @max-md:row-start-1"
+
 export function connectorDash(value: string | null | undefined): string {
   return value?.trim() ? value : "—"
 }
 
-/** The collapsed `ConnectorListItem` row while the connections load. */
+/** The collapsed `ConnectorListItem` tile while the connections load. */
 export function ConnectorListItemSkeleton() {
   return (
-    <div className="border-b border-white/[0.06]">
-      <div className="flex items-center gap-x-3 px-1 py-3 sm:px-2">
-        <Skeleton className="size-9 shrink-0" />
-        <SkeletonText className="min-w-0 flex-1 text-sm" boneClassName="w-32" />
-        <Skeleton className="size-8 shrink-0" />
+    <Card className="@container gap-0">
+      <div className={tileHeadClassName}>
+        <div className="flex min-w-0 items-center gap-3 px-1.5 py-1.5">
+          <Skeleton className="size-9 shrink-0" />
+          <SkeletonText
+            className="min-w-0 flex-1 text-sm"
+            boneClassName="w-32"
+          />
+        </div>
+        <SkeletonText
+          className={`text-xs ${tileStatusClassName}`}
+          boneClassName="w-20"
+        />
+        <Skeleton className={`size-8 ${tileMenuClassName}`} />
       </div>
-    </div>
+    </Card>
   )
 }
 
 export function ConnectorListSkeleton() {
   return (
     <SkeletonChain id="connectors">
-      <div aria-busy>
+      <div aria-busy className="flex flex-col gap-2">
         <span className="sr-only">Loading connectors</span>
         <ConnectorListItemSkeleton />
         <ConnectorListItemSkeleton />

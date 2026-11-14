@@ -1104,8 +1104,8 @@ export const CreatePrMatchesPaneTriggers: Story = {
       trigger.top + trigger.height / 2,
       0,
     )
-    // A trigger has the active tab box: 32px wide, 37px tall.
-    expect(trigger.width).toBe(32)
+    // A trigger has the active tab box: 38px wide, 37px tall.
+    expect(trigger.width).toBe(38)
     expect(trigger.height).toBe(37)
     expect(getComputedStyle(createPr).fontSize).toBe("12px")
     expect(getComputedStyle(createPr).fontWeight).toBe("400")

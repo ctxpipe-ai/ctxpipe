@@ -89,7 +89,7 @@ const meta = {
   args: cardProps,
   decorators: [
     (Story) => (
-      <div className="w-full max-w-xl">
+      <div className="w-xl max-w-full">
         <Story />
       </div>
     ),
@@ -271,9 +271,7 @@ export const PendingSetup: Story = {
       name: "Link Atlassian account for Confluence",
     })
     expect(resume).toBeVisible()
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Expand Confluence" }),
-    )
+    await userEvent.click(canvas.getByRole("button", { name: "Confluence" }))
     await canvas.findByText("Account")
     expect(
       canvas.getAllByRole("button", { name: /Link Atlassian account/ }),
@@ -350,9 +348,7 @@ export const InstalledNotInWorkspaces: Story = {
     await canvas.findByText("Connected")
     expect(canvas.queryByText("Setup not finished")).toBeNull()
     expect(canvas.queryByRole("button", { name: /for Confluence$/ })).toBeNull()
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Expand Confluence" }),
-    )
+    await userEvent.click(canvas.getByRole("button", { name: "Confluence" }))
     await canvas.findByText("No Workspaces yet")
     // Each Workspace has its own scope, so the card shows none (ADR-050).
     await expect(canvas.queryAllByText("Scope")).toHaveLength(0)

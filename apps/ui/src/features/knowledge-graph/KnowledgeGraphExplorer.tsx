@@ -492,7 +492,7 @@ export function KnowledgeGraphExplorer({
       source: "timeline",
       title: `${edgeCount.toLocaleString()} edges in range`,
       description:
-        "Time filter from the historigram. The graph itself is filtered through Cosmograph crossfilter; this panel summarises the affected objects.",
+        "Time filter from the historigram. The graph itself is filtered through Cosmograph crossfilter; this panel summarizes the affected objects.",
       nodeIds,
       nodes,
       edgeCount,
@@ -556,7 +556,12 @@ export function KnowledgeGraphExplorer({
                 </div>
               ) : null
             }
-            onTips={() => setKgIntroOpen((open) => !open)}
+            onTips={() => {
+              // Hide tips is also a dismissal: the tips stay closed on the
+              // next visit, as after Close tips.
+              if (kgIntroOpen) dismissKnowledgeGraphIntro(orgSlug)
+              setKgIntroOpen(!kgIntroOpen)
+            }}
             tipsActive={kgIntroOpen}
             drawerOpen={drawerOpen}
             tipsPanel={

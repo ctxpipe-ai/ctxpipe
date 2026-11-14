@@ -5,10 +5,10 @@ import { chatColumnClassName, chatUserBubbleClassName } from "../chat-column"
 
 export function ConversationThreadSkeleton() {
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-transparent">
+    <div className="flex min-h-0 flex-1 flex-col bg-transparent px-3">
       <div
         className={cn(
-          "mx-auto w-full flex-1 space-y-6 px-4 py-5",
+          "mx-auto w-full flex-1 space-y-6 py-5",
           chatColumnClassName,
         )}
       >

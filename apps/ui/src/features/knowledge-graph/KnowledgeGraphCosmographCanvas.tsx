@@ -1010,7 +1010,7 @@ function FallbackGraphSearch({
 function LegendDock() {
   return (
     <div
-      className="pointer-events-none flex items-end justify-between gap-6 font-sans text-xs font-normal text-muted-foreground [&_*]:font-normal [&_.name]:!font-medium [&_.name]:!text-xs [&_.name]:tracking-normal [&_.name]:text-foreground [&_.label]:tracking-normal [&_.sublabel]:opacity-70"
+      className="pointer-events-none flex items-end justify-between gap-6 font-sans text-xs font-normal text-muted-foreground [&_*]:font-normal [&_.name]:!text-xs [&_.name]:tracking-normal [&_.name]:text-muted-foreground [&_.label]:tracking-normal [&_.sublabel]:opacity-70"
       style={
         {
           "--cosmograph-ui-background": "transparent",
@@ -1018,7 +1018,7 @@ function LegendDock() {
           "--cosmograph-ui-font-family": "var(--font-sans)",
           "--cosmograph-ui-font-size": "12px",
           "--cosmograph-ui-tick-font-size": "12px",
-          "--cosmograph-ui-highlighted-element-color": "rgb(228, 228, 231)",
+          "--cosmograph-ui-highlighted-element-color": "rgb(212, 212, 216)",
           "--cosmograph-color-legend-type-font-size": "12px",
           "--cosmograph-color-legend-type-font-family": "var(--font-sans)",
           "--cosmograph-size-legend-font-family": "var(--font-sans)",
@@ -1030,14 +1030,15 @@ function LegendDock() {
         } as CSSProperties
       }
     >
-      <div className="pointer-events-auto max-h-48 w-56 max-w-[calc(50%-0.75rem)] overflow-hidden">
+      {/* Secondary chrome: muted until the pointer is on it. */}
+      <div className="pointer-events-auto max-h-36 w-48 max-w-[calc(50%-0.75rem)] overflow-hidden opacity-80 transition-opacity hover:opacity-100">
         <CosmographTypeColorLegend
           showLabel
-          labelResolver="node colours"
-          maxDisplayedItems={8}
+          labelResolver="node colors"
+          maxDisplayedItems={5}
         />
       </div>
-      <div className="pointer-events-auto flex max-w-[calc(50%-0.75rem)] items-end gap-8 @max-[32rem]:hidden">
+      <div className="pointer-events-auto flex max-w-[calc(50%-0.75rem)] items-end gap-6 opacity-80 transition-opacity hover:opacity-100 @max-[32rem]:hidden">
         <CosmographSizeLegend
           useLinksData
           selectOnClick={false}

@@ -1,5 +1,4 @@
 import {
-  IconAlertTriangle,
   IconCircleCheck,
   IconGitBranch,
   IconGitPullRequest,
@@ -11,6 +10,7 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Modal } from "@/components/ui/Modal"
 import {
   githubRepoFullNameFromGitUrl,
@@ -309,21 +309,29 @@ function WriteAccessLine(props: {
       Check again
     </Button>
   ) : null
+  const readOnlyNote =
+    access.tone === "read_only" && props.writeStatus === "read_only"
+      ? " After you fix it, reload this page. ctxpipe checks again at most once a minute."
+      : null
+  if (problem) {
+    // A problem uses the one warning look of the app.
+    return (
+      <InlineAlert
+        variant="warning"
+        title={title ?? undefined}
+        actions={fix}
+        actionsPlacement="end"
+      >
+        <span className="sr-only">Write access: </span>
+        {text}
+        {readOnlyNote}
+      </InlineAlert>
+    )
+  }
   return (
-    <div
-      role={problem ? "alert" : undefined}
-      className={cn(
-        "flex flex-wrap items-start justify-between gap-x-4 gap-y-2 rounded-md px-3 py-2.5",
-        problem ? "bg-amber-400/[0.06]" : "bg-white/[0.03]",
-      )}
-    >
+    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 rounded-md bg-white/[0.03] px-3 py-2.5">
       <div className="flex min-w-0 flex-1 basis-64 items-start gap-2">
-        {problem ? (
-          <IconAlertTriangle
-            className="mt-0.5 size-4 shrink-0 text-amber-300"
-            aria-hidden
-          />
-        ) : access.tone === "pull_request" ? (
+        {access.tone === "pull_request" ? (
           <IconGitPullRequest
             className="mt-0.5 size-4 shrink-0 text-muted-foreground"
             aria-hidden
@@ -341,31 +349,12 @@ function WriteAccessLine(props: {
             aria-hidden
           />
         )}
-        <p
-          className={cn(
-            "text-sm",
-            problem ? "text-amber-50" : "text-muted-foreground",
-          )}
-        >
+        <p className="text-sm text-muted-foreground">
           <span className="sr-only">Write access: </span>
           {title ? (
-            <span
-              className={cn(
-                "block",
-                problem ? "font-medium" : "text-foreground",
-              )}
-            >
-              {title}
-            </span>
+            <span className="block text-foreground">{title}</span>
           ) : null}
           <span>{text}</span>
-          {access.tone === "read_only" && props.writeStatus === "read_only" ? (
-            <span className="text-amber-100/70">
-              {" "}
-              After you fix it, reload this page. ctxpipe checks again at most
-              once a minute.
-            </span>
-          ) : null}
         </p>
       </div>
       {fix}

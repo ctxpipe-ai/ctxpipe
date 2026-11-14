@@ -245,7 +245,7 @@ export const RevokedNeedsReconnect: Story = {
     const canvas = within(canvasElement.ownerDocument.body)
     await expect(await canvas.findByText("Needs reconnect")).toBeInTheDocument()
     onOpenSetup.mockClear()
-    await userEvent.click(canvas.getByRole("button", { name: "Expand Notion" }))
+    await userEvent.click(canvas.getByRole("button", { name: "Notion" }))
     const [connect] = await canvas.findAllByRole("button", {
       name: /^Connect Notion/,
     })

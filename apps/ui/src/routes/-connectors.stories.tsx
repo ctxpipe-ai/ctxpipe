@@ -405,12 +405,12 @@ export const Full: Story = {
   ]),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByRole("button", { name: "Expand Notion" })
-    // The main navigation has an "Expand navigation" button when an earlier
-    // story left it collapsed. Count the connector cards only.
+    await canvas.findByRole("button", { name: "Notion" })
+    // The head of each connector tile opens its details.
     const expanders = canvas.getAllByRole("button", {
-      name: /^Expand (?!navigation)/,
+      name: /^(GitHub|Confluence|Notion|Linear|Slack|PagerDuty)$/,
     })
+    await expect(expanders).toHaveLength(6)
     for (const expander of expanders) await userEvent.click(expander)
     // A connection has no scope of its own: each Workspace has one, and
     // "Used in" lists it (ADR-050). The card shows the account only.
@@ -627,6 +627,18 @@ export const ReopensConfluenceWizardAfterAccountLink: Story = {
       expect(
         page.getByRole("heading", { name: "Set up Confluence connector" }),
       ).toBeVisible(),
+    )
+    // The long URL in the alert wraps inside the alert box (CTX-1263).
+    const title = await page.findByText(
+      "Could not load capabilities",
+      {},
+      { timeout: 10_000 },
+    )
+    const alert = title.closest<HTMLElement>('[role="alert"]')
+    if (!alert) throw new Error("No alert around the title")
+    await document.fonts.ready
+    await waitFor(() =>
+      expect(alert.scrollWidth).toBeLessThanOrEqual(alert.clientWidth),
     )
   },
   parameters: {
@@ -867,12 +879,12 @@ export const FixFromCatalog: Story = {
       ).not.toBeInTheDocument(),
     )
     // The card of the connection gets the focus and a mark that is not
-    // only a color: the expand control says that it needs attention.
+    // only a color: the head of the tile says that it needs attention.
     const doc = canvasElement.ownerDocument
     const expand = (connectionId: string) => {
       const card = doc.getElementById(connectionAnchorId(connectionId))
       if (!card) throw new Error(`No card for ${connectionId}`)
-      return within(card).getByRole("button", { name: "Expand Linear" })
+      return within(card).getByRole("button", { name: "Linear" })
     }
     await waitFor(() => expect(expand(linearRevokedId)).toHaveFocus())
     await expect(expand(linearRevokedId)).toHaveAccessibleDescription(
