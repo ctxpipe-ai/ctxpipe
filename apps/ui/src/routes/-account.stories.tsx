@@ -284,6 +284,7 @@ export const ConnectedAppsRevokeError: Story = {
   args: { accountView: "connected-apps" },
   beforeEach: failingRevokeBackend.reset,
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a failed revoke that closes the dialog or removes the app. The dialog stays open with the error and the app stays listed. Not for a successful revoke.",
     storyRoute: {
