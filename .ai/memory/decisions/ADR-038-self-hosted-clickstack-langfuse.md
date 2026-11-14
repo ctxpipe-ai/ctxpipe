@@ -1,6 +1,6 @@
 # ADR-038: Self-hosted ClickStack + Langfuse (ops observability)
 
-**Status:** Accepted | **Date:** 2026-09-21 | **Updated:** 2026-09-29 | **Tags:** observability, railway, clickhouse, langfuse, hyperdx, otel
+**Status:** Accepted; the Railway hosting, Langfuse and the public `telemetry.ctxpipe.ai` collector are superseded by ADR-061 decision 25 (HyperDX only, in the production AWS account, behind Cloudflare Access) | **Date:** 2026-09-21 | **Updated:** 2026-11-10 | **Tags:** observability, railway, clickhouse, langfuse, hyperdx, otel
 
 ### Context
 

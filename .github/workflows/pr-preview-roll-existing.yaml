@@ -13,12 +13,21 @@ on:
         description: Full git SHA already published to GHCR as pr-<N>-<sha>
         required: true
         type: string
+      pr_branch:
+        description: The PR branch, only when this runs from main
+        required: false
+        type: string
 
 # The same group as PR Deploy for this PR branch, so a roll never runs
 # between the migrate and the roll of a PR Deploy run. Run this workflow from
 # the PR branch: the first step checks that the branch is the head of the PR.
+# Or run it from main with pr_branch: then main's reviewed workflow and
+# scripts roll the preview, and a commit of the PR only selects its images. The
+# production deploy rolls the open previews so when production switches to
+# the new collector (deploy.yaml roll_previews_onto_collector): a branch's
+# older scripts could copy production's OTEL token into its preview.
 concurrency:
-  group: pr-deploy-${{ github.ref_name }}
+  group: pr-deploy-${{ inputs.pr_branch || github.ref_name }}
   cancel-in-progress: false
 
 # The checkout reads the repository, and the first step reads the PR. Railway
@@ -60,6 +69,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REF: ${{ github.ref }}
           BRANCH: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PR_BRANCH: ${{ inputs.pr_branch }}
         run: |
           set -euo pipefail
           [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "pr_number must be a number" >&2; exit 1; }
@@ -68,9 +79,20 @@ jobs:
             echo "::error::RAILWAY_WORKSPACE_TOKEN is missing. Add it to the Preview environment (Settings > Environments)."
             exit 1
           }
-          # The concurrency group is the ref name, so it must be the PR branch.
-          if [[ "$REF" != "refs/heads/${BRANCH}" || "$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .head.ref)" != "$BRANCH" ]]; then
-            echo "::error::Run this workflow from the branch of PR #${PR_NUMBER}, not from ${BRANCH}."
+          pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          head_ref="$(jq -r .head.ref <<<"$pr_json")"
+          # The concurrency group is pr_branch or the ref name, so it must be the PR branch.
+          if [[ "$REF" == "refs/heads/${DEFAULT_BRANCH}" ]]; then
+            # From main: a commit of the PR selects only the images, so it must be a commit of this open PR of this
+            # repository (its last deployed one, which can be older than its head).
+            if [[ "$PR_BRANCH" != "$head_ref" || "$(jq -r .state <<<"$pr_json")" != open \
+              || "$(jq -r .head.repo.full_name <<<"$pr_json")" != "$GITHUB_REPOSITORY" ]] \
+              || ! gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/commits" --jq '.[].sha' | grep -qx "$HEAD_SHA"; then
+              echo "::error::From ${DEFAULT_BRANCH}, pr_branch must be the branch of open PR #${PR_NUMBER} and head_sha one of its commits."
+              exit 1
+            fi
+          elif [[ "$REF" != "refs/heads/${BRANCH}" || "$head_ref" != "$BRANCH" || ( -n "$PR_BRANCH" && "$PR_BRANCH" != "$BRANCH" ) ]]; then
+            echo "::error::Run this workflow from the branch of PR #${PR_NUMBER}, or from ${DEFAULT_BRANCH} with pr_branch, not from ${BRANCH}."
             exit 1
           fi
 

@@ -29,8 +29,10 @@
 # - GH_* (Preview environment secrets): the preview GitHub App. The deploy
 #   fails when one is empty, or when GH_APP_ID or GH_CLIENT_ID is equal to the
 #   production backend value (scripts/preview-github-app-vars.sh).
-# - OTEL exporter variables: the deploy reads only those four variables from
-#   the production backend (scripts/preview-otel-vars.sh).
+# - OTEL exporter variables: built from the Preview OBSERVABILITY_OTLP_HEADERS
+#   and the default collector. The sync reads one production variable,
+#   OTEL_EXPORTER_OTLP_HEADERS, only to compare it with the Preview token
+#   (scripts/preview-otel-vars.sh).
 name: PR Deploy
 
 on:
