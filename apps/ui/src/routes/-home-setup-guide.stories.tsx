@@ -208,9 +208,17 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+// The guide shows after a chain of mocked reads (the session, the Workspace
+// list, then the reads of the landing Workspace) and a view transition. On a
+// busy CPU this takes more than the 1-second default wait of `findByRole`,
+// so the wait is longer.
 async function findGuide(canvasElement: HTMLElement) {
   return within(
-    await within(canvasElement).findByRole("region", { name: "Get started" }),
+    await within(canvasElement).findByRole(
+      "region",
+      { name: "Get started" },
+      { timeout: 5000 },
+    ),
   )
 }
 
