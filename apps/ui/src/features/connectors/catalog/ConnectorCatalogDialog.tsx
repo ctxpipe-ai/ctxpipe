@@ -275,13 +275,10 @@ function RowStateAndActions({
       return (
         <>
           <StatusColumn>
-            <span className="inline-flex items-center gap-2 font-mono text-xs text-muted-foreground">
-              <span
-                aria-hidden
-                className="size-1.5 shrink-0 rounded-full bg-zinc-500"
-              />
-              Coming soon
-            </span>
+            <ConnectorHealthIndicator
+              health="setup_pending"
+              label="Coming soon"
+            />
           </StatusColumn>
           <div className="flex shrink-0 gap-2 sm:ml-3 sm:w-36">
             <Button
