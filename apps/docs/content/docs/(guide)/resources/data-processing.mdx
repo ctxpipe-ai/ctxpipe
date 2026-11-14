@@ -42,7 +42,8 @@ ctxpipe reads nothing that you did not connect.
 
 Hosted ctxpipe runs in one AWS region: **us-west-2** (Oregon, United States).
 The database, the indexes, the sandboxes, and our own observability are all in
-that region.
+that region. Requests in transit pass through the Cloudflare edge, and model
+calls go to the model providers. Both can process data outside us-west-2.
 
 ## Sub-processors
 
@@ -51,7 +52,7 @@ that region.
 | Amazon Web Services (AWS) | Compute, the Postgres database, storage, and the isolated sandboxes (microVMs) for Workspace chat and for ingestion. A sandbox holds a copy of the Workspace repository, or of the linked repository that it ingests. AWS also runs our own observability (logs, traces, and model traces). |
 | Cloudflare | The network edge: DNS, TLS, protection against attacks, and the private connection to AWS. Requests to ctxpipe go through Cloudflare. |
 | OpenRouter | Model routing, only to zero data retention endpoints |
-| Vercel | The ctxpipe marketing site and this documentation only. Vercel does not process your data. |
+| Vercel | The ctxpipe marketing site and this documentation only. Vercel does not process your Workspace data or model traffic. |
 | Anthropic and OpenAI | The model providers of the AI agents that the ctxpipe team uses to operate and debug the service. These agents read our logs and traces, which can hold the prompts and outputs of model calls. See [Retention](#retention). |
 
 ## How ctxpipe uses models
@@ -81,8 +82,9 @@ We do not publish fixed retention periods for indexed data yet. Two exceptions:
 - ctxpipe deletes the saved sandbox files of a Workspace chat conversation 29
   days after the last use of the conversation. The branch of the conversation
   in your repository stays.
-- Our own observability keeps logs and traces for 30 days. A trace of a model
-  call holds the prompt and the output of that call.
+- Our own observability (HyperDX) keeps logs and traces for 30 days. A trace
+  of a model call holds the prompt and the output of that call. AWS CloudWatch
+  keeps the raw service logs for 1 day.
 
 The ctxpipe team uses AI agents to operate and debug the service. These agents
 read logs and traces, so this content also goes to the model providers of the
