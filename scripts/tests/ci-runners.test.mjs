@@ -141,28 +141,63 @@ test("Merge gate plan and Merge gate share one cache store", () => {
   )
 })
 
-test("a push to main fills the cache that the GitHub-hosted jobs restore", () => {
-  const job = ci["github-cache"]
-  assert.equal(job.if, "github.event_name == 'push'")
-  const uses = (name, prefix) =>
-    ci[name].steps.find((step) => step.uses?.startsWith(prefix))
-  // The pnpm store: setup-node keys it by the lockfile and the runner.
-  for (const name of ["lint", "typecheck", "packages", "storybook-build"]) {
-    assert.equal(ci[name]["runs-on"], job["runs-on"], name)
+// The workflow that fills the caches of main for the pull request jobs.
+const caches = parse(
+  readFileSync(
+    fileURLToPath(
+      new URL("../../.github/workflows/main-caches.yaml", import.meta.url),
+    ),
+    "utf8",
+  ),
+)
+const uses = (jobs, name, prefix) =>
+  jobs[name].steps?.find((step) => step.uses?.startsWith(prefix))
+
+test("a lockfile change on main fills the pnpm store of both cache stores", () => {
+  // setup-node keys the pnpm store by the OS, the architecture and the
+  // lockfile, and each runner type has its own cache store. A later push
+  // must not cancel a fill.
+  assert.deepEqual(caches.on.push.branches, ["main"])
+  assert.ok(caches.on.push.paths.includes("pnpm-lock.yaml"))
+  assert.ok(caches.on.push.paths.includes(".node-version"))
+  assert.notEqual(caches.concurrency["cancel-in-progress"], true)
+  const restorersByCacheJob = { "github-cache": [], "blacksmith-cache": [] }
+  for (const [name, job] of Object.entries(ci)) {
+    const setup = uses(ci, name, "actions/setup-node@")
+    if (setup?.with?.cache !== "pnpm") continue
+    const store = String(job["runs-on"]).startsWith("blacksmith-")
+      ? "blacksmith-cache"
+      : "github-cache"
     assert.deepEqual(
-      uses(name, "actions/setup-node@").with,
-      uses("github-cache", "actions/setup-node@").with,
+      setup.with,
+      uses(caches.jobs, store, "actions/setup-node@").with,
       name,
     )
+    restorersByCacheJob[store].push(name)
   }
-  assert.ok(job.steps.some((step) => step.run === "pnpm install --frozen-lockfile"))
-  // The Terraform providers: the same path and key as Terraform configuration.
-  assert.deepEqual(
-    uses("github-cache", "actions/cache@").with,
-    uses("terraform-validate", "actions/cache@").with,
+  for (const [store, jobs] of Object.entries(restorersByCacheJob)) {
+    assert.ok(jobs.length > 0, store)
+    assert.ok(
+      caches.jobs[store].steps.some(
+        (step) => step.run === "pnpm install --frozen-lockfile",
+      ),
+      store,
+    )
+  }
+  assert.match(caches.jobs["github-cache"]["runs-on"], /^ubuntu-/)
+  assert.match(caches.jobs["blacksmith-cache"]["runs-on"], /^blacksmith-/)
+})
+
+test("a Terraform lock change on main fills the providers of Terraform configuration", () => {
+  assert.ok(caches.on.push.paths.includes("infra/.terraform.lock.hcl"))
+  assert.equal(
+    ci["terraform-validate"]["runs-on"],
+    caches.jobs["github-cache"]["runs-on"],
   )
-  assert.deepEqual(
-    uses("github-cache", "hashicorp/setup-terraform@").with,
-    uses("terraform-validate", "hashicorp/setup-terraform@").with,
-  )
+  for (const prefix of ["actions/cache@", "hashicorp/setup-terraform@"])
+    assert.deepEqual(
+      uses(caches.jobs, "github-cache", prefix).with,
+      uses(ci, "terraform-validate", prefix).with,
+      prefix,
+    )
 })
