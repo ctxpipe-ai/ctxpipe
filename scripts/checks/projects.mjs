@@ -229,7 +229,7 @@ const definitions = () => [
     [
       "adr",
       [".ai/memory/decisions/**"],
-      "Catches a new ADR file that the decisions index does not list. Run it when a file under .ai/memory/decisions changes; never for a change outside it.",
+      "Catches an ADR file that the decisions index does not list. Run it when a file under .ai/memory/decisions changes; never for a change outside it.",
     ],
     [
       "module-scope-values",
@@ -244,22 +244,13 @@ const definitions = () => [
     ],
   ].map(([lane, reads, intent]) => {
     const file = `scripts/ci/check-${lane}.mjs`
-    // The ADR check reads the git diff against origin/main, so a result
-    // cannot be reused from the files alone.
-    const diff = lane === "adr"
     return {
       family: "policy",
       lane,
       file,
       root: "",
-      inputs: [
-        ...shared,
-        file,
-        ...(diff ? ["scripts/ci/changed-files.mjs"] : []),
-        ...reads,
-      ],
+      inputs: [...shared, file, ...reads],
       ...(intent && { intent }),
-      ...(diff && { cacheable: false }),
       commands: [node(file)],
     }
   }),
@@ -286,7 +277,10 @@ const definitions = () => [
           "packages/visual-review/src/**",
           ...({
             // The manifest of the whole repo, or the files of the apps.
-            "ci-checks": code,
+            "ci-checks-repo": code,
+            // The edge hooks resolve the backend packages from this manifest;
+            // the lockfile holds their versions.
+            "ci-checks": ["apps/backend/package.json"],
             "ci-merge-gate": code,
             "ci-merge-gate-plan": code,
             "ci-test-policy": code,
@@ -494,11 +488,11 @@ const definitions = () => [
 export function listProjects() {
   // An image build and a deploy depend on the platform that builds the image;
   // the result of each other check does not depend on the OS or the CPU.
-  // A shell test runs the tools of its host (bash, sed, jq), which differ
-  // between macOS and Linux.
-  const portable = ({ family, lane, file }) =>
-    (["typecheck", "lint", "policy"].includes(family) &&
-      !file.endsWith(".sh")) ||
+  // A shell test runs fixed fixtures through POSIX options of the host tools
+  // (bash, grep, sed, jq, python3) only, so it gives the same result on macOS
+  // and Linux.
+  const portable = ({ family, lane }) =>
+    ["typecheck", "lint", "policy"].includes(family) ||
     (family === "build" && lane.startsWith("package-"))
   return definitions().map(
     ({ commands: _commands, prerequisites, runtime, ...check }) => ({

@@ -176,6 +176,116 @@ export async function prepareMcpEvalRepositories(
   return remotes
 }
 
+/**
+ * The published copies of the fixture repositories: public repositories of
+ * synthetic content in the GitHub organization of the team. Codesearch on a
+ * deployed stack cannot read a repository on the host of the seed. Thus the
+ * stack reads these copies over HTTPS. `run-seed.ts publish` writes them.
+ */
+export const mcpEvalGithubRemotes: Record<string, string> = Object.fromEntries(
+  manifest.workspaces.map((workspace) => [
+    workspace.key,
+    `https://github.com/ctxpipe-ai/mcp-eval-${workspace.key}.git`,
+  ]),
+)
+
+/**
+ * New fixture repositories in `directory` (it must not exist), each with its
+ * published remote, its bare repository, and its branches: `main`, and the
+ * branch of the second projection.
+ */
+async function fixturesAndRemotes(
+  remotes: Record<string, string>,
+  directory: string,
+) {
+  const local = await prepareMcpEvalRepositories(directory)
+  const second = manifest.secondProjection
+  return manifest.workspaces.map(({ key }) => {
+    const remote = remotes[key]
+    const bare = local[key]
+    if (!remote || !bare) throw new Error(`Missing fixture remote: ${key}`)
+    return {
+      key,
+      remote,
+      bare: fileURLToPath(bare),
+      branches: key === second.workspace ? ["main", second.branch] : ["main"],
+    }
+  })
+}
+
+/**
+ * Compares the published repositories with new fixture repositories in
+ * `directory` (it must not exist). The commits are the same on each run, so
+ * each branch must point to the same commit. Returns one line for each
+ * branch that differs.
+ */
+export async function publishedFixtureDifferences(
+  remotes: Record<string, string>,
+  directory: string,
+): Promise<string[]> {
+  const differences: string[] = []
+  for (const { key, remote, bare, branches } of await fixturesAndRemotes(
+    remotes,
+    directory,
+  )) {
+    for (const branch of branches) {
+      const ref = `refs/heads/${branch}`
+      const fixture = execFileSync(
+        "git",
+        ["--git-dir", bare, "rev-parse", ref],
+        {
+          encoding: "utf8",
+        },
+      ).trim()
+      let published = ""
+      try {
+        published =
+          execFileSync("git", ["ls-remote", remote, ref], {
+            encoding: "utf8",
+            // No prompt for a credential: a published fixture repository is public.
+            env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+            stdio: ["ignore", "pipe", "ignore"],
+          }).split("\t")[0] ?? ""
+      } catch {
+        differences.push(`${key}: the published repository is not readable`)
+        break
+      }
+      if (published !== fixture)
+        differences.push(
+          `${key} ${branch}: published ${published || "nothing"}, fixtures ${fixture}`,
+        )
+    }
+  }
+  return differences
+}
+
+/**
+ * Writes new fixture repositories in `directory` (it must not exist) and
+ * pushes each branch to its published repository, with the credentials of
+ * the caller's Git. Each repository must exist.
+ */
+export async function publishMcpEvalRepositories(
+  remotes: Record<string, string>,
+  directory: string,
+): Promise<void> {
+  for (const { remote, bare, branches } of await fixturesAndRemotes(
+    remotes,
+    directory,
+  ))
+    execFileSync(
+      "git",
+      [
+        "--git-dir",
+        bare,
+        "push",
+        "--force",
+        remote,
+        ...branches.map((branch) => `${branch}:${branch}`),
+      ],
+      { stdio: "inherit" },
+    )
+}
+
 const fixtureGitServers = new Map<
   string,
   Promise<Awaited<ReturnType<typeof startGitHttpServer>>>

@@ -1,5 +1,6 @@
-import { readFile, writeFile } from "node:fs/promises"
-import { resolve } from "node:path"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
 
 import { z } from "zod"
 
@@ -10,7 +11,10 @@ import { closeGraphDb } from "../../src/platform/graph/client.js"
 import {
   advanceMcpEvalWorkspace,
   createMcpEvalApiKey,
+  mcpEvalGithubRemotes,
   prepareMcpEvalRepositories,
+  publishedFixtureDifferences,
+  publishMcpEvalRepositories,
   seedMcpEval,
 } from "./seed.js"
 
@@ -24,6 +28,14 @@ async function main(argv: string[]) {
     await seedForCi(argv[1] ?? "", argv[2] ?? "", argv[3] ?? "")
     return
   }
+  if (argv[0] === "publish" && argv.length === 2 && argv[1]) {
+    await publishMcpEvalRepositories(mcpEvalGithubRemotes, resolve(argv[1]))
+    return
+  }
+  if (argv[0] === "deployed" && argv.length === 2 && argv[1]) {
+    await seedDeployed(resolve(argv[1]))
+    return
+  }
   const [command, run, userId, remoteFile] = argv
   if (
     !["seed", "advance"].includes(command ?? "") ||
@@ -33,7 +45,7 @@ async function main(argv: string[]) {
     !remoteFile
   ) {
     throw new Error(
-      "Usage: run-seed.ts prepare DIRECTORY | seed RUN USER_ID REMOTES_JSON | advance RUN USER_ID REMOTES_JSON | ci RUN DIRECTORY OUT_JSON",
+      "Usage: run-seed.ts prepare DIRECTORY | seed RUN USER_ID REMOTES_JSON | advance RUN USER_ID REMOTES_JSON | ci RUN DIRECTORY OUT_JSON | publish DIRECTORY | deployed OUT_JSON",
     )
   }
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
@@ -66,10 +78,54 @@ async function main(argv: string[]) {
 async function seedForCi(run: string, directory: string, out: string) {
   if (!run || !directory || !out)
     throw new Error("ci needs RUN DIRECTORY OUT_JSON")
-  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
   const remotes = await prepareMcpEvalRepositories(resolve(directory))
   const remoteFile = resolve(directory, "remotes.json")
   await writeFile(remoteFile, JSON.stringify(remotes))
+  await seedWithNewUser(run, remotes, out, remoteFile)
+}
+
+/**
+ * A deployed stack (the one-off task of the AWS cutover rehearsal, CTX-1217):
+ * seed from the published fixture repositories, with a new run name, and
+ * write OUT_JSON as `ci` does, with no remotes file: only `advance` reads it,
+ * and a deployed run has no `advance`. It stops before a write when a
+ * published repository differs from the fixtures: then run `publish` first.
+ * Never run it on a database that serves customers.
+ */
+async function seedDeployed(out: string) {
+  const work = await mkdtemp(join(tmpdir(), "mcp-eval-"))
+  try {
+    const differences = await publishedFixtureDifferences(
+      mcpEvalGithubRemotes,
+      join(work, "fixtures"),
+    )
+    if (differences.length)
+      throw new Error(
+        `The published fixture repositories differ from the fixtures; run run-seed.ts publish. ${differences.join("; ")}`,
+      )
+    // Short: the organization slugs are mcp-eval-<run>-harbor (32 characters at most).
+    await seedWithNewUser(
+      `d${Date.now().toString(36)}`,
+      mcpEvalGithubRemotes,
+      out,
+    )
+  } finally {
+    await rm(work, { recursive: true, force: true })
+  }
+}
+
+/**
+ * Create a made-up user, seed the fixtures, and write the run name, the user
+ * id, the remotes file (if any), and a personal API key for the two fixture
+ * organizations to OUT_JSON (mode 0600).
+ */
+async function seedWithNewUser(
+  run: string,
+  remotes: Record<string, string>,
+  out: string,
+  remoteFile?: string,
+) {
+  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
   initDb(process.env.DATABASE_URL)
   try {
     const userId = `user_mcp_eval_${run}`

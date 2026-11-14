@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 
 import { expect, test } from "vitest"
 
-// Started by scripts/tests/ci-checks.test.mjs with the trace on. One Node
+// Started by scripts/tests/ci-checks-repo.test.mjs with the trace on. One Node
 // child gives coverage. Another child still runs when the file ends, and
 // exits normally later.
 const child = fileURLToPath(new URL("child.mjs", import.meta.url))

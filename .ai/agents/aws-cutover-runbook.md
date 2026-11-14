@@ -46,7 +46,8 @@ output.
    `cutover-reset-indexes` included. Each of these three refuses while `CUTOVER_G4_PASSED` is `true`.
 4. The local rehearsal passes on the images of the day:
    `ops/aws-cutover/local-rehearsal/run.sh <backend image> <codesearch image>`. It runs the commands of the tasks.
-5. A test organization with a personal API key exists in production (Railway today), for the smoke check
+5. The aws-core role `cutover-transfer-writer` exists: the Railway export takes its credentials.
+6. A test organization with a personal API key exists in production (Railway today), for the smoke check
    (`VALIDATE_API_KEY`).
 
 ## Dry run (the day before, changes nothing)
@@ -65,10 +66,17 @@ line gives its expected output. The dry run of the copy is its preflight against
 
 ### 1. Production app secrets
 
-- **Who:** person. **Do:** step C1 of [CTX-1217], production form. It copies the 23 `hosted/app/*` values from Railway,
-  and the sha256 check prints `same` for each key. Then force a new deployment of the backend and the worker.
+- **Who:** person. **Do:** step C1 of [CTX-1217], production form. It copies 17 `hosted/app/*` values from Railway,
+  and the sha256 check prints `same` for each key. `DATABASE_APP_PASSWORD` keeps its new value: migrate sets it.
+  Then force a new deployment of the backend and the worker.
+- **Copy, do not generate:** `AUTH_SECRET` (so that sessions stay valid) and `CONNECTION_SECRETS_ENCRYPTION_KEY` (so
+  that the stored connector tokens decrypt) must have the production values. The rehearsals use new values for both;
+  this step writes over them (ADR-061 decision 12).
 - **Dry run:** the sha256 check only (no `put-secret-value`).
-- **Rollback:** write the rehearsal form again.
+- **Rollback:** write the rehearsal form again. Make its new values in the form that the app requires, or the backend
+  and the worker stop at start:
+  - `CONNECTION_SECRETS_ENCRYPTION_KEY`: exactly 64 hex characters, `openssl rand -hex 32 | tr -d '\n'`.
+  - `AUTH_SECRET`: `openssl rand -base64 48 | tr -d '\n'`.
 
 ### 2. Deploy freeze
 
@@ -102,7 +110,8 @@ line gives its expected output. The dry run of the copy is its preflight against
 - **Who:** person.
 - **Do:**
   1. Merge edge pull request (a): the maintenance page on `app.ctxpipe.ai`.
-  2. Railway: set the replicas of the `backend` and `worker` services to 0. Codesearch and FalkorDB stay up.
+  2. Railway: set the replicas of the `backend` and `openworkflow` (the worker) services to 0. Codesearch and FalkorDB
+     stay up.
   3. AWS: stop `backend`, `worker` and `ui` (desired count 0).
 - **Expected:** `app.ctxpipe.ai` shows the maintenance page. Railway shows 0 replicas for both services.
 - **Dry run:** the `pulumi preview` of pull request (a); `railway status`; `aws ecs describe-services`.
@@ -155,11 +164,19 @@ line gives its expected output. The dry run of the copy is its preflight against
   - **Expected:** the report has `"ok": true`, `preflight.sourceReadOnly: true`, `verify.problems` empty, and the
     phase times. Paste the times into [CTX-1217]. Never paste `pg_dump.log` or `pg_restore.log`: they can hold row
     data.
-- **Indexes (person, in the shell of the Railway codesearch service):**
+- **Indexes (person):**
   1. Fill `hosted/cutover/transfer-url` with `s3://<shard bucket>/cutover-transfer/<run id>` (a new run id).
-  2. With short-lived AWS credentials that can write only `cutover-transfer/*`, run:
-     `cd /app/apps/codesearch && bun run cutover:export-indexes --to "s3://<shard bucket>/cutover-transfer/<run id>"`.
-     It reads the FalkorDB URL from `GRAPH_DB_URI`.
+  2. On your machine, get credentials that can write only `cutover-transfer/*`. They are valid for one hour:
+     `aws sts assume-role --role-arn <cutover-transfer-writer ARN> --role-session-name railway-export --duration-seconds 3600 --query Credentials`.
+     Also read the graph URL of the Railway `backend` service (the codesearch service has no `GRAPH_DB_URI`):
+     `railway variables --service backend --environment production --json | jq -r .GRAPH_DB_URI`.
+  3. Open the shell with `railway ssh --service codesearch --environment production`. Type `unset HISTFILE` first.
+     Then enter each value without echo, for example `read -rs GRAPH_DB_URI && export GRAPH_DB_URI`, for
+     `GRAPH_DB_URI`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`. Then run
+     `export AWS_REGION=us-west-2`.
+  4. Run `cd /app/apps/codesearch && bun run cutover:export-indexes --to "s3://<shard bucket>/cutover-transfer/<run id>"`.
+  5. Run `unset GRAPH_DB_URI AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN`, then close the shell with
+     `exit`.
   - **Expected:** a JSON report with the sizes, the sha256 values and the graph counts. `manifest.json` is in S3.
 - **If either fails:** the full rollback. Write the cause into [CTX-1217].
 
@@ -233,7 +250,7 @@ line gives its expected output. The dry run of the copy is its preflight against
 Do the steps that apply, in this order. Skip a step whose change was not made yet.
 
 1. Neon: the rollback of G3 (read-write again).
-2. Railway: set the replicas of `backend` and `worker` back to their values before T+0.
+2. Railway: set the replicas of `backend` and `openworkflow` back to their values before T+0.
 3. AWS: stop `backend`, `worker` and `ui`. Agent: run the task `cutover-reset-database`, so that Aurora keeps no copy
    of the production data.
 4. If T+40 started: stop `falkordb` and `codesearch`. Agent: run the task `cutover-reset-indexes`. It empties both
@@ -266,5 +283,8 @@ After a rollback, AWS still holds copies that no step deletes. AWS deletes them 
 
 ## Open items
 
-- The MCP evals cannot run against a deployed stack yet (the open point in [CTX-1217]).
+- The MCP evals run in a rehearsal only, never in the window: they write test organizations. They are the task
+  `cutover-mcp-evals` (`run-seed.ts deployed`, then the eval client with `--no-advance`; see
+  `apps/backend/evals/mcp/README.md`). The factory pull request that adds the task is open. The task must refuse to
+  run while `CUTOVER_G4_PASSED` is `true`.
 - Delete this file in the pull request that removes the cutover tasks.
