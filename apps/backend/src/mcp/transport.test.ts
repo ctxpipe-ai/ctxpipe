@@ -8,6 +8,7 @@ import { z } from "zod"
 
 import { recordSpans } from "../../test/spans.js"
 import type { AppEnv } from "../app/env.js"
+import { applyAttribution } from "../observability/attribution.js"
 import { backendOtelMiddleware } from "../observability/http.js"
 import { applyLogContract } from "../observability/logContract.js"
 import { runMcpToolCall } from "./correlation.js"
@@ -226,6 +227,11 @@ describe("MCP tool call request log", () => {
               { toolName: "search_knowledge", extra },
               async () => {
                 await toolMayEnd
+                // As `withCallOrg` does for the org that the call names.
+                applyAttribution({
+                  "ctxpipe.org.id": "org_acme",
+                  "ctxpipe.org.slug": "acme",
+                })
                 return { content: [{ type: "text" as const, text: "ok" }] }
               },
             ),
@@ -261,10 +267,12 @@ describe("MCP tool call request log", () => {
     expect(events).toHaveLength(1)
     expect(callEvents).toHaveLength(1)
     expect(callEvents[0]).toMatchObject({
-      step: "mcp.call",
+      operation: "mcp.call",
       "request.id": "req_mcp_call",
       "ctxpipe.mcp.tool": "search_knowledge",
       "ctxpipe.mcp.result.bytes": expect.any(Number),
+      "ctxpipe.org.id": "org_acme",
+      "ctxpipe.org.slug": "acme",
     })
   })
 })

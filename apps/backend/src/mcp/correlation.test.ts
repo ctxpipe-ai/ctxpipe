@@ -64,8 +64,8 @@ beforeAll(() => {
 })
 
 /** The wide event of the call (not the event of the POST /mcp request). */
-function callEvent(step = "mcp.call") {
-  return events.find((event) => event.step === step)
+function callEvent(operation = "mcp.call") {
+  return events.find((event) => event.operation === operation)
 }
 
 function buildApp(

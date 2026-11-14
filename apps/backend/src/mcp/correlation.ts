@@ -428,10 +428,9 @@ async function runMcpCall<R>(
     // request id, the trace id and the facts from the attribution bag.
     // `withLogger` is not used: on a preview it waits for an OTel flush.
     async (span) => {
-      const holder = {
-        logger: createLogger({ step: bridge ? "bridge.tool" : "mcp.call" }),
-        base: {},
-      }
+      // `operation` names the call event. A handler can set its own `step`.
+      const base = { operation: bridge ? "bridge.tool" : "mcp.call" }
+      const holder = { logger: createLogger({ ...base }), base }
       return loggerStorage.run(holder, async () => {
         applyAttribution(attributes)
         try {
