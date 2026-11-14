@@ -17,8 +17,10 @@ import {
   vi,
 } from "vitest"
 
-import { areas, qualities, verdictSchema, type StoryInput } from "../index.ts"
+import { packagedRubric, verdictSchema, type StoryInput } from "../index.ts"
 import { judgeNewWithJev, judgeWithJev } from "./jev.ts"
+
+const { areas, qualities } = packagedRubric
 
 type DecisionsBody = {
   model: string
@@ -78,6 +80,7 @@ const story = async (overrides: Partial<StoryInput> = {}) =>
   ({
     storyId: "connectors-card--connected",
     scope: "component",
+    rubric: packagedRubric,
     viewport: { width: 1440, height: 900 },
     regions: [
       {
@@ -164,6 +167,10 @@ describe("judgeWithJev questions", () => {
       expect(names.includes(`quality.${id}`)).toBe(!pageOnly)
     expect(seen.body.model).toBe("typesafe/jev-1.14")
     expect(seen.body.questions["defect"]?.type).toBe("noul")
+    expect(seen.body.questions["run-together"]).toMatchObject({
+      type: "noul",
+      instructions: expect.stringContaining("no space and no separator"),
+    })
     expect(seen.body.questions["defect-box"]?.type).toBe("box")
     expect(seen.body.questions["area.spacing"]?.type).toBe("choice")
     expect(
@@ -171,6 +178,22 @@ describe("judgeWithJev questions", () => {
         defined(seen.body.questions["area.spacing"]).criteria as object,
       ),
     ).toEqual(["better", "same", "worse"])
+  })
+
+  test("each question holds the definition of its rubric entry, with the narrowed house exemptions", async () => {
+    const seen = serve(() => fine)
+    await judgeWithJev(await story())
+    const instructions = (name: string) =>
+      String(defined(seen.body.questions[name]).instructions)
+    expect(instructions("area.broken-content")).toMatch(
+      /^Area: Broken content\. .*undefined, null, NaN, \[object Object\].* Does the change make this area better, the same or worse\?/,
+    )
+    expect(instructions("quality.restraint")).toContain(
+      "the mono uppercase .ctx-label as a section label in a dense panel (not as an eyebrow above a page title or a card heading)",
+    )
+    expect(instructions("quality.clarity")).toContain(
+      "Each form field has a visible label",
+    )
   })
 
   test("asks the page-only qualities for a page", async () => {
@@ -242,7 +265,7 @@ describe("judgeWithJev verdict", () => {
     const verdict = await judgeWithJev(await story())
     expect(verdictSchema.parse(verdict)).toEqual(verdict)
     expect(verdict.verdict).toBe("regression")
-    expect(verdict.severity).toBe("major")
+    expect(verdict.severity).toBe("minor")
     expect(verdict.confidence).toBeCloseTo(0.95)
     expect(verdict.storyId).toBe("connectors-card--connected")
     expect(verdict.model).toBe("typesafe/jev-1.14-20261001")
@@ -266,8 +289,41 @@ describe("judgeWithJev verdict", () => {
     expect(verdict.qualities.map(({ name }) => name)).not.toContain("focus")
   })
 
+  test("a Jev regression is minor at any probability: feedback that never blocks", async () => {
+    serve((name) => {
+      if (name === "area.spacing") return choice(0.1, 0.3, 0.6)
+      if (name === "defect") return defect(0.1)
+      if (name === "defect-box") return box(0.2, 0.5, 0.1, 0.4)
+      return fine
+    })
+    const verdict = await judgeWithJev(await story())
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.severity).toBe("minor")
+    expect(verdict.confidence).toBeCloseTo(0.6)
+  })
+
+  test("a worse quality with no worse area names the region of the box in the summary", async () => {
+    serve((name) => {
+      if (name === "quality.consistency") return choice(0, 0.2, 0.8)
+      if (name === "defect") return defect(0.1)
+      if (name === "defect-box") return box(0.2, 0.5, 0.1, 0.4)
+      return fine
+    })
+    const verdict = await judgeWithJev(await story())
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.findings).toEqual([])
+    expect(verdict.summary).toContain("consistency 0.80")
+    expect(verdict.summary).toMatch(
+      /Region: x 0\.10, y 0\.20, width 0\.30, height 0\.30\./,
+    )
+  })
+
   test("nothing worse is intended when a brief explains the change", async () => {
-    serve((name) => (name === "defect" ? defect(0.03) : fine))
+    serve((name) =>
+      ["defect", "run-together", "lost-exit"].includes(name)
+        ? defect(0.03)
+        : fine,
+    )
     const verdict = await judgeWithJev(
       await story({ brief: "Rename the button." }),
     )
@@ -300,7 +356,8 @@ describe("judgeWithJev verdict", () => {
   test("a refused question makes the verdict unsure, not intended", async () => {
     serve((name) => {
       if (name === "quality.clarity") return { type: "refusal" }
-      if (name === "defect") return defect(0.03)
+      if (["defect", "run-together", "lost-exit"].includes(name))
+        return defect(0.03)
       return fine
     })
     const verdict = await judgeWithJev(
@@ -320,7 +377,8 @@ describe("judgeWithJev verdict", () => {
           type: "choice",
           probabilities: { better: 0, same: 1.5, worse: 0 },
         }
-      if (name === "defect") return defect(0.03)
+      if (["defect", "run-together", "lost-exit"].includes(name))
+        return defect(0.03)
       return fine
     })
     const verdict = await judgeWithJev(
@@ -328,6 +386,162 @@ describe("judgeWithJev verdict", () => {
     )
     expect(verdict.verdict).toBe("unsure")
     expect(verdict.summary).toContain("2 questions")
+  })
+
+  test("a lost close, cancel or back control is a dialog finding", async () => {
+    const seen = serve((name) => {
+      if (name === "lost-exit") return defect(0.8)
+      if (name === "defect" || name === "run-together") return defect(0.1)
+      if (name === "defect-box") return box(0.2, 0.3, 0.1, 0.4)
+      return fine
+    })
+    const verdict = await judgeWithJev(
+      await story({ brief: "Make the wizard look cleaner." }),
+    )
+    // The question asks about a dialog or a flow with no way out, not
+    // about one removed control.
+    expect(seen.body.questions["lost-exit"]).toMatchObject({
+      type: "noul",
+      instructions: expect.stringMatching(
+        /Answer no when the after image still shows a way out/,
+      ),
+    })
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.findings.map(({ kind }) => kind)).toEqual(["dialog"])
+    expect(verdict.summary).toContain("dialog (exit removed) 0.80")
+  })
+
+  test("a label that runs two parts together is a spacing finding in the region of the box", async () => {
+    serve((name) => {
+      if (name === "run-together") return defect(0.86)
+      if (name === "lost-exit") return defect(0.03)
+      if (name === "defect") return defect(0.1)
+      if (name === "defect-box") return box(0.2, 0.3, 0.1, 0.4)
+      return fine
+    })
+    const verdict = await judgeWithJev(
+      await story({ brief: "Show the step number before the step name." }),
+    )
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.severity).toBe("minor")
+    expect(verdict.findings.map(({ kind }) => kind)).toEqual(["spacing"])
+    expect(verdict.summary).toContain("spacing (parts run together) 0.86")
+    expect(verdict.confidence).toBe(0.86)
+  })
+
+  test("a run-together label with no usable box is unsure, not intended", async () => {
+    serve((name) => {
+      if (name === "run-together") return defect(0.86)
+      if (name === "lost-exit") return defect(0.03)
+      if (name === "defect") return defect(0.03)
+      if (name === "defect-box") return box(0.5, 0.5, 0.1, 0.4)
+      return fine
+    })
+    const verdict = await judgeWithJev(
+      await story({ brief: "Show the step number before the step name." }),
+    )
+    expect(verdict.verdict).toBe("unsure")
+    expect(verdict.findings).toEqual([])
+    expect(verdict.summary).toContain("cannot place it")
+  })
+
+  test("a worse spacing area and a run-together label give one spacing finding", async () => {
+    serve((name) => {
+      if (name === "run-together") return defect(0.7)
+      if (name === "lost-exit") return defect(0.03)
+      if (name === "area.spacing") return choice(0, 0.3, 0.7)
+      if (name === "defect") return defect(0.1)
+      if (name === "defect-box") return box(0.2, 0.3, 0.1, 0.4)
+      return fine
+    })
+    const verdict = await judgeWithJev(await story())
+    expect(verdict.findings.map(({ kind }) => kind)).toEqual(["spacing"])
+  })
+
+  test("a run-together answer under 0.5 does not make the verdict unsure", async () => {
+    serve((name) => {
+      if (name === "run-together") return defect(0.45)
+      if (name === "lost-exit") return defect(0.03)
+      if (name === "defect") return defect(0.03)
+      return fine
+    })
+    const verdict = await judgeWithJev(
+      await story({ brief: "Rename the button." }),
+    )
+    expect(verdict.verdict).toBe("intended")
+  })
+
+  test("a head rubric with no spacing area gets no run-together question", async () => {
+    const seen = serve((name) =>
+      name === "defect" || name === "lost-exit" ? defect(0.03) : fine,
+    )
+    const verdict = await judgeWithJev(
+      await story({
+        brief: "Rename the button.",
+        rubric: {
+          ...packagedRubric,
+          areas: packagedRubric.areas.filter(({ id }) => id !== "spacing"),
+        },
+      }),
+    )
+    expect(Object.keys(seen.body.questions)).not.toContain("run-together")
+    expect(verdict.verdict).toBe("intended")
+  })
+
+  test("a worse density alone is unsure, not a regression, and the summary says why", async () => {
+    serve((name) => {
+      if (name === "quality.density") return choice(0, 0.3, 0.7)
+      if (["defect", "run-together", "lost-exit"].includes(name))
+        return defect(0.03)
+      if (name === "defect-box") return box(0.2, 0.3, 0.1, 0.4)
+      return fine
+    })
+    const verdict = await judgeWithJev(
+      await story({ brief: "Remove the icon tile above the empty state." }),
+    )
+    expect(verdict.verdict).toBe("unsure")
+    expect(verdict.findings).toEqual([])
+    expect(verdict.summary).toContain("density worse (0.70)")
+  })
+
+  test("the density note follows the other reason of an unsure verdict", async () => {
+    serve((name) => {
+      if (name === "quality.density") return choice(0, 0.3, 0.7)
+      if (name === "quality.clarity") return { type: "refusal" }
+      if (["defect", "run-together", "lost-exit"].includes(name))
+        return defect(0.03)
+      return fine
+    })
+    const verdict = await judgeWithJev(
+      await story({ brief: "Remove the icon tile above the empty state." }),
+    )
+    expect(verdict.verdict).toBe("unsure")
+    expect(verdict.summary).toMatch(
+      /^Jev left 1 questions without an answer\. Jev also finds the density worse \(0\.70\)\./,
+    )
+  })
+
+  test("a worse density with another worse quality is a regression of that quality", async () => {
+    serve((name) => {
+      if (name === "quality.density") return choice(0, 0.3, 0.7)
+      if (name === "quality.hierarchy") return choice(0, 0.2, 0.8)
+      if (name === "defect-box") return box(0.2, 0.3, 0.1, 0.4)
+      return fine
+    })
+    const verdict = await judgeWithJev(await story())
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.summary).toContain("hierarchy 0.80")
+    expect(verdict.summary).not.toContain("density")
+  })
+
+  test("the caller can keep the raw answers of Jev", async () => {
+    serve((name) => (name === "run-together" ? defect(0.2) : fine))
+    let kept: Record<string, unknown> | undefined
+    await judgeWithJev(await story(), undefined, (answers) => {
+      kept = answers
+    })
+    expect(kept?.["run-together"]).toEqual(defect(0.2))
+    expect(kept?.["area.spacing"]).toEqual(fine)
   })
 
   test("a response with no answers is unsure, not intended", async () => {
@@ -357,7 +571,7 @@ describe("judgeWithJev verdict", () => {
     serve((name) => (name === "quality.restraint" ? choice(0, 0.1, 0.9) : fine))
     const verdict = await judgeWithJev(await story())
     expect(verdict.verdict).toBe("regression")
-    expect(verdict.severity).toBe("major")
+    expect(verdict.severity).toBe("minor")
     expect(verdict.findings).toEqual([])
     expect(verdict.summary).toContain("restraint")
   })
@@ -550,6 +764,7 @@ describe("judgeNewWithJev", () => {
   const newStory = async (brief?: string) => ({
     storyId: "connectors-card--new",
     scope: "component" as const,
+    rubric: packagedRubric,
     images: [
       {
         path: await png("new.png", 800, 500),
@@ -570,6 +785,14 @@ describe("judgeNewWithJev", () => {
       ...qualities
         .filter(({ pageOnly }) => !pageOnly)
         .map(({ id }) => `quality.${id}`),
+      "rule.two-close",
+      "rule.copy-button",
+      "rule.status-colors",
+      "rule.uk-spelling",
+      "rule.no-exit",
+      "rule.dialog-clipped",
+      "rule.off-axis",
+      "rule.bright-area",
       "defect-box",
     ])
     expect(
@@ -579,10 +802,85 @@ describe("judgeNewWithJev", () => {
     ).toBe(true)
     expect(JSON.stringify(questions)).not.toMatch(/better, the same or worse/)
     expect(state).toContain("Image 1 (after):")
+    // What not to report, from the owner calibration.
+    expect(state).toContainEqual(
+      expect.stringMatching(
+        /^How to judge: \(a\) Most UI in a screenshot is partial/,
+      ),
+    )
 
     const other = serve(() => noul(0.02))
     await judgeNewWithJev(await newStory(), "baseten/elephant-1")
     expect(Object.keys(other.body.questions)).not.toContain("defect-box")
+  })
+
+  test("a yes to a rule question is a finding of its area, one finding with the area question", async () => {
+    serve((name) => {
+      if (name === "rule.two-close") return noul(0.8)
+      if (name === "area.dialog") return noul(0.6)
+      if (name === "rule.uk-spelling") return noul(0.7)
+      if (name === "defect-box") return box(0.2, 0.5, 0.1, 0.4)
+      return noul(0.02)
+    })
+    const verdict = await judgeNewWithJev(await newStory())
+    expect(verdictSchema.parse(verdict)).toEqual(verdict)
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.findings.map(({ kind }) => kind)).toEqual(["dialog", "copy"])
+    expect(verdict.summary).toContain("dialog 0.80, copy 0.70")
+  })
+
+  test("a rule answer under 0.5 is not unsure, and a yes with no region is unsure", async () => {
+    serve((name) => (name === "rule.copy-button" ? noul(0.4) : noul(0.02)))
+    const low = await judgeNewWithJev(await newStory("Add the key dialog."))
+    expect(low.verdict).toBe("intended")
+
+    serve((name) => (name === "rule.copy-button" ? noul(0.9) : noul(0.02)))
+    const unplaced = await judgeNewWithJev(await newStory())
+    expect(unplaced.verdict).toBe("unsure")
+    expect(unplaced.findings).toEqual([])
+  })
+
+  test("a flat page fails the grouping quality, only on a page screenshot", async () => {
+    serve((name) => (name === "rule.flat-page" ? noul(0.8) : noul(0.02)))
+    const story = await newStory()
+    const verdict = await judgeNewWithJev({ ...story, scope: "page" })
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.qualities).toContainEqual({
+      name: "grouping-and-rhythm",
+      delta: "fails",
+      confidence: 0.8,
+    })
+
+    // Also when the grouping quality has no answer.
+    serve((name) =>
+      name === "rule.flat-page"
+        ? noul(0.7)
+        : name === "quality.grouping-and-rhythm"
+          ? {}
+          : noul(0.02),
+    )
+    const unanswered = await judgeNewWithJev({ ...story, scope: "page" })
+    expect(unanswered.verdict).toBe("regression")
+
+    const component = serve(() => noul(0.02))
+    await judgeNewWithJev(story)
+    expect(Object.keys(component.body.questions)).not.toContain(
+      "rule.flat-page",
+    )
+  })
+
+  test("a rule question goes only with its area: a head rubric can leave it out", async () => {
+    const seen = serve(() => noul(0.02))
+    const story = await newStory()
+    await judgeNewWithJev({
+      ...story,
+      rubric: {
+        ...packagedRubric,
+        areas: packagedRubric.areas.filter(({ id }) => id !== "dialog"),
+      },
+    })
+    expect(Object.keys(seen.body.questions)).not.toContain("rule.two-close")
+    expect(Object.keys(seen.body.questions)).toContain("rule.copy-button")
   })
 
   test("a broken area is a regression in the region of the box", async () => {
@@ -595,11 +893,30 @@ describe("judgeNewWithJev", () => {
     const verdict = await judgeNewWithJev(await newStory())
     expect(verdictSchema.parse(verdict)).toEqual(verdict)
     expect(verdict.verdict).toBe("regression")
-    expect(verdict.severity).toBe("major")
+    expect(verdict.severity).toBe("minor")
     expect(verdict.findings.map(({ kind }) => kind)).toEqual(["spacing"])
     expect(verdict.findings[0]?.region.x).toBeCloseTo(0.1)
     expect(verdict.findings[0]?.region.height).toBeCloseTo(0.3)
     expect(verdict.qualities.every(({ delta }) => delta === "meets")).toBe(true)
+  })
+
+  test("broken content, such as a raw undefined, is a regression of its own kind", async () => {
+    const seen = serve((name) => {
+      if (name === "area.broken-content") return noul(0.88)
+      if (name === "defect") return noul(0.9)
+      if (name === "defect-box") return box(0.6, 0.7, 0.2, 0.5)
+      return noul(0.02)
+    })
+    const verdict = await judgeNewWithJev(await newStory())
+    expect(
+      String(defined(seen.body.questions["area.broken-content"]).instructions),
+    ).toMatch(/Does the new screenshot break a rule of this area\?$/)
+    expect(verdictSchema.parse(verdict)).toEqual(verdict)
+    expect(verdict.verdict).toBe("regression")
+    expect(verdict.findings.map(({ kind }) => kind)).toEqual(["broken-content"])
+    expect(verdict.findings[0]?.rubricRef).toBe(
+      ".agents/skills/product-ui/references/visual-craft.md › Finishing",
+    )
   })
 
   test("another decision model places a finding on the whole image", async () => {

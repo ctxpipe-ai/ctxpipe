@@ -55,11 +55,6 @@ function MissingInstallationIdView() {
   return (
     <AppShell>
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-        <header className="mb-8">
-          <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-            GitHub
-          </span>
-        </header>
         <section>
           <h1 className="text-3xl font-medium tracking-tight text-foreground">
             GitHub setup issue
@@ -78,11 +73,6 @@ function MissingPreferredOrgView() {
   return (
     <AppShell>
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-        <header className="mb-8">
-          <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-            GitHub
-          </span>
-        </header>
         <section>
           <h1 className="text-3xl font-medium tracking-tight text-foreground">
             Select organization first
@@ -210,11 +200,6 @@ export function ConnectGithubView({
     return (
       <AppShell>
         <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-          <header className="mb-8">
-            <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-              GitHub
-            </span>
-          </header>
           <GithubNotLinkedNotice
             githubSignInEnabled={githubSignIn ?? true}
             orgSlug={selectedOrganizationSlug}
@@ -228,11 +213,6 @@ export function ConnectGithubView({
   return (
     <AppShell>
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-        <header className="mb-8">
-          <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-            GitHub
-          </span>
-        </header>
         <section>
           <h1 className="text-3xl font-medium tracking-tight text-foreground">
             Link GitHub installation
@@ -337,11 +317,6 @@ function DirectSetupPage() {
     return (
       <AppShell>
         <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-          <header className="mb-8">
-            <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-              GitHub
-            </span>
-          </header>
           <section>
             <h1 className="text-3xl font-medium tracking-tight text-foreground">
               Linking GitHub installation

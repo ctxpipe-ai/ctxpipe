@@ -175,7 +175,7 @@ function resolveTooltipContent(props: {
       <div className="space-y-1.5 text-left">
         <p>
           Last success:{" "}
-          <code className="rounded-sm bg-background/15 px-1 py-0.5 font-mono text-[0.7rem]">
+          <code className="rounded-md bg-background/15 px-1 py-0.5 font-mono text-xs">
             {shortHash}
           </code>
           {relativeTime ? ` ${relativeTime}` : null}

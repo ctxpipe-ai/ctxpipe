@@ -76,9 +76,19 @@ test("Visual is a command critic that runs visual:review only on changed screens
   assert.deepEqual(run.slice(0, 3), ["pnpm", "-s", "visual:review"])
   assert.deepEqual(run.slice(-2), ["--", "{paths}"])
   assert.equal(run[run.indexOf("--images") + 1], "{folder}/binary")
+  // Jev alone decides each screenshot (ADR-063).
+  assert.equal(run[run.indexOf("--judge") + 1], "jev")
   // The factory gives the rest of the spend limit of the PR (CTX-1233), so
   // that visual:review stops its own model calls there.
   assert.equal(run[run.indexOf("--budget-usd") + 1], "{budgetUsd}")
+  // The rubric of the PR head judges, as data: the factory copies the head
+  // file into the review folder, and the code stays the merge-base code
+  // (ADR-063, CTX-1264).
+  assert.deepEqual(command.headFiles, ["packages/visual-review/rubric.json"])
+  assert.equal(
+    run[run.indexOf("--rubric") + 1],
+    "{folder}/head/packages/visual-review/rubric.json",
+  )
   const scripts = JSON.parse(readFileSync(`${root}package.json`, "utf8")).scripts
   assert.equal(
     scripts["visual:review"],
@@ -89,7 +99,8 @@ test("Visual is a command critic that runs visual:review only on changed screens
 test("the Visual version holds the code of the command and the lockfile, not its tests", () => {
   // The factory reuses a stored visual verdict while the critic version
   // stays the same, so each file that can change a judgment is an input: the
-  // rubric, the prompt, the model choice, the compare engine and the
+  // merge-base rubric (the head rubric is in the key of a verdict), the
+  // prompt, the model choice, the compare engine and the
   // dependencies. A test file is not, so a new test does not void the
   // stored verdicts.
   const { inputs } = critic("visual")
@@ -105,6 +116,7 @@ test("the Visual version holds the code of the command and the lockfile, not its
   for (const file of [
     ...code,
     "packages/visual-review/package.json",
+    "packages/visual-review/rubric.json",
     "package.json",
     "pnpm-lock.yaml",
   ])

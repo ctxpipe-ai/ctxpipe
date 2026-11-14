@@ -169,6 +169,7 @@ const writeManifest = (extra: object = {}) => {
       seed: 7,
       until: sha("c"),
       container: "mcr.microsoft.com/playwright:v1.63.0-noble@sha256:0",
+      scope: "page",
       cases,
       ...extra,
     }),
@@ -744,6 +745,96 @@ test("a hold-out-only dry run gets only the images of the hold-out cases from th
   expect(downloads).toEqual([])
 })
 
+test("a run that skips the hold-out set judges only the other cases, and keeps the raw answers of Jev", async () => {
+  server.use(decisions, releaseOf())
+  const cache = join(mkdtempSync(join(folder, "cache-")), "images")
+  const otherCases = cases.filter(({ id }) => !held().has(id))
+
+  const { code, out, text } = await fromRelease(cache, [
+    "--arms",
+    "jev",
+    "--skip-hold-out",
+  ])
+
+  expect(code).toBe(0)
+  expect(text).toContain(
+    `Cases: ${otherCases.length} (0 in the hold-out set, 4 new screenshots). Runs: 1. Arms: 1.`,
+  )
+  expect(
+    calls.some((call) => [...held()].some((id) => call.endsWith(id))),
+  ).toBe(false)
+  const { results } = JSON.parse(
+    readFileSync(join(out, "results.json"), "utf8"),
+  ) as { results: { case: string; verdict: { answers?: object } }[] }
+  // A new screenshot goes to the judge of a new screenshot, which keeps no
+  // answers.
+  const changes = new Set(
+    cases.filter(({ kind }) => kind !== "new").map(({ id }) => id),
+  )
+  const judged = results.filter(
+    ({ case: id }) =>
+      changes.has(id) && calls.some((call) => call.endsWith(id)),
+  )
+  expect(judged.length).toBeGreaterThan(0)
+  for (const { verdict } of judged)
+    expect(verdict.answers).toHaveProperty("run-together")
+})
+
+test("a run gets either the hold-out set only or no hold-out set, not both", async () => {
+  const { code, text } = await run([
+    "--cases",
+    writeManifest(),
+    "--arms",
+    "jev",
+    "--hold-out-only",
+    "--skip-hold-out",
+  ])
+  expect(code).toBe(2)
+  expect(text).toContain(
+    "Do not give --hold-out-only and --skip-hold-out together",
+  )
+})
+
+test("a case with its own scope goes to the judge with that scope", async () => {
+  const asked = new Map<string, string[]>()
+  server.use(
+    http.post(
+      "https://gateway.test/api/alpha/decisions",
+      async ({ request }) => {
+        const body = (await request.json()) as {
+          state: unknown[]
+          questions: Record<string, { type: string }>
+        }
+        const id = storyOf(
+          body.state.filter((part) => typeof part === "string").join("\n"),
+        )
+        asked.set(id, Object.keys(body.questions))
+        return HttpResponse.json({
+          model: "typesafe/jev-1.14",
+          answers: {},
+          usage: { cost: 0.0004 },
+        })
+      },
+    ),
+  )
+  const component = cases.find(({ kind }) => kind === "regression")
+  if (!component) throw new Error("The fixture has no regression case.")
+  const { code } = await run([
+    "--cases",
+    writeManifest({
+      cases: cases.map((entry) =>
+        entry === component ? { ...entry, scope: "component" } : entry,
+      ),
+    }),
+    "--arms",
+    "jev",
+  ])
+  expect(code).toBe(0)
+  expect(asked.get(component.id)).not.toContain("quality.focus")
+  const page = [...asked].find(([id]) => id !== component.id)
+  expect(page?.[1]).toContain("quality.focus")
+})
+
 test("an image with one changed byte fails the hash check before a call", async () => {
   server.use(chat, releaseOf(changedByte))
   const cache = mkdtempSync(join(folder, "cache-"))
@@ -820,24 +911,44 @@ test("a run that the spend cap stops before its first call gets no image", async
   expect(calls).toEqual([])
 })
 
-test("a capped run with workers at the same time gets only the images of the calls that it starts", async () => {
-  server.use(chat, releaseOf())
+test("a capped run with workers at the same time lets the calls in flight finish, and starts no call above the cap", async () => {
+  // Each call waits until all workers made their call. Thus the calls are
+  // in flight together, and no worker sees the cost of another call first.
+  // The result does not depend on the timing of the workers.
+  const workers = 4
+  let arrive = () => {}
+  const allInFlight = new Promise((done) => {
+    let arrived = 0
+    arrive = () => {
+      if (++arrived === workers) done(true)
+    }
+  })
+  const holdUntilAllInFlight = http.post(
+    `${gateway}/chat/completions`,
+    async () => {
+      arrive()
+      await allInFlight
+      // No response: msw gives the request to the next handler (`chat`).
+    },
+  )
+  server.use(holdUntilAllInFlight, chat, releaseOf())
   const cache = mkdtempSync(join(folder, "cache-"))
 
-  // Four workers start at $0.00. After their four calls, the spend of
-  // $0.04 is at the cap, so no other case starts and gets its images.
+  // Four workers start at $0.00 and their four calls finish. The spend of
+  // $0.04 is then above the cap of $0.03, so no other call starts and no
+  // other case gets its images.
   const { code, text } = await fromRelease(cache, [
     "--arms",
     "llm:anthropic/claude-test",
     "--concurrency",
-    "4",
+    String(workers),
     "--max-cost",
     "0.03",
   ])
 
   expect(code).toBe(0)
   expect(text).toContain("The spend cap stopped the run")
-  expect(calls).toHaveLength(4)
+  expect(calls).toHaveLength(workers)
   const called = calls.map((call) => call.split(" ")[1])
   expect([...downloads].sort()).toEqual(
     files(cases.filter(({ id }) => called.includes(id))),
@@ -932,6 +1043,33 @@ test("the taste win rate comes from the owner picks in the manifest", async () =
   expect(score(jev[0], 1) + score(jev[1], 3)).toBeCloseTo(1.5)
 })
 
+test("the report marks an arm whose model is on the judge panel", async () => {
+  server.use(chat, decisions)
+  const manifest = writeManifest({
+    panelModels: ["anthropic/claude-test", "vendor-b/judge", "vendor-c/judge"],
+  })
+  const { text } = await run([
+    "--cases",
+    manifest,
+    "--arms",
+    "jev,llm:anthropic/claude-test,cascade:anthropic/claude-test,llm-no-facts:openrouter/anthropic/claude-test",
+    "--runs",
+    "1",
+  ])
+
+  expect(text).toContain(
+    "The labels of the real changes come from the judge panel (anthropic/claude-test, vendor-b/judge, vendor-c/judge).",
+  )
+  const arms = [...rows(text, "## Hold-out set").keys()]
+  expect(arms).toEqual([
+    "jev",
+    "llm:anthropic/claude-test (panel)",
+    "cascade:anthropic/claude-test (panel)",
+    // The same model, as the adapter sends it.
+    "llm-no-facts:openrouter/anthropic/claude-test (panel)",
+  ])
+})
+
 test("the hold-out set is 30% of each kind of the committed cases, the same for the same seed", () => {
   const manifest = caseManifestSchema.parse(
     JSON.parse(readFileSync(join(import.meta.dirname, "cases.json"), "utf8")),
@@ -947,7 +1085,7 @@ test("the hold-out set is 30% of each kind of the committed cases, the same for 
     )
 
   expect(kinds(held)).toEqual({
-    intended: 18,
+    intended: 11,
     regression: 24,
     noise: 6,
     mixed: 6,

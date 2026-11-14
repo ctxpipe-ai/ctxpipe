@@ -12,7 +12,11 @@ import {
   sql,
   startPostgresPair,
 } from "../test/postgres-pair.js"
-import { copyDatabase, verifyDatabaseCopy } from "./copy-database.js"
+import {
+  copyDatabase,
+  verifyDatabaseCopy,
+  withPassword,
+} from "./copy-database.js"
 import { runMigrations } from "./run-migrations.js"
 
 /*
@@ -40,7 +44,12 @@ describe("copy-database (two Postgres 17 containers)", () => {
       "ctxpipe_rehearsal",
       "ctxpipe_schema_only",
     ])
-    targetUrl = pair.targetUrl("ctxpipe")
+    // The AWS form: a target URL with no password, and the password of the
+    // managed master secret as a separate input.
+    const passwordless = new URL(pair.targetUrl("ctxpipe"))
+    const password = decodeURIComponent(passwordless.password)
+    passwordless.password = ""
+    targetUrl = withPassword(passwordless.toString(), password)
 
     await runMigrations({
       connectionString: pair.sourceUrl,

@@ -4,10 +4,12 @@
 // story or group. With `--images`, it reads the
 // base and head images of the factory review folder instead, and prints one
 // verdict for each path (the visual critic of `critics.json`). A fork can run it with no
-// factory: `--judge model` uses the key of the contributor, and `--judge
-// agent` lets the coding agent of the contributor judge, at no cost.
+// factory: `--judge model` and `--judge jev` use the key of the contributor,
+// and `--judge agent` lets the coding agent of the contributor judge, at no
+// cost. The factory runs `--judge jev` (ADR-063).
 import { createHash } from "node:crypto"
 import {
+  copyFile,
   lstat,
   mkdir,
   mkdtemp,
@@ -20,7 +22,7 @@ import { tmpdir } from "node:os"
 import { basename, dirname, join, posix, resolve } from "node:path"
 import { parseArgs } from "node:util"
 
-import { judgeWithJev } from "./adapters/jev.ts"
+import { judgeNewWithJev, judgeWithJev } from "./adapters/jev.ts"
 import {
   judgeNewWithOpenRouter,
   judgeWithOpenRouter,
@@ -37,6 +39,7 @@ import {
 import { pngSize, prepareImage } from "./prepare.ts"
 import { buildNewPrompt, buildPrompt, type Prompt } from "./prompt.ts"
 import { reviewStories } from "./review.ts"
+import { packagedRubric, readRubric, type Rubric } from "./rubric.ts"
 import { storiesOf } from "./story-tags.ts"
 import type { NewStoryInput, StoryInput } from "./story.ts"
 import {
@@ -52,9 +55,13 @@ const defaultModel = "anthropic/claude-sonnet-5.5"
 // `--budget-usd`. It is above the cost of one call of the default model with
 // five images at the largest side that the critic sends.
 const unknownCallUsd = 0.25
+// The same for a Jev call: above the most that one Jev call cost in the
+// bake-off ($0.0008), so that one reply with no cost does not use the budget
+// of a whole run (ADR-063).
+const unknownJevCallUsd = 0.002
 
-const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|agent] [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--session <folder>] [--json]
-       pnpm visual:review --images <folder> [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--json] -- <path>...
+const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|agent] [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--rubric <file>] [--session <folder>] [--json]
+       pnpm visual:review --images <folder> [--judge model|jev] [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--rubric <file>] [--json] -- <path>...
 
   --manifest  The manifest of the visual run. Default: .ci-results/visual/manifest.json
               The command judges each changed story, and each new story on
@@ -65,28 +72,42 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|agen
               each path, with "path". A new screenshot (no base image) is
               judged on its own against the rubric: one call for the new
               screenshots of one story, at all its viewports. A removed
-              screenshot is unsure. Only with --judge model. Without
+              screenshot is unsure. Only with --judge model or jev. Without
               MODEL_PROVIDER_API_KEY, the exit code is 2, also when no
               screenshot needs a model.
   --budget-usd The most that the model calls of this run can spend, in USD.
               Before each call, the command adds the cost of the calls so far:
-              usage.cost of each reply, or ${unknownCallUsd} for a reply with no
-              cost. When that sum reaches the budget, it makes no more calls:
-              each screenshot that is not judged yet is unsure with the error
-              "Budget reached", and the exit code is 2. The exit code is 2
+              usage.cost of each reply, or for a reply with no cost
+              ${unknownCallUsd} (${unknownJevCallUsd} for a Jev call). When that sum
+              reaches the budget, it makes no more calls: each screenshot
+              that is not judged yet is unsure with the error "Budget
+              reached", and the exit code is 2. The exit code is 2
               also when the last call reaches the budget. Thus a run spends at
               most the budget plus one call. The new screenshots are judged
-              first. Only with --judge model. Default: no budget.
+              first. Only with --judge model or jev. Default: no budget.
   --judge     model: a vision model through OpenRouter, with MODEL_PROVIDER_API_KEY
-              (and MODEL_PROVIDER_URL). agent: write a judgment request for each
-              story; your coding agent writes its verdict.json; run again to read it.
+              (and MODEL_PROVIDER_URL). jev: Jev 1.14 through the OpenRouter
+              Decisions API, with the same key, and no explainer: the verdict
+              of Jev is the final verdict, also for a new screenshot. A Jev
+              regression has severity minor: it is feedback, and it does not
+              block. The visual critic of the factory uses jev (ADR-063).
+              agent: write a judgment request for each story; your coding
+              agent writes its verdict.json; run again to read it.
               Default: model.
-  --model     The explainer model of --judge model. Default: ${defaultModel}
+  --model     The explainer model. Only with --judge model. Default:
+              ${defaultModel}
   --filter    jev: ask the Jev filter first, and call the explainer only when Jev
               does not accept the change. Only with --judge model. A new
               screenshot goes to the explainer. Default: none.
   --brief     A file with the ticket or the brief of the change. Without it, no
               verdict can be intended.
+  --rubric    A rubric file in the format of packages/visual-review/rubric.json.
+              The judges use its areas and qualities. The visual critic of
+              the factory gives the rubric of the PR head here (ADR-063).
+              The exit code is 2 when the file is a symbolic link or not a
+              regular file, is larger than 64 KiB, or does not match the
+              schema. The command never uses another rubric instead.
+              Default: packages/visual-review/rubric.json of this checkout.
   --session   Only with --judge agent: the folder that the first call made and
               printed. Without it, the call makes a new folder and reads no
               verdict.
@@ -123,9 +144,10 @@ export async function visualReview(
         manifest: { type: "string" },
         images: { type: "string" },
         judge: { type: "string", default: "model" },
-        model: { type: "string", default: defaultModel },
+        model: { type: "string" },
         filter: { type: "string", default: "none" },
         brief: { type: "string" },
+        rubric: { type: "string" },
         session: { type: "string" },
         "budget-usd": { type: "string" },
         json: { type: "boolean", default: false },
@@ -135,7 +157,7 @@ export async function visualReview(
     print(`${(error as Error).message}\n\n${usage}`)
     return 2
   }
-  const { judge, filter, model } = options
+  const { judge, filter } = options
   const limit = options["budget-usd"]
   const budget: Budget = {
     limitUsd: limit === undefined ? undefined : Number(limit),
@@ -144,33 +166,66 @@ export async function visualReview(
   // A very long digit string is Infinity, which would turn the budget off.
   if (
     limit !== undefined &&
-    (judge !== "model" ||
+    (judge === "agent" ||
       !/^\d+(\.\d+)?$/.test(limit) ||
       !Number.isFinite(budget.limitUsd))
   ) {
     print(
-      `--budget-usd must be a finite number of USD, 0 or more, and it goes only with --judge model.\n\n${usage}`,
+      `--budget-usd must be a finite number of USD, 0 or more, and it goes only with --judge model or jev.\n\n${usage}`,
     )
     return 2
   }
-  const judgeNewByModel = async (story: NewStoryInput) =>
-    (await paid(budget, () =>
-      judgeNewWithOpenRouter(story, model, process.env),
-    )) ?? budgetReached(story.storyId, budget)
   if (
-    (judge !== "model" && judge !== "agent") ||
+    (judge !== "model" && judge !== "jev" && judge !== "agent") ||
     (filter !== "jev" && filter !== "none") ||
-    (judge === "agent" && filter === "jev") ||
-    (judge === "model" && options.session !== undefined) ||
+    (judge !== "model" && (filter === "jev" || options.model !== undefined)) ||
+    (judge !== "agent" && options.session !== undefined) ||
     (options.images !== undefined) !== paths.length > 0 ||
     (options.images !== undefined &&
-      (options.manifest !== undefined || judge !== "model"))
+      (options.manifest !== undefined || judge === "agent"))
   ) {
     print(
-      `--judge must be model or agent, and --filter must be jev or none (jev only with --judge model, --session only with --judge agent). --images needs the paths after --, and only goes with --judge model and no --manifest.\n\n${usage}`,
+      `--judge must be model, jev or agent, and --filter must be jev or none (--filter jev and --model only with --judge model, --session only with --judge agent). --images needs the paths after --, and only goes with --judge model or jev and no --manifest.\n\n${usage}`,
     )
     return 2
   }
+  // The rubric of the judges. A head rubric is data of the PR author: a file
+  // that is not valid stops the review, with no fallback to another rubric.
+  let rubric: Rubric
+  try {
+    rubric =
+      options.rubric === undefined
+        ? packagedRubric
+        : await readRubric(resolve(options.rubric))
+  } catch (error) {
+    print((error as Error).message)
+    return 2
+  }
+  // The paid judges of a new and of a changed screenshot: `--judge jev` asks
+  // only Jev, `--judge model` the explainer (after the Jev filter, if asked).
+  const model = options.model ?? defaultModel
+  // A paid call, or the verdict "Budget reached" with no call.
+  const paidOrStop = async (
+    storyId: string,
+    call: () => Promise<Verdict>,
+    unknownUsd: number,
+  ) => (await paid(budget, call, unknownUsd)) ?? budgetReached(storyId, budget)
+  const judgeNewPaid = (story: NewStoryInput) =>
+    judge === "jev"
+      ? paidOrStop(
+          story.storyId,
+          () => judgeNewWithJev(story),
+          unknownJevCallUsd,
+        )
+      : paidOrStop(
+          story.storyId,
+          () => judgeNewWithOpenRouter(story, model, process.env),
+          unknownCallUsd,
+        )
+  const judgeChangedPaid = (story: StoryInput) =>
+    judge === "jev"
+      ? paidOrStop(story.storyId, () => judgeWithJev(story), unknownJevCallUsd)
+      : judgeByModel(story, model, filter, undefined, budget)
 
   if (options.images !== undefined) {
     // The factory runs this mode as the visual critic. A missing key is an
@@ -198,7 +253,7 @@ export async function visualReview(
           resolve(options.images),
           paths,
           work,
-          brief,
+          { brief, rubric },
         )
       } catch (error) {
         print((error as Error).message)
@@ -210,12 +265,12 @@ export async function visualReview(
         judged = [
           ...(await judgeNewScreenshots(
             screenshots.flatMap(({ fresh }) => (fresh ? [fresh] : [])),
-            brief,
-            judgeNewByModel,
+            { brief, rubric },
+            judgeNewPaid,
           )),
           ...(await reviewStories(
             screenshots.flatMap(({ story }) => (story ? [story] : [])),
-            (story) => judgeByModel(story, model, filter, undefined, budget),
+            judgeChangedPaid,
           )),
         ]
       } catch (error) {
@@ -225,7 +280,7 @@ export async function visualReview(
       const byPath = new Map(
         judged.map((verdict) => [verdict.storyId, verdict]),
       )
-      const verdicts = screenshots.map(({ path, verdict, note }) => {
+      const named = screenshots.map(({ path, verdict, note }) => {
         const found = verdict ?? byPath.get(path)
         if (!found) throw new Error(`No verdict for ${path}.`)
         return {
@@ -234,6 +289,10 @@ export async function visualReview(
           path,
         }
       })
+      // A Jev regression is feedback: the agent needs the images to act on
+      // it, and Jev gives no text.
+      const verdicts =
+        judge === "jev" ? await withFeedbackImages(named, screenshots) : named
       return finish(verdicts, options.json, { print, printError }, budget)
     } finally {
       await rm(work, { recursive: true, force: true })
@@ -287,6 +346,7 @@ export async function visualReview(
       const input = toStoryInput(manifest, story, {
         root,
         ...(briefText === undefined ? {} : { brief: briefText }),
+        rubric,
       })
       // `toStoryInput` checks the paths as text. A symbolic link in the run
       // folder can still point outside it, so check the real paths too.
@@ -320,13 +380,16 @@ export async function visualReview(
         "--judge agent",
         ...["--manifest", path, "--session", session].map(quote),
         ...(brief === undefined ? [] : ["--brief", quote(brief)]),
+        ...(options.rubric === undefined
+          ? []
+          : ["--rubric", quote(resolve(options.rubric))]),
       ].join(" ")
       agent = { session, rerun, read: options.session !== undefined }
     }
     verdicts = [
       ...(await judgeNewScreenshots(
         fresh,
-        briefText,
+        { brief: briefText, rubric },
         agent
           ? (story) =>
               judgeByAgent(
@@ -337,7 +400,7 @@ export async function visualReview(
                 },
                 agent,
               )
-          : judgeNewByModel,
+          : judgeNewPaid,
       )),
       ...(await reviewStories(
         stories,
@@ -351,7 +414,7 @@ export async function visualReview(
                 },
                 agent,
               )
-          : (story) => judgeByModel(story, model, filter, undefined, budget),
+          : judgeChangedPaid,
       )),
     ]
   } catch (error) {
@@ -393,18 +456,19 @@ type Budget = { limitUsd: number | undefined; spentUsd: number }
 
 /**
  * Make the model call `call` when the spend of the run is under its budget,
- * and add the cost of the call: `costUsd` of the verdict, or `unknownCallUsd`
+ * and add the cost of the call: `costUsd` of the verdict, or `unknownUsd`
  * when the cost is unknown. Returns undefined, with no call, when the spend
  * has reached the budget.
  */
 async function paid(
   budget: Budget,
   call: () => Promise<Verdict>,
+  unknownUsd: number,
 ): Promise<Verdict | undefined> {
   if (budget.limitUsd !== undefined && budget.spentUsd >= budget.limitUsd)
     return undefined
   const verdict = await call()
-  budget.spentUsd += verdict.costUsd ?? unknownCallUsd
+  budget.spentUsd += verdict.costUsd ?? unknownUsd
   return verdict
 }
 
@@ -443,14 +507,20 @@ export async function judgeByModel(
 ): Promise<Verdict> {
   const filtered =
     filter === "jev"
-      ? await paid(budget, () => judgeWithJev(story, filterModel))
+      ? await paid(
+          budget,
+          () => judgeWithJev(story, filterModel),
+          unknownJevCallUsd,
+        )
       : undefined
   if (filter === "jev" && !filtered) return budgetReached(story.storyId, budget)
   // Jev says intended only when nothing got worse and a brief or a source
   // diff explains the change: then no explainer is needed.
   if (filtered?.verdict === "intended" && !filtered.error) return filtered
-  const explained = await paid(budget, () =>
-    judgeWithOpenRouter(story, model, process.env),
+  const explained = await paid(
+    budget,
+    () => judgeWithOpenRouter(story, model, process.env),
+    unknownCallUsd,
   )
   if (!explained)
     return budgetReached(story.storyId, budget, filtered ? filtered.costUsd : 0)
@@ -498,7 +568,7 @@ type NewShot = {
  */
 async function judgeNewScreenshots(
   shots: readonly NewShot[],
-  brief: string | undefined,
+  { brief, rubric }: { brief: string | undefined; rubric: Rubric },
   judge: (story: NewStoryInput) => Promise<Verdict>,
 ): Promise<Verdict[]> {
   const stories = new Map<string, [NewShot, ...NewShot[]]>()
@@ -514,6 +584,7 @@ async function judgeNewScreenshots(
       scope: first.scope,
       images: [first, ...rest].map(({ image }) => image),
       ...(brief === undefined ? {} : { brief }),
+      rubric,
     })
     verdicts.push(verdict)
     // A copy keeps the verdict and the error of the call, but not its
@@ -595,7 +666,7 @@ async function compareImages(
   folder: string,
   paths: readonly string[],
   work: string,
-  brief: string | undefined,
+  { brief, rubric }: { brief: string | undefined; rubric: Rubric },
 ): Promise<Screenshot[]> {
   const screenshots: Screenshot[] = []
   for (const [index, path] of paths.entries()) {
@@ -695,6 +766,7 @@ async function compareImages(
           images,
           root: work,
           brief,
+          rubric,
         }),
       })
     } catch (error) {
@@ -704,6 +776,68 @@ async function compareImages(
     }
   }
   return screenshots
+}
+
+/**
+ * Copy the images of each `regression` of `--images --judge jev` (one verdict
+ * for each screenshot, in the order of `screenshots`) to a new private folder
+ * that the command keeps, and name them in the summary of the verdict. The
+ * summary of Jev names the areas and qualities, their probabilities and the
+ * region; a screenshot of a group gets the summary of the judged one. The
+ * factory shows the summary as a finding: the agent looks at the images, and
+ * fixes the screenshot or says in the PR why the change is intended
+ * (ADR-063). The command removes the work folder of
+ * the compare engine at the end of the run, so the copies are the images to
+ * look at.
+ */
+async function withFeedbackImages<T extends Verdict>(
+  verdicts: readonly T[],
+  screenshots: readonly Screenshot[],
+): Promise<T[]> {
+  if (!verdicts.some(({ verdict }) => verdict === "regression"))
+    return [...verdicts]
+  const kept = await mkdtemp(
+    join(await realpath(tmpdir()), "visual-review-feedback-"),
+  )
+  const result: T[] = []
+  for (const [index, verdict] of verdicts.entries()) {
+    const shot = screenshots[index]
+    if (verdict.verdict !== "regression" || !shot) {
+      result.push(verdict)
+      continue
+    }
+    const images = shot.story
+      ? shot.story.images.filter(({ role }) =>
+          ["before", "after", "diff"].includes(role),
+        )
+      : shot.fresh
+        ? [{ role: "after", path: shot.fresh.image.path }]
+        : []
+    const folder = join(kept, String(index))
+    await mkdir(folder)
+    const named: string[] = []
+    for (const { role, path } of images) {
+      const copy = join(folder, `${role}.png`)
+      await copyFile(path, copy)
+      named.push(`${role} ${copy}`)
+    }
+    // A screenshot of a group has no judgment of its own: give the one of
+    // the screenshot that Jev judged (its areas, probabilities and region).
+    const judged = verdict.groupedWith
+      ? verdicts.find(({ storyId }) => storyId === verdict.groupedWith)
+      : undefined
+    result.push({
+      ...verdict,
+      summary: [
+        verdict.summary,
+        ...(judged && !verdict.summary.includes(judged.summary)
+          ? [`Jev on ${judged.storyId}: ${judged.summary}`]
+          : []),
+        ...(named.length ? [`Look at the images: ${named.join(", ")}.`] : []),
+      ].join(" "),
+    })
+  }
+  return result
 }
 
 /** The blocking rule of the product owner. */

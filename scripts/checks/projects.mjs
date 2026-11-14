@@ -6,7 +6,8 @@ import { logFile, logged } from "./log.mjs"
 
 // The project-level checks: typecheck (one for each project of
 // scripts/ci/projects.json), lint (oxlint, oxfmt, knip), the policy
-// scripts (of the CI lint job, and the Terraform plan), the builds (each
+// scripts (of the CI lint job, and the Terraform plan), the tests of the CI
+// scripts, the builds (each
 // production image and each package of the CI build jobs) and the preview
 // deployment with its UI smoke test. Each one runs a
 // fixed command over a whole project, so it has no trace. Its inputs are the
@@ -228,7 +229,7 @@ const definitions = () => [
     [
       "adr",
       [".ai/memory/decisions/**"],
-      "Catches a new ADR file that the decisions index does not list. Run it when a file under .ai/memory/decisions changes; never for a change outside it.",
+      "Catches an ADR file that the decisions index does not list. Run it when a file under .ai/memory/decisions changes; never for a change outside it.",
     ],
     [
       "module-scope-values",
@@ -236,27 +237,72 @@ const definitions = () => [
       ["apps/**", "packages/**", "scripts/**", ".gitignore"],
       "Catches a new module-scope string or number constant that the file reads once, which AGENTS.md says to inline. Run it when app, package, or script source changes; never for a change only to tests or docs.",
     ],
+    ["visual-container", ["scripts/ci/visual-container.json"]],
+    [
+      "docs-links",
+      ["apps/**", "packages/**", "plugins/**", "examples/**", "README.md"],
+    ],
   ].map(([lane, reads, intent]) => {
     const file = `scripts/ci/check-${lane}.mjs`
-    // The ADR check reads the git diff against origin/main, so a result
-    // cannot be reused from the files alone.
-    const diff = lane === "adr"
     return {
       family: "policy",
       lane,
       file,
       root: "",
-      inputs: [
-        ...shared,
-        file,
-        ...(diff ? ["scripts/ci/changed-files.mjs"] : []),
-        ...reads,
-      ],
+      inputs: [...shared, file, ...reads],
       ...(intent && { intent }),
-      ...(diff && { cacheable: false }),
       commands: [node(file)],
     }
   }),
+  // The tests of the CI scripts: one check for each file of scripts/tests,
+  // so that a change selects only the tests that read it. Each test reads
+  // the scripts, the workflows and the files outside scripts/ that the
+  // scripts import; the map adds the other files that a test reads.
+  ...readdirSync(join(root, "scripts/tests"))
+    .filter((name) => /\.test\.(mjs|sh)$/.test(name))
+    .map((name) => {
+      const file = `scripts/tests/${name}`
+      const stem = name.replace(/\.test\.(mjs|sh)$/, "")
+      return {
+        family: "policy",
+        lane: `tests-${stem}`,
+        file,
+        root: "scripts/tests",
+        inputs: [
+          ...shared,
+          "scripts/**",
+          ".github/**",
+          "apps/ui/.storybook/**",
+          "apps/backend/evals/mcp/**",
+          "packages/visual-review/src/**",
+          ...({
+            // The manifest of the whole repo, or the files of the apps.
+            "ci-checks-repo": code,
+            // The edge hooks resolve the backend packages from this manifest;
+            // the lockfile holds their versions.
+            "ci-checks": ["apps/backend/package.json"],
+            "ci-merge-gate": code,
+            "ci-merge-gate-plan": code,
+            "ci-test-policy": code,
+            "ci-service-pins": [...code, "docker-compose.yml"],
+            // Every tracked file against the inputs of the critics.
+            "ci-critics": [
+              ...code,
+              ".agents/**",
+              "AGENTS.md",
+              ".ai/memory/lessons-learned.md",
+            ],
+            "ci-codesearch-releases": ["apps/codesearch/scripts/**"],
+            "ci-codesearch-selection": ["apps/codesearch/**"],
+            "ci-test-shards": ["apps/backend/**"],
+            "ci-visual-container": ["apps/ui/package.json"],
+          }[stem] ?? []),
+        ],
+        commands: [
+          name.endsWith(".sh") ? ["bash", file] : node("--test", file),
+        ],
+      }
+    }),
   // The production images of the Production build job: one check for each
   // image. A build pulls base images by tag and packages from the network
   // without a lock, so the same inputs can give another result: a result
@@ -442,6 +488,9 @@ const definitions = () => [
 export function listProjects() {
   // An image build and a deploy depend on the platform that builds the image;
   // the result of each other check does not depend on the OS or the CPU.
+  // A shell test runs fixed fixtures through POSIX options of the host tools
+  // (bash, grep, sed, jq, python3) only, so it gives the same result on macOS
+  // and Linux.
   const portable = ({ family, lane }) =>
     ["typecheck", "lint", "policy"].includes(family) ||
     (family === "build" && lane.startsWith("package-"))
@@ -456,15 +505,19 @@ export function listProjects() {
   )
 }
 
-// Runs each check's commands in order; the check fails at the first command
-// that fails.
-export function runProjects(checks) {
-  const commands = new Map(
+// The commands of each project check, by id.
+export const projectCommands = () =>
+  new Map(
     definitions().map((check) => [
       `${check.family}:${check.lane}:${check.file}`,
       check.commands,
     ]),
   )
+
+// Runs each check's commands in order; the check fails at the first command
+// that fails.
+export function runProjects(checks) {
+  const commands = projectCommands()
   const records = checks.map(({ id, family, lane }) => {
     const log = logFile(`${family}-${lane}`)
     const started = performance.now()

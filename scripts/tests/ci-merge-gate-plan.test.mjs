@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
@@ -206,6 +207,125 @@ test("a failed LLM job, an invalid LLM record or a provider fallback keeps the d
   }
 })
 
+test("a UI-only change starts no Lint job when the passes of its keys are stored, and a full Lint job without the factory", () => {
+  // Without the factory selector (a fork, a public clone, a failed select
+  // job), no check has a key: the run is full, and each job runs all of its
+  // checks.
+  const full = plan({
+    config: config(),
+    inputs: inputs({
+      "mode.json": { mode: "select", reason: "gate" },
+      "select-cause.txt": "the factory selector is not installed",
+    }),
+    needs: { ...needs, "merge-gate-select": { result: "failure" } },
+    store: store(),
+    fork: false,
+  })
+  assert.deepEqual(
+    [full.mode, full.reason, full.jobs],
+    ["full", "selector unavailable: the factory selector is not installed", {}],
+  )
+  // With the factory selector on PATH, it computes the real keys of a
+  // UI-only change to a copy of HEAD. The factory is private and optional:
+  // the public checks stay correct without it.
+  const probe = spawnSync("factory", ["check", "--help"], { encoding: "utf8" })
+  if (probe.error || probe.status !== 0) return
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-ui-only-"))
+  try {
+    const run = (command, args, cwd = root) => {
+      const result = spawnSync(command, args, {
+        cwd,
+        encoding: "utf8",
+        maxBuffer: 256 * 1024 * 1024,
+      })
+      assert.equal(result.error, undefined, `${command}: ${result.error}`)
+      return result
+    }
+    const manifest = join(directory, "manifest.json")
+    const listed = run(process.execPath, ["scripts/checks/list.mjs"])
+    assert.equal(listed.status, 0, listed.stderr)
+    writeFileSync(manifest, listed.stdout)
+    const toolchain = join(directory, "toolchain.json")
+    const recorded = run("factory", [
+      "toolchain",
+      "--repo",
+      root,
+      "--manifest",
+      manifest,
+    ])
+    assert.equal(recorded.status, 0, recorded.stderr)
+    writeFileSync(toolchain, recorded.stdout)
+    const clone = join(directory, "clone")
+    const head = run("git", ["rev-parse", "HEAD"]).stdout.trim()
+    run("git", ["clone", "-q", "--shared", "--no-checkout", root, clone])
+    run("git", ["checkout", "-q", "--detach", head], clone)
+    writeFileSync(
+      join(clone, "apps/ui/src/components/onboarding/org-name.ts"),
+      `${readFileSync(join(clone, "apps/ui/src/components/onboarding/org-name.ts"), "utf8")}export const uiOnlyProbe = 1\n`,
+    )
+    const selected = run("factory", [
+      "check",
+      "--repo",
+      clone,
+      "--base",
+      "HEAD",
+      "--cache-only",
+      "--json",
+      "--llm-provider",
+      "none",
+      "--manifest",
+      manifest,
+      "--toolchain",
+      toolchain,
+    ])
+    const selection = JSON.parse(selected.stdout.split("\n")[0])
+    const ids = selection.selected.map(({ id }) => id)
+    // The repository scan of the check tests guards the change; the other
+    // tests of the CI scripts and the ADR check do not read it.
+    assert.ok(
+      ids.includes(
+        "policy:tests-ci-checks-repo:scripts/tests/ci-checks-repo.test.mjs",
+      ),
+    )
+    for (const id of ids)
+      assert.doesNotMatch(
+        id,
+        /^policy:(tests-ci-checks:|adr:|tests-[^:]+:scripts\/tests\/[^:]+\.test\.sh$)/,
+      )
+    // Each selected check of the Lint job has a key. With a stored pass of
+    // each key (here the PR store of an earlier run), the Lint job does not
+    // start.
+    const lint = ids.filter((id) => placeOf(id).job === "lint")
+    assert.ok(lint.length > 0)
+    assert.deepEqual(
+      selection.cache.unkeyed.filter(({ id }) => lint.includes(id)),
+      [],
+    )
+    const planned = plan({
+      config: config(),
+      inputs: inputs({
+        "mode.json": { mode: "select", reason: "gate" },
+        "selection.json": selection,
+      }),
+      needs,
+      store: store(
+        selection.cache.misses.map(({ id, key }) => ({
+          id,
+          key,
+          run: "1",
+          createdAt: "2026-11-14T00:00:00Z",
+        })),
+      ),
+      fork: false,
+    })
+    assert.equal(planned.mode, "gate")
+    assert.equal(planned.outputs.lint, undefined)
+    assert.equal(planned.jobs.lint, undefined)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test("each planned check goes to the job that runs it, and a job without one does not start", () => {
   const planned = planOf()
   assert.deepEqual(Object.keys(planned.outputs).sort(), [
@@ -236,10 +356,22 @@ test("each planned check goes to the job that runs it, and a job without one doe
   assert.deepEqual(JSON.parse(planned.outputs["production-builds"]), [
     { name: "ui", dockerfile: "apps/ui/Dockerfile" },
   ])
-  // A lint or policy check is a step of the Lint and format job, which runs
-  // on each run. Evals, the Terraform plan and the deployment run in their
-  // own workflows.
+  // A lint or policy check runs in the Lint and format job. The stored pass
+  // of the agent covers the only lint check, so that job does not start.
+  // Evals, the Terraform plan and the deployment run in their own workflows.
   assert.deepEqual(placeOf(lint), { job: "lint" })
+  assert.equal(planned.outputs.lint, undefined)
+  // Without the stored pass, the lint job runs only that check.
+  const missed = planOf({
+    files: {
+      "selection.json": {
+        ...selectRecord(),
+        cache: { ...selectRecord().cache, hits: [hit(story, "ci", 3)] },
+      },
+    },
+  })
+  assert.equal(missed.outputs.lint, "1")
+  assert.deepEqual(missed.jobs.lint, { ids: [lint], rerun: [] })
   assert.match(placeOf(evalCase).workflow, /mcp-evals\.yaml/)
   // The Terraform plan runs in its own workflow, not in the Lint and format
   // job that runs the other policy checks.
@@ -405,7 +537,7 @@ const jobs = (results) => ({
 })
 
 const decide = (options = {}) => {
-  const planned = planOf({ store: options.store })
+  const planned = planOf({ store: options.store, files: options.files })
   return gateDecision({
     config: config(),
     planned,
@@ -416,7 +548,7 @@ const decide = (options = {}) => {
     reruns: options.reruns ?? [],
     needs: {
       ...needs,
-      lint: { result: "success" },
+      lint: { result: options.lint ?? "success" },
       "terraform-validate": { result: "success" },
       migrate: { result: options.migrate ?? "success" },
     },
@@ -458,6 +590,32 @@ test("the gated verdict needs a result for each planned check of CI", () => {
   const missing = decide({ records: [{ id: ui, status: "passed" }] })
   assert.deepEqual(missing.decision.gatedRun.failedChecks, [contract])
   assert.equal(decide({ migrate: "failure" }).decision.gatedRun.verdict, "fail")
+})
+
+test("a lint or policy check needs its record from the Lint and format job, which is not an always-run job", () => {
+  // The lint check has no stored pass, so the lint job runs it.
+  const files = {
+    "selection.json": {
+      ...selectRecord(),
+      cache: { ...selectRecord().cache, hits: [hit(story, "ci", 3)] },
+    },
+  }
+  const others = [
+    { id: ui, status: "passed" },
+    { id: contract, status: "passed" },
+  ]
+  const run = (records, lint = "success") =>
+    decide({ files, records, lint }).decision.gatedRun
+  assert.equal(run([...others, { id: lint, status: "passed" }]).verdict, "pass")
+  assert.deepEqual(
+    run([...others, { id: lint, status: "failed" }], "failure").failedChecks,
+    [lint],
+  )
+  // A lint job that failed before it wrote a record gives a missing result:
+  // the check fails, and the job is not an always-run job.
+  const lost = run(others, "failure")
+  assert.deepEqual(lost.failedChecks, [lint])
+  assert.deepEqual(lost.failedAlwaysRun, [])
 })
 
 test("a failed check with a stored pass runs again, and a second failure quarantines the key", () => {
@@ -535,13 +693,13 @@ test("the verdict line names each failed check and always-run job in full", () =
       ...decision.gatedRun,
       verdict: "fail",
       failedChecks: ["lint:oxlint:.oxlintrc.json", "test:vitest:apps/ui"],
-      failedAlwaysRun: ["migrate", "lint"],
+      failedAlwaysRun: ["migrate", "terraform-validate"],
     },
   }
   const text = gateText(failed, "https://example.test/run")
   assert.ok(
     text.includes(
-      "**Verdict:** fail (failed checks: `lint:oxlint:.oxlintrc.json`, `test:vitest:apps/ui`) (failed always-run jobs: `migrate`, `lint`).",
+      "**Verdict:** fail (failed checks: `lint:oxlint:.oxlintrc.json`, `test:vitest:apps/ui`) (failed always-run jobs: `migrate`, `terraform-validate`).",
     ),
     text,
   )
@@ -719,6 +877,7 @@ test("each job of the plan needs the plan job, starts only with its output, and 
   }
   const plan = job("merge-gate-plan")
   const outputs = [
+    "lint",
     "typecheck",
     "test-shards",
     "package-tests",
@@ -757,6 +916,7 @@ test("each job of the plan needs the plan job, starts only with its output, and 
   // from plan.json of the plan job (the gate test checks the download by
   // artifact id). A matrix job gives its shard.
   for (const name of [
+    "lint",
     "typecheck",
     "test-shards",
     "package-tests",
@@ -1144,9 +1304,7 @@ test("a PR that selects every check gives the Merge gate job a needs value under
       },
     ]),
   )
-  const bytes = Buffer.byteLength(
-    `NEEDS=${JSON.stringify(gateNeeds, null, 2)}`,
-  )
+  const bytes = Buffer.byteLength(`NEEDS=${JSON.stringify(gateNeeds, null, 2)}`)
   assert.ok(
     bytes < 128 * 1024,
     `toJSON(needs) of the Merge gate job is ${bytes} bytes`,
@@ -1276,6 +1434,24 @@ test("a nightly plan puts its checks into the jobs of the run, and a full one gi
   assert.equal(full.mode, "full")
   assert.deepEqual(full.outputs, {})
   assert.throws(() => nightlyPlan({ schemaVersion: 2 }, new Map()))
+})
+
+test("a nightly plan renders each story in one Storybook shard only", () => {
+  // Each render of a story records all its check ids in the trace of its
+  // shard, and `trace.mjs merge` rejects an id in two traces. So a story
+  // with a required check and a traced screenshot check is one plan id.
+  const stories = ["a", "b", "c", "d"].map(
+    (name) => `apps/ui/src/${name}.stories.tsx#${name}--one`,
+  )
+  const required = stories.map((story) => `storybook:required:${story}`)
+  const shots = stories.map((story) => `storybook:visual:${story}`)
+  const planned = nightlyPlan(
+    nightly({ trace: [...required, ...shots] }),
+    new Map(required.map((id) => [id, 400])),
+  )
+  const shards = planned.jobs["storybook-plays"]
+  assert.ok(shards.length > 1)
+  assert.deepEqual(shards.flatMap((entry) => entry.plan.ids).sort(), required)
 })
 
 test("the CLI writes the nightly plan and the outputs of the plan job", () => {

@@ -15,11 +15,16 @@ Implementation process: [`.agents/skills/product-ui/SKILL.md`](../../.agents/ski
 - **Corners:** `rounded-md` (0.2rem). The `@theme` block in [`styles.css`](src/styles.css) sets every `--radius-*` step to 0.2rem, so each `rounded-*` step gives the same small corner. Use `rounded-full` only for a circle (status dot, switch thumb, radio, slider, progress bar). Do not use it for a pill. Do not add `rounded-none`.
 - **Primary actions:** white / light filled buttons (`bg-primary` / `text-primary-foreground`). Teal (`#40E0D0` / `teal-*`) is the **accent**, not the default filled CTA.
 - **Brand signatures (keep):**
-  - Card corner crosses from [`Card.tsx`](src/components/ui/Card.tsx)
-  - Mono uppercase tracked labels (`.ctx-label`)
-  - Pulsing status dots **plus** a text label (not color-only)
-  - Quiet-button teal hover glow (`variant="quiet"`)
-- **Copy register:** US English. ASD-STE100 at about 80% strength. Plain and specific. “Add connection”, not “Let’s get you connected!” or “Utilize webhook configuration.”
+  - Monospace for ids, paths, hashes and counts
+  - A hairline border with a wide shadow on a modal, a popover and a toast
+  - One font (Geist) and one palette
+  - A status dot **plus** its word (not color-only)
+- **Use with care** (product owner decision, 2026-11-13, [CTX-1259](https://linear.app/ctxpipe/issue/CTX-1259)):
+  - Card corner crosses: only on a hero or summary card (the lead card of a page, an overview of metrics). No product card is one today, so [`Card`](src/components/ui/Card.tsx) has no crosses. Add them back, as an opt-in prop of `Card`, with the first hero or summary card.
+  - Mono uppercase tracked labels (`.ctx-label`): only as a section label in a dense panel (graph inspector, node drawer, a scope checklist). Do not put one as an eyebrow above a page title or above a card heading. Use the title alone.
+  - A pulsing status dot: only for a live state (running, syncing, indexing, hydrating, a check in progress). A static state (ready, failed, connected) has a still dot.
+- **Hover:** a quiet button (`variant="quiet"`) shows a subtle background wash on hover (`bg-foreground/[0.06]`). Do not use a glow or a drop shadow on hover.
+- **Copy register:** US English. ASD-STE100 at about 80% strength. Plain and specific. “Add connection”, not “Let’s get you connected!” or “Utilize webhook configuration.” US spelling applies to every visible word, also a legend or a chart label (“Node colors”, not “node colours”).
 
 ## Tokens we keep
 
@@ -32,9 +37,11 @@ Use existing CSS variables and Tailwind theme stops. Prefer **named** utilities 
 | UI body | Geist (`font-sans`) | `text-sm` default; `text-xs` for meta |
 | Product screen title | Geist | Semantic `h1` at `text-lg` / `text-xl`. Content is the focus. |
 | Onboarding / marketing title | Geist | `text-3xl`+ allowed here only |
-| Eyebrow / section label | Geist Mono via `.ctx-label` | `text-xs` uppercase `tracking-[0.24em]` |
+| Section label in a dense panel | Geist Mono via `.ctx-label` | `text-xs` uppercase `tracking-[0.24em]`. Not an eyebrow above a title |
 | Tokens, ids, hashes, paths, shortcuts | Geist Mono (`font-mono`) | `text-xs` / `text-sm`; `tabular-nums` on counts |
 | Pixel / wordmark moments | Geist Pixel Square / Grid | Rare; do not use for body or form labels |
+
+Minimum size: `text-xs` (12 px). No text is smaller, also not a menu group header, inline code, a badge or a chart label. Use a Tailwind named size, not an arbitrary px value.
 
 Weights: `font-normal` (400) and `font-medium` (500). Never quiet text with weight below 400. De-emphasize with `text-muted-foreground` or size, not `font-light` / `font-thin`.
 
@@ -51,11 +58,14 @@ Dark product floor: zinc-950 / `--background` / `--card`. Ink: `--foreground`. S
 | Token | Role |
 |-------|------|
 | `--primary` (near-white in dark) | Filled primary buttons |
-| `teal-400` (`#40E0D0`) and `teal-*` mix stops | Accent: links that are *the* action, quiet-button hover, status wash, focus-adjacent teal |
-| `--destructive` | Confirm-dialog filled danger only |
+| `teal-400` (`#40E0D0`) and `teal-*` mix stops | Accent: links that are *the* action, status wash, focus-adjacent teal |
+| `--destructive` | Confirm-dialog filled danger, and the slab of an error alert. Red is correct for an error |
+| Warning | A dark surface with a yellow or amber border and icon. A yellow fill with dark text only on a small element, and only when it passes WCAG AA. A full-width bright fill dominates the dark UI |
 | `--border` / `border-white/10` | Hairlines when gap or bg shift is not enough |
 
 On chromatic surfaces (teal / red / amber slabs): same-hue muted secondary text. Do not use `text-zinc-400` or `text-white/50` as hierarchy on those slabs.
+
+**Brightness:** the dark UI has no large bright or saturated area. Bright color is a small accent: a border, an icon, a dot. An embedded surface (an editor, a diff viewer, a preview) uses the dark theme, not a white light theme.
 
 Leftover shadcn indigo (`sidebar-primary` / `chart-1` hue 264) is not brand. Do not introduce indigo, purple gradients, or a second accent.
 
@@ -107,21 +117,37 @@ CI runs `node scripts/ci/check-ui-motion.mjs`. It fails on `transition-all` and 
 
 `@tabler/icons-react` first. Lucide only when Tabler has no equivalent. Do not add a third set.
 
-Decorative icons: `aria-hidden`, `text-muted-foreground`, intended size (~16–20px / `size-4`). If the hit area must be large, enclose the icon in a tinted square (`.ctx-node`) — do not scale the glyph to `size-12`.
+Decorative icons: `aria-hidden`, `text-muted-foreground`, intended size (~16–20px / `size-4`). If the hit area must be large, enclose the icon in a tinted square (`.ctx-node`) — do not scale the glyph to `size-12`. Do not use `.ctx-node` as an ornament, for example above the heading of an empty state.
 
 ## Targets (new or touched UI)
 
 - **AppShell / product chrome:** no 24px grid and no teal/blue radial glow. Onboarding may keep atmosphere. Do not add background decoration (gradients, grain, world maps, Hero Patterns).
 - **Titles:** product screens `text-lg` / `text-xl`. `text-3xl`+ only on onboarding / marketing.
-- **Alerts:** keep dark slabs ([`InlineAlert`](src/components/ui/InlineAlert.tsx)); no opacity-as-grey; same-hue muted secondary text on the slab. Prefer Tabler icons on new alerts.
+- **Alerts:** keep dark slabs ([`InlineAlert`](src/components/ui/InlineAlert.tsx)); no opacity-as-grey; same-hue muted secondary text on the slab. Prefer Tabler icons on new alerts. The action of an alert sits on the right of the slab at the normal secondary size, not small and below the text. Error copy gives the cause and the next step. It does not repeat the title (“Could not load connectors” over “Failed to load connections” says nothing new).
 - **Notices that wait for an action** (for example the Home upgrade toasts and Workspace hydrate problem toasts): toasts in a [`ToastStack`](src/components/ui/ToastStack.tsx) in a slot at the top of the Home content column, not a warning slab in the page. An upgrade toast has the upgrade icon; a problem toast has the warning icon. The front toast shows in full; hover or focus opens the stack.
-- **Empty states:** short title + one sentence + **one primary** control. Hide tabs/filters until there is data. Center only if copy is ≤2 lines; otherwise left-align.
-- **Loading:** region waits (list, tree, thread, pane) use [`Skeleton`](src/components/ui/Skeleton.tsx) that matches the populated pattern (see **Loading states**). Process waits (hydrate, OAuth, discovery) use [`InlineLoader`](src/components/ui/InlineLoader.tsx). Button mutations use `isPending`. Status uses a pulse-dot plus the word. See product-ui **Plan states**.
+- **Empty states:** short title + one sentence + **one primary** control, when there is an action. No icon tile above the title. Hide tabs/filters until there is data. Center only if copy is ≤2 lines; otherwise left-align.
+- **Loading:** region waits (list, tree, thread, pane) use [`Skeleton`](src/components/ui/Skeleton.tsx) that matches the populated pattern (see **Loading states**). Process waits (hydrate, OAuth, discovery) use [`InlineLoader`](src/components/ui/InlineLoader.tsx). Button mutations use `isPending`. Status uses a dot plus the word; the dot pulses only while the work runs. See product-ui **Plan states**.
 - **Lists:** icon + title + one-line body rows for features / capabilities. `list-disc` only for legal / consent or a true prose outline (see [`KnowledgeGraphIntroCallout`](src/features/knowledge-graph/KnowledgeGraphIntroCallout.tsx)).
 - **Destructive:** outline or quiet on the page. Filled red only on the confirm dialog ([`AlertDialog`](src/components/ui/AlertDialog.tsx)).
 - **Actions:** one primary per surface; outline / secondary next; link / quiet for tertiary. Teal is for the one real action in a dense list — not every row title.
+  - The main action of a page is labeled and easy to find (“Add connection”), not a lone `+` icon.
+  - Every icon tells its action. Do not put a chevron at the end of a row when the row does not open or expand.
+  - Peer actions in one row have the same weight and type: two buttons, or two links. Do not put a “Fix” button next to an “Add another” text link.
+  - A copy button sits at the right end of the field that it copies, inside or next to the field. Not in the footer below it.
 - **Separators:** gap or background shift first; one hairline if grouping is still ambiguous. Borders are a last separator. Do not nest cards inside cards.
-- **Status:** existing pill + pulse/dot **and** the word ([`RepositoryStatus`](src/features/repositories/components/RepositoryStatus.tsx)). Not color-only. Not a glowing dot without a label.
+- **Pages:** group the content of a page in tiles or cards, with a clear hierarchy and area boundaries, as the chat page does. A flat list of bare rows under a title reads as an unfinished legacy page.
+- **Columns:** the blocks of one column share one left edge: a message, an answer and the composer; an icon row, a checklist and a step card.
+- **Axes:** the leading markers of a vertical stack (a header icon, checkboxes, step numbers, list icons) share one vertical axis. The center of each marker sits on its text line.
+- **Balance:** spread space evenly across a row and a column. Do not put an element close to one neighbor and leave a large gap on its other side. When you move one element, check the whole row or column again.
+- **Modals:** a header, a body and a footer zone on one aligned grid. One close control: in a wizard, one Close button at the bottom right, and no second Close or X at the top.
+  - Every dialog and every step of a flow shows a way to close, cancel or go back. Do not remove or hide an exit to make a screen look cleaner.
+  - A dialog fits the viewport. The header and the footer stay in place with the same padding. Long content scrolls inside the body. Nothing is cut off at an edge of the screen.
+- **Flows:** the next step of a flow (for example “Merge the pull request” after setup) is a card or a selected item, not loose text under a checklist.
+- **Secondary chrome:** legends, hints and help are smaller and dimmer than the content, and do not cover it. A first-run help tour can cover content until the user dismisses it. Remember the dismissal (local storage), so the tour does not come back.
+- **Interactive lists:** the text of a file tree or a nav list is never so dim that it reads as disabled. Use `text-muted-foreground` or brighter for an item that the user can click.
+- **Status:** existing pill + dot **and** the word ([`RepositoryStatus`](src/features/repositories/components/RepositoryStatus.tsx)). The dot pulses only for a live state; a static state has a still dot. Not color-only. Not a glowing dot without a label.
+  - The color is on the dot. The word is restrained text in one color: not green, red and amber words side by side.
+  - In a list, the dots and the words of all rows sit in one aligned column.
 
 ## Loading states
 
