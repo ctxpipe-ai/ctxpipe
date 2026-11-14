@@ -1,0 +1,45 @@
+name: Pinned git
+description: >
+  Put the pinned git first on PATH. The toolchain record holds the major and
+  minor version of git (scripts/checks/toolchain.mjs), and the Merge gate
+  manifest job writes one record for all lanes. The Blacksmith image and the
+  GitHub-hosted image have different git versions, so each job that writes the
+  record or runs a lane with git in its key uses this action (ADR-065). The
+  first run on a runner type builds git from the release tarball, which the
+  SHA-256 checks; the cache keeps the build. To change the version, change the
+  version and the hash.
+runs:
+  using: composite
+  steps:
+    - name: Restore the pinned git
+      id: cache
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ${{ runner.temp }}/ctxpipe-git
+        key: git-2.55.1-${{ runner.os }}-${{ runner.arch }}-v1
+    - name: Build the pinned git
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        PREFIX: ${{ runner.temp }}/ctxpipe-git
+      run: |
+        set -euo pipefail
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq --no-install-recommends \
+          build-essential libcurl4-openssl-dev libexpat1-dev libssl-dev zlib1g-dev
+        src="$RUNNER_TEMP/git-src"
+        mkdir -p "$src"
+        curl -fsSL -o "$src/git.tar.xz" https://mirrors.edge.kernel.org/pub/software/scm/git/git-2.55.1.tar.xz
+        echo "7bc345dba23c9089fa71bcf4e793d13d204fdc99b96abc118b3a29c18159eb16  $src/git.tar.xz" | sha256sum --check --strict
+        tar -xJf "$src/git.tar.xz" -C "$src" --strip-components=1
+        # RUNTIME_PREFIX finds the helpers relative to the binary, so the
+        # build works from the cache at any path.
+        make -C "$src" -j"$(nproc)" prefix="$PREFIX" RUNTIME_PREFIX=YesPlease \
+          NO_RUST=YesPlease NO_GETTEXT=YesPlease NO_TCLTK=YesPlease NO_PYTHON=YesPlease install >/dev/null
+    - name: Put the pinned git first on PATH
+      shell: bash
+      env:
+        PREFIX: ${{ runner.temp }}/ctxpipe-git
+      run: |
+        echo "$PREFIX/bin" >> "$GITHUB_PATH"
+        "$PREFIX/bin/git" --version
