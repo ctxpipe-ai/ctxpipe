@@ -268,7 +268,8 @@ Do the steps that apply, in this order. Skip a step whose change was not made ye
    Aurora keeps no copy of the production data.
 4. If T+40 started: agent, run the task `cutover-reset-indexes`. It empties both volumes and deletes the shards that
    `cutover-seed-shard-store` published, so that AWS keeps no copy of the graphs and the source code.
-5. Agent: run the task `cutover-scale-up-indexes`, so that FalkorDB and codesearch run again.
+5. Agent: run the task `cutover-scale-up-indexes`, so that FalkorDB and codesearch run again. Do this step after
+   each `cutover-scale-down`, also when step 4 did not apply.
 6. Revert edge pull request (b), if it was merged. Then revert (a): `app.ctxpipe.ai` goes back to Railway.
 7. Person: [retire the cutover access and the copies](#retire-the-cutover-access-and-the-copies). The next window
    makes the access again. The cutover tasks stay.
