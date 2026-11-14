@@ -159,6 +159,7 @@ test("a lockfile change on main fills the pnpm store of both cache stores", () =
   // must not cancel a fill.
   assert.deepEqual(caches.on.push.branches, ["main"])
   assert.ok(caches.on.push.paths.includes("pnpm-lock.yaml"))
+  assert.ok(caches.on.push.paths.includes(".node-version"))
   assert.notEqual(caches.concurrency["cancel-in-progress"], true)
   const restorersByCacheJob = { "github-cache": [], "blacksmith-cache": [] }
   for (const [name, job] of Object.entries(ci)) {

@@ -7,7 +7,9 @@ name: Main caches
 # store. Each job uses the keys of the pull request jobs, so a pull request
 # job restores the store and does not save its own copy. setup-node keys the
 # pnpm store by the OS, the architecture and the lockfile hash, so a push
-# that changes the lockfile starts this workflow. The nightly jobs of ci.yaml
+# that changes the lockfile starts this workflow. A push that changes the
+# Node version also starts it, so that both stores hold the key of the PR
+# jobs after a toolchain change. The nightly jobs of ci.yaml
 # also save the store when they miss it. When the key is already in the
 # cache, setup-node saves nothing.
 
@@ -17,6 +19,7 @@ on:
       - main
     paths:
       - pnpm-lock.yaml
+      - .node-version
       - infra/.terraform.lock.hcl
   workflow_dispatch:
 
