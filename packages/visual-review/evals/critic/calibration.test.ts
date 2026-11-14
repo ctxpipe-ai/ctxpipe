@@ -162,6 +162,82 @@ test("counts the owner issues and the fine items that each arm flags", async () 
   expect(results.spent).toBeCloseTo(0.021)
 })
 
+test("a screenshot with a before image is a change with its brief, and a worse quality is a hit", async () => {
+  vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
+  vi.stubEnv("MODEL_PROVIDER_URL", gateway)
+  const change: Calibration = {
+    date: "2026-11-14",
+    screenshots: [
+      {
+        path: "apps/ui/src/c.png",
+        image: store(220),
+        storyId: "components-c--story",
+        scope: "component",
+        round: 4,
+        before: { image: store(60), brief: "Put the markers on one axis." },
+        flag: [{ issue: "The nesting is gone.", kinds: ["hierarchy"] }],
+        ok: [{ item: "The status dots.", kinds: ["status"] }],
+      },
+    ],
+  }
+  const path = join(dir, "change.json")
+  writeFileSync(path, JSON.stringify(change))
+  const prompts: string[] = []
+  server.use(
+    http.post(`${gateway}/chat/completions`, async ({ request }) => {
+      prompts.push(JSON.stringify(await request.json()))
+      return HttpResponse.json({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                observations: [
+                  { region: 1, before: "A framed list.", after: "Bare rows." },
+                ],
+                verdict: "regression",
+                severity: "major",
+                confidence: 0.8,
+                summary: "The child list lost its frame.",
+                qualities: [
+                  { name: "hierarchy", delta: "worse", confidence: 0.8 },
+                ],
+                findings: [],
+              }),
+            },
+          },
+        ],
+        usage: { cost: 0.01 },
+      })
+    }),
+  )
+  const out = join(dir, "out-change")
+  let printed = ""
+
+  const code = await calibrate(
+    [
+      "--arms",
+      "llm:anthropic/claude-sonnet-5.5",
+      "--calibration",
+      path,
+      "--images",
+      images,
+      "--out",
+      out,
+    ],
+    (text) => (printed += text),
+  )
+
+  expect(code).toBe(0)
+  // The judge got the change with its brief, not a new screenshot.
+  expect(prompts.join("\n")).toContain("Put the markers on one axis.")
+  expect(printed).toContain(
+    "| llm:anthropic/claude-sonnet-5.5 | 1 | 1 / 1 | 0 / 1 | 1 | 0 |",
+  )
+  expect(printed).toContain(
+    "| 4 | components-c--story (change) | 1 / 1 hits, 0 / 1 false (hierarchy) |",
+  )
+})
+
 test("an unknown arm is an error of the runner, with no call", async () => {
   vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
   let printed = ""
@@ -179,7 +255,7 @@ test("the owner calibration of 2026-11-14 matches the schema", () => {
     ),
   )
 
-  expect(committed.screenshots).toHaveLength(16)
+  expect(committed.screenshots).toHaveLength(22)
   // Each kind is an id of the rubric, so that a judge can flag it.
   const ids = new Set(
     [...packagedRubric.areas, ...packagedRubric.qualities].map(({ id }) => id),

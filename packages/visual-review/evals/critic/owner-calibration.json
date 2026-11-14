@@ -399,6 +399,136 @@
           "kinds": ["missing-elements", "feedback-and-state", "density"]
         }
       ]
+    },
+    {
+      "path": "apps/ui/src/features/workspace-sources/screenshots/ChooseWorkspacesStep.ChooseWorkspacesMulti.desktop.screenshot.png",
+      "image": "7a6e18098d5915b1938218820908df091c3c37ee4b5d8caf98cd3bd7a0c14c23",
+      "storyId": "components-workspacesources-chooseworkspacesstep--choose-workspaces-multi",
+      "scope": "component",
+      "round": 4,
+      "before": {
+        "image": "4d81573ecff4cc3f61d87f7dc1222bbd6205b7e87c0f394861e6386f0c9fa4e8",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      },
+      "flag": [
+        {
+          "issue": "The change removed the frame and the inset of the team and project lists: the child group now sits on the axis of its parent, and the reader no longer sees the tree.",
+          "kinds": ["hierarchy", "alignment", "grouping-and-rhythm"]
+        }
+      ],
+      "ok": [
+        {
+          "item": "The uppercase TEAMS and PROJECTS labels name sections of a dense list.",
+          "kinds": ["restraint"]
+        }
+      ]
+    },
+    {
+      "path": "apps/ui/src/features/workspace-sources/screenshots/PullRequestsToMerge.RemoveAndScopeChange.desktop.screenshot.png",
+      "image": "4bff03c7a2e9186b79aaa5b02a3eea810415be7cb7d63a781c47d9e8ebb1a3c9",
+      "storyId": "components-workspacesources-pullrequeststomerge--remove-and-scope-change",
+      "scope": "component",
+      "round": 4,
+      "before": {
+        "image": "7fbc3b0e7d55276d111f7f87c613d7950abed5ab3463aaef0b0f0e72e4cf0085",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      },
+      "flag": [
+        {
+          "issue": "The done state lost its card surface and its check icon: the result is now bare text with no shape.",
+          "kinds": ["missing-elements", "hierarchy"]
+        }
+      ],
+      "ok": [
+        {
+          "item": "Each merged pull request shows a check and the word Merged.",
+          "kinds": ["status"]
+        }
+      ]
+    },
+    {
+      "path": "apps/ui/src/routes/screenshots/-connectors.CouldntLoad.desktop.screenshot.png",
+      "image": "2d1e369509f8614f7078196037a6c08da58e077bffd4d2113b9fda94c7c6f8c4",
+      "storyId": "pages-connections--couldnt-load",
+      "scope": "page",
+      "round": 4,
+      "before": {
+        "image": "93f9f36f2aa2d4a3fefcdc7cfda1e266b69c7070ba0d1f31708be0eaafc58e6b",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      },
+      "flag": [
+        {
+          "issue": "The tiles lost their lighter surface: thin dim borders on the page color look like a wireframe, and the hierarchy is weaker.",
+          "kinds": ["contrast", "hierarchy", "grouping-and-rhythm"]
+        }
+      ],
+      "ok": [
+        {
+          "item": "Each tile has a red dot with the words Couldn't load.",
+          "kinds": ["status"]
+        }
+      ]
+    },
+    {
+      "path": "apps/ui/src/routes/screenshots/-connectors.ReopensConfluenceWizardAfterAccountLink.desktop.screenshot.png",
+      "image": "b838db118930f9c926cfb0e9de535d724d445f001e1a098bfc0092afbeda15bd",
+      "storyId": "pages-connections--reopens-confluence-wizard-after-account-link",
+      "scope": "page",
+      "round": 4,
+      "before": {
+        "image": "1d57f619173c210b4d57f473c0fd48a4b0a2528c9711a2df9736cf6faccb57b3",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      },
+      "flag": [
+        {
+          "issue": "The warning now wraps a long signed URL in full and fills the dialog: the box is far too big for its message.",
+          "kinds": ["overflow", "copy"]
+        }
+      ],
+      "ok": [
+        {
+          "item": "The checkboxes and step numbers are a to-do list of the wizard steps.",
+          "kinds": ["clarity"]
+        }
+      ]
+    },
+    {
+      "path": "apps/ui/src/features/workspace-upgrades/screenshots/WorkspaceUpgrades.ReadOnlyBelowFormat.desktop.screenshot.png",
+      "image": "a1079e7fa8c39048f58f87f4130f1b081bb5030fa63f6f5ebd79e7383a9df41e",
+      "storyId": "components-workspaces-upgrades--read-only-below-format",
+      "scope": "component",
+      "round": 4,
+      "flag": [
+        {
+          "issue": "Too many warning signals in one block: an amber side border, amber dots and two boxed warnings.",
+          "kinds": ["color-tokens", "restraint"]
+        }
+      ],
+      "ok": [
+        {
+          "item": "Partial UI: one settings section alone, with empty space around it.",
+          "kinds": ["missing-elements", "density"]
+        }
+      ]
+    },
+    {
+      "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.WriteCheckStallStopsPolling.desktop.screenshot.png",
+      "image": "29d3bb19450152cf144a6d7fdbae871c29242bdb5891d2fdabf1ce56d9f2046b",
+      "storyId": "pages-workspaces--write-check-stall-stops-polling",
+      "scope": "page",
+      "round": 4,
+      "flag": [
+        {
+          "issue": "Too many warning and error signals in the settings pane: amber side borders, two boxed errors, a boxed warning and a warning summary line.",
+          "kinds": ["color-tokens", "restraint"]
+        }
+      ],
+      "ok": [
+        {
+          "item": "The conversation area is empty in this story state.",
+          "kinds": ["missing-elements", "feedback-and-state", "density"]
+        }
+      ]
     }
   ]
 }
