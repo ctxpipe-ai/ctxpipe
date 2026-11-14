@@ -15,7 +15,13 @@ import { fileURLToPath } from "node:url"
 
 import { parse as parseYaml } from "yaml"
 
-import { fullVerdict, gateDecision, gateText, marker } from "../checks/gate.mjs"
+import {
+  describe,
+  fullVerdict,
+  gateDecision,
+  gateText,
+  marker,
+} from "../checks/gate.mjs"
 import {
   jobPlans,
   nightlyPlan,
@@ -502,6 +508,251 @@ test("a pass of an earlier run of the PR is a hit, and a quarantined key is not"
     }),
     { schemaVersion: 1, entries: [], quarantined: [] },
   )
+})
+
+test("a change to the gate code or its pin runs every test of the CI scripts, and a hit of one stays", () => {
+  // The LLM stage dropped one test of the CI scripts; the select job hit
+  // another one.
+  const dropped = "policy:tests-ci-a:scripts/tests/ci-a.test.mjs"
+  const kept = "policy:tests-ci-b:scripts/tests/ci-b.test.mjs"
+  const select = selectRecord()
+  const llm = llmRecord()
+  const planned = planOf({
+    files: {
+      "mode.json": {
+        mode: "select",
+        reason: "gate",
+        gateInputs: [".github/merge-gate.json"],
+      },
+      "selection.json": {
+        ...select,
+        selected: [...select.selected, check(kept)],
+        cache: { ...select.cache, hits: [...select.cache.hits, hit(kept, "ci", 9)] },
+      },
+      "llm-selection.json": {
+        ...llm,
+        selected: [...llm.selected, check(kept)],
+        omitted: [
+          ...llm.omitted,
+          { id: dropped, lane: "tests-ci-a", reason: "dropped by the LLM" },
+        ],
+      },
+    },
+  })
+  assert.equal(planned.mode, "gate")
+  assert.equal(
+    planned.reason,
+    "gate; gate inputs changed (.github/merge-gate.json): the gate code and the pin of the base revision decide, and every test of the CI scripts runs",
+  )
+  assert.deepEqual(planned.gateInputs, [".github/merge-gate.json"])
+  assert.ok(planned.ran.includes(dropped))
+  assert.deepEqual(
+    planned.selection.selected.find((item) => item.id === dropped).reason,
+    { kind: "gate", inputs: [".github/merge-gate.json"] },
+  )
+  // The key of a test of the CI scripts holds the gate code, so its hit
+  // stays.
+  assert.ok(planned.hits.some((item) => item.id === kept))
+  assert.ok(!planned.ran.includes(kept))
+  assert.equal(
+    describe({ kind: "gate", inputs: [".github/merge-gate.json"] }),
+    "gate input .github/merge-gate.json changed",
+  )
+  // The merge gate comment says why.
+  const { decision } = gateDecision({
+    config: config(),
+    planned,
+    records: [],
+    needs,
+    jobs: { jobs: [] },
+    run: { id: "42", attempt: 1, pr: 7, sha: sha(9) },
+    store: store(),
+    now: new Date("2026-10-28T12:00:00Z"),
+  })
+  assert.ok(
+    gateText(decision, "https://example.com/run").includes(
+      "**Gate inputs changed:** `.github/merge-gate.json`. The gate code and the pin of the base revision decided this run, not the code of this PR, and every test of the CI scripts was selected.",
+    ),
+  )
+})
+
+test("a check of a job-scoped ci.yaml change gets no hit from the PR store", () => {
+  // An earlier run of the PR can have run the check with another ci.yaml,
+  // under the same key.
+  const planned = planOf({
+    files: {
+      "mode.json": { mode: "select", reason: "gate", jobs: ["package-tests"] },
+    },
+    store: store([
+      { id: ui, key: key(5), run: "41", createdAt: "2026-10-28T11:00:00Z" },
+    ]),
+  })
+  assert.ok(planned.ran.includes(ui))
+  assert.ok(!planned.hits.some((item) => item.id === ui))
+  assert.ok(planned.rerun.includes(ui))
+})
+
+test("a PR that changes the gate code cannot reduce its own selection: the base revision plans its run", () => {
+  // A repo with the gate of this checkout as main, a PR that makes its own
+  // plan run no check, and the merge revision of the two, as CI checks it
+  // out. The steps of ci.yaml run on it.
+  const { jobs } = parseYaml(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+  )
+  const step = (job, name) => {
+    const found = jobs[job].steps.find((item) => item.name === name)
+    assert.ok(found, `${job}: ${name}`)
+    return found.run
+  }
+  const repo = mkdtempSync(join(tmpdir(), "ctxpipe-merge-gate-base-"))
+  const run = (command, args, options = {}) => {
+    const result = spawnSync(command, args, {
+      cwd: repo,
+      encoding: "utf8",
+      ...options,
+      env: { PATH: process.env.PATH, HOME: repo, ...options.env },
+    })
+    assert.equal(result.status, 0, `${args.join(" ")}: ${result.stderr}`)
+    return result.stdout
+  }
+  const git = (...args) =>
+    run("git", [
+      "-c",
+      "user.name=merge gate test",
+      "-c",
+      "user.email=test@example.com",
+      "-c",
+      "commit.gpgsign=false",
+      ...args,
+    ])
+  git("init", "-q", "-b", "main")
+  const files = spawnSync(
+    "git",
+    ["ls-files", "scripts/checks", "scripts/ci/test-weights.json"],
+    { cwd: root, encoding: "utf8" },
+  )
+    .stdout.split("\n")
+    .filter(Boolean)
+  for (const file of [...files, ".github/merge-gate.json"]) {
+    mkdirSync(join(repo, file, ".."), { recursive: true })
+    writeFileSync(join(repo, file), readFileSync(join(root, file)))
+  }
+  git("add", "-A")
+  git("commit", "-q", "-m", "main")
+  git("checkout", "-q", "-b", "pr")
+  const planFile = join(repo, "scripts/checks/plan.mjs")
+  const text = readFileSync(planFile, "utf8")
+  const sabotage = ".filter((check) => !hits.has(check.id))"
+  assert.equal(text.split(sabotage).length, 2)
+  writeFileSync(planFile, text.replace(sabotage, ".filter(() => false)"))
+  git("commit", "-q", "-am", "the PR plans no check")
+  git("checkout", "-q", "main")
+  git("merge", "-q", "--no-ff", "-m", "merge", "pr")
+  const bash = (script, env) => run("bash", ["-e", "-c", script], { env })
+  // The manifest job decides the mode with the gate of main.
+  const manifest = mkdtempSync(join(tmpdir(), "ctxpipe-merge-gate-job-"))
+  const event = {
+    GITHUB_EVENT_NAME: "pull_request",
+    EVENT: "pull_request",
+    FORK: "false",
+  }
+  bash(step("merge-gate-manifest", "The gate of the base revision"), {
+    ...event,
+    RUNNER_TEMP: manifest,
+  })
+  bash(step("merge-gate-manifest", "Mode"), {
+    ...event,
+    RUNNER_TEMP: manifest,
+    GITHUB_OUTPUT: join(manifest, "output"),
+  })
+  const outputs = Object.fromEntries(
+    readFileSync(join(manifest, "output"), "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
+  )
+  assert.deepEqual(JSON.parse(outputs.record), {
+    mode: "select",
+    reason: "gate",
+    gateInputs: ["scripts/checks/plan.mjs"],
+  })
+  // The plan job plans with the gate of main.
+  const planJob = mkdtempSync(join(tmpdir(), "ctxpipe-merge-gate-job-"))
+  mkdirSync(join(planJob, "inputs"))
+  writeFileSync(
+    join(planJob, "inputs/selection.json"),
+    JSON.stringify(selectRecord()),
+  )
+  writeFileSync(
+    join(planJob, "inputs/llm-selection.json"),
+    JSON.stringify(llmRecord()),
+  )
+  const plans = { ...event, RUNNER_TEMP: planJob, NEEDS: JSON.stringify(needs) }
+  bash(step("merge-gate-plan", "The gate of the base revision"), plans)
+  bash(step("merge-gate-plan", "The mode of the manifest job"), {
+    ...plans,
+    MODE: outputs.record,
+  })
+  bash(step("merge-gate-plan", "Plan"), {
+    ...plans,
+    GITHUB_OUTPUT: join(planJob, "output"),
+  })
+  const planned = JSON.parse(
+    readFileSync(join(planJob, "plan/plan.json"), "utf8"),
+  )
+  assert.equal(planned.mode, "gate")
+  assert.match(planned.reason, /gate inputs changed \(scripts\/checks\/plan\.mjs\)/)
+  assert.deepEqual(planned.ran, [ui, contract, image, evalCase, deploy])
+  // The gate code of the PR would plan no check, so the test proves the
+  // base revision.
+  run("node", [
+    "scripts/checks/gate.mjs",
+    "plan",
+    "--config",
+    ".github/merge-gate.json",
+    "--inputs",
+    join(planJob, "inputs"),
+    "--needs",
+    join(planJob, "needs.json"),
+    "--store",
+    join(planJob, "no-store.json"),
+    "--fork",
+    "false",
+    "--out",
+    join(planJob, "pr"),
+  ])
+  assert.deepEqual(
+    JSON.parse(readFileSync(join(planJob, "pr/plan.json"), "utf8")).ran,
+    [],
+  )
+})
+
+test("the merge gate fails when the gate code of the base writes no decision", () => {
+  // An older gate.mjs can skip its command when it runs from another
+  // directory. The Decision step must not pass without a decision.
+  const { jobs: workflow } = parseYaml(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+  )
+  const script = workflow["merge-gate"].steps.find(
+    (item) => item.name === "Decision",
+  ).run
+  const temp = mkdtempSync(join(tmpdir(), "ctxpipe-merge-gate-job-"))
+  mkdirSync(join(temp, "gate/scripts/checks"), { recursive: true })
+  mkdirSync(join(temp, "gate/.github"), { recursive: true })
+  writeFileSync(join(temp, "gate/scripts/checks/gate.mjs"), "")
+  writeFileSync(join(temp, "gate/.github/merge-gate.json"), "{}")
+  const result = spawnSync("bash", ["-e", "-c", script], {
+    cwd: temp,
+    encoding: "utf8",
+    env: {
+      PATH: process.env.PATH,
+      RUNNER_TEMP: temp,
+      NEEDS: "{}",
+      GITHUB_STEP_SUMMARY: join(temp, "summary"),
+    },
+  })
+  assert.equal(result.status, 1, result.stderr)
+  assert.match(result.stdout, /gate\.mjs decide wrote no decision/)
 })
 
 const jobs = (results) => ({

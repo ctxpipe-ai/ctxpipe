@@ -527,7 +527,7 @@ test("the nightly run plans on main, traces its plan, and the Results writer alw
   assert.match(text("nightly-plan"), /--exclude-lane vercel/)
   assert.match(text("nightly-plan"), /workflow_dispatch \]; then args\+=\(--full\)/)
   // The plan job of the gate puts its checks into the jobs of the run.
-  assert.match(text("merge-gate-plan"), /gate\.mjs nightly/)
+  assert.match(text("merge-gate-plan"), /gate\.mjs\\?"? nightly/)
   // The planned jobs trace their checks.
   for (const job of ["test-shards", "package-tests"])
     assert.match(text(job), /TRACE":"\$\{\{ github\.event_name != 'pull_request' && '\.ci-results\/selected' \|\| '' \}\}/, job)
