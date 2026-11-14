@@ -233,7 +233,6 @@ test("a change to the deploy workflow or to this plan builds every image", async
   for (const path of [
     ".github/workflows/deploy.yaml",
     "scripts/ci/deploy-images.mjs",
-    "scripts/ci/changed-files.mjs",
   ]) {
     const { dir, base } = repository({ [path]: "x\n" })
     server.use(...github({ base }))

@@ -3,8 +3,6 @@ import { appendFileSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import { changedFiles } from "./changed-files.mjs"
-
 // The images of deploy.yaml, and which of them a push to main builds.
 //
 // An image builds only when one of its inputs changed since the commit of the
@@ -22,7 +20,7 @@ import { changedFiles } from "./changed-files.mjs"
 // Every image builds when: the run is not a push (a dispatch with the input
 // `deploy`); no successful Deploy run on main that published images is
 // found, or its commit is not in the history of HEAD; the GitHub API fails;
-// or deploy.yaml, this file or changed-files.mjs changed. One image
+// or deploy.yaml or this file changed. One image
 // builds when the base run has not exactly one valid `deploy-image` notice on
 // its Publish job.
 //
@@ -404,18 +402,23 @@ export async function planImages({ root, event, repo, token }) {
         `the base commit ${base.head_sha} is not in the history of HEAD`,
       )
     }
-    changed = changedFiles(root, base.head_sha).map(({ path }) => path)
+    // Each path that changed since the base, also a deleted one.
+    changed = execFileSync(
+      "git",
+      ["diff", "--name-only", "--no-renames", base.head_sha, "HEAD"],
+      { cwd: root, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 },
+    )
+      .split("\n")
+      .filter(Boolean)
     digests = await baseDigests({ repo, jobs, token })
   } catch (error) {
     return everything(`no base: ${error.message}`)
   }
   // A change to one of these files can change how every image builds.
   const everyImageChange = changed.find((path) =>
-    [
-      ".github/workflows/deploy.yaml",
-      "scripts/ci/deploy-images.mjs",
-      "scripts/ci/changed-files.mjs",
-    ].includes(path),
+    [".github/workflows/deploy.yaml", "scripts/ci/deploy-images.mjs"].includes(
+      path,
+    ),
   )
   if (everyImageChange) return everything(`${everyImageChange} changed`)
   const result = { build: [], reuse: {}, reasons: {} }
