@@ -1,8 +1,9 @@
 // The owner calibration of the visual critic (CTX-1269). The product owner
 // reviewed screenshots of main, and said what a critic must flag and what is
 // fine. `owner-calibration.json` holds that feedback. This command gives each
-// screenshot to the bake-off runner as a new screenshot (the image alone),
-// and counts, for each arm, the owner issues that it flags (hits) and the
+// screenshot to the bake-off runner as a new screenshot (the image alone), or
+// as a change when the owner judged a change against an earlier image
+// (`before`, CTX-1282), and counts, for each arm, the owner issues that it flags (hits) and the
 // fine items that it flags (false flags). See README.md beside this file.
 //
 // Usage: node packages/visual-review/evals/critic/calibration.ts --arms <list>
@@ -53,6 +54,17 @@ export const calibrationSchema = z.strictObject({
         scope: z.enum(["page", "component"]),
         /** The review round of the owner that named the items. */
         round: z.number().int().min(1),
+        /**
+         * The earlier state, when the owner judged a change: the SHA-256 of
+         * the before image and the brief of the change. Then the issues are
+         * regressions of the change, and the case is a change with a brief.
+         */
+        before: z
+          .strictObject({
+            image: z.string().regex(/^[0-9a-f]{64}$/),
+            brief: z.string().min(1),
+          })
+          .optional(),
         /** The issues that the owner wants a critic to flag. */
         flag: z.array(
           z.strictObject({ issue: z.string().min(1), kinds: kindsSchema }),
@@ -68,9 +80,11 @@ export const calibrationSchema = z.strictObject({
 export type Calibration = z.infer<typeof calibrationSchema>
 
 /**
- * The case manifest of the runner: each screenshot is a `new` case. The
- * runner needs a commit, a brief and a label; the screenshots have none, so
- * these fields are fixed placeholders that no score reads.
+ * The case manifest of the runner: each screenshot is a `new` case, or a
+ * change (`intended` kind, with its brief) when it has a `before` image. The
+ * runner needs a commit, a label and a diff size; the screenshots have none,
+ * so these fields are fixed placeholders that no score reads. The runner
+ * measures the diff of a change itself.
  */
 function manifestOf({ screenshots }: Calibration): CaseManifest {
   const none = "0".repeat(40)
@@ -81,32 +95,46 @@ function manifestOf({ screenshots }: Calibration): CaseManifest {
     until: none,
     container: "none",
     scope: "page",
-    cases: screenshots.map(({ storyId, image, scope }) => ({
-      id: storyId,
-      storyId,
-      scope,
-      viewport: { name: "desktop", width: 1440, height: 900 },
-      kind: "new",
-      label: "intended",
-      class: null,
-      brief: "A screenshot of main for the design review of the owner.",
-      commit: { sha: none, parent: none },
-      region: null,
-      diffPixels: null,
-      images: { after: image },
-    })),
+    cases: screenshots.map(({ storyId, image, scope, before }) => {
+      const common = {
+        id: storyId,
+        storyId,
+        scope,
+        viewport: { name: "desktop", width: 1440, height: 900 },
+        class: null,
+        commit: { sha: none, parent: none },
+        region: null,
+      } as const
+      return before
+        ? {
+            ...common,
+            kind: "intended",
+            label: "regression",
+            brief: before.brief,
+            diffPixels: 0,
+            images: { before: before.image, after: image },
+          }
+        : {
+            ...common,
+            kind: "new",
+            label: "intended",
+            brief: "A screenshot of main for the design review of the owner.",
+            diffPixels: null,
+            images: { after: image },
+          }
+    }),
   }
 }
 
 /**
  * The rubric ids that a verdict flags: the kind of each finding, and each
- * quality that `fails`.
+ * quality that `fails` (a new screenshot) or is `worse` (a change).
  */
 const flaggedKinds = (verdict: Verdict) =>
   new Set([
     ...verdict.findings.map(({ kind }) => kind),
     ...verdict.qualities
-      .filter(({ delta }) => delta === "fails")
+      .filter(({ delta }) => delta === "fails" || delta === "worse")
       .map(({ name }) => name),
   ])
 
@@ -164,7 +192,8 @@ function calibrationReport(
       const flagged = [...flaggedKinds(result.verdict)].join(", ") || "none"
       return `${result.hits.length} / ${screenshot.flag.length} hits, ${result.falseFlags.length} / ${screenshot.ok.length} false (${flagged})`
     })
-    return `| ${screenshot.round} | ${screenshot.storyId} | ${cells.join(" | ")} |`
+    const name = `${screenshot.storyId}${screenshot.before ? " (change)" : ""}`
+    return `| ${screenshot.round} | ${name} | ${cells.join(" | ")} |`
   })
   return [
     `# Owner calibration, ${calibration.date}`,

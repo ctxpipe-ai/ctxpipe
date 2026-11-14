@@ -35,7 +35,9 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | Baseline, not center | Mixed type on one row (title + meta, price + period) shares a baseline |
 | Align for reading | Long copy left-aligned; numbers right-aligned + `tabular-nums` |
 | One left edge | The blocks of one column share a left edge (message, answer, composer; icon row, checklist, step card) |
-| Shared marker axis | Header icon, checkboxes, step numbers and list icons of a stack share one vertical axis, each centered on its text line |
+| Hierarchy before axis | A child group (nested list, options of one choice, scope of one item) is inset 12 px or more, or framed, under its parent. Never flatten nesting to align markers |
+| Shared marker axis | Header icon, checkboxes, step numbers and list icons of the siblings at one level share one vertical axis, each centered on its text line |
+| Whole screen | A rule-driven fix keeps the hierarchy, block shape, signal weight and size of each screen that it changes |
 | Balanced space | Space spread evenly across a row and a column; no element jammed against one neighbor with a large gap on its other side |
 | Dialog fits | The dialog fits the viewport; header and footer stay in place; long content scrolls in the body; nothing cut off at an edge |
 | Chips have room | A chip, badge or icon tab has space on each side from its neighbors |
@@ -65,6 +67,7 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | Accent once | At most one teal edge or wash; match an existing house use (alert edge, status wash) |
 | Status color on the dot | Dot + word; the word is one restrained text color, and the dots and words of a list share one column |
 | Accessible warning | A dark surface with a yellow or amber border and icon; a yellow fill only on a small element and only when it passes AA. Red is for an error |
+| One warning signal | One frame, or one icon with one colored line, for each warning or error block. No side border + colored dots + boxed alerts together; inner items say their state in quiet text |
 | No bright areas | No large bright or saturated area on the dark floor; bright color as a small accent. Editors, diff viewers and previews use the dark theme |
 | Clickable list text readable | A file tree or nav item is never so dim that it reads as disabled |
 
@@ -74,6 +77,8 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 |-------|----------------|
 | One radius | New chrome is `rounded-md` (0.2rem, from the `--radius-*` theme tokens). No new `rounded-none` mixed with the house radius |
 | Elevation | Surface lightness (`bg-card` vs page); existing rings. No black `shadow-lg` slabs |
+| Visible surface | A tile, card or row differs from the page by its surface, a border that is easy to see, or both. Not a thin dim border on the page color |
+| Block keeps its shape | A status block, step or result keeps the surface, frame and icon that show what it is; not flattened into bare text |
 | Overlap | Only if the nearby anchor screen already overlaps |
 | Icon size | Glyph stays ~16–20px; large hit area uses `.ctx-node` enclosure |
 | Figures | Crop to a fixed frame / `object-cover`; do not scale a screenshot until type is 4px |
@@ -98,6 +103,7 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | No raw values | Labels, copy and field values show no `undefined`, `null`, `NaN`, `[object Object]`, untranslated key, lorem ipsum or broken image. A missing value shows a dash or a short empty text. A code or file preview shows its content as it is |
 | Visible labels | Each form field has a visible label. A placeholder is an example value, not the label |
 | No repeated text | One row, card or dialog does not show the same text twice (a title and a body that say the same thing) |
+| Machine text small | A URL, token, id, stack trace or raw error stays behind “Show details” or in a capped mono block that scrolls. No signed URL or secret-like value in full |
 | Named Tailwind first | `tracking-tighter`, `p-2`, `text-sm` — not `tracking-[-0.5px]`, `p-[13px]`, or `text-[15px]` unless no named token is close |
 
 ## Actions

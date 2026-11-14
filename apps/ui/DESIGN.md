@@ -60,7 +60,7 @@ Dark product floor: zinc-950 / `--background` / `--card`. Ink: `--foreground`. S
 | `--primary` (near-white in dark) | Filled primary buttons |
 | `teal-400` (`#40E0D0`) and `teal-*` mix stops | Accent: links that are *the* action, status wash, focus-adjacent teal |
 | `--destructive` | Confirm-dialog filled danger, and the slab of an error alert. Red is correct for an error |
-| Warning | A dark surface with a yellow or amber border and icon. A yellow fill with dark text only on a small element, and only when it passes WCAG AA. A full-width bright fill dominates the dark UI |
+| Warning | A dark surface with a yellow or amber border and icon. A yellow fill with dark text only on a small element, and only when it passes WCAG AA. A full-width bright fill dominates the dark UI. One warning signal for each block: see **Alerts** |
 | `--border` / `border-white/10` | Hairlines when gap or bg shift is not enough |
 
 On chromatic surfaces (teal / red / amber slabs): same-hue muted secondary text. Do not use `text-zinc-400` or `text-white/50` as hierarchy on those slabs.
@@ -124,6 +124,8 @@ Decorative icons: `aria-hidden`, `text-muted-foreground`, intended size (~16–2
 - **AppShell / product chrome:** no 24px grid and no teal/blue radial glow. Onboarding may keep atmosphere. Do not add background decoration (gradients, grain, world maps, Hero Patterns).
 - **Titles:** product screens `text-lg` / `text-xl`. `text-3xl`+ only on onboarding / marketing.
 - **Alerts:** keep dark slabs ([`InlineAlert`](src/components/ui/InlineAlert.tsx)); no opacity-as-grey; same-hue muted secondary text on the slab. Prefer Tabler icons on new alerts. The action of an alert sits on the right of the slab at the normal secondary size, not small and below the text. Error copy gives the cause and the next step. It does not repeat the title (“Could not load connectors” over “Failed to load connections” says nothing new).
+  - One warning or error signal for each block: one frame, or one icon with one colored line. Do not put a colored side border, colored dots and boxed alerts in one block together. The items inside a warning block show their state as quiet text (“Blocked: needs write access”) with at most one icon. Put the action next to the problem that it fixes.
+  - Long machine text stays small. A URL, a token, an id, a stack trace or raw error text never fills a message. Show one short sentence. Put the technical detail behind a disclosure (“Show details”) or in a mono block with a capped height that scrolls. Never show a signed URL or a value that looks like a secret in full.
 - **Notices that wait for an action** (for example the Home upgrade toasts and Workspace hydrate problem toasts): toasts in a [`ToastStack`](src/components/ui/ToastStack.tsx) in a slot at the top of the Home content column, not a warning slab in the page. An upgrade toast has the upgrade icon; a problem toast has the warning icon. The front toast shows in full; hover or focus opens the stack.
 - **Empty states:** short title + one sentence + **one primary** control, when there is an action. No icon tile above the title. Hide tabs/filters until there is data. Center only if copy is ≤2 lines; otherwise left-align.
 - **Loading:** region waits (list, tree, thread, pane) use [`Skeleton`](src/components/ui/Skeleton.tsx) that matches the populated pattern (see **Loading states**). Process waits (hydrate, OAuth, discovery) use [`InlineLoader`](src/components/ui/InlineLoader.tsx). Button mutations use `isPending`. Status uses a dot plus the word; the dot pulses only while the work runs. See product-ui **Plan states**.
@@ -134,11 +136,15 @@ Decorative icons: `aria-hidden`, `text-muted-foreground`, intended size (~16–2
   - Every icon tells its action. Do not put a chevron at the end of a row when the row does not open or expand.
   - Peer actions in one row have the same weight and type: two buttons, or two links. Do not put a “Fix” button next to an “Add another” text link.
   - A copy button sits at the right end of the field that it copies, inside or next to the field. Not in the footer below it.
-- **Separators:** gap or background shift first; one hairline if grouping is still ambiguous. Borders are a last separator. Do not nest cards inside cards.
+- **Separators:** gap or background shift first; one hairline if grouping is still ambiguous. Borders are a last separator. Do not nest cards inside cards. A framed child group (a bordered list under its parent, see **Hierarchy**) is not a nested card.
 - **Pages:** group the content of a page in tiles or cards, with a clear hierarchy and area boundaries, as the chat page does. A flat list of bare rows under a title reads as an unfinished legacy page.
+- **Surfaces:** a tile, a card or a row on the page has a surface that differs from the page background, or a border that is easy to see, or both. A thin dim border on the page color looks like a wireframe.
+- **Block shape:** a status block, a step or a result (a done state, a merge step, a tile) keeps the surface, the frame and the icon that show what it is. Do not flatten a card into bare text to remove a container.
 - **Columns:** the blocks of one column share one left edge: a message, an answer and the composer; an icon row, a checklist and a step card.
-- **Axes:** the leading markers of a vertical stack (a header icon, checkboxes, step numbers, list icons) share one vertical axis. The center of each marker sits on its text line.
+- **Hierarchy:** hierarchy beats alignment. A child group (a nested list, the options of one choice, the scope of one item) starts one clear step in (12 px or more) or sits inside a frame under its parent, so that the reader sees the tree. Never remove a nesting, a frame or an inset to put markers on one axis.
+- **Axes:** the leading markers of the siblings at one level of a vertical stack (a header icon, checkboxes, step numbers, list icons) share one vertical axis. The center of each marker sits on its text line. A child group has its own axis, one step in.
 - **Balance:** spread space evenly across a row and a column. Do not put an element close to one neighbor and leave a large gap on its other side. When you move one element, check the whole row or column again.
+- **Whole screen:** a fix for one rule must not make another quality worse. Before you commit a rule-driven change to many screens, compare each changed screen with its previous state for hierarchy, block shape, signal weight and size.
 - **Modals:** a header, a body and a footer zone on one aligned grid. One close control: in a wizard, one Close button at the bottom right, and no second Close or X at the top.
   - Every dialog and every step of a flow shows a way to close, cancel or go back. Do not remove or hide an exit to make a screen look cleaner.
   - A dialog fits the viewport. The header and the footer stay in place with the same padding. Long content scrolls inside the body. Nothing is cut off at an edge of the screen.

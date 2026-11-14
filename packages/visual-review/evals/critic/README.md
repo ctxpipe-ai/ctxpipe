@@ -162,15 +162,16 @@ The default arms are the models of the plan in the three prompt arms, the three 
 
 ## The owner calibration
 
-The product owner reviewed 10 screenshots of `main` on 2026-11-14 ([CTX-1269](https://linear.app/ctxpipe/issue/CTX-1269)), and 6 screenshots of PR #722 in a second round on the same day ([CTX-1275](https://linear.app/ctxpipe/issue/CTX-1275)). `owner-calibration.json` holds that feedback. Each screenshot has:
+The product owner reviewed 10 screenshots of `main` on 2026-11-14 ([CTX-1269](https://linear.app/ctxpipe/issue/CTX-1269)), 6 screenshots of PR #722 in a second round on the same day ([CTX-1275](https://linear.app/ctxpipe/issue/CTX-1275)), and 6 screenshots of a later state of PR #722 in a fourth round ([CTX-1282](https://linear.app/ctxpipe/issue/CTX-1282)). `owner-calibration.json` holds that feedback. Each screenshot has:
 
 - `path`: where the screenshot was in the repository on that day. `image` is its SHA-256: an asset of the image release, so the set stays the same when the UI changes.
 - `flag`: the issues that the owner wants a critic to flag.
 - `ok`: the things that the owner said are fine.
 - `round`: the review round of the owner.
+- `before` (optional): when the owner judged a change, the SHA-256 of the earlier image and the brief of the change. The issues are then regressions of that change.
 - `kinds` on each item: the rubric ids (areas and qualities) that a judge flags the item with.
 
-The command gives each screenshot to the runner as a `new` case (the image alone, with a fixed neutral brief), so each arm judges it as `pnpm visual:review` judges a new screenshot. The runner output is in `runner/` of `--out`. A verdict flags the kind of each finding and each quality that `fails`. An issue is a hit when the verdict flags one of its kinds. A fine item is a false flag when the verdict flags one of its kinds that no issue of that screenshot names.
+The command gives each screenshot to the runner as a `new` case (the image alone, with a fixed neutral brief), so each arm judges it as `pnpm visual:review` judges a new screenshot. A screenshot with `before` is a change with its brief, so each arm judges it as a changed screenshot of a PR; the report marks it `(change)`. The runner output is in `runner/` of `--out`. A verdict flags the kind of each finding, each quality that `fails` (a new screenshot), and each quality that is `worse` (a change). An issue is a hit when the verdict flags one of its kinds. A fine item is a false flag when the verdict flags one of its kinds that no issue of that screenshot names.
 
 ```sh
 node packages/visual-review/evals/critic/calibration.ts --arms jev,llm:anthropic/claude-sonnet-5.5 [--max-cost 2] [--images <dir>] [--out <dir>]
