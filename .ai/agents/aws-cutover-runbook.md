@@ -274,8 +274,10 @@ Do the steps that apply, in this order. Skip a step whose change was not made ye
   4. Delete the transfer copies of every run, the rehearsals too. They hold the graphs and the source code of each
      organization, outside the deletion path of ctxpipe:
      `aws s3 rm --recursive "s3://<shard bucket>/cutover-transfer/"`.
-  5. Delete the seed file of the MCP evals, if one stays. It holds an API key of the test organizations:
-     `aws s3 rm --recursive "s3://<shard bucket>/cutover-mcp-evals/"`.
+  5. Delete the seed file of the MCP evals, if one stays:
+     `aws s3 rm --recursive "s3://<shard bucket>/cutover-mcp-evals/"`. It holds an API key of the eval test
+     organizations. That key and those organizations exist only in the copy of a rehearsal: the task
+     `cutover-reset-database` drops the copy after each rehearsal and again at T+3. The evals never run after G4.
 - **Expected:** `aws s3 ls "s3://<shard bucket>/cutover-transfer/"` and
   `aws s3 ls "s3://<shard bucket>/cutover-mcp-evals/"` print nothing.
 
