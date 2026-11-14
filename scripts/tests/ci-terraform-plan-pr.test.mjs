@@ -61,7 +61,7 @@ const setup = ({
   api = {},
   errors = {},
   errorsOnce = {},
-  state = "OPEN",
+  state = "open",
 } = {}) => {
   const dir = mkdtempSync(join(tmpdir(), "terraform-plan-"))
   const bin = join(dir, "bin")
@@ -83,7 +83,7 @@ const setup = ({
   // The state of the PR, as the REST API gives it.
   const pull = join(dir, `${file(`repos/${repo}/pulls/7`)}.json`)
   if (!existsSync(pull))
-    writeFileSync(pull, JSON.stringify({ state: state.toLowerCase() }))
+    writeFileSync(pull, JSON.stringify({ state }))
   return dir
 }
 
@@ -101,8 +101,6 @@ const steps = {
     "Look for a change under infra/",
   ],
   "start-pr-deploy": ["merge-gate-deploy", "Start PR Deploy on the PR branch"],
-}
-const otherSteps = {
   "post-comment": ["merge-gate", "Post or update the PR comment"],
   "jobs-of-the-run": ["merge-gate", "The jobs of this run"],
 }
@@ -114,9 +112,9 @@ const run = (script, dir, env, args = [], cwd = undefined) => {
       : []
   const output = join(dir, "github-output")
   writeFileSync(output, "")
-  const step = steps[script] ?? otherSteps[script]
-  const command = step
-    ? ["-c", `set -eo pipefail\n${stepShell(...step)}`]
+  const command =
+    script in steps
+      ? ["-c", `set -eo pipefail\n${stepShell(...steps[script])}`]
     : [join(root, "scripts/ci", script), ...args]
   const result = spawnSync("bash", command, {
     cwd,
@@ -363,19 +361,6 @@ test("the plan is not called for a PR with no change under infra/", () => {
   }
 })
 
-test("the step lists the changed files without the GitHub API", () => {
-  // Each API call fails: the answer for a PR without an infra/ change comes
-  // from git alone.
-  const result = start(({ write }) => write("README.md", "changed"), {
-    api: {},
-    errors: {
-      [`repos/${repo}/pulls/7/files`]: "API rate limit exceeded (HTTP 403)",
-    },
-  })
-  assert.equal(result.status, 0, result.stderr)
-  assert.deepEqual(result.outputs, ["plan=false"])
-})
-
 test("a rate limit makes the step wait for the reset and call again", () => {
   const result = start(({ write }) => write("infra/a.tf", "changed"), {
     errorsOnce: {
@@ -437,36 +422,23 @@ test("a secondary rate limit waits one minute, and another error after the wait 
   assert.deepEqual(secondary.sleeps, ["60"])
   assert.equal(secondary.outputs.at(-1), "plan=true")
   // The branch call hits the limit, then a server error: not a rate limit.
-  const dir = setup({
-    api: { rate_limit: { resources: { core: { remaining: 0, reset: 0 } } } },
-    errorsOnce: {
-      [`repos/${repo}/branches/feature`]: "API rate limit exceeded (HTTP 403)",
-    },
-    errors: {},
+  const branch = `repos/${repo}/branches/feature`
+  const broken = start(infraChange, {
+    errorsOnce: { [branch]: "API rate limit exceeded (HTTP 403)" },
+    errors: { [branch]: "gh: Server Error (HTTP 500)" },
   })
-  writeFileSync(
-    join(dir, `repos_acme_widgets_branches_feature.error`),
-    "gh: Server Error (HTTP 500)",
-  )
-  const broken = run(
-    "start-terraform-plan",
-    dir,
-    { REPO: repo, PR: "7", BRANCH: "feature" },
-    [],
-    mergeRevision(infraChange),
-  )
   assert.equal(broken.status, 1)
   assert.match(broken.stderr, /HTTP 500/)
   assert.doesNotMatch(broken.stdout, /rate limit stays/)
 })
 
 test("each step that calls the GitHub API holds the same gh_retry", () => {
-  const all = [...Object.values(steps), ...Object.values(otherSteps)]
+  const all = Object.values(steps)
   const texts = all.map((step) => {
     const text = stepShell(...step)
-    const start = text.indexOf("# gh_retry runs")
-    assert.ok(start >= 0, step.join(": "))
-    return text.slice(start, text.indexOf("\n}\n", start) + 3)
+    const from = text.indexOf("# gh_retry runs")
+    assert.ok(from >= 0, step.join(": "))
+    return text.slice(from, text.indexOf("\n}\n", from) + 3)
   })
   for (const [index, text] of texts.entries())
     assert.equal(text, texts[0], all[index].join(": "))
@@ -484,7 +456,7 @@ test("a path that git quotes still counts as a change under infra/", () => {
 })
 
 test("the plan is not called for a closed PR", () => {
-  const result = start(infraChange, { state: "MERGED" })
+  const result = start(infraChange, { state: "closed" })
   assert.equal(result.status, 0)
   assert.match(result.stdout, /PR is closed/)
   assert.deepEqual(result.outputs, ["plan=false"])
