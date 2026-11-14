@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/Button"
  * on one grid. The header and the footer stay in view, and only the body
  * scrolls: the dialog (`Modal` with `flex flex-col`) is never taller than the
  * viewport, so the one Close control always shows. The leading markers of
- * the dialog (the mark, the step markers, the form and list checkboxes) start
- * on the left edge of the body. See README.md in this folder.
+ * the dialog (the mark, the step markers, the form checkboxes) start on the
+ * left edge of the body. A scope list keeps its frame, with its checkboxes
+ * inside it. See README.md in this folder.
  */
 export function ConnectorSetupFrame(props: {
   icon: ReactNode

@@ -3,14 +3,12 @@ import { InlineAlert } from "@/components/ui/InlineAlert"
 import { ApiError } from "@/lib/api-result"
 
 /**
- * What went wrong, in words that do not repeat the title. A server reason
- * wins. Without one, the status says where the request failed: the client
- * fallback message of a query ("Failed to load …") only says the title again.
+ * What went wrong, in one short sentence that does not repeat the title. The
+ * status says where the request failed: the client fallback message of a
+ * query ("Failed to load …") only says the title again.
  */
-function errorDetail(error: unknown): string {
+function errorSummary(error: unknown): string {
   if (error instanceof ApiError) {
-    const reason = error.body.error ?? error.body.message
-    if (reason?.trim()) return reason
     if (error.status === 0) {
       return "ctxpipe could not reach the server. Check your network connection."
     }
@@ -19,8 +17,21 @@ function errorDetail(error: unknown): string {
     }
     return `The server refused the request (status ${error.status}).`
   }
-  if (error instanceof Error && error.message.trim()) return error.message
-  return "ctxpipe gave no reason."
+  return "ctxpipe had an error while it loaded this page."
+}
+
+/**
+ * The raw reason (a server reason or an error message), or null. It can be
+ * long machine text, so it shows in a small capped block.
+ */
+function rawReason(error: unknown): string | null {
+  const reason =
+    error instanceof ApiError
+      ? (error.body.error ?? error.body.message)
+      : error instanceof Error
+        ? error.message
+        : null
+  return reason?.trim() ? reason : null
 }
 
 export function OrgOutletError(props: {
@@ -30,6 +41,7 @@ export function OrgOutletError(props: {
 }) {
   const requestId =
     props.error instanceof ApiError ? props.error.requestId : undefined
+  const reason = rawReason(props.error)
 
   return (
     <main className="mx-auto max-w-lg px-6 py-16">
@@ -45,7 +57,12 @@ export function OrgOutletError(props: {
           ) : undefined
         }
       >
-        <p>{errorDetail(props.error)}</p>
+        <p>{errorSummary(props.error)}</p>
+        {reason ? (
+          <p className="mt-2 max-h-24 overflow-y-auto rounded-md bg-red-950/60 px-2 py-1.5 font-mono text-xs wrap-anywhere text-red-100">
+            {reason}
+          </p>
+        ) : null}
         <p className="mt-1 text-red-200">
           {props.reset ? "Try again in a moment." : "Reload the page."}
           {requestId

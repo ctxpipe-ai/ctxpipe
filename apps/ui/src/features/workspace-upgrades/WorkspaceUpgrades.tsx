@@ -336,7 +336,7 @@ function UpgradeDetail(props: {
 
       {item.status === "failed" ? (
         item.failure ? (
-          <UpgradeFailure
+          <UpgradeFailureDetail
             item={item}
             failure={item.failure}
             orgSlug={props.orgSlug}
@@ -485,7 +485,7 @@ function UpgradeItemCard(props: {
 }
 
 /** A failed item: the step that failed, why, and the fix (CTX-895). */
-function UpgradeFailure(props: {
+function UpgradeFailureDetail(props: {
   item: WorkspaceUpgradeItem
   failure: UpgradeFailure
   orgSlug: string | undefined

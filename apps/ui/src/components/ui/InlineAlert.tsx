@@ -17,7 +17,10 @@ const variantClass: Record<InlineAlertVariant, string> = {
   success: "border-teal-500/40 bg-teal-950/25 text-teal-50",
 }
 
-/** The icon color of an alert without a frame: the one color of the alert. */
+/**
+ * The icon color of an alert without a frame: the one color of the alert. A
+ * framed warning uses the same yellow.
+ */
 const plainIconClass: Record<InlineAlertVariant, string> = {
   error: "text-red-400",
   warning: "text-amber-300",
@@ -80,11 +83,9 @@ export function InlineAlert({
     >
       <Icon
         className={`mt-0.5 size-4 shrink-0 ${
-          !framed
-            ? plainIconClass[variant]
-            : variant === "warning"
-              ? "text-amber-300"
-              : "opacity-90"
+          framed && variant !== "warning"
+            ? "opacity-90"
+            : plainIconClass[variant]
         }`}
         aria-hidden
       />
