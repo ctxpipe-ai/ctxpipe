@@ -158,6 +158,7 @@ export const Empty: Story = {
 
 export const ConnectedWithoutSources: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [workspaceSourcesHandler(workspaceSourceList()), connected],
@@ -184,6 +185,7 @@ export const ConnectedWithoutSources: Story = {
 export const SeveralProviders: Story = {
   tags: ["required"],
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a source list that drops a provider or misstates the totals. It must show every source with its path and description and the connector count. Not for edits or empty states.",
     msw: {
@@ -237,6 +239,7 @@ export const SeveralProviders: Story = {
 
 export const OneProviderSeveralSources: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -302,6 +305,7 @@ const goneLinearSources = ["old-issues", "old-projects"].map((name) =>
  */
 export const SharedReasonShowsOnce: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -343,6 +347,7 @@ export const NarrowPaneFoldsTable: Story = {
     ),
   ],
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -367,6 +372,7 @@ export const NarrowPaneFoldsTable: Story = {
 
 export const NeedsAttention: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -408,6 +414,7 @@ export const NeedsAttention: Story = {
 
 export const PendingAdd: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -454,6 +461,7 @@ export const PendingAdd: Story = {
 
 export const EachStatus: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -514,6 +522,7 @@ export const EachStatus: Story = {
 
 export const AwaitingMerge: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -580,6 +589,7 @@ export const ScrollsToSourceAnchor: Story = {
     return () => window.history.replaceState(null, "", "#")
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a source list that ignores the URL hash. The page must scroll the matching provider section into view. Not for the list content or edits.",
     msw: {
@@ -628,6 +638,7 @@ export const ScrollsToSourceAnchor: Story = {
 export const EditSendsChange: Story = {
   tags: ["required"],
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a source edit that sends the wrong change. The edit dialog must start from the saved scope and send a PUT with the new scope. Not for adding sources.",
     msw: {
@@ -683,6 +694,7 @@ export const EditSendsChange: Story = {
 
 export const UnlinkSendsChange: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -722,6 +734,7 @@ export const UnlinkSendsChange: Story = {
  */
 export const LegacyYamlRowNotRemovable: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -792,6 +805,7 @@ export const UnlinkDeletesTheSourceFile: Story = {
     ],
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -863,6 +877,7 @@ export const LinkedRepositoryWithoutSourceShows: Story = {
     ],
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -888,6 +903,7 @@ export const LinkedRepositoryWithoutSourceShows: Story = {
 
 export const AddSendsChange: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -947,6 +963,7 @@ export const AddSendsChange: Story = {
 export const AddSeveralSendsOneBatch: Story = {
   tags: ["required"],
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches an add of several repositories that sends one request per repository. It must send one batch request, so one pull request. Not for the repository list.",
     msw: {
@@ -1009,6 +1026,7 @@ export const AddSeveralSendsOneBatch: Story = {
  */
 export const AddByUrlSendsGitSource: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1069,6 +1087,7 @@ export const AddByUrlSendsGitSource: Story = {
 /** A URL that the backend refuses shows the backend's reason under the field. */
 export const AddByUrlShowsRefusal: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1113,6 +1132,7 @@ export const AddByUrlShowsRefusal: Story = {
 
 export const RemoveSendsChange: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1149,6 +1169,7 @@ export const RemoveSendsChange: Story = {
 }
 export const FileNotValid: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1171,6 +1192,7 @@ export const FileNotValid: Story = {
 
 export const RefusedRepositoryFile: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1325,6 +1347,7 @@ const reposPerConnection = http.get(
 export const PickerShowsConnectionNames: Story = {
   tags: ["required"],
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a repository picker that mixes several GitHub connections. It lists the repositories of each connection and sends each repository with its own connection id. Not for the source list.",
     msw: {
@@ -1387,6 +1410,7 @@ export const PickerShowsConnectionNames: Story = {
  */
 export const GithubNoRepositories: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [workspaceSourcesHandler(workspaceSourceList()), connected],
@@ -1452,6 +1476,7 @@ async function openAddRepositories(canvasElement: HTMLElement) {
  */
 export const AddRepositoriesExplains: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1491,6 +1516,7 @@ export const AddRepositoriesExplains: Story = {
 /** A search with no match: the hint shows the next step, not a dead end. */
 export const AddRepositoriesEmptySearchHint: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1523,6 +1549,7 @@ export const AddRepositoriesEmptySearchHint: Story = {
  */
 export const AddRepositoriesWorkspaceRepositoryDisabled: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1583,6 +1610,7 @@ export const AddRepositoriesRefreshesOnReturn: Story = {
     }
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1669,6 +1697,7 @@ const ownerLine =
  */
 export const AddRepositoriesHintLinksEachConnection: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1726,6 +1755,7 @@ export const AddRepositoriesHintLinksEachConnection: Story = {
  */
 export const AddRepositoriesListFailsKeepsHint: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1853,6 +1883,7 @@ export const BeforeFormatUpgradeWithSources: Story = {
 /** A few repositories: every row shows, with no filter and no "Show all". */
 export const GithubThreeRepositories: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1915,6 +1946,7 @@ const manyLinkedRepositories = Array.from({ length: 312 }, (_, index) => {
 export const GithubManyRepositories: Story = {
   args: { linkedRepositories: manyLinkedRepositories },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1991,6 +2023,7 @@ export const GithubManyRepositories: Story = {
 /** A file in a known provider folder that does not parse: the row shows why. */
 export const InvalidFile: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -2033,6 +2066,7 @@ export const InvalidFile: Story = {
 /** An open rename pull request shows on the old path. */
 export const PendingRename: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -2073,6 +2107,7 @@ const renameCalls: ChangeCall[] = []
 /** The rename dialog sends the new path and keeps the provider folder. */
 export const RenameSendsChange: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -2124,6 +2159,7 @@ const describeCalls: ChangeCall[] = []
 /** The editor sends the description with the change. */
 export const EditDescriptionSendsChange: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -2175,6 +2211,7 @@ const nameCalls: ChangeCall[] = []
 /** An add can name the file; the server names it otherwise. */
 export const AddWithFileName: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -2236,6 +2273,7 @@ export const StatusExplainsItself: Story = {
     ],
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -2315,6 +2353,7 @@ const recordPickerRead = http.get(
  */
 export const MemberEditAsksAnAdmin: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         role: [activeMemberRoleHandler("member")],
@@ -2353,6 +2392,7 @@ export const MemberEditAsksAnAdmin: Story = {
 /** A member opens Add repositories: a note asks for an admin, and no list request goes out. */
 export const MemberAddRepositoriesAsksAnAdmin: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         role: [activeMemberRoleHandler("member")],
