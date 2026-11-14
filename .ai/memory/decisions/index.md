@@ -38,7 +38,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-026](ADR-026-claude-plugin-mcp-distribution.md) | Claude plugin for hosted MCP distribution | Accepted (amended by ADR-051: org set per grant, `ctxpipe-context` skill, `?orgSlug=` ignored) |
 | [ADR-027](ADR-027-codesearch-openworkflow-concurrency.md) | Size-based OpenWorkflow concurrency for single-instance codesearch | Accepted |
 | [ADR-028](ADR-028-git-native-connector-assets.md) | Git-native connector assets | Accepted |
-| [ADR-029](ADR-029-railway-us-east-next-to-neon.md) | Railway compute in US East next to Neon | Accepted |
+| [ADR-029](ADR-029-railway-us-east-next-to-neon.md) | Railway compute in US East next to Neon | Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) |
 | [ADR-030](ADR-030-organization-owned-mcp-api-keys.md) | Organization-owned MCP API keys | Accepted (amended 2026-09-27: OpenCode HOME hashing; amended by ADR-051: `org` argument, personal-key org sets) |
 | [ADR-031](ADR-031-github-pr-scoped-mirror.md) | GitHub pull-request scoped mirror (revised: follows linked repositories; issues too) | Accepted (revised 2026-10-03, 2026-10-13, 2026-10-25); sync repository superseded by ADR-050 |
 | [ADR-032](ADR-032-path-located-graph-edges.md) | Path-located graph edges | Accepted (amended by ADR-033) |

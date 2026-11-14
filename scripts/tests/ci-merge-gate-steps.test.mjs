@@ -27,8 +27,8 @@ const repo = "acme/widgets"
 // `gh api <path> [--paginate|--silent] [--jq <expr>]` prints the file of that
 // path (slashes become underscores), through jq when --jq is given, or fails
 // with the text in `<name>.error`, or one time with the text in
-// `<name>.error-once`. `gh workflow run` and `gh api --method <verb>` append
-// their arguments to calls.log. The fake `sleep` appends its argument to
+// `<name>.error-once`. `gh api --method <verb>` appends its arguments to
+// calls.log. The fake `sleep` appends its argument to
 // sleeps.log and does not wait.
 const fakeGh = `#!/usr/bin/env bash
 set -euo pipefail
@@ -43,7 +43,7 @@ if [ -f "$dir/$name.error" ]; then
   cat "$dir/$name.error" >&2
   exit 1
 fi
-if [ "$1" = workflow ] || [ "$2" = --method ]; then
+if [ "$2" = --method ]; then
   echo "$*" >> "$dir/calls.log"
   exit 0
 fi
@@ -98,8 +98,6 @@ const run = (script, dir, env, args = [], cwd = undefined) => {
     existsSync(join(dir, name))
       ? readFileSync(join(dir, name), "utf8").trim().split("\n")
       : []
-  const output = join(dir, "github-output")
-  writeFileSync(output, "")
   const command =
     script in steps
       ? ["-c", `set -eo pipefail\n${stepShell(...steps[script])}`]
@@ -110,7 +108,6 @@ const run = (script, dir, env, args = [], cwd = undefined) => {
     env: {
       PATH: `${join(dir, "bin")}:${process.env.PATH}`,
       FAKE_GH_DIR: dir,
-      GITHUB_OUTPUT: output,
       RUNNER_TEMP: dir,
       ...env,
     },
@@ -119,7 +116,6 @@ const run = (script, dir, env, args = [], cwd = undefined) => {
     status: result.status,
     stdout: result.stdout,
     stderr: result.stderr,
-    outputs: readFileSync(output, "utf8").trim().split("\n").filter(Boolean),
     calls: log("calls.log"),
     sleeps: log("sleeps.log"),
   }
@@ -128,7 +124,7 @@ const run = (script, dir, env, args = [], cwd = undefined) => {
 // A git repository whose HEAD is the merge revision of a PR, as the checkout
 // of a pull_request run: its first parent is main, which moved on after the
 // branch started. `change` runs on the PR branch: write a file with
-// `write`, move one with `move`, delete one with `remove`.
+// `write`, or move one with `move`.
 const git = (cwd, ...args) => {
   const result = spawnSync("git", args, { cwd, encoding: "utf8" })
   assert.equal(
@@ -162,7 +158,6 @@ const mergeRevision = (change) => {
       mkdirSync(join(dir, to, ".."), { recursive: true })
       git(dir, "mv", from, to)
     },
-    remove: (path) => git(dir, "rm", "-q", path),
   })
   git(dir, "add", "-A")
   git(dir, "commit", "-q", "-m", "change")
