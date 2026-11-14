@@ -12,10 +12,7 @@ export function WorkspaceRouteError(props: {
 
   return (
     <main className="mx-auto max-w-lg px-6 py-16">
-      <p className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-        Workspace
-      </p>
-      <h1 className="mt-3 text-xl font-medium tracking-tight">
+      <h1 className="text-xl font-medium tracking-tight">
         Something went wrong
       </h1>
       <p className="mt-3 text-sm text-muted-foreground">{message}</p>

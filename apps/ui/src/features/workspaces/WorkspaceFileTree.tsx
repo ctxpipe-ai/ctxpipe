@@ -25,7 +25,7 @@ function TreeHeaderBusy(props: { label?: string }) {
   if (!props.label) return <span className="min-w-0 flex-1" />
   return (
     <span className="min-w-0 flex-1">
-      <span className="flex items-center gap-1.5 px-1 font-mono text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+      <span className="flex items-center gap-1.5 px-1 font-mono text-xs uppercase tracking-[0.18em] text-zinc-500">
         <span
           aria-hidden
           className="size-1.5 shrink-0 animate-pulse rounded-full bg-zinc-500"
