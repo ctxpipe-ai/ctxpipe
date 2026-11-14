@@ -492,6 +492,11 @@ jobs:
       TF_VAR_model_provider: ${{ vars.MODEL_PROVIDER || 'openrouter' }}
       TF_VAR_linear_redirect_uri: ${{ vars.LINEAR_REDIRECT_URI }}
       TF_VAR_pagerduty_redirect_uri: ${{ vars.PAGERDUTY_REDIRECT_URI }}
+      # The collector of the new stack on the tunnel (CTX-1216, factory
+      # machines/observability), with the Access token headers that the sync
+      # sets. Set here, not as the module's default: the Railway Terraform goes
+      # away in phase 7.
+      TF_VAR_otel_otlp_endpoint: https://otel.ctxpipe.dev
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
@@ -712,7 +717,9 @@ jobs:
   roll_previews_onto_collector:
     timeout-minutes: 10
     name: Roll the previews onto the new collector
-    if: github.event_name != 'workflow_dispatch' && needs.terraform.outputs.roll_prs != ''
+    # A truthy output: GitHub gives '' and the deploy tests' model gives null
+    # when the terraform job set none.
+    if: needs.terraform.outputs.roll_prs
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     needs: terraform
     permissions:
