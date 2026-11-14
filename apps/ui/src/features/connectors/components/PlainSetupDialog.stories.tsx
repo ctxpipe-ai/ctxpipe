@@ -78,6 +78,7 @@ const workspacesHandlers = [
 
 export const ConnectWithKey: Story = {
   parameters: {
+    visual: { allow: { axes: "Fixed by PR #722." } },
     msw: {
       handlers: {
         page: [

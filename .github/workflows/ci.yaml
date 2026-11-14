@@ -62,12 +62,21 @@ jobs:
         run: node scripts/ci/nightly.mjs changed
 
   lint:
-    timeout-minutes: 15
+    timeout-minutes: 30
     name: Lint and format
+    # The lint checks, the policy scripts and the tests of the CI scripts:
+    # each one is a check of the manifest (scripts/checks/README.md,
+    # Families). In gate mode the job runs only when the plan selects one of
+    # them, and runs only those. A push to main runs no check (ADR-062): each
+    # night, the job Project check times runs every cacheable one.
+    needs: merge-gate-plan
     if: |
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request'
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+      !cancelled() &&
+      (github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'pull_request') &&
+      (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.lint != '')
+    # github-hosted: no Docker and no host program in a key (ADR-065)
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -82,43 +91,47 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.4
-      - run: pnpm lint
-      - run: pnpm format:check
-      - name: Reject unused files, exports and dependencies
-        run: pnpm knip
-      - run: node scripts/ci/check-workflow-credentials.mjs
-      - run: node scripts/ci/check-secret-jobs.mjs
-      - run: node scripts/ci/check-agent-harness.mjs
-      - name: Fetch Gate 0 classification pin
-        run: git fetch origin 7dfa6b93a5baedc3eb2c86dd1056662e89cace00 --no-tags
-      - name: Reject skipped proof and owned mocks
-        run: node scripts/ci/check-test-policy.mjs
-      - name: Reject slow UI motion
-        run: node scripts/ci/check-ui-motion.mjs
-      - name: Reject racy Storybook play checks
-        run: node scripts/ci/check-story-play-timing.mjs
-      - name: Reject a route with no page story
-        run: node scripts/ci/check-page-stories.mjs
-      - name: Reject a Playwright image pin that differs from the lockfile
-        run: node scripts/ci/check-visual-container.mjs
-      - name: Reject non-Blacksmith runners
-        run: node scripts/ci/check-runners.mjs
-      - name: Reject outside values in run scripts and workflows without permissions
-        run: node scripts/ci/check-workflow-inputs.mjs
-      - name: Validate and install the Claude plugin
-        run: node scripts/ci/check-claude-plugin.mjs
-      - name: Reject dead docs links
-        run: node scripts/ci/check-docs-links.mjs
-      - name: Reject an ADR that the index omits
-        run: node scripts/ci/check-adr.mjs . origin/main
-      - name: Reject new single-use module-scope values
-        run: node scripts/ci/check-module-scope-values.mjs .
-      - name: Chat sandbox AgentCore shim tests
-        run: node --test scripts/tests/chat-sandbox-agentcore-shim.test.mjs
-      - name: CI command regression tests
+      # The output of each check is in .ci-results/checks (the last step
+      # prints it).
+      - name: Every lint and policy check
+        if: needs.merge-gate-plan.outputs.mode != 'gate'
         run: |
-          node --test scripts/tests/ci-*.test.mjs
-          node --test scripts/tests/railway-sync-variables.test.mjs
+          set -o pipefail
+          mkdir -p .ci-results/lint
+          pnpm -s checks:list |
+            jq -r '.checks[] | select(.family == "lint" or .family == "policy") | .id' > "$RUNNER_TEMP/lint.txt"
+          # Three runners at the same time: each check runs in series in its
+          # runner, and the CI script tests ran three at a time before.
+          split -n r/3 "$RUNNER_TEMP/lint.txt" "$RUNNER_TEMP/lint-part-"
+          for part in "$RUNNER_TEMP"/lint-part-*; do
+            node scripts/checks/run.mjs "$part" > "$part.ndjson" &
+          done
+          code=0
+          for runner in $(jobs -p); do wait "$runner" || code=1; done
+          cat "$RUNNER_TEMP"/lint-part-*.ndjson | tee .ci-results/lint/records.ndjson
+          exit "$code"
+      # The plan job gives the check ids of this job in plan.json, by the
+      # artifact id of its upload (scripts/checks/README.md, Merge gate).
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: needs.merge-gate-plan.outputs.mode == 'gate' && needs.merge-gate-plan.outputs.artifact-id != ''
+        with:
+          artifact-ids: ${{ needs.merge-gate-plan.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/plan
+      - name: Selected lint and policy checks (merge gate)
+        if: needs.merge-gate-plan.outputs.mode == 'gate'
+        run: node scripts/checks/selected.mjs .ci-results/lint "$RUNNER_TEMP/plan/plan.json" lint
+      - name: Lint and policy output
+        if: always()
+        run: cat .ci-results/checks/*.log || true
+      - name: Preserve the lint and policy results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: test-results-lint
+          path: .ci-results/
+          include-hidden-files: true
+          if-no-files-found: ignore
 
   typecheck:
     timeout-minutes: 30
@@ -132,7 +145,8 @@ jobs:
       (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.typecheck != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: no Docker; Bun is pinned (ADR-065)
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -240,6 +254,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/falkordb
+      # The record and the git lanes use one git version (ADR-065).
+      - uses: ./.github/actions/git
       - run: corepack enable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -385,13 +401,16 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.package-tests != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: no Docker; the CLI tests use the pinned git (ADR-065)
+    runs-on: ubuntu-24.04-arm
     env:
       EVENT: ${{ github.event_name }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
+      # The record and the git lanes use one git version (ADR-065).
+      - uses: ./.github/actions/git
       - run: corepack enable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -455,7 +474,9 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       needs.merge-gate-plan.outputs.mode != 'gate'
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # The Vitest reports of the shards hold absolute paths of the Blacksmith
+    # workspace (/home/runner/_work), so this job runs there too (ADR-065).
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     steps:
       - name: Require every test job
         env:
@@ -762,7 +783,8 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.packages != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: package builds without Docker (ADR-065)
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - run: corepack enable
@@ -822,7 +844,8 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.storybook-build != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: a static build without Docker (ADR-065)
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1388,6 +1411,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/falkordb
+      # The record and the git lanes use one git version (ADR-065).
+      - uses: ./.github/actions/git
       - run: corepack enable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -1511,7 +1536,7 @@ jobs:
   # rules (gate.mjs mode), and records the manifest and the toolchain for the
   # select job and for the nightly Results writer. It has the setup of the
   # test jobs (Node, pnpm, Bun) and sets none of the lane variables, so its
-  # toolchain record is theirs.
+  # toolchain record is theirs: the same pinned git, zoekt and ast-grep.
   merge-gate-manifest:
     timeout-minutes: 10
     name: Merge gate manifest
@@ -1521,14 +1546,29 @@ jobs:
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request')
     continue-on-error: true
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: a short job; it uses the pinned git (ADR-065)
+    runs-on: ubuntu-24.04-arm
     outputs:
       mode: ${{ steps.mode.outputs.mode }}
+      record: ${{ steps.mode.outputs.record }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 2
           persist-credentials: false
+      # The gate code and the pin of the base revision decide this run
+      # (scripts/checks/README.md, The base revision decides): a pull_request
+      # run checks out the merge revision, and its first parent is main. Each
+      # gate job without a credential has this step, with the same text (a
+      # test checks it).
+      - name: The gate of the base revision
+        run: |
+          set -o pipefail
+          rev=HEAD
+          [ "$GITHUB_EVENT_NAME" != pull_request ] || rev=HEAD^1
+          mkdir -p "$RUNNER_TEMP/gate"
+          git archive "$rev" .github/merge-gate.json scripts/checks scripts/ci/test-weights.json |
+            tar -x -C "$RUNNER_TEMP/gate"
       - name: Mode
         id: mode
         env:
@@ -1542,11 +1582,19 @@ jobs:
           if [ "$EVENT" = pull_request ]; then
             git diff-tree -r --no-commit-id --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
           fi
-          node scripts/checks/gate.mjs mode --config .github/merge-gate.json \
+          node "$RUNNER_TEMP/gate/scripts/checks/gate.mjs" mode --config "$RUNNER_TEMP/gate/.github/merge-gate.json" \
             --event "$EVENT" --fork "$FORK" --changed "$RUNNER_TEMP/changed.txt" \
             > "$RUNNER_TEMP/merge-gate/mode.json"
           cat "$RUNNER_TEMP/merge-gate/mode.json"
-          echo "mode=$(jq -r .mode "$RUNNER_TEMP/merge-gate/mode.json")" >> "$GITHUB_OUTPUT"
+          # The record leaves the job as an output, before any PR code runs:
+          # the plan and the merge gate read it from `needs`.
+          {
+            echo "mode=$(jq -r .mode "$RUNNER_TEMP/merge-gate/mode.json")"
+            echo "record=$(jq -c . "$RUNNER_TEMP/merge-gate/mode.json")"
+          } >> "$GITHUB_OUTPUT"
+      # The record and the git lanes use one git version (ADR-065).
+      - uses: ./.github/actions/git
+        if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
       - run: corepack enable
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
@@ -1593,8 +1641,10 @@ jobs:
           echo "$RUNNER_TEMP/host-programs/bin" >> "$GITHUB_PATH"
           # GITHUB_PATH reaches the next steps only; `go install` below needs it now.
           export PATH="$RUNNER_TEMP/host-programs/go/go/bin:$PATH"
-          # Install both binaries: the cache that this job saves is the one
-          # the test jobs restore, and they need zoekt-index too.
+          # Install both binaries: the cache key is the one of the test jobs,
+          # which need zoekt-index too. This job saves the GitHub cache, and
+          # the test jobs use the Blacksmith cache. The nightly run on main
+          # fills the GitHub cache that a pull request restores (ADR-065).
           if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ] || [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-index" ]; then
             mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
             for tool in zoekt-index zoekt-webserver; do
@@ -1628,8 +1678,8 @@ jobs:
   # the pull_request subject; a fork PR gets no OIDC token. It runs no package
   # manager, no local action and no repository script, and each action is
   # pinned by commit. It reads the manifest and the toolchain only as data.
-  # It downloads the release that .github/merge-gate.json pins, and stops when
-  # the SHA-256 differs.
+  # It downloads the release that .github/merge-gate.json of the base revision
+  # pins, and stops when the SHA-256 differs.
   merge-gate-select:
     timeout-minutes: 5
     name: Merge gate selection
@@ -1641,7 +1691,8 @@ jobs:
       !cancelled() &&
       needs.merge-gate-manifest.outputs.mode == 'select'
     continue-on-error: true
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: a short job without Docker (ADR-065)
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       actions: read
@@ -1662,7 +1713,17 @@ jobs:
       - name: Start the cause record
         run: |
           mkdir -p "$RUNNER_TEMP/out"
-          echo "the inputs of the manifest job did not download" > "$RUNNER_TEMP/out/select-cause.txt"
+          echo "the pin of the base revision did not read" > "$RUNNER_TEMP/out/select-cause.txt"
+      # The pin of the base revision (scripts/checks/README.md, The base
+      # revision decides): this job runs only on a pull_request, whose merge
+      # revision has main as its first parent. It holds a credential, so it
+      # takes only the pin, and no repository script.
+      - name: The pin of the base revision
+        run: |
+          mkdir -p "$RUNNER_TEMP/gate/.github"
+          git show HEAD^1:.github/merge-gate.json > "$RUNNER_TEMP/gate/.github/merge-gate.json"
+      - name: Next cause
+        run: echo "the inputs of the manifest job did not download" > "$RUNNER_TEMP/out/select-cause.txt"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: merge-gate-inputs
@@ -1676,8 +1737,8 @@ jobs:
       - name: Selector release, checked against the pin
         run: |
           cause="$RUNNER_TEMP/out/select-cause.txt"
-          version="$(jq -er .factory.version .github/merge-gate.json)"
-          sha256="$(jq -er .factory.sha256 .github/merge-gate.json)"
+          version="$(jq -er .factory.version "$RUNNER_TEMP/gate/.github/merge-gate.json")"
+          sha256="$(jq -er .factory.sha256 "$RUNNER_TEMP/gate/.github/merge-gate.json")"
           echo "the download of the selector release $version failed" > "$cause"
           aws s3api get-object --bucket ctxpipe-factory-check-results-134416647419 \
             --expected-bucket-owner 134416647419 \
@@ -1748,15 +1809,18 @@ jobs:
   # id (the upload failed, or the job did not run), or no critics.json in the
   # artifact. The job has no continue-on-error, so a failed upload shows as a
   # failed job. The job runs beside the test jobs, so it adds no time to the
-  # run. A lookup of 16 hunks and 4 critics took 5 s. The timeout is large, because a large diff (a
-  # lockfile) has many hunks and so many store keys.
+  # run.
+  # A lookup of 16 hunks and 4 critics took 5 s.
+  # The timeout is large, because a large diff (a lockfile) has many hunks
+  # and so many store keys.
   merge-gate-critics:
     timeout-minutes: 25
     name: Merge gate critics
     if: |
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: a short job without Docker (ADR-065)
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       id-token: write
@@ -1770,7 +1834,17 @@ jobs:
       - name: Start the cause record
         run: |
           mkdir -p "$RUNNER_TEMP/out"
-          echo "the read-only role of the result store was not assumed" > "$RUNNER_TEMP/out/critics-cause.txt"
+          echo "the pin of the base revision did not read" > "$RUNNER_TEMP/out/critics-cause.txt"
+      # The pin of the base revision (scripts/checks/README.md, The base
+      # revision decides): this job runs only on a pull_request, whose merge
+      # revision has main as its first parent. It holds a credential, so it
+      # takes only the pin, and no repository script.
+      - name: The pin of the base revision
+        run: |
+          mkdir -p "$RUNNER_TEMP/gate/.github"
+          git show HEAD^1:.github/merge-gate.json > "$RUNNER_TEMP/gate/.github/merge-gate.json"
+      - name: Next cause
+        run: echo "the read-only role of the result store was not assumed" > "$RUNNER_TEMP/out/critics-cause.txt"
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: arn:aws:iam::134416647419:role/check-results-gate-reader
@@ -1778,8 +1852,8 @@ jobs:
       - name: Factory release, checked against the pin
         run: |
           cause="$RUNNER_TEMP/out/critics-cause.txt"
-          version="$(jq -er .factory.version .github/merge-gate.json)"
-          sha256="$(jq -er .factory.sha256 .github/merge-gate.json)"
+          version="$(jq -er .factory.version "$RUNNER_TEMP/gate/.github/merge-gate.json")"
+          sha256="$(jq -er .factory.sha256 "$RUNNER_TEMP/gate/.github/merge-gate.json")"
           echo "the download of the factory release $version failed" > "$cause"
           aws s3api get-object --bucket ctxpipe-factory-check-results-134416647419 \
             --expected-bucket-owner 134416647419 \
@@ -1866,7 +1940,8 @@ jobs:
       needs.merge-gate-select.result == 'success'
     continue-on-error: true
     environment: workbench
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: a short job without Docker (ADR-065)
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       actions: read
@@ -1880,7 +1955,17 @@ jobs:
       - name: Start the cause record
         run: |
           mkdir -p "$RUNNER_TEMP/out"
-          echo "the inputs of the select job did not download" > "$RUNNER_TEMP/out/llm-cause.txt"
+          echo "the pin of the base revision did not read" > "$RUNNER_TEMP/out/llm-cause.txt"
+      # The pin of the base revision (scripts/checks/README.md, The base
+      # revision decides): this job runs only on a pull_request, whose merge
+      # revision has main as its first parent. It holds a credential, so it
+      # takes only the pin, and no repository script.
+      - name: The pin of the base revision
+        run: |
+          mkdir -p "$RUNNER_TEMP/gate/.github"
+          git show HEAD^1:.github/merge-gate.json > "$RUNNER_TEMP/gate/.github/merge-gate.json"
+      - name: Next cause
+        run: echo "the inputs of the select job did not download" > "$RUNNER_TEMP/out/llm-cause.txt"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: merge-gate-inputs
@@ -1898,7 +1983,7 @@ jobs:
       - name: Selector release, checked against the pin
         run: |
           echo "the selector release does not match the pinned SHA-256" > "$RUNNER_TEMP/out/llm-cause.txt"
-          sha256="$(jq -er .factory.sha256 .github/merge-gate.json)"
+          sha256="$(jq -er .factory.sha256 "$RUNNER_TEMP/gate/.github/merge-gate.json")"
           echo "$sha256  $RUNNER_TEMP/release/factory.tar.gz" | sha256sum --check --strict
           mkdir -p "$RUNNER_TEMP/bin"
           tar -xzf "$RUNNER_TEMP/release/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
@@ -1961,7 +2046,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
       needs.merge-gate-manifest.result == 'success'
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     permissions:
       contents: read
       actions: read
@@ -2073,13 +2158,15 @@ jobs:
       !cancelled() &&
       (github.event_name == 'pull_request' || needs.nightly-plan.result == 'success')
     continue-on-error: true
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: a short job; it shares the merge-gate-pr cache with Merge gate (ADR-065)
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       actions: read
     outputs:
       artifact-id: ${{ steps.preserve.outputs.artifact-id }}
       mode: ${{ steps.plan.outputs.mode }}
+      lint: ${{ steps.plan.outputs.lint }}
       typecheck: ${{ steps.plan.outputs.typecheck }}
       test-shards: ${{ steps.plan.outputs.test-shards }}
       package-tests: ${{ steps.plan.outputs.package-tests }}
@@ -2095,21 +2182,29 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          fetch-depth: 2
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
-      # The manifest job runs PR code, so only its mode.json is read. The
-      # selection and the LLM selection download by the artifact id that the
-      # job that wrote them gives: a job that runs PR code can upload an
-      # artifact with the same name. Without an id, the record is missing and
-      # the plan is full.
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        if: github.event_name == 'pull_request'
-        continue-on-error: true
-        with:
-          name: merge-gate-inputs
-          path: ${{ runner.temp }}/manifest
+      # The gate code and the pin of the base revision decide this run
+      # (scripts/checks/README.md, The base revision decides): a pull_request
+      # run checks out the merge revision, and its first parent is main. Each
+      # gate job without a credential has this step, with the same text (a
+      # test checks it).
+      - name: The gate of the base revision
+        run: |
+          set -o pipefail
+          rev=HEAD
+          [ "$GITHUB_EVENT_NAME" != pull_request ] || rev=HEAD^1
+          mkdir -p "$RUNNER_TEMP/gate"
+          git archive "$rev" .github/merge-gate.json scripts/checks scripts/ci/test-weights.json |
+            tar -x -C "$RUNNER_TEMP/gate"
+      # The manifest job runs PR code, so only its mode output is read (it
+      # leaves the job before any PR code runs). The selection and the LLM
+      # selection download by the artifact id that the job that wrote them
+      # gives: a job that runs PR code can upload an artifact with the same
+      # name. Without an id, the record is missing and the plan is full.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         if: github.event_name == 'pull_request' && needs.merge-gate-select.outputs.artifact-id != ''
         continue-on-error: true
@@ -2126,11 +2221,11 @@ jobs:
           path: ${{ runner.temp }}/inputs
       - name: The mode of the manifest job
         if: github.event_name == 'pull_request'
+        env:
+          MODE: ${{ needs.merge-gate-manifest.outputs.record }}
         run: |
           mkdir -p "$RUNNER_TEMP/inputs"
-          if [ -f "$RUNNER_TEMP/manifest/mode.json" ]; then
-            cp "$RUNNER_TEMP/manifest/mode.json" "$RUNNER_TEMP/inputs/mode.json"
-          fi
+          [ -z "$MODE" ] || printf '%s\n' "$MODE" > "$RUNNER_TEMP/inputs/mode.json"
       - name: Restore the PR store
         if: github.event_name == 'pull_request'
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
@@ -2154,13 +2249,13 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           if [ "$EVENT" != pull_request ]; then
-            node scripts/checks/gate.mjs nightly --config .github/merge-gate.json \
+            node "$RUNNER_TEMP/gate/scripts/checks/gate.mjs" nightly --config "$RUNNER_TEMP/gate/.github/merge-gate.json" \
               --plan "$RUNNER_TEMP/nightly/plan.json" --trace "$RUNNER_TEMP/nightly/previous.json.gz" \
               --out "$RUNNER_TEMP/plan" --github-output "$GITHUB_OUTPUT"
             exit 0
           fi
           printf '%s' "$NEEDS" > "$RUNNER_TEMP/needs.json"
-          node scripts/checks/gate.mjs plan --config .github/merge-gate.json \
+          node "$RUNNER_TEMP/gate/scripts/checks/gate.mjs" plan --config "$RUNNER_TEMP/gate/.github/merge-gate.json" \
             --inputs "$RUNNER_TEMP/inputs" --needs "$RUNNER_TEMP/needs.json" \
             --store .merge-gate-store/store.json \
             --out "$RUNNER_TEMP/plan" --github-output "$GITHUB_OUTPUT"
@@ -2182,7 +2277,7 @@ jobs:
   # record (scripts/checks/README.md). It runs only the public gate.mjs,
   # with no package.
   merge-gate:
-    timeout-minutes: 10
+    timeout-minutes: 15
     # A fixed name: this job is the required status, also when the plan job
     # failed and gave no outputs (then the run is full). It has no
     # continue-on-error: a failed verdict fails it only in gate mode, but an
@@ -2214,7 +2309,8 @@ jobs:
       ]
     if: |
       always() && github.event_name == 'pull_request'
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: a short job; it shares the merge-gate-pr cache with Merge gate plan (ADR-065)
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       actions: read
@@ -2222,21 +2318,30 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          fetch-depth: 2
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
-      # The manifest job runs PR code, so only its mode.json is read. The
-      # selection, the LLM selection, the plan and the critics download by the
-      # artifact id that the job that wrote them gives: a job that runs PR
-      # code can upload an artifact with the same name. Without an id, the
-      # record is missing: the run is full, and a same-repo PR fails on its
-      # critics (gate.mjs decide).
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        continue-on-error: true
-        with:
-          name: merge-gate-inputs
-          path: ${{ runner.temp }}/manifest
+      # The gate code and the pin of the base revision decide this run
+      # (scripts/checks/README.md, The base revision decides): a pull_request
+      # run checks out the merge revision, and its first parent is main. Each
+      # gate job without a credential has this step, with the same text (a
+      # test checks it).
+      - name: The gate of the base revision
+        run: |
+          set -o pipefail
+          rev=HEAD
+          [ "$GITHUB_EVENT_NAME" != pull_request ] || rev=HEAD^1
+          mkdir -p "$RUNNER_TEMP/gate"
+          git archive "$rev" .github/merge-gate.json scripts/checks scripts/ci/test-weights.json |
+            tar -x -C "$RUNNER_TEMP/gate"
+      # The manifest job runs PR code, so only its mode output is read (it
+      # leaves the job before any PR code runs). The selection, the LLM
+      # selection, the plan and the critics download by the artifact id that
+      # the job that wrote them gives: a job that runs PR code can upload an
+      # artifact with the same name. Without an id, the record is missing: the
+      # run is full, and a same-repo PR fails on its critics (gate.mjs decide).
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         if: needs.merge-gate-select.outputs.artifact-id != ''
         continue-on-error: true
@@ -2266,11 +2371,11 @@ jobs:
           merge-multiple: true
           path: ${{ runner.temp }}/inputs
       - name: The mode of the manifest job
+        env:
+          MODE: ${{ needs.merge-gate-manifest.outputs.record }}
         run: |
           mkdir -p "$RUNNER_TEMP/inputs"
-          if [ -f "$RUNNER_TEMP/manifest/mode.json" ]; then
-            cp "$RUNNER_TEMP/manifest/mode.json" "$RUNNER_TEMP/inputs/mode.json"
-          fi
+          [ -z "$MODE" ] || printf '%s\n' "$MODE" > "$RUNNER_TEMP/inputs/mode.json"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         continue-on-error: true
         with:
@@ -2281,8 +2386,11 @@ jobs:
         with:
           pattern: storybook-*-results*
           path: ${{ runner.temp }}/results
+      # The waits of gh_retry (at most 5 minutes each) must not reach the
+      # timeout of the job.
       - name: The jobs of this run
         continue-on-error: true
+        timeout-minutes: 6
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -2291,10 +2399,33 @@ jobs:
         # The jobs of the earlier attempts show the flakes: a job that failed
         # in an earlier attempt and passed in this one.
         run: |
-          gh api "repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=100" --paginate \
+          # gh_retry runs `gh "$@"`. On a GitHub API rate limit, it waits until the
+          # reset time that GitHub gives (one minute for a secondary limit), at most 5
+          # minutes, and runs the call again one time. Exit code 2: the limit stays.
+          # Each step that calls the API holds this same text (a test checks it).
+          gh_retry() {
+            local err="$RUNNER_TEMP/gh-retry.err" out wait try
+            for try in 1 2; do
+              if out=$(gh "$@" 2> "$err"); then
+                [ -z "$out" ] || printf '%s\n' "$out"
+                return 0
+              fi
+              grep -qi 'rate limit' "$err" || { cat "$err" >&2; return 1; }
+              [ "$try" = 1 ] || break
+              wait=$(gh api rate_limit --jq '.resources.core |
+                if .remaining > 0 then 60 else .reset - now + 1 | floor end') || break
+              [ "$wait" -le 300 ] || break
+              wait=$((wait > 1 ? wait : 1))
+              echo "::notice::GitHub API rate limit: the call runs again in ${wait}s" >&2
+              sleep "$wait"
+            done
+            cat "$err" >&2
+            return 2
+          }
+          gh_retry api "repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=100" --paginate \
             --jq '.jobs[]' | jq -s '{jobs: .}' > "$RUNNER_TEMP/jobs.json"
           for ((attempt = 1; attempt < ATTEMPT; attempt++)); do
-            gh api "repos/$REPO/actions/runs/$RUN/attempts/$attempt/jobs?per_page=100" --paginate \
+            gh_retry api "repos/$REPO/actions/runs/$RUN/attempts/$attempt/jobs?per_page=100" --paginate \
               --jq '.jobs[]'
           done | jq -s '{jobs: .}' > "$RUNNER_TEMP/earlier.json"
       - name: Restore the PR store
@@ -2312,11 +2443,17 @@ jobs:
         run: |
           printf '%s' "$NEEDS" > "$RUNNER_TEMP/needs.json"
           code=0
-          node scripts/checks/gate.mjs decide --config .github/merge-gate.json \
+          node "$RUNNER_TEMP/gate/scripts/checks/gate.mjs" decide --config "$RUNNER_TEMP/gate/.github/merge-gate.json" \
             --inputs "$RUNNER_TEMP/inputs" --results "$RUNNER_TEMP/results" \
             --needs "$RUNNER_TEMP/needs.json" --jobs "$RUNNER_TEMP/jobs.json" \
             --earlier "$RUNNER_TEMP/earlier.json" \
             --store .merge-gate-store/store.json --out "$RUNNER_TEMP/decision" || code=$?
+          # A gate.mjs that did not run its command (for example an older
+          # base without the path check) writes no decision: that fails.
+          if [ ! -f "$RUNNER_TEMP/decision/decision.json" ]; then
+            echo "::error::gate.mjs decide wrote no decision"
+            code=1
+          fi
           cat "$RUNNER_TEMP/decision/summary.md" >> "$GITHUB_STEP_SUMMARY" || true
           exit "$code"
       - name: Keep the PR store
@@ -2333,6 +2470,18 @@ jobs:
         with:
           path: .merge-gate-store
           key: merge-gate-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
+      # These rules run on each pull request, whatever the selection is. The
+      # workflow guards must not depend on what the LLM stage keeps, and the
+      # date decides the unstable screenshot list (an entry older than 7
+      # days), not the files. Each one needs only Node, no install.
+      - name: Workflow guards and the unstable screenshot list
+        if: always()
+        run: |
+          code=0
+          for script in workflow-credentials secret-jobs workflow-inputs runners unstable-list; do
+            node "scripts/ci/check-$script.mjs" || code=1
+          done
+          exit "$code"
       - name: Preserve the decision
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -2352,7 +2501,9 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: bash scripts/ci/mcp-evals-reminder.sh "$RUNNER_TEMP/decision/comment.md"
-      # A fork PR has a read-only token, so it gets only the summary.
+      # A fork PR has a read-only token, so it gets only the summary. A rate
+      # limit that stays after the wait does not fail the job: the job
+      # summary and the status of the job have the decision.
       - name: Post or update the PR comment
         if: always() && github.event.pull_request.head.repo.full_name == github.repository
         env:
@@ -2360,13 +2511,44 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: |
+          # gh_retry runs `gh "$@"`. On a GitHub API rate limit, it waits until the
+          # reset time that GitHub gives (one minute for a secondary limit), at most 5
+          # minutes, and runs the call again one time. Exit code 2: the limit stays.
+          # Each step that calls the API holds this same text (a test checks it).
+          gh_retry() {
+            local err="$RUNNER_TEMP/gh-retry.err" out wait try
+            for try in 1 2; do
+              if out=$(gh "$@" 2> "$err"); then
+                [ -z "$out" ] || printf '%s\n' "$out"
+                return 0
+              fi
+              grep -qi 'rate limit' "$err" || { cat "$err" >&2; return 1; }
+              [ "$try" = 1 ] || break
+              wait=$(gh api rate_limit --jq '.resources.core |
+                if .remaining > 0 then 60 else .reset - now + 1 | floor end') || break
+              [ "$wait" -le 300 ] || break
+              wait=$((wait > 1 ? wait : 1))
+              echo "::notice::GitHub API rate limit: the call runs again in ${wait}s" >&2
+              sleep "$wait"
+            done
+            cat "$err" >&2
+            return 2
+          }
+          limited() {
+            echo "::warning::The GitHub API rate limit stays; the PR comment is not updated. The job summary has the decision."
+            exit 0
+          }
           body="$(cat "$RUNNER_TEMP/decision/comment.md")"
-          existing=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
-            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- merge-gate -->"))) | .id' | head -1)
+          ids=$(gh_retry api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- merge-gate -->"))) | .id') ||
+            { [ $? = 2 ] && limited; exit 1; }
+          existing=$(head -1 <<<"$ids")
           if [ -n "$existing" ]; then
-            gh api --method PATCH "repos/$REPO/issues/comments/$existing" -f body="$body" > /dev/null
+            gh_retry api --method PATCH "repos/$REPO/issues/comments/$existing" -f body="$body" > /dev/null ||
+              { [ $? = 2 ] && limited; exit 1; }
           else
-            gh api --method POST "repos/$REPO/issues/$PR/comments" -f body="$body" > /dev/null
+            gh_retry api --method POST "repos/$REPO/issues/$PR/comments" -f body="$body" > /dev/null ||
+              { [ $? = 2 ] && limited; exit 1; }
           fi
 
   # The trusted writer of the result store, after a full run on main (the
@@ -2397,7 +2579,7 @@ jobs:
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
       needs.merge-gate-manifest.result == 'success' && needs.trace.result == 'success'
     continue-on-error: true
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     permissions:
       contents: read
       id-token: write

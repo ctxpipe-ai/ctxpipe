@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { config } from "dotenv"
-import { eq, inArray, sql } from "drizzle-orm"
+import { eq, inArray, like, sql } from "drizzle-orm"
 import { FalkorDB } from "falkordb"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
@@ -257,6 +257,27 @@ it.each(["changed", "missing", "extra"])(
     await expect(
       seedMcpEval({ run: `${change}-${run}`, userId, remotes }),
     ).rejects.toThrow("does not match the evaluation fixture")
+  },
+)
+
+it(
+  "refuses a published repository whose main moved after the check",
+  { timeout: 60_000 },
+  async () => {
+    const remotes = await prepareMcpEvalRepositories(join(directory, "moved"))
+    const commits = Object.fromEntries(
+      Object.keys(remotes).map((key) => [key, "0".repeat(40)]),
+    )
+
+    await expect(
+      seedMcpEval({ run: `moved-${run}`, userId, remotes, commits }),
+    ).rejects.toThrow("moved after the check")
+    expect(
+      await getSystemDb()
+        .select({ id: organizations.id })
+        .from(organizations)
+        .where(like(organizations.slug, `mcp-eval-moved-${run}-%`)),
+    ).toEqual([])
   },
 )
 

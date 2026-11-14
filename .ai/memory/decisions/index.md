@@ -22,7 +22,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-010](ADR-010-opencypher-graph-db-falkordb-default.md) | OpenCypher Graph DB and FalkorDB as Default | Accepted |
 | [ADR-011](ADR-011-backend-observability-otel.md) | Backend Observability via OpenTelemetry and evlog | Accepted |
 | [ADR-012](ADR-012-postgres-17-neon-compatibility.md) | PostgreSQL 17 for Neon Compatibility | Accepted |
-| [ADR-013](ADR-013-switch-infra-from-pulumi-to-terraform.md) | Terraform as our IAC | Accepted |
+| [ADR-013](ADR-013-switch-infra-from-pulumi-to-terraform.md) | Terraform as our IAC | Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) for hosted infrastructure |
 | [ADR-014](ADR-014-parallel-worktree-local-development.md) | Parallel worktree local development | Accepted |
 | [ADR-015](ADR-015-docker-compose-profiles-and-small-scale-deploy.md) | Docker Compose profiles and small-scale container deploy | Accepted |
 | [ADR-016](ADR-016-code-ingestion-react-agent-limits.md) | Code ingestion ReAct agents — recursion limits and context middleware | Superseded by [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) |
@@ -38,15 +38,15 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-026](ADR-026-claude-plugin-mcp-distribution.md) | Claude plugin for hosted MCP distribution | Accepted (amended by ADR-051: org set per grant, `ctxpipe-context` skill, `?orgSlug=` ignored) |
 | [ADR-027](ADR-027-codesearch-openworkflow-concurrency.md) | Size-based OpenWorkflow concurrency for single-instance codesearch | Accepted |
 | [ADR-028](ADR-028-git-native-connector-assets.md) | Git-native connector assets | Accepted |
-| [ADR-029](ADR-029-railway-us-east-next-to-neon.md) | Railway compute in US East next to Neon | Accepted |
+| [ADR-029](ADR-029-railway-us-east-next-to-neon.md) | Railway compute in US East next to Neon | Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) |
 | [ADR-030](ADR-030-organization-owned-mcp-api-keys.md) | Organization-owned MCP API keys | Accepted (amended 2026-09-27: OpenCode HOME hashing; amended by ADR-051: `org` argument, personal-key org sets) |
 | [ADR-031](ADR-031-github-pr-scoped-mirror.md) | GitHub pull-request scoped mirror (revised: follows linked repositories; issues too) | Accepted (revised 2026-10-03, 2026-10-13, 2026-10-25); sync repository superseded by ADR-050 |
 | [ADR-032](ADR-032-path-located-graph-edges.md) | Path-located graph edges | Accepted (amended by ADR-033) |
 | [ADR-033](ADR-033-graph-ontology-v2.md) | Graph ontology v2: relation families, shared identity, deterministic connector extraction | Accepted (amended by ADR-037) |
 | [ADR-034](ADR-034-pagerduty-connector-git-native-mirror.md) | PagerDuty connector Git-native mirror | Accepted; sync repository superseded by ADR-050; source incidents under `pagerduty/services/<serviceId>/` |
 | [ADR-037](ADR-037-committed-memory-reaches-the-graph.md) | Committed memory reaches the graph | Accepted (amended by ADR-051: `ctx_advisor` removed) |
-| [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md) | Self-hosted ClickStack + Langfuse (ops observability) | Accepted (amended 2026-09-29; item 11 superseded by ADR-054) |
-| [ADR-039](ADR-039-production-image-deploys-one-environment.md) | Production image deploys stay on one Railway environment | Accepted |
+| [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md) | Self-hosted ClickStack + Langfuse (ops observability) | Accepted (amended 2026-09-29; item 11 superseded by ADR-054; Railway, Langfuse and the public collector superseded by ADR-061 decision 25) |
+| [ADR-039](ADR-039-production-image-deploys-one-environment.md) | Production image deploys stay on one Railway environment | Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) |
 | [ADR-040](ADR-040-pierre-files-pane-chrome.md) | Pierre trees/diffs as Workspace Files explorer chrome | Accepted |
 | [ADR-041](ADR-041-short-org-sql-unique-sandbox-rows.md) | Short org SQL transactions, no held connections | Accepted |
 | [ADR-042](ADR-042-postgres-rls-app-role.md) | Postgres RLS with a non-owner app role | Accepted (revised 2026-10-17: one migrate entry point, role modes, SQL-made hosted role, owner URL kept for rollback, directory reconcile; revised 2026-11-10: hosted AWS app role from Secrets Manager, cutover copy without roles) |
@@ -67,8 +67,10 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-057](ADR-057-buildkite-connector-sources-only.md) | Buildkite connector, Workspace sources only | Accepted |
 | [ADR-059](ADR-059-plain-connector-sources-only.md) | Plain connector, Workspace sources only | Accepted |
 | [ADR-060](ADR-060-typecheck-with-bun-check.md) | The Typecheck check runs `bun check`: TypeScript 6 stays the dependency, allowances compare file, code, and count | Accepted |
-| [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) | Hosted ctxpipe on AWS (us-west-2) behind Cloudflare: Pulumi for hosted IaC, tunnel-only ingress, Aurora, AgentCore sandboxes, preview clones, HyperDX only | Proposed |
+| [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) | Hosted ctxpipe on AWS (us-west-2) behind Cloudflare: Pulumi for hosted IaC, tunnel-only ingress, Aurora, AgentCore sandboxes, preview clones, HyperDX only | Proposed (amended 2026-11-14: internal hosts need an enrolled WARP device) |
 | [ADR-062](ADR-062-checks-run-before-merge-not-on-main.md) | Checks run before the merge (`factory check`, then the merge gate); a push to `main` runs no check; a thin nightly run of `main` audits the proof: it skips an unchanged `main`, makes a ticket of each flake and failure, traces only the checks whose inputs changed, and audits a random sample of agent passes | Accepted (revised 2026-11-10) |
-| [ADR-063](ADR-063-visual-critic-decides-with-jev.md) | The visual critic decides with Jev 1.14 only: each suspected regression is non-blocking feedback with the images, `unsure` stays a nit, a spend limit of $0.10 for each PR, and the bake-off evidence and its limits | Accepted |
+| [ADR-063](ADR-063-visual-critic-decides-with-jev.md) | The visual critic decides with Jev 1.14 only: each suspected regression is non-blocking feedback with the images, `unsure` stays a nit, a spend limit of $0.10 for each PR, the rubric of the PR head as validated data, the run-together question and the density rule of the Jev iterations (CTX-1262), the rules and the measurements of the owner calibration rounds (CTX-1269, CTX-1275, CTX-1282), the explainer of a Jev regression, the floor of a new screenshot and the kept verdicts of a stopped run (CTX-1256, CTX-1267, CTX-1272), and the bake-off evidence and its limits | Accepted |
+| [ADR-064](ADR-064-base-revision-decides-the-merge-gate.md) | The base revision decides the merge gate: the gate jobs run the gate code and the pin of the first parent of the merge revision; a change to the gate code, its schemas or the pin runs the selector and every test of the CI scripts; the other gate inputs keep the full run | Accepted |
+| [ADR-065](ADR-065-light-ci-jobs-on-github-hosted-runners.md) | Light CI jobs without Docker (lint, typecheck, the package and UI, CLI and CDK tests, Storybook build, the merge gate jobs) run on free GitHub-hosted `ubuntu-24.04-arm` runners; Docker and heavy jobs stay on Blacksmith; one pinned git for the toolchain record and the git lanes; a push to `main` fills the GitHub cache; revert by labels only | Accepted |
 
-Numbers 035 and 036 are unused. ADR-058 is reserved for the Zendesk connector. The next new ADR is 064.
+Numbers 035 and 036 are unused. ADR-058 is reserved for the Zendesk connector. The next new ADR is 066.

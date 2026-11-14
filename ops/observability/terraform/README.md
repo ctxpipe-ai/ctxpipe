@@ -28,7 +28,6 @@ After a successful apply the workflow pins region `us-east4-eqdc4a`. Provider 0.
 
 ```bash
 RAILWAY_PROJECT_ID=305aa114-c6f3-4aca-b883-0faa9c331aa2 \
-RAILWAY_SERVICE_SET=observability \
 RAILWAY_ENVIRONMENT=production \
 bash scripts/railway-set-regions.sh
 ```

@@ -82,7 +82,7 @@ export const Settings: Story = {
     const canvas = within(canvasElement)
     await waitFor(() =>
       expect(
-        canvas.getByRole("heading", { name: "user account" }),
+        canvas.getByRole("heading", { name: "User account" }),
       ).toBeVisible(),
     )
   },
@@ -104,7 +104,7 @@ export const OrganizationsView: Story = {
     const canvas = within(canvasElement)
     await waitFor(() =>
       expect(
-        canvas.getByRole("heading", { name: "user account" }),
+        canvas.getByRole("heading", { name: "User account" }),
       ).toBeVisible(),
     )
   },
@@ -284,6 +284,7 @@ export const ConnectedAppsRevokeError: Story = {
   args: { accountView: "connected-apps" },
   beforeEach: failingRevokeBackend.reset,
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a failed revoke that closes the dialog or removes the app. The dialog stays open with the error and the app stays listed. Not for a successful revoke.",
     storyRoute: {
@@ -602,7 +603,7 @@ export const OrganizationDeletedStaleSelection: Story = {
     const canvas = within(canvasElement)
     await waitFor(() =>
       expect(
-        canvas.getByRole("heading", { name: "user account" }),
+        canvas.getByRole("heading", { name: "User account" }),
       ).toBeVisible(),
     )
     // The first organization replaces the stale one in the shell.
