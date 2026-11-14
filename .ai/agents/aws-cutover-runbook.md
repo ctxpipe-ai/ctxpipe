@@ -187,10 +187,18 @@ line gives its expected output. The dry run of the copy is its preflight against
      Then enter each value without echo, for example `read -rs GRAPH_DB_URI && export GRAPH_DB_URI`, for
      `GRAPH_DB_URI`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`. Then run
      `export AWS_REGION=us-west-2`.
-  4. Run `cd /app/apps/codesearch && bun run cutover:export-indexes --to "s3://<shard bucket>/cutover-transfer/<run id>"`.
-  5. Run `unset GRAPH_DB_URI AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN`, then close the shell with
-     `exit`.
-  - **Expected:** a JSON report with the sizes, the sha256 values and the graph counts. `manifest.json` is in S3.
+  4. Start the export in the background, so that it continues when the session closes (rehearsal 1 lost a foreground
+     export that way):
+     `cd /app/apps/codesearch && nohup bun run cutover:export-indexes --to "s3://<shard bucket>/cutover-transfer/<run id>" > /tmp/export.log 2>&1 &`.
+  5. Run `unset GRAPH_DB_URI AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN`. The export keeps its own
+     copy of the values.
+  6. Read the end of the log until the report is there: `tail -5 /tmp/export.log`. If the session closes, open it
+     again with `railway ssh --service codesearch --environment production` and read the log again. The export
+     takes about 6 minutes (rehearsal 1). When the report is there, run `rm /tmp/export.log`, then close the shell
+     with `exit`.
+  - **Expected:** the log ends with a JSON report with the sizes, the sha256 values and the graph counts.
+    `manifest.json` is in S3. If the export stopped, use a new run id: the export refuses a run id that has a
+    manifest, and the retire step deletes the old prefix.
 - **If either fails:** the full rollback. Write the cause into [CTX-1217].
 
 ### T+40 · Indexes into AWS
@@ -248,7 +256,8 @@ line gives its expected output. The dry run of the copy is its preflight against
      After their deploys, no task can drop or overwrite the production data. Check:
      - `aws iam get-role --role-name github-actions-hosted-run-task` and
        `aws iam get-role --role-name cutover-transfer-writer` each fail with `NoSuchEntity`;
-     - `aws ecs list-task-definitions --family-prefix cutover- --status ACTIVE --query taskDefinitionArns` prints `[]`.
+     - `aws ecs list-task-definitions --status ACTIVE --query "taskDefinitionArns[?contains(@, ':task-definition/cutover-')]"`
+       prints `[]`. (`--family-prefix` takes one whole family name, so it cannot find all of them.)
 - **Expected:** customer traffic reaches AWS. The worker takes the open OpenWorkflow runs.
 - **Rollback:** none. Fix forward.
 
