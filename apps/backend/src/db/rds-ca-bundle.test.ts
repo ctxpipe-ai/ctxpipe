@@ -5,9 +5,10 @@ import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
 /*
- * The backend and worker images trust this bundle through NODE_EXTRA_CA_CERTS
- * (apps/backend/Dockerfile, Dockerfile.worker), so that the OpenWorkflow
- * driver can verify Aurora (CTX-1217, sandbox rehearsal 1). A change of the
+ * The backend, worker and codesearch images trust this bundle through
+ * NODE_EXTRA_CA_CERTS (apps/backend/Dockerfile, Dockerfile.worker,
+ * apps/codesearch/Dockerfile), so that their database drivers can verify
+ * Aurora (CTX-1217, sandbox rehearsal 1 and cutover rehearsal 1). A change of the
  * file must be a new download of the AWS bundle, not an edit.
  */
 

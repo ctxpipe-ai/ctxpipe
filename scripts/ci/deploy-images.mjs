@@ -87,6 +87,7 @@ export const images = [
       "apps/codesearch/scripts",
       "apps/codesearch/start.sh",
       "apps/codesearch/release-assets.txt",
+      "apps/backend/certs/rds-global-bundle.pem",
     ],
   },
   // Workspace chat sandboxes.
