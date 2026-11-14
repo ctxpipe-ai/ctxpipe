@@ -112,6 +112,42 @@ the worker.
 | `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` | Required when `SANDBOX_PROVIDER=vercel`. A Vercel access token, and the team and project (slug or id) that own the sandboxes. Hosted ctxpipe uses this provider. |
 | `AGENTCORE_RUNTIME_ARN`, `AGENTCORE_RUNTIME_QUALIFIER` | Required when `SANDBOX_PROVIDER=agentcore` (hosted ctxpipe on AWS; AWS CDK does not support it yet). The ARN of the Amazon Bedrock AgentCore runtime that runs the `agentcore` target of the chat sandbox image, and its endpoint name (default `DEFAULT`). The backend also needs Agent Vault, and `SANDBOX_CALLBACK_DNS_SUFFIX` or `SANDBOX_CALLBACK_HOST`. Each process in the sandbox can read the credentials of the runtime's execution role at `169.254.169.254`. Thus that role must allow only the pull from the sandbox image's repository. It must also allow log group creation and log writes, only on the runtime's own log group. It must refuse each request that does not come through the sandbox VPC endpoints. AgentCore's own `BedrockAgentCore-*` sessions are the exception: AgentCore creates the log group from its own network. The ingest check allows that address because of this rule. |
 
+### Agent Vault rules on AgentCore
+
+With `SANDBOX_PROVIDER=agentcore`, the Agent Vault network allowlist
+(`AGENT_VAULT_NETWORK_ALLOWLIST`) holds the backend's own subnets. Thus a
+sandbox can send requests to the backend task that runs its turn: to the
+model proxy on `PORT`, and to the tool bridge on a port that the kernel
+selects. Agent Vault has one allowlist for all its rules. It resolves the
+host of a rule again each time it connects. Thus the DNS of a host that a
+customer names, for example a plain git repository, can point at a backend
+task when Agent Vault connects. This is also possible when the host
+resolved to a public address at the time when the backend wrote the rule.
+
+The backend uses the port to keep these rules away from the backend's ports:
+
+- Only a callback rule can use a port other than 443. A callback rule is a
+  model proxy or tool bridge rule that the backend makes, and its host is
+  the backend's own callback name: `SANDBOX_CALLBACK_HOST`, or
+  `ip-<a>-<b>-<c>-<d>.<SANDBOX_CALLBACK_DNS_SUFFIX>` for an address of the
+  backend. Each other rule gets port 443.
+- The backend refuses each other rule that names another port, for example
+  `PORT`, a tool bridge port, or 80 (plain HTTP).
+- Agent Vault forwards a request only when a rule matches its host and its
+  port, and it connects to that port. A DNS answer cannot change the port.
+- Each run vault refuses each host that no rule names.
+- When the backend writes a rule, it refuses a host that resolves to an
+  address that is not public. If the host does not resolve, the sandbox
+  does not start. This check is only a first layer, because the DNS answer
+  can change after the check.
+
+The limit: a host that a customer names can still connect to port 443 of
+each address in the allowlist. Do not run a service that listens on port
+443 in the backend's subnets, and do not add other subnets to the
+allowlist. Agent Vault 0.40.2 has no network allowlist for each rule, and no
+way to pin a rule to the addresses that the backend checked. With the other
+values of `SANDBOX_PROVIDER`, the backend writes the rules as they are.
+
 ### Plain git repositories
 
 A plain git repository is a repository that ctxpipe reads with no credential
