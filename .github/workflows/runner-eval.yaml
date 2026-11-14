@@ -1,0 +1,175 @@
+# Temporary evaluation (do not merge): the same light CI work on a
+# GitHub-hosted arm64 runner and on two Blacksmith arm64 runners.
+name: Runner evaluation
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/runner-eval.yaml
+
+permissions:
+  contents: read
+
+env:
+  NODE_OPTIONS: --max-old-space-size=6144
+
+jobs:
+  bare:
+    name: bare (${{ matrix.runner }})
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04-arm, blacksmith-2vcpu-ubuntu-2404-arm, blacksmith-4vcpu-ubuntu-2404-arm]
+    # github-hosted: temporary runner evaluation
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - run: nproc; free -g; df -h /
+
+  lint:
+    name: lint (${{ matrix.runner }})
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04-arm, blacksmith-2vcpu-ubuntu-2404-arm, blacksmith-4vcpu-ubuntu-2404-arm]
+    # github-hosted: temporary runner evaluation
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: corepack enable
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - name: Lint and policy checks
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          pnpm -s checks:list |
+            jq -r '.checks[] | select((.family == "lint" or .family == "policy") and .lane != "terraform-plan") | .id' > "$RUNNER_TEMP/lint.txt"
+          wc -l "$RUNNER_TEMP/lint.txt"
+          split -n r/3 "$RUNNER_TEMP/lint.txt" "$RUNNER_TEMP/lint-part-"
+          for part in "$RUNNER_TEMP"/lint-part-*; do
+            node scripts/checks/run.mjs "$part" > "$part.ndjson" &
+          done
+          code=0
+          for runner in $(jobs -p); do wait "$runner" || code=1; done
+          cat "$RUNNER_TEMP"/lint-part-*.ndjson | cut -c1-300
+          exit "$code"
+
+  backend-shard:
+    name: backend shard (${{ matrix.runner }})
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04-arm, blacksmith-2vcpu-ubuntu-2404-arm, blacksmith-4vcpu-ubuntu-2404-arm]
+    # github-hosted: temporary runner evaluation
+    runs-on: ${{ matrix.runner }}
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
+        env:
+          POSTGRES_USER: ctxpipe
+          POSTGRES_PASSWORD: ctxpipe
+          POSTGRES_DB: ctxpipe
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ctxpipe -d ctxpipe"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/falkordb
+      - run: corepack enable
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.4
+      - name: Required chat engine binary
+        run: npm install --global opencode-ai@1.18.34
+      - name: Restore native revision index tools
+        id: zoekt
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/ctxpipe-zoekt
+          key: zoekt-both-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1-v2
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        if: steps.zoekt.outputs.cache-hit != 'true'
+        with:
+          go-version: 1.25.12
+          cache: false
+      - name: Required native revision index tools
+        run: |
+          npm install --global @ast-grep/cli@0.45.0
+          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ] || [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-index" ]; then
+            mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
+            for tool in zoekt-index zoekt-webserver; do
+              GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install \
+                "github.com/sourcegraph/zoekt/cmd/${tool}@596c362fcf1388fe0082acfcfc80c4d172efb7c1"
+            done
+          fi
+          echo "$RUNNER_TEMP/ctxpipe-zoekt" >> "$GITHUB_PATH"
+      - name: Migrate backend schema
+        env:
+          DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/ctxpipe
+          DATABASE_APP_PASSWORD: ctxpipe
+        working-directory: apps/backend
+        run: pnpm exec tsx src/db/migrate.ts
+      - uses: ./.github/actions/setup-buildx
+      - name: Required chat sandbox image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: scripts/chat-sandbox
+          tags: ctxpipe-chat-sandbox:opencode-1.18.34-r4
+          load: true
+          cache-from: type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox-arm64
+      - name: Backend tests (shard 1/4)
+        continue-on-error: true
+        env:
+          GRAPH_DB_URI: redis://127.0.0.1:6379
+          AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
+          DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
+        run: node scripts/ci/test-suite.mjs backend --shard=1/4
+
+  storybook:
+    name: storybook (${{ matrix.runner }})
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04-arm, blacksmith-2vcpu-ubuntu-2404-arm, blacksmith-4vcpu-ubuntu-2404-arm]
+    # github-hosted: temporary runner evaluation
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: corepack enable
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @ctxpipe/ui build-storybook
