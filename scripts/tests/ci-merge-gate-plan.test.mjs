@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
@@ -203,6 +204,125 @@ test("a failed LLM job, an invalid LLM record or a provider fallback keeps the d
       ),
       cause,
     )
+  }
+})
+
+test("a UI-only change starts no Lint job when the passes of its keys are stored, and a full Lint job without the factory", () => {
+  // Without the factory selector (a fork, a public clone, a failed select
+  // job), no check has a key: the run is full, and each job runs all of its
+  // checks.
+  const full = plan({
+    config: config(),
+    inputs: inputs({
+      "mode.json": { mode: "select", reason: "gate" },
+      "select-cause.txt": "the factory selector is not installed",
+    }),
+    needs: { ...needs, "merge-gate-select": { result: "failure" } },
+    store: store(),
+    fork: false,
+  })
+  assert.deepEqual(
+    [full.mode, full.reason, full.jobs],
+    ["full", "selector unavailable: the factory selector is not installed", {}],
+  )
+  // With the factory selector on PATH, it computes the real keys of a
+  // UI-only change to a copy of HEAD. The factory is private and optional:
+  // the public checks stay correct without it.
+  const probe = spawnSync("factory", ["check", "--help"], { encoding: "utf8" })
+  if (probe.error || probe.status !== 0) return
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-ui-only-"))
+  try {
+    const run = (command, args, cwd = root) => {
+      const result = spawnSync(command, args, {
+        cwd,
+        encoding: "utf8",
+        maxBuffer: 256 * 1024 * 1024,
+      })
+      assert.equal(result.error, undefined, `${command}: ${result.error}`)
+      return result
+    }
+    const manifest = join(directory, "manifest.json")
+    const listed = run(process.execPath, ["scripts/checks/list.mjs"])
+    assert.equal(listed.status, 0, listed.stderr)
+    writeFileSync(manifest, listed.stdout)
+    const toolchain = join(directory, "toolchain.json")
+    const recorded = run("factory", [
+      "toolchain",
+      "--repo",
+      root,
+      "--manifest",
+      manifest,
+    ])
+    assert.equal(recorded.status, 0, recorded.stderr)
+    writeFileSync(toolchain, recorded.stdout)
+    const clone = join(directory, "clone")
+    const head = run("git", ["rev-parse", "HEAD"]).stdout.trim()
+    run("git", ["clone", "-q", "--shared", "--no-checkout", root, clone])
+    run("git", ["checkout", "-q", "--detach", head], clone)
+    writeFileSync(
+      join(clone, "apps/ui/src/components/onboarding/org-name.ts"),
+      `${readFileSync(join(clone, "apps/ui/src/components/onboarding/org-name.ts"), "utf8")}export const uiOnlyProbe = 1\n`,
+    )
+    const selected = run("factory", [
+      "check",
+      "--repo",
+      clone,
+      "--base",
+      "HEAD",
+      "--cache-only",
+      "--json",
+      "--llm-provider",
+      "none",
+      "--manifest",
+      manifest,
+      "--toolchain",
+      toolchain,
+    ])
+    const selection = JSON.parse(selected.stdout.split("\n")[0])
+    const ids = selection.selected.map(({ id }) => id)
+    // The repository scan of the check tests guards the change; the other
+    // tests of the CI scripts and the ADR check do not read it.
+    assert.ok(
+      ids.includes(
+        "policy:tests-ci-checks-repo:scripts/tests/ci-checks-repo.test.mjs",
+      ),
+    )
+    for (const id of ids)
+      assert.doesNotMatch(
+        id,
+        /^policy:(tests-ci-checks:|adr:|tests-[^:]+:scripts\/tests\/[^:]+\.test\.sh$)/,
+      )
+    // Each selected check of the Lint job has a key. With a stored pass of
+    // each key (here the PR store of an earlier run), the Lint job does not
+    // start.
+    const lint = ids.filter((id) => placeOf(id).job === "lint")
+    assert.ok(lint.length > 0)
+    assert.deepEqual(
+      selection.cache.unkeyed.filter(({ id }) => lint.includes(id)),
+      [],
+    )
+    const planned = plan({
+      config: config(),
+      inputs: inputs({
+        "mode.json": { mode: "select", reason: "gate" },
+        "selection.json": selection,
+      }),
+      needs,
+      store: store(
+        selection.cache.misses.map(({ id, key }) => ({
+          id,
+          key,
+          run: "1",
+          createdAt: "2026-11-14T00:00:00Z",
+        })),
+      ),
+      fork: false,
+    })
+    assert.equal(planned.mode, "gate")
+    assert.equal(planned.outputs.lint, undefined)
+    assert.equal(planned.jobs.lint, undefined)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
   }
 })
 
@@ -1184,9 +1304,7 @@ test("a PR that selects every check gives the Merge gate job a needs value under
       },
     ]),
   )
-  const bytes = Buffer.byteLength(
-    `NEEDS=${JSON.stringify(gateNeeds, null, 2)}`,
-  )
+  const bytes = Buffer.byteLength(`NEEDS=${JSON.stringify(gateNeeds, null, 2)}`)
   assert.ok(
     bytes < 128 * 1024,
     `toJSON(needs) of the Merge gate job is ${bytes} bytes`,
