@@ -391,7 +391,7 @@ jobs:
       # Provider Update() never sends multiRegionConfig (issue #77).
       - name: Pin Railway observability region
         working-directory: ${{ github.workspace }}
-        run: RAILWAY_SERVICE_SET=observability bash scripts/railway-set-regions.sh
+        run: bash scripts/railway-set-regions.sh
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:

@@ -122,8 +122,9 @@ export async function main(
   const { values: args } = parseArgs({
     args: argv,
     options: {
-      // Redeploys even when no value changed: a re-run, after an attempt that
-      // wrote the values but whose redeploy failed.
+      // Redeploys the service after the sync, also when no value changed: a
+      // re-run, after an attempt that wrote the values but whose redeploy
+      // failed.
       redeploy: { type: "boolean" },
       service: { type: "string" },
       // Appends the service name to this file when a value changed.

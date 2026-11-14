@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Pin Railway services in one environment to a single region, then deploy
-# when the latest deployment is not already on that region.
+# Pin every service of the observability Railway project in one environment
+# to a single region, then deploy when the latest deployment is not already
+# on that region. clickhouse and mongo are volume-backed.
 #
 # Railway provider 0.6.1/0.6.2 never sends multiRegionConfig on Update
 # (https://github.com/terraform-community-providers/terraform-provider-railway/issues/77).
@@ -15,12 +16,10 @@
 #   RAILWAY_ENVIRONMENT  (default: production)
 #   RAILWAY_REGION       (default: us-east4-eqdc4a)
 #   RAILWAY_NUM_REPLICAS (default: 1)
-#   Every service in the observability project; clickhouse and mongo are
-#   volume-backed.
 #   STATELESS_WAIT_SECONDS (default: 600)
 #   VOLUME_WAIT_SECONDS    (default: 2700)  # 50GB volume copy
 #
-# Both hosted Railway projects use the same Virginia region as Neon
+# The observability Railway project uses the Virginia region
 # (ADR-029 / ADR-038). Terraform ignore_changes + provider issue #77
 # never correct a create that landed in the workspace preferred region
 # (Singapore). Run this after apply. Volume-backed services copy the

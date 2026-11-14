@@ -2,7 +2,7 @@ locals {
   railway_project_id     = "305aa114-c6f3-4aca-b883-0faa9c331aa2"
   railway_environment_id = "5a0afd5c-5f12-47ef-8f8a-606107610f89"
   # Provider 0.6.1 ignores regions on update (issue #77). Pin with
-  # RAILWAY_SERVICE_SET=observability scripts/railway-set-regions.sh.
+  # scripts/railway-set-regions.sh.
   railway_region = "us-east4-eqdc4a"
   regions = [
     {
