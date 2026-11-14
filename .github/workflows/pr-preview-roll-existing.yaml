@@ -39,7 +39,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     timeout-minutes: 40
     # RAILWAY_API_TOKEN, the preview GitHub App secrets and the preview
     # VERCEL_ACCESS_TOKEN come from this protected environment. That Vercel

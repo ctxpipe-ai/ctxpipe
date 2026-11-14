@@ -77,7 +77,7 @@ jobs:
     name: Push preview image (${{ matrix.image }})
     needs: build
     timeout-minutes: 20
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     permissions:
       contents: read
       id-token: write

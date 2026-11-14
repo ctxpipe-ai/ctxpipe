@@ -957,16 +957,42 @@ test("each job of the plan needs the plan job, starts only with its output, and 
   // The Terraform plan workflow has no pull_request trigger: the merge gate
   // calls it as a reusable workflow, so the PR author stays the actor. It
   // does so for a same-repository PR that changes a file under infra/,
-  // whatever the mode or the selection.
-  const changes = job("merge-gate-terraform-changes")
+  // whatever the mode or the selection. The critics job looks for the
+  // change: it starts with the run and runs no repository code, so the step
+  // gets the token that reads the PR files in a job of the same trust.
+  const changes = job("merge-gate-critics")
   assert.doesNotMatch(changes, /\n {4}needs:/)
   assert.doesNotMatch(changes, /merge-gate-plan/)
   assert.ok(changes.includes("head.repo.full_name == github.repository"))
-  assert.ok(changes.includes("github.event.action != 'ready_for_review'"))
-  assert.doesNotMatch(changes, /actions\/checkout/)
+  const { jobs } = parseYaml(workflow)
+  const lookup = jobs["merge-gate-critics"].steps.find(
+    (step) => step.id === "changes",
+  )
+  assert.equal(lookup.name, "Look for a change under infra/")
+  assert.ok(lookup.if.includes("!cancelled()"))
+  assert.ok(lookup.if.includes("github.event.action != 'ready_for_review'"))
+  assert.equal(
+    jobs["merge-gate-critics"].outputs.plan,
+    "${{ steps.changes.outputs.plan }}",
+  )
+  assert.match(changes, /\n {6}pull-requests: read\n/)
+  // No repository code: no package manager, no runtime, no local action,
+  // and no repository script.
+  assert.doesNotMatch(
+    changes
+      .split("\n")
+      .filter((line) => !line.trim().startsWith("#"))
+      .join("\n"),
+    /\b(pnpm|npm|npx|node|bun|tsx)\b|uses: \.\/|\b(bash|sh) [\w./-]*scripts\//,
+  )
   const terraform = job("merge-gate-terraform-plan")
-  assert.match(terraform, /\n {4}needs: merge-gate-terraform-changes\n/)
-  assert.ok(terraform.includes("outputs.plan == 'true'"))
+  assert.match(terraform, /\n {4}needs: merge-gate-critics\n/)
+  // A failed step of the critics job does not stop the plan.
+  assert.ok(
+    terraform.includes(
+      "!cancelled() && needs.merge-gate-critics.outputs.plan == 'true'",
+    ),
+  )
   assert.match(
     terraform,
     /\n {4}uses: \.\/\.github\/workflows\/terraform-plan-pr\.yaml\n/,
