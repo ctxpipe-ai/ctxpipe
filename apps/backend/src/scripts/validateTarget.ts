@@ -18,11 +18,33 @@
  * check, for example on an empty database. Optional: CF_ACCESS_CLIENT_ID and
  * CF_ACCESS_CLIENT_SECRET (the Cloudflare Access service token of an
  * internal host name).
+ *
+ * Inside the target, as its one-off task with the backend's environment:
+ *
+ *   bun run src/scripts/validateTarget.ts --secrets
+ *
+ * It decrypts each stored connection secret with the target's key, and mints
+ * (then revokes) a GitHub installation token with the target's App ID and
+ * key. The HTTP checks pass with a wrong value of either secret.
  */
+import { parseEnv } from "../config/env.js"
+import { closeDb, initDb } from "../db/client.js"
 import { formatUnknownError } from "../db/transientDbRetry.js"
+import { validateTargetSecrets } from "../lib/validate-target-secrets.js"
 import { validateTarget } from "../lib/validate-target.js"
+import { initEvlog } from "../observability/logger.js"
 
 async function main(argv: string[]): Promise<number> {
+  if (argv.includes("--secrets")) {
+    initEvlog()
+    const env = parseEnv(process.env)
+    initDb(env.DATABASE_URL)
+    try {
+      return report(await validateTargetSecrets(env))
+    } finally {
+      await closeDb()
+    }
+  }
   const baseUrl = argv.find((arg) => !arg.startsWith("--"))
   if (!baseUrl)
     throw new Error(
@@ -45,6 +67,10 @@ async function main(argv: string[]): Promise<number> {
       : {}),
     skipMcpRead: argv.includes("--no-mcp-read"),
   })
+  return report(results)
+}
+
+function report(results: { ok: boolean }[]): number {
   process.stdout.write(`${JSON.stringify(results, null, 2)}\n`)
   return results.every((result) => result.ok) ? 0 : 1
 }

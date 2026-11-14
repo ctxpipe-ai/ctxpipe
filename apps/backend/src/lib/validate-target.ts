@@ -16,7 +16,7 @@ import { formatUnknownError } from "../db/transientDbRetry.js"
  * Thus the OAuth checks compare the advertised resource with the target origin.
  */
 
-type CheckResult = { name: string; ok: boolean; detail: string }
+export type CheckResult = { name: string; ok: boolean; detail: string }
 
 type TargetOptions = {
   /**
@@ -39,7 +39,7 @@ type TargetOptions = {
   skipMcpRead?: boolean
 }
 
-async function check(
+export async function check(
   name: string,
   fn: () => Promise<string>,
 ): Promise<CheckResult> {
