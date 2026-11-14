@@ -29,7 +29,7 @@ export function LinearScopeChecklist(props: {
       value={value}
       onChange={onChange}
       aria-label={props["aria-label"]}
-      className="max-h-[min(48vh,28rem)] gap-0 overflow-y-auto border border-border"
+      className="max-h-[min(48vh,28rem)] gap-0 overflow-y-auto border-y border-border"
     >
       {groups.map(({ type, label }) => {
         const group = items.filter((item) => item.type === type)
@@ -39,7 +39,7 @@ export function LinearScopeChecklist(props: {
             key={type}
             className="border-t border-border first:border-t-0"
           >
-            <h3 className="ctx-label border-b border-border bg-card/40 px-3 py-2">
+            <h3 className="ctx-label border-b border-border bg-card/40 py-2">
               {label}
             </h3>
             <div>
@@ -47,7 +47,7 @@ export function LinearScopeChecklist(props: {
                 <Checkbox
                   key={item.value}
                   value={item.value}
-                  className="w-full cursor-pointer items-start border-b border-border px-3 py-2 last:border-b-0 hover:bg-foreground/[0.03]"
+                  className="w-full cursor-pointer items-start border-b border-border py-2 last:border-b-0 hover:bg-foreground/[0.03]"
                 >
                   <span className="min-w-0">
                     <span className="block truncate text-foreground">

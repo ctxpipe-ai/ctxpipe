@@ -161,7 +161,6 @@ export function BuildkiteSetupDialog({
         onClose={() => onOpenChange(false)}
       >
         <ConnectorSetupStepper
-          className="pl-2"
           steps={BUILDKITE_SETUP_STEPS}
           currentIndex={stepIndex}
           finalStep={

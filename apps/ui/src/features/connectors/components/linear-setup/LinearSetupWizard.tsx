@@ -144,7 +144,6 @@ export function LinearSetupWizard({
       >
         {status && !loading ? (
           <ConnectorSetupStepper
-            className="pl-2"
             steps={setupSteps}
             currentIndex={
               pullRequests.length

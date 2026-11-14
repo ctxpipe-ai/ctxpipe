@@ -86,7 +86,7 @@ export function FormatUpgradeNotice(props: {
 
   return (
     <InlineAlert
-      variant={failed ? "error" : banner ? "attention" : "warning"}
+      variant={failed ? "error" : "warning"}
       title={failed ? "The format upgrade failed" : copy.title}
       actions={actions}
       actionsPlacement={banner ? "end" : "below"}

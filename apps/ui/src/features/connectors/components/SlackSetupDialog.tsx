@@ -174,7 +174,6 @@ export function SlackSetupDialog({
       >
         {status && !statusQuery.isPending && !statusQuery.isError ? (
           <ConnectorSetupStepper
-            className="pl-2"
             steps={SLACK_SETUP_STEPS}
             currentIndex={
               pullRequests.length ? SLACK_SETUP_STEPS.length : setupStepIndex

@@ -204,7 +204,7 @@ export function ConnectorListItem({
     <>
       <Disclosure
         defaultExpanded={defaultExpanded}
-        className={`min-w-0 border bg-zinc-900/40 transition-colors ${
+        className={`min-w-0 border bg-zinc-900/40 wrap-anywhere transition-colors ${
           marked
             ? "border-teal-400/40 bg-teal-400/10 outline-2 -outline-offset-2 outline-teal-400"
             : "border-white/[0.08]"

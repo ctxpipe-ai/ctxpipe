@@ -628,6 +628,17 @@ export const ReopensConfluenceWizardAfterAccountLink: Story = {
         page.getByRole("heading", { name: "Set up Confluence connector" }),
       ).toBeVisible(),
     )
+    // The long URL in the alert wraps inside the alert box (CTX-1263).
+    const title = await page.findByText(
+      "Could not load capabilities",
+      {},
+      { timeout: 10_000 },
+    )
+    const alert = title.closest<HTMLElement>('[role="alert"]')
+    if (!alert) throw new Error("No alert around the title")
+    await waitFor(() =>
+      expect(alert.scrollWidth).toBeLessThanOrEqual(alert.clientWidth),
+    )
   },
   parameters: {
     storyRoute: {

@@ -69,7 +69,7 @@ export function PullRequestsToMerge(props: {
   const single = props.pullRequests.length === 1
   return (
     <li
-      className="mt-3 -ml-2 flex gap-3 rounded-md bg-muted/40 py-3 pr-3 pl-2 text-sm ring-1 ring-border ring-inset"
+      className="-mx-3 mt-3 flex gap-3 rounded-md bg-muted/40 p-3 text-sm ring-1 ring-border ring-inset"
       data-state={allMerged ? "done" : "current"}
       aria-current={allMerged ? undefined : "step"}
     >

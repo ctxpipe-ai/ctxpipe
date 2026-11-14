@@ -127,7 +127,7 @@ export function PlainScopeEditor(props: SourceScopeEditorProps) {
         value={filter}
         onChange={setFilter}
       />
-      <div className="max-h-[min(320px,calc(var(--visual-viewport-height)*0.45))] min-h-0 overflow-auto rounded-md border border-border p-3">
+      <div className="max-h-[min(320px,calc(var(--visual-viewport-height)*0.45))] min-h-0 overflow-auto border-y border-border py-3">
         {loading ? (
           <div className="flex flex-col gap-2" aria-busy>
             <span className="sr-only">

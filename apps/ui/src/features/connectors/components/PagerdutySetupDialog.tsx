@@ -209,7 +209,6 @@ export function PagerdutySetupDialog({
       >
         {status || !connectionId ? (
           <ConnectorSetupStepper
-            className="pl-2"
             steps={setupSteps}
             currentIndex={setupStepIndex}
             finalStep={

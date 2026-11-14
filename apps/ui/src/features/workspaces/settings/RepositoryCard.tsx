@@ -314,7 +314,11 @@ function WriteAccessLine(props: {
       role={problem ? "alert" : undefined}
       className={cn(
         "flex flex-wrap items-start justify-between gap-x-4 gap-y-2 rounded-md px-3 py-2.5",
-        problem ? "bg-amber-400/[0.06]" : "bg-white/[0.03]",
+        // A problem has the one warning look of the app (as `InlineAlert`
+        // `warning`): a dark surface with a yellow edge and a yellow icon.
+        problem
+          ? "bg-zinc-900 ring-1 ring-amber-300 ring-inset"
+          : "bg-white/[0.03]",
       )}
     >
       <div className="flex min-w-0 flex-1 basis-64 items-start gap-2">

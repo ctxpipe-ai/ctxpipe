@@ -225,7 +225,6 @@ export function ConfluenceSetupWizard({
       >
         {status && !statusPending && !orgOauthBlocking ? (
           <ConnectorSetupStepper
-            className="pl-2"
             steps={wizardStepDefs}
             currentIndex={
               workspacesDone ? wizardStepDefs.length : cardIndexForStepper

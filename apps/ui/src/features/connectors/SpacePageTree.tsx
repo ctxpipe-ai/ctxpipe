@@ -230,7 +230,7 @@ function SpaceNode({
 
   return (
     <div className="border-b border-zinc-800 last:border-b-0">
-      <div className="flex min-w-0 items-center gap-2 px-3 py-2.5 hover:bg-foreground/[0.04]">
+      <div className="flex min-w-0 items-center gap-2 py-2.5 hover:bg-foreground/[0.04]">
         <button
           type="button"
           onClick={() => !isSearching && setExpanded((value) => !value)}
@@ -384,11 +384,11 @@ function PersonalSpacesGroup({
   const selectedCount = spaces.filter((space) => getScope(space.key)).length
 
   return (
-    <div className="overflow-hidden rounded-md border border-border">
+    <div className="overflow-hidden border-y border-border">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full min-w-0 items-center justify-between gap-2 px-3 py-2.5 text-sm text-muted-foreground hover:bg-foreground/[0.04]"
+        className="flex w-full min-w-0 items-center justify-between gap-2 py-2.5 text-sm text-muted-foreground hover:bg-foreground/[0.04]"
       >
         <span className="flex min-w-0 items-center gap-2">
           <IconChevronRight
@@ -532,11 +532,11 @@ export function SpacePageTree({
       <div className="flex h-full min-w-0 flex-col gap-3" aria-busy>
         <span className="sr-only">Loading spaces</span>
         <Skeleton className="block h-[34px] w-full shrink-0" />
-        <div className="min-w-0 overflow-hidden rounded-md border border-border">
+        <div className="min-w-0 overflow-hidden border-y border-border">
           {[0, 1, 2, 3].map((row) => (
             <div
               key={row}
-              className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2.5 last:border-b-0"
+              className="flex items-center gap-2 border-b border-zinc-800 py-2.5 last:border-b-0"
             >
               <Skeleton className="size-5 shrink-0" />
               <Skeleton className="size-4 shrink-0" />
@@ -577,11 +577,9 @@ export function SpacePageTree({
       </div>
 
       <div className="min-h-0 min-w-0 flex-1 space-y-2 overflow-x-hidden overflow-y-auto">
-        <div className="min-w-0 overflow-hidden rounded-md border border-border">
+        <div className="min-w-0 overflow-hidden border-y border-border">
           {globalSpaces.length === 0 ? (
-            <p className="px-3 py-2 text-sm text-zinc-500">
-              No team spaces found.
-            </p>
+            <p className="py-2 text-sm text-zinc-500">No team spaces found.</p>
           ) : null}
           {globalSpaces.map((space) => (
             <SpaceNode

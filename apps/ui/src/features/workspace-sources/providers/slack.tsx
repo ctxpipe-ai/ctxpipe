@@ -109,10 +109,10 @@ export function SlackScopeEditor(props: SourceScopeEditorProps) {
         aria-label={pickerLabel}
         value={selected}
         onChange={update}
-        className="max-h-[min(48vh,28rem)] gap-0 overflow-y-auto border border-border"
+        className="max-h-[min(48vh,28rem)] gap-0 overflow-y-auto border-y border-border"
       >
         {rows.length === 0 ? (
-          <p className="px-3 py-2 text-sm text-muted-foreground">
+          <p className="py-2 text-sm text-muted-foreground">
             No channel matches “{search}”.
           </p>
         ) : null}
@@ -127,7 +127,7 @@ export function SlackScopeEditor(props: SourceScopeEditorProps) {
             <Checkbox
               key={channel.id}
               value={channel.id}
-              className="w-full cursor-pointer items-start border-b border-border px-3 py-2 last:border-b-0 hover:bg-foreground/[0.03]"
+              className="w-full cursor-pointer items-start border-b border-border py-2 last:border-b-0 hover:bg-foreground/[0.03]"
             >
               <span className="min-w-0">
                 <span className="flex items-center gap-1 truncate text-foreground">

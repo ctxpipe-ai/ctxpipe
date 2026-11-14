@@ -7,15 +7,13 @@ import {
 } from "lucide-react"
 import type { ReactNode } from "react"
 
-type InlineAlertVariant = "error" | "warning" | "attention" | "success"
+type InlineAlertVariant = "error" | "warning" | "success"
 
 const variantClass: Record<InlineAlertVariant, string> = {
   error: "border-red-500/40 bg-red-950/35 text-red-50",
-  warning: "border-amber-500/45 bg-amber-950/30 text-amber-50",
-  // A warning that blocks the work on the page: a dark surface with a yellow
-  // border and a yellow icon (product owner, 2026-11-14). The text keeps the
-  // product ink, so the normal buttons work on it.
-  attention: "border-amber-300 bg-zinc-900 text-zinc-50",
+  // A dark surface with a yellow border and a yellow icon (product owner,
+  // 2026-11-14). A banner and an inline warning use this one look.
+  warning: "border-amber-300 bg-zinc-900 text-zinc-50",
   success: "border-teal-500/40 bg-teal-950/25 text-teal-50",
 }
 
@@ -53,11 +51,12 @@ export function InlineAlert({
   return (
     <div
       role="alert"
-      className={`flex gap-3 rounded-md border p-3 ${variantClass[variant]}`}
+      // A long URL or id wraps inside the slab.
+      className={`flex gap-3 rounded-md border p-3 wrap-anywhere ${variantClass[variant]}`}
     >
       <Icon
         className={`mt-0.5 size-4 shrink-0 ${
-          variant === "attention" ? "text-amber-300" : "opacity-90"
+          variant === "warning" ? "text-amber-300" : "opacity-90"
         }`}
         aria-hidden
       />

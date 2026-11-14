@@ -6,9 +6,9 @@ import { Button } from "@/components/ui/Button"
  * The frame of each connector setup dialog: a header, a body and a footer
  * on one grid. The header and the footer stay in view, and only the body
  * scrolls: the dialog (`Modal` with `flex flex-col`) is never taller than the
- * viewport, so the one Close control always shows. The mark of the header
- * and the body share one left edge; the step markers (`pl-2` on the steps)
- * share the center line of the mark.
+ * viewport, so the one Close control always shows. The leading markers of
+ * the dialog (the mark, the step markers, the form and list checkboxes) start
+ * on the left edge of the body. See README.md in this folder.
  */
 export function ConnectorSetupFrame(props: {
   icon: ReactNode

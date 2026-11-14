@@ -12,7 +12,7 @@ function Card({
       data-slot="card"
       data-size={size}
       className={twMerge(
-        "relative ring-zinc-800 ring-1 bg-card text-card-foreground gap-7 text-sm has-[>img:first-child]:pt-0 data-[size=sm]:gap-5 data-[size=sm]:py-4 *:[img:first-child]:rounded-t-md *:[img:last-child]:rounded-b-md group/card flex flex-col rounded-md",
+        "relative wrap-anywhere ring-zinc-800 ring-1 bg-card text-card-foreground gap-7 text-sm has-[>img:first-child]:pt-0 data-[size=sm]:gap-5 data-[size=sm]:py-4 *:[img:first-child]:rounded-t-md *:[img:last-child]:rounded-b-md group/card flex flex-col rounded-md",
         className,
       )}
       {...props}

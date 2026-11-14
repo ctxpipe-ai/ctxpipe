@@ -201,7 +201,6 @@ export function NotionSetupDialog({
       >
         {status?.isInstalled || oauthAppQuery.data ? (
           <ConnectorSetupStepper
-            className="pl-2"
             steps={setupSteps}
             currentIndex={setupStepIndex}
             finalStep={
