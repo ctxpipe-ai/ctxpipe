@@ -61,8 +61,9 @@ const unknownCallUsd = 0.25
 // of a whole run (ADR-063).
 const unknownJevCallUsd = 0.002
 // The same for a call of the explainer of a Jev regression. It is also the
-// free budget that the run must have before it calls the explainer: above
-// the most that one explainer call cost in the measurement of CTX-1256.
+// free budget that the run must have before it calls the explainer. It is an
+// estimate, not a measured value: by the price list of OpenRouter, one call
+// with two images costs less than $0.001 (CTX-1256).
 const unknownExplainerUsd = 0.005
 
 const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|agent] [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--rubric <file>] [--session <folder>] [--json]
@@ -224,13 +225,13 @@ export async function visualReview(
     unknownUsd: number,
   ) => (await paid(budget, call, unknownUsd)) ?? budgetReached(storyId, budget)
   // The input of each Jev call, for the explainer of a Jev regression.
-  const explained = new Map<string, Explained>()
+  const jevInputs = new Map<string, Explained>()
   const judgeNewPaid = (story: NewStoryInput) =>
     judge === "jev"
       ? paidOrStop(
           story.storyId,
           () => {
-            explained.set(story.storyId, { kind: "new", story })
+            jevInputs.set(story.storyId, { kind: "new", story })
             return judgeNewWithJev(story)
           },
           unknownJevCallUsd,
@@ -245,7 +246,7 @@ export async function visualReview(
       ? paidOrStop(
           story.storyId,
           () => {
-            explained.set(story.storyId, { kind: "change", story })
+            jevInputs.set(story.storyId, { kind: "change", story })
             return judgeWithJev(story)
           },
           unknownJevCallUsd,
@@ -253,13 +254,12 @@ export async function visualReview(
       : judgeByModel(story, model, filter, undefined, budget)
   // The explainer pass runs after all Jev calls, so that a short budget goes
   // to the verdicts first. It calls the explainer only while
-  // `unknownExplainerUsd` of the budget is free. Returns true when the
-  // judges reached the budget: the spend of the explainer never makes a run
-  // incomplete.
+  // `unknownExplainerUsd` of the budget is free. A screenshot of a group, or
+  // another viewport of a new story, gets the explained summary of the
+  // screenshot that Jev judged.
   const explainAll = async (verdicts: Verdict[]) => {
-    const reached = budgetReachedBy(budget)
     for (const [index, verdict] of verdicts.entries()) {
-      const input = explained.get(verdict.storyId)
+      const input = jevInputs.get(verdict.storyId)
       if (
         !input ||
         verdict.groupedWith !== undefined ||
@@ -273,11 +273,19 @@ export async function visualReview(
         explainerModel,
         process.env,
       )
-      if (result.explainer)
-        budget.spentUsd += result.explainer.costUsd ?? unknownExplainerUsd
+      if (!result.explainer) continue
+      budget.spentUsd += result.explainer.costUsd ?? unknownExplainerUsd
       verdicts[index] = result.verdict
+      for (const [other, member] of verdicts.entries())
+        if (
+          member.groupedWith === verdict.storyId &&
+          member.verdict === "regression"
+        )
+          verdicts[other] = {
+            ...member,
+            summary: `${member.summary} Jev on ${verdict.storyId}: ${result.verdict.summary}`,
+          }
     }
-    return reached
   }
 
   if (options.images !== undefined) {
@@ -327,7 +335,9 @@ export async function visualReview(
             judgeChangedPaid,
           )),
         ]
-        reached = await explainAll(judged)
+        // The spend of the explainer never makes a run incomplete.
+        reached = budgetReachedBy(budget)
+        await explainAll(judged)
       } catch (error) {
         print(`The review stopped: ${(error as Error).message}`)
         return 2
@@ -480,7 +490,8 @@ export async function visualReview(
           : judgeChangedPaid,
       )),
     ]
-    reached = await explainAll(verdicts)
+    reached = budgetReachedBy(budget)
+    await explainAll(verdicts)
   } catch (error) {
     print(`The review stopped: ${(error as Error).message}`)
     return 2

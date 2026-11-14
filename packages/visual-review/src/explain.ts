@@ -31,7 +31,7 @@ export type Explained =
  * (a change, density excluded: it is never a regression) or that fails (a new
  * screenshot). These are the rules of `decision` in adapters/jev.ts.
  */
-export function flaggedIds(verdict: Verdict): string[] {
+function flaggedIds(verdict: Verdict): string[] {
   return [
     ...new Set([
       ...verdict.findings.map(({ kind }) => kind),
@@ -70,8 +70,8 @@ const oneLine = (text: string, max: number) => {
  * `observations`, the `evidence` and `suggestion` of each finding, and the
  * end of the summary (the factory shows only the summary). `costUsd` and
  * `latencyMs` add the explainer call to the Jev call; the cost is null when
- * either one is unknown. `explainer` has the facts of the call alone, for the
- * budget of the run and for the bake-off.
+ * either one is unknown, also after a failed call. `explainer` has the cost
+ * of the call alone, for the budget of the run and for the bake-off.
  *
  * A failed call or a reply that is not usable keeps the Jev verdict, with a
  * sentence in the summary and no `error`: the explainer never fails a review.
@@ -85,7 +85,7 @@ export async function explainRegression(
   env: Record<string, string | undefined>,
 ): Promise<{
   verdict: Verdict
-  explainer?: { costUsd: number | null; latencyMs: number }
+  explainer?: { costUsd: number | null }
 }> {
   const ids = flaggedIds(verdict)
   if (
@@ -123,13 +123,15 @@ export async function explainRegression(
     return {
       verdict: {
         ...verdict,
+        // The call can have cost money: the total is unknown.
+        costUsd: null,
         summary: `${verdict.summary} The explainer gave no text: ${oneLine((error as Error).message, 200)}`,
       },
-      explainer: { costUsd: null, latencyMs: 0 },
+      explainer: { costUsd: null },
     }
   }
   const { content, run } = reply
-  const explainer = { costUsd: run.costUsd, latencyMs: run.latencyMs }
+  const explainer = { costUsd: run.costUsd }
   const costUsd =
     verdict.costUsd === null || run.costUsd === null
       ? null
@@ -211,11 +213,11 @@ function promptOf(
       : (["before", "after"] as const).flatMap((role) =>
           input.story.images.filter((image) => image.role === role),
         )
-  const shown = images.length
-    ? images
-    : input.kind === "change"
-      ? [...input.story.images]
-      : []
+  // A story of a hand-written manifest can have no full before and after
+  // image (`--images` always writes them): then the explainer gets the
+  // images of the story as they are.
+  const shown =
+    images.length || input.kind === "new" ? images : input.story.images
   const brief = input.story.brief?.trim()
   return {
     prefix: `You explain one finding of the visual critic of the ctxpipe product UI to the coding agent that made the change. A decision model (Jev) already judged the screenshot: its verdict is a regression, and that verdict stands. You do not judge again, and you cannot change the verdict or the severity.

@@ -1180,6 +1180,10 @@ export const Primary = { render: () => null }
       expect(member?.severity).toBe("minor")
       expect(member?.summary).toContain(`Jev on ${member?.groupedWith}:`)
       expect(member?.summary).toContain("spacing 0.60")
+      // The explanation of the judged screenshot, once.
+      expect(member?.summary.split("Explainer (openai/gpt-6-luna").length).toBe(
+        2,
+      )
       expect(member?.summary).toMatch(/Look at the images: before \S+\.png/)
     })
 
@@ -1468,7 +1472,7 @@ export const Primary = { render: () => null }
         expect(verdicts()[0]?.summary).toContain("Explainer (openai/gpt-6-luna")
       })
 
-      test("a failed explainer call keeps the Jev verdict with no error", async () => {
+      test("a failed explainer call keeps the Jev verdict with no error, and an unknown cost", async () => {
         serveJev(spacingWorse)
         server.use(
           http.post("https://openrouter.test/api/v1/chat/completions", () =>
@@ -1494,10 +1498,11 @@ export const Primary = { render: () => null }
         ).toBe(0)
 
         const [verdict] = verdicts()
+        // The failed call can have cost money: the total cost is unknown.
         expect(verdict).toMatchObject({
           verdict: "regression",
           severity: "minor",
-          costUsd: 0.0004,
+          costUsd: null,
         })
         expect(verdict?.error).toBeUndefined()
         expect(verdict?.summary).toContain(
