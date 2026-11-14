@@ -2,7 +2,7 @@
 
 **Status:** Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) | **Date:** 2026-10-22 | **Tags:** secrets, railway, terraform, github-actions, observability
 
-> **Superseded (AWS cutover).** Hosted secrets live in AWS Secrets Manager ([ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md), decisions 5 and 12). No secret goes to Railway, and the sync script is deleted.
+> **Superseded (AWS cutover).** Hosted secrets live in AWS Secrets Manager ([ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md), decisions 5 and 12). No secret goes to Railway, and `scripts/railway-sync-variables.mjs` is deleted.
 
 ## Context
 
