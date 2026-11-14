@@ -74,9 +74,7 @@ describe("diff", () => {
     // Two captures of one story: the Card surface changed from rgb(10,10,10)
     // to about rgb(18,18,21). Each pixel is below `threshold`.
     const fixture = (name: string) =>
-      readFileSync(
-        new URL(`./fixtures/card-surface.${name}.png`, import.meta.url),
-      )
+      readFileSync(new URL(`./card-surface/${name}.png`, import.meta.url))
     const card = { x: 528, y: 116, width: 608, height: 64 }
 
     const result = await diff(fixture("before"), fixture("after"))

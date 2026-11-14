@@ -112,9 +112,9 @@ export async function diff(
     width: a.width,
     height: a.height,
   }
-  const compare = async (at: number, window?: number) => {
+  const compare = async (colorThreshold: number, window?: number) => {
     const result = await pixelDiff(a, b, {
-      threshold: at,
+      threshold: colorThreshold,
       antialiasing: true,
       ...(window ? { window } : { output: diffImage }),
       render: { diffColor: [...red] },
@@ -124,16 +124,13 @@ export async function diff(
     }
     return result
   }
-  let used = threshold
   let diffPixels = (await compare(threshold)).count
-  if (
+  const faint =
     diffPixels <= maxDiffPixels &&
     (await compare(faintThreshold, faintWindow)).window?.count ===
       faintWindow ** 2
-  ) {
-    used = faintThreshold
-    diffPixels = (await compare(faintThreshold)).count
-  }
+  // Draw the diff again at the faint threshold, so that the critic sees it.
+  if (faint) diffPixels = (await compare(faintThreshold)).count
 
   if (diffPixels <= maxDiffPixels) {
     return {
@@ -152,9 +149,13 @@ export async function diff(
   }
 
   const labeled =
-    (await interpreted(before, after, used, interpret)) ??
-    fallback(diffImage, diffPixels)
-  if (used === faintThreshold)
+    (await interpreted(
+      before,
+      after,
+      faint ? faintThreshold : threshold,
+      interpret,
+    )) ?? fallback(diffImage, diffPixels)
+  if (faint)
     labeled.summary = `A faint color change: below the threshold of ${threshold}, but above ${faintThreshold} over at least one area of ${faintWindow} × ${faintWindow} pixels. ${labeled.summary}`
   const regions = labeled.regions.sort(
     (x, y) => y.box.width * y.box.height - x.box.width * x.box.height,
@@ -185,7 +186,7 @@ type Labeled = {
 async function interpreted(
   before: Uint8Array,
   after: Uint8Array,
-  at: number,
+  colorThreshold: number,
   interpret?: typeof blazeInterpret,
 ): Promise<Labeled | null> {
   try {
@@ -193,7 +194,7 @@ async function interpreted(
     const run =
       interpret ?? (await import("@blazediff/interpret-native")).interpret
     const result = await run(before, after, undefined, {
-      threshold: at,
+      threshold: colorThreshold,
       antialiasing: true,
     })
     return {
