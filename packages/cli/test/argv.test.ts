@@ -22,6 +22,7 @@ describe("CLI help and argv", () => {
     expect(out).toContain("--base-url")
     expect(out).toContain("--no-mcp")
     expect(out).toContain("--agents")
+    expect(out).toContain("Optional organization slug")
   })
 
   it("mcp add --help documents --base-url and --scope", () => {
