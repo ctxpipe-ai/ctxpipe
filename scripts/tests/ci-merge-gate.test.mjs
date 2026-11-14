@@ -200,8 +200,8 @@ test("a ci.yaml change only in the steps of check jobs runs the selector with th
     })
   }
   const lintStep = base.replace(
-    "      - run: pnpm lint\n",
-    "      - run: pnpm lint\n      - run: pnpm lint:extra\n",
+    "      - name: Lint and policy output\n",
+    "      - run: pnpm lint:extra\n      - name: Lint and policy output\n",
   )
   assert.deepEqual(mode(lintStep), {
     mode: "select",
@@ -820,8 +820,9 @@ test("the cost compares the measured full run with the estimated gated run", () 
   // Full run: every job but the merge gate jobs.
   assert.equal(cost.fullRunMinutes, 23)
   assert.equal(cost.parts.manifestAndSelect, 2)
-  // Production build and migrations, and the CI script tests.
-  assert.equal(cost.parts.alwaysRun, 3.7)
+  // Production build and migrations. The lint and policy checks are in the
+  // shards of the project profile.
+  assert.equal(cost.parts.alwaysRun, 3)
   assert.deepEqual(Object.keys(cost.shards).sort(), [
     "database",
     "node",
@@ -1679,71 +1680,44 @@ test("a raised limit of another shape never reaches the comment", () => {
   )
 })
 
-test("a lint or policy check takes the result of its step in the Lint and format job", () => {
-  const steps = (failed) => ({
-    jobs: [
-      {
-        name: "Lint and format",
-        started_at: "2026-10-27T10:00:00Z",
-        completed_at: "2026-10-27T10:01:00Z",
-        steps: [
-          { name: "Run pnpm lint", conclusion: failed ? "failure" : "success" },
-          { name: "CI command regression tests", conclusion: "skipped" },
-        ],
-      },
-    ],
-  })
-  const decision = (failed) =>
-    decide({
-      needs: { "test-shards": "success", test: "success", lint: "failure" },
-      shadow: {
-        records: records.map((record) => ({ ...record, status: "passed" })),
-        jobs: steps(failed),
-      },
-    })
-  const oxlint = (d) =>
-    d.ran.find(({ id }) => id === "lint:oxlint:.oxlintrc.json")
+test("a lint or policy check takes the result of its record, not of a step of the Lint and format job", () => {
   // The agent hit of oxlint is accepted, so make it run: no agent results.
-  const run = (failed) =>
+  const run = (lint, conclusion = "success") =>
     shadow({
       config: { ...pinned, acceptAgentResults: false },
       inputs: inputs({
         "mode.json": { mode: "select", reason: "shadow" },
         "selection.json": selection(),
       }),
-      records: records.map((record) => ({ ...record, status: "passed" })),
-      needs: needs({
-        "test-shards": "success",
-        test: "success",
-        lint: "failure",
-      }),
-      jobs: steps(failed),
+      records: [
+        ...records.map((record) => ({ ...record, status: "passed" })),
+        ...lint,
+      ],
+      needs: needs({ "test-shards": "success", test: "success" }),
+      jobs: {
+        jobs: [
+          {
+            name: "Lint and format",
+            started_at: "2026-10-27T10:00:00Z",
+            completed_at: "2026-10-27T10:01:00Z",
+            steps: [{ name: "Run pnpm lint", conclusion }],
+          },
+        ],
+      },
       run: {},
     })
-  assert.equal(oxlint(run(true)).result, "failed")
-  assert.equal(run(true).gatedRun.verdict, "fail")
-  const { unverified: _, ...recall } = run(true).metrics.recall
+  const oxlint = (decision) =>
+    decision.ran.find(({ id }) => id === "lint:oxlint:.oxlintrc.json").result
+  const failed = run([{ id: "lint:oxlint:.oxlintrc.json", status: "failed" }])
+  assert.equal(oxlint(failed), "failed")
+  assert.equal(failed.gatedRun.verdict, "fail")
+  const { unverified: _, ...recall } = failed.metrics.recall
   assert.deepEqual(recall, { failed: 1, ran: 1, escaped: [] })
-  assert.equal(oxlint(run(false)).result, "passed")
-  assert.equal(decision(false).gatedRun.verdict, "pass")
-})
-
-test("the step names of the Lint and format job are the steps in ci.yaml", async () => {
-  const { lintSteps } = await import("../checks/shard.mjs")
-  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
-  const lint = workflow.slice(
-    workflow.indexOf("  lint:\n"),
-    workflow.indexOf("\n  typecheck:\n"),
-  )
-  for (const name of [
-    ...Object.keys(lintSteps),
-    "CI command regression tests",
-  ]) {
-    const named = name.startsWith("Run ")
-      ? lint.includes(`- run: ${name.slice(4)}\n`)
-      : lint.includes(`- name: ${name}\n`)
-    assert.ok(named, name)
-  }
+  const passed = run([{ id: "lint:oxlint:.oxlintrc.json", status: "passed" }])
+  assert.equal(oxlint(passed), "passed")
+  assert.equal(passed.gatedRun.verdict, "pass")
+  // A step result is not a check result.
+  assert.match(oxlint(run([], "failure")), /^missing result \(job lint: /)
 })
 
 // The critics job redacts the stderr of factory review gate with sed before

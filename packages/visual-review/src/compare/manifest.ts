@@ -151,7 +151,13 @@ export function toStoryInput(
     root,
     brief,
     sourceDiff,
-  }: { root: string; brief?: string; sourceDiff?: string },
+    rubric,
+  }: {
+    root: string
+    brief?: string
+    sourceDiff?: string
+    rubric: StoryInput["rubric"]
+  },
 ): StoryInput {
   return storyInput({
     storyId: story.id,
@@ -165,6 +171,7 @@ export function toStoryInput(
     root,
     brief,
     sourceDiff,
+    rubric,
   })
 }
 
@@ -186,7 +193,8 @@ export function storyInput({
   root,
   brief,
   sourceDiff,
-}: Pick<StoryInput, "storyId" | "scope" | "viewport"> & {
+  rubric,
+}: Pick<StoryInput, "storyId" | "scope" | "viewport" | "rubric"> & {
   size: { width: number; height: number }
   regions: readonly Pick<
     ManifestStory["regions"][number],
@@ -224,6 +232,7 @@ export function storyInput({
     images,
     ...(brief === undefined ? {} : { brief }),
     ...(sourceDiff === undefined ? {} : { sourceDiff }),
+    rubric,
   }
 }
 

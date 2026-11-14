@@ -1,0 +1,1282 @@
+import assert from "node:assert/strict"
+import { spawnSync } from "node:child_process"
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { test } from "node:test"
+import { fileURLToPath } from "node:url"
+import { gunzipSync } from "node:zlib"
+
+import { parse as parseYaml } from "yaml"
+
+import { markPortable } from "../checks/families.mjs"
+import { fullRunResults, stepResults } from "../checks/gate.mjs"
+import { jobPlans, placeOf } from "../checks/plan.mjs"
+import { prerequisites, withNeeds } from "../checks/prerequisites.mjs"
+import { uiBundledImports } from "../checks/projects.mjs"
+import { runsInOf } from "../checks/shard.mjs"
+import { vitestCommand } from "../ci/vitest-launch.mjs"
+
+// The tests of the check manifest and runner that read the whole repository:
+// the manifest of all apps and packages (each test file, story and baseline,
+// and the UI image inputs from the imports of each UI file), or the runner on
+// real test files of the apps. Their check has `apps/**` and `packages/**` as
+// inputs. ci-checks.test.mjs has the tests that read none of these files, so a
+// change to an app does not select it.
+
+const root = fileURLToPath(new URL("../../", import.meta.url))
+const records = (result) =>
+  result.stdout
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line))
+const evalCaseCount = () =>
+  (
+    readFileSync(join(root, "apps/backend/evals/mcp/cases.ts"), "utf8").match(
+      /^ {4}id: "/gm,
+    ) ?? []
+  ).length
+const script = (name) => join(root, "scripts/checks", name)
+const schema = (name) =>
+  JSON.parse(readFileSync(script(`schema/${name}.v1.schema.json`), "utf8"))
+const node = (args, input) =>
+  spawnSync(process.execPath, args, {
+    cwd: root,
+    encoding: "utf8",
+    input,
+    maxBuffer: 64 * 1024 * 1024,
+  })
+
+// Covers the JSON Schema keywords that the committed schemas use.
+const validate = (value, rule, document, path = "$") => {
+  if (rule.$ref)
+    return validate(
+      value,
+      document.$defs[rule.$ref.replace("#/$defs/", "")],
+      document,
+      path,
+    )
+  if ("const" in rule) assert.equal(value, rule.const, path)
+  if (rule.enum) assert.ok(rule.enum.includes(value), `${path}: ${value}`)
+  if (rule.type === "string") assert.equal(typeof value, "string", path)
+  if (rule.type === "integer") assert.ok(Number.isInteger(value), path)
+  if (rule.type === "number") assert.equal(typeof value, "number", path)
+  if (rule.type === "boolean") assert.equal(typeof value, "boolean", path)
+  if (rule.minimum !== undefined) assert.ok(value >= rule.minimum, path)
+  if (rule.pattern) assert.match(value, new RegExp(rule.pattern), path)
+  if (rule.type === "array") {
+    assert.ok(Array.isArray(value), path)
+    if (rule.uniqueItems)
+      assert.equal(new Set(value).size, value.length, `${path}: duplicates`)
+    if (rule.minItems !== undefined)
+      assert.ok(value.length >= rule.minItems, path)
+    if (rule.maxItems !== undefined)
+      assert.ok(value.length <= rule.maxItems, path)
+    for (const [index, item] of value.entries())
+      validate(item, rule.items, document, `${path}[${index}]`)
+  }
+  if (rule.type === "object") {
+    assert.equal(typeof value, "object", path)
+    for (const key of rule.required ?? [])
+      assert.ok(key in value, `${path}.${key}`)
+    for (const [key, item] of Object.entries(value)) {
+      const child = rule.properties?.[key] ?? rule.additionalProperties
+      assert.ok(typeof child === "object", `${path}: unexpected ${key}`)
+      validate(item, child, document, `${path}.${key}`)
+    }
+  }
+}
+
+test("the manifest matches its schema and lists each check of each family", async () => {
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const manifest = JSON.parse(result.stdout)
+  const document = schema("manifest")
+  validate(manifest, document, document)
+  const ids = manifest.checks.map(({ id }) => id)
+  assert.equal(new Set(ids).size, ids.length)
+  for (const lane of [
+    "backend",
+    "contracts",
+    "vercel",
+    "ui",
+    "cli",
+    "aws-cdk",
+    "visual-review",
+  ]) {
+    const inventory = node([
+      join(root, "scripts/ci/test-suite.mjs"),
+      lane,
+      "--list",
+    ])
+    assert.equal(inventory.status, 0, inventory.stderr)
+    const files = manifest.checks.filter(
+      (check) => check.family === "vitest" && check.lane === lane,
+    )
+    assert.equal(files.length, JSON.parse(inventory.stdout).length, lane)
+  }
+  const { prerequisites } = await import("../checks/prerequisites.mjs")
+  for (const check of manifest.checks) {
+    // A Storybook story and an eval case are cases of their file.
+    assert.equal(
+      check.id.split("#")[0],
+      `${check.family}:${check.lane}:${check.file}`,
+    )
+    assert.equal(
+      check.id.includes("#"),
+      check.family === "storybook" || check.lane === "mcp",
+      check.id,
+    )
+    assert.ok(existsSync(join(root, check.file)), check.file)
+    assert.ok(existsSync(join(root, check.root)), check.root)
+    assert.ok(check.file.startsWith(check.root), check.file)
+    for (const input of check.inputs)
+      assert.ok(
+        existsSync(join(root, input.replace(/\/\*\*$/, ""))),
+        `${check.lane}: ${input}`,
+      )
+    for (const name of check.prerequisites ?? [])
+      assert.ok(prerequisites[name], `${check.id}: prerequisite ${name}`)
+  }
+  // Each family lists itself; each project of projects.json has a typecheck.
+  const count = (family, lane) =>
+    manifest.checks.filter(
+      (check) => check.family === family && (!lane || check.lane === lane),
+    ).length
+  const projects = JSON.parse(
+    readFileSync(join(root, "scripts/ci/projects.json"), "utf8"),
+  )
+  assert.equal(count("typecheck"), projects.length)
+  // The projects that import the repo-root shared/ directory read it.
+  for (const lane of ["backend", "codesearch", "ui"])
+    assert.ok(
+      manifest.checks
+        .find((check) => check.family === "typecheck" && check.lane === lane)
+        .inputs.includes("shared/**"),
+      lane,
+    )
+  assert.equal(count("lint"), 3)
+  assert.ok(count("policy") >= 8)
+  assert.equal(count("eval", "mcp"), evalCaseCount())
+  assert.equal(count("eval", "cli-memory"), 0)
+  // Each eval check lists the MCP tools of its rules, sorted and unique.
+  const evals = manifest.checks.filter((check) => check.family === "eval")
+  for (const check of evals) {
+    assert.ok(Array.isArray(check.tools), `${check.id}: tools`)
+    assert.deepEqual(check.tools, [...new Set(check.tools)].sort(), check.id)
+  }
+  assert.deepEqual(
+    evals.find((check) => check.id.endsWith("#stale-cursor")).tools,
+    ["search_knowledge"],
+  )
+  assert.deepEqual(
+    evals.find((check) => check.id.endsWith("#parallel-knowledge-and-code"))
+      .tools,
+    ["search_code", "search_knowledge"],
+  )
+  assert.equal(count("vitest", "latency"), 2)
+  assert.equal(count("vitest", "upgrade"), 1)
+  assert.ok(count("storybook", "required") > 0)
+  assert.ok(count("storybook", "plays") > 0)
+  // Each committed baseline is the own input of exactly one visual check, and
+  // each own input is a committed baseline: the names of
+  // scripts/checks/visual.mjs and of the compare engine agree.
+  const owned = manifest.checks
+    .filter((check) => check.lane === "visual")
+    .flatMap((check) => check.ownInputs)
+  const baselines = spawnSync("git", ["ls-files", "*.screenshot.png"], {
+    cwd: root,
+    encoding: "utf8",
+  })
+    .stdout.split("\n")
+    .filter(Boolean)
+  assert.ok(baselines.length > 0)
+  assert.deepEqual(owned.toSorted(), baselines.toSorted())
+  for (const check of manifest.checks)
+    assert.equal(
+      check.selectAll ?? false,
+      check.lane === "visual",
+      `${check.id}: selectAll`,
+    )
+  // An expensive check states its intent in under about 40 words. A check
+  // that calls a model or a wall clock is stochastic; a check that reads
+  // remote state or base images by tag is not cacheable.
+  for (const check of manifest.checks) {
+    const expensive =
+      check.family === "eval" ||
+      check.lane === "required" ||
+      check.lane === "latency" ||
+      check.lane === "upgrade" ||
+      check.family === "build"
+    if (expensive) {
+      assert.ok(check.intent, `${check.id} has no intent`)
+      assert.ok(
+        check.intent.split(/\s+/).length <= 45,
+        `${check.id}: long intent`,
+      )
+    }
+    assert.equal(
+      check.stochastic ?? false,
+      check.family === "eval" || check.lane === "latency",
+      check.id,
+    )
+    assert.equal(
+      check.cacheable ?? true,
+      !(
+        check.lane === "terraform-plan" || check.lane.startsWith("image-")
+      ),
+      check.id,
+    )
+  }
+  // The ADR check reads only the decisions directory and its own script, not
+  // the git diff, so a change outside them keeps its key.
+  const adr = manifest.checks.find((check) => check.lane === "adr")
+  assert.ok(adr.inputs.includes(".ai/memory/decisions/**"))
+  assert.ok(
+    adr.inputs.every(
+      (input) => !input.startsWith("scripts/ci/") || input === adr.file,
+    ),
+    adr.inputs.join(", "),
+  )
+  assert.ok(manifest.checks.some((check) => check.lane === "codesearch"))
+  assert.ok(manifest.checks.some((check) => check.lane === "codesearch-bun"))
+  // A cache key hashes a `value` variable, and holds only set or unset for a
+  // `presence` variable.
+  const env = (lane) =>
+    manifest.checks.find(
+      (check) => check.family === "vitest" && check.lane === lane,
+    ).env
+  const mode = (lane, name) =>
+    env(lane).find((item) => item.name === name)?.mode
+  assert.equal(mode("backend", "MODEL_PROVIDER"), "value")
+  assert.equal(mode("backend", "GITHUB_TOKEN"), "presence")
+  assert.equal(mode("backend", "AUTH_BASE_URL"), "presence")
+  assert.equal(mode("vercel", "VERCEL_TOKEN"), "presence")
+  assert.equal(env("ui"), undefined)
+})
+
+test("the runner runs exactly the given ids and writes one schema result for each", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-checks-"))
+  try {
+    const known = "vitest:ui:apps/ui/src/components/onboarding/org-name.test.ts"
+    const ids = join(directory, "ids.txt")
+    const input = `${known}\nvitest:ui:apps/ui/src/missing.test.ts\n${known}\n`
+    const result = node([script("run.mjs")], input)
+    // An unknown id is an error, so the run fails.
+    assert.equal(result.status, 1, result.stderr)
+    const records = result.stdout
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+    const document = schema("result")
+    for (const record of records) validate(record, document, document)
+    assert.ok(records.every((record) => record.schemaVersion === 1))
+    assert.deepEqual(
+      records.map(({ id, status }) => [id, status]).sort(),
+      [
+        ["vitest:ui:apps/ui/src/missing.test.ts", "error"],
+        [known, "passed"],
+      ].sort(),
+    )
+    const passed = records.find(({ id }) => id === known)
+    assert.ok(passed.cases.length > 0)
+    assert.ok(existsSync(join(root, passed.log)))
+    assert.equal(node([script("run.mjs"), ids, "extra"]).status, 1)
+    const none = node([script("run.mjs")], "\n\n")
+    assert.equal(none.status, 1)
+    assert.match(none.stderr, /no check ids given/)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("the runner sets the time zone and the locale of each check", () => {
+  // A check of the ui lane that fails unless the runner set TZ and LANG.
+  const name = `host-pins-${process.pid}.test.ts`
+  const file = join(root, "apps/ui/src", name)
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-checks-"))
+  try {
+    writeFileSync(
+      file,
+      `import { expect, it } from "vitest"
+it("runs in UTC with the C.UTF-8 locale", () => {
+  expect(process.env.TZ).toBe("UTC")
+  expect(process.env.LANG).toBe("C.UTF-8")
+  expect(process.env.LC_ALL).toBe("C.UTF-8")
+  expect(new Date(0).getHours()).toBe(0)
+})
+`,
+    )
+    const check = {
+      id: `vitest:ui:apps/ui/src/${name}`,
+      family: "vitest",
+      lane: "ui",
+      root: "apps/ui",
+      file: `apps/ui/src/${name}`,
+      inputs: [],
+      runtime: "node",
+    }
+    const manifest = join(directory, "manifest.json")
+    writeFileSync(
+      manifest,
+      JSON.stringify({ schemaVersion: 1, checks: [check] }),
+    )
+    const result = spawnSync(
+      process.execPath,
+      [script("run.mjs"), "--manifest", manifest],
+      {
+        cwd: root,
+        encoding: "utf8",
+        input: `${check.id}\n`,
+        env: {
+          ...process.env,
+          TZ: "Pacific/Auckland",
+          LANG: "de_DE.UTF-8",
+          LC_ALL: "de_DE.UTF-8",
+        },
+      },
+    )
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+    assert.equal(JSON.parse(result.stdout).status, "passed")
+    // The CI test jobs start Vitest through the same launcher.
+    const launch = vitestCommand(
+      { name: "ui", directory: "apps/ui", runtime: "node" },
+      root,
+      [],
+      join(directory, "report.json"),
+    )
+    assert.deepEqual(
+      [launch.env.TZ, launch.env.LANG, launch.env.LC_ALL],
+      ["UTC", "C.UTF-8", "C.UTF-8"],
+    )
+  } finally {
+    rmSync(file, { force: true })
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("the manifest marks exactly the platform-independent checks portable", () => {
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const { checks } = JSON.parse(result.stdout)
+  const lanes = (portable) => [
+    ...new Set(
+      checks
+        .filter((check) => Boolean(check.portable) === portable)
+        .map(({ family, lane }) =>
+          family === "build"
+            ? `build:${lane.split("-")[0]}`
+            : `${family}:${lane}`,
+        ),
+    ),
+  ]
+  const notPortable = lanes(false).sort()
+  assert.deepEqual(
+    notPortable,
+    [
+      "build:image",
+      // Only the contracts file of the denylist.
+      "vitest:contracts",
+      "vitest:latency",
+    ].sort(),
+  )
+  for (const lane of [
+    "vitest:backend",
+    "vitest:vercel",
+    "vitest:upgrade",
+    "vitest:ui",
+    "vitest:cli",
+    "vitest:aws-cdk",
+    "vitest:visual-review",
+    "storybook:required",
+    "storybook:plays",
+    "storybook:visual",
+    "eval:mcp",
+    "build:package",
+  ])
+    assert.ok(lanes(true).includes(lane), lane)
+  assert.ok(
+    lanes(true).every((lane) =>
+      /^(vitest|storybook|eval|typecheck|lint|policy|build):/.test(lane),
+    ),
+  )
+  const programs = (lane) =>
+    new Set(
+      checks
+        .filter((check) => check.lane === lane && check.family === "vitest")
+        .map((check) => JSON.stringify(check.programs)),
+    )
+  assert.deepEqual(
+    programs("backend"),
+    new Set(['["git"]', '["git","ast-grep"]', '["git","bun"]']),
+  )
+  assert.deepEqual(programs("cli"), new Set(['["git"]', '["git","bash"]']))
+  assert.deepEqual(programs("upgrade"), new Set(['["git","zoekt","ast-grep"]']))
+  // The contracts lane runs Linux containers: its key holds the platform of
+  // the Docker server.
+  for (const lane of ["codesearch", "codesearch-bun"])
+    assert.deepEqual(programs(lane), new Set(['["container-platform"]']))
+  assert.deepEqual(
+    programs("contracts"),
+    new Set(['["git","bun","zoekt","ast-grep","container-platform"]']),
+  )
+  // A screenshot is taken in the pinned image of the Docker server.
+  assert.deepEqual(
+    new Set(
+      checks
+        .filter((check) => check.lane === "visual")
+        .map((check) => JSON.stringify(check.programs)),
+    ),
+    new Set(['["container-platform"]']),
+  )
+  // A check that the denylist names is never portable.
+  const denied = JSON.parse(readFileSync(script("non-portable.json"), "utf8"))
+  for (const check of checks.filter(({ id }) => denied.includes(id)))
+    assert.equal(check.portable, undefined, check.id)
+  const listed = { id: "vitest:ui:a.test.ts", portable: true }
+  assert.deepEqual(markPortable([listed], new Set([listed.id])), [
+    { id: listed.id },
+  ])
+  assert.deepEqual(markPortable([listed], new Set()), [listed])
+})
+
+test("the manifest lists each prerequisite that a prerequisite needs", () => {
+  assert.deepEqual(withNeeds(["chat-sandbox-image", "migrations"]), [
+    "chat-sandbox-image",
+    "migrations",
+    "docker",
+    "postgres",
+  ])
+  assert.deepEqual(withNeeds(["docker", "chat-sandbox-image"]), [
+    "docker",
+    "chat-sandbox-image",
+  ])
+  // A selector leaves a Docker lane to CI when Docker does not answer
+  // (factory check), so the backend lanes must name Docker.
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const { checks } = JSON.parse(result.stdout)
+  for (const check of checks.filter(
+    ({ family, lane }) =>
+      family === "vitest" && ["backend", "contracts"].includes(lane),
+  ))
+    assert.ok(check.prerequisites.includes("docker"), check.id)
+  for (const check of checks)
+    for (const name of check.prerequisites ?? [])
+      for (const need of prerequisites[name]?.needs ?? [])
+        assert.ok(check.prerequisites.includes(need), `${check.id}: ${need}`)
+})
+
+test("the backend files that start Docker or host tools run in the contracts lane", () => {
+  const moved = JSON.parse(
+    readFileSync(join(root, "scripts/ci/contracts.json"), "utf8"),
+  )["host Docker, zoekt and process environment"]
+  assert.ok(moved.length >= 10)
+  const backend = JSON.parse(
+    node([join(root, "scripts/ci/test-suite.mjs"), "backend", "--list"]).stdout,
+  )
+  const contracts = JSON.parse(
+    node([join(root, "scripts/ci/test-suite.mjs"), "contracts", "--list"])
+      .stdout,
+  )
+  for (const file of moved) {
+    assert.ok(!backend.includes(file), file)
+    assert.ok(contracts.includes(file), file)
+  }
+  // No file left in the portable backend lane starts Docker through the
+  // TanStack Docker sandbox or a native fixture.
+  const starts =
+    /from "@tanstack\/ai-sandbox-docker"|native-index-fixture|docker-workspace-base|agent-vault-fixture/
+  for (const file of backend) {
+    const text = readFileSync(join(root, "apps/backend", file), "utf8")
+    const imports = text.match(/^import .*$/gm)?.join("\n") ?? ""
+    assert.ok(
+      !starts.test(imports) || /DockerHandle/.test(imports),
+      `${file} starts Docker; add it to the not portable group of scripts/ci/contracts.json`,
+    )
+  }
+})
+
+test("the runner traces the lines that each case executed", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-trace-"))
+  try {
+    const id = "vitest:ui:apps/ui/src/components/onboarding/org-name.test.ts"
+    const result = node([script("run.mjs"), "--trace", directory], `${id}\n`)
+    assert.equal(result.status, 0, result.stderr)
+    const file = join(directory, "trace.json.gz")
+    const trace = JSON.parse(gunzipSync(readFileSync(file)).toString("utf8"))
+    const document = schema("trace")
+    validate(trace, document, document)
+    const head = spawnSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+    })
+    assert.equal(trace.commit, head.stdout.trim())
+    assert.deepEqual(
+      trace.checks.map((check) => check.id),
+      [id],
+    )
+    const cases = new Map(trace.checks[0].cases.map((c) => [c.name, c]))
+    const source = "apps/ui/src/components/onboarding/org-name.ts"
+    const ran = (name, line) =>
+      (cases.get(name)?.lines[source] ?? []).some(
+        ([first, last]) => first <= line && line <= last,
+      )
+    // Module evaluation goes to <collect>: the PERSONAL_MAIL_DOMAINS set.
+    assert.ok(ran("<collect>", 59))
+    // A case owns the function body that it ran, and not the others.
+    const work = "orgNameFromEmail names the organization after a work domain"
+    assert.ok(ran(work, 40))
+    assert.ok(!ran(work, 23))
+    assert.ok(!ran("<collect>", 40))
+    // The merge of one trace gives the same checks; a check twice is refused.
+    const merged = join(directory, "merged.json.gz")
+    const merge = (inputs) =>
+      node([script("trace.mjs"), "merge", merged, ...inputs])
+    assert.equal(merge([file]).status, 0)
+    assert.deepEqual(
+      JSON.parse(gunzipSync(readFileSync(merged)).toString("utf8")),
+      trace,
+    )
+    assert.equal(merge([file, file]).status, 1)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("the trace code itself is not traced, also under jsdom", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-trace-"))
+  try {
+    const id = "vitest:ui:apps/ui/src/components/ui/Button.test.tsx"
+    const result = node([script("run.mjs"), "--trace", directory], `${id}\n`)
+    assert.equal(result.status, 0, result.stderr)
+    const file = join(directory, "trace.json.gz")
+    const trace = JSON.parse(gunzipSync(readFileSync(file)).toString("utf8"))
+    const paths = trace.checks[0].cases.flatMap(({ lines }) =>
+      Object.keys(lines),
+    )
+    assert.ok(paths.includes("apps/ui/src/components/ui/Button.tsx"))
+    assert.deepEqual(
+      paths.filter((path) => path.startsWith("scripts/checks/")),
+      [],
+    )
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("a broken trace never changes the result of a run", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-trace-"))
+  try {
+    // A part file that a killed worker cut off is an error of the trace only.
+    const parts = join(directory, "parts")
+    mkdirSync(parts)
+    writeFileSync(join(parts, "a.json"), '{"file": "apps/ui/src/a.ts", "cas')
+    const { laneChecks } = await import("../checks/trace.mjs")
+    assert.throws(() => laneChecks(parts, "ui"))
+    // A trace directory that cannot exist leaves the run and its result lines
+    // as they are.
+    const id = "vitest:ui:apps/ui/src/components/onboarding/org-name.test.ts"
+    const blocked = join(directory, "blocked")
+    writeFileSync(blocked, "a file, not a directory")
+    const plain = node([script("run.mjs")], `${id}\n`)
+    const traced = node([script("run.mjs"), "--trace", blocked], `${id}\n`)
+    assert.equal(plain.status, 0, plain.stderr)
+    assert.equal(traced.status, plain.status, traced.stderr)
+    const status = (result) =>
+      result.stdout
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line))
+        .map(({ id, status }) => [id, status])
+    assert.deepEqual(status(traced), status(plain))
+    assert.match(traced.stderr, /No trace/)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("the trace records the lines that a case runs in a Node child process", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-trace-"))
+  try {
+    // The CLI tests run the built bin/ctxpipe.js in a child process.
+    const id = "vitest:cli:packages/cli/test/argv.test.ts"
+    const result = node([script("run.mjs"), "--trace", directory], `${id}\n`)
+    assert.equal(result.status, 0, result.stderr)
+    const file = join(directory, "trace.json.gz")
+    const trace = JSON.parse(gunzipSync(readFileSync(file)).toString("utf8"))
+    const document = schema("trace")
+    validate(trace, document, document)
+    const [check] = trace.checks
+    // A child wrote coverage, so `children` is recorded.
+    assert.ok(check.recorded.includes("children"))
+    assert.ok(
+      check.recorded.includes("reads") && check.recorded.includes("dirs"),
+    )
+    assert.equal(trace.fsRecorded, undefined)
+    const help = check.cases.find(({ name }) => name.includes("init --help"))
+    // The source map of the build maps the child's lines to the source.
+    assert.ok(help.lines["packages/cli/src/cli.ts"]?.length)
+    assert.ok(help.lines["packages/cli/bin/ctxpipe.js"]?.length)
+    assert.ok(
+      !check.cases.find(({ name }) => name === "<collect>").lines[
+        "packages/cli/src/cli.ts"
+      ],
+    )
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("the trace records the files that a case runs in a Bun child process", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-trace-"))
+  try {
+    // Each fixture case starts child.mjs, which runs known() from known.mjs.
+    const fixtures = join(root, "scripts/tests/fixtures/trace-children")
+    const parts = join(directory, "parts")
+    const vitest = join(root, "apps/backend/node_modules/vitest/vitest.mjs")
+    const result = spawnSync(
+      process.execPath,
+      [vitest, "run", `--reporter=${script("trace-reporter.mjs")}`],
+      {
+        cwd: fixtures,
+        encoding: "utf8",
+        env: { ...process.env, CTXPIPE_TRACE_PARTS: parts },
+      },
+    )
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+    const { laneChecks } = await import("../checks/trace.mjs")
+    const checks = new Map(
+      laneChecks(parts, "fixture").map((check) => [
+        check.id.split("/").at(-1),
+        check,
+      ]),
+    )
+    const document = schema("trace")
+    validate(
+      {
+        schemaVersion: 1,
+        commit: "0".repeat(40),
+        checks: [...checks.values()],
+      },
+      document,
+      document,
+    )
+    const known = "scripts/tests/fixtures/trace-children/known.mjs"
+    const lines = (file, name) =>
+      checks.get(file).cases.find((c) => c.name === name).lines[known]
+    // A Node child gives the lines of known() only.
+    assert.deepEqual(lines("children.fixture.mjs", "a Node child"), [[1, 5]])
+    // A Bun child gives the whole files that it loaded, also when a signal
+    // stops it.
+    assert.deepEqual(
+      lines("children.fixture.mjs", "a Bun child that a signal stops"),
+      [[1, 7]],
+    )
+    assert.ok(checks.get("children.fixture.mjs").recorded.includes("children"))
+    // A signal stops a Node child before it writes its coverage: the lines
+    // are missing, and the check does not claim `children`.
+    assert.equal(
+      lines("lost.fixture.mjs", "a Node child that a signal stops"),
+      undefined,
+    )
+    assert.ok(!checks.get("lost.fixture.mjs").recorded.includes("children"))
+    // A Bun child with its own `env` cannot load the preload: no `children`,
+    // and the other files of the worker keep theirs.
+    assert.ok(!checks.get("env.fixture.mjs").recorded.includes("children"))
+    // A Node child that outlives its file writes its coverage after the part.
+    assert.ok(!checks.get("late.fixture.mjs").recorded.includes("children"))
+    // known.mjs runs in a Bun child in one case and in process in another.
+    // The Bun file must not change the exact ranges of the in-process case.
+    assert.deepEqual(lines("mixed.fixture.mjs", "a Bun child"), [[1, 7]])
+    assert.deepEqual(lines("mixed.fixture.mjs", "in process"), [[1, 3]])
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("an eval check refuses to run without the workbench variables", () => {
+  const id = "eval:mcp:apps/backend/evals/mcp/cases.ts#stale-cursor"
+  const env = { ...process.env }
+  delete env.MODEL_PROVIDER_API_KEY
+  delete env.MCP_EVAL_MODELS
+  const result = spawnSync(process.execPath, [script("run.mjs")], {
+    cwd: root,
+    encoding: "utf8",
+    input: `${id}\n`,
+    env,
+  })
+  assert.equal(result.status, 1)
+  const [record] = records(result)
+  const document = schema("result")
+  validate(record, document, document)
+  assert.equal(record.status, "error")
+  assert.equal(record.origin, "prerequisite")
+  assert.match(record.message, /Prerequisite workbench failed/)
+  assert.match(record.message, /MODEL_PROVIDER_API_KEY/)
+  assert.match(record.message, /workbench environment/)
+})
+
+test("a project check runs its command and records its time in the trace", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-trace-"))
+  try {
+    const id = "policy:runners:scripts/ci/check-runners.mjs"
+    const result = node([script("run.mjs"), "--trace", directory], `${id}\n`)
+    assert.equal(result.status, 0, result.stderr)
+    const [record] = records(result)
+    const document = schema("result")
+    validate(record, document, document)
+    assert.equal(record.status, "passed")
+    assert.deepEqual(
+      record.cases.map(({ name }) => name),
+      ["runners"],
+    )
+    assert.ok(existsSync(join(root, record.log)))
+    const file = join(directory, "trace.json.gz")
+    const trace = JSON.parse(gunzipSync(readFileSync(file)).toString("utf8"))
+    const traceDocument = schema("trace")
+    validate(trace, traceDocument, traceDocument)
+    assert.deepEqual(trace.checks, [])
+    assert.deepEqual(Object.keys(trace.durations), [id])
+    // The merge keeps the durations and refuses one check twice.
+    const merged = join(directory, "merged.json.gz")
+    assert.equal(node([script("trace.mjs"), "merge", merged, file]).status, 0)
+    assert.deepEqual(
+      JSON.parse(gunzipSync(readFileSync(merged)).toString("utf8")).durations,
+      trace.durations,
+    )
+    assert.equal(
+      node([script("trace.mjs"), "merge", merged, file, file]).status,
+      1,
+    )
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("the browser trace maps page coverage to source lines through the build's source maps", async () => {
+  const { encode } = await import("@jridgewell/sourcemap-codec")
+  const { browserTrace } = await import("../checks/storybook.mjs")
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-storybook-"))
+  try {
+    mkdirSync(join(directory, "assets"))
+    // A built chunk of two functions on one line, from lines 1 and 2 of a
+    // repo file. Only the second one ran.
+    const source = "function a(){return 1}function b(){return 2}"
+    const original = join(root, "apps/ui/src/components/onboarding/org-name.ts")
+    writeFileSync(join(directory, "assets/chunk.js"), source)
+    writeFileSync(
+      join(directory, "assets/chunk.js.map"),
+      JSON.stringify({
+        version: 3,
+        sources: [original],
+        mappings: encode([
+          [
+            [0, 0, 0, 0],
+            [13, 0, 0, 9],
+            [22, 0, 1, 0],
+            [35, 0, 1, 9],
+          ],
+        ]),
+      }),
+    )
+    writeFileSync(join(directory, "assets/unmapped.js"), "function c(){}")
+    const story = {
+      id: "onboarding--org-name",
+      importPath: "./src/components/onboarding/org-name.stories.tsx",
+      exportName: "OrgName",
+      tags: ["play-fn"],
+    }
+    const entry = (path, text, ranges) => ({
+      url: `http://127.0.0.1:6006${path}`,
+      source: text,
+      functions: [{ ranges }],
+    })
+    const tracer = browserTrace(directory)
+    const ran = entry("/assets/chunk.js", source, [
+      { startOffset: 0, endOffset: source.length, count: 1 },
+      { startOffset: 0, endOffset: 22, count: 0 },
+    ])
+    const record = tracer.check(story, 12, [ran], ["GET */api/v1/x"])
+    const document = schema("trace")
+    validate(
+      { schemaVersion: 1, commit: "0".repeat(40), checks: [record] },
+      document,
+      document,
+    )
+    assert.equal(
+      record.id,
+      "storybook:plays:apps/ui/src/components/onboarding/org-name.stories.tsx#onboarding--org-name",
+    )
+    assert.deepEqual(record.recorded, ["browser", "mocks"])
+    assert.deepEqual(record.cases[0].lines, {
+      "apps/ui/src/components/onboarding/org-name.ts": [[2, 2]],
+    })
+    assert.deepEqual(record.cases[0].mocks, ["GET */api/v1/x"])
+    // A built chunk without a map is a gap: no `browser`. A page that did
+    // not expose its MSW handlers records no `mocks`.
+    const gap = tracer.check(
+      story,
+      12,
+      [
+        ran,
+        entry("/assets/unmapped.js", "function c(){}", [
+          { startOffset: 0, endOffset: 14, count: 1 },
+        ]),
+      ],
+      null,
+    )
+    assert.deepEqual(gap.recorded, [])
+    assert.equal(tracer.check(story, 12, undefined, null), null)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("every check has the root toolchain files among its inputs", () => {
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const { checks } = JSON.parse(result.stdout)
+  assert.ok(checks.length > 0)
+  for (const { id, inputs } of checks)
+    for (const file of [
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      ".node-version",
+    ])
+      assert.ok(inputs.includes(file), `${id} lacks input ${file}`)
+})
+
+test("the manifest lists a check for each job of the other pull request workflows", () => {
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const checks = new Map(
+    JSON.parse(result.stdout).checks.map((check) => [check.id, check]),
+  )
+  const lane = (family, name) =>
+    [...checks.values()].filter(
+      (check) => check.family === family && check.lane === name,
+    )
+  // cli-test.yaml is gone: the cli lane runs in the package tests job.
+  assert.ok(lane("vitest", "cli").length > 0)
+  assert.ok(lane("vitest", "cli")[0].inputs.includes("packages/cli/src/**"))
+  assert.ok(lane("vitest", "ui").length > 0)
+  // The Lint and format job of ci.yaml runs the policy check of the plugin.
+  const plugin = checks.get(
+    "policy:claude-plugin:scripts/ci/check-claude-plugin.mjs",
+  )
+  assert.ok(plugin)
+  assert.equal(plugin.family, "policy")
+  assert.equal(plugin.root, "")
+  assert.equal(plugin.runtime, "node")
+  assert.equal(plugin.stochastic, undefined)
+  for (const input of [
+    "plugins/**",
+    ".claude-plugin/**",
+    "scripts/ci/check-claude-plugin.mjs",
+    "scripts/checks/projects.mjs",
+  ])
+    assert.ok(plugin.inputs.includes(input), input)
+  assert.deepEqual(placeOf(plugin.id), { job: "lint" })
+  // The Terraform plan: not cacheable, selected by the files of infra.
+  const plan = checks.get("policy:terraform-plan:infra/main.tf")
+  assert.ok(plan)
+  assert.equal(plan.cacheable, false)
+  assert.ok(plan.inputs.includes("infra/**"))
+  assert.deepEqual(plan.prerequisites, ["terraform-plan"])
+  assert.ok(plan.intent)
+  // Each check that is not stochastic has a job that gives its result in a
+  // full run. The Terraform plan has its own workflow.
+  for (const check of checks.values()) {
+    if (check.stochastic || check === plan) continue
+    assert.ok(runsInOf(check.id), check.id)
+  }
+  // mcp-evals.yaml runs the eval cases; a model call is stochastic.
+  assert.ok(lane("eval", "mcp").length > 0)
+  for (const check of lane("eval", "mcp"))
+    assert.equal(check.stochastic, true, check.id)
+})
+
+test("the manifest lists a build check for each production image and package of CI", () => {
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const builds = new Map(
+    JSON.parse(result.stdout)
+      .checks.filter((check) => check.family === "build")
+      .map((check) => [check.id, check]),
+  )
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const job = (name) =>
+    workflow.slice(
+      workflow.indexOf(`\n  ${name}:\n`),
+      workflow.indexOf("\n\n  ", workflow.indexOf(`\n  ${name}:\n`) + 1),
+    )
+  // The Production build job has one matrix entry for each image check: the
+  // merge gate takes the job `Production build (<name>)` as the result of
+  // `build:image-<name>:`. Each entry builds the Dockerfile of its check.
+  // The entries of the full run are the JSON fallback of the matrix; in gate
+  // mode the plan job gives the same entries for the selected images.
+  const entries = JSON.parse(
+    /production-builds \|\| '(\[[^']*\])'/.exec(job("production-builds"))[1],
+  )
+  const images = entries.map(
+    ({ name, dockerfile }) => `build:image-${name}:${dockerfile}`,
+  )
+  assert.deepEqual(
+    images.sort(),
+    [...builds.keys()].filter((id) => id.startsWith("build:image-")),
+  )
+  assert.deepEqual(
+    jobPlans(images, new Map())["production-builds"].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    ),
+    entries.sort((a, b) => a.name.localeCompare(b.name)),
+  )
+  assert.ok(!job("production-builds").includes("pnpm install"))
+  assert.equal(
+    fullRunResults(
+      [],
+      {},
+      stepResults({
+        jobs: [{ name: "Production build (ui)", conclusion: "failure" }],
+      }),
+    )("build:image-ui:apps/ui/Dockerfile"),
+    "failed",
+  )
+  assert.ok(job("packages").includes("pnpm -s checks:run"))
+  const expected = {
+    "build:image-backend:apps/backend/Dockerfile": [
+      "apps/backend/**",
+      "shared/**",
+      "patches/**",
+      ".dockerignore",
+    ],
+    "build:image-worker:apps/backend/Dockerfile.worker": [
+      "apps/backend/**",
+      "shared/**",
+    ],
+    "build:image-ui:apps/ui/Dockerfile": [
+      "apps/ui/**",
+      "apps/backend/package.json",
+    ],
+    "build:image-codesearch:apps/codesearch/Dockerfile": [
+      "apps/codesearch/**",
+      "shared/**",
+    ],
+    "build:image-docs:apps/docs/Dockerfile": ["apps/docs/**"],
+    "build:image-chat-sandbox:scripts/chat-sandbox/Dockerfile": [
+      "scripts/chat-sandbox/**",
+    ],
+    "build:package-backend:apps/backend/package.json": [
+      "apps/backend/**",
+      "shared/**",
+    ],
+    "build:package-codesearch:apps/codesearch/package.json": [
+      "apps/codesearch/**",
+      "shared/**",
+    ],
+    "build:package-aws-cdk:packages/aws-cdk/package.json": [
+      "packages/aws-cdk/**",
+    ],
+    "build:package-cli:packages/cli/package.json": ["packages/cli/**"],
+  }
+  assert.deepEqual([...builds.keys()].sort(), Object.keys(expected).sort())
+  for (const [id, inputs] of Object.entries(expected)) {
+    const check = builds.get(id)
+    assert.ok(existsSync(join(root, check.file)), `${check.file} is missing`)
+    for (const input of [...inputs, "pnpm-lock.yaml"])
+      assert.ok(check.inputs.includes(input), `${id} lacks input ${input}`)
+    assert.ok(check.intent, id)
+    const image = check.lane.startsWith("image-")
+    // An image pulls base images by tag, so a result cache never reuses it;
+    // a package build is a function of its inputs.
+    assert.equal(check.cacheable ?? true, !image, id)
+    assert.deepEqual(runsInOf(id), {
+      job: image ? "production-builds" : "packages",
+    })
+  }
+  assert.deepEqual(
+    builds.get("build:image-codesearch:apps/codesearch/Dockerfile")
+      .prerequisites,
+    ["docker"],
+  )
+  // The backend and codesearch builds run Bun: a cache key holds its version.
+  for (const name of ["backend", "codesearch"]) {
+    const check = builds.get(`build:package-${name}:apps/${name}/package.json`)
+    assert.equal(check.runtime, "bun")
+    assert.deepEqual(check.prerequisites, ["bun"])
+  }
+  assert.equal(
+    builds.get("build:package-cli:packages/cli/package.json").runtime,
+    "node",
+  )
+})
+
+test("the UI image selects on the backend files that the UI build bundles, not on the whole backend", () => {
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const ui = JSON.parse(result.stdout).checks.find(
+    (check) => check.id === "build:image-ui:apps/ui/Dockerfile",
+  )
+  // A plain path or a `/**` directory: the only input forms of this check.
+  const selects = (path) =>
+    ui.inputs.some((input) =>
+      input.endsWith("/**")
+        ? path.startsWith(input.slice(0, -2))
+        : input === path,
+    )
+  for (const file of [...uiBundledImports(), "apps/backend/package.json"])
+    assert.ok(ui.inputs.includes(file), file)
+  // apps/ui/src/components/onboarding/org-name.ts imports it as a value.
+  assert.ok(selects("apps/backend/src/domain/workspaces/slug.ts"))
+  // No UI file imports it, but sources-file.ts and providers/git.ts, which
+  // the UI imports, import it as a value: the build bundles it.
+  const github = "apps/backend/src/domain/workspace-sources/providers/github"
+  const uiFiles = readdirSync(join(root, "apps/ui/src"), { recursive: true })
+  for (const file of uiFiles.filter((file) => /\.tsx?$/.test(file)))
+    assert.ok(
+      !readFileSync(join(root, "apps/ui/src", file), "utf8").includes(
+        github.replace("apps/backend/src/", "backend/"),
+      ),
+      file,
+    )
+  assert.ok(selects(`${github}.ts`))
+  // The UI imports it only as a type, which the build erases.
+  assert.ok(
+    !selects("apps/backend/src/routes/v1/workspace-sources-contract.ts"),
+  )
+  // The UI does not import it.
+  assert.ok(!selects("apps/backend/src/app/app.ts"))
+})
+
+test("the project check times job selects the typecheck, lint and policy checks that can be cached", () => {
+  const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
+  const step = workflow
+    .split("\n      - name: ")
+    .find((part) => part.startsWith("Project checks through the check runner"))
+  assert.ok(step, "the job has the check runner step")
+  const filter = step.match(/jq -r '([^']*)'/)
+  assert.ok(filter, "the step filters checks with jq")
+  const listed = spawnSync("node", ["scripts/checks/list.mjs"], {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: 1 << 28,
+  })
+  assert.equal(listed.status, 0, listed.stderr)
+  const manifest = JSON.parse(listed.stdout)
+  const selected = spawnSync("jq", ["-r", filter[1]], {
+    input: listed.stdout,
+    encoding: "utf8",
+    maxBuffer: 1 << 28,
+  })
+  assert.equal(selected.status, 0, selected.stderr)
+  const ids = selected.stdout.split("\n").filter(Boolean)
+  const expected = manifest.checks
+    .filter(
+      (c) =>
+        ["typecheck", "lint", "policy"].includes(c.family) &&
+        c.cacheable !== false,
+    )
+    .map((c) => c.id)
+  assert.ok(
+    manifest.checks.some((c) => c.cacheable === false && c.family === "policy"),
+  )
+  for (const family of ["typecheck", "lint", "policy"])
+    assert.ok(
+      ids.some((id) => id.startsWith(`${family}:`)),
+      family,
+    )
+  assert.deepEqual(ids.sort(), expected.sort())
+})
+
+test("the Lint and format job runs each lint and policy check of CI through the check runner, and no other command", () => {
+  const { jobs } = parseYaml(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+  )
+  // Each rule of the job is a check of the manifest, so the merge gate can
+  // select it and accept a stored pass. A step that runs a command outside
+  // the check runner would run a rule that the gate cannot select or cache.
+  const commands = jobs.lint.steps
+    .filter((step) => step.run)
+    .map((step) => step.run.trim())
+  const runners = commands.filter((command) =>
+    /scripts\/checks\/(run|selected)\.mjs/.test(command),
+  )
+  assert.equal(runners.length, 2, commands.join("\n---\n"))
+  for (const command of commands)
+    assert.ok(
+      runners.includes(command) ||
+        [
+          "corepack enable",
+          "pnpm install --frozen-lockfile",
+          "cat .ci-results/checks/*.log || true",
+        ].includes(command),
+      command,
+    )
+  // In a full run, the jq filter of the runner step selects each lint and
+  // policy check that this job runs (not the Terraform plan).
+  const filter = runners
+    .find((command) => command.includes("run.mjs"))
+    .match(/jq -r '([^']*)'/)
+  assert.ok(filter, "the full run filters the checks with jq")
+  const listed = node([script("list.mjs")])
+  assert.equal(listed.status, 0, listed.stderr)
+  const selected = spawnSync("jq", ["-r", filter[1]], {
+    input: listed.stdout,
+    encoding: "utf8",
+    maxBuffer: 1 << 28,
+  })
+  assert.equal(selected.status, 0, selected.stderr)
+  const expected = JSON.parse(listed.stdout)
+    .checks.filter((check) => placeOf(check.id).job === "lint")
+    .map((check) => check.id)
+  for (const family of ["lint", "policy"])
+    assert.ok(
+      expected.some((id) => id.startsWith(`${family}:`)),
+      family,
+    )
+  assert.deepEqual(
+    selected.stdout.split("\n").filter(Boolean).sort(),
+    expected.sort(),
+  )
+  // The workflow guards must not depend on the LLM stage, and the date
+  // decides the unstable screenshot list: the Merge gate job runs them on
+  // each pull request.
+  const always = jobs["merge-gate"].steps.find(
+    (step) => step.name === "Workflow guards and the unstable screenshot list",
+  )
+  assert.equal(always.if, "always()")
+  for (const name of [
+    "workflow-credentials",
+    "secret-jobs",
+    "workflow-inputs",
+    "runners",
+    "unstable-list",
+  ])
+    assert.match(always.run, new RegExp(` ${name}[ ;]`), name)
+  // In gate mode, the job runs the checks of its plan.
+  assert.ok(
+    runners.includes(
+      'node scripts/checks/selected.mjs .ci-results/lint "$RUNNER_TEMP/plan/plan.json" lint',
+    ),
+  )
+})
+
+test("each test file of the CI scripts is a policy check that selects on the files it reads", () => {
+  const listed = node([script("list.mjs")])
+  assert.equal(listed.status, 0, listed.stderr)
+  const checks = new Map(
+    JSON.parse(listed.stdout).checks.map((check) => [check.file, check]),
+  )
+  const files = readdirSync(join(root, "scripts/tests")).filter((name) =>
+    /\.test\.(mjs|sh)$/.test(name),
+  )
+  assert.ok(files.length > 30)
+  for (const name of files) {
+    const check = checks.get(`scripts/tests/${name}`)
+    assert.ok(check, name)
+    assert.equal(
+      check.id,
+      `policy:tests-${name.replace(/\.test\.(mjs|sh)$/, "")}:scripts/tests/${name}`,
+    )
+    assert.deepEqual(placeOf(check.id), { job: "lint" })
+    for (const input of ["scripts/**", ".github/**", "pnpm-lock.yaml"])
+      assert.ok(check.inputs.includes(input), `${name}: ${input}`)
+    // A shell test runs fixed fixtures through POSIX options of bash, grep,
+    // sed, jq and python3 only, so a pass on macOS counts on Linux.
+    assert.equal(check.portable, true, name)
+  }
+  // A test that reads the whole manifest or the files of the apps selects
+  // on them.
+  for (const name of [
+    "ci-checks-repo",
+    "ci-merge-gate",
+    "ci-merge-gate-plan",
+    "ci-critics",
+    "ci-test-policy",
+    "ci-service-pins",
+  ]) {
+    const { inputs } = checks.get(`scripts/tests/${name}.test.mjs`)
+    for (const input of ["apps/**", "packages/**"])
+      assert.ok(inputs.includes(input), `${name}: ${input}`)
+  }
+  // The other tests of the runner read no app file, so a change to an app
+  // does not select them.
+  for (const name of ["ci-runners", "ci-checks"]) {
+    const { inputs } = checks.get(`scripts/tests/${name}.test.mjs`)
+    assert.ok(
+      inputs.every(
+        (input) =>
+          !/^(apps|packages)\//.test(input) ||
+          [
+            "apps/ui/.storybook/**",
+            "apps/backend/evals/mcp/**",
+            "packages/visual-review/src/**",
+            "apps/backend/package.json",
+          ].includes(input),
+      ),
+      `${name}: ${inputs.join(", ")}`,
+    )
+  }
+  // The policy scripts that ran only as steps of the lint job are checks too.
+  for (const lane of ["docs-links", "visual-container"])
+    assert.ok(checks.get(`scripts/ci/check-${lane}.mjs`), lane)
+})
+
+test("a trace of a nightly run matches the schema, with its plan and its last full trace", () => {
+  const document = schema("trace")
+  const trace = {
+    schemaVersion: 1,
+    commit: "a".repeat(40),
+    checks: [],
+    planId: "b".repeat(32),
+    fullTraceCommit: "c".repeat(40),
+    fullTraceAt: "2026-11-10T02:30:00Z",
+  }
+  validate(trace, document, document)
+  assert.throws(() =>
+    validate({ ...trace, planId: "../x" }, document, document),
+  )
+})
+
+test("a planned job traces its checks when TRACE names a folder", () => {
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-selected-trace-"))
+  try {
+    const id = "vitest:ui:apps/ui/src/components/onboarding/org-name.test.ts"
+    const planPath = join(directory, "plan.json")
+    writeFileSync(
+      planPath,
+      JSON.stringify({ jobs: { "package-tests": { ids: [id], rerun: [] } } }),
+    )
+    const results = join(directory, "selected")
+    const run = spawnSync(
+      process.execPath,
+      [script("selected.mjs"), results, planPath, "package-tests"],
+      {
+        cwd: root,
+        encoding: "utf8",
+        env: { ...process.env, TRACE: results },
+        maxBuffer: 64 * 1024 * 1024,
+      },
+    )
+    assert.equal(run.status, 0, run.stderr)
+    const trace = JSON.parse(
+      gunzipSync(readFileSync(join(results, "trace.json.gz"))).toString("utf8"),
+    )
+    assert.deepEqual(
+      trace.checks.map((check) => check.id),
+      [id],
+    )
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})

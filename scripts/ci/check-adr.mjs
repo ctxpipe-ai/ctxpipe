@@ -1,34 +1,30 @@
-// Checks that each ADR file that a change adds is listed in
-// `.ai/memory/decisions/index.md` (AGENTS.md "Architecture decisions & ADRs").
-// A renamed ADR counts as an added file.
+// Checks that `.ai/memory/decisions/index.md` lists each ADR file of the
+// decisions directory (AGENTS.md "Architecture decisions & ADRs"). A new or
+// renamed ADR that the index omits fails. The check reads only the files of
+// that directory, not the git history, so its cache key holds all that it
+// reads.
 //
-// Usage: node scripts/ci/check-adr.mjs [repository root] [base ref]
-//   (default base: origin/main)
+// Usage: node scripts/ci/check-adr.mjs [repository root]
 
-import { resolve } from "node:path"
+import { readdirSync, readFileSync } from "node:fs"
+import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { changedFiles, fileAtHead } from "./changed-files.mjs"
-
-const adrPath = /^\.ai\/memory\/decisions\/(ADR-[^/]+)\.md$/
-
-export function adrProblems(files, readAtHead) {
-  const index = readAtHead(".ai/memory/decisions/index.md") ?? ""
-  return files
-    .filter((file) => file.status === "A" && adrPath.test(file.path))
-    .filter((file) => !index.includes(adrPath.exec(file.path)[1]))
+function adrProblems(root) {
+  const directory = join(root, ".ai/memory/decisions")
+  const listed = readFileSync(join(directory, "index.md"), "utf8")
+  return readdirSync(directory)
+    .filter((name) => /^ADR-.+\.md$/.test(name))
+    .filter((name) => !listed.includes(name.replace(/\.md$/, "")))
+    .sort()
     .map(
-      (file) =>
-        `${file.path}: list the new ADR in .ai/memory/decisions/index.md.`,
+      (name) =>
+        `.ai/memory/decisions/${name}: list the ADR in .ai/memory/decisions/index.md.`,
     )
 }
 
 function main() {
-  const root = resolve(process.argv[2] ?? ".")
-  const base = process.argv[3] ?? "origin/main"
-  const problems = adrProblems(changedFiles(root, base), (path) =>
-    fileAtHead(root, path),
-  )
+  const problems = adrProblems(resolve(process.argv[2] ?? "."))
   for (const problem of problems) console.error(problem)
   if (problems.length > 0) process.exit(1)
   console.log("ADR check passed.")

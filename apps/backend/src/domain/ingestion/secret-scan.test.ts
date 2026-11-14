@@ -74,6 +74,26 @@ describe("findSuspectedSecret on values that look like code or test data", () =>
     ["an AWS key id and a suffix", `${aws}-x`],
     ["a dictionary word and digits", "DB_PASSWORD=Password12345678"],
     ["a dictionary word and 4 digits", "API_TOKEN=secret123456"],
+    [
+      "an upper-case value that only ends like a name",
+      `API_TOKEN=${"Q9F3KD8L"}_${"MZ2XT7PW"}_TOKENX`,
+    ],
+    [
+      "an upper snake-case value outside env_http_headers",
+      `DB_PASSWORD=${"R8K2M5Q9"}_${"L4N7P3V6"}_PASSWORD`,
+    ],
+    [
+      "an upper snake-case value in a comment inside an env_http_headers table",
+      `env_http_headers = { # DB_PASSWORD="${"R8K2M5Q9"}_${"L4N7P3V6"}_PASSWORD" }`,
+    ],
+    [
+      "an upper snake-case value after an env_http_headers table",
+      `env_http_headers = {} # DB_PASSWORD=${"R8K2M5Q9"}_${"L4N7P3V6"}_PASSWORD`,
+    ],
+    [
+      "an upper snake-case value in an authorization header",
+      `Authorization: Bearer ${"R8K2M5Q9"}_${"L4N7P3V6"}_PASSWORD`,
+    ],
   ])("finds %s", (_, line) => {
     expect(found(line)).not.toBeNull()
   })
@@ -109,6 +129,10 @@ describe("findSuspectedSecret on values that look like code or test data", () =>
       "ghs_2_repository_owner_total_count",
     ],
     ["a short word and digits", "DB_PASSWORD=password123"],
+    [
+      "the names of the variables in a Codex env_http_headers table",
+      'env_http_headers = { "CF-Access-Client-Id" = "HYPERDX_CF_ACCESS_CLIENT_ID", "CF-Access-Client-Secret" = "HYPERDX_CF_ACCESS_CLIENT_SECRET" }',
+    ],
   ])("does not find %s", (_, line) => {
     expect(found(line)).toBeNull()
   })

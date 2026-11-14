@@ -50,12 +50,6 @@ export function GithubWorkspaceDestination({
   const loading = useSkeletonHold(status === "loading")
   return (
     <div className={cn("w-full", onboarding && "mx-auto max-w-2xl text-left")}>
-      {variant === "page" ? (
-        <header className="mb-8">
-          <span className="ctx-label text-teal-400">GitHub</span>
-        </header>
-      ) : null}
-
       <h1
         className={
           onboarding

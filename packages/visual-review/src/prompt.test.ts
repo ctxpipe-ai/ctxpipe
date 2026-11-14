@@ -1,10 +1,11 @@
 import { describe, expect, test } from "vitest"
 
-import { buildPrompt, type StoryInput } from "./index.ts"
+import { buildPrompt, packagedRubric, type StoryInput } from "./index.ts"
 
 const story: StoryInput = {
   storyId: "connectors-catalog--default",
   scope: "component",
+  rubric: packagedRubric,
   viewport: { width: 1440, height: 900 },
   regions: [
     {
@@ -33,6 +34,7 @@ describe("buildPrompt", () => {
     const other: StoryInput = {
       storyId: "home-page--empty",
       scope: "page",
+      rubric: packagedRubric,
       viewport: { width: 390, height: 844 },
       regions: [],
       images: [{ role: "after", path: "after.png" }],
@@ -55,6 +57,20 @@ describe("buildPrompt", () => {
     )
     expect(prefix).toMatch(
       /judge a page-only quality only when the scope is `page`/i,
+    )
+    // How to judge: partial UI, the story state and the established
+    // patterns are not defects (the owner calibration, CTX-1269).
+    expect(prefix).toMatch(
+      /most UI in a screenshot is partial[^]*placeholder story text are not defects/i,
+    )
+    expect(prefix).toMatch(/do not report the state itself/i)
+    expect(prefix).toMatch(
+      /an uppercase heading that names a page section is fine/i,
+    )
+    // A fix for one rule does not excuse a worse quality elsewhere, also
+    // with a brief (the fourth owner round, CTX-1282).
+    expect(prefix).toMatch(
+      /must not make another quality worse[^]*also when the brief asks for the change/i,
     )
     // Only the measured regions.
     expect(prefix).toMatch(/judge only the measured regions/i)

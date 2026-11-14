@@ -131,9 +131,12 @@ export const NotLinkedShowsLinkError: Story = {
         /This GitHub account is linked to another ctxpipe user/,
       ),
     )
-    await expect(canvas.queryByText("Repositories")).not.toBeInTheDocument()
-    await waitFor(() =>
-      expect(canvas.getByText("GitHub", { exact: true })).toBeVisible(),
-    )
+    // The page title stands alone: no "GitHub" eyebrow label above it (DESIGN.md).
+    await waitFor(() => {
+      expect(canvas.queryByText("Repositories")).not.toBeInTheDocument()
+      expect(
+        canvas.queryByText("GitHub", { exact: true }),
+      ).not.toBeInTheDocument()
+    })
   },
 }
