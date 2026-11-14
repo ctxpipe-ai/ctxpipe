@@ -37,19 +37,12 @@ export function accepted(source, lane, config) {
   return false
 }
 
-// The selection with each check of the jobs of a job-scoped ci.yaml change
-// (decideMode) selected and without a hit: no cache key holds ci.yaml. A
-// Storybook job runs on the Storybook build.
-export function withJobChecks(selection, jobs) {
-  const reached = new Set(
-    jobs.flatMap((job) =>
-      job === "storybook-build"
-        ? ["storybook-required", "storybook-plays", "storybook-visual"]
-        : [job],
-    ),
-  )
-  const runs = (check) => reached.has(runsInOf(check.id)?.job)
-  const reason = { kind: "jobs", jobs }
+// The selection with each check that `runs` gives selected, because the
+// gate inputs changed (`reason.kind` is `jobs` or `gate`). Unless
+// `keepHits`, each hit of such a check, also a `pr` hit, becomes a miss of
+// this run with that mode: an earlier run of the PR can have run it with
+// other gate inputs under the same key.
+function withChecks(selection, runs, reason, { keepHits = false } = {}) {
   const added = selection.omitted
     .filter(runs)
     .map((check) => ({ ...check, reason }))
@@ -61,20 +54,55 @@ export function withJobChecks(selection, jobs) {
       ...selection.counts,
       selected: selection.counts.selected + added.length,
     },
-    cache: selection.cache && {
-      ...selection.cache,
-      hits: (selection.cache.hits ?? []).filter((hit) => !runs(hit)),
-      // A check of such a job runs, so its key is a miss of this run.
-      misses: [
-        ...(selection.cache.misses ?? []),
-        ...(selection.cache.hits ?? []).filter(runs).map((hit) => ({
-          id: hit.id,
-          key: hit.key,
-          mode: "jobs",
-        })),
-      ],
-    },
+    cache: keepHits
+      ? selection.cache
+      : selection.cache && {
+          ...selection.cache,
+          hits: (selection.cache.hits ?? []).filter((hit) => !runs(hit)),
+          // A stored pass for the key of a check that runs: a failure
+          // contradicts it (`rerun`).
+          misses: [
+            ...(selection.cache.misses ?? []),
+            ...(selection.cache.hits ?? []).filter(runs).map((hit) => ({
+              id: hit.id,
+              key: hit.key,
+              mode: reason.kind,
+            })),
+          ],
+        },
   }
+}
+
+// The selection with each check of the jobs of a job-scoped ci.yaml change
+// (decideMode): no cache key holds ci.yaml. A Storybook job runs on the
+// Storybook build.
+export function withJobChecks(selection, jobs) {
+  const reached = new Set(
+    jobs.flatMap((job) =>
+      job === "storybook-build"
+        ? ["storybook-required", "storybook-plays", "storybook-visual"]
+        : [job],
+    ),
+  )
+  return withChecks(
+    selection,
+    (check) => reached.has(runsInOf(check.id)?.job),
+    { kind: "jobs", jobs },
+  )
+}
+
+// The selection with each test of the CI scripts (`policy:tests-*`) of a
+// change to a gate input that the base revision decides (decideMode). These
+// tests cover the gate code and read the pin, which no other job of the run
+// executes, so the LLM stage must not drop them. Their keys hold scripts/**
+// and .github/**, so a hit is a pass of this gate code.
+function withGateTests(selection, inputs) {
+  return withChecks(
+    selection,
+    (check) => check.id.startsWith("policy:tests-"),
+    { kind: "gate", inputs },
+    { keepHits: true },
+  )
 }
 
 // The selection of the gate: the selected and omitted checks of the LLM job
@@ -415,8 +443,12 @@ export function plan({ config, inputs, needs, store, fork }) {
     readJson(join(inputs, "llm-selection.json")),
     readText(join(inputs, "llm-cause.txt")),
   )
-  if (mode.jobs?.length) selection = withJobChecks(selection, mode.jobs)
+  // The PR store first: a check of a job-scoped ci.yaml change then loses
+  // its `pr` hit too.
   selection = withStoreHits(selection, store)
+  if (mode.jobs?.length) selection = withJobChecks(selection, mode.jobs)
+  const gateInputs = mode.gateInputs ?? []
+  if (gateInputs.length) selection = withGateTests(selection, gateInputs)
   const lanes = new Map(selection.selected.map((check) => [check.id, check]))
   const hits = new Map()
   for (const hit of selection.cache?.hits ?? [])
@@ -430,7 +462,8 @@ export function plan({ config, inputs, needs, store, fork }) {
     .filter((check) => !hits.has(check.id))
     .map((check) => check.id)
   // A check that runs although a pass is stored for its key: a hit that is
-  // not accepted, or a check of a job-scoped ci.yaml change.
+  // not accepted, a check of a job-scoped ci.yaml change, or a quarantined
+  // key.
   const stored = new Set([
     ...(selection.cache?.hits ?? []).map((hit) => hit.id),
     ...(selection.cache?.misses ?? [])
@@ -447,7 +480,12 @@ export function plan({ config, inputs, needs, store, fork }) {
     schemaVersion: 1,
     config: config.mode,
     mode: gate ? "gate" : "full",
-    reason: gate ? "gate" : config.mode,
+    reason: `${gate ? "gate" : config.mode}${
+      gateInputs.length
+        ? `; gate inputs changed (${gateInputs.join(", ")}): the gate code and the pin of the base revision decide, and every test of the CI scripts runs`
+        : ""
+    }`,
+    gateInputs,
     selection,
     hits: [...hits.values()],
     ran,
