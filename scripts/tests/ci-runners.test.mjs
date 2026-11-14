@@ -141,22 +141,44 @@ test("Merge gate plan and Merge gate share one cache store", () => {
   )
 })
 
-test("a push to main fills the cache that the GitHub-hosted jobs restore", () => {
-  const job = ci["github-cache"]
-  assert.equal(job.if, "github.event_name == 'push'")
-  const uses = (name, prefix) =>
-    ci[name].steps.find((step) => step.uses?.startsWith(prefix))
-  // The pnpm store: setup-node keys it by the lockfile and the runner.
-  for (const name of ["lint", "typecheck", "packages", "storybook-build"]) {
-    assert.equal(ci[name]["runs-on"], job["runs-on"], name)
-    assert.deepEqual(
-      uses(name, "actions/setup-node@").with,
-      uses("github-cache", "actions/setup-node@").with,
-      name,
+const uses = (name, prefix) =>
+  ci[name].steps.find((step) => step.uses?.startsWith(prefix))
+
+// The key inputs of a cache job: a push that changes one starts the job.
+const changes = (job) =>
+  [...ci[job].if.matchAll(/'"([^"]+)"'/g)].map((match) => match[1]).sort()
+
+test("main fills the pnpm store of both cache stores with the keys of the PR jobs", () => {
+  // setup-node keys the pnpm store by the lockfile and the runner, and each
+  // runner type has its own cache store.
+  const fill = { "github-cache": [], "blacksmith-cache": [] }
+  for (const [name, job] of Object.entries(ci)) {
+    const setup = job.steps?.find((step) =>
+      step.uses?.startsWith("actions/setup-node@"),
     )
+    if (setup?.with?.cache !== "pnpm" || name in fill) continue
+    const store = String(job["runs-on"]).startsWith("blacksmith-")
+      ? "blacksmith-cache"
+      : "github-cache"
+    assert.deepEqual(setup.with, uses(store, "actions/setup-node@").with, name)
+    fill[store].push(name)
   }
-  assert.ok(job.steps.some((step) => step.run === "pnpm install --frozen-lockfile"))
-  // The Terraform providers: the same path and key as Terraform configuration.
+  for (const [store, jobs] of Object.entries(fill)) {
+    assert.ok(jobs.length > 0, store)
+    assert.match(ci[store]["runs-on"], store === "github-cache" ? /^ubuntu-/ : /^blacksmith-2vcpu-/)
+    assert.ok(
+      ci[store].steps.some((step) => step.run === "pnpm install --frozen-lockfile"),
+      store,
+    )
+    assert.match(ci[store].if, /github\.event_name == 'schedule'/, store)
+    assert.ok(changes(store).includes("pnpm-lock.yaml"), store)
+    assert.ok(changes(store).includes(".node-version"), store)
+  }
+})
+
+test("main fills the Terraform providers with the key of Terraform configuration", () => {
+  assert.equal(ci["terraform-validate"]["runs-on"], ci["github-cache"]["runs-on"])
+  assert.ok(changes("github-cache").includes("infra/.terraform.lock.hcl"))
   assert.deepEqual(
     uses("github-cache", "actions/cache@").with,
     uses("terraform-validate", "actions/cache@").with,

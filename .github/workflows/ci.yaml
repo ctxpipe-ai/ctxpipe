@@ -1362,15 +1362,27 @@ jobs:
           done
           terraform validate -no-color
 
-  # Fills the GitHub Actions cache on main for the jobs on GitHub-hosted
-  # runners (ADR-065). A pull request run restores a cache of main, but not a
-  # cache of another pull request. This job saves the pnpm store and the
-  # Terraform providers with the keys of those jobs. Thus a pull request job
-  # restores them and does not save its own copy in the 10 GB of the cache.
+  # Fill the caches of main that the pull request jobs restore (ADR-065). A
+  # push to main runs no install job (ADR-062), so without these jobs no job
+  # saves the pnpm store on main. A pull request run restores a cache of main,
+  # but not a cache of another pull request. Each job uses the keys of the
+  # pull request jobs, so a pull request job restores the store and does not
+  # save its own copy. A job runs on a push that changes a key input (the
+  # file list of the push event), and on the nightly schedule in case a cache
+  # was evicted. When the key is already in the cache, setup-node saves
+  # nothing.
+  #
+  # The GitHub Actions cache, for the jobs on GitHub-hosted runners: the pnpm
+  # store and the Terraform providers.
   github-cache:
     timeout-minutes: 15
     name: GitHub-hosted cache
-    if: github.event_name == 'push'
+    if: |
+      github.event_name == 'schedule' ||
+      (github.event_name == 'push' &&
+      (contains(toJSON(github.event.commits), '"pnpm-lock.yaml"') ||
+      contains(toJSON(github.event.commits), '".node-version"') ||
+      contains(toJSON(github.event.commits), '"infra/.terraform.lock.hcl"')))
     # github-hosted: it fills the cache of the GitHub-hosted jobs (ADR-065)
     runs-on: ubuntu-24.04-arm
     steps:
@@ -1399,6 +1411,27 @@ jobs:
         run: |
           mkdir -p "$TF_PLUGIN_CACHE_DIR"
           terraform init -backend=false -input=false
+
+  # The Blacksmith cache, for the jobs that stay on Blacksmith: the pnpm store.
+  blacksmith-cache:
+    timeout-minutes: 15
+    name: Blacksmith cache
+    if: |
+      github.event_name == 'schedule' ||
+      (github.event_name == 'push' &&
+      (contains(toJSON(github.event.commits), '"pnpm-lock.yaml"') ||
+      contains(toJSON(github.event.commits), '".node-version"')))
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - run: corepack enable
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
 
   migrate:
     timeout-minutes: 20
