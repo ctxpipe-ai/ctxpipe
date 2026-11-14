@@ -34,7 +34,8 @@ The builder keeps only the pairs that differ by more than the tolerance of the v
 - `queue.ts`: the labeling queue of the owner in Langfuse (`pnpm visual:bakeoff:queue`).
 - `capture.ts`: the capture step. It runs in the pinned capture container (`scripts/ci/visual-container.json`) with the play runner and the pins of the visual check.
 - `mutations.ts`: the synthetic changes and their known regions.
-- `owner-calibration.json` and `calibration.ts`: the owner calibration set and its command (see [The owner calibration](#the-owner-calibration)).
+- `owner-calibration.json`, `unseen-calibration.json` and `calibration.ts`: the two calibration sets and their command (see [The calibration](#the-calibration)).
+- `label-unseen.ts`: the judge panel that labels the unseen calibration set.
 - `redesign-717-labels.json`: the labels of the 254 screenshots that PR 717 changed (`{ path, viewport, label, reason }`, `label` is `regression` or `intended`). A design review made them for CTX-1265. `redesign.json` takes its labels from it (CTX-1262).
 
 The images are not in git. The manifest holds the SHA-256 of each image. Each image is one asset of the pre-release [`visual-bakeoff-images`](https://github.com/ctxpipe-ai/ctxpipe/releases/tag/visual-bakeoff-images) of this repository, named `<sha256>.png`. The images are screenshots of the Storybook stories, with their mock data, so they can be public.
@@ -90,8 +91,10 @@ node packages/visual-review/evals/critic/panel.ts [--models <list>] [--max-cost 
 After a build that changes the images, run this command from the repository root. It needs the GitHub CLI, signed in with the right to write releases.
 
 ```sh
-pnpm visual:bakeoff:publish [--images .ci-results/visual-bakeoff/images]
+pnpm visual:bakeoff:publish [--images .ci-results/visual-bakeoff/images] [--cases <path> | --calibration <path>]
 ```
+
+`--calibration` publishes the images of a calibration set (for example `unseen-calibration.json`) in place of the images of a case manifest.
 
 The command checks that each image of the manifest is in the folder and has its SHA-256. Then it uploads each image that the release does not have. If the release does not exist, the command creates it as a pre-release on `main`. An image that is missing or changed stops the command before an upload.
 
@@ -156,11 +159,17 @@ The report has a table for the hold-out set and a table for the other cases. The
 
 `.github/workflows/visual-bakeoff.yaml` runs the bake-off or the judge panel by hand in the `workbench` environment, with its spend-capped `MODEL_PROVIDER_API_KEY`. The runner downloads the images of the cases that run from the release. `hold_out_only` runs only the hold-out cases, and `skip_hold_out` only the other cases. `cases` gives another manifest, for example the redesign set. The workflow installs the local judge of BlazeDiff in its own folder, and runs the arms with `--max-cost` (default 90, a margin for the calls that already started below the $100 limit of the key) and `--max-minutes 300`. The job summary shows the report, and the artifact `visual-bakeoff-report` holds `report.md` and `results.json`.
 
+With `unseen_panel`, the job labels the unseen calibration set with the judge panel (see [The unseen set](#the-unseen-set)). The artifact then holds the new `unseen-calibration.json`: commit it in a pull request.
+
 With `panel`, the job runs the judge panel instead of the bake-off, with the spend cap of the panel ($40, the default of `panel.ts`; see the cost estimate in the pull request of [CTX-1249](https://linear.app/ctxpipe/issue/CTX-1249)). `panel_models` replaces the default panel when it is set. The artifact then holds the new `cases.json` with the votes: commit it in a pull request, and push the owner queue.
 
 The default arms are the models of the plan in the three prompt arms, the three decision models (Jev, Elephant and Mammoth) alone, the cascade from each of them to Sonnet, and the local judge. A decision call costs much less than an LLM call, and a cascade calls Sonnet only when its filter does not accept the change, so a cascade arm costs at most the Sonnet arm. A full run of all the default arms costs more than $100. The hold-out cases go first, so a run that the cap stops still has the cases of the selection rule. To spend less, give fewer arms or fewer runs.
 
-## The owner calibration
+## The calibration
+
+The calibration has two sets ([CTX-1289](https://linear.app/ctxpipe/issue/CTX-1289)). The owner examples show what the owner asked for. A gain on them can show only that the critic remembers that feedback. The unseen set holds screenshots that the owner did not review, so it shows if the critic judges well. **A critic change is selected on the unseen set** (ADR-063, rule 16). The command reports the owner examples beside it.
+
+### The owner examples
 
 The product owner reviewed 10 screenshots of `main` on 2026-11-14 ([CTX-1269](https://linear.app/ctxpipe/issue/CTX-1269)), 6 screenshots of PR #722 in a second round on the same day ([CTX-1275](https://linear.app/ctxpipe/issue/CTX-1275)), and 6 screenshots of a later state of PR #722 in a fourth round ([CTX-1282](https://linear.app/ctxpipe/issue/CTX-1282)). `owner-calibration.json` holds that feedback. Each screenshot has:
 
@@ -171,11 +180,51 @@ The product owner reviewed 10 screenshots of `main` on 2026-11-14 ([CTX-1269](ht
 - `before` (optional): when the owner judged a change, the SHA-256 of the earlier image and the brief of the change. The issues are then regressions of that change.
 - `kinds` on each item: the rubric ids (areas and qualities) that a judge flags the item with.
 
-The command gives each screenshot to the runner as a `new` case (the image alone, with a fixed neutral brief), so each arm judges it as `pnpm visual:review` judges a new screenshot. A screenshot with `before` is a change with its brief, so each arm judges it as a changed screenshot of a PR; the report marks it `(change)`. The runner output is in `runner/` of `--out`. A verdict flags the kind of each finding, each quality that `fails` (a new screenshot), and each quality that is `worse` (a change). An issue is a hit when the verdict flags one of its kinds. A fine item is a false flag when the verdict flags one of its kinds that no issue of that screenshot names.
+An issue is a hit when the verdict flags one of its kinds. A fine item is a false flag when the verdict flags one of its kinds that no issue of that screenshot names. A verdict flags the kind of each finding, each quality that `fails` (a new screenshot), and each quality that is `worse` (a change).
+
+### The unseen set
+
+`unseen-calibration.json` holds 60 screenshots that the owner did not review. No screenshot shows a story of the owner examples, and no story comes two times. The images are committed baselines of the repository (Storybook stories with mock data), and each image is an asset of the image release.
+
+| Source | Count | What it is |
+| --- | ---: | --- |
+| `main` | 31 | Screenshots of `main` (commit `b3237ce7b`), judged as new screenshots: 13 page stories at the desktop viewport, 6 at the mobile viewport, and 12 component stories. Most are good screens: the negative examples. |
+| `pr-722-round-3` | 24 | Changes from round 2 (`f8084e7d1`) to round 3 (`8eda68fe6`) of PR #722, which the owner called a regression overall but did not name one by one: 17 component stories and 7 page stories. The brief is the brief of round 3. |
+| `pr-717` | 5 | Regressions that the design review of PR #717 found (`redesign.json`), with the brief of PR #717. |
+
+The selection took at most one story of each component, in the order of a SHA-256 of a fixed salt and the path. Each screenshot keeps its `path` and `commit`, so its source is in git. The image release has the GitHub limit of 1,000 assets and is full, so the component stories of `main` are ones whose image the release had already. A set with more new images needs a second release.
+
+**Labels.** The owner did not label these screenshots, so the judge panel does. Each member (`panel.ts`: Opus 5.5, GPT-6.1-Sol, Gemini 4 Argon by default) judges each screenshot on its own:
+
+- A screenshot with a `before` image gets the change prompt of `panel.ts`. `regression` becomes `defect`; `improvement` and `no-change` become `fine`.
+- Another screenshot gets the new-screenshot prompt of the panel (`buildNewPanelPrompt`): the rubric, the scope, the image, and the label `defect` or `fine`. This prompt does not have the "how to judge" rule of the critic, because that rule comes from the owner feedback.
+
+**Agreement rule.** A label counts only when each member gives it. One other label or one failed vote leaves the screenshot without a label, and it does not count for the score. On the 119 synthetic cases of `cases.json` with known labels, the 3 members agreed on 104, and that label was right on 100 (96%). A 2-of-3 majority was right on 106 of 119 (89%). The unseen set selects a critic change, so a wrong label costs more than a smaller set. The votes, with their reasons, and the label go into `unseen-calibration.json` (`panel` of each screenshot, and `panelModels`).
+
+**Label the set.** Run the command from the repository root, or the workflow with `unseen_panel`. It uses `MODEL_PROVIDER_API_KEY` (and `MODEL_PROVIDER_URL`).
 
 ```sh
-node packages/visual-review/evals/critic/calibration.ts --arms jev,llm:anthropic/claude-sonnet-5.5 [--max-cost 2] [--images <dir>] [--out <dir>]
+node packages/visual-review/evals/critic/label-unseen.ts [--models <list>] [--max-cost 15] [--images .ci-results/visual-bakeoff/images] [--unseen <path>]
 ```
+
+The panel has the spend rules of `panel.ts`. A second run, with the same models, judges the screenshots that have no panel yet or a failed vote. The expected cost is about $5 for the 60 screenshots: 29 changes with 5 images each, and 31 single screenshots, for each of the 3 members (Opus 5.5 at $4 for each million input tokens). The cap of $15 leaves room for calls with no reported cost, which count as at least $0.10.
+
+### The command
+
+The command gives each screenshot to the runner as a `new` case (the image alone, with the fixed neutral brief "A screenshot of main for a design review."), or as a change with its brief when it has a `before` image; the report marks it `(change)`. Of the unseen set, only the screenshots with a panel label run. The runner output is in `runner/` of `--out`.
+
+```sh
+node packages/visual-review/evals/critic/calibration.ts --arms jev,llm:anthropic/claude-sonnet-5.5 [--max-cost 4] [--images <dir>] [--out <dir>] [--calibration <path>] [--unseen <path>]
+```
+
+The first table has one row for each arm, with both sets side by side:
+
+- **Unseen: defects flagged**: the `regression` verdicts on the `defect` screenshots, of the `defect` screenshots that the arm judged (the recall).
+- **Unseen: fine flagged**: the `regression` verdicts on the `fine` screenshots (the false alarms).
+- **Unseen: unsure**: the `unsure` verdicts on the unseen set.
+- **Owner: hits**, **Owner: false flags** and **Owner: regression verdicts**: as above.
+
+Then a table gives the verdict of each arm on each unseen screenshot, and a table gives the hits of each arm on each owner screenshot.
 
 The arms are the arms of the runner that judge a new screenshot, for example `jev` and `llm:<model>`. The spend cap has the rules of the runner. The workflow runs it with the input `calibration`. Give the arms in `arms` and a small `max_cost`.
 

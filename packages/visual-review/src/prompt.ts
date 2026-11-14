@@ -217,11 +217,44 @@ ${JSON.stringify(schema)}`
 }
 
 /**
- * Build the prompt for the new screenshots of one story: a fixed prefix of
- * its own, then the story part. Each image goes as the full `after` image.
+ * Build the prompt of a member of the judge panel for one screenshot with no
+ * base image: the unseen calibration set (evals/critic/label-unseen.ts). The
+ * panel rules, the rubric and `schema`, then the same story part as the
+ * critic prompt of a new screenshot. The prompt does not have the
+ * `judgingRule`: that rule comes from the feedback of the owner, and the
+ * unseen set must not repeat it.
  */
-export function buildNewPrompt(input: NewStoryInput): Prompt {
-  const story = `Story: ${input.storyId}
+export function buildNewPanelPrompt(
+  input: NewStoryInput,
+  schema: z.core.JSONSchema.BaseSchema,
+): Prompt {
+  const prefix = `You label one screenshot of the ctxpipe product UI, for the test set of a visual critic. Storybook rendered one story. There is no earlier image to compare. Other judges label the same screenshot. You do not see their labels.
+
+Rules:
+1. ${scopeRule}
+2. Look at the full screenshot. The story shows one state of the UI on purpose, for example a loading, empty or error state. Judge how the UI shows that state, not the state itself.
+3. Give one label:
+   - \`defect\`: the screenshot breaks a rule of the rubric in a way that a user sees, or fails a design quality.
+   - \`fine\`: the screenshot follows the rubric. A small matter of taste is not a defect.
+4. ${dataRule}
+5. Write \`reason\` before \`label\`: in two or three sentences, what you see, and the rubric entry that decides the label (the id in brackets).
+
+Rubric, layer 1, the concrete areas (the id in brackets):
+${areaList(input.rubric)}
+
+Rubric, layer 2, the design qualities:
+${qualityList(input.rubric)}
+
+Reply with one JSON object that matches this JSON Schema, and with no other text:
+${JSON.stringify(schema)}`
+  return { prefix, story: newStoryText(input), images: newImages(input) }
+}
+
+const newImages = (input: NewStoryInput): StoryImage[] =>
+  input.images.map(({ path }) => ({ role: "after", path }))
+
+/** The story part of the prompt of a new screenshot. */
+const newStoryText = (input: NewStoryInput) => `Story: ${input.storyId}
 ${scopeLine(input.scope, input.rubric)}
 
 New screenshots, in the order attached:
@@ -235,9 +268,15 @@ ${input.images
 ${data("brief", input.brief)}
 
 ${data("source-diff", input.sourceDiff)}`
+
+/**
+ * Build the prompt for the new screenshots of one story: a fixed prefix of
+ * its own, then the story part. Each image goes as the full `after` image.
+ */
+export function buildNewPrompt(input: NewStoryInput): Prompt {
   return {
     prefix: newPrefix(input.rubric),
-    story,
-    images: input.images.map(({ path }) => ({ role: "after", path })),
+    story: newStoryText(input),
+    images: newImages(input),
   }
 }

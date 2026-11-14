@@ -5,8 +5,10 @@ name: Visual critic bake-off
 # and the job writes the report (packages/visual-review/evals/critic/README.md).
 # With `panel`, the job runs the judge panel (CTX-1249) instead: it labels the
 # cases, and the artifact holds the new cases.json to commit. With
-# `calibration`, the arms judge the owner calibration set (CTX-1269) instead,
-# and the report counts the owner issues that each arm flags. A model call
+# `calibration`, the arms judge the calibration sets instead: the unseen set
+# (CTX-1289) and the owner examples (CTX-1269), side by side. With
+# `unseen_panel`, the judge panel labels the unseen set, and the artifact
+# holds the new unseen-calibration.json to commit. A model call
 # costs money, so the workflow runs only by hand. Two limits keep the spend
 # below the budget of $100: the runner starts no paid call when the known
 # cost reaches max_cost, and the model key of the workbench environment has
@@ -20,7 +22,12 @@ on:
         type: boolean
         default: false
       calibration:
-        description: "Judge the owner calibration set (owner-calibration.json) with the arms, not the bake-off cases. The arms must judge a new screenshot, for example jev and llm:<model>."
+        description: "Judge the calibration sets (unseen-calibration.json and owner-calibration.json) with the arms, not the bake-off cases. The arms must judge a new screenshot, for example jev and llm:<model>."
+        required: false
+        type: boolean
+        default: false
+      unseen_panel:
+        description: "Label the unseen calibration set (unseen-calibration.json) with the judge panel, not the bake-off. It uses panel_models only, and its own spend cap of $15."
         required: false
         type: boolean
         default: false
@@ -100,7 +107,7 @@ jobs:
       # packages and the model weights), so it is not a dependency of the
       # repository. It goes into its own folder.
       - name: Install the local judge of BlazeDiff
-        if: ${{ !inputs.panel && !inputs.calibration && contains(inputs.arms, 'blazediff-local') }}
+        if: ${{ !inputs.panel && !inputs.unseen_panel && !inputs.calibration && contains(inputs.arms, 'blazediff-local') }}
         run: |
           npm install --prefix "$RUNNER_TEMP/blazediff-agent" --no-audit --no-fund \
             @blazediff/agent@0.13.2 @huggingface/transformers@4.3.2
@@ -127,8 +134,30 @@ jobs:
           # The votes so far, also after an image error.
           cp packages/visual-review/evals/critic/cases.json "$out/"
           exit "$status"
-      - name: Run the owner calibration
-        if: ${{ !inputs.panel && inputs.calibration }}
+      # The panel of the unseen set writes its votes into
+      # unseen-calibration.json. The artifact holds it, to commit in a pull
+      # request.
+      - name: Label the unseen calibration set
+        if: ${{ !inputs.panel && inputs.unseen_panel }}
+        env:
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+          PANEL_MODELS: ${{ inputs.panel_models }}
+        run: |
+          out="$RUNNER_TEMP/visual-bakeoff-report"
+          mkdir -p "$out"
+          models=()
+          if [[ -n "$PANEL_MODELS" ]]; then models+=(--models "$PANEL_MODELS"); fi
+          status=0
+          node packages/visual-review/evals/critic/label-unseen.ts \
+            "${models[@]}" \
+            --images "$RUNNER_TEMP/visual-bakeoff-images" \
+            > "$out/report.md" || status=$?
+          cat "$out/report.md"
+          # The votes so far, also after an image error.
+          cp packages/visual-review/evals/critic/unseen-calibration.json "$out/"
+          exit "$status"
+      - name: Run the calibration
+        if: ${{ !inputs.panel && !inputs.unseen_panel && inputs.calibration }}
         env:
           MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
           ARMS: ${{ inputs.arms }}
@@ -140,7 +169,7 @@ jobs:
             --images "$RUNNER_TEMP/visual-bakeoff-images" \
             --out "$RUNNER_TEMP/visual-bakeoff-report"
       - name: Run the bake-off
-        if: ${{ !inputs.panel && !inputs.calibration }}
+        if: ${{ !inputs.panel && !inputs.unseen_panel && !inputs.calibration }}
         env:
           MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
           ARMS: ${{ inputs.arms }}

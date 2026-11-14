@@ -1,14 +1,21 @@
-// The owner calibration of the visual critic (CTX-1269). The product owner
-// reviewed screenshots of main, and said what a critic must flag and what is
-// fine. `owner-calibration.json` holds that feedback. This command gives each
-// screenshot to the bake-off runner as a new screenshot (the image alone), or
-// as a change when the owner judged a change against an earlier image
-// (`before`, CTX-1282), and counts, for each arm, the owner issues that it
-// flags (hits) and the fine items that it flags (false flags). See README.md
-// beside this file.
+// The calibration of the visual critic. It has two sets (CTX-1289):
+// - The owner examples (CTX-1269): the product owner reviewed screenshots,
+//   and said what a critic must flag and what is fine.
+//   `owner-calibration.json` holds that feedback.
+// - The unseen set: screenshots that the owner did not review, labeled by
+//   the judge panel (label-unseen.ts). `unseen-calibration.json` holds them.
+// This command gives each screenshot to the bake-off runner as a new
+// screenshot (the image alone), or as a change when the set has an earlier
+// image (`before`, CTX-1282). It reports both sets side by side: for the
+// unseen set, the recall on the defects and the false alarms on the fine
+// screenshots; for the owner examples, the owner issues that each arm flags
+// (hits) and the fine items that it flags (false flags). A critic change is
+// selected on the unseen set (ADR-063, rule 16). See README.md beside this
+// file.
 //
 // Usage: node packages/visual-review/evals/critic/calibration.ts --arms <list>
-//          [--calibration <path>] [--images <dir>] [--out <dir>] [--max-cost 2]
+//          [--calibration <path>] [--unseen <path>] [--images <dir>]
+//          [--out <dir>] [--max-cost 4]
 
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
@@ -18,24 +25,33 @@ import { z } from "zod"
 
 import { rubricId } from "../../src/rubric.ts"
 import type { Verdict } from "../../src/verdict.ts"
-import type { CaseManifest } from "./cases.ts"
+import type { Case, CaseManifest } from "./cases.ts"
 import type { Result } from "./report.ts"
 import { bakeOff } from "./run.ts"
 
-const usage = `Usage: node packages/visual-review/evals/critic/calibration.ts --arms <list> [--calibration <path>] [--images <dir>] [--out <dir>] [--max-cost 2]
+const usage = `Usage: node packages/visual-review/evals/critic/calibration.ts --arms <list> [--calibration <path>] [--unseen <path>] [--images <dir>] [--out <dir>] [--max-cost 4]
 
   --arms         The arms of the bake-off runner that judge a new or a
                  changed screenshot, comma-separated, for example jev,llm:anthropic/claude-sonnet-5.5
-  --calibration  The feedback file. Default: owner-calibration.json beside this file.
+  --calibration  The owner examples. Default: owner-calibration.json beside this file.
+  --unseen       The unseen set. Default: unseen-calibration.json beside this file.
   --images       The image folder of the runner. Default: .ci-results/visual-bakeoff/images
   --out          The folder for report.md, and for the cases, the results and
                  the report of the runner in runner/.
                  Default: .ci-results/visual-bakeoff/report
-  --max-cost     The spend cap of the runner in USD. Default: 2
+  --max-cost     The spend cap of the runner in USD. Default: 4
 
 The key and the endpoint come from MODEL_PROVIDER_API_KEY and
 MODEL_PROVIDER_URL. Exit code: the exit code of the runner, or 2 for a usage
 or input error.`
+
+const sha256 = z.string().regex(/^[0-9a-f]{64}$/)
+/**
+ * The earlier state, when the screenshot is a change: the SHA-256 of the
+ * before image and the brief of the change. Then the case is a change with a
+ * brief.
+ */
+const before = z.strictObject({ image: sha256, brief: z.string().min(1) })
 
 // The rubric ids that a judge flags an item of the owner with.
 const kindsSchema = z.array(rubricId).min(1)
@@ -49,23 +65,14 @@ export const calibrationSchema = z.strictObject({
         /** Where the screenshot was in the repository on that day. */
         path: z.string().min(1),
         /** The SHA-256 of the image: an asset of the image release. */
-        image: z.string().regex(/^[0-9a-f]{64}$/),
+        image: sha256,
         /** The story id, also the case id in the runner. */
         storyId: z.string().regex(/^[a-z0-9-]+$/),
         scope: z.enum(["page", "component"]),
         /** The review round of the owner that named the items. */
         round: z.number().int().min(1),
-        /**
-         * The earlier state, when the owner judged a change: the SHA-256 of
-         * the before image and the brief of the change. Then the issues are
-         * regressions of the change, and the case is a change with a brief.
-         */
-        before: z
-          .strictObject({
-            image: z.string().regex(/^[0-9a-f]{64}$/),
-            brief: z.string().min(1),
-          })
-          .optional(),
+        /** When the owner judged a change: the issues are its regressions. */
+        before: before.optional(),
         /** The issues that the owner wants a critic to flag. */
         flag: z.array(
           z.strictObject({ issue: z.string().min(1), kinds: kindsSchema }),
@@ -81,50 +88,116 @@ export const calibrationSchema = z.strictObject({
 export type Calibration = z.infer<typeof calibrationSchema>
 
 /**
- * The case manifest of the runner: each screenshot is a `new` case, or a
- * change (`intended` kind, with its brief) when it has a `before` image. The
- * runner needs a commit, a label and a diff size; the screenshots have none,
- * so these fields are fixed placeholders that no score reads. The runner
- * measures the diff of a change itself.
+ * The labels of the panel on an unseen screenshot: it breaks the rubric, or
+ * it follows it. For a change, `defect` is the panel label `regression` of a
+ * change, and `fine` is `improvement` or `no-change`.
  */
-function manifestOf({ screenshots }: Calibration): CaseManifest {
+export const unseenLabels = ["defect", "fine"] as const
+export type UnseenLabel = (typeof unseenLabels)[number]
+
+export const unseenSchema = z
+  .strictObject({
+    /** The day of the selection of the screenshots. */
+    selected: z.iso.date(),
+    /** The models of the judge panel, after a run of label-unseen.ts. */
+    panelModels: z.array(z.string()).optional(),
+    screenshots: z
+      .array(
+        z.strictObject({
+          /** The case id in the runner. */
+          id: z.string().regex(/^[a-z0-9-]+$/),
+          /**
+           * Where the screenshot comes from: `main` (a screenshot of main),
+           * `pr-722-round-3` (round 3 of PR 722, which the owner called a
+           * regression overall), `pr-717` (a regression that the design
+           * review of PR 717 found).
+           */
+          source: z.string().regex(/^[a-z0-9-]+$/),
+          /** The screenshot file, at `commit`. */
+          path: z.string().min(1),
+          commit: z.string().regex(/^[0-9a-f]{40}$/),
+          /** The SHA-256 of the image: an asset of the image release. */
+          image: sha256,
+          scope: z.enum(["page", "component"]),
+          viewport: z.enum(["desktop", "mobile"]),
+          before: before.optional(),
+          /**
+           * The votes of the judge panel, and the label of the agreement
+           * rule (label-unseen.ts), or null when the members do not agree.
+           * Absent until the panel judges the screenshot.
+           */
+          panel: z
+            .strictObject({
+              label: z.enum(unseenLabels).nullable(),
+              votes: z.array(
+                z.strictObject({
+                  model: z.string(),
+                  label: z.enum(unseenLabels).nullable(),
+                  reason: z.string(),
+                  error: z.string().optional(),
+                }),
+              ),
+            })
+            .optional(),
+        }),
+      )
+      .min(1),
+  })
+  .refine(
+    ({ screenshots }) =>
+      new Set(screenshots.map(({ id }) => id)).size === screenshots.length,
+    { message: "Each id must be unique." },
+  )
+export type Unseen = z.infer<typeof unseenSchema>
+
+/** The brief of a screenshot with no earlier image, the same for each one. */
+const newBrief = "A screenshot of main for a design review."
+
+/**
+ * The case of the runner for one screenshot of a calibration set: a `new`
+ * case, or a change (`intended` kind, with its brief) when it has a `before`
+ * image. The runner needs a commit, a label and a diff size; the screenshots
+ * have none, so these fields are fixed placeholders that no score reads. The
+ * runner measures the diff of a change itself. The judge panel of the unseen
+ * set prepares a screenshot with the same case.
+ */
+export function screenshotCase(screenshot: {
+  id: string
+  image: string
+  scope: "page" | "component"
+  viewport: "desktop" | "mobile"
+  before?: { image: string; brief: string } | undefined
+}): Case {
   const none = "0".repeat(40)
-  return {
-    $schema: "./cases.schema.json",
-    version: 1,
-    seed: 0,
-    until: none,
-    container: "none",
-    scope: "page",
-    cases: screenshots.map(({ storyId, image, scope, before }) => {
-      const common = {
-        id: storyId,
-        storyId,
-        scope,
-        viewport: { name: "desktop", width: 1440, height: 900 },
-        class: null,
-        commit: { sha: none, parent: none },
-        region: null,
-      } as const
-      return before
-        ? {
-            ...common,
-            kind: "intended",
-            label: "regression",
-            brief: before.brief,
-            diffPixels: 0,
-            images: { before: before.image, after: image },
-          }
-        : {
-            ...common,
-            kind: "new",
-            label: "intended",
-            brief: "A screenshot of main for the design review of the owner.",
-            diffPixels: null,
-            images: { after: image },
-          }
-    }),
+  const common = {
+    id: screenshot.id,
+    storyId: screenshot.id,
+    scope: screenshot.scope,
+    viewport:
+      screenshot.viewport === "desktop"
+        ? ({ name: "desktop", width: 1440, height: 900 } as const)
+        : ({ name: "mobile", width: 390, height: 844 } as const),
+    class: null,
+    commit: { sha: none, parent: none },
+    region: null,
   }
+  return screenshot.before
+    ? {
+        ...common,
+        kind: "intended",
+        label: "regression",
+        brief: screenshot.before.brief,
+        diffPixels: 0,
+        images: { before: screenshot.before.image, after: screenshot.image },
+      }
+    : {
+        ...common,
+        kind: "new",
+        label: "intended",
+        brief: newBrief,
+        diffPixels: null,
+        images: { after: screenshot.image },
+      }
 }
 
 /**
@@ -140,9 +213,9 @@ const flaggedKinds = (verdict: Verdict) =>
   ])
 
 /**
- * The score of one verdict on one screenshot. An owner issue is a hit when
- * the verdict flags one of its kinds. A fine item is a false flag when the
- * verdict flags one of its kinds that no issue of the screenshot names: a
+ * The score of one verdict on one owner screenshot. An owner issue is a hit
+ * when the verdict flags one of its kinds. A fine item is a false flag when
+ * the verdict flags one of its kinds that no issue of the screenshot names: a
  * kind that an issue also names counts as a hit only. The count is by rubric
  * id, not by the text of a finding.
  */
@@ -162,52 +235,98 @@ function scoreOne(
   }
 }
 
-/** The report: the totals of each arm, then each screenshot. */
+/**
+ * The report: the totals of each arm on both sets, then each unseen
+ * screenshot, then each owner screenshot.
+ */
 function calibrationReport(
-  calibration: Calibration,
+  owner: Calibration,
+  unseen: Unseen,
   arms: readonly string[],
   results: readonly Result[],
   spent: number,
 ): string {
-  const issues = calibration.screenshots.reduce((n, s) => n + s.flag.length, 0)
-  const fine = calibration.screenshots.reduce((n, s) => n + s.ok.length, 0)
-  const scored = results.map((result) => {
-    const screenshot = calibration.screenshots.find(
+  const issues = owner.screenshots.reduce((n, s) => n + s.flag.length, 0)
+  const fine = owner.screenshots.reduce((n, s) => n + s.ok.length, 0)
+  const ownerScored = results.flatMap((result) => {
+    const screenshot = owner.screenshots.find(
       ({ storyId }) => storyId === result.case,
     )
-    if (!screenshot) throw new Error(`No screenshot ${result.case}.`)
-    return { ...result, screenshot, ...scoreOne(screenshot, result.verdict) }
+    return screenshot
+      ? [{ ...result, screenshot, ...scoreOne(screenshot, result.verdict) }]
+      : []
   })
+  const unseenScored = results.flatMap((result) => {
+    const screenshot = unseen.screenshots.find(({ id }) => id === result.case)
+    const label = screenshot?.panel?.label
+    return screenshot && label ? [{ ...result, screenshot, label }] : []
+  })
+  const scoredUnseen = unseen.screenshots.filter(({ panel }) => panel?.label)
+  const count = <T>(items: readonly T[], test: (item: T) => boolean) =>
+    items.filter(test).length
+  const flagged = (verdict: Verdict) => verdict.verdict === "regression"
+
   const totals = arms.map((arm) => {
-    const ofArm = scored.filter((result) => result.arm === arm)
-    const sum = (count: (result: (typeof ofArm)[number]) => number) =>
-      ofArm.reduce((n, result) => n + count(result), 0)
-    return `| ${arm} | ${ofArm.length} | ${sum((r) => r.hits.length)} / ${issues} | ${sum((r) => r.falseFlags.length)} / ${fine} | ${sum((r) => (r.verdict.verdict === "regression" ? 1 : 0))} | ${sum((r) => (r.verdict.error ? 1 : 0))} |`
+    const ofUnseen = unseenScored.filter((result) => result.arm === arm)
+    const defects = ofUnseen.filter(({ label }) => label === "defect")
+    const fines = ofUnseen.filter(({ label }) => label === "fine")
+    const ofOwner = ownerScored.filter((result) => result.arm === arm)
+    const sum = (n: (result: (typeof ofOwner)[number]) => number) =>
+      ofOwner.reduce((total, result) => total + n(result), 0)
+    const errors = count(
+      [...ofUnseen, ...ofOwner],
+      ({ verdict }) => !!verdict.error,
+    )
+    return `| ${arm} | ${count(defects, ({ verdict }) => flagged(verdict))} / ${defects.length} | ${count(fines, ({ verdict }) => flagged(verdict))} / ${fines.length} | ${count(ofUnseen, ({ verdict }) => verdict.verdict === "unsure")} / ${ofUnseen.length} | ${sum((r) => r.hits.length)} / ${issues} | ${sum((r) => r.falseFlags.length)} / ${fine} | ${sum((r) => (flagged(r.verdict) ? 1 : 0))} / ${ofOwner.length} | ${errors} |`
   })
-  const rows = calibration.screenshots.map((screenshot) => {
+  const verdictOf = (arm: string, id: string) =>
+    results.find((result) => result.arm === arm && result.case === id)?.verdict
+  const unseenRows = scoredUnseen.map((screenshot) => {
+    const cells = arms.map(
+      (arm) => verdictOf(arm, screenshot.id)?.verdict ?? "not run",
+    )
+    const name = `${screenshot.id}${screenshot.before ? " (change)" : ""}`
+    return `| ${name} | ${screenshot.source} | ${screenshot.panel?.label} | ${cells.join(" | ")} |`
+  })
+  const ownerRows = owner.screenshots.map((screenshot) => {
     const cells = arms.map((arm) => {
-      const result = scored.find(
+      const result = ownerScored.find(
         (r) => r.arm === arm && r.screenshot === screenshot,
       )
       if (!result) return "not run"
-      const flagged = [...flaggedKinds(result.verdict)].join(", ") || "none"
-      return `${result.hits.length} / ${screenshot.flag.length} hits, ${result.falseFlags.length} / ${screenshot.ok.length} false (${flagged})`
+      const kinds = [...flaggedKinds(result.verdict)].join(", ") || "none"
+      return `${result.hits.length} / ${screenshot.flag.length} hits, ${result.falseFlags.length} / ${screenshot.ok.length} false (${kinds})`
     })
     const name = `${screenshot.storyId}${screenshot.before ? " (change)" : ""}`
     return `| ${screenshot.round} | ${name} | ${cells.join(" | ")} |`
   })
+  const unlabeled = count(unseen.screenshots, ({ panel }) => !panel)
+  const disputed = count(
+    unseen.screenshots,
+    ({ panel }) => !!panel && panel.label === null,
+  )
   return [
-    `# Owner calibration, ${calibration.date}`,
+    `# Calibration of the visual critic`,
     "",
-    "A hit is an owner issue that the arm flags. A false flag is a fine item that the arm flags.",
+    `Unseen set: ${scoredUnseen.length} of ${unseen.screenshots.length} screenshots have a panel label (${count(scoredUnseen, ({ panel }) => panel?.label === "defect")} defect, ${count(scoredUnseen, ({ panel }) => panel?.label === "fine")} fine). ${disputed} without agreement and ${unlabeled} with no panel run do not count. A critic change is selected on the unseen set (ADR-063, rule 16).`,
     "",
-    "| Arm | Verdicts | Hits | False flags | Regression verdicts | Errors |",
-    "| --- | ---: | ---: | ---: | ---: | ---: |",
+    `Owner examples (${owner.date}): ${owner.screenshots.length} screenshots, ${issues} issues, ${fine} fine items. A hit is an owner issue that the arm flags. A false flag is a fine item that the arm flags.`,
+    "",
+    "| Arm | Unseen: defects flagged | Unseen: fine flagged | Unseen: unsure | Owner: hits | Owner: false flags | Owner: regression verdicts | Errors |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ...totals,
+    "",
+    "## Unseen set",
+    "",
+    `| Screenshot | Source | Panel | ${arms.join(" | ")} |`,
+    `| --- | --- | --- | ${arms.map(() => "---").join(" | ")} |`,
+    ...unseenRows,
+    "",
+    "## Owner examples",
     "",
     `| Round | Screenshot | ${arms.join(" | ")} |`,
     `| ---: | --- | ${arms.map(() => "---").join(" | ")} |`,
-    ...rows,
+    ...ownerRows,
     "",
     `Spend: $${spent.toFixed(4)} (a call without a cost counts as at least $0.10).`,
   ].join("\n")
@@ -222,7 +341,8 @@ export async function calibrate(
   print: (text: string) => void,
 ): Promise<number> {
   let options
-  let calibration: Calibration
+  let owner: Calibration
+  let unseen: Unseen
   try {
     ;({ values: options } = parseArgs({
       args: [...args],
@@ -233,38 +353,70 @@ export async function calibrate(
           type: "string",
           default: join(import.meta.dirname, "owner-calibration.json"),
         },
+        unseen: {
+          type: "string",
+          default: join(import.meta.dirname, "unseen-calibration.json"),
+        },
         images: {
           type: "string",
           default: ".ci-results/visual-bakeoff/images",
         },
         out: { type: "string", default: ".ci-results/visual-bakeoff/report" },
-        "max-cost": { type: "string", default: "2" },
+        "max-cost": { type: "string", default: "4" },
       },
     }))
     if (!options.arms) throw new Error("--arms is required.")
-    calibration = calibrationSchema.parse(
+    owner = calibrationSchema.parse(
       JSON.parse(await readFile(options.calibration, "utf8")),
+    )
+    unseen = unseenSchema.parse(
+      JSON.parse(await readFile(options.unseen, "utf8")),
     )
   } catch (error) {
     print(`${(error as Error).message}\n\n${usage}`)
     return 2
   }
+  // Only an unseen screenshot with a panel label counts, so only those run.
+  const cases = [
+    ...owner.screenshots.map((screenshot) =>
+      screenshotCase({
+        ...screenshot,
+        id: screenshot.storyId,
+        viewport: "desktop",
+      }),
+    ),
+    ...unseen.screenshots
+      .filter(({ panel }) => panel?.label)
+      .map((screenshot) => screenshotCase(screenshot)),
+  ]
+  const ids = cases.map(({ id }) => id)
+  const twice = ids.filter((id, index) => ids.indexOf(id) !== index)
+  if (twice.length) {
+    print(`The two sets both have the id ${twice.join(", ")}.\n\n${usage}`)
+    return 2
+  }
+  const manifest: CaseManifest = {
+    $schema: "./cases.schema.json",
+    version: 1,
+    seed: 0,
+    until: "0".repeat(40),
+    container: "none",
+    scope: "page",
+    cases,
+  }
 
   const out = resolve(options.out)
   const runner = join(out, "runner")
   await mkdir(runner, { recursive: true })
-  const cases = join(runner, "cases.json")
-  await writeFile(
-    cases,
-    `${JSON.stringify(manifestOf(calibration), null, 2)}\n`,
-  )
+  const casesPath = join(runner, "cases.json")
+  await writeFile(casesPath, `${JSON.stringify(manifest, null, 2)}\n`)
   let runnerOutput = ""
   const code = await bakeOff(
     [
       "--arms",
       options.arms,
       "--cases",
-      cases,
+      casesPath,
       "--runs",
       "1",
       "--max-cost",
@@ -283,7 +435,7 @@ export async function calibrate(
   const { arms, spent, results } = JSON.parse(
     await readFile(join(runner, "results.json"), "utf8"),
   ) as { arms: string[]; spent: number; results: Result[] }
-  const text = calibrationReport(calibration, arms, results, spent)
+  const text = calibrationReport(owner, unseen, arms, results, spent)
   await writeFile(join(out, "report.md"), `${text}\n`)
   print(text)
   return 0

@@ -1,5 +1,6 @@
-// The owner calibration on two small screenshots, with msw in place of
-// OpenRouter and of the Jev Decisions API.
+// The calibration on small screenshots of both sets (the owner examples and
+// the unseen set), with msw in place of OpenRouter and of the Jev Decisions
+// API.
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -14,6 +15,7 @@ import {
   calibrate,
   calibrationSchema,
   type Calibration,
+  type Unseen,
 } from "./calibration.ts"
 import { imageFile, sha256Of } from "./images.ts"
 
@@ -72,6 +74,40 @@ const calibration: Calibration = {
 }
 const calibrationPath = join(dir, "calibration.json")
 writeFileSync(calibrationPath, JSON.stringify(calibration))
+const votes = (label: "defect" | "fine" | null) => ({
+  label,
+  votes: [{ model: "vendor-a/judge", label: label ?? "fine", reason: "." }],
+})
+const unseenShot = (id: string, gray: number) => ({
+  id,
+  source: "main",
+  path: `apps/ui/src/${id}.png`,
+  commit: "a".repeat(40),
+  image: store(gray),
+  scope: "page" as const,
+  viewport: "mobile" as const,
+})
+const unseen: Unseen = {
+  selected: "2026-11-15",
+  panelModels: ["vendor-a/judge"],
+  screenshots: [
+    { ...unseenShot("unseen-defect", 30), panel: votes("defect") },
+    { ...unseenShot("unseen-fine", 40), panel: votes("fine") },
+    // No agreement, and no panel run: neither one runs.
+    { ...unseenShot("unseen-disputed", 50), panel: votes(null) },
+    unseenShot("unseen-unjudged", 70),
+  ],
+}
+const unseenPath = join(dir, "unseen.json")
+writeFileSync(unseenPath, JSON.stringify(unseen))
+const noUnseen = join(dir, "no-unseen.json")
+writeFileSync(
+  noUnseen,
+  JSON.stringify({
+    ...unseen,
+    screenshots: [unseenShot("unseen-unjudged", 70)],
+  }),
+)
 
 // The LLM flags color-tokens (a finding) and density (a failed quality) on
 // every screenshot.
@@ -136,6 +172,8 @@ test("counts the owner issues and the fine items that each arm flags", async () 
       "jev,llm:anthropic/claude-sonnet-5.5",
       "--calibration",
       calibrationPath,
+      "--unseen",
+      noUnseen,
       "--images",
       images,
       "--out",
@@ -146,12 +184,18 @@ test("counts the owner issues and the fine items that each arm flags", async () 
 
   expect(code).toBe(0)
   // The LLM: on the first screenshot, a hit (color-tokens) and a false flag
-  // (density). On the second, nothing that the owner named.
+  // (density). On the second, nothing that the owner named. The unseen set
+  // has no panel label yet, so it has no verdict.
   expect(printed).toContain(
-    "| llm:anthropic/claude-sonnet-5.5 | 2 | 1 / 2 | 1 / 3 | 2 | 0 |",
+    "| llm:anthropic/claude-sonnet-5.5 | 0 / 0 | 0 / 0 | 0 / 0 | 1 / 2 | 1 / 3 | 2 / 2 | 0 |",
   )
   // Jev: a hit (clarity) and no false flag.
-  expect(printed).toContain("| jev | 2 | 1 / 2 | 0 / 3 | 2 | 0 |")
+  expect(printed).toContain(
+    "| jev | 0 / 0 | 0 / 0 | 0 / 0 | 1 / 2 | 0 / 3 | 2 / 2 | 0 |",
+  )
+  expect(printed).toContain(
+    "Unseen set: 0 of 1 screenshots have a panel label (0 defect, 0 fine). 0 without agreement and 1 with no panel run do not count.",
+  )
   expect(printed).toContain(
     "| 1 | pages-a--story | 1 / 2 hits, 0 / 2 false (clarity) | 1 / 2 hits, 1 / 2 false (color-tokens, density) |",
   )
@@ -219,6 +263,8 @@ test("a screenshot with a before image is a change with its brief, and a worse q
       "llm:anthropic/claude-sonnet-5.5",
       "--calibration",
       path,
+      "--unseen",
+      noUnseen,
       "--images",
       images,
       "--out",
@@ -231,11 +277,93 @@ test("a screenshot with a before image is a change with its brief, and a worse q
   // The judge got the change with its brief, not a new screenshot.
   expect(prompts.join("\n")).toContain("Put the markers on one axis.")
   expect(printed).toContain(
-    "| llm:anthropic/claude-sonnet-5.5 | 1 | 1 / 1 | 0 / 1 | 1 | 0 |",
+    "| llm:anthropic/claude-sonnet-5.5 | 0 / 0 | 0 / 0 | 0 / 0 | 1 / 1 | 0 / 1 | 1 / 1 | 0 |",
   )
   expect(printed).toContain(
     "| 4 | components-c--story (change) | 1 / 1 hits, 0 / 1 false (hierarchy) |",
   )
+})
+
+test("reports the unseen set beside the owner examples, and runs only the unseen screenshots with a panel label", async () => {
+  vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
+  vi.stubEnv("MODEL_PROVIDER_URL", gateway)
+  const stories: string[] = []
+  // The LLM calls each screenshot a regression.
+  server.use(
+    http.post(`${gateway}/chat/completions`, async ({ request }) => {
+      const body = (await request.json()) as {
+        messages: { content: { text?: string }[] }[]
+      }
+      stories.push(
+        /Story: (\S+)/.exec(body.messages[0]?.content[1]?.text ?? "")?.[1] ??
+          "",
+      )
+      return HttpResponse.json({
+        choices: [{ message: { content: JSON.stringify(judgment) } }],
+        usage: { cost: 0.01 },
+      })
+    }),
+  )
+  const out = join(dir, "out-unseen")
+  let printed = ""
+
+  const code = await calibrate(
+    [
+      "--arms",
+      "llm:anthropic/claude-sonnet-5.5",
+      "--calibration",
+      calibrationPath,
+      "--unseen",
+      unseenPath,
+      "--images",
+      images,
+      "--out",
+      out,
+    ],
+    (text) => (printed += text),
+  )
+
+  expect(code).toBe(0)
+  expect(stories.sort()).toEqual([
+    "components-b--story",
+    "pages-a--story",
+    "unseen-defect",
+    "unseen-fine",
+  ])
+  // Unseen: the defect is flagged (recall 1 of 1), and so is the fine
+  // screenshot (a false alarm, 1 of 1). Owner: as in the first test.
+  expect(printed).toContain(
+    "| llm:anthropic/claude-sonnet-5.5 | 1 / 1 | 1 / 1 | 0 / 2 | 1 / 2 | 1 / 3 | 2 / 2 | 0 |",
+  )
+  expect(printed).toContain(
+    "Unseen set: 2 of 4 screenshots have a panel label (1 defect, 1 fine). 1 without agreement and 1 with no panel run do not count.",
+  )
+  expect(printed).toContain("| unseen-defect | main | defect | regression |")
+  expect(printed).toContain("| unseen-fine | main | fine | regression |")
+  expect(printed).not.toContain("| unseen-disputed |")
+})
+
+test("an id in both sets is an input error, with no call", async () => {
+  vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
+  const both = join(dir, "both.json")
+  writeFileSync(
+    both,
+    JSON.stringify({
+      ...unseen,
+      screenshots: [
+        { ...unseenShot("pages-a--story", 30), panel: votes("fine") },
+      ],
+    }),
+  )
+  let printed = ""
+
+  const code = await calibrate(
+    ["--arms", "jev", "--calibration", calibrationPath, "--unseen", both],
+    (text) => (printed += text),
+  )
+
+  expect(code).toBe(2)
+  expect(printed).toContain("The two sets both have the id pages-a--story.")
 })
 
 test("an unknown arm is an error of the runner, with no call", async () => {

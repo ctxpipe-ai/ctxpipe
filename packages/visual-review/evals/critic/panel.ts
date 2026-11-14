@@ -17,8 +17,7 @@ import { parseArgs } from "node:util"
 import { z } from "zod"
 
 import { askOpenRouter } from "../../src/adapters/openrouter.ts"
-import { buildPanelPrompt } from "../../src/prompt.ts"
-import type { StoryInput } from "../../src/story.ts"
+import { buildPanelPrompt, type Prompt } from "../../src/prompt.ts"
 import { parseJsonReply } from "../../src/verdict.ts"
 import {
   caseManifestSchema,
@@ -33,7 +32,7 @@ import { prepare } from "./run.ts"
 import { spendMeter } from "./spend.ts"
 
 /** The default panel: one strong vision model of each of three families. */
-const defaultModels = [
+export const defaultModels = [
   "anthropic/claude-opus-5.5",
   "openai/gpt-6.1-sol",
   "google/gemini-4-argon",
@@ -55,11 +54,10 @@ labels into the manifest. The key and the endpoint come from
 MODEL_PROVIDER_API_KEY and MODEL_PROVIDER_URL.`
 
 /** The reply of one member: the reason first, then the label. */
-const replySchema = z.object({
+export const replySchema = z.object({
   reason: z.string(),
   label: z.enum(panelLabels),
 })
-const replyJsonSchema = z.toJSONSchema(replySchema)
 
 /**
  * The agreement rule: a plain majority. A label counts when more than half of
@@ -86,30 +84,66 @@ const known = (entry: Case): PanelLabel | undefined =>
       ? "no-change"
       : undefined
 
+/** The vote of one member: a label, or no label and the error. */
+export type Vote<Label extends string> = {
+  model: string
+  label: Label | null
+  reason: string
+  error?: string
+}
+
 /** The vote of a member that gave no usable answer. */
-const noVote = (model: string, error: string): Panel["votes"][number] => ({
+const noVote = (model: string, error: string) => ({
   model,
   label: null,
   reason: "",
   error,
 })
 
-/** The vote of one member, or a vote with no label and the error. */
-async function vote(
-  story: StoryInput,
-  model: string,
-): Promise<{ vote: Panel["votes"][number]; cost: number | null }> {
-  const { content, run } = await askOpenRouter(
-    buildPanelPrompt(story, replyJsonSchema),
-    replyJsonSchema,
-    model,
-    process.env,
-  )
-  const reply = parseJsonReply(content, replySchema)
+/**
+ * The function that asks one member for its vote on `prompt`, with a reply
+ * of `reply`, while the spend of `spend` is below its cap. A failed call gets
+ * one retry; then the member gives no vote. It gives undefined when the cap
+ * stops the call. The judge panel of the cases and the panel of the unseen
+ * calibration set (label-unseen.ts) use it.
+ */
+export function panelMember<Label extends string>(
+  reply: z.ZodType<{ reason: string; label: Label }>,
+  spend: ReturnType<typeof spendMeter>,
+) {
+  const schema = z.toJSONSchema(reply)
+  const vote = async (prompt: Prompt, model: string) => {
+    const { content, run } = await askOpenRouter(
+      prompt,
+      schema,
+      model,
+      process.env,
+    )
+    const parsed = parseJsonReply(content, reply)
+    return {
+      vote:
+        "error" in parsed
+          ? noVote(model, parsed.error)
+          : { model, ...parsed.data },
+      cost: run.costUsd,
+    }
+  }
   return {
-    vote:
-      "error" in reply ? noVote(model, reply.error) : { model, ...reply.data },
-    cost: run.costUsd,
+    schema,
+    async ask(prompt: Prompt, model: string): Promise<Vote<Label> | undefined> {
+      for (let attempt = 1; ; attempt++) {
+        if (!spend.open()) return undefined
+        try {
+          const { vote: given, cost } = await vote(prompt, model)
+          spend.count(cost)
+          return given
+        } catch (error) {
+          spend.count(null)
+          if (attempt === 2) return noVote(model, (error as Error).message)
+          await new Promise((done) => setTimeout(done, 5_000))
+        }
+      }
+    },
   }
 }
 
@@ -182,25 +216,7 @@ export async function judgePanel(
   const images = resolve(options.images)
   const get = imageStore(images, releaseUrl)
   const work = await mkdtemp(join(tmpdir(), "visual-panel-"))
-  // A call starts only while the spend is below the cap. A failed call gets
-  // one retry; then the member gives no vote.
-  const ask = async (story: StoryInput, model: string) => {
-    for (let attempt = 1; ; attempt++) {
-      if (!spend.open()) {
-        stopped = true
-        return undefined
-      }
-      try {
-        const { vote: given, cost } = await vote(story, model)
-        spend.count(cost)
-        return given
-      } catch (error) {
-        spend.count(null)
-        if (attempt === 2) return noVote(model, (error as Error).message)
-        await new Promise((done) => setTimeout(done, 5_000))
-      }
-    }
-  }
+  const member = panelMember(replySchema, spend)
   // A new case has no before image, so the panel does not judge it: its
   // label stays the one of the builder. A case with a failed vote (an outage,
   // a reply that is not usable) is judged again, so that a short outage does
@@ -222,7 +238,7 @@ export async function judgePanel(
       Array.from({ length: 4 }, async () => {
         for (let entry = queue.shift(); entry; entry = queue.shift()) {
           if (stopped || imageError) return
-          let story: StoryInput
+          let prompt: Prompt
           try {
             const prepared = await prepare(
               entry,
@@ -233,17 +249,23 @@ export async function judgePanel(
             )
             if (prepared.kind !== "change") continue
             // The Storybook story id names the page: context for the judge.
-            story = { ...prepared.story, storyId: entry.storyId }
+            prompt = buildPanelPrompt(
+              { ...prepared.story, storyId: entry.storyId },
+              member.schema,
+            )
           } catch (error) {
             imageError ??= (error as Error).message
             return
           }
           const votes = await Promise.all(
-            models.map((model) => ask(story, model)),
+            models.map((model) => member.ask(prompt, model)),
           )
           // A case that the cap stopped gets no panel: the next run judges
           // it again.
-          if (votes.some((given) => given === undefined)) return
+          if (votes.some((given) => given === undefined)) {
+            stopped = true
+            return
+          }
           const given = votes.filter((one) => one !== undefined)
           panels.set(entry.id, { label: agreement(given), votes: given })
         }
