@@ -96,7 +96,9 @@ line gives its expected output. The dry run of the copy is its preflight against
 - **Copy, do not generate:** `AUTH_SECRET` (so that sessions stay valid) and `CONNECTION_SECRETS_ENCRYPTION_KEY` (so
   that the stored connector tokens decrypt) must have the production values. The rehearsals use new values for both;
   this step writes over them (ADR-061 decision 12).
-- **Dry run:** `ops/aws-cutover/copy-app-secrets.sh --verify` compares only.
+- **Dry run:** `ops/aws-cutover/copy-app-secrets.sh --verify` compares only. Before the copy, it prints `MISMATCH`
+  for the values that the rehearsal form made new (`AUTH_SECRET`, `CONNECTION_SECRETS_ENCRYPTION_KEY` and the three
+  `GITHUB_*` keys) and exits with code 1. Each other name prints `match` or `skipped`.
 - **Rollback:** write the rehearsal form again. Make its new values in the form that the app requires, or the backend
   and the worker stop at start:
   - `CONNECTION_SECRETS_ENCRYPTION_KEY`: exactly 64 hex characters, `openssl rand -hex 32 | tr -d '\n'`.

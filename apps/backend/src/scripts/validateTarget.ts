@@ -31,7 +31,7 @@ import { parseEnv } from "../config/env.js"
 import { closeDb, initDb } from "../db/client.js"
 import { formatUnknownError } from "../db/transientDbRetry.js"
 import { validateTargetSecrets } from "../lib/validate-target-secrets.js"
-import { validateTarget } from "../lib/validate-target.js"
+import { type CheckResult, validateTarget } from "../lib/validate-target.js"
 import { initEvlog } from "../observability/logger.js"
 
 async function main(argv: string[]): Promise<number> {
@@ -71,7 +71,7 @@ async function main(argv: string[]): Promise<number> {
   return report(results)
 }
 
-function report(results: { ok: boolean }[]): number {
+function report(results: CheckResult[]): number {
   process.stdout.write(`${JSON.stringify(results, null, 2)}\n`)
   return results.every((result) => result.ok) ? 0 : 1
 }
