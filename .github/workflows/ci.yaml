@@ -266,7 +266,7 @@ jobs:
         with:
           bun-version: 1.4.4
       - name: Required chat engine binary
-        run: npm install --global opencode-ai@1.18.34
+        run: npm install --global opencode-ai@1.19.5
       # Test files start these images in parallel. A Docker Hub token request
       # can time out, so pull each image once here, with retries, before the
       # tests start.
@@ -327,7 +327,7 @@ jobs:
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: scripts/chat-sandbox
-          tags: ctxpipe-chat-sandbox:opencode-1.18.34-r4
+          tags: ctxpipe-chat-sandbox:opencode-1.19.5-r1
           load: true
           cache-from: type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox-arm64
       - name: Required ${{ matrix.lane }} tests

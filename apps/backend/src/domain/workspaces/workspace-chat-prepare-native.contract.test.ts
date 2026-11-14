@@ -492,7 +492,7 @@ it(
         {
           baseImage:
             process.env.CTXPIPE_TEST_CHAT_SANDBOX_IMAGE?.trim() ||
-            "ctxpipe-chat-sandbox:opencode-1.18.34-r4",
+            "ctxpipe-chat-sandbox:opencode-1.19.5-r1",
           docker,
         },
         async (gitFixture) =>
@@ -654,7 +654,7 @@ it(
         {
           baseImage:
             process.env.CTXPIPE_TEST_CHAT_SANDBOX_IMAGE?.trim() ||
-            "ctxpipe-chat-sandbox:opencode-1.18.34-r4",
+            "ctxpipe-chat-sandbox:opencode-1.19.5-r1",
           docker,
         },
         async (gitFixture) =>
