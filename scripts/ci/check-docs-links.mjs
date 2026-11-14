@@ -21,6 +21,7 @@ const root = resolve(
 )
 const DOCS = "apps/docs/content/docs"
 const SKIP = new Set([
+  "storybook-static",
   "node_modules",
   "dist",
   "build",

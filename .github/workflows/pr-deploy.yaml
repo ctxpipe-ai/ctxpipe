@@ -27,8 +27,10 @@
 # - GH_* (Preview environment secrets): the preview GitHub App. The deploy
 #   fails when one is empty, or when GH_APP_ID or GH_CLIENT_ID is equal to the
 #   production backend value (scripts/preview-github-app-vars.sh).
-# - OTEL exporter variables: the deploy reads only those four variables from
-#   the production backend (scripts/preview-otel-vars.sh).
+# - OTEL exporter variables: built from the Preview OBSERVABILITY_OTLP_HEADERS
+#   and the default collector. The sync reads one production variable,
+#   OTEL_EXPORTER_OTLP_HEADERS, only to compare it with the Preview token
+#   (scripts/preview-otel-vars.sh).
 name: PR Deploy
 
 on:
@@ -81,7 +83,7 @@ jobs:
           || github.event.action == 'opened'
           || github.event.action == 'reopened') &&
         github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     outputs:
       pr_number: ${{ steps.resolve.outputs.pr_number }}
       head_sha: ${{ steps.resolve.outputs.head_sha }}
@@ -325,7 +327,7 @@ jobs:
     name: Prepare PR environment (Railway)
     needs: [resolve_pr, build_pr_images, verify_connector_assets]
     if: needs.resolve_pr.outputs.pr_number != ''
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     timeout-minutes: 20
     # RAILWAY_API_TOKEN and the preview GitHub App secrets come from this
     # protected environment.
@@ -658,7 +660,7 @@ jobs:
     # Waits for migrate_pr_database of the same run. The workflow
     # concurrency group keeps a newer run out until this roll ends.
     needs: [resolve_pr, prepare_pr_environment, prepare_pr_database, migrate_pr_database]
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     timeout-minutes: 45
     # pull-requests: write for the preview comment.
     permissions:
@@ -1517,7 +1519,7 @@ jobs:
     concurrency:
       group: pr-cleanup-environment-${{ github.event.number }}
       cancel-in-progress: false
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     # RAILWAY_API_TOKEN and NEON_API_KEY come from this protected environment.
     # The job calls only the Neon and Railway APIs with curl: no CLI, no
     # package. Each secret is in the env of the steps that need it.
@@ -1657,7 +1659,7 @@ jobs:
     concurrency:
       group: pr-cleanup-sandboxes-${{ github.event.number }}
       cancel-in-progress: false
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     permissions:
       contents: read
     # The preview Vercel project and token (scripts/preview-sandbox-vars.sh).

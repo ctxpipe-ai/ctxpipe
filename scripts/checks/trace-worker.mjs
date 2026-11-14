@@ -57,7 +57,7 @@ function open() {
   // resolves against the page (`http://localhost:3000/@fs/...`).
   const own = [
     import.meta.url,
-    ...["trace-edges.mjs", "trace-lines.mjs"].map(
+    ...["trace-edges.mjs", "trace-tables.mjs", "trace-lines.mjs"].map(
       (name) =>
         pathToFileURL(resolve(fileURLToPath(import.meta.url), "..", name)).href,
     ),
