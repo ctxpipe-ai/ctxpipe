@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url"
 
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
+import { parse } from "yaml"
 
 import { images, planImages, uncoveredSources } from "../ci/deploy-images.mjs"
 
@@ -114,9 +115,10 @@ function repository(changes, { baseChanges = {} } = {}) {
   return { dir, base }
 }
 
-// The GitHub API of the base run: the last successful Deploy run on main,
-// its Publish jobs, and the `deploy-image` notice of each job.
-function github({ base, runs, notices = {} }) {
+// The GitHub API of the base run: the successful Deploy runs on main, the
+// Publish jobs of each run (a prerelease dispatch has none), and the
+// `deploy-image` notice of each job.
+function github({ base, runs, prereleases = [], notices = {} }) {
   const jobs = names.map((name, index) => ({
     id: 1000 + index,
     name: `Publish image (${name})`,
@@ -129,15 +131,20 @@ function github({ base, runs, notices = {} }) {
       ({ request }) => {
         const query = new URL(request.url).searchParams
         assert.equal(query.get("branch"), "main")
-        assert.equal(query.get("event"), "push")
         assert.equal(query.get("status"), "success")
         return HttpResponse.json({
-          workflow_runs: runs ?? [{ id: 7, head_sha: base }],
+          workflow_runs: runs ?? [{ id: 7, head_sha: base, event: "push" }],
         })
       },
     ),
-    http.get(`https://api.github.com/repos/${repo}/actions/runs/7/jobs`, () =>
-      HttpResponse.json({ jobs }),
+    http.get(
+      `https://api.github.com/repos/${repo}/actions/runs/:run/jobs`,
+      ({ params }) =>
+        HttpResponse.json({
+          jobs: prereleases.includes(Number(params.run))
+            ? [{ id: 1, name: "Prerelease", conclusion: "success" }]
+            : jobs,
+        }),
     ),
     http.get(
       `https://api.github.com/repos/${repo}/check-runs/:id/annotations`,
@@ -248,7 +255,12 @@ test("without a base that main contains, every image builds", async () => {
   server.use(...github({ base, runs: [] }))
   assert.deepEqual(built(await plan(dir)), names)
   // A base that is not in the history of HEAD (a force push).
-  server.use(...github({ base, runs: [{ id: 7, head_sha: "f".repeat(40) }] }))
+  server.use(
+    ...github({
+      base,
+      runs: [{ id: 7, head_sha: "f".repeat(40), event: "push" }],
+    }),
+  )
   assert.deepEqual(built(await plan(dir)), names)
   // The GitHub API fails.
   server.use(
@@ -322,4 +334,207 @@ test("a notice on a later page of annotations counts, and too many annotations b
     }),
   )
   assert.deepEqual(built(await plan(dir)), ["worker", "ui"])
+})
+
+test("a deploy dispatch is a base, and a prerelease dispatch is not", async () => {
+  const { dir, base } = repository({ "apps/ui/src/page.tsx": "x\n" })
+  const other = "e".repeat(40)
+  // The newest run is a prerelease dispatch: the plan skips it and takes the
+  // deploy dispatch behind it.
+  server.use(
+    ...github({
+      base,
+      prereleases: [9],
+      runs: [
+        { id: 9, head_sha: other, event: "workflow_dispatch" },
+        { id: 8, head_sha: base, event: "workflow_dispatch" },
+        { id: 7, head_sha: other, event: "push" },
+      ],
+    }),
+  )
+  const result = await plan(dir)
+  assert.deepEqual(built(result), ["ui"])
+  assert.match(result.reasons.backend, new RegExp(`since ${base.slice(0, 7)}`))
+  // Only prerelease dispatches: no base, so every image builds.
+  server.use(
+    ...github({
+      base,
+      prereleases: [9],
+      runs: [{ id: 9, head_sha: base, event: "workflow_dispatch" }],
+    }),
+  )
+  assert.deepEqual(built(await plan(dir)), names)
+})
+
+// The jobs of deploy.yaml that run, from the `if:` and `needs:` of each job,
+// with GitHub's rules: a condition without a status function also needs
+// success(), and success() and failure() look at every job before the job.
+// Each job that runs succeeds, except the jobs in `fail`.
+function jobsThatRun({
+  event,
+  ref = "refs/heads/main",
+  deploy,
+  build,
+  fail = [],
+}) {
+  const { jobs } = parse(
+    readFileSync(join(root, ".github/workflows/deploy.yaml"), "utf8"),
+  )
+  const needsOf = (name) => [jobs[name].needs ?? []].flat()
+  const before = (name) =>
+    needsOf(name).flatMap((need) => [need, ...before(need)])
+  const truthy = (value) =>
+    value !== null && value !== false && value !== "" && value !== 0
+  const results = {}
+  const order = []
+  const visit = (name) => {
+    if (order.includes(name)) return
+    needsOf(name).forEach(visit)
+    order.push(name)
+  }
+  Object.keys(jobs).forEach(visit)
+  for (const name of order) {
+    const earlier = before(name).map((job) => results[job])
+    const functions = {
+      success: () => earlier.every((result) => result === "success"),
+      failure: () => earlier.includes("failure"),
+      cancelled: () => false,
+      always: () => true,
+    }
+    const values = {
+      github: { event_name: event, ref },
+      inputs: event === "workflow_dispatch" ? { deploy } : {},
+      needs: Object.fromEntries(
+        needsOf(name).map((need) => [
+          need,
+          {
+            result: results[need],
+            outputs: need === "image_plan" ? { build } : {},
+          },
+        ]),
+      ),
+    }
+    let condition = String(jobs[name].if ?? "")
+      .replace(/^\$\{\{|\}\}$/g, "")
+      .trim()
+    if (!/\b(success|failure|cancelled|always)\(\)/.test(condition))
+      condition = condition ? `success() && (${condition})` : "success()"
+    // A GitHub expression of the subset that deploy.yaml uses.
+    const tokens = condition.match(
+      /'[^']*'|[A-Za-z_][\w.-]*\(\)|[A-Za-z_][\w.-]*|==|!=|&&|\|\||!|\(|\)/g,
+    )
+    let index = 0
+    const primary = () => {
+      const token = tokens[index++]
+      if (token === "!") return !truthy(primary())
+      if (token === "(") {
+        const value = or()
+        index += 1
+        return value
+      }
+      if (token.startsWith("'")) return token.slice(1, -1)
+      if (token.endsWith("()")) return functions[token.slice(0, -2)]()
+      return (
+        token.split(".").reduce((value, key) => value?.[key], values) ?? null
+      )
+    }
+    const equality = () => {
+      let value = primary()
+      while (tokens[index] === "==" || tokens[index] === "!=") {
+        const equal = tokens[index++] === "=="
+        value = (value === primary()) === equal
+      }
+      return value
+    }
+    const and = () => {
+      let value = equality()
+      while (tokens[index] === "&&") {
+        index += 1
+        const right = equality()
+        value = truthy(value) ? right : value
+      }
+      return value
+    }
+    const or = () => {
+      let value = and()
+      while (tokens[index] === "||") {
+        index += 1
+        const right = and()
+        value = truthy(value) ? value : right
+      }
+      return value
+    }
+    results[name] = truthy(or())
+      ? fail.includes(name)
+        ? "failure"
+        : "success"
+      : "skipped"
+  }
+  return order.filter((name) => results[name] !== "skipped")
+}
+
+const deployJobs = [
+  "image_plan",
+  "build_images_amd64",
+  "build_images_arm64",
+  "publish_images",
+  "ecr_digests",
+  "copy_images_to_ecr",
+  "terraform",
+  "forge_deploy",
+]
+const sorted = (names) => [...names].sort()
+
+test("a push to main runs the deploy, also when no image builds", () => {
+  assert.deepEqual(
+    sorted(jobsThatRun({ event: "push", build: '[{"image":"ui"}]' })),
+    sorted([...deployJobs, "release"]),
+  )
+  const unbuilt = ["build_images_amd64", "build_images_arm64"]
+  assert.deepEqual(
+    sorted(jobsThatRun({ event: "push", build: "[]" })),
+    sorted([...deployJobs, "release"].filter((job) => !unbuilt.includes(job))),
+  )
+})
+
+test("a failed build stops the publish and every job after it", () => {
+  assert.deepEqual(
+    sorted(
+      jobsThatRun({
+        event: "push",
+        build: '[{"image":"ui"}]',
+        fail: ["build_images_arm64"],
+      }),
+    ),
+    sorted(["image_plan", "build_images_amd64", "build_images_arm64"]),
+  )
+})
+
+test("a dispatch without the input deploy runs only the prerelease", () => {
+  assert.deepEqual(
+    jobsThatRun({ event: "workflow_dispatch", deploy: false, build: "[]" }),
+    ["prerelease"],
+  )
+})
+
+test("a dispatch with the input deploy runs the deploy from main, without the release and the prerelease, and nothing from another branch", () => {
+  assert.deepEqual(
+    sorted(
+      jobsThatRun({
+        event: "workflow_dispatch",
+        deploy: true,
+        build: '[{"image":"ui"}]',
+      }),
+    ),
+    sorted(deployJobs),
+  )
+  assert.deepEqual(
+    jobsThatRun({
+      event: "workflow_dispatch",
+      deploy: true,
+      ref: "refs/heads/feature",
+      build: '[{"image":"ui"}]',
+    }),
+    [],
+  )
 })

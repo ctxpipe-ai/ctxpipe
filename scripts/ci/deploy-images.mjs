@@ -19,9 +19,10 @@ import { changedFiles } from "./changed-files.mjs"
 // ci-deploy-images checks it, and the plan builds an image that copies an
 // uncovered path, or that it cannot read, on each push.
 //
-// Every image builds when: the run is not a push; no successful Deploy run on
-// main is found, or its commit is not in the history of HEAD; the GitHub API
-// fails; or deploy.yaml, this file or changed-files.mjs changed. One image
+// Every image builds when: the run is not a push (a dispatch with the input
+// `deploy`); no successful Deploy run on main that published images is
+// found, or its commit is not in the history of HEAD; the GitHub API fails;
+// or deploy.yaml, this file or changed-files.mjs changed. One image
 // builds when the base run has not exactly one valid `deploy-image` notice on
 // its Publish job.
 //
@@ -301,11 +302,7 @@ async function github(path, token) {
 // one. So a second notice, also a forged one, makes the image build: never
 // take the first or the last notice. A GHCR tag is no proof either: PR
 // builds (pr-deploy.yaml) push tags to the same packages.
-async function baseDigests({ repo, run, token }) {
-  const { jobs } = await github(
-    `/repos/${repo}/actions/runs/${run}/jobs?filter=latest&per_page=100`,
-    token,
-  )
+async function baseDigests({ repo, jobs, token }) {
   const digests = {}
   for (const { image } of images) {
     const job = jobs.find(
@@ -364,12 +361,31 @@ export async function planImages({ root, event, repo, token }) {
   let changed
   let digests
   try {
+    // The newest successful run on main that published images: a push, or a
+    // dispatch with the input `deploy`. A dispatch without it (the
+    // prerelease) has no Publish job. A run in progress, this one too, is not
+    // in the list.
     const { workflow_runs: runs } = await github(
-      `/repos/${repo}/actions/workflows/deploy.yaml/runs?branch=main&event=push&status=success&per_page=10`,
+      `/repos/${repo}/actions/workflows/deploy.yaml/runs?branch=main&status=success&per_page=20`,
       token,
     )
-    // A run in progress, this one too, is not in the list.
-    base = runs[0]
+    let jobs
+    for (const run of runs) {
+      if (!["push", "workflow_dispatch"].includes(run.event)) continue
+      ;({ jobs } = await github(
+        `/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`,
+        token,
+      ))
+      if (
+        jobs.some(
+          ({ name, conclusion }) =>
+            name.startsWith("Publish image (") && conclusion === "success",
+        )
+      ) {
+        base = run
+        break
+      }
+    }
     if (!base) return everything("no successful Deploy run on main")
     if (!/^[0-9a-f]{40}$/.test(base.head_sha))
       return everything("the base run has no commit")
@@ -385,7 +401,7 @@ export async function planImages({ root, event, repo, token }) {
       )
     }
     changed = changedFiles(root, base.head_sha).map(({ path }) => path)
-    digests = await baseDigests({ repo, run: base.id, token })
+    digests = await baseDigests({ repo, jobs, token })
   } catch (error) {
     return everything(`no base: ${error.message}`)
   }

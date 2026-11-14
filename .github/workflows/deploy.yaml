@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Git ref to publish from
+        description: Git ref to publish from (snapshot prerelease only)
         default: main
         type: string
       dist_tag:
@@ -18,6 +18,14 @@ on:
           - next
           - canary
           - beta
+      # Off: the run publishes the snapshot prerelease only. On, from main:
+      # the run builds every image and deploys production as a push to main
+      # does, without the release job and the prerelease. On, from another
+      # branch: no job runs.
+      deploy:
+        description: Build every image and deploy production (run from main)
+        default: false
+        type: boolean
 
 concurrency:
   group: deploy-main
@@ -28,17 +36,24 @@ permissions:
   pull-requests: write
 
 jobs:
-  # Decides which images this push builds (scripts/ci/deploy-images.mjs). An
-  # image builds when one of its inputs changed since the commit of the last
-  # successful Deploy run on main. Each other image keeps the multi-platform
-  # image that the base run published: publish_images gives that digest the
-  # new tags. Every image builds when no base is found, when the base commit
-  # is not in the history of this commit, or when this file or the plan
-  # changed. The job reads the base run only through the GitHub API, as data.
+  # The deploy runs on a push to main, and on a dispatch from main with the
+  # input `deploy`. The jobs that hold production secrets (terraform,
+  # forge_deploy) state this condition in their own `if:`
+  # (scripts/ci/check-secret-jobs.mjs); each other job runs only after the
+  # job before it succeeded.
+  #
+  # Decides which images this run builds (scripts/ci/deploy-images.mjs). On a
+  # push, an image builds when one of its inputs changed since the commit of
+  # the last successful deploy run on main. Each other image keeps the
+  # multi-platform image that the base run published: publish_images gives
+  # that digest the new tags. Every image builds on a dispatch, when no base
+  # is found, when the base commit is not in the history of this commit, or
+  # when this file or the plan changed. The job reads the base run only
+  # through the GitHub API, as data.
   image_plan:
     timeout-minutes: 5
     name: Plan the image builds
-    if: github.event_name != 'workflow_dispatch'
+    if: (github.event_name == 'push' || inputs.deploy && github.ref == 'refs/heads/main')
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     permissions:
       contents: read
@@ -72,7 +87,7 @@ jobs:
     timeout-minutes: 45
     name: Build image (${{ matrix.image }}, amd64)
     needs: image_plan
-    if: github.event_name != 'workflow_dispatch' && needs.image_plan.outputs.build != '[]'
+    if: needs.image_plan.outputs.build != '[]'
     # amd64: it builds the linux/amd64 image of each service natively.
     runs-on: blacksmith-4vcpu-ubuntu-2404
     environment: production
@@ -123,7 +138,7 @@ jobs:
     timeout-minutes: 45
     name: Build image (${{ matrix.image }}, arm64)
     needs: image_plan
-    if: github.event_name != 'workflow_dispatch' && needs.image_plan.outputs.build != '[]'
+    if: needs.image_plan.outputs.build != '[]'
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     environment: production
     env:
@@ -139,12 +154,13 @@ jobs:
   # pushed as one `deploy-image` notice on its own check run: the plan of a
   # later run reads only that notice. The build jobs are skipped when the plan
   # builds no image, and a job after a skipped job runs only with a status
-  # function. Thus this job and each job after it run unless a job before
-  # them failed or the run was cancelled.
+  # function. Thus this job and each job after it check the result of the job
+  # before them, and do not run when a job before them failed or the run was
+  # cancelled.
   publish_images:
     timeout-minutes: 10
     name: Publish image (${{ matrix.image }})
-    if: ${{ !cancelled() && !failure() && github.event_name != 'workflow_dispatch' }}
+    if: ${{ !cancelled() && !failure() && needs.image_plan.result == 'success' }}
     needs:
       - image_plan
       - build_images_amd64
@@ -223,7 +239,7 @@ jobs:
   ecr_digests:
     timeout-minutes: 5
     name: Digests for the production ECR
-    if: ${{ !cancelled() && !failure() && github.event_name != 'workflow_dispatch' }}
+    if: ${{ !cancelled() && !failure() && needs.publish_images.result == 'success' }}
     needs:
       - publish_images
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm
@@ -275,7 +291,7 @@ jobs:
   copy_images_to_ecr:
     timeout-minutes: 15
     name: Copy images to the ECR
-    if: ${{ !cancelled() && !failure() && github.event_name != 'workflow_dispatch' }}
+    if: ${{ !cancelled() && !failure() && needs.ecr_digests.result == 'success' }}
     needs:
       - ecr_digests
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm
@@ -402,7 +418,7 @@ jobs:
   release:
     timeout-minutes: 20
     name: Release
-    if: ${{ !cancelled() && !failure() && github.event_name != 'workflow_dispatch' }}
+    if: ${{ !cancelled() && !failure() && needs.ecr_digests.result == 'success' && github.event_name == 'push' }}
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     needs:
       - publish_images
@@ -458,7 +474,7 @@ jobs:
   terraform:
     timeout-minutes: 90
     name: Terraform Init/Plan/Apply
-    if: ${{ !cancelled() && !failure() && github.event_name != 'workflow_dispatch' }}
+    if: ${{ !cancelled() && !failure() && needs.ecr_digests.result == 'success' && (github.event_name == 'push' || inputs.deploy && github.ref == 'refs/heads/main') }}
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     environment: production
     needs:
@@ -655,7 +671,7 @@ jobs:
   forge_deploy:
     timeout-minutes: 20
     name: Deploy Forge app (production)
-    if: ${{ !cancelled() && !failure() && github.event_name != 'workflow_dispatch' }}
+    if: ${{ !cancelled() && !failure() && needs.terraform.result == 'success' && (github.event_name == 'push' || inputs.deploy && github.ref == 'refs/heads/main') }}
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     environment: production
     needs: terraform
@@ -696,7 +712,7 @@ jobs:
   prerelease:
     timeout-minutes: 20
     name: Prerelease
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && !inputs.deploy
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     permissions:
       contents: read
