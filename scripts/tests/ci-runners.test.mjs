@@ -1,10 +1,12 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
+
+import { parse } from "yaml"
 
 function check(files) {
   const directory = mkdtempSync(join(tmpdir(), "ctxpipe-runners-"))
@@ -91,4 +93,76 @@ test("the repository workflows pass", () => {
     { encoding: "utf8", cwd: fileURLToPath(new URL("../..", import.meta.url)) },
   )
   assert.equal(result.status, 0, result.stderr)
+})
+
+// ADR-065: the light jobs run on free GitHub-hosted arm runners, and each job
+// that uses Docker stays on Blacksmith.
+const ci = parse(
+  readFileSync(
+    fileURLToPath(new URL("../../.github/workflows/ci.yaml", import.meta.url)),
+    "utf8",
+  ),
+).jobs
+
+test("a GitHub-hosted CI job uses no Docker", () => {
+  for (const [name, job] of Object.entries(ci)) {
+    if (String(job["runs-on"]).startsWith("blacksmith-")) continue
+    assert.equal(job.services, undefined, name)
+    assert.equal(job.container, undefined, name)
+    for (const step of job.steps ?? []) {
+      assert.doesNotMatch(step.run ?? "", /\bdocker\b/, name)
+      assert.doesNotMatch(step.uses ?? "", /docker|useblacksmith/, name)
+    }
+  }
+})
+
+test("the toolchain record and the git lanes use the pinned git", () => {
+  // The Merge gate manifest job records git (major and minor) for every key.
+  // The Blacksmith and GitHub-hosted images have different git versions, so
+  // the manifest job and each job that runs a lane with git in its key put
+  // the pinned git first on PATH.
+  for (const job of [
+    "merge-gate-manifest",
+    "test-shards",
+    "package-tests",
+    "upgrade-from-previous-release",
+  ])
+    assert.ok(
+      ci[job].steps.some((step) => step.uses === "./.github/actions/git"),
+      job,
+    )
+})
+
+test("Merge gate plan and Merge gate share one cache store", () => {
+  // The plan job restores the merge-gate-pr cache that Merge gate saves.
+  assert.equal(
+    ci["merge-gate-plan"]["runs-on"],
+    ci["merge-gate"]["runs-on"],
+  )
+})
+
+test("a push to main fills the cache that the GitHub-hosted jobs restore", () => {
+  const job = ci["github-cache"]
+  assert.equal(job.if, "github.event_name == 'push'")
+  const uses = (name, prefix) =>
+    ci[name].steps.find((step) => step.uses?.startsWith(prefix))
+  // The pnpm store: setup-node keys it by the lockfile and the runner.
+  for (const name of ["lint", "typecheck", "packages", "storybook-build"]) {
+    assert.equal(ci[name]["runs-on"], job["runs-on"], name)
+    assert.deepEqual(
+      uses(name, "actions/setup-node@").with,
+      uses("github-cache", "actions/setup-node@").with,
+      name,
+    )
+  }
+  assert.ok(job.steps.some((step) => step.run === "pnpm install --frozen-lockfile"))
+  // The Terraform providers: the same path and key as Terraform configuration.
+  assert.deepEqual(
+    uses("github-cache", "actions/cache@").with,
+    uses("terraform-validate", "actions/cache@").with,
+  )
+  assert.deepEqual(
+    uses("github-cache", "hashicorp/setup-terraform@").with,
+    uses("terraform-validate", "hashicorp/setup-terraform@").with,
+  )
 })
