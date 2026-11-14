@@ -1,6 +1,6 @@
 # ADR-038: Self-hosted ClickStack + Langfuse (ops observability)
 
-**Status:** Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) | **Date:** 2026-09-21 | **Updated:** 2026-09-29 | **Tags:** observability, railway, clickhouse, langfuse, hyperdx, otel
+**Status:** Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) | **Date:** 2026-09-21 | **Updated:** 2026-11-10 | **Tags:** observability, railway, clickhouse, langfuse, hyperdx, otel
 
 > **Superseded (AWS cutover).** HyperDX (ClickStack) in the production AWS account is the only observability tool ([ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md), decision 25). Langfuse and the Railway project `ctxpipe-observability` are gone. The stack lives in the factory repo (`machines/observability`).
 

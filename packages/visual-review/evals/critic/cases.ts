@@ -61,6 +61,11 @@ const common = {
   /** The pixels that differ (BlazeDiff, threshold 0.1). */
   diffPixels: count,
   images: z.object({ before: image, after: image }),
+  /**
+   * The scope of this story, when it is not the scope of the manifest: a
+   * real PR changes page stories and component stories together.
+   */
+  scope: z.enum(["page", "component"]).optional(),
 }
 /**
  * The votes of the panel on a case with a before image. Absent until the

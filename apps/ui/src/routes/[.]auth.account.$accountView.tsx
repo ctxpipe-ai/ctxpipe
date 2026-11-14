@@ -51,8 +51,8 @@ export function AccountSettingsBody(props: { accountView: string }) {
         isApiKeys || isConnectedApps ? "max-w-4xl" : "max-w-3xl",
       )}
     >
-      <h1 className="mb-6 bg-linear-to-r from-teal-400 to-sky-400 bg-clip-text font-mono text-xs font-normal uppercase tracking-[0.24em] text-transparent sm:mb-8">
-        user account
+      <h1 className="mb-6 text-xl font-medium text-foreground sm:mb-8">
+        User account
       </h1>
       {isApiKeys || isConnectedApps ? (
         <div className="flex w-full grow flex-col gap-4 md:flex-row md:gap-12">

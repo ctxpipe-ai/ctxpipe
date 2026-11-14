@@ -51,7 +51,7 @@ function AtlassianThreeLoSetupGuide({
   }
 
   const scopeCode = (ch: string) => (
-    <code className="rounded-md bg-muted/80 px-1 py-0.5 font-mono text-[0.8125rem] text-foreground">
+    <code className="rounded-md bg-muted/80 px-1 py-0.5 font-mono text-sm text-foreground">
       {ch}
     </code>
   )

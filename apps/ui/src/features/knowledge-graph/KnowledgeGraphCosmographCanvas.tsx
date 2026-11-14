@@ -10,7 +10,7 @@ import {
   CosmographTypeColorLegend,
   prepareCosmographData,
 } from "@cosmograph/react"
-import { IconAlertTriangle, IconHelp } from "@tabler/icons-react"
+import { IconHelp } from "@tabler/icons-react"
 import {
   type CSSProperties,
   forwardRef,
@@ -1345,16 +1345,11 @@ function GraphUnavailable({
   message: string | null
 }) {
   return (
-    <div className="flex w-full max-w-sm flex-col items-center gap-3 text-center">
-      <span className="ctx-node text-red-300" aria-hidden>
-        <IconAlertTriangle className="size-4" aria-hidden />
-      </span>
-      <div className="w-full space-y-1 rounded-md border border-red-500/40 bg-red-950/35 px-4 py-3 text-left">
-        <p className="text-sm font-medium text-red-50">{title}</p>
-        {message ? (
-          <p className="break-words text-sm text-red-200">{message}</p>
-        ) : null}
-      </div>
+    <div className="w-full max-w-sm space-y-1 rounded-md border border-red-500/40 bg-red-950/35 px-4 py-3 text-left">
+      <p className="text-sm font-medium text-red-50">{title}</p>
+      {message ? (
+        <p className="break-words text-sm text-red-200">{message}</p>
+      ) : null}
     </div>
   )
 }

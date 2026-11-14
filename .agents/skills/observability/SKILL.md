@@ -1,20 +1,20 @@
 ---
 name: observability
-description: Find or add ctxpipe telemetry. Use for a request id, trace, log, metric, user, org, or job in HyperDX, Langfuse, or ClickHouse; for new spans, evlog fields, or metrics; or for localhost OTLP.
+description: Find or add ctxpipe telemetry. Use for a request id, trace, log, metric, user, org, or job in HyperDX or ClickHouse, or AWS state through the audit role; for new spans, evlog fields, or metrics; or for localhost OTLP.
 ---
 
 # Observability
 
-Hosted stack: Railway project `ctxpipe-observability`. URLs, accounts, dashboards, MCP clients, and laptop OTLP: [USING.md](../../../ops/observability/USING.md). Attribute history: [ADR-011](../../../.ai/memory/decisions/ADR-011-backend-observability-otel.md).
+Hosted stack: HyperDX at `hyperdx.ctxpipe.dev`, in the production AWS account (factory `machines/observability`). URLs, accounts, dashboards, MCP clients, and laptop OTLP: [USING.md](../../../ops/observability/USING.md). Attribute history: [ADR-011](../../../.ai/memory/decisions/ADR-011-backend-observability-otel.md).
 
 ## Find a signal
 
 1. Take the id you have: response header `x-request-id` (`request.id`), a W3C `traceId`, `enduser.id` plus a time window, `ctxpipe.org.slug` / `ctxpipe.org.id`, or an OpenWorkflow run (`SpanName` `workflow_run.create`, `workflow_run.execute`, or `step_attempt.execute` on scope `openworkflow`). Correlate runs with `openworkflow.run.id`. Execution spans carry `ctxpipe.actor.type=job`. Each execution is its own trace, linked to `workflow_run.create`; step spans are children of that execution.
 2. Name the environment: `production`, `pr-<digits>`, `observability`, or `local-<name>`. Dashboards and the shared filter: [USING.md](../../../ops/observability/USING.md#dashboards).
-3. Read logs, traces, and metrics in HyperDX (MCP `hyperdx`). Read LLM prompt text in Langfuse (MCP `langfuse`). Read deploy status and stdout in Railway (MCP `railway`) when the process exited before export. URLs and keys: [USING.md](../../../ops/observability/USING.md#mcp).
+3. Read logs, traces (with the LLM prompt text), and metrics in HyperDX (MCP `hyperdx`). Then read AWS state through the audit role: CloudWatch Logs, ECS services and events, RDS, EC2, AgentCore. A process that exited before export: its CloudWatch lines are in HyperDX as `service.name=cloudwatch:<log group>`; on Railway, until the cutover, read its stdout through the Railway MCP. URLs, keys and the audit profiles: [USING.md](../../../ops/observability/USING.md#agent-hosts).
 4. Done when the failing span or log line is named, or the window is empty and the environment, service, and time range are written down.
 
-Stay inside a few hours. `otel` parts older than 3 days sit on the cold bucket; a cold read fails within 120s when the bucket is down. Langfuse `traces`, `observations`, and `scores` move after 30 days and are not deleted; read them with `FINAL`.
+Stay inside a few hours. `otel` parts older than 3 days sit on the cold bucket; a cold read fails within 120s when the bucket is down. Traces and logs stay 30 days, metrics 390.
 
 ```sql
 SELECT Timestamp, ServiceName, SpanName, StatusCode, Duration, TraceId
@@ -52,7 +52,7 @@ One key per concept. Resource attributes: `service.name` (`backend`, `openworkfl
 
 HTTP on logs matches spans: `http.request.method`, `url.path` (no query string), `http.response.status_code`. A call this service made uses `upstream.status_code`. Wide-event `duration` is milliseconds.
 
-Langfuse metadata is `orgId`, `orgSlug`, `requestId`, and `environment`. Tags are `org:<slug>` and `env:<deployment.environment>`. Prompt text is on those observations. The ClickHouse pipeline deletes `gen_ai.prompt*`, `gen_ai.completion*`, `gen_ai.input.messages`, `gen_ai.output.messages`, and `langfuse.observation.input` / `output`.
+A model call span has the model, the tokens and the cost (`gen_ai.request.model`, `gen_ai.usage.*`, `gen_ai.usage.cost` in USD) and keeps its prompt and completion text (`gen_ai.prompt*`, `gen_ai.completion*`, `langfuse.observation.input` / `output`): HyperDX has them for 30 days. The Langfuse SDK still writes `langfuse.trace.metadata.*` (`orgId`, `orgSlug`, `requestId`, `environment`) and the `org:<slug>` and `env:<deployment.environment>` tags on the spans; no Langfuse server reads them.
 
 Rows already stored may still use `requestId`, `userId`, or `environment`. New writes use the table above.
 

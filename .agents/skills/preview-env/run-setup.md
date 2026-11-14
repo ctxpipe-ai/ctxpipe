@@ -115,7 +115,7 @@ Start the clock at the triggering action (click, send, navigation) and stop it w
 
 ### Local trace export
 
-A `local` run exports to the hosted collector so every flow is debuggable in HyperDX: set up the **shared collector** in `apps/backend/.env.local` as [USING.md](../../../ops/observability/USING.md#localhost-telemetry) shows, then restart `pnpm dev`. Name the environment `local-<name>` after the person or agent running it (for example `local-preview-env`). The header value is the ingest token `HYPERDX_API_KEY`, not the personal `HYPERDX_ACCESS_KEY` the MCP uses; ask the human for it when `.env.local` lacks it, and never print or commit it. The [harness](harness.md#1-wake) checks that export works.
+A `local` run exports to the hosted collector so every flow is debuggable in HyperDX: set up the **shared collector** in `apps/backend/.env.local` as [USING.md](../../../ops/observability/USING.md#localhost-telemetry) shows, then restart `pnpm dev`. Name the environment `local-<name>` after the person or agent running it (for example `local-preview-env`). The header values are the Access service token `telemetry-local` (production Secrets Manager `cloudflare/access/telemetry-local`), never production's `telemetry` and not the personal `HYPERDX_ACCESS_KEY` the MCP uses; ask the human for them when `.env.local` lacks them, and never print or commit them. The [harness](harness.md#1-wake) checks that export works.
 
 ## Verify backend side effects
 

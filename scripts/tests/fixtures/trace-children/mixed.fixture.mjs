@@ -5,7 +5,7 @@ import { expect, test } from "vitest"
 
 import { known } from "./known.mjs"
 
-// Started by scripts/tests/ci-checks.test.mjs with the trace on. known.mjs
+// Started by scripts/tests/ci-checks-repo.test.mjs with the trace on. known.mjs
 // runs in a Bun child in the first case, and in this process in the second.
 const child = fileURLToPath(new URL("child.mjs", import.meta.url))
 
