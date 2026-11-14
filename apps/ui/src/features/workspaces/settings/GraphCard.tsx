@@ -50,6 +50,16 @@ export function GraphCard(props: {
     workspace.activeProjectionUrl !== workspace.workspaceRepositoryUrl
       ? workspace.activeProjectionUrl
       : null
+  // Only a running hydrate pulses: a static state has a still dot.
+  const state =
+    workspace.hydrateStatus === "ready"
+      ? { dot: "bg-teal-400", label: "The knowledge graph is loaded." }
+      : workspace.hydrateStatus === "running"
+        ? {
+            dot: "ctx-status-pulse bg-zinc-400",
+            label: "ctxpipe loads the knowledge graph now.",
+          }
+        : { dot: "bg-zinc-400", label: "The knowledge graph waits to load." }
   return (
     <SettingsCard
       part="graph"
@@ -64,18 +74,9 @@ export function GraphCard(props: {
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <span
               aria-hidden
-              className={cn(
-                "size-1.5 shrink-0 rounded-full",
-                workspace.hydrateStatus === "ready"
-                  ? "bg-teal-400"
-                  : "ctx-status-pulse bg-zinc-400",
-              )}
+              className={cn("size-1.5 shrink-0 rounded-full", state.dot)}
             />
-            {workspace.hydrateStatus === "ready"
-              ? "The knowledge graph is loaded."
-              : workspace.hydrateStatus === "running"
-                ? "ctxpipe loads the knowledge graph now."
-                : "The knowledge graph waits to load."}
+            {state.label}
           </p>
         )}
         {hydrate ? (

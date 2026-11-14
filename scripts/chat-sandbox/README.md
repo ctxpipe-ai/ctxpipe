@@ -26,7 +26,8 @@ only for Node processes (for example skill scripts).
 ## AgentCore target
 
 `docker build --target agentcore scripts/chat-sandbox` builds the image for
-AgentCore Runtime. Its entry point is
+AgentCore Runtime. `deploy.yaml` publishes it as
+`ghcr.io/ctxpipe-ai/chat-sandbox-agentcore`. Its entry point is
 [`agentcore-shim.mjs`](agentcore-shim.mjs) on port 8080. AgentCore sends only
 `GET /ping` and `POST /invocations` to a session. The backend reaches the
 OpenCode port through the shim: each invocation holds one HTTP request, and

@@ -357,7 +357,7 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Source:** user correction after a PR 280 retest (the single step from `f52640644` was removed in `767082725` and restored)
 
 ### Connector list accordion
-- **Rule:** Connectors page rows share `ConnectorListItem`. Closed: icon, name, pulsing health (`connected` / `not yet connected` / `couldn't load` / `sync failed` / `config PR failed`), overflow menu, chevron. Open: Workspace, Scope, synchronised repository, text action link. Do not put setup steppers on the list — those belong in the wizard. Do not use a generic “Error” chip or orange alert icons; the chip names the cause. Display order is GitHub first (`sortOrgConnectionsForDisplay`). Linear “Manage scope” must open the scope editor (`manageScope`), same as Notion — not the “connected” splash.
+- **Rule:** Connectors page rows share `ConnectorListItem`. Closed: icon, name, health dot plus its word (`connected` / `not yet connected` / `couldn't load` / `sync failed` / `config PR failed`), overflow menu, chevron. The dot pulses only for a live state (`checking`, `syncing`); a static state has a still dot ([CTX-1259](https://linear.app/ctxpipe/issue/CTX-1259)). Open: Workspace, Scope, synchronised repository, text action link. Do not put setup steppers on the list — those belong in the wizard. Do not use a generic “Error” chip or orange alert icons; the chip names the cause. Display order is GitHub first (`sortOrgConnectionsForDisplay`). Linear “Manage scope” must open the scope editor (`manageScope`), same as Notion — not the “connected” splash.
 - **Category:** pattern
 - **Date:** 2026-08-13
 - **Source:** repo-page-ux
