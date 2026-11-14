@@ -1793,21 +1793,14 @@ jobs:
   # that can fail. A same-repo PR without a critics record fails the gate: no
   # id (the upload failed, or the job did not run), or no critics.json in the
   # artifact. The job has no continue-on-error, so a failed upload shows as a
-  # failed job (a failed Terraform step below also does). The job runs beside the test jobs, so it adds no time to the
-  # run. A lookup of 16 hunks and 4 critics took 5 s. The timeout is large, because a large diff (a
+  # failed job (a failed Terraform step below also does). The job runs beside
+  # the test jobs, so it adds no time to the run. A lookup of 16 hunks and 4 critics took 5 s. The timeout is large, because a large diff (a
   # lockfile) has many hunks and so many store keys.
   #
-  # The last step of this job decides the Terraform plan: the output `plan`
-  # starts merge-gate-terraform-plan when the PR changes a file under infra/.
-  # It does not depend on the selection or the mode: the check of the plan
-  # has the lockfile among its inputs, and a lockfile change must not ask the
-  # reviewers of the terraform-plan environment for approval. The step is in
-  # this job because this job also starts with the run and runs no repository
-  # code. Only that step gives the job token (pull-requests: read) to a
-  # command. It runs after the critics record is kept, so its failure cannot
-  # take the record away. The plan thus starts when this job ends: after the
-  # critics lookup (5 s to 1 min, at most 20 min on a very large diff). The
-  # plan waits for its reviewers anyway.
+  # The last step decides the Terraform plan (scripts/checks/README.md, Other
+  # pull request workflows). Only that step gives the job token
+  # (pull-requests: read) to a command, and it runs after the critics record
+  # is kept, so its failure cannot take the record away.
   merge-gate-critics:
     timeout-minutes: 25
     name: Merge gate critics

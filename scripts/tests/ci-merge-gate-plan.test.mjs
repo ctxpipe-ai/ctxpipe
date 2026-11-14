@@ -987,7 +987,7 @@ test("each job of the plan needs the plan job, starts only with its output, and 
   )
   const terraform = job("merge-gate-terraform-plan")
   assert.match(terraform, /\n {4}needs: merge-gate-critics\n/)
-  // A failed lookup of the critics fails their job, but not the plan start.
+  // A failed step of the critics job does not stop the plan.
   assert.ok(
     terraform.includes(
       "!cancelled() && needs.merge-gate-critics.outputs.plan == 'true'",
