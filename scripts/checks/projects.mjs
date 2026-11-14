@@ -276,7 +276,12 @@ const definitions = () => [
           "apps/backend/evals/mcp/**",
           "packages/visual-review/src/**",
           ...({
-            // The manifest of the whole repo, or the files of the apps.
+            // The manifest of the whole repo, or the files of the apps. The
+            // manifest holds a check for each test file, story and baseline,
+            // and the UI image inputs come from the imports of each UI file,
+            // so no narrower glob keeps these tests correct. A UI change thus
+            // changes the key, and the pass that `factory check` stores for
+            // the head of the pull request is the hit of the merge gate.
             "ci-checks": code,
             "ci-merge-gate": code,
             "ci-merge-gate-plan": code,

@@ -78,11 +78,6 @@ test("each ADR file that the index lists passes, without git history", () => {
   assert.equal(result.status, 0, result.stderr)
 })
 
-test("a repository without a decisions directory passes", () => {
-  const result = adrs({ "packages/tool/package.json": '{"name":"tool"}\n' })
-  assert.equal(result.status, 0, result.stderr)
-})
-
 test("a value that the file exports by name or by default is not single-use", () => {
   const result = scan({
     "apps/backend/src/a.ts": [

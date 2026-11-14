@@ -206,6 +206,61 @@ test("a failed LLM job, an invalid LLM record or a provider fallback keeps the d
   }
 })
 
+test("a UI-only change starts no Lint job when the agent stored the passes of the policy tests", () => {
+  // The policy checks that each gated run of 13 Nov 2026 selected. Each one
+  // must be able to have a key that a laptop pass and CI share: cacheable
+  // and portable.
+  const policy = [
+    "policy:tests-ci-checks:scripts/tests/ci-checks.test.mjs",
+    "policy:tests-preview-own-secrets:scripts/tests/preview-own-secrets.test.sh",
+    "policy:adr:scripts/ci/check-adr.mjs",
+  ]
+  const listed = spawnSync(process.execPath, ["scripts/checks/list.mjs"], {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  })
+  assert.equal(listed.status, 0, listed.stderr)
+  const checks = JSON.parse(listed.stdout).checks
+  for (const id of policy) {
+    const found = checks.find((item) => item.id === id)
+    assert.ok(found, id)
+    assert.equal(found.cacheable ?? true, true, id)
+    assert.equal(found.portable, true, id)
+    assert.deepEqual(placeOf(id), { job: "lint" })
+  }
+  const change = (cache) => ({
+    ...selectRecord(),
+    selected: [ui, ...policy].map((id) => check(id)),
+    cache: {
+      ...selectRecord().cache,
+      hits: [],
+      misses: [{ id: ui, key: key(5), mode: "traced" }],
+      ...cache,
+    },
+  })
+  const planned = (cache) =>
+    planOf({
+      files: {
+        "selection.json": change(cache),
+        "llm-selection.json": change(cache),
+      },
+    })
+  // The agent stored a pass of each policy check for the head of the PR.
+  const stored = planned({
+    hits: policy.map((id, n) => hit(id, "agent", n + 1)),
+  })
+  assert.equal(stored.outputs.lint, undefined)
+  assert.deepEqual(stored.jobs.lint, undefined)
+  // A check without a key (the cause on 13 Nov: a computed import() in the
+  // import closure of ci-checks.test.mjs) always starts the Lint job.
+  const unkeyed = planned({
+    hits: policy.slice(1).map((id, n) => hit(id, "agent", n + 1)),
+    unkeyed: [{ id: policy[0], reason: "no key" }],
+  })
+  assert.deepEqual(unkeyed.jobs.lint, { ids: [policy[0]], rerun: [] })
+})
+
 test("each planned check goes to the job that runs it, and a job without one does not start", () => {
   const planned = planOf()
   assert.deepEqual(Object.keys(planned.outputs).sort(), [
@@ -1184,9 +1239,7 @@ test("a PR that selects every check gives the Merge gate job a needs value under
       },
     ]),
   )
-  const bytes = Buffer.byteLength(
-    `NEEDS=${JSON.stringify(gateNeeds, null, 2)}`,
-  )
+  const bytes = Buffer.byteLength(`NEEDS=${JSON.stringify(gateNeeds, null, 2)}`)
   assert.ok(
     bytes < 128 * 1024,
     `toJSON(needs) of the Merge gate job is ${bytes} bytes`,

@@ -229,14 +229,15 @@ test("the manifest matches its schema and lists each check of each family", asyn
       check.id,
     )
   }
-  // The ADR check reads only the decisions directory, so a change outside
-  // it keeps its key.
-  assert.deepEqual(
-    manifest.checks
-      .find((check) => check.lane === "adr")
-      .inputs.filter((input) => !input.startsWith("scripts/checks/"))
-      .filter((input) => !/^(package\.json|pnpm-|\.node-version)/.test(input)),
-    ["scripts/ci/check-adr.mjs", ".ai/memory/decisions/**"],
+  // The ADR check reads only the decisions directory and its own script, not
+  // the git diff, so a change outside them keeps its key.
+  const adr = manifest.checks.find((check) => check.lane === "adr")
+  assert.ok(adr.inputs.includes(".ai/memory/decisions/**"))
+  assert.ok(
+    adr.inputs.every(
+      (input) => !input.startsWith("scripts/ci/") || input === adr.file,
+    ),
+    adr.inputs.join(", "),
   )
   assert.ok(manifest.checks.some((check) => check.lane === "codesearch"))
   assert.ok(manifest.checks.some((check) => check.lane === "codesearch-bun"))

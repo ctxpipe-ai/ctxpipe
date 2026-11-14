@@ -6,15 +6,13 @@
 //
 // Usage: node scripts/ci/check-adr.mjs [repository root]
 
-import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 function adrProblems(root) {
   const directory = join(root, ".ai/memory/decisions")
-  if (!existsSync(directory)) return []
-  const index = join(directory, "index.md")
-  const listed = existsSync(index) ? readFileSync(index, "utf8") : ""
+  const listed = readFileSync(join(directory, "index.md"), "utf8")
   return readdirSync(directory)
     .filter((name) => /^ADR-.+\.md$/.test(name))
     .filter((name) => !listed.includes(name.replace(/\.md$/, "")))
