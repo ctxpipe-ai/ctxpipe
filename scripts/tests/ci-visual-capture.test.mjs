@@ -122,13 +122,17 @@ test("the committed unstable list is valid", () => {
   assert.ok(Array.isArray(readUnstableList(list)))
 })
 
-test("the capture runs one container for each 2 CPUs of Docker, at most one for each story", () => {
-  assert.equal(captureWorkers(16, 852), 8)
-  assert.equal(captureWorkers(4, 852), 2)
-  assert.equal(captureWorkers(3, 852), 1)
-  assert.equal(captureWorkers(1, 852), 1)
-  assert.equal(captureWorkers(16, 3), 3)
-  assert.equal(captureWorkers(16, 0), 1)
+test("the capture gives each container 3 free CPUs of Docker, at most one container for each story", () => {
+  assert.equal(captureWorkers({ cpus: 16, running: 0 }, 852), 5)
+  // A 4-CPU CI runner keeps one container.
+  assert.equal(captureWorkers({ cpus: 4, running: 0 }, 852), 1)
+  assert.equal(captureWorkers({ cpus: 2, running: 0 }, 852), 1)
+  assert.equal(captureWorkers({ cpus: 16, running: 0 }, 3), 3)
+  assert.equal(captureWorkers({ cpus: 16, running: 0 }, 0), 1)
+  // The capture containers of another run on the host use their CPUs.
+  assert.equal(captureWorkers({ cpus: 16, running: 2 }, 852), 3)
+  assert.equal(captureWorkers({ cpus: 16, running: 5 }, 852), 1)
+  assert.equal(captureWorkers({ cpus: 16, running: 9 }, 852), 1)
 })
 
 test("the parts of a plan hold each story one time, and each part gets every n-th story", () => {

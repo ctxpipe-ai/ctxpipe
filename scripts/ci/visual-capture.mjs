@@ -267,18 +267,32 @@ export async function capturePlan(ids) {
   return ids.map((id) => ({ ...options.get(id), id }))
 }
 
-// The number of capture containers that run at the same time: one for each
-// 2 CPUs of the Docker server (one container uses less than 2 CPUs), at
-// most one for each story, and at least one.
-export const captureWorkers = (cpus, stories) =>
-  Math.max(1, Math.min(Math.floor(cpus / 2), stories))
+// The number of capture containers that run at the same time. One container
+// uses about 1.5 CPUs on average and more on a large page. A play waits at
+// most 1 second for an element (Testing Library), so a container that gets
+// too little CPU fails the play of a large page. Thus each container gets 3
+// CPUs of the Docker server: the CPUs less 3 for each capture container that
+// already runs (another run on the same host), at most one container for
+// each story, and at least one. A 4-CPU CI runner thus keeps one container.
+export const captureWorkers = ({ cpus, running }, stories) =>
+  Math.max(1, Math.min(Math.floor((cpus - 3 * running) / 3), stories))
 
-const dockerCpus = () =>
-  Number(
-    spawnSync("docker", ["info", "--format", "{{.NCPU}}"], {
-      encoding: "utf8",
-    }).stdout?.trim(),
-  ) || 1
+// The CPUs of the Docker server, and its capture containers that run now.
+const dockerLoad = () => {
+  const docker = (args) =>
+    spawnSync("docker", args, { encoding: "utf8" }).stdout?.trim() ?? ""
+  return {
+    cpus: Number(docker(["info", "--format", "{{.NCPU}}"])) || 1,
+    running: docker([
+      "ps",
+      "--quiet",
+      "--filter",
+      "name=ctxpipe-visual-capture-",
+    ])
+      .split("\n")
+      .filter(Boolean).length,
+  }
+}
 
 // Splits the plan into `workers` parts: part k gets every `workers`-th story
 // from the k-th. The stories of one file are next to each other in the plan,
@@ -297,7 +311,7 @@ export const splitPlan = (plan, workers) =>
 // shot is <out>/<shotKey>.png. `viewport` is desktop or mobile.
 //
 // More than one container captures at the same time (`workers`, by default
-// from the CPUs of Docker), each one a part of the plan (splitPlan). Each
+// from the free CPUs of Docker, captureWorkers), each one a part of the plan (splitPlan). Each
 // container has its own browser with the same pins, and each story has its
 // own browser context, so a screenshot does not depend on the part of its
 // story: the capture proof (visual-capture-proof.mjs) compares one container
@@ -306,7 +320,7 @@ export async function captureInContainer(
   plan,
   out,
   viewport = "desktop",
-  workers = captureWorkers(dockerCpus(), plan.length),
+  workers = captureWorkers(dockerLoad(), plan.length),
 ) {
   if (!viewports[viewport]) throw new Error(`Unknown viewport: ${viewport}`)
   if (!existsSync(join(staticDir, "index.json")))
@@ -322,7 +336,7 @@ export async function captureInContainer(
     dir: join(out, `worker-${k + 1}`),
   }))
   process.stdout.write(
-    `Capture (${viewport}): ${plan.length} stories in ${workers} containers.\n`,
+    `Capture (${viewport}): ${plan.length} stories in ${workers} container${workers === 1 ? "" : "s"}.\n`,
   )
   const shots = []
   try {
