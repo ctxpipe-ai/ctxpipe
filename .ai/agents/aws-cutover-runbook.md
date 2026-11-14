@@ -243,10 +243,12 @@ line gives its expected output. The dry run of the copy is its preflight against
 - **Do:**
   1. Run the scale action `cutover-scale-up-worker`.
   2. Merge edge pull request (c): it removes the temporary Access app and the `cutover.ctxpipe.dev` route.
-  3. Merge the factory pull requests that remove the cutover tasks, `hosted-run-task.yml` with its runner role, the
-     scale actions of `hosted.yml`, and the role `guard/cutover-transfer-writer`. After this, no task can drop or
-     overwrite the production data. Check: `aws iam get-role --role-name cutover-transfer-writer` fails with
-     `NoSuchEntity`.
+  3. Merge the factory pull requests that remove the cutover tasks, `hosted-run-task.yml` with its runner role
+     `github-actions-hosted-run-task`, the scale actions of `hosted.yml`, and the role `guard/cutover-transfer-writer`.
+     After their deploys, no task can drop or overwrite the production data. Check:
+     - `aws iam get-role --role-name github-actions-hosted-run-task` and
+       `aws iam get-role --role-name cutover-transfer-writer` each fail with `NoSuchEntity`;
+     - `aws ecs list-task-definitions --family-prefix cutover- --status ACTIVE --query taskDefinitionArns` prints `[]`.
 - **Expected:** customer traffic reaches AWS. The worker takes the open OpenWorkflow runs.
 - **Rollback:** none. Fix forward.
 
