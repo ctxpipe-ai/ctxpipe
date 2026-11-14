@@ -208,7 +208,7 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
 }
 
 // The result of each check id in the full run: its own record, else the
-// result of its image build job or deploy step, else `missing result`
+// result of its image build job, else `missing result`
 // with the result of its job. Each job of the full run writes a record for
 // each check that it runs, so a check without one did not run, or its job
 // lost the record.
@@ -308,11 +308,11 @@ export function gatedVerdict({
 }
 
 // The failed checks of the full run that the gated run would not run, and why.
-// A failed check has a failed record, or a failed image build job or deploy
-// step. A check that the gated run would run also fails with an error record or
-// without a record, as in the gated verdict. An omitted check or a hit with an
-// error record or without a record is `unverified`: the full run did not prove
-// it, and the gated run would not run it.
+// A failed check has a failed record, or a failed image build job. A check
+// that the gated run would run also fails with an error record or without a
+// record, as in the gated verdict. An omitted check or a hit with an error
+// record or without a record is `unverified`: the full run did not prove it,
+// and the gated run would not run it.
 export function escapes({
   selection,
   records,

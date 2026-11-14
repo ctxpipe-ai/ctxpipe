@@ -190,13 +190,12 @@ export async function main(
   }
   const service = args.service
   const variables = SERVICE_VARIABLES[service]
-  const optional = OPTIONAL
 
   const required = [
     "PROJECT_ID",
     "ENVIRONMENT_ID",
     "SERVICE_ID",
-    ...Object.values(variables).filter((source) => !optional.has(source)),
+    ...Object.values(variables).filter((source) => !OPTIONAL.has(source)),
   ]
   const missing = required.filter((name) => !env[name])
   const token = env.RAILWAY_TOKEN || env.RAILWAY_API_TOKEN

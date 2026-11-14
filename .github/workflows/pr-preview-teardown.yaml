@@ -29,7 +29,7 @@ jobs:
     concurrency:
       group: pr-cleanup-environment-${{ github.event.number }}
       cancel-in-progress: false
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     # RAILWAY_API_TOKEN and NEON_API_KEY come from this protected environment.
     # The job calls only the Neon and Railway APIs with curl: no CLI, no
     # package. Each secret is in the env of the steps that need it.
@@ -83,8 +83,8 @@ jobs:
           echo "env_id=$ENV_ID" >>"$GITHUB_OUTPUT"
 
       - name: Revoke the preview worker-wake token
-        # PR Deploy creates one Railway project token per preview environment
-        # (scripts/preview-own-secrets.sh). Delete each token of this
+        # The old Railway PR Deploy made one Railway project token for each
+        # preview environment. Delete each token of this
         # environment before the environment goes. Prints no token value.
         # A failure here must not stop the environment delete, because the
         # token is scoped to that environment.
@@ -168,10 +168,10 @@ jobs:
     concurrency:
       group: pr-cleanup-sandboxes-${{ github.event.number }}
       cancel-in-progress: false
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     permissions:
       contents: read
-    # The preview Vercel project and token (scripts/preview-sandbox-vars.sh).
+    # The preview Vercel project and token that the old Railway previews used.
     # This job runs pnpm install with that token: a reviewed exception in
     # scripts/ci/check-secret-jobs.mjs. It stays in Preview: it deletes
     # the sandboxes of the Railway PR preview, not those of CI contracts.
