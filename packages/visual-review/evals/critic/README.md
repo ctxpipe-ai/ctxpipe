@@ -159,7 +159,7 @@ The report has a table for the hold-out set and a table for the other cases. The
 
 `.github/workflows/visual-bakeoff.yaml` runs the bake-off or the judge panel by hand in the `workbench` environment, with its spend-capped `MODEL_PROVIDER_API_KEY`. The runner downloads the images of the cases that run from the release. `hold_out_only` runs only the hold-out cases, and `skip_hold_out` only the other cases. `cases` gives another manifest, for example the redesign set. The workflow installs the local judge of BlazeDiff in its own folder, and runs the arms with `--max-cost` (default 90, a margin for the calls that already started below the $100 limit of the key) and `--max-minutes 300`. The job summary shows the report, and the artifact `visual-bakeoff-report` holds `report.md` and `results.json`.
 
-With `unseen_panel`, the job labels the unseen calibration set with the judge panel (see [The unseen set](#the-unseen-set)). The artifact then holds the new `unseen-calibration.json`: commit it in a pull request.
+The input `mode` selects the job: `bakeoff` (the default), `panel`, `unseen_panel` or `calibration`. With `unseen_panel`, the job labels the unseen calibration set with the judge panel (see [The unseen set](#the-unseen-set)). The artifact then holds the new `unseen-calibration.json`: commit it in a pull request.
 
 With `panel`, the job runs the judge panel instead of the bake-off, with the spend cap of the panel ($40, the default of `panel.ts`; see the cost estimate in the pull request of [CTX-1249](https://linear.app/ctxpipe/issue/CTX-1249)). `panel_models` replaces the default panel when it is set. The artifact then holds the new `cases.json` with the votes: commit it in a pull request, and push the owner queue.
 
@@ -201,7 +201,7 @@ Within each source, the selection took at most one story of each component, in t
 
 **Agreement rule.** A label counts only when each member gives it. One other label or one failed vote leaves the screenshot without a label, and it does not count for the score. On the 119 synthetic cases of `cases.json` with known labels, the 3 members agreed on 104, and that label was right on 100 (96%). A 2-of-3 majority was right on 106 of 119 (89%). The unseen set selects a critic change, so a wrong label costs more than a smaller set. The votes, with their reasons, and the label go into `unseen-calibration.json` (`panel` of each screenshot, and `panelModels`).
 
-**Label the set.** Run the command from the repository root, or the workflow with `unseen_panel`. It uses `MODEL_PROVIDER_API_KEY` (and `MODEL_PROVIDER_URL`).
+**Label the set.** Run the command from the repository root, or the workflow with the mode `unseen_panel`. It uses `MODEL_PROVIDER_API_KEY` (and `MODEL_PROVIDER_URL`).
 
 ```sh
 node packages/visual-review/evals/critic/label-unseen.ts [--models <list>] [--max-cost 15] [--images .ci-results/visual-bakeoff/images] [--unseen <path>]
@@ -226,7 +226,7 @@ The first table has one row for each arm, with both sets side by side:
 
 Then a table gives the verdict of each arm on each unseen screenshot, and a table gives the hits of each arm on each owner screenshot.
 
-The arms are the arms of the runner that judge a new screenshot, for example `jev` and `llm:<model>`. The spend cap has the rules of the runner. The workflow runs it with the input `calibration`. Give the arms in `arms` and a small `max_cost`.
+The arms are the arms of the runner that judge a new screenshot, for example `jev` and `llm:<model>`. The spend cap has the rules of the runner. The workflow runs it with the mode `calibration`. Give the arms in `arms` and a small `max_cost`.
 
 ## The labeling queue
 
