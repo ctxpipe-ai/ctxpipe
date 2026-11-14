@@ -36,6 +36,7 @@ import {
   storyInput,
   toStoryInput,
 } from "./compare/manifest.ts"
+import { explainerModel, explainRegression, type Explained } from "./explain.ts"
 import { pngSize, prepareImage } from "./prepare.ts"
 import { buildNewPrompt, buildPrompt, type Prompt } from "./prompt.ts"
 import { reviewStories } from "./review.ts"
@@ -59,6 +60,10 @@ const unknownCallUsd = 0.25
 // bake-off ($0.0008), so that one reply with no cost does not use the budget
 // of a whole run (ADR-063).
 const unknownJevCallUsd = 0.002
+// The same for a call of the explainer of a Jev regression. It is also the
+// free budget that the run must have before it calls the explainer: above
+// the most that one explainer call cost in the measurement of CTX-1256.
+const unknownExplainerUsd = 0.005
 
 const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|agent] [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--rubric <file>] [--session <folder>] [--json]
        pnpm visual:review --images <folder> [--judge model|jev] [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--rubric <file>] [--json] -- <path>...
@@ -84,13 +89,21 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|
               reached", and the exit code is 2. The exit code is 2
               also when the last call reaches the budget. Thus a run spends at
               most the budget plus one call. The new screenshots are judged
-              first. Only with --judge model or jev. Default: no budget.
+              first. A verdict with no error was judged: a caller can keep it,
+              and give a rerun only the other screenshots. The explainer of
+              --judge jev runs after all Jev calls, only while
+              ${unknownExplainerUsd} USD of the budget is free, and its spend
+              never makes the exit code 2. Only with --judge model or jev.
+              Default: no budget.
   --judge     model: a vision model through OpenRouter, with MODEL_PROVIDER_API_KEY
               (and MODEL_PROVIDER_URL). jev: Jev 1.14 through the OpenRouter
-              Decisions API, with the same key, and no explainer: the verdict
-              of Jev is the final verdict, also for a new screenshot. A Jev
-              regression has severity minor: it is feedback, and it does not
-              block. The visual critic of the factory uses jev (ADR-063).
+              Decisions API, with the same key: the verdict of Jev is the
+              final verdict, also for a new screenshot. A Jev regression has
+              severity minor: it is feedback, and it does not block. After
+              each Jev regression, the explainer ${explainerModel} writes
+              the evidence and a fix into the summary, or says that it sees
+              no visible defect. It never changes the verdict or the
+              severity. The visual critic of the factory uses jev (ADR-063).
               agent: write a judgment request for each story; your coding
               agent writes its verdict.json; run again to read it.
               Default: model.
@@ -210,11 +223,16 @@ export async function visualReview(
     call: () => Promise<Verdict>,
     unknownUsd: number,
   ) => (await paid(budget, call, unknownUsd)) ?? budgetReached(storyId, budget)
+  // The input of each Jev call, for the explainer of a Jev regression.
+  const explained = new Map<string, Explained>()
   const judgeNewPaid = (story: NewStoryInput) =>
     judge === "jev"
       ? paidOrStop(
           story.storyId,
-          () => judgeNewWithJev(story),
+          () => {
+            explained.set(story.storyId, { kind: "new", story })
+            return judgeNewWithJev(story)
+          },
           unknownJevCallUsd,
         )
       : paidOrStop(
@@ -224,8 +242,43 @@ export async function visualReview(
         )
   const judgeChangedPaid = (story: StoryInput) =>
     judge === "jev"
-      ? paidOrStop(story.storyId, () => judgeWithJev(story), unknownJevCallUsd)
+      ? paidOrStop(
+          story.storyId,
+          () => {
+            explained.set(story.storyId, { kind: "change", story })
+            return judgeWithJev(story)
+          },
+          unknownJevCallUsd,
+        )
       : judgeByModel(story, model, filter, undefined, budget)
+  // The explainer pass runs after all Jev calls, so that a short budget goes
+  // to the verdicts first. It calls the explainer only while
+  // `unknownExplainerUsd` of the budget is free. Returns true when the
+  // judges reached the budget: the spend of the explainer never makes a run
+  // incomplete.
+  const explainAll = async (verdicts: Verdict[]) => {
+    const reached = budgetReachedBy(budget)
+    for (const [index, verdict] of verdicts.entries()) {
+      const input = explained.get(verdict.storyId)
+      if (
+        !input ||
+        verdict.groupedWith !== undefined ||
+        (budget.limitUsd !== undefined &&
+          budget.spentUsd + unknownExplainerUsd > budget.limitUsd)
+      )
+        continue
+      const result = await explainRegression(
+        verdict,
+        input,
+        explainerModel,
+        process.env,
+      )
+      if (result.explainer)
+        budget.spentUsd += result.explainer.costUsd ?? unknownExplainerUsd
+      verdicts[index] = result.verdict
+    }
+    return reached
+  }
 
   if (options.images !== undefined) {
     // The factory runs this mode as the visual critic. A missing key is an
@@ -260,6 +313,7 @@ export async function visualReview(
         return 2
       }
       let judged: Verdict[]
+      let reached: boolean
       try {
         // New UI first: when the budget is short, it gets the calls.
         judged = [
@@ -273,6 +327,7 @@ export async function visualReview(
             judgeChangedPaid,
           )),
         ]
+        reached = await explainAll(judged)
       } catch (error) {
         print(`The review stopped: ${(error as Error).message}`)
         return 2
@@ -290,10 +345,17 @@ export async function visualReview(
         }
       })
       // A Jev regression is feedback: the agent needs the images to act on
-      // it, and Jev gives no text.
+      // it. The explainer text can be missing, or can say that it sees no
+      // defect.
       const verdicts =
         judge === "jev" ? await withFeedbackImages(named, screenshots) : named
-      return finish(verdicts, options.json, { print, printError }, budget)
+      return finish(
+        verdicts,
+        options.json,
+        { print, printError },
+        budget,
+        reached,
+      )
     } finally {
       await rm(work, { recursive: true, force: true })
     }
@@ -364,6 +426,7 @@ export async function visualReview(
   }
 
   let verdicts: Verdict[]
+  let reached: boolean
   try {
     let agent: Parameters<typeof judgeByAgent>[1] | undefined
     if (judge === "agent") {
@@ -417,27 +480,29 @@ export async function visualReview(
           : judgeChangedPaid,
       )),
     ]
+    reached = await explainAll(verdicts)
   } catch (error) {
     print(`The review stopped: ${(error as Error).message}`)
     return 2
   }
-  return finish(verdicts, options.json, { print, printError }, budget)
+  return finish(verdicts, options.json, { print, printError }, budget, reached)
 }
 
 /**
- * Print the verdicts, and return the exit code. A run whose spend reached its
- * budget exits with code 2, also when its last call judged the last
- * screenshot: the run used all of its budget, so it is never a pass. With
- * `--json`, the reason goes to `printError` (stderr), so that stdout stays one
- * JSON array.
+ * Print the verdicts, and return the exit code. A run whose judges reached
+ * its budget (`reached`) exits with code 2, also when its last call judged
+ * the last screenshot: the run used all of its budget, so it is never a pass.
+ * Each verdict with no error is still a judged verdict that a caller can keep
+ * (CTX-1272). With `--json`, the reason goes to `printError` (stderr), so
+ * that stdout stays one JSON array.
  */
 function finish(
   verdicts: readonly Verdict[],
   json: boolean,
   { print, printError }: Record<"print" | "printError", (text: string) => void>,
   { limitUsd, spentUsd }: Budget,
+  reached: boolean,
 ): number {
-  const reached = limitUsd !== undefined && spentUsd >= limitUsd
   const reason = `Budget reached: the run spent ${spentUsd.toFixed(4)} USD of its --budget-usd ${limitUsd}.`
   if (json) {
     print(JSON.stringify(verdicts, null, 2))
@@ -454,6 +519,10 @@ function finish(
  */
 type Budget = { limitUsd: number | undefined; spentUsd: number }
 
+/** True when the spend of the run has reached its budget. */
+const budgetReachedBy = ({ limitUsd, spentUsd }: Budget) =>
+  limitUsd !== undefined && spentUsd >= limitUsd
+
 /**
  * Make the model call `call` when the spend of the run is under its budget,
  * and add the cost of the call: `costUsd` of the verdict, or `unknownUsd`
@@ -465,8 +534,7 @@ async function paid(
   call: () => Promise<Verdict>,
   unknownUsd: number,
 ): Promise<Verdict | undefined> {
-  if (budget.limitUsd !== undefined && budget.spentUsd >= budget.limitUsd)
-    return undefined
+  if (budgetReachedBy(budget)) return undefined
   const verdict = await call()
   budget.spentUsd += verdict.costUsd ?? unknownUsd
   return verdict

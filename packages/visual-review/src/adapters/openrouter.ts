@@ -159,13 +159,17 @@ export async function judgeNewWithOpenRouter(
 /**
  * One chat call with `prompt`, which asks for a reply that matches the JSON
  * Schema `schema`: the reply text and its run facts, or it throws. The judge
- * panel of the bake-off (evals/critic/panel.ts) uses it with its own prompt.
+ * panel of the bake-off (evals/critic/panel.ts) and the explainer of a Jev
+ * regression (explain.ts) use it with their own prompts. `reasoning` goes to
+ * OpenRouter as it is: the explainer asks for a low effort, to pay for fewer
+ * reasoning tokens.
  */
 export async function askOpenRouter(
   prompt: Prompt,
   schema: z.core.JSONSchema.BaseSchema,
   model: string,
   env: Record<string, string | undefined>,
+  { reasoning }: { reasoning?: { effort: "low" } } = {},
 ): Promise<{ content: string; run: RunFacts }> {
   const apiKey = env.MODEL_PROVIDER_API_KEY
   if (!apiKey)
@@ -212,6 +216,7 @@ export async function askOpenRouter(
         },
       },
       provider: { data_collection: "deny" },
+      ...(reasoning && { reasoning }),
     }),
   })
   const text = await response.text()
