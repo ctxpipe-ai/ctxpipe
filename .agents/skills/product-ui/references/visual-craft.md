@@ -67,7 +67,7 @@ These encode widely used interface tactics as **ctxpipe house rules**. They are 
 | Accent once | At most one teal edge or wash; match an existing house use (alert edge, status wash) |
 | Status color on the dot | Dot + word; the word is one restrained text color, and the dots and words of a list share one column |
 | Accessible warning | A dark surface with a yellow or amber border and icon; a yellow fill only on a small element and only when it passes AA. Red is for an error |
-| One warning signal | One frame, or one icon with one colored line, for each warning or error block. No side border + colored dots + boxed alerts together; inner items say their state in quiet text |
+| One warning signal | One frame, or one icon with one colored line, for each warning or error block. No side border + colored dots + boxed alerts together; inner items say their state in quiet text; the action sits next to the problem that it fixes |
 | No bright areas | No large bright or saturated area on the dark floor; bright color as a small accent. Editors, diff viewers and previews use the dark theme |
 | Clickable list text readable | A file tree or nav item is never so dim that it reads as disabled |
 

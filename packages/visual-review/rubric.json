@@ -18,11 +18,15 @@
     {
       "id": "color-tokens",
       "name": "Color tokens",
-      "definition": "Color comes from the house tokens: a zinc floor, a white primary, a teal accent. Red marks an error alert and the filled danger button of a confirm dialog. The dark UI has no large bright or saturated area: bright color is a small accent, such as a border, an icon or a dot. A warning or error block has one strong signal: one frame, or one icon with one colored line, not a colored side border, colored dots and boxed alerts together. The items inside it show their state as quiet text with at most one icon. A warning is a dark surface with a yellow or amber border and icon; a yellow fill with dark text is only for a small element and only when it passes AA. An embedded editor, diff viewer or preview uses the dark theme. No indigo, no purple gradient, no second accent.",
+      "definition": "Color comes from the house tokens: a zinc floor, a white primary, a teal accent. Red marks an error alert and the filled danger button of a confirm dialog. The dark UI has no large bright or saturated area: bright color is a small accent, such as a border, an icon or a dot. A warning or error block has one strong signal: one frame, or one icon with one colored line, not a colored side border, colored dots and boxed alerts together. The items inside it show their state as quiet text with at most one icon. The action sits next to the problem that it fixes. A warning is a dark surface with a yellow or amber border and icon; a yellow fill with dark text is only for a small element and only when it passes AA. An embedded editor, diff viewer or preview uses the dark theme. No indigo, no purple gradient, no second accent.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
           "section": "Color"
+        },
+        {
+          "file": "apps/ui/DESIGN.md",
+          "section": "Targets (new or touched UI)"
         }
       ]
     },
@@ -218,6 +222,14 @@
         {
           "file": ".agents/skills/product-ui/SKILL.md",
           "section": "4. Hierarchy + layout pass"
+        },
+        {
+          "file": "apps/ui/DESIGN.md",
+          "section": "Targets (new or touched UI)"
+        },
+        {
+          "file": ".agents/skills/product-ui/references/visual-craft.md",
+          "section": "Space and layout"
         }
       ],
       "pageOnly": false

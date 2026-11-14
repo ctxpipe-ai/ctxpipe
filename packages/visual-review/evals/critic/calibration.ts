@@ -3,8 +3,9 @@
 // fine. `owner-calibration.json` holds that feedback. This command gives each
 // screenshot to the bake-off runner as a new screenshot (the image alone), or
 // as a change when the owner judged a change against an earlier image
-// (`before`, CTX-1282), and counts, for each arm, the owner issues that it flags (hits) and the
-// fine items that it flags (false flags). See README.md beside this file.
+// (`before`, CTX-1282), and counts, for each arm, the owner issues that it
+// flags (hits) and the fine items that it flags (false flags). See README.md
+// beside this file.
 //
 // Usage: node packages/visual-review/evals/critic/calibration.ts --arms <list>
 //          [--calibration <path>] [--images <dir>] [--out <dir>] [--max-cost 2]
@@ -23,8 +24,8 @@ import { bakeOff } from "./run.ts"
 
 const usage = `Usage: node packages/visual-review/evals/critic/calibration.ts --arms <list> [--calibration <path>] [--images <dir>] [--out <dir>] [--max-cost 2]
 
-  --arms         The arms of the bake-off runner that judge a new screenshot,
-                 comma-separated, for example jev,llm:anthropic/claude-sonnet-5.5
+  --arms         The arms of the bake-off runner that judge a new or a
+                 changed screenshot, comma-separated, for example jev,llm:anthropic/claude-sonnet-5.5
   --calibration  The feedback file. Default: owner-calibration.json beside this file.
   --images       The image folder of the runner. Default: .ci-results/visual-bakeoff/images
   --out          The folder for report.md, and for the cases, the results and
