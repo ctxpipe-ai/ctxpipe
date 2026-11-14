@@ -125,14 +125,13 @@ export function plainGitFetchLimits(): PlainGitFetchLimits {
  * then the DNS rule. Unless the policy allows private hosts, each address
  * of the host must be public. In each mode, no address can be a cloud
  * metadata or link-local address ({@link isMetadataAddress}). Returns the
- * URL and the addresses that the check saw. A caller that must keep the
- * strict rule in each mode gives the hosted policy.
+ * URL and the addresses that the check saw.
  */
 export async function resolvePlainGitRemote(
   raw: string,
   lookup: PlainGitLookup = network.lookup,
-  policy: PlainGitUrlPolicy = plainGitUrlPolicy(plainGitDeployment()),
 ): Promise<PlainGitUrl & { addresses: string[] }> {
+  const policy = plainGitUrlPolicy(plainGitDeployment())
   const checked = checkPlainGitUrl(raw, policy)
   if (!checked.ok) throw new PlainGitUrlError(checked.rule, checked.reason)
   // An IP host (self-host only) is its own address: no DNS lookup.
@@ -174,9 +173,11 @@ export async function resolvePlainGitRemote(
 export async function checkedPlainGitRemote(
   raw: string,
 ): Promise<CheckedPlainGitRemote> {
-  const policy = plainGitUrlPolicy(plainGitDeployment())
-  const remote = await resolvePlainGitRemote(raw, network.lookup, policy)
-  return { url: remote.url, http: policy.http }
+  const remote = await resolvePlainGitRemote(raw)
+  return {
+    url: remote.url,
+    http: plainGitUrlPolicy(plainGitDeployment()).http,
+  }
 }
 
 /**

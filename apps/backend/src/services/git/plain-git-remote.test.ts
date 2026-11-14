@@ -21,7 +21,6 @@ import {
   vi,
 } from "vitest"
 
-import { plainGitUrlPolicy } from "../../domain/workspace-sources/providers/git.js"
 import {
   isMetadataAddress,
   isPublicAddress,
@@ -299,17 +298,6 @@ describe("the plain git policy of the deployment mode (SANDBOX_PROVIDER)", () =>
       ).not.toContain("protocol.http.allow")
     },
   )
-
-  it("docker: the hosted policy, when a caller gives it, stays strict", async () => {
-    vi.stubEnv("SANDBOX_PROVIDER", "docker")
-    await expect(
-      resolvePlainGitRemote(
-        "https://private.example.org/team/app.git",
-        lookup,
-        plainGitUrlPolicy("hosted"),
-      ),
-    ).rejects.toMatchObject({ rule: "private_address" })
-  })
 })
 
 describe("a self-host plain git read over http with real git", () => {

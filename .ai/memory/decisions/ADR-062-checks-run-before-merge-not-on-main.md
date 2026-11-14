@@ -43,4 +43,4 @@ The product owner decided this on 2026-11-10 ([CTX-1246](https://linear.app/ctxp
 - On a day with no merge to `main`, no nightly run gives a new trace or a new audit. Nothing changed, so there is nothing new to prove.
 - The nightly run proves a stored agent pass only for the checks of its sample: a false pass has about a 10% chance of an audit each night while its key is the key of `main`.
 - Do not add a job or a trigger on push to `main` for a check. Dispute a review finding that asks for one, and cite this ADR.
-- The nightly run does not run Migrations, the Storybook required job, the Vercel sandbox contracts or an uncacheable lint or policy check. A fault that two merged pull requests make together in those checks shows only in the next pull request that selects them.
+- The nightly run does not run Migrations, the Storybook required job or an uncacheable lint or policy check. A fault that two merged pull requests make together in those checks shows only in the next pull request that selects them.
