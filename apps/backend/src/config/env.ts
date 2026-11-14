@@ -1,5 +1,16 @@
 import { z } from "zod"
 
+/**
+ * A DNS host name or an IPv4 address: no scheme, no port, no path. Sandboxes
+ * dial Agent Vault's proxy at this host (`AGENT_VAULT_SANDBOX_PROXY_HOST`).
+ */
+export const sandboxProxyHostSchema = z
+  .string()
+  .regex(
+    /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/i,
+    "AGENT_VAULT_SANDBOX_PROXY_HOST must be a host name, with no scheme, port, or path",
+  )
+
 const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "production", "test"])
@@ -91,6 +102,14 @@ const envSchema = z.object({
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
     z.string().min(1).optional(),
   ),
+
+  /**
+   * The host that sandboxes dial for Agent Vault's proxy, when it is not the
+   * host of `AGENT_VAULT_ADDR`. Hosted ctxpipe on AWS sets it to the name of
+   * the Agent Vault endpoint in the sandbox VPC. Docker self-host leaves it
+   * unset.
+   */
+  AGENT_VAULT_SANDBOX_PROXY_HOST: sandboxProxyHostSchema.optional(),
 
   /** Prebuilt image in the selected Docker daemon; resolved to an immutable ID. */
   SANDBOX_CHAT_IMAGE: z.preprocess(

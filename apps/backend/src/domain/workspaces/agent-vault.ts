@@ -11,6 +11,7 @@ import {
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
 
 import { isPublicAddress } from "../../../../../shared/plain-git.js"
+import { sandboxProxyHostSchema } from "../../config/env.js"
 import { log } from "../../observability/logger.js"
 import { isOwnCallbackHost } from "./sandbox-callback-host.js"
 import type { SandboxCredentialRule } from "./sandbox-credential-rules.js"
@@ -44,8 +45,9 @@ export type AgentVaultAccess = {
   address: string
   /**
    * The proxy's host as sandboxes dial it, when it is not derived from the
-   * API's host. Tests set it (an address on a test network); deployments do
-   * not. The port is the one Agent Vault reports.
+   * API's host: `AGENT_VAULT_SANDBOX_PROXY_HOST` (on AWS, the Agent Vault
+   * endpoint in the sandbox VPC), or an address on a test network. The port
+   * is the one Agent Vault reports.
    */
   proxyHost?: string
   ownerPassword: () => Promise<string>
@@ -70,6 +72,7 @@ export function agentVaultAccess(
   if (!address) return undefined
   const value = env.AGENT_VAULT_OWNER_PASSWORD?.trim()
   const file = env.AGENT_VAULT_OWNER_PASSWORD_FILE?.trim()
+  const proxyHost = env.AGENT_VAULT_SANDBOX_PROXY_HOST?.trim()
   return {
     address: address.replace(/\/$/, ""),
     ...(env.SANDBOX_PROVIDER?.trim() === "agentcore"
@@ -83,6 +86,7 @@ export function agentVaultAccess(
           },
         }
       : {}),
+    ...(proxyHost ? { proxyHost: sandboxProxyHostSchema.parse(proxyHost) } : {}),
     ownerPassword: async () => {
       if (value) return value
       if (!file)
