@@ -59,15 +59,22 @@ const badCredentials = () =>
   )
 
 useMswServer(
-  http.get("https://api.github.com/app/installations", ({ request }) =>
-    signedByApp(request)
-      ? // GitHub refuses a token for the suspended one: no handler mints it.
-        HttpResponse.json([
-          { id: installationId - 1, suspended_at: "2026-01-01T00:00:00Z" },
-          { id: installationId, suspended_at: null },
-        ])
-      : badCredentials(),
-  ),
+  // Page 1 holds only suspended installations, as GitHub pages them; GitHub
+  // refuses a token for a suspended one, so no handler mints it.
+  http.get("https://api.github.com/app/installations", ({ request }) => {
+    if (!signedByApp(request)) return badCredentials()
+    const url = new URL(request.url)
+    if (url.searchParams.get("page") === "2")
+      return HttpResponse.json([{ id: installationId, suspended_at: null }])
+    url.searchParams.set("page", "2")
+    return HttpResponse.json(
+      Array.from({ length: 100 }, (_, n) => ({
+        id: 1000 + n,
+        suspended_at: "2026-01-01T00:00:00Z",
+      })),
+      { headers: { link: `<${url}>; rel="next"` } },
+    )
+  }),
   http.post(
     `https://api.github.com/app/installations/${installationId}/access_tokens`,
     ({ request }) =>
@@ -171,6 +178,10 @@ describe("validateTargetSecrets", () => {
       },
     ])
     expect(revoked).toBe(1)
+    // The task log is readable by agents: no token and no decrypted value.
+    const output = JSON.stringify(results)
+    for (const secret of [installationToken, "access-1", "refresh-2"])
+      expect(output).not.toContain(secret)
   })
 
   it("fails both checks with a new connection key and another App's key, and names no secret", async () => {

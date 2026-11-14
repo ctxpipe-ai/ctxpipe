@@ -11,17 +11,19 @@
 #   ops/aws-cutover/copy-app-secrets.sh --verify  # compare only
 #
 # No value goes to the terminal, to a file or to a process argument: each value
-# stays in this shell's memory and goes to the AWS CLI on stdin. The output is
-# one line per secret: "NAME copied", "NAME match", "NAME MISMATCH" or
-# "NAME FAILED".
+# stays in this shell's memory and goes to the AWS CLI on stdin.
 #
 # The list is APP_SECRETS of factory machines/hosted/src/app-secrets.ts,
 # without DATABASE_APP_PASSWORD: that value is new on AWS, and migrate sets it
-# on the Aurora role. Each name in APP_SECRETS has a production value (the
-# others are in UNSET_SECRETS), and ECS starts no task whose secret is empty.
-# Thus a name without a Railway value is a stop, not a skip.
+# on the Aurora role. The five names of `required` must have a Railway value.
+# Another name without a Railway value is "NAME skipped": its AWS secret keeps
+# its value.
+#
+# Output: one line per secret, "NAME copied", "NAME skipped", "NAME match",
+# "NAME MISMATCH" or "NAME FAILED".
 set -euo pipefail
 
+required=" AUTH_SECRET CONNECTION_SECRETS_ENCRYPTION_KEY GITHUB_PRIVATE_KEY GITHUB_CLIENT_SECRET GITHUB_WEBHOOK_SECRET "
 keys=(
   AUTH_SECRET CONNECTION_SECRETS_ENCRYPTION_KEY MODEL_PROVIDER_API_KEY
   GITHUB_PRIVATE_KEY GITHUB_CLIENT_SECRET GITHUB_WEBHOOK_SECRET
@@ -57,9 +59,17 @@ stored_value() {
 
 failed=0
 
+# True for a name that is not required and has no Railway value.
+skip() {
+  case "$required" in *" $1 "*) return 1 ;; esac
+  ! railway_value "$1" >/dev/null
+}
+
 if [ "${1:-}" != --verify ]; then
   for key in "${keys[@]}"; do
-    if value="$(railway_value "$key"; printf x)" && [ "$value" != x ] &&
+    if skip "$key"; then
+      echo "$key skipped"
+    elif value="$(railway_value "$key"; printf x)" && [ "$value" != x ] &&
       printf '%s' "${value%x}" | aws secretsmanager put-secret-value \
         --secret-id "hosted/app/$key" --secret-string file:///dev/stdin \
         --query VersionId --output text >/dev/null; then
@@ -73,6 +83,7 @@ if [ "${1:-}" != --verify ]; then
 fi
 
 for key in "${keys[@]}"; do
+  skip "$key" && continue
   a="$(railway_value "$key" | shasum -a 256)" || a=none
   b="$(stored_value "$key" | shasum -a 256)" || b=none
   if [ "$a" != none ] && [ "$a" = "$b" ]; then

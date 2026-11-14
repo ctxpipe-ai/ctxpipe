@@ -55,7 +55,9 @@ async function checkConnectionSecrets(env: Env): Promise<string> {
       unread += 1
       continue
     }
-    for (const ciphertext of rows.flatMap(({ config }) => stored(config))) {
+    for (const ciphertext of rows.flatMap(({ config }) =>
+      ciphertextsIn(config),
+    )) {
       try {
         decryptConnectionSecret(ciphertext, env)
         decrypted += 1
@@ -78,11 +80,11 @@ async function checkConnectionSecrets(env: Env): Promise<string> {
 }
 
 /** The encrypted values in a `connections.config`, at any depth. */
-function stored(value: unknown): string[] {
+function ciphertextsIn(value: unknown): string[] {
   if (isConnectionSecretCiphertext(value)) return [value]
-  if (Array.isArray(value)) return value.flatMap(stored)
+  if (Array.isArray(value)) return value.flatMap(ciphertextsIn)
   if (value !== null && typeof value === "object")
-    return Object.values(value).flatMap(stored)
+    return Object.values(value).flatMap(ciphertextsIn)
   return []
 }
 
@@ -97,10 +99,14 @@ async function checkGithubApp(env: Env): Promise<string> {
     throw new Error("GITHUB_APP_ID or GITHUB_PRIVATE_KEY is not set.")
   const app = new App({ appId, privateKey })
   // GitHub refuses a token for a suspended installation.
-  const { data } = await app.octokit.rest.apps.listInstallations({
-    per_page: 100,
-  })
-  const installation = data.find(({ suspended_at }) => !suspended_at)
+  let installation: { id: number } | undefined
+  for await (const { data } of app.octokit.paginate.iterator(
+    app.octokit.rest.apps.listInstallations,
+    { per_page: 100 },
+  )) {
+    installation = data.find(({ suspended_at }) => !suspended_at)
+    if (installation) break
+  }
   if (!installation)
     throw new Error("The GitHub App has no installation that is not suspended.")
   const {

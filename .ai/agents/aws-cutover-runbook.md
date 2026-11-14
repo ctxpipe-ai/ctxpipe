@@ -90,8 +90,9 @@ line gives its expected output. The dry run of the copy is its preflight against
   the SHA-256 of both sides, and it restarts the backend. It prints no value. `DATABASE_APP_PASSWORD` keeps its new
   value: migrate sets it.
 - **Expected:** `<NAME> copied` and `<NAME> match` for each of the 17 names, then
-  `backend restarted with the copied secrets`. On `FAILED` or `MISMATCH`, the script stops with exit code 1. Run it
-  again.
+  `backend restarted with the copied secrets`. A name with no Railway value shows `<NAME> skipped`, except the five
+  that must have one: `AUTH_SECRET`, `CONNECTION_SECRETS_ENCRYPTION_KEY` and the three `GITHUB_*` keys. On `FAILED` or
+  `MISMATCH`, the script stops with exit code 1. Run it again.
 - **Copy, do not generate:** `AUTH_SECRET` (so that sessions stay valid) and `CONNECTION_SECRETS_ENCRYPTION_KEY` (so
   that the stored connector tokens decrypt) must have the production values. The rehearsals use new values for both;
   this step writes over them (ADR-061 decision 12).
