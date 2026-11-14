@@ -562,6 +562,32 @@ jobs:
           export DATABASE_APP_PASSWORD
           pnpm exec tsx src/db/migrate.ts
 
+      # The new collector refuses OTEL headers without the Access token, and
+      # the telemetry is lost (2026-11-14). Stop before the sync and before
+      # Terraform points production at it: the Production secret
+      # OBSERVABILITY_OTLP_HEADERS must hold the `telemetry` token
+      # (CF-Access-Client-Id and CF-Access-Client-Secret). The step prints no
+      # header value.
+      - name: Refuse the new collector without its Access token
+        working-directory: ${{ github.workspace }}
+        env:
+          OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
+        run: |
+          set -euo pipefail
+          # The endpoint is the default of the module variable
+          # otel_otlp_endpoint: infra/ passes the module no value for it. No
+          # endpoint (until the cutover, CTX-1216): the apps export nothing.
+          endpoint="$(awk '/^variable "otel_otlp_endpoint"/ { found = 1 } found && /^ *default *=/ { sub(/^[^"]*"/, ""); sub(/".*$/, ""); print; exit }' infra/module/ctxpipe/variables.tf)"
+          [[ "$endpoint" =~ ^https://otel\.ctxpipe\.dev(/|$) ]] || exit 0
+          for name in CF-Access-Client-Id CF-Access-Client-Secret; do
+            value="$(printf '%s' "$OBSERVABILITY_OTLP_HEADERS" | jq -Rr --arg name "$name" '
+              split(",")[] | capture("^\\s*(?<k>[^=]+?)\\s*=\\s*(?<v>.*?)\\s*$")? | select((.k | ascii_downcase) == ($name | ascii_downcase)) | .v')"
+            if [[ -z "$value" ]]; then
+              echo "::error::$endpoint needs the Access token, but OBSERVABILITY_OTLP_HEADERS has no $name." >&2
+              exit 1
+            fi
+          done
+
       # Secret values go from this environment straight to Railway, never into
       # Terraform inputs or state (scripts/railway-sync-variables.mjs). The app
       # services do not redeploy here: the next step deploys them on the new
