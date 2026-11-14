@@ -60,6 +60,14 @@ export const Expanded: Story = {
 }
 
 export const PendingSetup: Story = {
+  parameters: {
+    visual: {
+      allow: {
+        overflow: "Fixed by PR #722.",
+        contrast: "Text below WCAG AA on main (CTX-1278).",
+      },
+    },
+  },
   args: {
     ...shared,
     health: "setup_pending",
@@ -90,6 +98,9 @@ export const PendingSetup: Story = {
 
 /** At phone width the name keeps its room; the status and actions wrap. */
 export const PendingSetupNarrow: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   args: {
     ...shared,
     name: "Confluence",

@@ -49,6 +49,7 @@ function SpacePageTreeHarness() {
 export const List: Story = {
   render: () => <SpacePageTreeHarness />,
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [

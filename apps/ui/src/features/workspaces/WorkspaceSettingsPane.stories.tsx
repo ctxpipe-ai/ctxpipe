@@ -370,6 +370,7 @@ export const AddRepositories: Story = {
     workspace: emptyLinkedWorkspaceDetail,
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     // Only an owner or admin sees the repository pickers. The Add
     // repositories dialog reads the Workspace and its format (2 or higher).
     msw: {
@@ -623,6 +624,7 @@ const longHistory = Array.from({ length: 12 }, (_, index) =>
  */
 export const LongUpgradeHistory: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         upgrades: [

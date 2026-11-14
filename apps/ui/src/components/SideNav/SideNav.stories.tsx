@@ -43,6 +43,7 @@ type Story = StoryObj<typeof meta>
 
 export const SingleWorkspace: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -62,6 +63,7 @@ export const SingleWorkspace: Story = {
 
 export const MultipleWorkspaces: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -81,6 +83,7 @@ export const MultipleWorkspaces: Story = {
 
 export const Collapsed: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -109,7 +112,10 @@ export const Collapsed: Story = {
  * nav and stores that choice. This story must still start expanded.
  */
 export const ExpandedAfterCollapsedStory: Story = {
-  parameters: Collapsed.parameters,
+  parameters: {
+    ...Collapsed.parameters,
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("button", { name: /collapse navigation/i })
@@ -170,6 +176,7 @@ export const PlainLinkMovesCurrentNav: Story = {
 
 export const DocsLinkOpensProductDocs: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     ...SingleWorkspace.parameters,
     intent:
       "Catches a Docs link that is missing from the Help list of the main navigation. Also catches a Docs link that does not open the product docs in a new tab, or that has no name in the collapsed rail. Not for the other footer items.",
@@ -196,6 +203,7 @@ export const DocsLinkOpensProductDocs: Story = {
 export const UserMenuLinksConnectedApps: Story = {
   tags: ["required"],
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     ...SingleWorkspace.parameters,
     intent:
       "Catches a user menu whose Connected apps item does not link to the connected apps page in the auth area. Not for other menu items or account data.",

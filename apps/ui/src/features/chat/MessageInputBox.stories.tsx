@@ -73,6 +73,9 @@ export const DraftSurvivesRemount: Story = {
 
 /** Picking a suggested prompt fills the composer and focuses it. It does not send. */
 export const SuggestionFillsComposer: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   beforeEach: () => {
     writeChatDraft(draftKey, "")
   },

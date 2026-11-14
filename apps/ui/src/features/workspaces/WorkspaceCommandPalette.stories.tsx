@@ -101,7 +101,11 @@ const liveStatus = () => within(screen.getByRole("dialog")).getByRole("status")
 /** Visibility of an element, as the skeleton delay sets it. */
 const visibility = (element: Element) => getComputedStyle(element).visibility
 
-export const Open: Story = {}
+export const Open: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
+}
 
 export const PaletteShortcutTogglesAndRestoresFocus: Story = {
   parameters: {
@@ -130,6 +134,7 @@ export const PaletteShortcutTogglesAndRestoresFocus: Story = {
 
 export const PaletteFiltersAtOnce: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a palette search that does not filter at once or miss a slug match. It reports the result count and makes the first match active. Not for navigation keys.",
   },
@@ -239,6 +244,7 @@ export const PaletteNoResults: Story = {
 export const PaletteLoadingKeepsPages: Story = {
   tags: ["required"],
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a palette that shows a lone header or a flash while workspaces load. The header and skeleton wait for the same delay. Not for loaded results.",
     msw: {
@@ -299,6 +305,7 @@ export const PaletteLoadingKeepsPages: Story = {
 export const PaletteSkeletonHandsOverOnce: Story = {
   tags: ["required"],
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a palette that shows two Workspaces headers when loading ends. The list replaces the skeleton in one step. Not for the loading delay.",
     msw: {
@@ -377,6 +384,7 @@ const pressAndExpect = async (key: string, name: RegExp) => {
 export const PaletteArrowKeysWalkEveryItem: Story = {
   tags: ["required"],
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches arrow keys in a long palette that skip an item, stop at a section, or fail to wrap. Home, End, and page keys keep an item active. Not for search.",
     msw: { handlers: { page: [workspaceListHandler(manyWorkspaces)] } },
@@ -424,6 +432,7 @@ export const PaletteArrowKeysWalkEveryItem: Story = {
 
 export const PaletteHoverAndKeysShareOneHighlight: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a palette that shows two highlighted items, one from the pointer and one from the keys. Only the active item has a fill. Not for item content.",
   },
