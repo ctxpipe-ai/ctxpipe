@@ -1,6 +1,6 @@
 # ADR-054: Secrets go from GitHub Environments straight to Railway
 
-**Status:** Accepted | **Date:** 2026-10-22 | **Tags:** secrets, railway, terraform, github-actions, observability
+**Status:** Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) | **Date:** 2026-10-22 | **Tags:** secrets, railway, terraform, github-actions, observability
 
 ## Context
 
@@ -25,7 +25,7 @@ A security incident on Railway required a rotation of every secret.
 - The state, the plan output, and the PR plan job hold no app secret.
 - A rotation is: set the new value in GitHub, then deploy. A value that a service stores itself (for example the Langfuse init user, or the key that encrypts stored connection secrets) needs its own procedure.
 - The deploy job that runs the sync holds every secret of its environment.
-- Railway PR previews start as a copy of the production variables. The preview deploy runs the same script with `--preview`: it writes each value of the GitHub Environment `Preview` and deletes each one that `Preview` does not set, so no production secret stays on a preview.
+- Railway PR previews started as a copy of the production variables. The preview deploy ran the same script with `--preview`, so no production secret stayed on a preview. The preview deploy and that mode are gone (CTX-1220).
 
 ## Alternatives considered
 
