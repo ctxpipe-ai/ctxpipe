@@ -248,6 +248,9 @@ export const DayFiltersRecent: Story = {
 
 /** Enter on the focused day selects it. A day without commits says so. */
 export const KeyboardSelectsEmptyDay: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -278,6 +281,7 @@ export const KeyboardSelectsEmptyDay: Story = {
  */
 export const AuthorFiltersRecent: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches an author filter that does not narrow the recent commits. Choosing an author must update the button and send the author to the activity request. Not for the date filter or commit rows.",
   },
@@ -337,6 +341,9 @@ export const AuthorFiltersRecent: Story = {
 
 /** A date range preset sends `since` and goes into the URL. */
 export const DateRangeFiltersRecent: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const page = within(canvasElement.ownerDocument.body)
@@ -374,6 +381,7 @@ export const DateRangeFiltersRecent: Story = {
  */
 export const CustomDateRange: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a custom date range that does not reach the activity request. Typed start and end dates must send since and until values. Not for the author filter or commit rows.",
   },
@@ -693,6 +701,9 @@ export const LoadMorePages: Story = {
  * commits of the org, each with its workspace, and a day filters them too.
  */
 export const AllWorkspaces: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   args: {
     workspaces: [
       { slug: "docs", displayName: "Docs" },

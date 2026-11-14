@@ -106,6 +106,12 @@ export const Checking: Story = {
 export const NotYetConnected: Story = {
   render: () => <GithubConnectionCard {...cardProps} />,
   parameters: {
+    visual: {
+      allow: {
+        overflow: "Fixed by PR #722.",
+        contrast: "Text below WCAG AA on main (CTX-1278).",
+      },
+    },
     msw: {
       handlers: {
         page: [

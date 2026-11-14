@@ -112,6 +112,9 @@ export function Modal(
       <OpenModalMarker />
       <div className={frameStyles({ placement })}>
         <RACModal
+          // The layout checks of the screenshot capture find each modal by
+          // this attribute (apps/ui/src/lib/layout-checks.ts).
+          data-slot="modal"
           className={composeRenderProps(
             className,
             (userClassName, renderProps) =>

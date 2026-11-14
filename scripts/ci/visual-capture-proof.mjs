@@ -12,7 +12,10 @@ import {
 } from "./visual-capture.mjs"
 
 // Proves that the capture container is deterministic: it captures a sample of
-// stories two times in a row and compares the PNGs byte by byte.
+// stories two times in a row and compares the PNGs byte by byte. The first
+// run uses one container. The second run uses the parallel containers of a
+// normal capture (captureInContainer). Thus the proof also shows that the
+// split into parts does not change a screenshot.
 //
 // The sample is every n-th story of the static build, sorted by id, so it
 // holds the same stories on each host. A story with or without a play function
@@ -69,7 +72,17 @@ async function prove() {
   const runs = []
   for (const run of [1, 2]) {
     const directory = join(out, `run-${run}`)
-    const shots = await captureInContainer(plan, directory)
+    const started = Date.now()
+    // Run 1 uses one container; run 2 uses the default count of containers.
+    const shots = await captureInContainer(
+      plan,
+      directory,
+      "desktop",
+      run === 1 ? 1 : undefined,
+    )
+    process.stdout.write(
+      `Run ${run}: ${((Date.now() - started) / 1000).toFixed(0)} s.\n`,
+    )
     runs.push({ directory, shots })
   }
 

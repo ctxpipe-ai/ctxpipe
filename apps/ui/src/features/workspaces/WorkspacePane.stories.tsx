@@ -361,6 +361,7 @@ export const Triggers: Story = {
 /** Hide, show, and maximize: the pane and the chat column change state at once. Only the small control that reverses the action fades in. */
 export const HideShowMaximize: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: gitFilesHandlers,
@@ -396,6 +397,7 @@ export const HideShowMaximize: Story = {
 
 export const Files: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: gitFilesHandlers,
@@ -436,6 +438,7 @@ export const FilePreview: Story = {
     previewPath: ledgerPath,
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -457,6 +460,7 @@ export const FilePreviewLoading: Story = {
     previewPath: ledgerPath,
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -483,6 +487,7 @@ export const FilePreviewLong: Story = {
     previewPath: agentsPath,
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -512,6 +517,7 @@ export const FileDiff: Story = {
     previewPath: ledgerPath,
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -534,6 +540,7 @@ export const ReadOnly: Story = {
     previewPath: "AGENTS.md",
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -624,6 +631,10 @@ function conversationFileStory(path: string): Story {
  */
 export const LegacyKnowledgeReadOnly: Story = {
   ...conversationFileStory(legacyPath),
+  parameters: {
+    ...conversationFileStory(legacyPath).parameters,
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() => {
@@ -636,6 +647,10 @@ export const LegacyKnowledgeReadOnly: Story = {
 /** In the same conversation, a git file opens in the editor. */
 export const GitFileEditable: Story = {
   ...conversationFileStory(ledgerPath),
+  parameters: {
+    ...conversationFileStory(ledgerPath).parameters,
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   play: async ({ canvasElement }) => {
     await expectFileEditable(canvasElement, "Billing ledger", true)
     expect(
@@ -657,6 +672,7 @@ export const FileWhileChatStarts: Story = {
     startingBlobHits = 0
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     ...conversationFileStory(ledgerPath).parameters,
     msw: {
       handlers: {
@@ -725,6 +741,7 @@ export const SelectedTabInView: Story = {
     previewPath: null,
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a selected file tab that stays hidden when many tabs overflow. The tab strip scrolls so the selected tab is in view. Not for tab padding or tab content.",
     storyRoute: {
@@ -763,6 +780,7 @@ export const TextTabsKeepPadding: Story = {
     previewPath: null,
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     ...SelectedTabInView.parameters,
     intent:
       "Catches file tabs with the wrong padding or a missing fade-in, or an icon tab that is not square. Text tabs keep 12px side padding. Not for tab selection.",
@@ -795,7 +813,10 @@ export const TabChangeKeepsPosition: Story = {
     fileTabs: [ledgerPath, "knowledge/notes/meeting-notes-1.md"],
     previewPath: null,
   },
-  parameters: SelectedTabInView.parameters,
+  parameters: {
+    ...SelectedTabInView.parameters,
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const a = await canvas.findByRole("tab", { name: "ledger.md" })
@@ -831,6 +852,7 @@ export const TreeCollapsed: Story = {
     expectFadeCue(await canvas.findByRole("button", { name: "Show tree" }))
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -1197,6 +1219,7 @@ export const Settings: Story = {
 export const SettingsSkippedFileOpensInFiles: Story = {
   args: { pane: { kind: "settings" }, workspace: skippedFilesWorkspaceDetail },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -1249,6 +1272,7 @@ export const Maximized: Story = {
     expect(title).toHaveClass("slide-in-from-left-1")
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: gitFilesHandlers,
@@ -1275,6 +1299,7 @@ export const ConversationWritable: Story = {
     previewPath: ledgerPath,
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -1297,6 +1322,7 @@ export const ConversationSandboxFiles: Story = {
     pane: { kind: "files" },
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a conversation file tree that shows the workspace files instead of the sandbox files. The sandbox branch tree must show. Not for the legacy tree or edits.",
     storyRoute: {
@@ -1346,6 +1372,7 @@ export const ConversationMaximizedSync: Story = {
     maximized: true,
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     ...ConversationSandboxFiles.parameters,
     intent:
       "Catches a maximized pane with a dirty branch that lacks Sync or shows Create PR. Sync must be the only call to action. Not for a clean branch.",
@@ -1368,6 +1395,7 @@ export const ConversationCleanNoPublish: Story = {
     pane: { kind: "files" },
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -1426,6 +1454,7 @@ export const ConversationCommittedCreatePr: Story = {
     maximized: true,
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -1573,6 +1602,7 @@ export const CachedSandboxWhile409: Story = {
     })
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -1674,6 +1704,7 @@ export const DefaultBranchUntilSandboxReady: Story = {
   },
   render: (args) => <StartingSandboxPlayground {...args} />,
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a new conversation that shows no files before its sandbox is ready. It shows the default branch, then the sandbox tree with open folders and the open file kept. Not for later turns.",
     storyRoute: {
@@ -1771,6 +1802,7 @@ export const StableFilesRequestBudget: Story = {
   },
   render: (args) => <WorkspacePanePlayground {...args} />,
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a files pane that keeps sending tree requests after it paints. The count of tree reads must stay stable and not show repository folders. Not for tree content.",
     storyRoute: {
@@ -2083,6 +2115,7 @@ export const NewFileKeepsTypedText: Story = {
     previewPath: ledgerPath,
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a new file whose editor is replaced after the first edit. The editor stays the same element and keeps focus, so later keys reach it. Not for saved file content.",
     storyRoute: {
@@ -2233,6 +2266,7 @@ export const OutOfOrderSaves: Story = {
     previewPath: ledgerPath,
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches saves that finish out of order and show old text. The editor must show the latest typed text for each file. Not for one save.",
     storyRoute: {

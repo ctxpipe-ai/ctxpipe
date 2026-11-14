@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs"
@@ -37,7 +38,9 @@ import pin from "./visual-container.json" with { type: "json" }
 // the play takes one more screenshot at that point of the play.
 // Each one is written as <out>/<story id>.png (<out>/<story id>@<name>.png
 // for a named snapshot), with <out>/capture.json (the status of each shot:
-// captured, unstable, play-failed or capture-failed).
+// captured, unstable, play-failed or capture-failed). The shot of the end
+// state also has `layout`: the problems of the layout checks
+// (apps/ui/src/lib/layout-checks.ts) in the same page.
 //
 // Usage: node scripts/ci/visual-capture.mjs --out <dir> <story id>...
 // (desktop; pnpm visual:check also captures the mobile screenshots)
@@ -82,7 +85,7 @@ export const shotKey = (id, snapshot) => (snapshot ? `${id}@${snapshot}` : id)
 // Returns the status of the shot: captured, unstable or capture-failed.
 async function takeShot(page, { fullPage = false, masks = [] }, out, key) {
   try {
-    const style = `${["[data-visual-mask]", ...masks].join(", ")} { visibility: hidden !important; }`
+    const style = maskStyle(masks)
     const { steady, png } = await shootUntilSteady(
       () =>
         page.screenshot({
@@ -103,9 +106,42 @@ async function takeShot(page, { fullPage = false, masks = [] }, out, key) {
   }
 }
 
+// The style sheet that hides the masked elements of a story.
+const maskStyle = (masks) =>
+  `${["[data-visual-mask]", ...masks].join(", ")} { visibility: hidden !important; }`
+
+// Runs the layout checks of the story (apps/ui/src/lib/layout-checks.ts) in
+// its page, after the screenshot of the end state: thus a check cannot
+// change the pixels. The masks of the story hide the same elements as in the
+// screenshot, and the rules of `parameters.visual.allow` do not run.
+// Returns the problems; an error of the checks is one problem.
+async function checkLayout(page, { allow = {}, masks = [] }) {
+  const problems = await page
+    .addStyleTag({ content: maskStyle(masks) })
+    .then(() =>
+      page.evaluate(
+        (skip) => window.__ctxpipeLayoutProblems?.(document.body, { skip }),
+        Object.keys(allow),
+      ),
+    )
+    .catch((checkError) => [
+      { rule: "error", element: "page", detail: String(checkError.message) },
+    ])
+  return (
+    problems ?? [
+      {
+        rule: "error",
+        element: "page",
+        detail:
+          "The Storybook build has no layout checks (window.__ctxpipeLayoutProblems). Rebuild Storybook.",
+      },
+    ]
+  )
+}
+
 // Runs inside the container: /work is the repo, /out the folder of the PNGs.
 // `plan` holds the screenshot options of each story
-// (`{ id, fullPage, masks, snapshots }`).
+// (`{ id, fullPage, masks, snapshots, allow }`).
 async function captureHere(plan, out, viewport) {
   mkdirSync(out, { recursive: true })
   const server = await serveStatic(staticDir, 0)
@@ -113,6 +149,9 @@ async function captureHere(plan, out, viewport) {
   const options = new Map(plan.map((story) => [story.id, story]))
   // The result of each shot of the story that plays now, by key.
   let taken = new Map()
+  // The time of the layout checks. The log of each run shows it, so that
+  // their cost stays visible.
+  let layoutMs = 0
   try {
     const url = `http://127.0.0.1:${server.address().port}`
     await waitFor(`${url}/index.json`)
@@ -163,12 +202,23 @@ async function captureHere(plan, out, viewport) {
           }),
         afterPlay: async (page, story, error) => {
           if (error) return
-          taken.set(
+          const shot = await takeShot(
+            page,
+            options.get(story.id),
+            out,
             story.id,
-            await takeShot(page, options.get(story.id), out, story.id),
           )
+          if (shot.status !== "capture-failed") {
+            const started = performance.now()
+            shot.layout = await checkLayout(page, options.get(story.id))
+            layoutMs += performance.now() - started
+          }
+          taken.set(story.id, shot)
         },
       },
+    )
+    process.stdout.write(
+      `Layout checks: ${(layoutMs / 1000).toFixed(1)} s for ${options.size} stories.\n`,
     )
   } finally {
     await new Promise((resolveClose) => server.close(resolveClose))
@@ -193,6 +243,8 @@ const docker = (args) => {
 }
 
 let containers = 0
+// The check of the Docker server and the image, one time for all containers.
+let prepared
 
 // Runs a Node script of this repo in the pinned container, and copies the
 // /out folder of the container into `out`. The repo is /work, read-only. A
@@ -202,7 +254,8 @@ let containers = 0
 // argument). The bake-off builder (packages/visual-review/evals/critic/build.ts)
 // uses it too.
 export async function runInContainer(script, args, out, files = {}) {
-  const failed = (await prepare(["visual-container"])).get("visual-container")
+  prepared ??= prepare(["visual-container"])
+  const failed = (await prepared).get("visual-container")
   if (failed) throw new Error(failed)
   const name = `ctxpipe-visual-capture-${process.pid}-${Date.now()}-${(containers += 1)}`
   mkdirSync(out, { recursive: true })
@@ -263,6 +316,25 @@ export async function capturePlan(ids) {
   return ids.map((id) => ({ ...options.get(id), id }))
 }
 
+// The number of capture containers that run at the same time. One container
+// uses about 1.5 CPUs on average and more on a large page. A play waits at
+// most 1 second for an element (Testing Library), so a container that gets
+// too little CPU fails the play of a large page. Thus each container gets 3
+// CPUs of the Docker server. Each capture container that already runs (from
+// another run on the same host) uses 3 of the CPUs. The count is at most one
+// container for each story, and at least one. A 4-CPU CI runner thus keeps
+// one container.
+export const captureWorkers = ({ cpus, running }, stories) =>
+  Math.max(1, Math.min(Math.floor((cpus - 3 * running) / 3), stories))
+
+// Splits the plan into `workers` parts: part k gets every `workers`-th story
+// from the k-th. The stories of one file are next to each other in the plan,
+// and often take the same time, so each part gets a share of the slow ones.
+export const splitPlan = (plan, workers) =>
+  Array.from({ length: workers }, (_, part) =>
+    plan.filter((_, position) => position % workers === part),
+  )
+
 // Captures the stories of `plan` (`{ id, fullPage, masks, snapshots }` for
 // each story) in the pinned container, and copies the PNGs and capture.json
 // into `out` (the old PNGs and capture.json of it are removed first).
@@ -270,7 +342,37 @@ export async function capturePlan(ids) {
 // named snapshot): `{ id, snapshot, status, error }`, with the status
 // captured, unstable, play-failed, capture-failed or not-run. The PNG of a
 // shot is <out>/<shotKey>.png. `viewport` is desktop or mobile.
-export async function captureInContainer(plan, out, viewport = "desktop") {
+//
+// More than one container captures at the same time: `workers`, by default
+// from the free CPUs of Docker (captureWorkers). Each container captures a
+// part of the plan (splitPlan). Each container has its own browser with the
+// same pins, and each story has its own browser context. Thus a screenshot
+// does not depend on the part of its story. The capture proof
+// (visual-capture-proof.mjs) compares one container with the parallel
+// containers.
+export async function captureInContainer(
+  plan,
+  out,
+  viewport = "desktop",
+  workers,
+) {
+  if (workers === undefined) {
+    const dockerOutput = (args) =>
+      spawnSync("docker", args, { encoding: "utf8" }).stdout?.trim() ?? ""
+    const running = dockerOutput([
+      "ps",
+      "--quiet",
+      "--filter",
+      "name=ctxpipe-visual-capture-",
+    ])
+    workers = captureWorkers(
+      {
+        cpus: Number(dockerOutput(["info", "--format", "{{.NCPU}}"])) || 1,
+        running: running.split("\n").filter(Boolean).length,
+      },
+      plan.length,
+    )
+  }
   if (!viewports[viewport]) throw new Error(`Unknown viewport: ${viewport}`)
   if (!existsSync(join(staticDir, "index.json")))
     throw new Error(
@@ -280,20 +382,49 @@ export async function captureInContainer(plan, out, viewport = "desktop") {
   for (const file of readdirSync(out))
     if (file.endsWith(".png") || file === "capture.json")
       rmSync(join(out, file))
-  // The plan can be larger than the size limit of one argument.
-  const planFile = join(out, "plan.json")
-  writeFileSync(planFile, JSON.stringify(plan))
+  const parts = splitPlan(plan, workers).map((part, k) => ({
+    part,
+    dir: join(out, `worker-${k + 1}`),
+  }))
+  process.stdout.write(
+    `Capture (${viewport}): ${plan.length} stories in ${workers} container${workers === 1 ? "" : "s"}.\n`,
+  )
+  const shots = []
   try {
-    await runInContainer(
-      "scripts/ci/visual-capture.mjs",
-      ["--inside", viewport, "/plan.json"],
-      out,
-      { "/plan.json": planFile },
+    // Each container ends before the merge, also when another one failed.
+    const runs = await Promise.allSettled(
+      parts.map(async ({ part, dir }) => {
+        rmSync(dir, { recursive: true, force: true })
+        mkdirSync(dir)
+        // The plan can be larger than the size limit of one argument.
+        const planFile = join(dir, "plan.json")
+        writeFileSync(planFile, JSON.stringify(part))
+        await runInContainer(
+          "scripts/ci/visual-capture.mjs",
+          ["--inside", viewport, "/plan.json"],
+          dir,
+          { "/plan.json": planFile },
+        )
+      }),
     )
+    // A part with no capture.json did not run: its shots are not-run.
+    for (const { dir } of parts) {
+      for (const file of readdirSync(dir))
+        if (file.endsWith(".png")) renameSync(join(dir, file), join(out, file))
+      if (existsSync(join(dir, "capture.json")))
+        shots.push(
+          ...JSON.parse(readFileSync(join(dir, "capture.json"), "utf8")).shots,
+        )
+    }
+    const failed = runs.find((run) => run.status === "rejected")
+    if (failed) throw failed.reason
   } finally {
-    rmSync(planFile, { force: true })
+    for (const { dir } of parts) rmSync(dir, { recursive: true, force: true })
+    writeFileSync(
+      join(out, "capture.json"),
+      `${JSON.stringify({ shots }, null, 2)}\n`,
+    )
   }
-  const { shots } = JSON.parse(readFileSync(join(out, "capture.json"), "utf8"))
   return plan.flatMap(({ id, snapshots = [] }) =>
     [undefined, ...snapshots].map(
       (snapshot) =>
