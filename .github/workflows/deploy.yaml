@@ -412,6 +412,7 @@ jobs:
           production clickstack-otel-collector 2.39.1 docker.io/clickhouse/clickstack-otel-collector@sha256:fb71cb46bfc11413e9b96b056118f66293262579cec42927d7f1ca38d3732146
           production hyperdx 2.39.1 docker.io/hyperdx/hyperdx@sha256:619783ca66d6c81f72a0106f4013d65865ac42e064491b19c0019ffec268f316
           production mongo 7.0.45 docker.io/library/mongo@sha256:8bb4442761a63a8dda452744082cdac9644b429807eb977b42324a63cef59ca4
+          production agent-vault 0.40.2 docker.io/infisical/agent-vault@sha256:d09894c86c9b8df64ea37442ace9907dcdf82dabd2730b78b9e0c4c5e070e79a
           preview nginx 1.31.8-alpine docker.io/library/nginx@sha256:713fc2ebfd92e8217db451477182ee91944b123d2b1ee9fd5a8c6e91ca6c3a11
           PINS
 
