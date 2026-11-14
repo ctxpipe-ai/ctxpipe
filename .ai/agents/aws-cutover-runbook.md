@@ -90,14 +90,28 @@ line gives its expected output. The dry run of the copy is its preflight against
   - `CONNECTION_SECRETS_ENCRYPTION_KEY`: exactly 64 hex characters, `openssl rand -hex 32 | tr -d '\n'`.
   - `AUTH_SECRET`: `openssl rand -base64 48 | tr -d '\n'`.
 
-### 2. Deploy freeze
+### 2. The production origin
+
+- **Who:** agent (the factory pull request), person (its approval).
+- **Do:** set `hosted:app.publicUrl` back to `https://app.ctxpipe.ai` in factory `machines/hosted/Pulumi.production.yaml`.
+  The rehearsals use `https://cutover.ctxpipe.dev`, so that OAuth and sign-in work there. The deploy of
+  `hosted.yml` gives the backend the new `AUTH_BASE_URL` and `AUTH_ALLOWED_ORIGINS`.
+- **Expected:** the run of `hosted.yml` succeeds. Then load `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` from
+  the keychain item `ctxpipe-cutover-access` of the agent host, without a print, and run
+  `curl -s -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" https://cutover.ctxpipe.dev/.well-known/oauth-protected-resource/mcp | jq -r .resource`.
+  It prints `https://app.ctxpipe.ai/mcp`.
+- **Dry run:** the `pulumi preview` of the pull request changes only `AUTH_BASE_URL` and `AUTH_ALLOWED_ORIGINS` of
+  the backend, the worker and the UI.
+- **Rollback:** revert the pull request.
+
+### 3. Deploy freeze
 
 - **Who:** person. **Do:** stop merges to ctxpipe `main` and to factory `machines/hosted` until the window ends. Both
   platforms must run the same release, so that migrate adds no migration to the copy. A `hosted.yml` deploy would
   also start `backend` and `ui` again; it does not undo the scale actions.
 - **Expected:** Railway and AWS run the same backend image digest.
 
-### 3. Customers
+### 4. Customers
 
 - **Who:** person. **Do:** tell the customers the window by hand. There is no status page.
 
@@ -107,7 +121,9 @@ line gives its expected output. The dry run of the copy is its preflight against
 
 - **Who:** agent, and a person for the secret.
 - **Do:**
-  1. Agent: HyperDX shows no error from the AWS services since their last deploy. The tunnel is connected.
+  1. Agent: HyperDX shows no error from the AWS services since their last deploy. The tunnel is connected. The
+     origin of the stack is the production one: the `curl` of T-1 step 2 prints `https://app.ctxpipe.ai/mcp`. If it
+     prints `https://cutover.ctxpipe.dev/mcp`, stop: OAuth and sign-in on `app.ctxpipe.ai` would fail at T+55.
   2. Person: fill `hosted/cutover/source-database-url` with the Neon production owner URL (direct host,
      `?sslmode=verify-full`).
   3. Agent: run the task `cutover-copy-database-preflight`.
@@ -233,7 +249,9 @@ line gives its expected output. The dry run of the copy is its preflight against
      page of the test organization: each connector shows as connected. Use only the test organization, and print no
      secret value and no id.
 - **Expected:** every `validateTarget` check has `"ok": true`.
-- **Dry run:** `validateTarget https://cutover.ctxpipe.dev --no-mcp-read`; the `pulumi preview` of pull request (b).
+- **Dry run:** the `pulumi preview` of pull request (b). Before T-1 step 2, also
+  `validateTarget https://cutover.ctxpipe.dev --no-mcp-read`: all checks pass. After that step, the OAuth metadata and
+  the MCP challenge name `https://app.ctxpipe.ai`, as they must for T+55.
 - **Rollback:** the full rollback.
 
 ### T+70 · G4: go/no-go (the rollback point)
