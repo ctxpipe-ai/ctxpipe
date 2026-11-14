@@ -10,6 +10,7 @@ import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { parse } from "yaml"
 
+import { overdueEntries } from "../ci/check-unstable-list.mjs"
 import {
   minutesText,
   nightlyChanged,
@@ -51,41 +52,6 @@ test("a new commit on main, or no successful nightly run yet, runs the nightly r
   assert.equal(await nightlyChanged({ repo, sha, token: "t" }), true)
   server.use(lastNightly(undefined))
   assert.equal(await nightlyChanged({ repo, sha, token: "t" }), true)
-})
-
-// The entries of the unstable list without a valid `since` date, or with a
-// date more than 7 days before `today` (YYYY-MM-DD). The test of the
-// committed list below is the 7-day check of CI.
-const overdueEntries = (stories, today) =>
-  stories.filter(
-    (entry) =>
-      !/^\d{4}-\d{2}-\d{2}$/.test(entry.since ?? "") ||
-      // A date that does not exist (2026-11-31) is not a date.
-      new Date(Date.parse(entry.since) || 0).toISOString().slice(0, 10) !==
-        entry.since ||
-      Date.parse(today) - Date.parse(entry.since) > 7 * 86_400_000,
-  )
-
-test("an unstable entry older than 7 days, or without a date, is overdue", () => {
-  const entry = (since) => ({
-    id: `x--${since}`,
-    reason: "r",
-    ticket: "CTX-1",
-    since,
-  })
-  assert.deepEqual(
-    overdueEntries(
-      [
-        entry("2026-11-03"),
-        entry("2026-11-02"),
-        entry(undefined),
-        entry("soon"),
-        entry("2026-11-31"),
-      ],
-      "2026-11-10",
-    ).map((item) => item.since),
-    ["2026-11-02", undefined, "soon", "2026-11-31"],
-  )
 })
 
 // The artifact folders of a nightly run: records of the first run, records
@@ -427,24 +393,6 @@ test("the tickets command without the Linear key gives an error annotation and f
   )
   assert.equal(result.status, 1)
   assert.match(result.stdout, /^::error::LINEAR_API_KEY is not set/m)
-})
-
-test("the committed unstable list has no entry older than 7 days", () => {
-  const list = JSON.parse(
-    readFileSync(
-      new URL("../ci/visual-unstable-stories.json", import.meta.url),
-      "utf8",
-    ),
-  )
-  const overdue = overdueEntries(
-    list.stories,
-    new Date().toISOString().slice(0, 10),
-  )
-  assert.deepEqual(
-    overdue,
-    [],
-    "Fix the story of each entry (its ticket) and remove the entry.",
-  )
 })
 
 test("each job of the nightly run waits for the job Nightly change and does not start on an unchanged main", () => {

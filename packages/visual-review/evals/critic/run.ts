@@ -4,7 +4,8 @@
 //
 // Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--out <dir>]
 //          [--runs 3] [--max-cost 100] [--max-minutes <n>] [--concurrency 4]
-//          [--blazediff-agent <dir>] [--cases <path>] [--hold-out-only]
+//          [--blazediff-agent <dir>] [--cases <path>]
+//          [--hold-out-only | --skip-hold-out]
 
 import { createHash } from "node:crypto"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
@@ -22,8 +23,10 @@ import { judgeByModel } from "../../src/command.ts"
 import { diff, type Comparison } from "../../src/compare/diff.ts"
 import { writeStoryImages } from "../../src/compare/images.ts"
 import { storyInput } from "../../src/compare/manifest.ts"
+import { explainRegression, type Explained } from "../../src/explain.ts"
 import { pngSize } from "../../src/prepare.ts"
 import { reviewStories } from "../../src/review.ts"
+import { packagedRubric } from "../../src/rubric.ts"
 import type { Box, NewStoryInput, StoryInput } from "../../src/story.ts"
 import { parseVerdict, type Verdict } from "../../src/verdict.ts"
 import { readManifest, type Case, type CaseManifest } from "./cases.ts"
@@ -31,13 +34,15 @@ import { imageFile, imageStore, releaseUrl } from "./images.ts"
 import { report, type Result, type StopReason } from "./report.ts"
 import { spendMeter } from "./spend.ts"
 
-const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--out <dir>] [--runs 3] [--max-cost 100] [--max-minutes <n>] [--concurrency 4] [--blazediff-agent <dir>] [--cases <path>] [--hold-out-only]
+const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--out <dir>] [--runs 3] [--max-cost 100] [--max-minutes <n>] [--concurrency 4] [--blazediff-agent <dir>] [--cases <path>] [--hold-out-only | --skip-hold-out]
 
   --arms         The arms, comma-separated:
                    llm:<model>           the critic prompt (describe each side, then compare)
                    llm-one-step:<model>  the critic prompt, with a one-step comparison
                    llm-no-facts:<model>  the critic prompt, without the interpreter facts
                    jev                   Jev alone
+                   jev-explain:<model>   Jev alone, and <model> explains each
+                                         Jev regression (it never changes it)
                    decision:<model>      another decision model, with the Jev questions
                    cascade:<model>       Jev, then <model> when Jev does not accept
                    cascade:<filter>+<model>
@@ -64,6 +69,9 @@ const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--
   --cases        The case manifest. Default: cases.json beside this file.
   --hold-out-only
                  Run only the cases of the hold-out set.
+  --skip-hold-out
+                 Run only the cases that are not in the hold-out set: tune a
+                 judge on them, and keep the hold-out set for the check.
 
 The key and the endpoint of the paid arms come from MODEL_PROVIDER_API_KEY
 and MODEL_PROVIDER_URL. Exit code: 2 for a usage or input error, also a
@@ -150,6 +158,20 @@ function withoutFacts(story: StoryInput): StoryInput {
 
 const same = (story: StoryInput) => story
 
+/**
+ * A Jev verdict with the raw answers of Jev, which results.json keeps: a
+ * new threshold can be tested on them with no new call.
+ */
+async function withAnswers(
+  judge: (
+    onAnswers: (answers: Record<string, unknown>) => void,
+  ) => Promise<Verdict>,
+): Promise<Verdict & { answers?: Record<string, unknown> }> {
+  let answers: Record<string, unknown> | undefined
+  const verdict = await judge((given) => (answers = given))
+  return answers ? { ...verdict, answers } : verdict
+}
+
 /** The arm of one `--arms` entry. Throws for an unknown arm. */
 async function armOf(
   id: string,
@@ -186,16 +208,56 @@ async function armOf(
       return {
         ...base,
         input: same,
-        judge: (story) => judgeWithJev(story),
-        judgeNew: (story) => judgeNewWithJev(story),
+        judge: (story) =>
+          withAnswers((onAnswers) => judgeWithJev(story, undefined, onAnswers)),
+        judgeNew: (story) =>
+          withAnswers((onAnswers) =>
+            judgeNewWithJev(story, undefined, onAnswers),
+          ),
       }
+    case "jev-explain": {
+      needsModel()
+      // Jev decides; the explainer only adds its text (CTX-1256). The
+      // verdict keeps the facts of the explainer call alone in `explainer`.
+      const explained = async (verdict: Verdict, input: Explained) => {
+        const result = await explainRegression(
+          verdict,
+          input,
+          model,
+          process.env,
+        )
+        return result.explainer
+          ? { ...result.verdict, explainer: result.explainer }
+          : result.verdict
+      }
+      return {
+        ...base,
+        input: same,
+        judge: async (story) =>
+          explained(
+            await withAnswers((onAnswers) =>
+              judgeWithJev(story, undefined, onAnswers),
+            ),
+            { kind: "change", story },
+          ),
+        judgeNew: async (story) =>
+          explained(
+            await withAnswers((onAnswers) =>
+              judgeNewWithJev(story, undefined, onAnswers),
+            ),
+            { kind: "new", story },
+          ),
+      }
+    }
     case "decision":
       needsModel()
       return {
         ...base,
         input: same,
-        judge: (story) => judgeWithJev(story, model),
-        judgeNew: (story) => judgeNewWithJev(story, model),
+        judge: (story) =>
+          withAnswers((onAnswers) => judgeWithJev(story, model, onAnswers)),
+        judgeNew: (story) =>
+          withAnswers((onAnswers) => judgeNewWithJev(story, model, onAnswers)),
       }
     case "cascade": {
       needsModel()
@@ -359,12 +421,13 @@ async function blazediffLocal(folder: string, work: string): Promise<Judge> {
  * with the compare engine, and write the images for the judges into `work`.
  * A `new` case has only its after image, which goes to `work` as it is. A
  * case with no image, or with an image that does not have its SHA-256,
- * throws. `scope` is the scope of the stories of the manifest. The judge
+ * throws. `scope` is the scope of the stories of the manifest; a case with
+ * its own `scope` uses that one. The judge
  * panel (panel.ts) prepares a case in the same way.
  */
 export async function prepare(
   entry: Case,
-  scope: CaseManifest["scope"],
+  scope: StoryInput["scope"],
   get: (sha256: string) => Promise<Buffer>,
   images: string,
   work: string,
@@ -391,9 +454,10 @@ export async function prepare(
       entry,
       newStory: {
         storyId: entry.id,
-        scope,
+        scope: entry.scope ?? scope,
         images: [{ path, size }],
         brief: entry.brief,
+        rubric: packagedRubric,
       },
     }
   }
@@ -427,7 +491,7 @@ export async function prepare(
     },
     story: storyInput({
       storyId: entry.id,
-      scope,
+      scope: entry.scope ?? scope,
       viewport: entry.viewport,
       size,
       regions: measured.regions,
@@ -436,6 +500,7 @@ export async function prepare(
       images: written,
       root: work,
       ...(entry.brief ? { brief: entry.brief } : {}),
+      rubric: packagedRubric,
     }),
   }
 }
@@ -496,6 +561,7 @@ export async function bakeOff(
           default: ".ci-results/visual-bakeoff/images",
         },
         "hold-out-only": { type: "boolean", default: false },
+        "skip-hold-out": { type: "boolean", default: false },
         out: { type: "string", default: ".ci-results/visual-bakeoff/report" },
         runs: { type: "string", default: "3" },
         "max-cost": { type: "string", default: "100" },
@@ -513,6 +579,12 @@ export async function bakeOff(
   const maxCost = Number(options["max-cost"])
   const concurrency = Number(options.concurrency)
   const maxMinutes = Number(options["max-minutes"] ?? Infinity)
+  if (options["hold-out-only"] && options["skip-hold-out"]) {
+    print(
+      `Do not give --hold-out-only and --skip-hold-out together: no case would run.\n\n${usage}`,
+    )
+    return 2
+  }
   if (
     !options.arms ||
     !Number.isInteger(runs) ||
@@ -562,7 +634,10 @@ export async function bakeOff(
       held = holdOut(manifest, manifest.seed)
       const cases = manifest.cases.filter(
         ({ id, label }) =>
-          label !== "unsure" && (held.has(id) || !options["hold-out-only"]),
+          label !== "unsure" &&
+          (held.has(id)
+            ? !options["skip-hold-out"]
+            : !options["hold-out-only"]),
       )
       manifest = { ...manifest, cases }
     } catch (error) {

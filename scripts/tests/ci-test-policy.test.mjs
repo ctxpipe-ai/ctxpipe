@@ -16,6 +16,8 @@ import { join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 
+import { projectCommands } from "../checks/projects.mjs"
+
 test("proof policy rejects aliased skips, retries and owned module mocks without matching prose", () => {
   const directory = mkdtempSync(join(tmpdir(), "ctxpipe-proof-policy-"))
   try {
@@ -390,9 +392,13 @@ test("imported main mocks and exact skipIf are counted; fresh ones stay proof", 
 test("CI runs the full-tree proof policy; workflow_dispatch does not select changed files", () => {
   const root = fileURLToPath(new URL("../../", import.meta.url))
   const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
-  assert.match(
-    workflow,
-    /run: node scripts\/ci\/check-test-policy\.mjs\n/,
+  // The Lint and format job runs the policy check of the manifest
+  // (scripts/tests/ci-checks-repo.test.mjs proves that it runs each one).
+  assert.deepEqual(
+    projectCommands().get(
+      "policy:test-policy:scripts/ci/check-test-policy.mjs",
+    ),
+    [[process.execPath, "scripts/ci/check-test-policy.mjs"]],
     "Lint job must invoke the policy with no path argv",
   )
   assert.doesNotMatch(

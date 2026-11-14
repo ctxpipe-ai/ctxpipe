@@ -58,6 +58,16 @@ const AUTH_HEADER =
  * A key and its value, anywhere in a line: `.env`, shell, YAML, TOML, JSON,
  * `.npmrc`, and `;`-separated connection strings.
  */
+/**
+ * A Codex `env_http_headers` table maps each header to the name of the
+ * environment variable that holds its value, not to the value:
+ * `env_http_headers = { "X-Secret" = "MY_SECRET" }`.
+ */
+const ENV_HTTP_HEADERS = /^\s*env_http_headers\s*=\s*\{([^{}]*)\}/
+/** A table body of `"Header-Name" = "ENV_NAME"` entries and nothing else: no comment, no other value. */
+const ENV_HTTP_HEADERS_BODY =
+  /^\s*(?:"[A-Za-z0-9-]+"\s*=\s*"[A-Z_][A-Z0-9_]*"\s*(?:,\s*|$))*$/
+const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/
 const ASSIGNMENT =
   /(?<![\w.-])["']?([A-Za-z_][\w.-]{0,99})["']?[ \t]*([:=])[ \t]*([|>][-+0-9]{0,3}[ \t]*$|"[^"\n]{0,256}"|'[^'\n]{0,256}'|[^\s"'`|,;]{1,512})/g
 /** A name whose value is a secret, also with a number suffix (`API_KEY_1`). */
@@ -262,6 +272,12 @@ function scanLines(
       return hit("authorization header")
 
     meter.work += line.length
+    // The span of the table's body, when the line is one: only quoted names inside it are exempt.
+    const found = ENV_HTTP_HEADERS.exec(line)
+    const table =
+      found && ENV_HTTP_HEADERS_BODY.test(found[1] ?? "") ? found : null
+    const tableStart = table ? (table.index ?? 0) + table[0].indexOf("{") : -1
+    const tableEnd = table ? (table.index ?? 0) + table[0].length - 1 : -1
     for (const match of line.matchAll(ASSIGNMENT)) {
       // `$name = value` sets a PHP or PowerShell variable, but `$PWD:/x` in
       // a shell line is a reference and a path.
@@ -271,6 +287,14 @@ function scanLines(
       let value = unquote(raw)
       if (/^[|>][-+0-9]{0,3}[ \t]*$/.test(value))
         value = blockScalar(lines, index)
+      const at = match.index ?? 0
+      if (
+        at > tableStart &&
+        at < tableEnd &&
+        raw.startsWith('"') &&
+        ENV_NAME.test(value)
+      )
+        continue
       let strength = nameStrength(name)
       // Words after a `:` value make a sentence: `research pass: ByteRover
       // CLI 3`. Then only a random-looking value counts.

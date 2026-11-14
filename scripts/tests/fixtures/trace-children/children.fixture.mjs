@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 
 import { expect, test } from "vitest"
 
-// Started by scripts/tests/ci-checks.test.mjs with the trace on. Each case
+// Started by scripts/tests/ci-checks-repo.test.mjs with the trace on. Each case
 // starts child.mjs, which runs known() from known.mjs.
 const child = fileURLToPath(new URL("child.mjs", import.meta.url))
 

@@ -139,7 +139,7 @@ export function OnboardingCreateOrgSlide({
           <p className="mb-2 text-xs leading-relaxed text-zinc-400">
             If you are self-hosting, use the same organization slug you
             configured at deploy time (for example{" "}
-            <code className="rounded-md bg-zinc-900 px-1 py-0.5 font-mono text-[11px] text-zinc-300">
+            <code className="rounded-md bg-zinc-900 px-1 py-0.5 font-mono text-xs text-zinc-300">
               orgSlug
             </code>{" "}
             in your deployment config).

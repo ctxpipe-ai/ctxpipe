@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest"
 
 import {
+  packagedRubric,
   reviewStories,
   verdictSchema,
   type StoryInput,
@@ -21,6 +22,7 @@ const story = (
 ): StoryInput => ({
   storyId,
   scope: "component",
+  rubric: packagedRubric,
   viewport: { width: 1440, height: 900 },
   regions: [region("color-change")],
   images: [{ role: "regions", path: `/tmp/${storyId}/regions.png` }],

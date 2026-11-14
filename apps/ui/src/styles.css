@@ -415,10 +415,6 @@
     @apply font-mono text-xs uppercase tracking-[0.24em] text-muted-foreground;
   }
 
-  .ctx-label-muted {
-    @apply font-mono text-[10px] uppercase tracking-wider text-muted-foreground;
-  }
-
   .ctx-connected {
     @apply inline-flex items-center rounded-md border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-xs text-primary;
   }
