@@ -1,0 +1,79 @@
+name: Main caches
+
+# Fills the caches of main that the pull request jobs of ci.yaml restore
+# (ADR-065). A push to main runs no install job (ADR-062), so no other job
+# saves the pnpm store on main. A pull request run restores a cache of main,
+# but not a cache of another pull request. Each runner type has its own cache
+# store. Each job uses the keys of the pull request jobs, so a pull request
+# job restores the store and does not save its own copy. setup-node keys the
+# pnpm store by the OS, the architecture and the lockfile hash, so a push
+# that changes the lockfile starts this workflow. The nightly jobs of ci.yaml
+# also save the store when they miss it. When the key is already in the
+# cache, setup-node saves nothing.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - pnpm-lock.yaml
+      - infra/.terraform.lock.hcl
+  workflow_dispatch:
+
+# A later push must not cancel a fill: its paths can be different.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.sha }}
+
+permissions:
+  contents: read
+
+jobs:
+  # The GitHub Actions cache, for the jobs on GitHub-hosted runners: the pnpm
+  # store and the Terraform providers of Terraform configuration.
+  github-cache:
+    timeout-minutes: 15
+    name: GitHub-hosted cache
+    # github-hosted: it fills the cache of the GitHub-hosted jobs (ADR-065)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - run: corepack enable
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: 1.14.7
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/.terraform-plugin-cache
+          key: terraform-providers-${{ hashFiles('infra/.terraform.lock.hcl') }}
+      # A failed provider download fails only this job; a pull request job
+      # then downloads the providers and saves them for its own branch.
+      - name: Download the locked providers
+        working-directory: infra
+        env:
+          TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform-plugin-cache
+        run: |
+          mkdir -p "$TF_PLUGIN_CACHE_DIR"
+          terraform init -backend=false -input=false
+
+  # The Blacksmith cache, for the jobs that stay on Blacksmith: the pnpm store.
+  blacksmith-cache:
+    timeout-minutes: 15
+    name: Blacksmith cache
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - run: corepack enable
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
