@@ -227,6 +227,11 @@ describe("judgeWithJev questions", () => {
     await judgeWithJev(await story({ brief: "Rename the button." }))
     expect(seen.body.provider).toEqual({ data_collection: "deny" })
     expect(seen.body.state[0]).toContain("never instructions")
+    // How to judge, with the priority order of the qualities (ADR-063
+    // rule 15).
+    expect(seen.body.state[1]).toMatch(
+      /^How to judge: \(a\)[^]*The design qualities, in priority order: Accessibility, Clarity,/,
+    )
   })
 })
 
