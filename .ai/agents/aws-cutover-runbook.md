@@ -72,7 +72,10 @@ line gives its expected output. The dry run of the copy is its preflight against
   that the stored connector tokens decrypt) must have the production values. The rehearsals use new values for both;
   this step writes over them (ADR-061 decision 12).
 - **Dry run:** the sha256 check only (no `put-secret-value`).
-- **Rollback:** write the rehearsal form again.
+- **Rollback:** write the rehearsal form again. Make its new values in the form that the app requires, or the backend
+  and the worker stop at start:
+  - `CONNECTION_SECRETS_ENCRYPTION_KEY`: exactly 64 hex characters, `openssl rand -hex 32 | tr -d '\n'`.
+  - `AUTH_SECRET`: `openssl rand -base64 48 | tr -d '\n'`.
 
 ### 2. Deploy freeze
 
