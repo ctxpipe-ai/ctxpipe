@@ -86,7 +86,8 @@ async function main() {
     .object({
       run: z.string().min(1),
       userId: z.string().min(1),
-      remotes: z.string().min(1),
+      // Only `advance` reads it: a deployed seed has none.
+      remotes: z.string().min(1).optional(),
       apiKey: z.string().min(1),
     })
     .parse(JSON.parse(await readFile(values.seed, "utf8")))
@@ -266,8 +267,10 @@ type CaseUsage = {
 function advanceWorkspace(seed: {
   run: string
   userId: string
-  remotes: string
+  remotes?: string
 }) {
+  if (!seed.remotes)
+    setupError("The seed has no remotes file; run with --no-advance.")
   const advance = spawnSync(
     "bun",
     [

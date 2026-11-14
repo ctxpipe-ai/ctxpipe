@@ -270,5 +270,8 @@ After a rollback, AWS still holds copies that no step deletes. AWS deletes them 
 
 ## Open items
 
-- The MCP evals cannot run against a deployed stack yet (the open point in [CTX-1217]).
+- The MCP evals run in a rehearsal only, never in the window: they write test organizations. They are the task
+  `cutover-mcp-evals` (`run-seed.ts deployed`, then the eval client with `--no-advance`; see
+  `apps/backend/evals/mcp/README.md`). The factory pull request that adds the task is open. The task must refuse to
+  run while `CUTOVER_G4_PASSED` is `true`.
 - Delete this file in the pull request that removes the cutover tasks.

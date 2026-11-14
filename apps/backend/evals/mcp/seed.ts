@@ -178,9 +178,9 @@ export async function prepareMcpEvalRepositories(
 
 /**
  * The published copies of the fixture repositories: public repositories of
- * synthetic content in the GitHub organization of the team. A deployed
- * stack reads them over HTTPS, because its codesearch cannot read a
- * repository on the host of the seed. `run-seed.ts publish` writes them.
+ * synthetic content in the GitHub organization of the team. Codesearch on a
+ * deployed stack cannot read a repository on the host of the seed. Thus the
+ * stack reads these copies over HTTPS. `run-seed.ts publish` writes them.
  */
 export const mcpEvalGithubRemotes: Record<string, string> = Object.fromEntries(
   manifest.workspaces.map((workspace) => [
@@ -189,14 +189,29 @@ export const mcpEvalGithubRemotes: Record<string, string> = Object.fromEntries(
   ]),
 )
 
-/** The branches of a fixture repository: `main`, and the branch of the second projection. */
-function fixtureBranches(key: string): string[] {
+/**
+ * New fixture repositories in `directory` (it must not exist), each with its
+ * published remote, its bare repository, and its branches: `main`, and the
+ * branch of the second projection.
+ */
+async function fixturesAndRemotes(
+  remotes: Record<string, string>,
+  directory: string,
+) {
+  const local = await prepareMcpEvalRepositories(directory)
   const second = manifest.secondProjection
-  return key === second.workspace ? ["main", second.branch] : ["main"]
+  return manifest.workspaces.map(({ key }) => {
+    const remote = remotes[key]
+    const bare = local[key]
+    if (!remote || !bare) throw new Error(`Missing fixture remote: ${key}`)
+    return {
+      key,
+      remote,
+      bare: fileURLToPath(bare),
+      branches: key === second.workspace ? ["main", second.branch] : ["main"],
+    }
+  })
 }
-
-/** No prompt for a credential: a published fixture repository is public. */
-const publicGitEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0" }
 
 /**
  * Compares the published repositories with new fixture repositories in
@@ -208,28 +223,27 @@ export async function publishedFixtureDifferences(
   remotes: Record<string, string>,
   directory: string,
 ): Promise<string[]> {
-  const local = await prepareMcpEvalRepositories(directory)
   const differences: string[] = []
-  for (const { key } of manifest.workspaces) {
-    const remote = remotes[key]
-    const bare = local[key]
-    if (!remote || !bare) {
-      differences.push(`${key}: no published repository`)
-      continue
-    }
-    for (const branch of fixtureBranches(key)) {
+  for (const { key, remote, bare, branches } of await fixturesAndRemotes(
+    remotes,
+    directory,
+  )) {
+    for (const branch of branches) {
       const ref = `refs/heads/${branch}`
       const fixture = execFileSync(
         "git",
-        ["--git-dir", fileURLToPath(bare), "rev-parse", ref],
-        { encoding: "utf8" },
+        ["--git-dir", bare, "rev-parse", ref],
+        {
+          encoding: "utf8",
+        },
       ).trim()
       let published = ""
       try {
         published =
           execFileSync("git", ["ls-remote", remote, ref], {
             encoding: "utf8",
-            env: publicGitEnv,
+            // No prompt for a credential: a published fixture repository is public.
+            env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
             stdio: ["ignore", "pipe", "ignore"],
           }).split("\t")[0] ?? ""
       } catch {
@@ -254,24 +268,22 @@ export async function publishMcpEvalRepositories(
   remotes: Record<string, string>,
   directory: string,
 ): Promise<void> {
-  const local = await prepareMcpEvalRepositories(directory)
-  for (const { key } of manifest.workspaces) {
-    const remote = remotes[key]
-    const bare = local[key]
-    if (!remote || !bare) throw new Error(`Missing fixture remote: ${key}`)
+  for (const { remote, bare, branches } of await fixturesAndRemotes(
+    remotes,
+    directory,
+  ))
     execFileSync(
       "git",
       [
         "--git-dir",
-        fileURLToPath(bare),
+        bare,
         "push",
         "--force",
         remote,
-        ...fixtureBranches(key).map((branch) => `${branch}:${branch}`),
+        ...branches.map((branch) => `${branch}:${branch}`),
       ],
       { stdio: "inherit" },
     )
-  }
 }
 
 const fixtureGitServers = new Map<

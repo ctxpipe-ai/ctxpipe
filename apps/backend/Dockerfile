@@ -21,8 +21,6 @@ FROM deps AS evals
 COPY packages/visual-review/package.json packages/visual-review/package.json
 RUN pnpm install --frozen-lockfile --filter @ctxpipe/backend... --config.confirmModulesPurge=false
 COPY packages/visual-review packages/visual-review
-COPY apps/backend/src apps/backend/src
-COPY shared shared
 COPY apps/backend/evals/mcp apps/backend/evals/mcp
 RUN bun build apps/backend/evals/mcp/run.ts --target=bun --outfile /out/run.bundle.js
 
