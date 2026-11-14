@@ -1,7 +1,11 @@
 import assert from "node:assert/strict"
 import { test } from "node:test"
 
-import { listVisual, visualOptions, visualRecords } from "../checks/visual.mjs"
+import {
+  listVisual,
+  visualOptions,
+  visualRecords,
+} from "../checks/visual.mjs"
 
 // Index entries of the Storybook build (buildIndex), with import paths
 // relative to apps/ui.
@@ -143,7 +147,10 @@ test("a record passes when each screenshot of the story is unchanged, and else g
   assert.match(failed.message, /desktop changed: 120 pixels differ/)
   assert.match(failed.message, /1 region changed: color-change at top-left/)
   assert.match(failed.message, /\.ci-results\/visual\/features-card--plain\//)
-  assert.match(failed.message, /pnpm visual:update --only features-card--plain/)
+  assert.match(
+    failed.message,
+    /pnpm visual:update --only features-card--plain/,
+  )
   assert.deepEqual(
     failed.cases.map(({ name, status }) => [name, status]),
     [["desktop", "failed"]],
@@ -220,7 +227,8 @@ const storyOf = (exportName) => ({
   importPath: "./src/features/x/X.stories.tsx",
   exportName,
 })
-const optionsOf = (text, stories) => visualOptions(stories, loadCsf, () => text)
+const optionsOf = (text, stories) =>
+  visualOptions(stories, loadCsf, () => text)
 
 test("a story with parameters.visual.skip and a reason has no screenshot", () => {
   const text = (reason) => `export default { title: "Features/X" }

@@ -82,8 +82,8 @@ const storySchema = z.object({
   layout: z
     .array(
       z.object({
-        /** overflow, axes or contrast; `error` when the checks failed. */
-        rule: z.string(),
+        /** `error` when the checks themselves failed. */
+        rule: z.enum(["overflow", "axes", "contrast", "error"]),
         element: z.string(),
         detail: z.string(),
       }),

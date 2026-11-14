@@ -81,15 +81,13 @@ export function listVisual(entries, unstable, options = new Map()) {
             ),
         )
         .flatMap((viewport) =>
-          [
-            story.exportName,
-            ...snapshots.map((name) => `${story.exportName}@${name}`),
-          ].map((name) =>
-            posix.join(
-              posix.dirname(file),
-              "screenshots",
-              `${stem}.${name}.${viewport}.screenshot.png`,
-            ),
+          [story.exportName, ...snapshots.map((name) => `${story.exportName}@${name}`)].map(
+            (name) =>
+              posix.join(
+                posix.dirname(file),
+                "screenshots",
+                `${stem}.${name}.${viewport}.screenshot.png`,
+              ),
           ),
         )
       if (!ownInputs.length) return []
@@ -200,8 +198,7 @@ export function visualOptions(
 const property = (node, key) =>
   node?.properties?.find(
     (item) =>
-      item.type === "ObjectProperty" &&
-      (item.key.name ?? item.key.value) === key,
+      item.type === "ObjectProperty" && (item.key.name ?? item.key.value) === key,
   )
 
 const strings = (node) =>
@@ -312,7 +309,8 @@ function snapshotNames(story, play) {
 // passed when each screenshot of the story is unchanged, has no layout
 // problem, and no baseline of it is above the image budget. The message of a
 // failed record gives the change and the layout problems of each screenshot
-// and the image folder of the story; the log is the manifest. An orphan baseline (status `removed`) is no check.
+// and the image folder of the story; the log is the manifest. An orphan
+// baseline (status `removed`) is no check.
 export function visualRecords({ stories, budget }, durationMs) {
   const byCheck = new Map()
   for (const entry of stories) {
@@ -323,6 +321,9 @@ export function visualRecords({ stories, budget }, durationMs) {
   const each = byCheck.size ? Math.round(durationMs / byCheck.size) : 0
   return [...byCheck].map(([id, entries]) => {
     const storyId = entries[0].id
+    // The kinds of problem of the story, for the advice of its message.
+    let changed = false
+    let misplaced = false
     const cases = entries.map((entry) => {
       // The case of a named snapshot is `<viewport>@<name>`.
       const name = entry.snapshot
@@ -343,23 +344,23 @@ export function visualRecords({ stories, budget }, durationMs) {
           `${name} layout ${problem.rule}: ${problem.element}: ${problem.detail.replace(/\.$/, "")}`,
       )
       const problems = [...image, ...layout]
+      changed ||= image.length > 0
+      misplaced ||= layout.length > 0
       return {
         name,
         status: problems.length ? "failed" : "passed",
         durationMs: Math.round(each / entries.length),
         ...(problems.length && { message: problems.join("; ") }),
-        image: image.length > 0,
-        layout: layout.length > 0,
       }
     })
     const failed = cases.filter((item) => item.status === "failed")
     const advice = [
-      ...(failed.some((item) => item.image)
+      ...(changed
         ? [
             `Images: .ci-results/visual/${storyId}/. If the change is intended, run: pnpm visual:update --only ${storyId}`,
           ]
         : []),
-      ...(failed.some((item) => item.layout)
+      ...(misplaced
         ? [
             "Fix the layout, or accept the rule with a reason in parameters.visual.allow (storybook skill, Layout checks)",
           ]
@@ -369,7 +370,7 @@ export function visualRecords({ stories, budget }, durationMs) {
       id,
       status: failed.length ? "failed" : "passed",
       durationMs: each,
-      cases: cases.map(({ image: _image, layout: _layout, ...item }) => item),
+      cases,
       log: ".ci-results/visual/manifest.json",
       ...(failed.length && {
         message: `${failed.map((item) => item.message).join("; ")}. ${advice.join(". ")}`,

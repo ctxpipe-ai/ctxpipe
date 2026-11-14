@@ -140,6 +140,8 @@ async function captureHere(plan, out, viewport) {
   const options = new Map(plan.map((story) => [story.id, story]))
   // The result of each shot of the story that plays now, by key.
   let taken = new Map()
+  // The time of the layout checks. The log of each run shows it, so that
+  // their cost stays visible.
   let layoutMs = 0
   try {
     const url = `http://127.0.0.1:${server.address().port}`
@@ -187,10 +189,7 @@ async function captureHere(plan, out, viewport) {
             if (taken.has(key))
               throw new Error(`The play called snapshot("${name}") two times.`)
             await page.evaluate(() => document.fonts.ready)
-            taken.set(
-              key,
-              await takeShot(page, options.get(story.id), out, key),
-            )
+            taken.set(key, await takeShot(page, options.get(story.id), out, key))
           }),
         afterPlay: async (page, story, error) => {
           if (error) return
@@ -339,11 +338,9 @@ export async function captureInContainer(plan, out, viewport = "desktop") {
   return plan.flatMap(({ id, snapshots = [] }) =>
     [undefined, ...snapshots].map(
       (snapshot) =>
-        shots.find((shot) => shot.id === id && shot.snapshot === snapshot) ?? {
-          id,
-          ...(snapshot && { snapshot }),
-          status: "not-run",
-        },
+        shots.find(
+          (shot) => shot.id === id && shot.snapshot === snapshot,
+        ) ?? { id, ...(snapshot && { snapshot }), status: "not-run" },
     ),
   )
 }

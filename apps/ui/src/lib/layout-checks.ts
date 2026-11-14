@@ -28,7 +28,7 @@ type LayoutProblem = {
 
 /** The layout problems in `root`, without the rules of `skip`. */
 export async function layoutProblems(
-  root: Element = document.body,
+  root: Element,
   { skip = [] }: { skip?: readonly LayoutRule[] } = {},
 ): Promise<LayoutProblem[]> {
   return [
@@ -190,13 +190,22 @@ function boxAroundText(
           detail: `dialog text is ${px(view.by)} past the ${view.edge} edge of the viewport`,
         }
     }
-    if (
-      scrolls(style.overflowX) ||
-      scrolls(style.overflowY) ||
-      style.position === "absolute" ||
-      style.position === "fixed"
-    )
-      return undefined
+    if (scrolls(style.overflowX) || scrolls(style.overflowY)) return undefined
+    // A positioned layer (a badge, a popover) can sit outside of its
+    // parent on purpose, but not outside of its dialog, alert or card.
+    if (style.position === "absolute" || style.position === "fixed") {
+      const surface = box.parentElement?.closest(
+        `${dialogs}, [role=alert], [data-slot=card]`,
+      )
+      const past =
+        surface && outside(text, surface.getBoundingClientRect(), slack)
+      return past && seen(surface, text)
+        ? {
+            box: surface,
+            detail: `text of a positioned layer runs ${px(past.by)} past the ${past.edge} edge of ${describe(surface).split(" ")[0]}`,
+          }
+        : undefined
+    }
   }
   return undefined
 }
@@ -253,18 +262,22 @@ function axisProblems(root: Element): LayoutProblem[] {
   const problems: LayoutProblem[] = []
   for (const scope of scopes) {
     if (!visible(scope)) continue
-    // Markers in one panel: a box with its own border or fill (an input, a
-    // bordered list, a button) has its own axes.
+    // Markers in one panel: a box with its own border or fill around two or
+    // more markers (a bordered list, a card) has its own axes. A box around
+    // one marker is a row of its column (a filled row, a selected item).
+    const markers = leadingMarkers(scope)
     const panels = new Map<Element, Marker[]>()
-    for (const marker of leadingMarkers(scope)) {
+    for (const marker of markers) {
       let panel = marker.element.parentElement ?? scope
       for (; panel !== scope; panel = panel.parentElement ?? scope) {
         const style = getComputedStyle(panel)
-        if (
+        const boxed =
           Number.parseFloat(style.borderLeftWidth) > 0 ||
           !["rgba(0, 0, 0, 0)", "transparent"].includes(style.backgroundColor)
-        )
-          break
+        const holds = markers.filter((other) =>
+          panel.contains(other.element),
+        ).length
+        if (boxed && holds > 1) break
       }
       panels.set(panel, [...(panels.get(panel) ?? []), marker])
     }
@@ -299,7 +312,7 @@ function axisProblems(root: Element): LayoutProblem[] {
  * The leading markers of the rows of `scope`: the first visible child of an
  * element, when it is a small box (6 to 40 px, with no text or a step
  * number), with more content to its right and no text to its left on its
- * line. A table cell is not a marker.
+ * line. A table cell, and an icon before a text field, are not markers.
  */
 function leadingMarkers(scope: Element): Marker[] {
   const lines: DOMRect[] = []
@@ -330,6 +343,13 @@ function leadingMarkers(scope: Element): Marker[] {
       first.matches("td, th, [role=gridcell], [role=columnheader]")
     )
       continue
+    // An icon in a field (a search icon) belongs to the field, not to a
+    // column of rows.
+    if (
+      next instanceof Element &&
+      next.matches("input, textarea, select, [role=textbox], [role=searchbox]")
+    )
+      continue
     const range = document.createRange()
     range.selectNode(next)
     if (range.getBoundingClientRect().left < box.right - 1) continue
@@ -356,33 +376,34 @@ async function contrastProblems(root: Element): Promise<LayoutProblem[]> {
   // Loaded on the first check, so that axe-core does not slow the start of
   // each story (a graph story renders by time).
   const { default: axe } = await import("axe-core")
-  const run = () =>
-    axe.run(root, {
-      runOnly: { type: "rule", values: ["color-contrast"] },
-      resultTypes: ["violations"],
+  const options = {
+    runOnly: { type: "rule" as const, values: ["color-contrast"] },
+    resultTypes: ["violations" as const],
+  }
+  // The a11y addon of Storybook can still run axe after the story renders:
+  // wait for it, at most 5 times 500 ms.
+  let results
+  for (let attempt = 1; !results; attempt++)
+    results = await axe.run(root, options).catch(async (error: unknown) => {
+      if (attempt === 5 || !String(error).includes("already running"))
+        throw error
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      return undefined
     })
-  // The a11y addon of Storybook can still run axe after the story renders.
-  const results = await run().catch(async (error: unknown) => {
-    if (!String(error).includes("already running")) throw error
-    await new Promise((resolve) => setTimeout(resolve, 500))
-    return run()
-  })
   return results.violations.flatMap((violation) =>
     violation.nodes.map((node) => {
-      const data = (node.any[0]?.data ?? {}) as {
-        fgColor?: string
-        bgColor?: string
-        contrastRatio?: number
-        expectedContrastRatio?: string
-        fontSize?: string
-      }
+      const data: Record<string, unknown> = node.any[0]?.data ?? {}
+      const text = (key: string) =>
+        typeof data[key] === "string" || typeof data[key] === "number"
+          ? String(data[key])
+          : "?"
       const selector = node.target[0]
       const element =
         typeof selector === "string" ? document.querySelector(selector) : null
       return {
         rule: "contrast" as const,
         element: element ? describe(element) : String(node.target),
-        detail: `contrast ${data.contrastRatio}:1 is below ${data.expectedContrastRatio} (${data.fgColor} on ${data.bgColor}, ${data.fontSize})`,
+        detail: `contrast ${text("contrastRatio")}:1 is below ${text("expectedContrastRatio")} (${text("fgColor")} on ${text("bgColor")}, ${text("fontSize")})`,
       }
     }),
   )

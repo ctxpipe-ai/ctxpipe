@@ -4,15 +4,19 @@ import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseArgs } from "node:util"
 
-import { csfTools } from "../../apps/ui/.storybook/check-modules.mjs"
 import { runVisual } from "../../packages/visual-review/src/compare/baselines.ts"
 import { threshold } from "../../packages/visual-review/src/compare/diff.ts"
+import { csfTools } from "../../apps/ui/.storybook/check-modules.mjs"
 import {
   readUnstable,
   visualOptions,
   visualRecords,
 } from "../checks/visual.mjs"
-import { captureInContainer, shotKey, viewports } from "./visual-capture.mjs"
+import {
+  captureInContainer,
+  shotKey,
+  viewports,
+} from "./visual-capture.mjs"
 import pin from "./visual-container.json" with { type: "json" }
 
 // `pnpm visual:check` and `pnpm visual:update [--only <id>,<id>... | --failed]`.

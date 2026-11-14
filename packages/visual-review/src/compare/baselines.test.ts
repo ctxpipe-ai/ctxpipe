@@ -253,7 +253,7 @@ describe("visual:check", () => {
   test("fails on a layout problem of an unchanged screenshot, and keeps the problem in the manifest", async () => {
     await visual("update")
     const problem = {
-      rule: "axes",
+      rule: "axes" as const,
       element: 'div[role=dialog] "Choose the scope"',
       detail: "4 leading markers sit on 2 near axes",
     }

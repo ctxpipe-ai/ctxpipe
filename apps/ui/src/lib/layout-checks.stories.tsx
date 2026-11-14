@@ -2,7 +2,9 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { IconCheck, IconInfoCircle } from "@tabler/icons-react"
 import { expect } from "storybook/test"
 
-import { type LayoutRule, layoutProblems } from "./layout-checks"
+import { Card } from "@/components/ui/Card"
+
+import { layoutProblems } from "./layout-checks"
 
 // These stories prove the layout checks of the screenshot capture
 // (layout-checks.ts). For each rule, one story breaks the rule and one story
@@ -12,6 +14,24 @@ import { type LayoutRule, layoutProblems } from "./layout-checks"
 
 const longUrl =
   "https://example-organization.atlassian.net/wiki/spaces/ENGINEERING/pages/1234567890/a-very-long-page-name"
+
+// An alert with a long URL, and a card with a positioned label. `fixed`
+// breaks the URL and keeps the label in the card.
+function Overflow({ fixed }: { fixed: boolean }) {
+  return (
+    <div className="flex flex-col gap-4">
+      <Alert breakUrl={fixed} />
+      <Card className="h-16 w-72 p-3">
+        <p>Repository card</p>
+        <span
+          className={`absolute top-3 whitespace-nowrap text-xs ${fixed ? "right-3" : "left-full"}`}
+        >
+          Update available
+        </span>
+      </Card>
+    </div>
+  )
+}
 
 function Alert({ breakUrl }: { breakUrl: boolean }) {
   return (
@@ -37,9 +57,9 @@ function Alert({ breakUrl }: { breakUrl: boolean }) {
   )
 }
 
-// A wizard body: a header icon and a checklist. The boxes of the checklist
-// and the icon have the same left edge; with `size-5` boxes, their centers
-// are 2 px to the right of the center of the icon.
+// A wizard body: a header icon and a checklist with filled rows. The boxes of
+// the checklist and the icon have the same left edge; with `size-5` boxes,
+// their centers are 2 px to the right of the center of the icon.
 function Checklist({ box }: { box: "size-4" | "size-5" }) {
   return (
     <dialog
@@ -53,7 +73,7 @@ function Checklist({ box }: { box: "size-4" | "size-5" }) {
       </h2>
       <ul className="flex flex-col gap-2">
         {["Issues", "Projects", "Documents"].map((name) => (
-          <li key={name} className="flex items-center gap-2">
+          <li key={name} className="flex items-center gap-2 bg-zinc-900">
             <span
               className={`flex ${box} items-center justify-center rounded-md border border-zinc-400`}
             >
@@ -87,18 +107,13 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
-const rules = async (root: Element) => {
+const problemsIn = async (root: Element) => {
   await document.fonts.ready
-  return (await layoutProblems(root)).map((problem) => problem.rule)
-}
-
-const found = async (root: Element, rule: LayoutRule) => {
-  const problems = await layoutProblems(root)
-  return problems.filter((problem) => problem.rule === rule)
+  return layoutProblems(root)
 }
 
 export const OverflowFound: Story = {
-  render: () => <Alert breakUrl={false} />,
+  render: () => <Overflow fixed={false} />,
   parameters: {
     visual: {
       allow: {
@@ -107,24 +122,31 @@ export const OverflowFound: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    await document.fonts.ready
-    const problems = await found(canvasElement, "overflow")
-    // The paragraph with the URL; the alert around it is not named again.
-    await expect(problems).toHaveLength(1)
+    const problems = await problemsIn(canvasElement)
+    // The paragraph with the URL (the alert around it is not named again),
+    // and the card that its positioned label runs out of.
+    await expect(problems.map((problem) => problem.rule)).toEqual([
+      "overflow",
+      "overflow",
+    ])
     await expect(problems[0].element).toMatch(
       /^p "https:\/\/example-organization/,
     )
     await expect(problems[0].detail).toMatch(
       /^text runs [\d.]+ px past the right edge of its [\d.]+ px wide box$/,
     )
+    await expect(problems[1].element).toMatch(/^div\[data-slot=card\]/)
+    await expect(problems[1].detail).toMatch(
+      /^text of a positioned layer runs [\d.]+ px past the right edge of div/,
+    )
   },
 }
 
 export const OverflowFixed: Story = {
-  render: () => <Alert breakUrl />,
+  render: () => <Overflow fixed />,
   play: async ({ canvasElement }) => {
     // The ellipsis line and the scroll box overflow on purpose.
-    await expect(await rules(canvasElement)).toEqual([])
+    await expect(await problemsIn(canvasElement)).toEqual([])
   },
 }
 
@@ -138,9 +160,9 @@ export const AxesFound: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    await document.fonts.ready
-    const problems = await found(canvasElement, "axes")
-    await expect(problems).toHaveLength(1)
+    const problems = await problemsIn(canvasElement)
+    // Each filled row holds one marker, so the rows are one column.
+    await expect(problems.map((problem) => problem.rule)).toEqual(["axes"])
     await expect(problems[0].element).toMatch(
       /^dialog\[aria-label="Choose the scope"\]/,
     )
@@ -153,7 +175,7 @@ export const AxesFound: Story = {
 export const AxesFixed: Story = {
   render: () => <Checklist box="size-4" />,
   play: async ({ canvasElement }) => {
-    await expect(await rules(canvasElement)).toEqual([])
+    await expect(await problemsIn(canvasElement)).toEqual([])
   },
 }
 
@@ -167,9 +189,8 @@ export const ContrastFound: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    await document.fonts.ready
-    const problems = await found(canvasElement, "contrast")
-    await expect(problems).toHaveLength(1)
+    const problems = await problemsIn(canvasElement)
+    await expect(problems.map((problem) => problem.rule)).toEqual(["contrast"])
     await expect(problems[0].element).toBe(
       'p "The last sync ended 2 hours ago."',
     )
@@ -180,6 +201,6 @@ export const ContrastFound: Story = {
 export const ContrastFixed: Story = {
   render: () => <Text className="text-zinc-300" />,
   play: async ({ canvasElement }) => {
-    await expect(await rules(canvasElement)).toEqual([])
+    await expect(await problemsIn(canvasElement)).toEqual([])
   },
 }
