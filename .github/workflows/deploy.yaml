@@ -480,8 +480,6 @@ jobs:
     needs:
       - publish_images
       - ecr_digests
-    outputs:
-      roll_prs: ${{ steps.otel_previews.outputs.prs }}
     defaults:
       run:
         working-directory: infra
@@ -576,8 +574,8 @@ jobs:
           set -euo pipefail
           # shellcheck disable=SC1091
           source scripts/preview-otel-vars.sh
+          # No endpoint (until the cutover, CTX-1216): the apps export nothing.
           endpoint="$(production_otel_endpoint)"
-          [[ -n "$endpoint" ]] || { echo "::error::No otel_otlp_endpoint default in infra/module/ctxpipe/variables.tf"; exit 1; }
           require_access_headers_for_endpoint "$endpoint" "$OBSERVABILITY_OTLP_HEADERS"
 
       # Secret values go from this environment straight to Railway, never into
@@ -647,37 +645,6 @@ jobs:
       # Provider Update() serviceConnects the image for every environment and
       # redeploys previews. App image tags are ignore_changes; this step
       # deploys production only (ADR-039).
-      # The switch to the new collector (CTX-1216): the previews whose backend
-      # has no Access token in its OTEL headers roll after this job (job
-      # roll_previews_onto_collector). Their OTEL sync skipped while
-      # production had no token to compare with (scripts/preview-otel-vars.sh).
-      # It reads the state after the sync, so a re-run of a failed attempt
-      # finds the same previews. A failure here does not stop the deploy.
-      - name: Find the previews that need the new collector
-        id: otel_previews
-        continue-on-error: true
-        working-directory: ${{ github.workspace }}
-        env:
-          OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
-        run: |
-          set -euo pipefail
-          # shellcheck disable=SC1091
-          source scripts/railway-graphql.sh
-          # shellcheck disable=SC1091
-          source scripts/preview-otel-vars.sh
-          BACKEND_SERVICE_ID="$(terraform -chdir=infra output -json railway_service_ids | jq -er '.backend')"
-          export BACKEND_SERVICE_ID
-          prs="$(previews_without_access_otel | tr '\n' ' ')"
-          echo "prs=${prs% }" >> "$GITHUB_OUTPUT"
-          echo "Previews without the Access token: ${prs:-none}"
-
-      # Each production deploy scans again (it reads the state), so the next
-      # one retries what this one could not read; this says so where people look.
-      - name: Say that the preview scan failed
-        if: steps.otel_previews.outcome == 'failure'
-        run: |
-          echo "::warning title=Previews not rolled::The scan for previews without the Access token failed; the next production deploy scans again." | tee -a "$GITHUB_STEP_SUMMARY"
-
       - name: Deploy production images
         working-directory: ${{ github.workspace }}
         env:
@@ -714,54 +681,6 @@ jobs:
           VERCEL_TEAM_ID: ctxpipe
           VERCEL_PROJECT_ID: ctxpipe
         run: bun src/scripts/deletePreviewSandboxes.ts 'pr-*'
-
-  # The switch to the new collector (CTX-1216): roll each preview that the
-  # terraform job found without the Access token, on the images of its PR's
-  # last deployed commit, so its OTEL sync compares its token with
-  # production's and sets its variables. Each roll is
-  # pr-preview-roll-existing.yaml run from main: main's reviewed workflow and
-  # scripts hold the Preview secrets, and the PR's commit selects only the
-  # images. A branch's own older scripts could copy production's new OTEL
-  # token into its preview. The job holds no secret: the GitHub token
-  # dispatches the rolls.
-  roll_previews_onto_collector:
-    timeout-minutes: 10
-    name: Roll the previews onto the new collector
-    # A truthy output: GitHub gives '' and the deploy tests' model gives null
-    # when the terraform job set none.
-    if: needs.terraform.outputs.roll_prs
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
-    needs: terraform
-    permissions:
-      actions: write
-      pull-requests: read
-    steps:
-      - name: Roll each preview on its last deployed commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          PRS: ${{ needs.terraform.outputs.roll_prs }}
-        run: |
-          set -euo pipefail
-          for number in $PRS; do
-            [[ "$number" =~ ^[0-9]+$ ]] || continue
-            pr="$(gh pr view "$number" --repo "$REPO" --json state,headRefName,isCrossRepository)"
-            ref="$(jq -r .headRefName <<<"$pr")"
-            if [[ "$(jq -r .state <<<"$pr")" != OPEN || "$(jq -r .isCrossRepository <<<"$pr")" == true ]]; then
-              echo "PR #$number: not an open PR of this repository; skipped"
-              continue
-            fi
-            # The images of the last commit that PR Deploy deployed, not only of the head.
-            sha="$(gh run list --repo "$REPO" --workflow pr-deploy.yaml --branch "$ref" --limit 50 \
-              --json headSha,conclusion | jq -r '[.[] | select(.conclusion == "success")][0].headSha // ""')"
-            if [[ -z "$sha" ]]; then
-              echo "PR #$number: no successful PR Deploy; skipped"
-              continue
-            fi
-            gh workflow run pr-preview-roll-existing.yaml --repo "$REPO" --ref "$GITHUB_REF_NAME" \
-              -f pr_number="$number" -f head_sha="$sha" -f pr_branch="$ref"
-            echo "PR #$number: roll dispatched"
-          done
 
   # A reviewed exception in scripts/ci/check-secret-jobs.mjs (productionJobs):
   # the Forge CLI is a package, and it runs with the Forge token. The job runs
