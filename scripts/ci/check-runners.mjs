@@ -1,9 +1,11 @@
-// Rejects a workflow job that runs on a runner other than Blacksmith arm64.
+// Rejects a workflow job whose runner label has no stated reason.
 //
-// Every `runs-on` in .github/workflows must be `blacksmith-<n>vcpu-ubuntu-2404-arm`,
-// also in a matrix expression. A laptop runs linux/arm64 containers, so CI runs
-// the same platform. A job may use another label only when `runs-on` carries
-// a reason comment on its own line or on the line before:
+// The default `runs-on` in .github/workflows is
+// `blacksmith-<n>vcpu-ubuntu-2404-arm`, also in a matrix expression. A laptop
+// runs linux/arm64 containers, so CI runs the same platform. A light job
+// without Docker can run on a free GitHub-hosted runner, usually
+// `ubuntu-24.04-arm` (ADR-065). A job may use another label only when
+// `runs-on` carries a reason comment on its own line or on the line before:
 //   `amd64: <reason>`        for `blacksmith-<n>vcpu-ubuntu-2404` (x64)
 //   `github-hosted: <reason>` for any other label
 //
@@ -39,7 +41,7 @@ for (const name of readdirSync(directory).sort()) {
       : GITHUB_HOSTED
     if (reason.test(near)) return
     failures.push(
-      `${join(directory, name).replace(`${root}/`, "")}:${index + 1}: runs-on "${value}" is not an arm64 Blacksmith label. Use blacksmith-4vcpu-ubuntu-2404-arm, or add "# amd64: <reason>" (x64 Blacksmith label) or "# github-hosted: <reason>".`,
+      `${join(directory, name).replace(`${root}/`, "")}:${index + 1}: runs-on "${value}" is not an arm64 Blacksmith label. Use blacksmith-4vcpu-ubuntu-2404-arm, or add "# amd64: <reason>" (x64 Blacksmith label) or "# github-hosted: <reason>" (for example ubuntu-24.04-arm, ADR-065).`,
     )
   })
 }

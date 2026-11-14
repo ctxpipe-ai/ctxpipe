@@ -8,9 +8,11 @@ import {
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join, relative, resolve } from "node:path"
+import { dirname, join, matchesGlob, relative, resolve } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
+
+import { parse as parseYaml } from "yaml"
 
 import {
   code,
@@ -131,12 +133,13 @@ test("only a same-repo pull_request without gate input changes runs the selector
       reason: "shadow",
     })
   for (const path of [
-    ".github/merge-gate.json",
-    "scripts/checks/gate.mjs",
-    "scripts/checks/schema/result.v1.schema.json",
     ".github/actions/setup/action.yml",
+    "scripts/checks/run.mjs",
+    "scripts/checks/lanes.mjs",
+    "scripts/checks/toolchain.mjs",
     "scripts/ci/test-suite.mjs",
     "scripts/ci/vitest-launch.mjs",
+    "scripts/ci/test-weights.json",
     ".npmrc",
     "patches/a.patch",
   ])
@@ -170,6 +173,200 @@ test("only a same-repo pull_request without gate input changes runs the selector
     mode: "select",
     reason: "gate",
   })
+})
+
+test("a change to the gate code or its pin runs the selector, and only the other gate inputs give a full run", () => {
+  const mode = (changed) =>
+    decideMode({ config: pinned, event: "pull_request", fork: false, changed })
+  for (const path of [
+    ".github/merge-gate.json",
+    "scripts/checks/gate.mjs",
+    "scripts/checks/plan.mjs",
+    "scripts/checks/shard.mjs",
+    "scripts/checks/schema.mjs",
+    "scripts/checks/schema/manifest.v1.schema.json",
+  ])
+    assert.deepEqual(mode(["apps/a.ts", path]), {
+      mode: "select",
+      reason: "shadow",
+      gateInputs: [path],
+    })
+  // The reason names only the inputs that give the full run.
+  assert.deepEqual(
+    mode([
+      ".github/merge-gate.json",
+      "scripts/checks/projects.mjs",
+      "scripts/checks/run.mjs",
+    ]),
+    {
+      mode: "full",
+      reason:
+        "gate inputs changed: scripts/checks/projects.mjs, scripts/checks/run.mjs",
+    },
+  )
+})
+
+test("the key of each test of the CI scripts holds the gate code and the pin", async () => {
+  // The plan runs these tests for a change to the gate code or the pin
+  // (withGateTests), and accepts a hit: its key holds the changed file.
+  const { listProjects } = await import("../checks/projects.mjs")
+  const tests = listProjects().filter((check) =>
+    check.id.startsWith("policy:tests-"),
+  )
+  assert.ok(
+    tests.some(
+      (check) =>
+        check.id ===
+        "policy:tests-ci-merge-gate:scripts/tests/ci-merge-gate.test.mjs",
+    ),
+  )
+  for (const path of [
+    ".github/merge-gate.json",
+    "scripts/checks/gate.mjs",
+    "scripts/checks/schema/selection.v1.schema.json",
+  ])
+    for (const check of tests)
+      assert.ok(
+        check.inputs.some((input) => matchesGlob(path, input)),
+        `${check.id}: ${path}`,
+      )
+})
+
+// The repo paths that a source file imports or reads: a relative module
+// specifier (`from`, `import()`), a `new URL(<path>, import.meta.url)`, and a
+// `join(root, <path>)`.
+function references(file) {
+  const text = readFileSync(join(root, file), "utf8")
+  const near = (path) => relative(root, resolve(root, dirname(file), path))
+  return [
+    ...[
+      ...text.matchAll(/(?:from\s+|import\(\s*)["'](\.{1,2}\/[^"']+)["']/g),
+    ].map((match) => near(match[1])),
+    ...[
+      ...text.matchAll(
+        /new URL\(\s*["'`]([^"'`$:]+)["'`],\s*import\.meta\.url/g,
+      ),
+    ].map((match) => near(match[1])),
+    ...[...text.matchAll(/join\(\s*root,\s*["'`]([^"'`$]+)["'`]/g)].map(
+      (match) => match[1],
+    ),
+  ]
+}
+
+// The tracked source files outside the tests and the stories.
+const sources = () =>
+  spawnSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" })
+    .stdout.split("\0")
+    .filter(
+      (file) =>
+        /\.(?:mjs|cjs|js|mts|ts|tsx)$/.test(file) &&
+        !file.startsWith("scripts/tests/") &&
+        !/\.(?:test|spec|stories)\./.test(file),
+    )
+
+test("no code of a PR run imports or reads a gate input that the base revision decides", () => {
+  // The gate jobs run these files of the base revision. Any other code runs
+  // the version of the PR, so it must not reach one of them.
+  const decided = (path) =>
+    decideMode({
+      config: pinned,
+      event: "pull_request",
+      fork: false,
+      changed: [path],
+    }).gateInputs?.includes(path)
+  // The walk finds the known references, so a broken walk cannot pass.
+  for (const [file, path] of [
+    ["scripts/checks/run.mjs", "scripts/checks/families.mjs"],
+    ["scripts/checks/shard.mjs", "scripts/ci/test-weights.json"],
+    ["scripts/checks/families.mjs", "scripts/checks/non-portable.json"],
+    ["scripts/checks/projects.mjs", "scripts/ci/projects.json"],
+  ])
+    assert.ok(references(file).includes(path), `${file} reads ${path}`)
+  assert.ok(decided("scripts/checks/plan.mjs"))
+  for (const file of sources().filter((file) => !decided(file)))
+    for (const path of references(file))
+      assert.ok(!decided(path), `${file} runs the PR version of ${path}`)
+})
+
+test("each gate job runs the gate code and reads the pin of the base revision", () => {
+  const { jobs } = parseYaml(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+  )
+  // A job without a credential takes the gate code and the pin of the first
+  // parent of the merge revision of a PR, and fails when git fails. A job
+  // with a credential runs no repository script, so it takes only the pin;
+  // it runs only on a pull_request.
+  const steps = {
+    gate: "The gate of the base revision",
+    pin: "The pin of the base revision",
+  }
+  const first = (job, name) =>
+    jobs[job].steps.find((step) => step.name === name).run
+  const gateStep = first("merge-gate-manifest", steps.gate)
+  assert.match(
+    gateStep,
+    /\[ "\$GITHUB_EVENT_NAME" != pull_request \] \|\| rev=HEAD\^1/,
+  )
+  assert.match(gateStep, /set -o pipefail/)
+  assert.match(
+    first("merge-gate-select", steps.pin),
+    /git show HEAD\^1:\.github\/merge-gate\.json > "\$RUNNER_TEMP\/gate\/\.github\/merge-gate\.json"/,
+  )
+  const gateCode =
+    /scripts\/checks\/(?:gate|plan|shard|schema)\.mjs|\.github\/merge-gate\.json/
+  const fromBase =
+    /"\$RUNNER_TEMP\/gate\/(?:scripts\/checks\/gate\.mjs|\.github\/merge-gate\.json)"/g
+  const gate = {
+    "merge-gate-manifest": "gate",
+    "merge-gate-select": "pin",
+    "merge-gate-llm": "pin",
+    "merge-gate-critics": "pin",
+    "merge-gate-plan": "gate",
+    "merge-gate": "gate",
+  }
+  for (const [job, kind] of Object.entries(gate)) {
+    const at = jobs[job].steps.findIndex((step) => step.name === steps[kind])
+    assert.ok(at > 0, `${job} has no step "${steps[kind]}"`)
+    assert.equal(
+      jobs[job].steps[at].run,
+      first(
+        kind === "gate" ? "merge-gate-manifest" : "merge-gate-select",
+        steps[kind],
+      ),
+      job,
+    )
+    // The step needs the first parent: a checkout of depth 0 or at least 2.
+    const depth = jobs[job].steps[0].with?.["fetch-depth"]
+    assert.ok(depth === 0 || depth >= 2, `${job} fetch-depth ${depth}`)
+    for (const [index, step] of jobs[job].steps.entries()) {
+      if (index === at) continue
+      const text = `${step.run ?? ""}`
+      if (index < at) assert.ok(!text.includes("$RUNNER_TEMP/gate/"), job)
+      assert.ok(
+        !gateCode.test(text.replace(fromBase, "")),
+        `${job}: step ${step.name ?? step.uses} runs the gate code or reads the pin of the checkout`,
+      )
+    }
+  }
+  // Another job that reads the pin or the gate code of its checkout runs
+  // only on main: on the schedule, or by hand on main.
+  for (const [job, { steps: list = [], if: condition = "" }] of Object.entries(
+    jobs,
+  ))
+    if (!(job in gate) && list.some((step) => gateCode.test(step.run ?? "")))
+      // Only the two events, and only as equal tests: a negated test would
+      // let the job run on a pull_request.
+      assert.deepEqual(
+        [
+          ...new Set(
+            [...condition.matchAll(/github\.event_name ([!=])= .(\w+)./g)].map(
+              (match) => `${match[1]}= ${match[2]}`,
+            ),
+          ),
+        ].sort(),
+        ["== schedule", "== workflow_dispatch"],
+        job,
+      )
 })
 
 // The text of one job of a workflow, from its key to the next job.
@@ -285,6 +482,13 @@ test("a ci.yaml change only in the steps of check jobs runs the selector with th
     ).jobs,
     ["package-tests"],
   )
+  // A gate input that the base revision decides keeps the rule.
+  assert.deepEqual(mode(lintStep, [path, "scripts/checks/gate.mjs"]), {
+    mode: "select",
+    reason: "shadow",
+    jobs: ["lint"],
+    gateInputs: ["scripts/checks/gate.mjs"],
+  })
   // A changed action is a gate input of its own.
   assert.deepEqual(mode(lintStep, [path, ".github/actions/a/action.yml"]), {
     mode: "full",
