@@ -185,13 +185,13 @@ test("counts the owner issues and the fine items that each arm flags", async () 
   expect(code).toBe(0)
   // The LLM: on the first screenshot, a hit (color-tokens) and a false flag
   // (density). On the second, nothing that the owner named. The unseen set
-  // has no panel label yet, so it has no verdict.
+  // has no panel label yet, so it has no verdict and no unseen score.
   expect(printed).toContain(
-    "| llm:anthropic/claude-sonnet-5.5 | 0 / 0 | 0 / 0 | 0 / 0 | 1 / 2 | 1 / 3 | 2 / 2 | 0 |",
+    "| llm:anthropic/claude-sonnet-5.5 (incomplete) | 0 / 0 | 0 / 0 | 0 / 0 | 1 / 2 | 1 / 3 | 2 / 2 | 0 |",
   )
   // Jev: a hit (clarity) and no false flag.
   expect(printed).toContain(
-    "| jev | 0 / 0 | 0 / 0 | 0 / 0 | 1 / 2 | 0 / 3 | 2 / 2 | 0 |",
+    "| jev (incomplete) | 0 / 0 | 0 / 0 | 0 / 0 | 1 / 2 | 0 / 3 | 2 / 2 | 0 |",
   )
   expect(printed).toContain(
     "Unseen set: 0 of 1 screenshots have a panel label (0 defect, 0 fine). 0 without agreement and 1 with no panel run do not count.",
@@ -277,7 +277,7 @@ test("a screenshot with a before image is a change with its brief, and a worse q
   // The judge got the change with its brief, not a new screenshot.
   expect(prompts.join("\n")).toContain("Put the markers on one axis.")
   expect(printed).toContain(
-    "| llm:anthropic/claude-sonnet-5.5 | 0 / 0 | 0 / 0 | 0 / 0 | 1 / 1 | 0 / 1 | 1 / 1 | 0 |",
+    "| llm:anthropic/claude-sonnet-5.5 (incomplete) | 0 / 0 | 0 / 0 | 0 / 0 | 1 / 1 | 0 / 1 | 1 / 1 | 0 |",
   )
   expect(printed).toContain(
     "| 4 | components-c--story (change) | 1 / 1 hits, 0 / 1 false (hierarchy) |",

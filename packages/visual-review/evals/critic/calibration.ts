@@ -279,7 +279,9 @@ function calibrationReport(
       ({ verdict }) => !!verdict.error,
     )
     // A score with a missing or failed verdict cannot select a change.
+    // With no labeled screenshot, there is no unseen score.
     const complete =
+      labeledUnseen.length > 0 &&
       count(ofUnseen, ({ verdict }) => !verdict.error) === labeledUnseen.length
     return `| ${arm}${complete ? "" : " (incomplete)"} | ${count(defects, ({ verdict }) => flagged(verdict))} / ${defects.length} | ${count(fines, ({ verdict }) => flagged(verdict))} / ${fines.length} | ${count(ofUnseen, ({ verdict }) => verdict.verdict === "unsure")} / ${ofUnseen.length} | ${sum((r) => r.hits.length)} / ${issues} | ${sum((r) => r.falseFlags.length)} / ${fine} | ${sum((r) => (flagged(r.verdict) ? 1 : 0))} / ${ofOwner.length} | ${errors} |`
   })
@@ -318,7 +320,7 @@ function calibrationReport(
           "",
         ]
       : []),
-    `Unseen set: ${labeledUnseen.length} of ${unseen.screenshots.length} screenshots have a panel label (${count(labeledUnseen, ({ panel }) => panel?.label === "defect")} defect, ${count(labeledUnseen, ({ panel }) => panel?.label === "fine")} fine). ${disputed} without agreement and ${unlabeled} with no panel run do not count. A critic change is selected on the unseen set (ADR-063, rule 16). An arm marked "(incomplete)" has a missing or failed verdict on a labeled unseen screenshot: its scores do not select a change.`,
+    `Unseen set: ${labeledUnseen.length} of ${unseen.screenshots.length} screenshots have a panel label (${count(labeledUnseen, ({ panel }) => panel?.label === "defect")} defect, ${count(labeledUnseen, ({ panel }) => panel?.label === "fine")} fine). ${disputed} without agreement and ${unlabeled} with no panel run do not count. A critic change is selected on the unseen set (ADR-063, rule 16). An arm marked "(incomplete)" has no unseen score, or a missing or failed verdict on a labeled unseen screenshot: its scores do not select a change.`,
     "",
     `Owner examples (${owner.date}): ${owner.screenshots.length} screenshots, ${issues} issues, ${fine} fine items. A hit is an owner issue that the arm flags. A false flag is a fine item that the arm flags.`,
     "",

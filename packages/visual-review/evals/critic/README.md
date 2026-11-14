@@ -161,7 +161,7 @@ The report has a table for the hold-out set and a table for the other cases. The
 
 The input `mode` selects the job: `bakeoff` (the default), `panel`, `unseen_panel` or `calibration`. With `unseen_panel`, the job labels the unseen calibration set with the judge panel (see [The unseen set](#the-unseen-set)). The artifact then holds the new `unseen-calibration.json`: commit it in a pull request.
 
-With `panel`, the job runs the judge panel instead of the bake-off, with the spend cap of the panel ($40, the default of `panel.ts`; see the cost estimate in the pull request of [CTX-1249](https://linear.app/ctxpipe/issue/CTX-1249)). `panel_models` replaces the default panel when it is set. The artifact then holds the new `cases.json` with the votes: commit it in a pull request, and push the owner queue.
+With the mode `panel`, the job runs the judge panel instead of the bake-off, with the spend cap of the panel ($40, the default of `panel.ts`; see the cost estimate in the pull request of [CTX-1249](https://linear.app/ctxpipe/issue/CTX-1249)). `panel_models` replaces the default panel when it is set. The artifact then holds the new `cases.json` with the votes: commit it in a pull request, and push the owner queue.
 
 The default arms are the models of the plan in the three prompt arms, the three decision models (Jev, Elephant and Mammoth) alone, the cascade from each of them to Sonnet, and the local judge. A decision call costs much less than an LLM call, and a cascade calls Sonnet only when its filter does not accept the change, so a cascade arm costs at most the Sonnet arm. A full run of all the default arms costs more than $100. The hold-out cases go first, so a run that the cap stops still has the cases of the selection rule. To spend less, give fewer arms or fewer runs.
 
@@ -192,7 +192,7 @@ An issue is a hit when the verdict flags one of its kinds. A fine item is a fals
 | `pr-722-round-3` | 24 | Changes from round 2 (`f8084e7d1`) to round 3 (`8eda68fe6`) of PR #722, which the owner called a regression overall but did not name one by one: 17 component stories and 7 page stories. The brief is the brief of round 3. |
 | `pr-717` | 5 | Regressions that the design review of PR #717 found (`redesign.json`), with the brief of PR #717. |
 
-Within each source, the selection took at most one story of each component, in the order of a SHA-256 of a fixed salt and the path. Each screenshot keeps its `path` and `commit`, so its source is in git. The image release has the GitHub limit of 1,000 assets and is full, so the component stories of `main` are ones whose image the release had already. A set with more new images needs a second release.
+Within each source, the selection took at most one story of each component, in the order of a SHA-256 of a fixed salt and the path. Each screenshot keeps its `path` and `commit`, so its source is in git. The image release has the GitHub limit of 1,000 assets, and it is full. Thus each component story of `main` is one whose image the release had already. A set with more new images needs a second release.
 
 **Labels.** The owner did not label these screenshots, so the judge panel does. Each member (`panel.ts`: Opus 5.5, GPT-6.1-Sol, Gemini 4 Argon by default) judges each screenshot on its own:
 
@@ -207,7 +207,7 @@ Within each source, the selection took at most one story of each component, in t
 node packages/visual-review/evals/critic/label-unseen.ts [--models <list>] [--max-cost 15] [--images .ci-results/visual-bakeoff/images] [--unseen <path>]
 ```
 
-The panel has the spend rules of `panel.ts`. A second run, with the same models, judges the screenshots that have no panel yet or a failed vote. The expected cost is about $5 for the 60 screenshots: 29 changes with 5 images each, and 31 single screenshots, for each of the 3 members (Opus 5.5 at $4 for each million input tokens). The cap of $15 leaves room for calls with no reported cost, which count as at least $0.10.
+The panel has the spend rules of `panel.ts`. A second run, with the same models, judges the screenshots that have no panel yet or a failed vote. The expected cost is about $5 for the 60 screenshots. Each of the 3 members judges 29 changes with 5 images each and 31 single screenshots. Opus 5.5 costs $4 for each million input tokens. A call with no reported cost counts as at least $0.10, so the cap is $15.
 
 ### The command
 
