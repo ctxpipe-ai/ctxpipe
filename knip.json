@@ -63,7 +63,7 @@
     "apps/codesearch": {
       "entry": [
         "src/server.ts",
-        "src/cutover/{exportIndexes,importIndexes,verifyGraph,seedShardStore}.ts",
+        "src/cutover/{exportIndexes,importIndexes,verifyGraph,seedShardStore,resetIndexes}.ts",
         "scripts/*.{ts,mjs}",
         "src/**/*.test.ts"
       ],
@@ -82,6 +82,7 @@
         "src/**/*.test.ts",
         "src/command.ts",
         "evals/**/*.test.ts",
+        "evals/critic/calibration.ts",
         "evals/critic/capture.ts",
         "evals/critic/panel.ts"
       ],

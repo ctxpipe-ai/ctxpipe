@@ -70,8 +70,9 @@
 //   step env (a manifest that an earlier step listed). The discovery imports
 //   PR code (eval cases, the Storybook configuration), so a check step gets
 //   its credential only after the checks are listed.
-// The production jobs in productionJobs run only on a push to main, so the
-// rules for one job do not apply to them; the pin rule and the cache rule do.
+// The production jobs in productionJobs run only on a push to main or on a
+// dispatch from main with the input `deploy`, so the rules for one job do not
+// apply to them; the pin rule and the cache rule do.
 // Every other job of deploy.yaml gets all the rules.
 // The check reads each workflow line by line. It ignores comment lines.
 import { existsSync, readdirSync, readFileSync } from "node:fs"
@@ -82,8 +83,9 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..")
 const production = join(".github", "workflows", "deploy.yaml")
 
 // Production deploy jobs that run untrusted code with production secrets, by
-// a decision of the team. Each one runs only on a push to main (the check
-// keeps its `if:` so), with merged code and a frozen lockfile, and the
+// a decision of the team. Each one runs only on a push to main or on a
+// dispatch from main with the input `deploy` (the check keeps its `if:` so),
+// with merged code and a frozen lockfile, and the
 // production runtime trusts the same dependencies.
 const productionJobs = new Map(
   Object.entries({
@@ -347,6 +349,11 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     // Before, the plan job gave the same ids in its outputs. The job already
     // runs PR code with the token (pnpm install and the selected tests).
     "ci.yaml:vercel-sandbox",
+    // The push job loads the image that the build job made from the PR's code
+    // and pushes it: that is its purpose. It runs no file of the artifact on
+    // the runner (`docker load` only stores the image), and its role can only
+    // push to ctxpipe-pr/* in the preview account, where PR code runs anyway.
+    "pr-preview-images.yaml:push",
     // The Resolve job checks out the merge commit (it holds no secret) and
     // uploads infra/. The plan job may check out only the workflow commit, and
     // it already runs branch Terraform code: the reviewers of the
@@ -510,13 +517,19 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
 
     const productionJob = productionJobs.has(`${name}:${job.name}`)
     if (productionJob) {
+      // The condition is one `&&` term: no other `||` can widen it.
+      const deployRun =
+        "&& (github.event_name == 'push' || inputs.deploy && github.ref == 'refs/heads/main')"
       if (
-        !job.lines.some(({ text }) =>
-          /^ {4}if:.*github\.event_name != 'workflow_dispatch'/.test(text),
+        !job.lines.some(
+          ({ text }) =>
+            /^ {4}if:/.test(text) &&
+            text.includes(deployRun) &&
+            !text.replace(deployRun, "").includes("||"),
         )
       )
         failures.push(
-          `${file}: job ${job.name} is a production job, but its if: does not limit it to the push to main.`,
+          `${file}: job ${job.name} is a production job, but its if: does not limit it to a push to main or a deploy dispatch from main.`,
         )
       continue
     }

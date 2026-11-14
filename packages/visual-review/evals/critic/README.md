@@ -23,6 +23,7 @@ The builder keeps only the pairs that differ by more than the tolerance of the v
 ## Files
 
 - `cases.json`: the case manifest. It is in git. Its schema is `cases.schema.json`, from `cases.ts`.
+- `redesign.json`: the redesign set, a second manifest with the same schema (see below).
 - `build.ts`: the builder (`pnpm visual:bakeoff:build`).
 - `panel.ts`: the judge panel that labels the real changes (`node packages/visual-review/evals/critic/panel.ts`).
 - `run.ts`: the runner (`pnpm visual:bakeoff:run`).
@@ -33,8 +34,22 @@ The builder keeps only the pairs that differ by more than the tolerance of the v
 - `queue.ts`: the labeling queue of the owner in Langfuse (`pnpm visual:bakeoff:queue`).
 - `capture.ts`: the capture step. It runs in the pinned capture container (`scripts/ci/visual-container.json`) with the play runner and the pins of the visual check.
 - `mutations.ts`: the synthetic changes and their known regions.
+- `owner-calibration.json` and `calibration.ts`: the owner calibration set and its command (see [The owner calibration](#the-owner-calibration)).
+- `redesign-717-labels.json`: the labels of the 254 screenshots that PR 717 changed (`{ path, viewport, label, reason }`, `label` is `regression` or `intended`). A design review made them for CTX-1265. `redesign.json` takes its labels from it (CTX-1262).
 
 The images are not in git. The manifest holds the SHA-256 of each image. Each image is one asset of the pre-release [`visual-bakeoff-images`](https://github.com/ctxpipe-ai/ctxpipe/releases/tag/visual-bakeoff-images) of this repository, named `<sha256>.png`. The images are screenshots of the Storybook stories, with their mock data, so they can be public.
+
+## The redesign set
+
+`redesign.json` holds the screenshots of a deliberate redesign: PR #717 ([CTX-1259](https://linear.app/ctxpipe/issue/CTX-1259)), the first real use of the critic. It measures two things that the page cases do not: a false flag on a change that the brief names (a removed icon tile or eyebrow), and a missed regression in the execution of such a change ([CTX-1262](https://linear.app/ctxpipe/issue/CTX-1262)).
+
+- The before image is the baseline at the merge base of the PR, and the after image is the baseline at the merge commit. The brief lists the six intended changes of the PR.
+- The labels come from `redesign-717-labels.json`: 15 `regression` (step labels whose number runs into the word, and page titles that are smaller than their card titles) and 239 `intended`.
+- The set has each `regression` screenshot and one `intended` screenshot for each diff signature: 124 cases.
+- It also has the 25 screenshots that the fix of these regressions changed (PR #718, CTX-1265), as 25 `intended` cases (ids `fix-…`). The before image is the baseline after PR #717, the after image is the fixed one, and the brief is the message of the fix commit. A judge that flags them prefers the broken state: it sees that something changed, but not the direction of the change. A screenshot of a route story, or of a story with a mobile screenshot, has the scope `page`; another one has the scope `component` in its case.
+- A case can have its own `scope`. Without it, the case has the scope of the manifest.
+
+Run it with `--cases packages/visual-review/evals/critic/redesign.json`. The report puts 30% of the cases in its hold-out table, as for each manifest, but the set has no separate hold-out role: add the two tables.
 
 ## Build the cases
 
@@ -85,10 +100,10 @@ The command checks that each image of the manifest is in the folder and has its 
 Run the command from the repository root. The paid arms use `MODEL_PROVIDER_API_KEY` (and `MODEL_PROVIDER_URL`), so a fork can run the bake-off with its own key.
 
 ```sh
-pnpm visual:bakeoff:run --arms <list> [--images .ci-results/visual-bakeoff/images] [--out .ci-results/visual-bakeoff/report] [--runs 3] [--max-cost 100] [--max-minutes <n>] [--concurrency 4] [--blazediff-agent <dir>] [--hold-out-only]
+pnpm visual:bakeoff:run --arms <list> [--images .ci-results/visual-bakeoff/images] [--out .ci-results/visual-bakeoff/report] [--runs 3] [--max-cost 100] [--max-minutes <n>] [--concurrency 4] [--blazediff-agent <dir>] [--cases <path>] [--hold-out-only | --skip-hold-out]
 ```
 
-The runner gets the images of a case only when an arm judges the case: the limits let a call start, and the arm can judge that kind of case. It reads each image from the `--images` folder. If the image is not there, the runner downloads it from the release and keeps it in the folder. A missing image, or an image that does not have the SHA-256 of the manifest, stops the run with exit code 2. The report then has the verdicts so far. `--hold-out-only` runs only the hold-out cases, so the runner gets only their images. A case that the owner labeled `unsure` does not run.
+The runner gets the images of a case only when an arm judges the case: the limits let a call start, and the arm can judge that kind of case. It reads each image from the `--images` folder. If the image is not there, the runner downloads it from the release and keeps it in the folder. A missing image, or an image that does not have the SHA-256 of the manifest, stops the run with exit code 2. The report then has the verdicts so far. `--hold-out-only` runs only the hold-out cases, so the runner gets only their images. `--skip-hold-out` runs only the other cases: tune a judge on them, and keep the hold-out set for the last check. A case that the owner labeled `unsure` does not run.
 
 An arm is a judge with its settings. `<model>` is an OpenRouter id.
 
@@ -98,6 +113,7 @@ An arm is a judge with its settings. `<model>` is an OpenRouter id.
 | `llm-one-step:<model>` | The critic prompt with a one-step comparison. |
 | `llm-no-facts:<model>` | The critic prompt without the interpreter facts: no change type and no confidence for a region, as when the interpreter is not available. |
 | `jev` | Jev alone (`typesafe/jev-1.14`). |
+| `jev-explain:<model>` | Jev alone, and `<model>` explains each Jev `regression`, as `pnpm visual:review --judge jev` does ([CTX-1256](https://linear.app/ctxpipe/issue/CTX-1256)). The verdicts are the ones of Jev. The cost of a verdict adds both calls, and `explainer` in `results.json` has the cost of the explainer call alone. |
 | `decision:<model>` | Another decision model of the OpenRouter Decisions API, for example `baseten/elephant-1` or `baseten/mammoth-1`, with the questions of the Jev adapter. All decision models take the same request. Only Jev 1.14 takes the box question, so for another model the region of a worse area is the box of the largest measured region. |
 | `cascade:<model>` | Jev, then `<model>` when Jev does not accept the change (the `--filter jev` of `pnpm visual:review`). |
 | `cascade:<filter>+<model>` | The same cascade with the decision model `<filter>` in place of Jev. |
@@ -106,7 +122,7 @@ An arm is a judge with its settings. `<model>` is an OpenRouter id.
 A `new` case has no before image. Each arm judges it with its judge of a new screenshot, as `pnpm visual:review` judges one:
 
 - The three prompt arms (`llm`, `llm-one-step`, `llm-no-facts`) use the new-screenshot prompt (`judgeNewWithOpenRouter`). That prompt has no steps and no interpreter facts, so the three arms get the same prompt.
-- `jev` and `decision:<model>` ask whether the screenshot breaks a rule of each area and each quality of the rubric (`judgeNewWithJev`). Only Jev 1.14 takes the box question. For another model, the region of a finding is the whole image.
+- `jev`, `jev-explain` and `decision:<model>` ask whether the screenshot breaks a rule of each area and each quality of the rubric (`judgeNewWithJev`). Only Jev 1.14 takes the box question. For another model, the region of a finding is the whole image.
 - A `cascade` arm sends a new screenshot to its model, never to the filter, as `pnpm visual:review --filter jev` does.
 - `blazediff-local` judges a pair of images, so it cannot judge a new screenshot. The report says "not applicable" for it, and the run makes no call.
 
@@ -116,7 +132,7 @@ The real changes have the labels of the judge panel. A real change with the labe
 
 Two limits stop the run. A paid call starts only while the spend is below `--max-cost`. After `--max-minutes`, no call starts. Each call checks both limits, also a retry, and a case gets its images only after the same check. Calls that already run finish, so a run can end above the cap by at most the cost of the calls in flight. A call without `usage.cost`, and a failed call, count as the most expensive call so far, and at least $0.10. The report gives the number of such calls. When a limit stops the run, the report counts only the cases and runs that every arm judged.
 
-The runner writes `results.json` (each verdict of each arm, case and run) and `report.md` in `--out`, and prints the report.
+The runner writes `results.json` (each verdict of each arm, case and run) and `report.md` in `--out`, and prints the report. A verdict of the `jev`, `jev-explain` or a `decision` arm also has `answers`: the raw answers of the decision model, on a change and on a new screenshot. A new threshold can be tested on them with no new call.
 
 ## Report
 
@@ -138,11 +154,30 @@ The report has a table for the hold-out set and a table for the other cases. The
 
 ## The workflow
 
-`.github/workflows/visual-bakeoff.yaml` runs the bake-off or the judge panel by hand in the `workbench` environment, with its spend-capped `MODEL_PROVIDER_API_KEY`. The runner downloads the images of the cases that run from the release. `hold_out_only` runs only the hold-out cases. The workflow installs the local judge of BlazeDiff in its own folder, and runs the arms with `--max-cost` (default 90, a margin for the calls that already started below the $100 limit of the key) and `--max-minutes 300`. The job summary shows the report, and the artifact `visual-bakeoff-report` holds `report.md` and `results.json`.
+`.github/workflows/visual-bakeoff.yaml` runs the bake-off or the judge panel by hand in the `workbench` environment, with its spend-capped `MODEL_PROVIDER_API_KEY`. The runner downloads the images of the cases that run from the release. `hold_out_only` runs only the hold-out cases, and `skip_hold_out` only the other cases. `cases` gives another manifest, for example the redesign set. The workflow installs the local judge of BlazeDiff in its own folder, and runs the arms with `--max-cost` (default 90, a margin for the calls that already started below the $100 limit of the key) and `--max-minutes 300`. The job summary shows the report, and the artifact `visual-bakeoff-report` holds `report.md` and `results.json`.
 
 With `panel`, the job runs the judge panel instead of the bake-off, with the spend cap of the panel ($40, the default of `panel.ts`; see the cost estimate in the pull request of [CTX-1249](https://linear.app/ctxpipe/issue/CTX-1249)). `panel_models` replaces the default panel when it is set. The artifact then holds the new `cases.json` with the votes: commit it in a pull request, and push the owner queue.
 
 The default arms are the models of the plan in the three prompt arms, the three decision models (Jev, Elephant and Mammoth) alone, the cascade from each of them to Sonnet, and the local judge. A decision call costs much less than an LLM call, and a cascade calls Sonnet only when its filter does not accept the change, so a cascade arm costs at most the Sonnet arm. A full run of all the default arms costs more than $100. The hold-out cases go first, so a run that the cap stops still has the cases of the selection rule. To spend less, give fewer arms or fewer runs.
+
+## The owner calibration
+
+The product owner reviewed 10 screenshots of `main` on 2026-11-14 ([CTX-1269](https://linear.app/ctxpipe/issue/CTX-1269)), 6 screenshots of PR #722 in a second round on the same day ([CTX-1275](https://linear.app/ctxpipe/issue/CTX-1275)), and 6 screenshots of a later state of PR #722 in a fourth round ([CTX-1282](https://linear.app/ctxpipe/issue/CTX-1282)). `owner-calibration.json` holds that feedback. Each screenshot has:
+
+- `path`: where the screenshot was in the repository on that day. `image` is its SHA-256: an asset of the image release, so the set stays the same when the UI changes.
+- `flag`: the issues that the owner wants a critic to flag.
+- `ok`: the things that the owner said are fine.
+- `round`: the review round of the owner.
+- `before` (optional): when the owner judged a change, the SHA-256 of the earlier image and the brief of the change. The issues are then regressions of that change.
+- `kinds` on each item: the rubric ids (areas and qualities) that a judge flags the item with.
+
+The command gives each screenshot to the runner as a `new` case (the image alone, with a fixed neutral brief), so each arm judges it as `pnpm visual:review` judges a new screenshot. A screenshot with `before` is a change with its brief, so each arm judges it as a changed screenshot of a PR; the report marks it `(change)`. The runner output is in `runner/` of `--out`. A verdict flags the kind of each finding, each quality that `fails` (a new screenshot), and each quality that is `worse` (a change). An issue is a hit when the verdict flags one of its kinds. A fine item is a false flag when the verdict flags one of its kinds that no issue of that screenshot names.
+
+```sh
+node packages/visual-review/evals/critic/calibration.ts --arms jev,llm:anthropic/claude-sonnet-5.5 [--max-cost 2] [--images <dir>] [--out <dir>]
+```
+
+The arms are the arms of the runner that judge a new screenshot, for example `jev` and `llm:<model>`. The spend cap has the rules of the runner. The workflow runs it with the input `calibration`. Give the arms in `arms` and a small `max_cost`.
 
 ## The labeling queue
 
