@@ -82,8 +82,7 @@ const setup = ({
     writeFileSync(join(dir, `${file(path)}.error-once`), text)
   // The state of the PR, as the REST API gives it.
   const pull = join(dir, `${file(`repos/${repo}/pulls/7`)}.json`)
-  if (!existsSync(pull))
-    writeFileSync(pull, JSON.stringify({ state }))
+  if (!existsSync(pull)) writeFileSync(pull, JSON.stringify({ state }))
   return dir
 }
 
@@ -115,7 +114,7 @@ const run = (script, dir, env, args = [], cwd = undefined) => {
   const command =
     script in steps
       ? ["-c", `set -eo pipefail\n${stepShell(...steps[script])}`]
-    : [join(root, "scripts/ci", script), ...args]
+      : [join(root, "scripts/ci", script), ...args]
   const result = spawnSync("bash", command, {
     cwd,
     encoding: "utf8",
@@ -364,7 +363,8 @@ test("the plan is not called for a PR with no change under infra/", () => {
 test("a rate limit makes the step wait for the reset and call again", () => {
   const result = start(({ write }) => write("infra/a.tf", "changed"), {
     errorsOnce: {
-      [`repos/${repo}/pulls/7`]: "API rate limit exceeded for installation ID 1 (HTTP 403)",
+      [`repos/${repo}/pulls/7`]:
+        "API rate limit exceeded for installation ID 1 (HTTP 403)",
       [`repos/${repo}/branches/feature`]:
         "API rate limit exceeded for installation ID 1 (HTTP 403)",
     },
@@ -450,7 +450,7 @@ test("each step that calls the GitHub API holds the same gh_retry", () => {
 })
 
 test("a path that git quotes still counts as a change under infra/", () => {
-  const result = start(({ write }) => write("infra/café \"x\".tf"))
+  const result = start(({ write }) => write('infra/café "x".tf'))
   assert.equal(result.status, 0, result.stderr)
   assert.equal(result.outputs.at(-1), "plan=true")
 })
@@ -564,7 +564,11 @@ const postComment = (options) => {
   const dir = setup({
     api: {
       [`repos/${repo}/issues/7/comments`]: [
-        { id: 5, user: { login: "github-actions[bot]" }, body: "<!-- merge-gate -->\nold" },
+        {
+          id: 5,
+          user: { login: "github-actions[bot]" },
+          body: "<!-- merge-gate -->\nold",
+        },
       ],
       rate_limit: { resources: { core: { remaining: 0, reset: 0 } } },
     },
@@ -594,7 +598,9 @@ test("the PR comment waits for the rate limit reset, and a limit that stays does
   assert.match(stays.stdout, /::warning::The GitHub API rate limit stays/)
   assert.deepEqual(stays.calls, [])
   const broken = postComment({
-    errors: { [`repos/${repo}/issues/7/comments`]: "gh: Server Error (HTTP 500)" },
+    errors: {
+      [`repos/${repo}/issues/7/comments`]: "gh: Server Error (HTTP 500)",
+    },
   })
   assert.equal(broken.status, 1)
   assert.match(broken.stderr, /HTTP 500/)
