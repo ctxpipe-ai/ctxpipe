@@ -27,6 +27,28 @@ if OBSERVABILITY_OTLP_HEADERS="" "$script" build 2>/dev/null; then
   fail "build should fail when OBSERVABILITY_OTLP_HEADERS is empty"
 fi
 
+# The new collector refuses headers without the Access token: building for it without one fails, and says why.
+if out="$(OBSERVABILITY_OTLP_HEADERS="authorization=old-ingest-key" "$script" build 2>&1)"; then
+  fail "build should fail for the new collector without the Access token"
+fi
+printf '%s' "$out" | grep -Fq "needs the Access token" || fail "build should say why it failed"
+if printf '%s' "$out" | grep -Fq old-ingest-key; then fail "build must not print a header value"; fi
+if OBSERVABILITY_OTLP_HEADERS="CF-Access-Client-Id=only-id" "$script" build >/dev/null 2>&1; then
+  fail "build should fail for the new collector with only one of the Access headers"
+fi
+OBSERVABILITY_OTLP_HEADERS="authorization=key" "$script" build "https://example.test/otel" >/dev/null \
+  || fail "another endpoint keeps its own headers"
+
+# The production deploy runs the same check before its sync and before Terraform.
+deploy_guard="$root/.github/workflows/deploy.yaml"
+grep -Fq 'require_access_headers_for_endpoint "$TF_VAR_otel_otlp_endpoint" "$OBSERVABILITY_OTLP_HEADERS"' "$deploy_guard" \
+  || fail "deploy.yaml must refuse the new collector without its Access token"
+guard_line="$(grep -n 'name: Refuse the new collector without its Access token' "$deploy_guard" | cut -d: -f1)"
+guard_sync_line="$(grep -n 'name: Sync production secrets to Railway' "$deploy_guard" | cut -d: -f1)"
+guard_apply_line="$(grep -n 'name: Terraform Apply' "$deploy_guard" | cut -d: -f1)"
+((guard_line < guard_sync_line && guard_line < guard_apply_line)) \
+  || fail "deploy.yaml must refuse before the sync and before Terraform applies"
+
 assert_workflow_syntax() {
   local workflow="$1"
   python3 - "$workflow" <<'PY' || fail "workflow bash blocks failed bash -n: $workflow"

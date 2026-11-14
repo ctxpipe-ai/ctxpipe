@@ -19,12 +19,27 @@ preview_otel_vars_build() {
     echo "preview-otel-vars: OTLP endpoint is empty" >&2
     return 1
   fi
+  require_access_headers_for_endpoint "$endpoint" "$headers" || return 1
   jq -nc --arg endpoint "$endpoint" --arg headers "$headers" '{
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ($endpoint + "/v1/traces"),
     OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ($endpoint + "/v1/logs"),
     OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ($endpoint + "/v1/metrics"),
     OTEL_EXPORTER_OTLP_HEADERS: $headers
   }'
+}
+
+# The collector on otel.ctxpipe.dev is behind Cloudflare Access: it refuses headers without an Access service token,
+# and the telemetry is lost. Fails (1) when the endpoint is that collector and the headers lack CF-Access-Client-Id or
+# CF-Access-Client-Secret, so a deploy stops before it points an app there without its token. Prints no value.
+require_access_headers_for_endpoint() {
+  local endpoint="$1" headers="$2" name
+  [[ "$endpoint" =~ ^https://otel\.ctxpipe\.dev(/|$) ]] || return 0
+  for name in CF-Access-Client-Id CF-Access-Client-Secret; do
+    if [[ -z "$(otlp_header_values "$headers" "$name")" ]]; then
+      echo "preview-otel-vars: $endpoint needs the Access token, but the OTEL headers have no $name." >&2
+      return 1
+    fi
+  done
 }
 
 # Every value of one header in an OTLP header list (`Name=value,Name=value`), by name, trimmed, one per line.

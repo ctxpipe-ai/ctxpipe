@@ -563,6 +563,21 @@ jobs:
           export DATABASE_APP_PASSWORD
           pnpm exec tsx src/db/migrate.ts
 
+      # The new collector refuses OTEL headers without the Access token, and
+      # the telemetry is lost (2026-11-14). Stop before the sync and before
+      # Terraform points production at it: the Production secret
+      # OBSERVABILITY_OTLP_HEADERS must hold the `telemetry` token
+      # (CF-Access-Client-Id and CF-Access-Client-Secret).
+      - name: Refuse the new collector without its Access token
+        working-directory: ${{ github.workspace }}
+        env:
+          OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source scripts/preview-otel-vars.sh
+          require_access_headers_for_endpoint "$TF_VAR_otel_otlp_endpoint" "$OBSERVABILITY_OTLP_HEADERS"
+
       # Secret values go from this environment straight to Railway, never into
       # Terraform inputs or state (scripts/railway-sync-variables.mjs). The app
       # services do not redeploy here: the next step deploys them on the new
@@ -648,8 +663,6 @@ jobs:
           source scripts/railway-graphql.sh
           # shellcheck disable=SC1091
           source scripts/preview-otel-vars.sh
-          # Until production sends with its Access token, previews keep skipping.
-          [[ -n "$(otlp_header_values "$OBSERVABILITY_OTLP_HEADERS" CF-Access-Client-Id)" ]] || exit 0
           BACKEND_SERVICE_ID="$(terraform -chdir=infra output -json railway_service_ids | jq -er '.backend')"
           export BACKEND_SERVICE_ID
           prs="$(previews_without_access_otel | tr '\n' ' ')"
