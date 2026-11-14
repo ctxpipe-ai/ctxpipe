@@ -138,20 +138,6 @@ want a deployment-wide app. Then run:
 docker compose --profile deploy up -d --build backend worker
 ```
 
-### Railway
-
-Set OAuth variables on the production backend and worker, and the webhook
-secret on the backend, only when you use the deployment-wide fallback. The
-repository's Terraform module currently passes provided `LINEAR_*` values to
-both services. For the root Terraform stack, the corresponding inputs are
-`TF_VAR_linear_client_id`, `TF_VAR_linear_client_secret`,
-`TF_VAR_linear_redirect_uri`, and `TF_VAR_linear_webhook_secret`.
-
-PR environments duplicate the production environment. Add each preview
-callback to the Linear application before you test OAuth. A shared production
-application still sends webhooks to production. Use a dedicated preview
-application to test incremental delivery safely.
-
 ### AWS CDK
 
 Pass the four values through `connectorSecrets` when you want the

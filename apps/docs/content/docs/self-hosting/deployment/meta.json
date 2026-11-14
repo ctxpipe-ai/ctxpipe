@@ -1,4 +1,4 @@
 {
   "title": "Deployment",
-  "pages": ["docker", "terraform", "aws"]
+  "pages": ["docker", "aws"]
 }

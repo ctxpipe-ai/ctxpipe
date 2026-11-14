@@ -137,7 +137,6 @@ data path. Use the self-hosting docs as the deployment runbook, not this README:
 - [Self-hosting overview](https://docs.ctxpipe.ai/docs/self-hosting)
 - [Quickstart](https://docs.ctxpipe.ai/docs/self-hosting/quickstart)
 - [Docker Compose](https://docs.ctxpipe.ai/docs/self-hosting/deployment/docker)
-- [Terraform](https://docs.ctxpipe.ai/docs/self-hosting/deployment/terraform)
 - [AWS (CDK)](https://docs.ctxpipe.ai/docs/self-hosting/deployment/aws)
 - [Production readiness](https://docs.ctxpipe.ai/docs/self-hosting/production-readiness)
 - [Upgrades](https://docs.ctxpipe.ai/docs/self-hosting/upgrades)

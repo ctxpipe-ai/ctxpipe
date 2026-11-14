@@ -11,6 +11,12 @@ const config = withMDX({
   async redirects() {
     return [
       {
+        // The Railway and Neon Terraform stack is deleted (AWS cutover).
+        source: "/docs/self-hosting/deployment/terraform",
+        destination: "/docs/self-hosting/deployment/aws",
+        permanent: false,
+      },
+      {
         source: "/docs/connections/connecting-docs",
         destination: "/docs/connections",
         permanent: false,
