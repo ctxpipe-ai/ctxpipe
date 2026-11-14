@@ -188,7 +188,6 @@ jobs:
         run: |
           set -o pipefail
           if [ -n "$REUSE" ]; then
-            [[ "$REUSE" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::The plan gave $NAME no image digest" >&2; exit 1; }
             sources=("$IMAGE@$REUSE")
           else
             sources=("$IMAGE@$(cat "$RUNNER_TEMP/digest/amd64")" "$IMAGE@$(cat "$RUNNER_TEMP/digest/arm64")")

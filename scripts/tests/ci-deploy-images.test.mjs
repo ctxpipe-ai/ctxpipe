@@ -121,6 +121,7 @@ function github({ base, runs, notices = {} }) {
     id: 1000 + index,
     name: `Publish image (${name})`,
     conclusion: "success",
+    check_run_url: `https://api.github.com/repos/${repo}/check-runs/${2000 + index}`,
   }))
   return [
     http.get(
@@ -141,7 +142,9 @@ function github({ base, runs, notices = {} }) {
     http.get(
       `https://api.github.com/repos/${repo}/check-runs/:id/annotations`,
       ({ params }) => {
-        const name = jobs.find(({ id }) => String(id) === params.id).name
+        const name = jobs.find(({ check_run_url }) =>
+          check_run_url.endsWith(`/${params.id}`),
+        ).name
         const image = name.slice("Publish image (".length, -1)
         const messages = notices[image] ?? [`${image} ${digestOf(image)}`]
         return HttpResponse.json(
@@ -157,7 +160,7 @@ function github({ base, runs, notices = {} }) {
 }
 
 const plan = (dir, event = "push") =>
-  planImages({ root: dir, event, repo, runId: "99", token: "t" })
+  planImages({ root: dir, event, repo, token: "t" })
 const built = (result) => result.build.map(({ image }) => image)
 
 test("a merge that changes no image input builds no image and reuses each digest", async () => {
@@ -241,9 +244,6 @@ test("without a base that main contains, every image builds", async () => {
   assert.deepEqual(built(await plan(dir)), names)
   // A base that is not in the history of HEAD (a force push).
   server.use(...github({ base, runs: [{ id: 7, head_sha: "f".repeat(40) }] }))
-  assert.deepEqual(built(await plan(dir)), names)
-  // The run of this workflow itself is no base.
-  server.use(...github({ base, runs: [{ id: 99, head_sha: base }] }))
   assert.deepEqual(built(await plan(dir)), names)
   // The GitHub API fails.
   server.use(

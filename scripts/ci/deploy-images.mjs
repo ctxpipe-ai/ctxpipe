@@ -104,13 +104,6 @@ export const images = [
   },
 ]
 
-// A change to one of these files can change how every image builds.
-const everyImage = [
-  ".github/workflows/deploy.yaml",
-  "scripts/ci/deploy-images.mjs",
-  "scripts/ci/changed-files.mjs",
-]
-
 const inputsOf = ({ dockerfile, context = ".", inputs }) => [
   dockerfile,
   context === "." ? ".dockerignore" : `${context}/.dockerignore`,
@@ -139,17 +132,6 @@ function instructions(text) {
   return result
 }
 
-const copyFlags = new Set([
-  "chown",
-  "chmod",
-  "link",
-  "parents",
-  "exclude",
-  "checksum",
-  "keep-git-dir",
-  "unpack",
-])
-
 // The build context paths that the target stage reads: { sources, unreadable }.
 // A source is relative to the repository root, cut before its first glob
 // character. An instruction that the parser does not understand, or that
@@ -164,6 +146,23 @@ function dockerfileSources(text, { context = ".", target } = {}) {
       ? Number(name)
       : stages.findIndex((stage) => stage.name === name)
     return index >= 0 && index < stages.length ? index : undefined
+  }
+  const copyFlags = new Set([
+    "chown",
+    "chmod",
+    "link",
+    "parents",
+    "exclude",
+    "checksum",
+    "keep-git-dir",
+    "unpack",
+  ])
+  // A `--from` of COPY or of RUN --mount: an earlier stage that the stage
+  // needs, else an image outside the repository.
+  const fromStage = (stage, from, instruction) => {
+    const needed = stageOf(from)
+    if (needed !== undefined) stage.needs.push(needed)
+    else if (from.includes("$")) stage.unreadable.push(instruction.text)
   }
   const source = (stage, path, instruction) => {
     if (/\$|^[a-z][a-z0-9+.-]*:\/\/|^git@/i.test(path)) {
@@ -198,11 +197,13 @@ function dockerfileSources(text, { context = ".", target } = {}) {
     }
     const stage = stages.at(-1)
     if (!stage) continue
+    const reads = ["COPY", "ADD", "RUN"].includes(keyword)
+    // A heredoc: the parser reads one instruction for each line.
+    if (reads && args.join(" ").includes("<<")) {
+      stage.unreadable.push(instruction.text)
+      continue
+    }
     if (keyword === "COPY" || keyword === "ADD") {
-      if (args.join(" ").includes("<<")) {
-        stage.unreadable.push(instruction.text)
-        continue
-      }
       let from
       let index = 0
       let readable = true
@@ -224,19 +225,13 @@ function dockerfileSources(text, { context = ".", target } = {}) {
         continue
       }
       if (from !== undefined) {
-        const needed = stageOf(from)
-        if (needed !== undefined) stage.needs.push(needed)
-        else if (from.includes("$")) stage.unreadable.push(instruction.text)
+        fromStage(stage, from, instruction)
         continue
       }
       for (const path of words.slice(0, -1)) source(stage, path, instruction)
       continue
     }
     if (keyword === "RUN") {
-      if (args.join(" ").includes("<<")) {
-        stage.unreadable.push(instruction.text)
-        continue
-      }
       for (const word of args) {
         if (!word.startsWith("--")) break
         if (!word.startsWith("--mount=")) continue
@@ -246,11 +241,8 @@ function dockerfileSources(text, { context = ".", target } = {}) {
             .split(",")
             .map((option) => option.split(/=(.*)/s)),
         )
-        const from = options.from
-        if (from !== undefined) {
-          const needed = stageOf(from)
-          if (needed !== undefined) stage.needs.push(needed)
-          else if (from.includes("$")) stage.unreadable.push(instruction.text)
+        if (options.from !== undefined) {
+          fromStage(stage, options.from, instruction)
         } else if ((options.type ?? "bind") === "bind") {
           source(stage, options.source ?? options.src ?? ".", instruction)
         }
@@ -301,8 +293,14 @@ async function github(path, token) {
 }
 
 // The digest that the base run published for each image: the one
-// `deploy-image` notice of its successful Publish job. A digest that is
-// missing or not valid is a reason to build.
+// `deploy-image` notice on the check run of its successful Publish job. A
+// digest that is missing or not valid is a reason to build.
+//
+// Only a Publish job of a main run writes that notice, but any job with
+// `checks: write` can add annotations to a check run, and no job can delete
+// one. So a second notice, also a forged one, makes the image build: never
+// take the first or the last notice. A GHCR tag is no proof either: PR
+// builds (pr-deploy.yaml) push tags to the same packages.
 async function baseDigests({ repo, run, token }) {
   const { jobs } = await github(
     `/repos/${repo}/actions/runs/${run}/jobs?filter=latest&per_page=100`,
@@ -314,13 +312,14 @@ async function baseDigests({ repo, run, token }) {
       ({ name, conclusion }) =>
         name === `Publish image (${image})` && conclusion === "success",
     )
-    if (!job) {
+    const checkRun = /\/check-runs\/(\d+)$/.exec(job?.check_run_url ?? "")?.[1]
+    if (!checkRun) {
       digests[image] = { reason: "the base run has no successful Publish job" }
       continue
     }
     const notices = (
       await github(
-        `/repos/${repo}/check-runs/${job.id}/annotations?per_page=100`,
+        `/repos/${repo}/check-runs/${checkRun}/annotations?per_page=100`,
         token,
       )
     ).filter(
@@ -339,16 +338,17 @@ async function baseDigests({ repo, run, token }) {
   return digests
 }
 
-const entry = ({ inputs, ...matrix }) => matrix
+// The matrix entry of an image: the image without its inputs.
+const matrixEntry = ({ inputs, ...matrix }) => matrix
 
 /**
  * Which images this run builds, and the digest of the base run for each
  * other image: `{ build: [matrix entry], reuse: { image: digest },
  * reasons: { image: text } }`.
  */
-export async function planImages({ root, event, repo, runId, token }) {
+export async function planImages({ root, event, repo, token }) {
   const everything = (reason) => ({
-    build: images.map(entry),
+    build: images.map(matrixEntry),
     reuse: {},
     reasons: Object.fromEntries(images.map(({ image }) => [image, reason])),
   })
@@ -361,8 +361,9 @@ export async function planImages({ root, event, repo, runId, token }) {
       `/repos/${repo}/actions/workflows/deploy.yaml/runs?branch=main&event=push&status=success&per_page=10`,
       token,
     )
-    base = runs.find(({ id }) => String(id) !== String(runId))
-    if (!base) return everything("no earlier successful Deploy run on main")
+    // A run in progress, this one too, is not in the list.
+    base = runs[0]
+    if (!base) return everything("no successful Deploy run on main")
     if (!/^[0-9a-f]{40}$/.test(base.head_sha))
       return everything("the base run has no commit")
     try {
@@ -381,8 +382,15 @@ export async function planImages({ root, event, repo, runId, token }) {
   } catch (error) {
     return everything(`no base: ${error.message}`)
   }
-  const global = changed.find((path) => everyImage.includes(path))
-  if (global) return everything(`${global} changed`)
+  // A change to one of these files can change how every image builds.
+  const everyImageChange = changed.find((path) =>
+    [
+      ".github/workflows/deploy.yaml",
+      "scripts/ci/deploy-images.mjs",
+      "scripts/ci/changed-files.mjs",
+    ].includes(path),
+  )
+  if (everyImageChange) return everything(`${everyImageChange} changed`)
   const result = { build: [], reuse: {}, reasons: {} }
   const short = base.head_sha.slice(0, 7)
   for (const image of images) {
@@ -395,7 +403,7 @@ export async function planImages({ root, event, repo, runId, token }) {
         ? `${touched} changed since ${short}`
         : reason
     if (why) {
-      result.build.push(entry(image))
+      result.build.push(matrixEntry(image))
       result.reasons[image.image] = why
     } else {
       result.reuse[image.image] = digest
@@ -415,13 +423,12 @@ if (
     root: fileURLToPath(new URL("../../", import.meta.url)),
     event: env.GITHUB_EVENT_NAME,
     repo: env.GITHUB_REPOSITORY,
-    runId: env.GITHUB_RUN_ID,
     token: env.GH_TOKEN,
   })
   const lines = [
     `build=${JSON.stringify(result.build)}`,
     `reuse=${JSON.stringify(result.reuse)}`,
-    `images=${JSON.stringify(images.map(entry))}`,
+    `images=${JSON.stringify(images.map(matrixEntry))}`,
   ]
   const summary = [
     "| Image | Plan |",
