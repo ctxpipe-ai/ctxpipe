@@ -22,7 +22,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-010](ADR-010-opencypher-graph-db-falkordb-default.md) | OpenCypher Graph DB and FalkorDB as Default | Accepted |
 | [ADR-011](ADR-011-backend-observability-otel.md) | Backend Observability via OpenTelemetry and evlog | Accepted |
 | [ADR-012](ADR-012-postgres-17-neon-compatibility.md) | PostgreSQL 17 for Neon Compatibility | Accepted |
-| [ADR-013](ADR-013-switch-infra-from-pulumi-to-terraform.md) | Terraform as our IAC | Accepted |
+| [ADR-013](ADR-013-switch-infra-from-pulumi-to-terraform.md) | Terraform as our IAC | Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) for hosted infrastructure |
 | [ADR-014](ADR-014-parallel-worktree-local-development.md) | Parallel worktree local development | Accepted |
 | [ADR-015](ADR-015-docker-compose-profiles-and-small-scale-deploy.md) | Docker Compose profiles and small-scale container deploy | Accepted |
 | [ADR-016](ADR-016-code-ingestion-react-agent-limits.md) | Code ingestion ReAct agents — recursion limits and context middleware | Superseded by [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) |
@@ -46,7 +46,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-034](ADR-034-pagerduty-connector-git-native-mirror.md) | PagerDuty connector Git-native mirror | Accepted; sync repository superseded by ADR-050; source incidents under `pagerduty/services/<serviceId>/` |
 | [ADR-037](ADR-037-committed-memory-reaches-the-graph.md) | Committed memory reaches the graph | Accepted (amended by ADR-051: `ctx_advisor` removed) |
 | [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md) | Self-hosted ClickStack + Langfuse (ops observability) | Accepted (amended 2026-09-29; item 11 superseded by ADR-054; Railway, Langfuse and the public collector superseded by ADR-061 decision 25) |
-| [ADR-039](ADR-039-production-image-deploys-one-environment.md) | Production image deploys stay on one Railway environment | Superseded by ADR-061 |
+| [ADR-039](ADR-039-production-image-deploys-one-environment.md) | Production image deploys stay on one Railway environment | Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) |
 | [ADR-040](ADR-040-pierre-files-pane-chrome.md) | Pierre trees/diffs as Workspace Files explorer chrome | Accepted |
 | [ADR-041](ADR-041-short-org-sql-unique-sandbox-rows.md) | Short org SQL transactions, no held connections | Accepted |
 | [ADR-042](ADR-042-postgres-rls-app-role.md) | Postgres RLS with a non-owner app role | Accepted (revised 2026-10-17: one migrate entry point, role modes, SQL-made hosted role, owner URL kept for rollback, directory reconcile; revised 2026-11-10: hosted AWS app role from Secrets Manager, cutover copy without roles) |

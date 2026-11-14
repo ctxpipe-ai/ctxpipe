@@ -1,6 +1,6 @@
 # ADR-039: Production image deploys stay on one Railway environment
 
-**Status:** Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md): the Railway production deploy is gone (CTX-1220) | **Date:** 2026-09-28 | **Tags:** infra, railway, terraform
+**Status:** Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) | **Date:** 2026-09-28 | **Tags:** infra, railway, terraform
 
 ## Context
 

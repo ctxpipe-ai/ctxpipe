@@ -1327,7 +1327,6 @@ jobs:
           path: .ci-results/vercel/trace.json.gz
           if-no-files-found: ignore
 
-
   migrate:
     timeout-minutes: 20
     name: Migrations (fresh schema)

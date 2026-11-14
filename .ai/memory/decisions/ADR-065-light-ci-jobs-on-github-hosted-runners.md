@@ -26,4 +26,4 @@ The cache key of a check holds the toolchain record ([`scripts/checks/toolchain.
 - A pull request run uses at most about 15 GitHub-hosted jobs at a time. The limit is 60 concurrent jobs for the organization, so 4 or more pull request runs at the same time can wait in the queue. When the queue time increases, move the merge gate jobs back first.
 - To revert, set each moved `runs-on` back to `blacksmith-2vcpu-ubuntu-2404-arm` or `blacksmith-4vcpu-ubuntu-2404-arm` and remove its comment. The steps stay the same. Then remove the job GitHub-hosted cache of `main-caches.yaml`, and keep the job Blacksmith cache.
 - To change the git version, change the version and the hash in the action. Each key of a git lane then changes once, and the next nightly run stores new passes.
-- A push that changes the lockfile or the Terraform lock runs two more short jobs (they fill a cache and run no check), see [ADR-062](ADR-062-checks-run-before-merge-not-on-main.md).
+- A push that changes the lockfile runs two more short jobs (they fill a cache and run no check), see [ADR-062](ADR-062-checks-run-before-merge-not-on-main.md).
