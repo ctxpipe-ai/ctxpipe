@@ -109,7 +109,8 @@ line gives its expected output. The dry run of the copy is its preflight against
 - **Who:** person.
 - **Do:**
   1. Merge edge pull request (a): the maintenance page on `app.ctxpipe.ai`.
-  2. Railway: set the replicas of the `backend` and `worker` services to 0. Codesearch and FalkorDB stay up.
+  2. Railway: set the replicas of the `backend` and `openworkflow` (the worker) services to 0. Codesearch and FalkorDB
+     stay up.
   3. AWS: stop `backend`, `worker` and `ui` (desired count 0).
 - **Expected:** `app.ctxpipe.ai` shows the maintenance page. Railway shows 0 replicas for both services.
 - **Dry run:** the `pulumi preview` of pull request (a); `railway status`; `aws ecs describe-services`.
@@ -164,9 +165,11 @@ line gives its expected output. The dry run of the copy is its preflight against
     data.
 - **Indexes (person, in the shell of the Railway codesearch service):**
   1. Fill `hosted/cutover/transfer-url` with `s3://<shard bucket>/cutover-transfer/<run id>` (a new run id).
-  2. With short-lived AWS credentials that can write only `cutover-transfer/*`, run:
-     `cd /app/apps/codesearch && bun run cutover:export-indexes --to "s3://<shard bucket>/cutover-transfer/<run id>"`.
-     It reads the FalkorDB URL from `GRAPH_DB_URI`.
+  2. Open the shell with `railway ssh --service codesearch --environment production`. In it, export short-lived AWS
+     credentials that can write only `cutover-transfer/*` (the role `cutover-transfer-writer`, one hour). Also export
+     `GRAPH_DB_URI` with the value of the Railway `backend` service: the codesearch service has no such variable.
+  3. Run `cd /app/apps/codesearch && bun run cutover:export-indexes --to "s3://<shard bucket>/cutover-transfer/<run id>"`.
+     Then `exit`.
   - **Expected:** a JSON report with the sizes, the sha256 values and the graph counts. `manifest.json` is in S3.
 - **If either fails:** the full rollback. Write the cause into [CTX-1217].
 
@@ -240,7 +243,7 @@ line gives its expected output. The dry run of the copy is its preflight against
 Do the steps that apply, in this order. Skip a step whose change was not made yet.
 
 1. Neon: the rollback of G3 (read-write again).
-2. Railway: set the replicas of `backend` and `worker` back to their values before T+0.
+2. Railway: set the replicas of `backend` and `openworkflow` back to their values before T+0.
 3. AWS: stop `backend`, `worker` and `ui`. Agent: run the task `cutover-reset-database`, so that Aurora keeps no copy
    of the production data.
 4. If T+40 started: stop `falkordb` and `codesearch`. Agent: run the task `cutover-reset-indexes`. It empties both
