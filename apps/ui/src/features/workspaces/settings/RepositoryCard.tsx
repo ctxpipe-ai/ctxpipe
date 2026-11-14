@@ -1,5 +1,6 @@
 import {
   IconCircleCheck,
+  IconClock,
   IconGitBranch,
   IconGitPullRequest,
 } from "@tabler/icons-react"
@@ -49,8 +50,9 @@ export function useWriteAccess(workspace: WorkspaceDetail) {
     ...label,
     stalled,
     restartStall: stall.restart,
-    needsYou:
-      label.tone === "read_only" || label.tone === "check_failed" || stalled,
+    // A stalled check is a wait, not a problem: it shows as a neutral row
+    // with Check again, and the card has no warning edge.
+    needsYou: label.tone === "read_only" || label.tone === "check_failed",
   }
 }
 
@@ -331,9 +333,17 @@ function WriteAccessLine(props: {
     )
   }
   return (
-    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 rounded-md bg-white/[0.03] px-3 py-2.5">
+    <div
+      role={access.stalled ? "status" : undefined}
+      className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 rounded-md bg-white/[0.03] px-3 py-2.5"
+    >
       <div className="flex min-w-0 flex-1 basis-64 items-start gap-2">
-        {access.tone === "pull_request" ? (
+        {access.stalled ? (
+          <IconClock
+            className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+            aria-hidden
+          />
+        ) : access.tone === "pull_request" ? (
           <IconGitPullRequest
             className="mt-0.5 size-4 shrink-0 text-muted-foreground"
             aria-hidden

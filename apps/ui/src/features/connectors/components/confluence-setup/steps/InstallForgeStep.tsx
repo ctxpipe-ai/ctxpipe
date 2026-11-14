@@ -304,7 +304,7 @@ export function InstallForgeStep({
 
       {capabilitiesLoading ? (
         <div className="flex items-center gap-3 rounded-md border border-border px-3 py-3">
-          <Spinner className="shrink-0 text-muted-foreground" />
+          <Spinner className="size-4.5 shrink-0 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
             Loading install options…
           </p>
@@ -439,7 +439,7 @@ export function InstallForgeStep({
             />
             {isProvisioningBusy ? (
               <div className="mt-6 flex items-start gap-3 rounded-md border border-border p-3">
-                <Spinner className="mt-0.5 shrink-0 text-muted-foreground" />
+                <Spinner className="mt-0.5 size-4.5 shrink-0 text-muted-foreground" />
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-foreground">
                     Provisioning Forge app

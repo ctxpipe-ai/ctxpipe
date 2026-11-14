@@ -78,7 +78,6 @@ export const RegisterNotionOauth: Story = {
   name: "Register Notion OAuth app (self-hosted)",
   render: () => dialog(),
   parameters: {
-    visual: { allow: { axes: "Fixed by PR #722." } },
     msw: {
       handlers: {
         page: [
@@ -155,7 +154,6 @@ export const AddNotionWebhookWaiting: Story = {
   name: "Add the webhook (waiting for token)",
   render: () => dialog(),
   parameters: {
-    visual: { allow: { axes: "Fixed by PR #722." } },
     msw: {
       handlers: {
         page: [
@@ -340,7 +338,6 @@ export const ReplacedSetup: Story = {
   name: "Replaced setup with a config pull request",
   render: () => dialog(),
   parameters: {
-    visual: { allow: { axes: "Fixed by PR #722." } },
     msw: {
       handlers: {
         page: [

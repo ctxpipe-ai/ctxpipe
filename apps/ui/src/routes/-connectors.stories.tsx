@@ -569,7 +569,6 @@ export const InProgress: Story = {
         pendingConfigPullUrl: "https://github.com/acme/ingest/pull/43",
       }),
     ]),
-    visual: { allow: { overflow: "Fixed by PR #722." } },
   },
 }
 
@@ -604,7 +603,6 @@ export const MixedHealth: Story = {
         setupPhase: "sync_failed",
       }),
     ]),
-    visual: { allow: { overflow: "Fixed by PR #722." } },
   },
 }
 
@@ -657,7 +655,6 @@ export const ReopensConfluenceWizardAfterAccountLink: Story = {
     )
   },
   parameters: {
-    visual: { allow: { overflow: "Fixed by PR #722." } },
     storyRoute: {
       pattern: "orgConnectors",
       orgSlug,

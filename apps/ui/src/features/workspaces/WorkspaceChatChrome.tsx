@@ -152,7 +152,9 @@ export function WorkspaceChatChrome(props: {
           <div
             className={cn(
               workspaceChromeTabClassName,
-              "max-w-[min(100%,24rem)] px-3",
+              // On a narrow screen the title tab gives way (the title and the
+              // branch truncate), so the actions stay inside the header.
+              "min-w-0 max-w-[min(100%,24rem)] shrink px-3",
             )}
           >
             {typeof props.title === "string" ? (

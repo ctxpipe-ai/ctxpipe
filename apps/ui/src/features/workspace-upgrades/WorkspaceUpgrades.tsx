@@ -118,12 +118,16 @@ export function useUpgradesStatus(orgSlug: string, workspaceSlug: string) {
   return { loading: query.isPending, needsYou, working }
 }
 
-/** The dot of an upgrade row: the kind of attention that it wants. */
+/**
+ * The dot of an upgrade row: the kind of attention that it wants. The amber
+ * edge of the card already says that a row needs the user, so that dot is
+ * neutral. Only a failed row (red) and a running row (teal pulse) color it.
+ */
 function upgradeDot(item: WorkspaceUpgradeItem, group: UpgradeGroup) {
   if (item.status === "failed")
     return { className: "bg-red-400", label: "Failed" }
   if (group === "needs_you")
-    return { className: "bg-amber-400", label: "Needs you" }
+    return { className: "bg-zinc-400", label: "Needs you" }
   return { className: "ctx-status-pulse bg-teal-400", label: "Working" }
 }
 

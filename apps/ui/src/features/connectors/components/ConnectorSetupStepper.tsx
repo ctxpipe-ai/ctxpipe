@@ -58,7 +58,9 @@ type ConnectorSetupStepperProps = {
 
 /**
  * The marker of a setup step: a check when the step is done, else its
- * number. The marker of the current step has the primary border.
+ * number. The marker of the current step has the primary border. It has the
+ * box of a checkbox (18 px), so the step markers and the checkboxes of a
+ * setup dialog share one center line.
  */
 function StepMarker({
   state,
@@ -70,7 +72,7 @@ function StepMarker({
   if (state === "done" || state === "done_after") {
     return (
       <span
-        className={`flex size-5 shrink-0 items-center justify-center rounded-md border border-emerald-500 bg-zinc-900 ${state === "done_after" ? "opacity-60" : ""}`}
+        className={`flex size-4.5 shrink-0 items-center justify-center rounded-md border border-emerald-500 bg-zinc-900 ${state === "done_after" ? "opacity-60" : ""}`}
         aria-hidden
       >
         <IconCheck className="size-3.5 text-emerald-500" stroke={2.5} />
@@ -81,8 +83,8 @@ function StepMarker({
     <span
       className={
         state === "current"
-          ? "flex size-5 shrink-0 items-center justify-center rounded-md border border-primary bg-zinc-900 text-xs font-medium text-primary"
-          : "flex size-5 shrink-0 items-center justify-center rounded-md border border-zinc-600 bg-zinc-900 text-xs text-muted-foreground"
+          ? "flex size-4.5 shrink-0 items-center justify-center rounded-md border border-primary bg-zinc-900 text-xs font-medium text-primary"
+          : "flex size-4.5 shrink-0 items-center justify-center rounded-md border border-zinc-600 bg-zinc-900 text-xs text-muted-foreground"
       }
     >
       {number}
@@ -139,12 +141,12 @@ export function ConnectorSetupStepper({
                 className={`flex w-full min-w-0 gap-3 rounded-md text-left outline-none transition hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-primary/50 ${state === "done_after" ? "opacity-90" : ""}`}
                 onClick={() => onStepSelect(i)}
               >
-                <span className="mt-0.5 shrink-0">{icon}</span>
+                <span className="mt-0.75 shrink-0">{icon}</span>
                 {label}
               </button>
             ) : (
               <div className="flex gap-3">
-                <span className="mt-0.5 shrink-0">{icon}</span>
+                <span className="mt-0.75 shrink-0">{icon}</span>
                 {label}
               </div>
             )}
@@ -173,7 +175,7 @@ function MergeStepItem(props: {
       data-state={done ? "done" : "current"}
       aria-current={done ? undefined : "step"}
     >
-      <span className="mt-0.5 shrink-0">
+      <span className="mt-0.75 shrink-0">
         <StepMarker state={done ? "done" : "current"} number={props.number} />
       </span>
       <PullRequestsToMerge
