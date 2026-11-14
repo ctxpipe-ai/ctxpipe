@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { TechnicalDetail } from "@/components/ui/TechnicalDetail"
 import { ApiError } from "@/lib/api-result"
 import { hideSecrets } from "@/lib/hide-secrets"
 
@@ -11,6 +12,15 @@ import { hideSecrets } from "@/lib/hide-secrets"
 function errorSummary(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.status === 0) {
+      // apiFetch gives status 0 for its own timeout, an abort, and a network
+      // failure. Only the last one is a connection problem.
+      const cause = error.cause instanceof Error ? error.cause.name : ""
+      if (cause === "TimeoutError") {
+        return "The server did not answer in time."
+      }
+      if (cause === "AbortError") {
+        return "The request was stopped before it completed."
+      }
       return "ctxpipe could not reach the server. Check your network connection."
     }
     if (error.status >= 500) {
@@ -29,7 +39,10 @@ function errorSummary(error: unknown): string {
 function rawReason(error: unknown): string | null {
   const reason =
     error instanceof ApiError
-      ? (error.body.error ?? error.body.message)
+      ? (error.body.error ??
+        error.body.message ??
+        // Status 0 has no body: the fetch error ("signal timed out") is the cause.
+        (error.status === 0 ? error.message : undefined))
       : error instanceof Error
         ? error.message
         : null
@@ -61,9 +74,9 @@ export function OrgOutletError(props: {
       >
         <p>{errorSummary(props.error)}</p>
         {reason ? (
-          <p className="mt-2 max-h-24 overflow-y-auto rounded-md bg-red-950/60 px-2 py-1.5 font-mono text-xs wrap-anywhere text-red-100">
+          <TechnicalDetail tone="error" className="mt-2">
             {reason}
-          </p>
+          </TechnicalDetail>
         ) : null}
         <p className="mt-1 text-red-200">
           {props.reset ? "Try again in a moment." : "Reload the page."}

@@ -9,7 +9,7 @@ describe("hideSecrets", () => {
         "fallback: https://developer.atlassian.com/console/install/4ce198e3-2ce7-4a6e-865f-a3e31d15fe43?signature=AYABeHVDAf5aXClr&product=confluence.",
       ),
     ).toBe(
-      "fallback: https://developer.atlassian.com/console/install/4ce198e3-2ce7-4a6e-865f-a3e31d15fe43?…",
+      "fallback: https://developer.atlassian.com/console/install/4ce198e3-2ce7-4a6e-865f-a3e31d15fe43?….",
     )
   })
 
@@ -38,5 +38,19 @@ describe("hideSecrets", () => {
     const text =
       "The token check timed out at https://example.com/api/v1 (key not found)."
     expect(hideSecrets(text)).toBe(text)
+  })
+
+  it("keeps the final period, and hides a fragment as a fragment", () => {
+    expect(hideSecrets("See https://example.com/a?sig=x.")).toBe(
+      "See https://example.com/a?….",
+    )
+    expect(hideSecrets("See https://example.com/a#tok=x")).toBe(
+      "See https://example.com/a#…",
+    )
+  })
+
+  it("keeps ordinary words that start with auth", () => {
+    expect(hideSecrets("authentication: failed")).toBe("authentication: failed")
+    expect(hideSecrets("auth_token=abc")).toBe("auth_token=…")
   })
 })

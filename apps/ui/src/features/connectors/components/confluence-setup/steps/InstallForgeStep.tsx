@@ -10,6 +10,7 @@ import {
 import { ExternalLink } from "@/components/ui/ExternalLink"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Spinner } from "@/components/ui/spinner"
+import { TechnicalDetail } from "@/components/ui/TechnicalDetail"
 import { TextField } from "@/components/ui/TextField"
 import { pollWhileOk } from "@/lib/api-result"
 import { hideSecrets } from "@/lib/hide-secrets"
@@ -334,7 +335,7 @@ export function InstallForgeStep({
                 </span>
               </DisclosureHeader>
               <DisclosurePanel className="px-2">
-                <p className="max-h-24 overflow-y-auto rounded-md bg-zinc-950/60 p-2 font-mono text-xs wrap-anywhere text-muted-foreground">
+                <TechnicalDetail>
                   The capabilities request failed. CONFLUENCE_FORGE_INSTALL_URL
                   is not used until the server responds. Runtime fallback:{" "}
                   {hideSecrets(
@@ -342,7 +343,7 @@ export function InstallForgeStep({
                       pickHttps(CONFLUENCE_FORGE_INSTALL_URL) ??
                       "none",
                   )}
-                </p>
+                </TechnicalDetail>
               </DisclosurePanel>
             </Disclosure>
           </InlineAlert>

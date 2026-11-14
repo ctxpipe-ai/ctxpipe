@@ -48,6 +48,30 @@ export const ConnectorsFailed: Story = {
   },
 }
 
+/**
+ * The product fetch hit its own timeout (ApiError status 0). The alert does
+ * not blame the network connection, and the fetch error stays visible.
+ */
+export const RequestTimedOut: Story = {
+  args: {
+    title: "Could not load connectors",
+    error: new ApiError("signal timed out", 0, {
+      cause: new DOMException("signal timed out", "TimeoutError"),
+    }),
+    reset: () => undefined,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      canvas.getByText("The server did not answer in time."),
+    ).toBeVisible()
+    await expect(canvas.getByText("signal timed out")).toBeVisible()
+    await expect(
+      canvas.queryByText(/could not reach the server/),
+    ).not.toBeInTheDocument()
+  },
+}
+
 /** The org gate timed out during the server render. */
 export const OrgGateFailed: Story = {
   args: {
