@@ -22,7 +22,7 @@ on:
 # between the migrate and the roll of a PR Deploy run. Run this workflow from
 # the PR branch: the first step checks that the branch is the head of the PR.
 # Or run it from main with pr_branch: then main's reviewed workflow and
-# scripts roll the preview, and the PR's head only selects its images. The
+# scripts roll the preview, and a commit of the PR only selects its images. The
 # production deploy rolls the open previews so when production switches to
 # the new collector (deploy.yaml roll_previews_onto_collector): a branch's
 # older scripts could copy production's OTEL token into its preview.
@@ -83,11 +83,12 @@ jobs:
           head_ref="$(jq -r .head.ref <<<"$pr_json")"
           # The concurrency group is pr_branch or the ref name, so it must be the PR branch.
           if [[ "$REF" == "refs/heads/${DEFAULT_BRANCH}" ]]; then
-            # From main: the PR's head selects only the images, so it must be the head of this open PR of this repository.
+            # From main: a commit of the PR selects only the images, so it must be a commit of this open PR of this
+            # repository (its last deployed one, which can be older than its head).
             if [[ "$PR_BRANCH" != "$head_ref" || "$(jq -r .state <<<"$pr_json")" != open \
-              || "$(jq -r .head.repo.full_name <<<"$pr_json")" != "$GITHUB_REPOSITORY" \
-              || "$(jq -r .head.sha <<<"$pr_json")" != "$HEAD_SHA" ]]; then
-              echo "::error::From ${DEFAULT_BRANCH}, pr_branch and head_sha must be the branch and head of open PR #${PR_NUMBER}."
+              || "$(jq -r .head.repo.full_name <<<"$pr_json")" != "$GITHUB_REPOSITORY" ]] \
+              || ! gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/commits" --jq '.[].sha' | grep -qx "$HEAD_SHA"; then
+              echo "::error::From ${DEFAULT_BRANCH}, pr_branch must be the branch of open PR #${PR_NUMBER} and head_sha one of its commits."
               exit 1
             fi
           elif [[ "$REF" != "refs/heads/${BRANCH}" || "$head_ref" != "$BRANCH" || ( -n "$PR_BRANCH" && "$PR_BRANCH" != "$BRANCH" ) ]]; then

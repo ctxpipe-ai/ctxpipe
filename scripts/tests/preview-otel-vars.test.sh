@@ -282,52 +282,55 @@ if OBSERVABILITY_OTLP_HEADERS="CF-Access-Client-Id=preview-id,CF-Access-Client-S
   fail "sync should fail when it cannot read production's headers to compare"
 fi
 
-# The production deploy rolls the open previews once: when production's headers gain the Access token.
-switches() {
-  local mock_prod_headers="$1" new_headers="$2"
+# The production deploy rolls the previews whose backend has no Access token in its OTEL headers, from the state, so
+# a re-run of a failed deploy finds them again, and none once each has its token.
+missing() {
   (
     set -euo pipefail
     # shellcheck disable=SC1091
     source "$script"
     railway_graphql() {
       case "$1" in
-        (*environments*) jq -n '{data:{project:{environments:{edges:[{node:{id:"env_prod",name:"production"}}]}}}}' ;;
+        (*environments*)
+          jq -n '{data:{project:{environments:{edges:[
+            {node:{id:"env_prod",name:"production"}},
+            {node:{id:"env_1",name:"pr-1"}},
+            {node:{id:"env_2",name:"pr-2"}},
+            {node:{id:"env_3",name:"pr-3"}}]}}}}' ;;
         (*"query variables"*)
-          [[ "$mock_prod_headers" == unreadable ]] && return 1
-          jq -nc --arg h "$mock_prod_headers" '{data:{variables:{OTEL_EXPORTER_OTLP_HEADERS:$h}}}' ;;
+          case "$(jq -r .environmentId <<<"$2")" in
+            (env_1) jq -n '{data:{variables:{OTEL_EXPORTER_OTLP_HEADERS:"CF-Access-Client-Id=p1,CF-Access-Client-Secret=s1"}}}' ;;
+            (env_2) jq -n '{data:{variables:{OTEL_EXPORTER_OTLP_HEADERS:"authorization=old-ingest-key"}}}' ;;
+            (env_3) jq -n '{data:{variables:{}}}' ;;
+            (*) echo "the production backend must not be read: $2" >&2; return 1 ;;
+          esac ;;
         (*) echo "unexpected query $1" >&2; return 1 ;;
       esac
     }
     export RAILWAY_PROJECT_ID=proj_test BACKEND_SERVICE_ID=svc_backend
-    production_otel_switches_to_access "$new_headers"
+    previews_without_access_otel
   )
 }
-access="CF-Access-Client-Id=prod-id,CF-Access-Client-Secret=prod-secret"
-switches "authorization=old-ingest-key" "$access" 2>/dev/null \
-  || fail "the switch from the old headers to the Access token should roll the previews"
-if switches "$access" "$access" 2>/dev/null; then fail "a deploy that keeps the Access token should not roll the previews"; fi
-if switches "authorization=old-ingest-key" "authorization=old-ingest-key" 2>/dev/null; then
-  fail "a deploy that keeps the old headers should not roll the previews"
-fi
-switches unreadable "$access" 2>/dev/null || fail "an unreadable production backend should roll the previews in any case"
-out="$(switches "authorization=old-ingest-key" "$access" 2>&1 || true)"
-if printf '%s' "$out" | grep -Eq 'old-ingest-key|prod-secret'; then fail "the switch check must not print a header value"; fi
+out="$(missing 2>&1)" || fail "previews_without_access_otel should succeed: $out"
+[[ "$(printf '%s' "$out" | paste -sd' ' -)" == "2 3" ]] \
+  || fail "only the previews without the Access token should roll (got: $(printf '%s' "$out" | paste -sd' ' -))"
+if printf '%s' "$out" | grep -Eq 'old-ingest-key|s1'; then fail "it must not print a header value"; fi
 
-# deploy.yaml checks the switch before it syncs production, and then dispatches the roll of the open previews.
+# deploy.yaml finds them after the sync, rolls them from main, and the roll takes a commit of the PR as its images.
 deploy_workflow="$root/.github/workflows/deploy.yaml"
-grep -Fq 'production_otel_switches_to_access "$OBSERVABILITY_OTLP_HEADERS"' "$deploy_workflow" \
-  || fail "deploy.yaml must check whether production switches to the Access token"
+grep -Fq 'prs="$(previews_without_access_otel' "$deploy_workflow" \
+  || fail "deploy.yaml must find the previews without the Access token"
 grep -Fq 'gh workflow run pr-preview-roll-existing.yaml --repo "$REPO" --ref "$GITHUB_REF_NAME"' "$deploy_workflow" \
-  || fail "deploy.yaml must roll the open previews from main after the switch, never with a branch's own scripts"
+  || fail "deploy.yaml must roll the previews from main, never with a branch's own scripts"
 grep -Fq -- '-f pr_branch="$ref"' "$deploy_workflow" || fail "deploy.yaml must name the PR branch of each roll"
+find_line="$(grep -n 'name: Find the previews that need the new collector' "$deploy_workflow" | cut -d: -f1)"
+sync_line="$(grep -n 'name: Sync production secrets to Railway' "$deploy_workflow" | cut -d: -f1)"
+((sync_line < find_line)) || fail "deploy.yaml must find the previews after the sync, from the state"
 roll_workflow="$root/.github/workflows/pr-preview-roll-existing.yaml"
 grep -Fq 'group: pr-deploy-${{ inputs.pr_branch || github.ref_name }}' "$roll_workflow" \
   || fail "a roll from main must hold the concurrency group of the PR branch"
-grep -Fq '"$(jq -r .head.sha <<<"$pr_json")" != "$HEAD_SHA"' "$roll_workflow" \
-  || fail "a roll from main must take only the PR's head as its images"
-switch_line="$(grep -n 'production_otel_switches_to_access' "$deploy_workflow" | head -1 | cut -d: -f1)"
-sync_line="$(grep -n 'name: Sync production secrets to Railway' "$deploy_workflow" | cut -d: -f1)"
-((switch_line < sync_line)) || fail "deploy.yaml must read production's headers before the sync changes them"
+grep -Fq "pulls/\${PR_NUMBER}/commits\" --jq '.[].sha' | grep -qx \"\$HEAD_SHA\"" "$roll_workflow" \
+  || fail "a roll from main must take a commit of the PR as its images"
 assert_workflow_syntax "$deploy_workflow"
 
 # production_backend_vars stays for the GitHub App guard: it returns only the named variables that exist.
