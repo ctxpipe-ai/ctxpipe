@@ -85,8 +85,8 @@ variable "pagerduty_redirect_uri" {
 
 variable "otel_otlp_endpoint" {
   type        = string
-  description = "Public ClickStack collector OTLP HTTP base (no /v1 suffix)."
-  default     = "https://telemetry.ctxpipe.ai"
+  description = "ClickStack collector OTLP HTTP base (no /v1 suffix): the new stack's collector on the Cloudflare tunnel, behind the Access service token `telemetry` (CTX-1216)."
+  default     = "https://otel.ctxpipe.dev"
 }
 
 variable "neon_project" {

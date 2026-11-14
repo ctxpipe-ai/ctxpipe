@@ -7,6 +7,12 @@
 //   `amd64: <reason>`        for `blacksmith-<n>vcpu-ubuntu-2404` (x64)
 //   `github-hosted: <reason>` for any other label
 //
+// Pick the size by the load of the job. A job that only orchestrates, calls
+// APIs, moves artifacts or runs a small script uses 2 vCPU (6 GB). Tests,
+// builds, the typecheck, Storybook, and each job that needs the 6 GB Node heap
+// of NODE_OPTIONS use 4 vCPU or more. Blacksmith bills each started minute, so
+// a job of one minute on 2 vCPU costs half of the same job on 4 vCPU.
+//
 // Usage: node scripts/ci/check-runners.mjs [directory]   (default .github/workflows)
 
 import { readdirSync, readFileSync } from "node:fs"

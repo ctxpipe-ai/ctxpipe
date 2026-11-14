@@ -78,7 +78,7 @@ const stepShell = (job, stepName) => {
 
 const steps = {
   "start-terraform-plan": [
-    "merge-gate-terraform-changes",
+    "merge-gate-critics",
     "Look for a change under infra/",
   ],
   "start-pr-deploy": ["merge-gate-deploy", "Start PR Deploy on the PR branch"],
