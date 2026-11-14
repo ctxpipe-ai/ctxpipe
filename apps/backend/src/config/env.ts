@@ -1,15 +1,23 @@
 import { z } from "zod"
 
 /**
- * A DNS host name or an IPv4 address: no scheme, no port, no path. Sandboxes
- * dial Agent Vault's proxy at this host (`AGENT_VAULT_SANDBOX_PROXY_HOST`).
+ * `AGENT_VAULT_SANDBOX_PROXY_HOST`: the host that sandboxes connect to for
+ * Agent Vault's proxy, when it is not the host of `AGENT_VAULT_ADDR`. A DNS
+ * host name or an IPv4 address: no scheme, no port, no path. A blank value
+ * is unset. Hosted ctxpipe on AWS sets it to the name of the Agent Vault
+ * endpoint in the sandbox VPC. Docker self-host leaves it unset.
  */
-export const sandboxProxyHostSchema = z
-  .string()
-  .regex(
-    /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/i,
-    "AGENT_VAULT_SANDBOX_PROXY_HOST must be a host name, with no scheme, port, or path",
-  )
+export const sandboxProxyHostSchema = z.preprocess(
+  (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+  z
+    .string()
+    .trim()
+    .regex(
+      /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/i,
+      "AGENT_VAULT_SANDBOX_PROXY_HOST must be a host name, with no scheme, port, or path",
+    )
+    .optional(),
+)
 
 const envSchema = z.object({
   NODE_ENV: z
@@ -103,13 +111,8 @@ const envSchema = z.object({
     z.string().min(1).optional(),
   ),
 
-  /**
-   * The host that sandboxes dial for Agent Vault's proxy, when it is not the
-   * host of `AGENT_VAULT_ADDR`. Hosted ctxpipe on AWS sets it to the name of
-   * the Agent Vault endpoint in the sandbox VPC. Docker self-host leaves it
-   * unset.
-   */
-  AGENT_VAULT_SANDBOX_PROXY_HOST: sandboxProxyHostSchema.optional(),
+  /** See {@link sandboxProxyHostSchema}. */
+  AGENT_VAULT_SANDBOX_PROXY_HOST: sandboxProxyHostSchema,
 
   /** Prebuilt image in the selected Docker daemon; resolved to an immutable ID. */
   SANDBOX_CHAT_IMAGE: z.preprocess(
