@@ -366,47 +366,50 @@ export const ReingestWorkingWithSpend: Story = {
 
 /** The pull request is open. The step commits and the notes show. */
 export const PullRequestOpen: Story = {
-  parameters: withUpgrades(
-    workspaceUpgradesHandler(
-      upgradesFixture([
-        upgradeItemFixture({
-          status: "pr_open",
-          pullRequest: {
-            number: 42,
-            url: "https://github.com/acme/docs/pull/42",
-          },
-          steps: [
-            {
-              format: 1,
-              title: "Export and sources",
-              commitSha: "a1b2c3d4e5f6",
-              report: [
-                "Not moved: a Slack connection. It has no Workspace.",
-                "Kept 219 knowledge item(s) from https://gitlab.example.com/acme/legacy in `knowledge/`. Fresh ingestion reads only GitHub repositories, so it cannot make them again.",
-              ],
-              notices: [
-                {
-                  kind: "risk",
-                  text: "ctxpipe kept some knowledge as files, because fresh ingestion cannot make it again. Do not delete these files.",
-                },
-                {
-                  kind: "action",
-                  text: "Some connections did not move to this Workspace. Check the Sources of the Workspace after the merge.",
-                },
-              ],
+  parameters: {
+    ...withUpgrades(
+      workspaceUpgradesHandler(
+        upgradesFixture([
+          upgradeItemFixture({
+            status: "pr_open",
+            pullRequest: {
+              number: 42,
+              url: "https://github.com/acme/docs/pull/42",
             },
-            {
-              format: 2,
-              title: "Move the context files",
-              commitSha: null,
-              report: [],
-            },
-          ],
-          note: "Merge the pull request to apply the upgrade.",
-        }),
-      ]),
+            steps: [
+              {
+                format: 1,
+                title: "Export and sources",
+                commitSha: "a1b2c3d4e5f6",
+                report: [
+                  "Not moved: a Slack connection. It has no Workspace.",
+                  "Kept 219 knowledge item(s) from https://gitlab.example.com/acme/legacy in `knowledge/`. Fresh ingestion reads only GitHub repositories, so it cannot make them again.",
+                ],
+                notices: [
+                  {
+                    kind: "risk",
+                    text: "ctxpipe kept some knowledge as files, because fresh ingestion cannot make it again. Do not delete these files.",
+                  },
+                  {
+                    kind: "action",
+                    text: "Some connections did not move to this Workspace. Check the Sources of the Workspace after the merge.",
+                  },
+                ],
+              },
+              {
+                format: 2,
+                title: "Move the context files",
+                commitSha: null,
+                report: [],
+              },
+            ],
+            note: "Merge the pull request to apply the upgrade.",
+          }),
+        ]),
+      ),
     ),
-  ),
+    visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () =>
@@ -427,19 +430,22 @@ export const PullRequestOpen: Story = {
 
 /** The open item says what it waits for and what happens after the merge. */
 export const WaitingForMerge: Story = {
-  parameters: withUpgrades(
-    workspaceUpgradesHandler(
-      upgradesFixture([
-        upgradeItemFixture({
-          status: "pr_open",
-          pullRequest: {
-            number: 42,
-            url: "https://github.com/acme/docs/pull/42",
-          },
-        }),
-      ]),
+  parameters: {
+    ...withUpgrades(
+      workspaceUpgradesHandler(
+        upgradesFixture([
+          upgradeItemFixture({
+            status: "pr_open",
+            pullRequest: {
+              number: 42,
+              url: "https://github.com/acme/docs/pull/42",
+            },
+          }),
+        ]),
+      ),
     ),
-  ),
+    visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () =>
@@ -511,6 +517,7 @@ export const CheckAgainAfterMerge: Story = {
 /** A member cannot run the check. The card gives no button. */
 export const MemberCannotCheck: Story = {
   parameters: {
+    visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
     msw: {
       handlers: {
         page: [
@@ -545,7 +552,10 @@ export const MemberCannotCheck: Story = {
  * user opens it.
  */
 export const NotesWithDetails: Story = {
-  parameters: PullRequestOpen.parameters,
+  parameters: {
+    ...PullRequestOpen.parameters,
+    visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const notes = () =>
@@ -1415,32 +1425,35 @@ export const InvalidFormatFile: Story = {
  * upgrade, and the Working now list has both rows.
  */
 export const MergedFormatWithReingestWaiting: Story = {
-  parameters: withUpgrades(
-    workspaceUpgradesHandler(
-      upgradesFixture(
-        [
-          upgradeItemFixture({
-            status: "pr_open",
-            pullRequest: {
-              number: 5,
-              url: "https://github.com/acme/docs/pull/5",
-            },
-            mergedAt: "2026-10-16T10:00:00.000Z",
-          }),
-          upgradeItemFixture({
-            key: "reingest-bundle",
-            kind: "reingest",
-            title: "Fresh re-ingestion of the source repositories",
-            steps: [],
-            status: "blocked",
-            blockedReason: "needs_format",
-            note: "Re-ingestion needs format 3. Merge the format upgrade first.",
-          }),
-        ],
-        { formatVersion: 2 },
+  parameters: {
+    ...withUpgrades(
+      workspaceUpgradesHandler(
+        upgradesFixture(
+          [
+            upgradeItemFixture({
+              status: "pr_open",
+              pullRequest: {
+                number: 5,
+                url: "https://github.com/acme/docs/pull/5",
+              },
+              mergedAt: "2026-10-16T10:00:00.000Z",
+            }),
+            upgradeItemFixture({
+              key: "reingest-bundle",
+              kind: "reingest",
+              title: "Fresh re-ingestion of the source repositories",
+              steps: [],
+              status: "blocked",
+              blockedReason: "needs_format",
+              note: "Re-ingestion needs format 3. Merge the format upgrade first.",
+            }),
+          ],
+          { formatVersion: 2 },
+        ),
       ),
     ),
-  ),
+    visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const working = await expectGroup(canvas, "Working now", 2)

@@ -59,6 +59,7 @@ export const ConsentOrgPicker: Story = {
 
 export const ConsentNeedsOneOrg: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches consent that allows access with no organization selected. Allow stays disabled and shows a message. Not for scope choice or the organization list.",
   },

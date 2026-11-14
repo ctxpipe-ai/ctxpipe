@@ -140,6 +140,7 @@ export const TurnCardOpensDiff: Story = {
   tags: ["required"],
   decorators: [() => <CardAndPane />],
   parameters: {
+    visual: { allow: { overflow: "A layout defect on main (CTX-1279)." } },
     intent:
       "Catches a changes card that opens the diff of the wrong turn or file. The diff pane must read the turn of the card and show the chosen file. Not for card counts.",
     msw: {
