@@ -74,6 +74,21 @@ const storySchema = z.object({
   omittedRegions: count,
   /** Image files, from the folder of the manifest. */
   images: z.partialRecord(z.enum(roles), z.string()),
+  /**
+   * The problems of the layout checks of the capture
+   * (apps/ui/src/lib/layout-checks.ts) in the page of the screenshot.
+   * Absent when no layout check ran (a named snapshot, or no capture).
+   */
+  layout: z
+    .array(
+      z.object({
+        /** `error` when the checks themselves failed. */
+        rule: z.enum(["overflow", "axes", "contrast", "error"]),
+        element: z.string(),
+        detail: z.string(),
+      }),
+    )
+    .optional(),
 })
 
 export const manifestSchema = z.object({
@@ -83,7 +98,10 @@ export const manifestSchema = z.object({
     imageDigest: z.string().nullable(),
     playwrightVersion: z.string(),
     viewports: z.object({ desktop: size, mobile: size }),
-    /** The pixelmatch color threshold. */
+    /**
+     * The pixelmatch color threshold. A faint change (see `diff.ts`) counts
+     * its pixels at a lower threshold.
+     */
     threshold: z.number().min(0).max(1),
     commit: z.string(),
     /** The ref of the baselines. Null for a run with no base. */

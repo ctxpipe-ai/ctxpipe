@@ -47,6 +47,8 @@ A laptop pass counts in CI only when its key is portable and your local tool ver
 - the Bun version of CI,
 - a git with the same major and minor version as CI. Apple git is older: install git with `brew install git`.
 
+`factory check` runs the checks with the Node of `.node-version` first on `PATH` when Volta has that version, so you do not edit `PATH`. If Volta does not have it, run `volta install node@<version>` or `factory agent-host doctor`.
+
 `factory check` prints a `WARNING` line, with the fix, for each version that is not the same as in the newest nightly run on `main`. Fix each warning before you trust the cache. A different version gives a different key, so CI cannot reuse any of your passes, and no error tells you.
 
 Until the factory release that the merge gate pins makes keys portable (the factory change "portable keys"), the key of each check holds the OS and the CPU architecture. Then a pass from macOS is `host-specific`, and CI on Linux cannot reuse it.

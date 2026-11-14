@@ -1,6 +1,6 @@
 # ctxpipe-observability
 
-Internal ClickStack (HyperDX + ClickHouse) and Langfuse. Railway project `ctxpipe-observability` (`305aa114-c6f3-4aca-b883-0faa9c331aa2`), `has_pr_deploys = false`, region `us-east4-eqdc4a`. Not the product project. This is the old stack: the product apps now export OTLP to `https://otel.ctxpipe.dev`, the collector of the new stack (factory `machines/observability`), and this project stays until it is deleted (CTX-1216). Decision: [ADR-038](../../.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md).
+Internal ClickStack (HyperDX + ClickHouse) and Langfuse. Railway project `ctxpipe-observability` (`305aa114-c6f3-4aca-b883-0faa9c331aa2`), `has_pr_deploys = false`, region `us-east4-eqdc4a`. Not the product project. This is the old stack: the product apps export no OTLP until the cutover to AWS, where they send to the collector of the new stack (factory `machines/observability`), and this project stays until it is deleted (CTX-1216). Decision: [ADR-038](../../.ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md).
 
 Querying: [USING.md](./USING.md). Deploy: [terraform/README.md](./terraform/README.md).
 
@@ -49,7 +49,7 @@ No secret is set by hand in Railway. The protected GitHub `observability` Enviro
 | railway-telemetry | `TELEMETRY_RAILWAY_WORKSPACE_TOKEN` → `RAILWAY_API_TOKEN` | collector OTLP header |
 | cost-telemetry | `COST_TELEMETRY_*` provider credentials, `TELEMETRY_RAILWAY_WORKSPACE_TOKEN` → `RAILWAY_API_TOKEN` | collector OTLP header |
 
-`DATABASE_URL` and `DIRECT_URL` include `connection_limit=1&keepalives=0`. The product GitHub secret `OBSERVABILITY_OTLP_HEADERS` now holds the Access service token headers of the collector on AWS (`CF-Access-Client-Id=…,CF-Access-Client-Secret=…`), one token for each GitHub environment ([USING.md](./USING.md)), not `HYPERDX_API_KEY`.
+`DATABASE_URL` and `DIRECT_URL` include `connection_limit=1&keepalives=0`. Railway's product sends no OTLP until the cutover to AWS (CTX-1216): no exporter endpoint is set, and the GitHub secret `OBSERVABILITY_OTLP_HEADERS` (an Access service token for each GitHub environment) is unused until then.
 
 Langfuse reads the `LANGFUSE_INIT_PROJECT_*` values only to create a missing API key. It finds the key by its public key. So a key rotation needs a new `LANGFUSE_PUBLIC_KEY` and a new `LANGFUSE_SECRET_KEY` together; then delete the old key in the Langfuse project settings. The sync sets no `LANGFUSE_INIT_USER_*` value and deletes them from `langfuse-web`: Langfuse already has its user. Manage users and passwords in Langfuse. A new `SALT` does not revoke an old key. A new `ENCRYPTION_KEY` makes stored LLM connection keys unreadable: enter them again. While the services restart after a ClickHouse or key rotation, OTLP ingestion and LLM traces stop for a short time.
 

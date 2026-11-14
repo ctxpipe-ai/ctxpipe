@@ -129,6 +129,7 @@ export const SurfaceSkeletonMatches: Story = {
   tags: ["required"],
   args: { paneParam: "files" },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a workspace loading skeleton whose chat and pane columns differ from the loaded layout. This causes layout shift. Not for workspace data.",
     storyRoute: workspaceRoute({ pane: "files" }),
@@ -190,6 +191,7 @@ const failedTouch = { count: 0, rejections: [] as unknown[] }
 export const FailedTouchIsCaught: Story = {
   tags: ["required"],
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a failed workspace touch request that raises an unhandled promise rejection. The page must catch the 404. Not for visible errors or touch success.",
     storyRoute: workspaceRoute(),
@@ -306,6 +308,7 @@ export const PrepareFailed: Story = {
 
 export const Compose: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     route: "/$orgSlug/ws/$workspaceSlug/",
     storyRoute: workspaceRoute(),
     msw: {
@@ -323,6 +326,7 @@ export const Compose: Story = {
  */
 export const ComposeNeedsFormatUpgrade: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     route: "/$orgSlug/ws/$workspaceSlug/",
     storyRoute: workspaceRoute(),
     msw: {
@@ -504,6 +508,7 @@ export const ConversationLoading: Story = {
 
 export const ConversationNavIsChatOnly: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: workspaceRoute(),
     msw: {
       handlers: {
@@ -542,6 +547,7 @@ export const ConversationNavIsChatOnly: Story = {
 
 export const ConversationKeepsExplicitPaneSearch: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: workspaceRoute({ pane: "files" }),
     msw: {
       handlers: {
@@ -637,6 +643,7 @@ export const PublishErrorsToast: Story = {
     ),
   ],
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a failed push that shows no error to the user. A rejected push must show a toast with the cause. Not for a successful push or PR creation.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
@@ -697,6 +704,7 @@ export const PublishPrErrorToast: Story = {
   args: { conversationId: "conv_1", paneParam: "files" },
   decorators: PublishErrorsToast.decorators,
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a failed pull request creation that shows no error to the user. A rejected request must show a toast with the cause. Not for push errors.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
@@ -857,6 +865,12 @@ export const SharedPublishPending: Story = {
   tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
+    visual: {
+      allow: {
+        contrast: "Text below WCAG AA on main (CTX-1278).",
+        overflow: "A layout defect on main (CTX-1279).",
+      },
+    },
     intent:
       "Catches two publish buttons that do not share one pending state. While a push runs, every Sync button is pending and disabled. Not for push results.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
@@ -967,6 +981,7 @@ export const SingleCreatePr: Story = {
   tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a second Create PR button when the pane is open. Only the conversation header has the button. Not for a closed pane or PR creation.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
@@ -1204,6 +1219,7 @@ export const PaneTabsStayInPlace: Story = {
   tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a tab switch that moves other tabs. Each trigger keeps its box and the new active tab keeps its x and width. Not for tab content.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
@@ -1263,6 +1279,7 @@ export const DiffTabRoundedCorner: Story = {
   tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "diff" },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a wrong joined corner on the pane card. The Diff and Graph tabs give the same rounded corner, and the first tab, Files, keeps it square. Not for tab content.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
@@ -1317,6 +1334,7 @@ export const MaximizedPaneMatchesHeader: Story = {
   tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a maximized pane whose header differs from the conversation header. The Create PR call to action shows in the pane header with the same layout. Not for PR creation.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
@@ -1535,6 +1553,7 @@ export const StableRequestBudget: Story = {
 export const FilesPane: Story = {
   args: { paneParam: "files" },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: workspaceRoute({ pane: "files" }),
     msw: {
       handlers: {
@@ -1551,6 +1570,7 @@ export const GraphPane: Story = {
   tags: ["reduced-motion"],
   args: { paneParam: "graph" },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: workspaceRoute({ pane: "graph" }),
     msw: {
       handlers: {
@@ -1574,6 +1594,7 @@ export const GraphPane: Story = {
 export const SettingsPane: Story = {
   args: { paneParam: "settings" },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: workspaceRoute({ pane: "settings" }),
     msw: {
       handlers: {
@@ -1591,6 +1612,7 @@ export const SettingsPane: Story = {
  */
 export const SettingsPaneLandsOnUpgrades: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: workspaceRoute({ pane: "settings", hash: "upgrades" }),
     msw: {
       handlers: {
@@ -1633,6 +1655,7 @@ export const SettingsPaneLandsOnUpgrades: Story = {
 /** Fix using agent fills the composer of a new conversation and keeps the settings pane open. */
 export const FixUsingAgentOpensChat: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: workspaceRoute({ pane: "settings" }),
     msw: {
       handlers: {
@@ -1689,6 +1712,7 @@ export const WriteCheckFailedStopsPolling: Story = {
     writeCheck.readsWhileChecking = 0
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a failed write access check that polls the workspace forever. Polling stops and the failure reason shows. Not for a stalled check.",
     storyRoute: workspaceRoute({ pane: "settings" }),
@@ -1780,6 +1804,7 @@ export const WriteCheckStallStopsPolling: Story = {
     writeCheck.detailReads = 0
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a write access check that never ends and polls forever. Polling stops at the cap and the page stops showing a check in progress. Not for failed checks.",
     storyRoute: workspaceRoute({ pane: "settings" }),
@@ -1857,6 +1882,7 @@ export const WriteCheckStallStopsPolling: Story = {
 export const ReadOnly: Story = {
   args: { workspaceSlug: "handbook" },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug,
@@ -2097,6 +2123,7 @@ export const IngestingDemo: Story = {
     demoStart = Date.now()
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: workspaceRoute(),
     msw: {
       handlers: {
