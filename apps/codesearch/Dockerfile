@@ -207,6 +207,12 @@ COPY apps/codesearch/src ./apps/codesearch/src
 COPY apps/codesearch/scripts ./apps/codesearch/scripts
 COPY apps/codesearch/package.json ./apps/codesearch/package.json
 COPY apps/codesearch/tsconfig.json ./apps/codesearch/tsconfig.json
+# The RDS CA bundle (https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem),
+# as in the backend image: on AWS, codesearch reads Aurora with
+# sslmode=verify-full, and Aurora certificates chain to these CAs, which are
+# not public roots. Bun and Node read this variable.
+COPY apps/backend/certs/rds-global-bundle.pem ./apps/backend/certs/rds-global-bundle.pem
+ENV NODE_EXTRA_CA_CERTS=/app/apps/backend/certs/rds-global-bundle.pem
 
 COPY apps/codesearch/start.sh /start.sh
 RUN chmod +x /start.sh
