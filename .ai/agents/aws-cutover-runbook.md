@@ -65,10 +65,17 @@ line gives its expected output. The dry run of the copy is its preflight against
 
 ### 1. Production app secrets
 
-- **Who:** person. **Do:** step C1 of [CTX-1217], production form. It copies the 23 `hosted/app/*` values from Railway,
-  and the sha256 check prints `same` for each key. Then force a new deployment of the backend and the worker.
+- **Who:** person. **Do:** step C1 of [CTX-1217], production form. It copies 17 `hosted/app/*` values from Railway,
+  and the sha256 check prints `same` for each key. `DATABASE_APP_PASSWORD` keeps its new value: migrate sets it.
+  Then force a new deployment of the backend and the worker.
+- **Copy, do not generate:** `AUTH_SECRET` (so that sessions stay valid) and `CONNECTION_SECRETS_ENCRYPTION_KEY` (so
+  that the stored connector tokens decrypt) must have the production values. The rehearsals use new values for both;
+  this step writes over them (ADR-061 decision 12).
 - **Dry run:** the sha256 check only (no `put-secret-value`).
-- **Rollback:** write the rehearsal form again.
+- **Rollback:** write the rehearsal form again. Make its new values in the form that the app requires, or the backend
+  and the worker stop at start:
+  - `CONNECTION_SECRETS_ENCRYPTION_KEY`: exactly 64 hex characters, `openssl rand -hex 32 | tr -d '\n'`.
+  - `AUTH_SECRET`: `openssl rand -base64 48 | tr -d '\n'`.
 
 ### 2. Deploy freeze
 
@@ -266,5 +273,8 @@ After a rollback, AWS still holds copies that no step deletes. AWS deletes them 
 
 ## Open items
 
-- The MCP evals cannot run against a deployed stack yet (the open point in [CTX-1217]).
+- The MCP evals run in a rehearsal only, never in the window: they write test organizations. They are the task
+  `cutover-mcp-evals` (`run-seed.ts deployed`, then the eval client with `--no-advance`; see
+  `apps/backend/evals/mcp/README.md`). The factory pull request that adds the task is open. The task must refuse to
+  run while `CUTOVER_G4_PASSED` is `true`.
 - Delete this file in the pull request that removes the cutover tasks.

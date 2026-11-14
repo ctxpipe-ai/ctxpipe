@@ -16,6 +16,10 @@
  * output tokens, and the cost in USD (from the OpenRouter price list) of the
  * iterations. It records no prompt or answer text.
  *
+ * `--no-advance` leaves out the cases with `cursorFrom`: a run against a
+ * deployed stack (the AWS cutover rehearsal, CTX-1217) has no database
+ * access for `advance`.
+ *
  * Exit code 0: the gate passed. 1: the gate failed. 2: bad setup.
  */
 import { spawnSync } from "node:child_process"
@@ -66,6 +70,7 @@ async function main() {
       cases: { type: "string" },
       out: { type: "string" },
       "update-baseline": { type: "boolean", default: false },
+      "no-advance": { type: "boolean", default: false },
     },
   })
   const models = [...new Set((values.models ?? "").split(",").filter(Boolean))]
@@ -81,7 +86,8 @@ async function main() {
     .object({
       run: z.string().min(1),
       userId: z.string().min(1),
-      remotes: z.string().min(1),
+      // Only `advance` reads it: a deployed seed has none.
+      remotes: z.string().min(1).optional(),
       apiKey: z.string().min(1),
     })
     .parse(JSON.parse(await readFile(values.seed, "utf8")))
@@ -114,6 +120,7 @@ async function main() {
     // A case with `cursorFrom` runs last, after the Workspace moves.
     const active = evalCases
       .filter((item) => selected.includes(item.id))
+      .filter((item) => !(values["no-advance"] && item.cursorFrom))
       .sort((a, b) => Number(!!a.cursorFrom) - Number(!!b.cursorFrom))
     const cursors = new Map<string, string>()
     for (const item of active) {
@@ -260,8 +267,10 @@ type CaseUsage = {
 function advanceWorkspace(seed: {
   run: string
   userId: string
-  remotes: string
+  remotes?: string
 }) {
+  if (!seed.remotes)
+    setupError("The seed has no remotes file; run with --no-advance.")
   const advance = spawnSync(
     "bun",
     [
