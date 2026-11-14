@@ -17,7 +17,9 @@
 #
 # The list is APP_SECRETS of factory machines/hosted/src/app-secrets.ts,
 # without DATABASE_APP_PASSWORD: that value is new on AWS, and migrate sets it
-# on the Aurora role.
+# on the Aurora role. Each name in APP_SECRETS has a production value (the
+# others are in UNSET_SECRETS), and ECS starts no task whose secret is empty.
+# Thus a name without a Railway value is a stop, not a skip.
 set -euo pipefail
 
 keys=(
@@ -34,7 +36,9 @@ if [ "$account" != 213102790567 ]; then
   exit 1
 fi
 
-vars="$(railway variables --service backend --environment production --json)"
+# The product project, by its ID: the linked project of the CLI can be another one.
+vars="$(railway variables --project 119e3cc3-ef73-43aa-895a-8c8ccff73ff8 \
+  --service backend --environment production --json)"
 
 # The exact Railway value. The trailing "x" keeps a final newline, which a
 # command substitution removes.
@@ -86,8 +90,8 @@ if [ "$failed" != 0 ]; then
 fi
 
 if [ "${1:-}" != --verify ]; then
-  # The tasks read a secret when they start. The worker stays at 0 until G4,
-  # and its tasks read the new values when they start.
+  # A task reads its secrets when it starts. The worker reads the new values
+  # when it starts again.
   aws ecs update-service --cluster hosted --service backend --force-new-deployment \
     --query service.serviceName --output text
   aws ecs wait services-stable --cluster hosted --services backend

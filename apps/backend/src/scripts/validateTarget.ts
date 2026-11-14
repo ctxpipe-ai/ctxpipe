@@ -36,7 +36,8 @@ import { initEvlog } from "../observability/logger.js"
 
 async function main(argv: string[]): Promise<number> {
   if (argv.includes("--secrets")) {
-    initEvlog()
+    // No log: a transaction log of the org context names the organization.
+    initEvlog({ silent: true })
     const env = parseEnv(process.env)
     initDb(env.DATABASE_URL)
     try {

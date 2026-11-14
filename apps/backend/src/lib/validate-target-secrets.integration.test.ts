@@ -61,7 +61,11 @@ const badCredentials = () =>
 useMswServer(
   http.get("https://api.github.com/app/installations", ({ request }) =>
     signedByApp(request)
-      ? HttpResponse.json([{ id: installationId }])
+      ? // GitHub refuses a token for the suspended one: no handler mints it.
+        HttpResponse.json([
+          { id: installationId - 1, suspended_at: "2026-01-01T00:00:00Z" },
+          { id: installationId, suspended_at: null },
+        ])
       : badCredentials(),
   ),
   http.post(
@@ -181,14 +185,29 @@ describe("validateTargetSecrets", () => {
       { name: "connection secrets decrypt", ok: false },
       { name: "github installation token", ok: false },
     ])
-    expect(results[0]?.detail).toContain(
-      "4 of 4 stored secrets (2 organizations) do not decrypt",
-    )
+    expect(results[0]?.detail).toContain("4 of 4 stored secrets do not decrypt")
     expect(results[1]?.detail).toContain(
       "A JSON web token could not be decoded",
     )
     const output = JSON.stringify(results)
     for (const secret of [otherKey, "access-1", "org_validate_1"])
       expect(output).not.toContain(secret)
+  })
+
+  it("counts an organization whose connections it cannot read, and names no organization", async () => {
+    // A failed query: its error holds the organization id as a parameter.
+    await owner.query(`revoke select on connections from "${roleName}"`)
+    try {
+      const [decrypt] = await validateTargetSecrets(targetEnv({}))
+
+      expect(decrypt).toEqual({
+        name: "connection secrets decrypt",
+        ok: false,
+        detail:
+          "The connections of 2 organizations could not be read. Run the check again.",
+      })
+    } finally {
+      await owner.query(`grant select on connections to "${roleName}"`)
+    }
   })
 })
