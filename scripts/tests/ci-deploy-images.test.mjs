@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { execFileSync } from "node:child_process"
+import { execFileSync, spawnSync } from "node:child_process"
 import {
   copyFileSync,
   mkdirSync,
@@ -369,13 +369,13 @@ test("a deploy dispatch is a base, and a prerelease dispatch is not", async () =
 // The jobs of deploy.yaml that run, from the `if:` and `needs:` of each job,
 // with GitHub's rules: a condition without a status function also needs
 // success(), and success() and failure() look at every job before the job.
-// Each job that runs succeeds, except the jobs in `fail`.
+// Each job that runs succeeds, except the jobs in `broken`.
 function jobsThatRun({
   event,
   ref = "refs/heads/main",
   deploy,
   build,
-  fail = [],
+  broken = [],
 }) {
   const { jobs } = parse(
     readFileSync(join(root, ".github/workflows/deploy.yaml"), "utf8"),
@@ -465,7 +465,7 @@ function jobsThatRun({
       return value
     }
     results[name] = truthy(or())
-      ? fail.includes(name)
+      ? broken.includes(name)
         ? "failure"
         : "success"
       : "skipped"
@@ -503,7 +503,7 @@ test("a failed build stops the publish and every job after it", () => {
       jobsThatRun({
         event: "push",
         build: '[{"image":"ui"}]',
-        fail: ["build_images_arm64"],
+        broken: ["build_images_arm64"],
       }),
     ),
     sorted(["image_plan", "build_images_amd64", "build_images_arm64"]),
@@ -537,4 +537,28 @@ test("a dispatch with the input deploy runs the deploy from main, without the re
     }),
     [],
   )
+})
+
+test("this test is a check that a change to a deploy Dockerfile selects", () => {
+  const listed = spawnSync(
+    process.execPath,
+    [join(root, "scripts/checks/list.mjs")],
+    { cwd: root, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+  )
+  assert.equal(listed.status, 0, listed.stderr)
+  const { inputs } = JSON.parse(listed.stdout).checks.find(
+    ({ file }) => file === "scripts/tests/ci-deploy-images.test.mjs",
+  )
+  for (const path of [
+    ".dockerignore",
+    ...images.map(({ dockerfile }) => dockerfile),
+  ])
+    assert.ok(
+      inputs.some(
+        (input) =>
+          input === path ||
+          (input.endsWith("/**") && path.startsWith(input.slice(0, -2))),
+      ),
+      path,
+    )
 })

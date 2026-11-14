@@ -257,30 +257,18 @@ const definitions = () => [
   // The tests of the CI scripts: one check for each file of scripts/tests,
   // so that a change selects only the tests that read it. Each test reads
   // the scripts, the workflows and the files outside scripts/ that the
-  // scripts import; the map adds the other files that a test reads. A test
-  // in `own` reads only the files that it names.
+  // scripts import; the map adds the other files that a test reads.
   ...readdirSync(join(root, "scripts/tests"))
     .filter((name) => /\.test\.(mjs|sh)$/.test(name))
     .map((name) => {
       const file = `scripts/tests/${name}`
       const stem = name.replace(/\.test\.(mjs|sh)$/, "")
-      const own = {
-        // The Dockerfiles of the deploy images against their inputs, and the
-        // plan of deploy.yaml.
-        "ci-deploy-images": [
-          "**/Dockerfile*",
-          "**/.dockerignore",
-          "scripts/ci/deploy-images.mjs",
-          "scripts/ci/changed-files.mjs",
-          ".github/workflows/deploy.yaml",
-        ],
-      }[stem]
       return {
         family: "policy",
         lane: `tests-${stem}`,
         file,
         root: "scripts/tests",
-        inputs: own ? [...shared, file, ...own] : [
+        inputs: [
           ...shared,
           "scripts/**",
           ".github/**",
@@ -306,6 +294,15 @@ const definitions = () => [
             ],
             "ci-codesearch-releases": ["apps/codesearch/scripts/**"],
             "ci-codesearch-selection": ["apps/codesearch/**"],
+            // The Dockerfiles of the deploy images, against their inputs
+            // (scripts/ci/deploy-images.mjs).
+            "ci-deploy-images": [
+              ".dockerignore",
+              "apps/backend/Dockerfile",
+              "apps/backend/Dockerfile.worker",
+              "apps/ui/Dockerfile",
+              "apps/codesearch/Dockerfile",
+            ],
             "ci-test-shards": ["apps/backend/**"],
             "ci-visual-container": ["apps/ui/package.json"],
           }[stem] ?? []),

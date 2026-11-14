@@ -111,6 +111,10 @@ const inputsOf = ({ dockerfile, context = ".", inputs }) => [
   ...inputs,
 ]
 
+// A plain prefix, not a path segment: `apps/ui` also covers `apps/uix`. That
+// builds more, never less: the coverage check and the change check use the
+// same rule. A segment rule would miss a file that a COPY glob reads, for
+// example `pnpm-lock.yaml.orig` for `pnpm-lock.yaml*`.
 const covers = (inputs, path) => inputs.some((input) => path.startsWith(input))
 
 // The instructions of a Dockerfile, with continuation lines joined and
