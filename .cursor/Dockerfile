@@ -23,7 +23,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_26.x | bash - \
   && apt-get update && apt-get install -y --no-install-recommends nodejs=26.13.1-1nodesource1 \
   && rm -rf /var/lib/apt/lists/*
 
-RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
+# Node 25 and later do not bundle Corepack, so install the pnpm of packageManager with npm.
+RUN npm install --global pnpm@10.12.1
 
 ########################################################
 # BUN (repo engines + backend/codesearch dev scripts use `bun`)

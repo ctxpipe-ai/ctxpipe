@@ -53,7 +53,7 @@ Notes:
 
 Cursor is not in use now. Use this section only when Cursor Cloud runs again. Follow the shared runbook above for the dev servers.
 
-- [`.cursor/environment.json`](../../.cursor/environment.json) sets the environment. It builds from [`.cursor/Dockerfile`](../../.cursor/Dockerfile) (Docker CE, Node.js, pnpm, Bun) and runs `corepack enable && pnpm install` after boot.
+- [`.cursor/environment.json`](../../.cursor/environment.json) sets the environment. It builds from [`.cursor/Dockerfile`](../../.cursor/Dockerfile) (Docker CE, Node.js, pnpm, Bun) and runs `pnpm install` after boot.
 - [`.cursor/start.sh`](../../.cursor/start.sh) starts Docker and waits for `docker info`. It also writes `apps/backend/.env.local` from the Cursor secrets `AUTH_SECRET`, `DATABASE_URL`, and `GRAPH_DB_URI` when the file is missing. It uses the values in the shared runbook.
 - Set the secrets in the Cursor dashboard under Cloud Agents. `AUTH_SECRET` (32 or more characters) is required. `DATABASE_URL` and `GRAPH_DB_URI` are optional.
 - A personal dashboard environment can override the committed `environment.json`. If agents boot without Docker or Bun, remove the override or save a personal install that includes them.
