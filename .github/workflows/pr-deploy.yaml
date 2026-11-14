@@ -29,10 +29,8 @@
 # - GH_* (Preview environment secrets): the preview GitHub App. The deploy
 #   fails when one is empty, or when GH_APP_ID or GH_CLIENT_ID is equal to the
 #   production backend value (scripts/preview-github-app-vars.sh).
-# - OTEL exporter variables: built from the Preview OBSERVABILITY_OTLP_HEADERS
-#   and the default collector. The sync reads one production variable,
-#   OTEL_EXPORTER_OTLP_HEADERS, only to compare it with the Preview token
-#   (scripts/preview-otel-vars.sh).
+# - OTEL exporter variables: removed. Until the cutover to AWS (CTX-1216),
+#   Railway sends no telemetry (scripts/preview-otel-vars.sh).
 name: PR Deploy
 
 on:
@@ -794,7 +792,6 @@ jobs:
           WORKER_IMAGE: ghcr.io/ctxpipe-ai/worker:${{ env.IMAGE_TAG }}
           UI_IMAGE: ghcr.io/ctxpipe-ai/ui:${{ env.IMAGE_TAG }}
           CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:${{ env.IMAGE_TAG }}
-          OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
           VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
           GH_APP_ID: ${{ secrets.GH_APP_ID }}
           GH_APP_SLUG: ${{ secrets.GH_APP_SLUG }}
