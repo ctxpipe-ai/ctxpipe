@@ -4,7 +4,11 @@ import { test } from "node:test"
 
 import { readUnstableList } from "../checks/visual.mjs"
 import { judgeProof } from "../ci/visual-capture-proof.mjs"
-import { shootUntilSteady } from "../ci/visual-capture.mjs"
+import {
+  captureWorkers,
+  shootUntilSteady,
+  splitPlan,
+} from "../ci/visual-capture.mjs"
 
 // Gives the shots of a page whose pixels change in the given order, and
 // counts the pauses between shots.
@@ -116,4 +120,30 @@ test("the committed unstable list is valid", () => {
   )
   // An empty list is valid: no story is known to be unstable.
   assert.ok(Array.isArray(readUnstableList(list)))
+})
+
+test("the capture runs one container for each 2 CPUs of Docker, at most one for each story", () => {
+  assert.equal(captureWorkers(16, 852), 8)
+  assert.equal(captureWorkers(4, 852), 2)
+  assert.equal(captureWorkers(3, 852), 1)
+  assert.equal(captureWorkers(1, 852), 1)
+  assert.equal(captureWorkers(16, 3), 3)
+  assert.equal(captureWorkers(16, 0), 1)
+})
+
+test("the parts of a plan hold each story one time, and each part gets every n-th story", () => {
+  const plan = ["a", "b", "c", "d", "e", "f", "g"].map((id) => ({ id }))
+  const parts = splitPlan(plan, 3)
+  assert.deepEqual(
+    parts.map((part) => part.map((story) => story.id).join("")),
+    ["adg", "be", "cf"],
+  )
+  assert.deepEqual(
+    parts
+      .flat()
+      .map((story) => story.id)
+      .sort(),
+    plan.map((story) => story.id),
+  )
+  assert.deepEqual(splitPlan(plan, 1), [plan])
 })

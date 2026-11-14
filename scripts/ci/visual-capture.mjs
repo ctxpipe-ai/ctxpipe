@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs"
@@ -193,6 +194,8 @@ const docker = (args) => {
 }
 
 let containers = 0
+// The check of the Docker server and the image, one time for all containers.
+let prepared
 
 // Runs a Node script of this repo in the pinned container, and copies the
 // /out folder of the container into `out`. The repo is /work, read-only. A
@@ -202,7 +205,8 @@ let containers = 0
 // argument). The bake-off builder (packages/visual-review/evals/critic/build.ts)
 // uses it too.
 export async function runInContainer(script, args, out, files = {}) {
-  const failed = (await prepare(["visual-container"])).get("visual-container")
+  prepared ??= prepare(["visual-container"])
+  const failed = (await prepared).get("visual-container")
   if (failed) throw new Error(failed)
   const name = `ctxpipe-visual-capture-${process.pid}-${Date.now()}-${(containers += 1)}`
   mkdirSync(out, { recursive: true })
@@ -263,6 +267,27 @@ export async function capturePlan(ids) {
   return ids.map((id) => ({ ...options.get(id), id }))
 }
 
+// The number of capture containers that run at the same time: one for each
+// 2 CPUs of the Docker server (one container uses less than 2 CPUs), at
+// most one for each story, and at least one.
+export const captureWorkers = (cpus, stories) =>
+  Math.max(1, Math.min(Math.floor(cpus / 2), stories))
+
+const dockerCpus = () =>
+  Number(
+    spawnSync("docker", ["info", "--format", "{{.NCPU}}"], {
+      encoding: "utf8",
+    }).stdout?.trim(),
+  ) || 1
+
+// Splits the plan into `workers` parts: part k gets every `workers`-th story
+// from the k-th. The stories of one file are next to each other in the plan,
+// and often take the same time, so each part gets a share of the slow ones.
+export const splitPlan = (plan, workers) =>
+  Array.from({ length: workers }, (_, part) =>
+    plan.filter((_, position) => position % workers === part),
+  )
+
 // Captures the stories of `plan` (`{ id, fullPage, masks, snapshots }` for
 // each story) in the pinned container, and copies the PNGs and capture.json
 // into `out` (the old PNGs and capture.json of it are removed first).
@@ -270,7 +295,19 @@ export async function capturePlan(ids) {
 // named snapshot): `{ id, snapshot, status, error }`, with the status
 // captured, unstable, play-failed, capture-failed or not-run. The PNG of a
 // shot is <out>/<shotKey>.png. `viewport` is desktop or mobile.
-export async function captureInContainer(plan, out, viewport = "desktop") {
+//
+// More than one container captures at the same time (`workers`, by default
+// from the CPUs of Docker), each one a part of the plan (splitPlan). Each
+// container has its own browser with the same pins, and each story has its
+// own browser context, so a screenshot does not depend on the part of its
+// story: the capture proof (visual-capture-proof.mjs) compares one container
+// with the parallel containers.
+export async function captureInContainer(
+  plan,
+  out,
+  viewport = "desktop",
+  workers = captureWorkers(dockerCpus(), plan.length),
+) {
   if (!viewports[viewport]) throw new Error(`Unknown viewport: ${viewport}`)
   if (!existsSync(join(staticDir, "index.json")))
     throw new Error(
@@ -280,20 +317,49 @@ export async function captureInContainer(plan, out, viewport = "desktop") {
   for (const file of readdirSync(out))
     if (file.endsWith(".png") || file === "capture.json")
       rmSync(join(out, file))
-  // The plan can be larger than the size limit of one argument.
-  const planFile = join(out, "plan.json")
-  writeFileSync(planFile, JSON.stringify(plan))
+  const parts = splitPlan(plan, workers).map((part, k) => ({
+    part,
+    dir: join(out, `worker-${k + 1}`),
+  }))
+  process.stdout.write(
+    `Capture (${viewport}): ${plan.length} stories in ${workers} containers.\n`,
+  )
+  const shots = []
   try {
-    await runInContainer(
-      "scripts/ci/visual-capture.mjs",
-      ["--inside", viewport, "/plan.json"],
-      out,
-      { "/plan.json": planFile },
+    // Each container ends before the merge, also when another one failed.
+    const runs = await Promise.allSettled(
+      parts.map(async ({ part, dir }) => {
+        rmSync(dir, { recursive: true, force: true })
+        mkdirSync(dir)
+        // The plan can be larger than the size limit of one argument.
+        const planFile = join(dir, "plan.json")
+        writeFileSync(planFile, JSON.stringify(part))
+        await runInContainer(
+          "scripts/ci/visual-capture.mjs",
+          ["--inside", viewport, "/plan.json"],
+          dir,
+          { "/plan.json": planFile },
+        )
+      }),
     )
+    // A part with no capture.json did not run: its shots are not-run.
+    for (const { dir } of parts) {
+      for (const file of readdirSync(dir))
+        if (file.endsWith(".png")) renameSync(join(dir, file), join(out, file))
+      if (existsSync(join(dir, "capture.json")))
+        shots.push(
+          ...JSON.parse(readFileSync(join(dir, "capture.json"), "utf8")).shots,
+        )
+    }
+    const failed = runs.find((run) => run.status === "rejected")
+    if (failed) throw failed.reason
   } finally {
-    rmSync(planFile, { force: true })
+    for (const { dir } of parts) rmSync(dir, { recursive: true, force: true })
+    writeFileSync(
+      join(out, "capture.json"),
+      `${JSON.stringify({ shots }, null, 2)}\n`,
+    )
   }
-  const { shots } = JSON.parse(readFileSync(join(out, "capture.json"), "utf8"))
   return plan.flatMap(({ id, snapshots = [] }) =>
     [undefined, ...snapshots].map(
       (snapshot) =>
