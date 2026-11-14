@@ -46,7 +46,8 @@ output.
    `cutover-reset-indexes` included. Each of these three refuses while `CUTOVER_G4_PASSED` is `true`.
 4. The local rehearsal passes on the images of the day:
    `ops/aws-cutover/local-rehearsal/run.sh <backend image> <codesearch image>`. It runs the commands of the tasks.
-5. A test organization with a personal API key exists in production (Railway today), for the smoke check
+5. The aws-core role `cutover-transfer-writer` exists: the Railway export takes its credentials.
+6. A test organization with a personal API key exists in production (Railway today), for the smoke check
    (`VALIDATE_API_KEY`).
 
 ## Dry run (the day before, changes nothing)
@@ -163,13 +164,19 @@ line gives its expected output. The dry run of the copy is its preflight against
   - **Expected:** the report has `"ok": true`, `preflight.sourceReadOnly: true`, `verify.problems` empty, and the
     phase times. Paste the times into [CTX-1217]. Never paste `pg_dump.log` or `pg_restore.log`: they can hold row
     data.
-- **Indexes (person, in the shell of the Railway codesearch service):**
+- **Indexes (person):**
   1. Fill `hosted/cutover/transfer-url` with `s3://<shard bucket>/cutover-transfer/<run id>` (a new run id).
-  2. Open the shell with `railway ssh --service codesearch --environment production`. In it, export short-lived AWS
-     credentials that can write only `cutover-transfer/*` (the role `cutover-transfer-writer`, one hour). Also export
-     `GRAPH_DB_URI` with the value of the Railway `backend` service: the codesearch service has no such variable.
-  3. Run `cd /app/apps/codesearch && bun run cutover:export-indexes --to "s3://<shard bucket>/cutover-transfer/<run id>"`.
-     Then `exit`.
+  2. On your machine, get credentials that can write only `cutover-transfer/*`. They are valid for one hour:
+     `aws sts assume-role --role-arn <cutover-transfer-writer ARN> --role-session-name railway-export --duration-seconds 3600 --query Credentials`.
+     Also read the graph URL of the Railway `backend` service (the codesearch service has no `GRAPH_DB_URI`):
+     `railway variables --service backend --environment production --json | jq -r .GRAPH_DB_URI`.
+  3. Open the shell with `railway ssh --service codesearch --environment production`. Type `unset HISTFILE` first.
+     Then enter each value without echo, for example `read -rs GRAPH_DB_URI && export GRAPH_DB_URI`, for
+     `GRAPH_DB_URI`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`. Then run
+     `export AWS_REGION=us-west-2`.
+  4. Run `cd /app/apps/codesearch && bun run cutover:export-indexes --to "s3://<shard bucket>/cutover-transfer/<run id>"`.
+  5. Run `unset GRAPH_DB_URI AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN`, then close the shell with
+     `exit`.
   - **Expected:** a JSON report with the sizes, the sha256 values and the graph counts. `manifest.json` is in S3.
 - **If either fails:** the full rollback. Write the cause into [CTX-1217].
 
