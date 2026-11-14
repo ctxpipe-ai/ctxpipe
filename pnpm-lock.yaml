@@ -26,7 +26,7 @@ patchedDependencies:
     hash: 597b8afdb9d93bdcbd8a9dfc29b7bf98dc77673dc23e6061722741dd2dea7dd2
     path: patches/@tanstack__ai-opencode@0.4.14.patch
   opencode-ai@1.19.5:
-    hash: 08277583ab9c82ec6c133c66e6de9a8e648ddaef03fd50a2ee61f40b97d85c18
+    hash: fbd7620d4152b3a7a000c2155af5372fb864fca5340d609c0ed34f9bce14c2d1
     path: patches/opencode-ai@1.19.5.patch
 
 importers:
@@ -53,7 +53,7 @@ importers:
         version: 2.13.6(@types/node@25.9.9)(typescript@6.0.3)
       opencode-ai:
         specifier: 1.19.5
-        version: 1.19.5(patch_hash=08277583ab9c82ec6c133c66e6de9a8e648ddaef03fd50a2ee61f40b97d85c18)
+        version: 1.19.5(patch_hash=fbd7620d4152b3a7a000c2155af5372fb864fca5340d609c0ed34f9bce14c2d1)
       oxfmt:
         specifier: 0.74.0
         version: 0.74.0
@@ -30166,7 +30166,7 @@ snapshots:
     dependencies:
       yaml: 2.8.2
 
-  opencode-ai@1.19.5(patch_hash=08277583ab9c82ec6c133c66e6de9a8e648ddaef03fd50a2ee61f40b97d85c18):
+  opencode-ai@1.19.5(patch_hash=fbd7620d4152b3a7a000c2155af5372fb864fca5340d609c0ed34f9bce14c2d1):
     optionalDependencies:
       opencode-darwin-arm64: 1.19.5
       opencode-darwin-x64: 1.19.5

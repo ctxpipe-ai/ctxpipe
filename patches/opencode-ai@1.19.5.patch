@@ -1,8 +1,8 @@
 diff --git a/bin/opencode.exe b/bin/opencode.exe
-index c658ba1bfe33b616a989f52ceea36a6cf44f3e35..017df69b02c33b5fedb70fa5a0bf421e5c29ed15 100755
+index c658ba1bfe33b616a989f52ceea36a6cf44f3e35..152797e2dd62627b441d465496715c6a6ce896e8 100755
 --- a/bin/opencode.exe
 +++ b/bin/opencode.exe
-@@ -1,10 +1,43 @@
+@@ -1,10 +1,54 @@
 -echo "Error: opencode-ai's postinstall script was not run." >&2
 -echo "" >&2
 -echo "This occurs when using --ignore-scripts during installation, or when using a" >&2
@@ -19,16 +19,27 @@ index c658ba1bfe33b616a989f52ceea36a6cf44f3e35..017df69b02c33b5fedb70fa5a0bf421e
 +// nothing is downloaded: the postinstall of opencode-ai, which copies the
 +// binary here or installs it from the registry, stays off (pnpm runs no
 +// dependency build script).
-+const { spawn } = require("node:child_process")
-+const { existsSync } = require("node:fs")
++const { execFileSync, spawn } = require("node:child_process")
++const { existsSync, readFileSync } = require("node:fs")
 +const { dirname, join } = require("node:path")
 +
 +const platform = { darwin: "darwin", linux: "linux", win32: "windows" }[process.platform] ?? process.platform
 +const base = `opencode-${platform}-${process.arch}`
++// An x64 CPU without AVX2 needs the baseline build, as the postinstall of
++// opencode-ai decides.
++const avx2 = () => {
++  try {
++    if (process.platform === "linux") return /(^|\s)avx2(\s|$)/i.test(readFileSync("/proc/cpuinfo", "utf8"))
++    if (process.platform === "darwin")
++      return execFileSync("sysctl", ["-n", "hw.optional.avx2_0"], { encoding: "utf8" }).trim() === "1"
++  } catch {}
++  return false
++}
++const variants = process.arch === "x64" && !avx2() ? [`${base}-baseline`, base] : [base, `${base}-baseline`]
 +const musl = existsSync("/etc/alpine-release")
 +const names = musl
-+  ? [`${base}-musl`, `${base}-baseline-musl`, base, `${base}-baseline`]
-+  : [base, `${base}-baseline`, `${base}-musl`, `${base}-baseline-musl`]
++  ? [...variants.map((name) => `${name}-musl`), ...variants]
++  : [...variants, ...variants.map((name) => `${name}-musl`)]
 +const binary = names
 +  .map((name) => {
 +    try {

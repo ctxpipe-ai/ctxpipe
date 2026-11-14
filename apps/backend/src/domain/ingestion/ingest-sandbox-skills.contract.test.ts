@@ -422,7 +422,7 @@ describe("ingest sandbox layout", () => {
           ...AGENT_ENV,
           PATH: `/tmp/fake-bin:${AGENT_ENV.PATH ?? BASE_PATH}`,
         }),
-      ).rejects.toThrow(/OpenCode 9\.9\.9 is not tested.*1\.18\.34/)
+      ).rejects.toThrow(/OpenCode 9\.9\.9 is not tested.*1\.19\.5/)
     })
   }, 300_000)
 })
