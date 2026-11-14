@@ -1,6 +1,6 @@
 # Using the stack
 
-How to read hosted telemetry and how to send a laptop into it. What runs and how it is deployed: factory `machines/observability`. [README.md](./README.md) describes the old Railway stack until it is deleted. Agents: [observability skill](../../.agents/skills/observability/SKILL.md).
+How to read hosted telemetry and how to send a laptop into it. What runs and how it is deployed: factory `machines/observability`. Agents: [observability skill](../../.agents/skills/observability/SKILL.md).
 
 HyperDX: https://hyperdx.ctxpipe.dev, behind Cloudflare Access (factory `machines/observability`, CTX-1216). Spans keep the prompt text; Langfuse is gone. OTLP: https://otel.ctxpipe.dev with `OTEL_EXPORTER_OTLP_HEADERS=CF-Access-Client-Id=<id>,CF-Access-Client-Secret=<secret>`: a Cloudflare Access service token, one for each kind of sender, so a leaked one can be revoked alone. Production sends with `telemetry` (the GitHub secret `OBSERVABILITY_OTLP_HEADERS` of the environment `production`), previews with `telemetry-preview` (the same secret name in the environment `Preview`), laptops with `telemetry-local`. The values are in production Secrets Manager at `cloudflare/access/<name>`.
 
@@ -18,15 +18,14 @@ HyperDX: open https://hyperdx.ctxpipe.dev, pass Access with your `ctxpipe.ai` Go
 
 ## Dashboards
 
-Connection **ctxpipe ClickHouse**. Upsert, saved searches, and default chips: [hyperdx/README.md](./hyperdx/README.md).
+Connection **ctxpipe ClickHouse**. The dashboards, the saved searches and the default chips are in factory `machines/observability`.
 
 | Dashboard | What it answers |
 | --- | --- |
 | ctxpipe Services | Request rate, error rate, p95, slowest routes, log volume, recent errors |
 | LLM (gen_ai) | Call count, error rate, tokens, latency by model |
-| Observability Stack | Collector, ClickHouse, and railway-telemetry |
-| Railway Infrastructure | CPU, memory, network, disk, every environment |
-| Product usage | DAU/WAU/MAU, MCP, stickiness. [definitions](./hyperdx/dashboards/product-usage.md) |
+| AWS Infrastructure | ECS, Aurora, AgentCore, the NAT status check, and host disk and memory |
+| Product usage | DAU/WAU/MAU, MCP, stickiness |
 
 Sessions charts stay empty while browser replay is off.
 
