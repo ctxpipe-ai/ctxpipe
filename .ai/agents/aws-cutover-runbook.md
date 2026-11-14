@@ -18,15 +18,16 @@ output.
 ## Commands that this runbook uses
 
 - Run a one-off task (agent): `gh workflow run hosted-run-task.yml -R ctxpipe-ai/factory --ref main -f task=<task>`.
-  Then `gh run watch -R ctxpipe-ai/factory <run id>`. The task log is in the run. The tasks are in
+  Then `gh run watch -R ctxpipe-ai/factory --exit-status <run id>`. The task log is in the run. The tasks are in
   `machines/hosted/README.md#the-cutover-tasks` (factory). The workflow refuses a task when its guard fails:
   - every copy-database task and `cutover-import-indexes`, while the repository variable `CUTOVER_G4_PASSED` is
     `true`;
   - `cutover-import-indexes`, until `falkordb` and `codesearch` are stopped (no task desired, running or pending);
   - `cutover-seed-shard-store`, until `codesearch` is stopped.
 - Stop or start the stateful services and the worker on AWS (agent, factory#234): a scale action of `hosted.yml`,
-  `gh workflow run hosted.yml -R ctxpipe-ai/factory --ref main -f action=<action>`. It deploys nothing, and it runs
-  with the deploy role of `hosted.yml`:
+  `gh workflow run hosted.yml -R ctxpipe-ai/factory --ref main -f action=<action>`, then
+  `gh run watch -R ctxpipe-ai/factory --exit-status <run id>`. Start the next step only after the run succeeds. It
+  deploys nothing, and it runs with the deploy role of `hosted.yml`:
   - `cutover-scale-down` sets `worker`, `falkordb` and `codesearch` to 0 and holds the worker's autoscaling at 0. The
     workflow refuses it after G4.
   - `cutover-scale-up-indexes` starts `falkordb` and `codesearch` again.
