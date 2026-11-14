@@ -467,7 +467,7 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       needs.merge-gate-plan.outputs.mode != 'gate'
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     steps:
       - name: Require every test job
         env:
@@ -1322,7 +1322,7 @@ jobs:
     if: |
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request'
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
@@ -1356,7 +1356,7 @@ jobs:
     if: |
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request'
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     services:
       postgres:
         # Matches local Compose (pgvector); plain postgres:16 lacks the vector extension.
@@ -1567,7 +1567,7 @@ jobs:
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request')
     continue-on-error: true
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     outputs:
       mode: ${{ steps.mode.outputs.mode }}
     steps:
@@ -1687,7 +1687,7 @@ jobs:
       !cancelled() &&
       needs.merge-gate-manifest.outputs.mode == 'select'
     continue-on-error: true
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     permissions:
       contents: read
       actions: read
@@ -1796,18 +1796,30 @@ jobs:
   # failed job. The job runs beside the test jobs, so it adds no time to the
   # run. A lookup of 16 hunks and 4 critics took 5 s. The timeout is large, because a large diff (a
   # lockfile) has many hunks and so many store keys.
+  #
+  # The last step of this job decides the Terraform plan: the output `plan`
+  # starts merge-gate-terraform-plan when the PR changes a file under infra/.
+  # It does not depend on the selection or the mode: the check of the plan
+  # has the lockfile among its inputs, and a lockfile change must not ask the
+  # reviewers of the terraform-plan environment for approval. The step is in
+  # this job because this job also starts with the run and runs no repository
+  # code. Only that step gives the job token (pull-requests: read) to a
+  # command. It runs after the critics record is kept, so its failure cannot
+  # take the record away.
   merge-gate-critics:
     timeout-minutes: 25
     name: Merge gate critics
     if: |
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     permissions:
       contents: read
       id-token: write
+      pull-requests: read
     outputs:
       artifact-id: ${{ steps.preserve.outputs.artifact-id }}
+      plan: ${{ steps.changes.outputs.plan }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1893,6 +1905,47 @@ jobs:
           name: merge-gate-critics
           path: ${{ runner.temp }}/out/
           if-no-files-found: ignore
+      # Not on ready_for_review: it adds no new code, and it would ask the
+      # reviewers for one more approval. A stacked PR (a base other than main)
+      # does not run ci.yaml, so it gets no plan: a person uses Run workflow.
+      - name: Look for a change under infra/
+        id: changes
+        if: |
+          !cancelled() && github.event.action != 'ready_for_review'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.head_ref }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          echo "plan=false" >> "$GITHUB_OUTPUT"
+          # A renamed file counts at its old path too.
+          files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate \
+            --jq '.[] | .filename, (.previous_filename // empty)')
+          if ! grep -q '^infra/' <<<"$files"; then
+            echo "::notice::The PR changes no file under infra/; no Terraform plan"
+            exit 0
+          fi
+          # The PR can merge and lose its branch while the gate goes on.
+          # Skip only on a definite answer; any other failure fails the step.
+          state=$(gh pr view "$PR" --repo "$REPO" --json state --jq .state)
+          if [ "$state" != "OPEN" ]; then
+            echo "::notice::PR is closed or its branch is gone; no Terraform plan"
+            exit 0
+          fi
+          # A branch name can hold a slash: encode it for the path.
+          encoded=$(jq -rn --arg branch "$BRANCH" '$branch | @uri')
+          if ! out=$(gh api "repos/$REPO/branches/$encoded" --silent 2>&1); then
+            case "$out" in
+              *"HTTP 404"*)
+                echo "::notice::PR is closed or its branch is gone; no Terraform plan"
+                exit 0
+                ;;
+            esac
+            echo "$out" >&2
+            exit 1
+          fi
+          echo "plan=true" >> "$GITHUB_OUTPUT"
 
   # The LLM stage of the selection (`factory check` with a model, Claude
   # Haiku 5.5 through OpenRouter) for the select job's run. It holds the
@@ -1912,7 +1965,7 @@ jobs:
       needs.merge-gate-select.result == 'success'
     continue-on-error: true
     environment: workbench
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     permissions:
       contents: read
       actions: read
@@ -2119,7 +2172,7 @@ jobs:
       !cancelled() &&
       (github.event_name == 'pull_request' || needs.nightly-plan.result == 'success')
     continue-on-error: true
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     permissions:
       contents: read
       actions: read
@@ -2235,7 +2288,7 @@ jobs:
       (needs.merge-gate-plan.outputs.deploy == 'true' ||
       needs.merge-gate-plan.outputs.mode == '') &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     permissions:
       actions: write
     steps:
@@ -2267,70 +2320,15 @@ jobs:
           fi
           gh workflow run pr-deploy.yaml --repo "$REPO" --ref "$BRANCH" -f pr_number="$PR"
 
-  # Calls terraform-plan-pr.yaml when the PR changes a file under infra/. It
-  # does not depend on the selection or the mode: the check of the plan has
-  # the lockfile among its inputs, and a lockfile change must not ask the
-  # reviewers of the terraform-plan environment for approval. A call keeps the
-  # PR author as the actor, so "Prevent self-review" of the environment works.
-  # Neither job runs on ready_for_review: it adds no new code, and it would ask
-  # the reviewers for one more approval. A stacked PR (a base other than main)
-  # does not run ci.yaml, so it gets no plan: a person uses Run workflow. The
-  # first job runs no repository code.
-  merge-gate-terraform-changes:
-    timeout-minutes: 5
-    name: Merge gate looks for Terraform changes
-    if: |
-      github.event_name == 'pull_request' &&
-      github.event.action != 'ready_for_review' &&
-      github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      plan: ${{ steps.changes.outputs.plan }}
-    steps:
-      - name: Look for a change under infra/
-        id: changes
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          BRANCH: ${{ github.head_ref }}
-          PR: ${{ github.event.pull_request.number }}
-        run: |
-          echo "plan=false" >> "$GITHUB_OUTPUT"
-          # A renamed file counts at its old path too.
-          files=$(gh api "repos/$REPO/pulls/$PR/files" --paginate \
-            --jq '.[] | .filename, (.previous_filename // empty)')
-          if ! grep -q '^infra/' <<<"$files"; then
-            echo "::notice::The PR changes no file under infra/; no Terraform plan"
-            exit 0
-          fi
-          # The PR can merge and lose its branch while the gate goes on.
-          # Skip only on a definite answer; any other failure fails the step.
-          state=$(gh pr view "$PR" --repo "$REPO" --json state --jq .state)
-          if [ "$state" != "OPEN" ]; then
-            echo "::notice::PR is closed or its branch is gone; no Terraform plan"
-            exit 0
-          fi
-          # A branch name can hold a slash: encode it for the path.
-          encoded=$(jq -rn --arg branch "$BRANCH" '$branch | @uri')
-          if ! out=$(gh api "repos/$REPO/branches/$encoded" --silent 2>&1); then
-            case "$out" in
-              *"HTTP 404"*)
-                echo "::notice::PR is closed or its branch is gone; no Terraform plan"
-                exit 0
-                ;;
-            esac
-            echo "$out" >&2
-            exit 1
-          fi
-          echo "plan=true" >> "$GITHUB_OUTPUT"
-
+  # Calls terraform-plan-pr.yaml when the critics job found a change under
+  # infra/ (see that job). A call keeps the PR author as the actor, so
+  # "Prevent self-review" of the environment works. A failed critics lookup
+  # fails the critics job, but it does not stop the plan.
   merge-gate-terraform-plan:
     name: Terraform plan
-    needs: merge-gate-terraform-changes
-    if: needs.merge-gate-terraform-changes.outputs.plan == 'true'
+    needs: merge-gate-critics
+    if: |
+      !cancelled() && needs.merge-gate-critics.outputs.plan == 'true'
     uses: ./.github/workflows/terraform-plan-pr.yaml
     with:
       pr_number: ${{ github.event.pull_request.number }}
@@ -2380,7 +2378,7 @@ jobs:
       ]
     if: |
       always() && github.event_name == 'pull_request'
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     permissions:
       contents: read
       actions: read
