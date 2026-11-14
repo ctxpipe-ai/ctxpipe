@@ -45,7 +45,7 @@ output.
 
 ## Prerequisites (all must be true before T-1)
 
-1. The entry criteria of [CTX-1217] hold, and two real rehearsals passed (gate G1 below).
+1. The entry criteria of [CTX-1217] hold, and one real rehearsal passed (gate G1 below).
 2. The edge-stack pull requests for the day exist. They are reviewed and not merged:
    - (a) the maintenance page on `app.ctxpipe.ai`;
    - (b) `app.ctxpipe.ai` to the tunnel, behind a temporary Access app;
@@ -69,11 +69,12 @@ line gives its expected output. The dry run of the copy is its preflight against
 
 ## T-1 day
 
-### G1: rehearsals passed
+### G1: a rehearsal passed
 
 - **Who:** agent.
-- **Check:** [CTX-1217] has the reports of two real rehearsals. Each has `"ok": true` from copy-database, no
-  difference from verify-graph, and a window shorter than the planned length.
+- **Check:** [CTX-1217] has the report of one real rehearsal with `"ok": true` from copy-database, no difference
+  from verify-graph, a passed `validateTarget` and MCP eval run, and a window shorter than the planned length. One
+  rehearsal is enough (CTO, 2026-11-14: "After we do one successfully we're ready to do it properly").
 - **If not:** stop. Plan another rehearsal.
 
 ### 1. Production app secrets
@@ -121,12 +122,29 @@ line gives its expected output. The dry run of the copy is its preflight against
 
 - **Who:** agent, and a person for the secret.
 - **Do:**
-  1. Agent: HyperDX shows no error from the AWS services since their last deploy. The tunnel is connected. The
-     origin of the stack is the production one: the `curl` of T-1 step 2 prints `https://app.ctxpipe.ai/mcp`. If it
-     prints `https://cutover.ctxpipe.dev/mcp`, stop: OAuth and sign-in on `app.ctxpipe.ai` would fail at T+55.
-  2. Person: fill `hosted/cutover/source-database-url` with the Neon production owner URL (direct host,
+  1. Agent: HyperDX shows no error from the AWS services since their last deploy (Railway sends no telemetry until
+     the cutover, so read the AWS side only). The tunnel is connected. The origin of the stack is the production
+     one: the `curl` of T-1 step 2 prints `https://app.ctxpipe.ai/mcp`. If it prints `https://cutover.ctxpipe.dev/mcp`,
+     stop: OAuth and sign-in on `app.ctxpipe.ai` would fail at T+55.
+  2. Agent: both data volumes of the stateful host are mounted, and the root disk is under 50% used. The import
+     writes about 12 GB, which the root disk cannot hold. In HyperDX (`clickstack_sql`):
+
+     ```sql
+     SELECT Attributes['mountpoint'] m, any(Attributes['device']) d, round(100*argMax(Value,TimeUnix),1) used
+     FROM otel.otel_metrics_gauge
+     WHERE TimeUnix >= now() - INTERVAL 15 MINUTE AND ServiceName='stateful-host'
+       AND MetricName='system.filesystem.utilization'
+     GROUP BY m
+     ```
+
+     Expected: exactly three rows. `/` is on `/dev/nvme0n1p1` with `used` under 50. `/data/codesearch` and
+     `/data/falkordb` are each on a device of their own, never `/dev/nvme0n1p1`. Cross-check with the audit role:
+     `aws ec2 describe-volumes --filters Name=tag:Name,Values='stateful-*' --query 'Volumes[].[VolumeId,Size,Attachments[0].InstanceId,Attachments[0].State]' --output text`
+     prints two rows (50 and 150 GB), both `attached` to the same instance. If a row is missing or on the root
+     device, stop.
+  3. Person: fill `hosted/cutover/source-database-url` with the Neon production owner URL (direct host,
      `?sslmode=verify-full`).
-  3. Agent: run the task `cutover-copy-database-preflight`.
+  4. Agent: run the task `cutover-copy-database-preflight`.
 - **Expected:** the report shows the `vector` version of both sides (the target the same or newer), the source size,
   and `sourceReadOnly: false`. Its `problems` is empty, or holds only "The target database has N schemas, … Restore
   only into an empty database." (T+3 empties the target).
