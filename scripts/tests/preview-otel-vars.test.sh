@@ -41,8 +41,18 @@ OBSERVABILITY_OTLP_HEADERS="authorization=key" "$script" build "https://example.
 
 # The production deploy runs the same check before its sync and before Terraform.
 deploy_guard="$root/.github/workflows/deploy.yaml"
-grep -Fq 'require_access_headers_for_endpoint "$TF_VAR_otel_otlp_endpoint" "$OBSERVABILITY_OTLP_HEADERS"' "$deploy_guard" \
+grep -Fq 'require_access_headers_for_endpoint "$endpoint" "$OBSERVABILITY_OTLP_HEADERS"' "$deploy_guard" \
   || fail "deploy.yaml must refuse the new collector without its Access token"
+grep -Fq 'endpoint="$(production_otel_endpoint)"' "$deploy_guard" \
+  || fail "deploy.yaml must check the endpoint that Terraform sets"
+# The endpoint that production gets is the module's default: Terraform sets it on the services. A TF_VAR would
+# reach the module only through a root variable that infra/main.tf passes on, and infra/ has none.
+endpoint_of_module="$(cd "$root" && bash -c 'source scripts/preview-otel-vars.sh; production_otel_endpoint')"
+[[ "$endpoint_of_module" == "https://otel.ctxpipe.dev" ]] \
+  || fail "the ctxpipe module's otel_otlp_endpoint default should be the new collector (got: $endpoint_of_module)"
+if grep -q 'TF_VAR_otel_otlp_endpoint' "$deploy_guard" && ! grep -q 'variable "otel_otlp_endpoint"' "$root/infra/variables.tf"; then
+  fail "deploy.yaml sets TF_VAR_otel_otlp_endpoint, but infra/ has no root variable to take it"
+fi
 guard_line="$(grep -n 'name: Refuse the new collector without its Access token' "$deploy_guard" | cut -d: -f1)"
 guard_sync_line="$(grep -n 'name: Sync production secrets to Railway' "$deploy_guard" | cut -d: -f1)"
 guard_apply_line="$(grep -n 'name: Terraform Apply' "$deploy_guard" | cut -d: -f1)"

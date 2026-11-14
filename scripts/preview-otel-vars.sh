@@ -42,6 +42,13 @@ require_access_headers_for_endpoint() {
   done
 }
 
+# The OTLP endpoint that the production deploy's Terraform sets: the default of the ctxpipe module's otel_otlp_endpoint.
+# infra/ passes the module no value for it, so a TF_VAR would not reach it (2026-11-14).
+production_otel_endpoint() {
+  local file="${1:-infra/module/ctxpipe/variables.tf}"
+  awk '/^variable "otel_otlp_endpoint"/ { found = 1 } found && /^ *default *=/ { sub(/^[^"]*"/, ""); sub(/".*$/, ""); print; exit }' "$file"
+}
+
 # Every value of one header in an OTLP header list (`Name=value,Name=value`), by name, trimmed, one per line.
 otlp_header_values() {
   local headers="$1" name="$2"

@@ -576,7 +576,9 @@ jobs:
           set -euo pipefail
           # shellcheck disable=SC1091
           source scripts/preview-otel-vars.sh
-          require_access_headers_for_endpoint "$TF_VAR_otel_otlp_endpoint" "$OBSERVABILITY_OTLP_HEADERS"
+          endpoint="$(production_otel_endpoint)"
+          [[ -n "$endpoint" ]] || { echo "::error::No otel_otlp_endpoint default in infra/module/ctxpipe/variables.tf"; exit 1; }
+          require_access_headers_for_endpoint "$endpoint" "$OBSERVABILITY_OTLP_HEADERS"
 
       # Secret values go from this environment straight to Railway, never into
       # Terraform inputs or state (scripts/railway-sync-variables.mjs). The app
