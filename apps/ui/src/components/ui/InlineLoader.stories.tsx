@@ -21,6 +21,9 @@ export const Indeterminate: Story = {
 }
 
 export const Determinate: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   render: () => (
     <ProgressLoader label="Indexing" sublabel="7 / 22" progress={32} />
   ),

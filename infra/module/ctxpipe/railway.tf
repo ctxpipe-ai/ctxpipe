@@ -39,7 +39,8 @@ locals {
       region       = var.railway_regions[0].region
     }
   ]
-  otel_shared_env = [
+  # No endpoint, no exporter variables: the apps export nothing (an empty URL would fail their config).
+  otel_shared_env = length(var.otel_otlp_endpoint) > 0 ? [
     {
       name  = "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
       value = "${var.otel_otlp_endpoint}/v1/traces"
@@ -52,7 +53,7 @@ locals {
       name  = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
       value = "${var.otel_otlp_endpoint}/v1/metrics"
     },
-  ]
+  ] : []
   # Omit when unset so parseEnv does not see an empty string.
   linear_shared_env = length(var.linear_redirect_uri) > 0 ? [{
     name  = "LINEAR_REDIRECT_URI"

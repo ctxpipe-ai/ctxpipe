@@ -5,6 +5,6 @@
     "dockerfile": "Dockerfile",
     "context": ".."
   },
-  "install": "corepack enable && command -v bun >/dev/null 2>&1 || (curl -fsSL https://bun.sh/install | bash && sudo install -m 0755 $HOME/.bun/bin/bun /usr/local/bin/bun) && pnpm install",
+  "install": "command -v bun >/dev/null 2>&1 || (curl -fsSL https://bun.sh/install | bash && sudo install -m 0755 $HOME/.bun/bin/bun /usr/local/bin/bun) && pnpm install",
   "start": "bash .cursor/start.sh"
 }

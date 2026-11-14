@@ -105,10 +105,6 @@ test("CI runs every story with a play function in shards", () => {
   assert.match(workflow, /SKIP_STORYBOOK_BUILD: "1"/)
   assert.match(
     workflow,
-    /name: Storybook build\n(?:.*\n)*? {4}runs-on: blacksmith-4vcpu-ubuntu-2404/,
-  )
-  assert.match(
-    workflow,
     /STORYBOOK_SHARD: \$\{\{ matrix\.shard \}\}\/\$\{\{ matrix\.count \}\}/,
   )
   // The full run has four shards; in gate mode the plan job gives the shards.

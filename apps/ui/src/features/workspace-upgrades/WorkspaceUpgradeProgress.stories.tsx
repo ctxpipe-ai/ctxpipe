@@ -202,6 +202,7 @@ export const ReingestPlanning: Story = {
 /** ctxpipe saw the merge. The card says what it reads now and what comes next. */
 export const MergedReadingFormat: Story = {
   parameters: {
+    visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
     msw: {
       handlers: {
         page: [
@@ -255,18 +256,21 @@ export const MergedReadingFormat: Story = {
 
 /** Check again shows that it ran, and what it found: the pull request is still open. */
 export const CheckAgainStillOpen: Story = {
-  parameters: withUpgrades(() =>
-    upgradesFixture(
-      [
-        upgradeItemFixture({
-          status: "pr_open",
-          pullRequest,
-          checkedAt: state.checked ? new Date().toISOString() : null,
-        }),
-      ],
-      { formatVersion: 2 },
+  parameters: {
+    ...withUpgrades(() =>
+      upgradesFixture(
+        [
+          upgradeItemFixture({
+            status: "pr_open",
+            pullRequest,
+            checkedAt: state.checked ? new Date().toISOString() : null,
+          }),
+        ],
+        { formatVersion: 2 },
+      ),
     ),
-  ),
+    visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -288,23 +292,26 @@ export const CheckAgainStillOpen: Story = {
 
 /** Check again finds the merge: the card changes to the merged state. */
 export const CheckAgainFindsMerge: Story = {
-  parameters: withUpgrades(() =>
-    upgradesFixture(
-      [
-        upgradeItemFixture({
-          status: "pr_open",
-          pullRequest,
-          ...(state.checked
-            ? {
-                checkedAt: new Date().toISOString(),
-                mergedAt: new Date().toISOString(),
-              }
-            : {}),
-        }),
-      ],
-      { formatVersion: 2 },
+  parameters: {
+    ...withUpgrades(() =>
+      upgradesFixture(
+        [
+          upgradeItemFixture({
+            status: "pr_open",
+            pullRequest,
+            ...(state.checked
+              ? {
+                  checkedAt: new Date().toISOString(),
+                  mergedAt: new Date().toISOString(),
+                }
+              : {}),
+          }),
+        ],
+        { formatVersion: 2 },
+      ),
     ),
-  ),
+    visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -328,6 +335,7 @@ export const CheckAgainFindsMerge: Story = {
 /** A failed check shows its cause and the next step. */
 export const CheckAgainFails: Story = {
   parameters: {
+    visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
     msw: {
       handlers: {
         page: [
