@@ -85,8 +85,8 @@ variable "pagerduty_redirect_uri" {
 
 variable "otel_otlp_endpoint" {
   type        = string
-  description = "ClickStack collector OTLP HTTP base (no /v1 suffix): the new stack's collector on the Cloudflare tunnel, behind the Access service token `telemetry` (CTX-1216)."
-  default     = "https://otel.ctxpipe.dev"
+  description = "OTLP HTTP base (no /v1 suffix). Empty: the services get no OTEL exporter endpoint and export nothing, which is Railway's state until the cutover to AWS (CTX-1216, CTX-1217)."
+  default     = ""
 }
 
 variable "neon_project" {
