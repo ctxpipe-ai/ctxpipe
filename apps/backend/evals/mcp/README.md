@@ -120,9 +120,11 @@ When a fixture file changes, publish the repositories again. Run this from `apps
 bun --env-file=.env.local evals/mcp/run-seed.ts publish /tmp/mcp-eval-publish
 ```
 
-The one-off task `cutover-mcp-evals` of the hosted stack (factory, `hosted-run-task.yml`) runs the suite in the production VPC, during a rehearsal only. It has two containers of the backend image:
+Two one-off tasks of the hosted stack (factory, `hosted-run-task.yml`) run the suite in the production VPC, during a rehearsal only. Run them in this order:
 
-1. `run-seed.ts deployed OUT_JSON`, with the environment of the backend. It first compares each published branch with the commits of the fixtures, which are the same on each run. When one differs, it stops before a write. Then it seeds with a new run name and writes OUT_JSON as `ci` does.
-2. `run.bundle.js`, the bundled `run.ts`, with only the model key. It runs against the backend in the VPC with `--no-advance`. It has no database access, so the `stale-cursor` case does not run. CI runs that case.
+1. `cutover-mcp-evals-seed` runs `run-seed.ts deployed OUT_JSON` in the backend image, as the backend. It first compares each published branch with the commits of the fixtures, which are the same on each run. When one differs, it stops before a write. Then it seeds with a new run name and writes OUT_JSON as `ci` does. A second container puts OUT_JSON into the shard bucket under `cutover-mcp-evals/`.
+2. `cutover-mcp-evals` gets that file and deletes it. Then it runs `run.bundle.js`, the bundled `run.ts`, with only the model key. It runs against the backend in the VPC with `--no-advance`. It has no database access, so the `stale-cursor` case does not run. CI runs that case.
+
+The two tasks are separate because the security groups belong to a whole task: the eval client must not reach FalkorDB.
 
 The backend image builds the bundle in its `evals` stage, because the dependencies of `run.ts` are dev dependencies. The server never loads the bundle.

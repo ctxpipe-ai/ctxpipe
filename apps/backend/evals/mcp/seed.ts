@@ -217,13 +217,15 @@ async function fixturesAndRemotes(
  * Compares the published repositories with new fixture repositories in
  * `directory` (it must not exist). The commits are the same on each run, so
  * each branch must point to the same commit. Returns one line for each
- * branch that differs.
+ * branch that differs, and the `main` commit of each fixture repository:
+ * `seedMcpEval` refuses a published `main` that moved after this check.
  */
 export async function publishedFixtureDifferences(
   remotes: Record<string, string>,
   directory: string,
-): Promise<string[]> {
+): Promise<{ differences: string[]; commits: Record<string, string> }> {
   const differences: string[] = []
+  const commits: Record<string, string> = {}
   for (const { key, remote, bare, branches } of await fixturesAndRemotes(
     remotes,
     directory,
@@ -237,6 +239,7 @@ export async function publishedFixtureDifferences(
           encoding: "utf8",
         },
       ).trim()
+      if (branch === "main") commits[key] = fixture
       let published = ""
       try {
         published =
@@ -256,7 +259,7 @@ export async function publishedFixtureDifferences(
         )
     }
   }
-  return differences
+  return { differences, commits }
 }
 
 /**
@@ -511,6 +514,8 @@ export async function seedMcpEval(input: {
   run: string
   userId: string
   remotes: Record<string, string>
+  /** The checked `main` commit of each repository (deployed mode): a different tip stops the seed. */
+  commits?: Record<string, string>
 }) {
   const sources = new Map<
     string,
@@ -525,6 +530,12 @@ export async function seedMcpEval(input: {
     if (!url) throw new Error(`Missing fixture remote: ${fixture.key}`)
     const tip = await resolveGitRemoteTip({ url, branch: "main" })
     if (!tip) throw new Error(`Missing fixture branch: ${fixture.key}`)
+    // Each later read and the code index use this commit (`tip.sha`).
+    const checked = input.commits?.[fixture.key]
+    if (input.commits && tip.sha !== checked)
+      throw new Error(
+        `The published fixture repository ${fixture.key} moved after the check: main is ${tip.sha}, checked ${checked ?? "nothing"}`,
+      )
     const files = await readFixtureFiles(url, tip.sha)
     const directory = new URL(`./fixtures/${fixture.key}/`, import.meta.url)
     const expected = (await readdir(directory, { recursive: true })).filter(
