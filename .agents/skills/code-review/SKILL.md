@@ -63,6 +63,8 @@ The reviewers of `factory check` read this section through the `inputs` of `crit
 
 **Standards critic.** The standards sources are the files in the repo that document how to write code: each `AGENTS.md`, `.ai/memory/lessons-learned.md`, and files such as `CONTRIBUTING.md`. Report, for each file or hunk, (a) each place where the diff breaks a documented standard, with the file and the rule; and (b) each baseline smell below, with its name and the hunk. A documented standard can be a hard violation. A baseline smell is always a judgement call. Skip what tooling enforces, including the two cases above.
 
+For a UI diff, check that it reuses shared components (`apps/ui/AGENTS.md`, "Reuse shared components"). Search the code for a shared component with the same meaning as each hand-styled block in the diff (an alert, a banner, a status, a card, an empty state, a dialog frame). Report a should-fix when the diff hand-styles what a shared component already does, or when it repeats a hand-made block that should become one component. Name the component to use. A custom block with an inline comment that says why a shared component does not fit is not a finding when the reason holds; when it does not hold, report it and say why.
+
 The smell baseline is a fixed set of Fowler code smells (_Refactoring_, ch.3). It applies even when a repo documents nothing. Two rules bind it:
 
 - **The repo overrides.** A documented repo standard always wins; where it endorses something the baseline would flag, suppress the smell.
