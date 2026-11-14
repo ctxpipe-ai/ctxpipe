@@ -41,7 +41,7 @@ const meta = {
   component: LinearConnectionCard,
   decorators: [
     (Story) => (
-      <div className="w-full max-w-xl">
+      <div className="w-xl max-w-full">
         <Story />
       </div>
     ),
@@ -122,7 +122,6 @@ export const PendingSetup: Story = {
   parameters: {
     visual: {
       allow: {
-        overflow: "Fixed by PR #722.",
         contrast: "Text below WCAG AA on main (CTX-1278).",
       },
     },
@@ -182,7 +181,7 @@ export const ConnectedNotInAWorkspace: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Connected")
-    await userEvent.click(canvas.getByRole("button", { name: "Expand Linear" }))
+    await userEvent.click(canvas.getByRole("button", { name: "Linear" }))
     await canvas.findByText("No Workspaces yet")
     await expect(
       canvas.getByText(
