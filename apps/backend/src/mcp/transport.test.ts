@@ -186,9 +186,18 @@ function post(app: Hono<AppEnv>, body: unknown) {
 }
 
 describe("MCP tool call request log", () => {
-  it("holds the facts that the tool call sets, and evlog warns of no late set", async () => {
+  it("keeps SSE and puts the facts of the call on a call event, with no late-set warning", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     const events: Record<string, unknown>[] = []
+    const callEvents: Record<string, unknown>[] = []
+    // The event of the call goes to the global drain.
+    initLogger({
+      env: { service: "ctxpipe-backend", environment: "test" },
+      pretty: false,
+      drain: (ctx) => {
+        callEvents.push(ctx.event as Record<string, unknown>)
+      },
+    })
     const app = buildApp(
       (server) =>
         server.registerTool(
@@ -211,12 +220,23 @@ describe("MCP tool call request log", () => {
       events,
     )
 
-    const response = await post(app, {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: { name: "search_knowledge", arguments: { query: "hello" } },
+    const response = await app.request("http://backend.test/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+        "x-request-id": "req_mcp_call",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "search_knowledge", arguments: { query: "hello" } },
+      }),
     })
+    // The response streams: the request event is out before the tool ends.
+    expect(response.headers.get("content-type")).toContain("text/event-stream")
+    expect(events).toHaveLength(1)
     expect(await response.text()).toContain("ok")
 
     const lateSets = warn.mock.calls.filter(([message]) =>
@@ -225,7 +245,12 @@ describe("MCP tool call request log", () => {
     warn.mockRestore()
     expect(lateSets).toEqual([])
     expect(events).toHaveLength(1)
-    expect(events[0]?.["ctxpipe.mcp.result.bytes"]).toEqual(expect.any(Number))
+    expect(callEvents).toHaveLength(1)
+    expect(callEvents[0]).toMatchObject({
+      step: "mcp.call",
+      requestId: "req_mcp_call",
+      "ctxpipe.mcp.result.bytes": expect.any(Number),
+    })
   })
 })
 

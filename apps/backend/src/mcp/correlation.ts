@@ -17,7 +17,7 @@ import {
   applyAttribution,
   contextWithForkedAttributionBag,
 } from "../observability/attribution.js"
-import { getLogger } from "../observability/logger.js"
+import { createLogger, getLogger, withLogger } from "../observability/logger.js"
 import { MCP_TOOL_ERROR_CODES } from "./framework/tool-errors.js"
 import { TOOL_ERROR_META_KEY } from "./framework/tool-result.js"
 
@@ -415,13 +415,15 @@ async function runMcpCall<R>(
     return final
   }
 
-  return trace
-    .getTracer("ctxpipe-backend")
-    .startActiveSpan(
-      bridge ? `bridge.tool ${name}` : `mcp.${input.kind} ${name}`,
-      { links },
-      callContext,
-      async (span) => {
+  return trace.getTracer("ctxpipe-backend").startActiveSpan(
+    bridge ? `bridge.tool ${name}` : `mcp.${input.kind} ${name}`,
+    { links },
+    callContext,
+    // The call has its own wide event. An MCP call over SSE ends after
+    // the request event was emitted, and a bridge call ends while the chat
+    // streams, so the request logger is sealed then.
+    async (span) =>
+      withLogger(callLogger(bridge), async () => {
         applyAttribution(attributes)
         try {
           return withMeta(await fn({ callId, connectionKey, correlation }))
@@ -466,6 +468,24 @@ async function runMcpCall<R>(
         } finally {
           span.end()
         }
-      },
-    )
+      }),
+  )
+}
+
+/**
+ * The logger of one call. Its event has the request id of the request, so a
+ * query joins the call to its request. `withLogger` emits it when the call
+ * ends; the span and the attribution bag give the trace id and the facts.
+ */
+function callLogger(bridge: boolean) {
+  let requestId: unknown
+  try {
+    requestId = getLogger().getContext().requestId
+  } catch {
+    // No request logger: the call event has no request id.
+  }
+  return createLogger({
+    step: bridge ? "bridge.tool" : "mcp.call",
+    ...(typeof requestId === "string" ? { requestId } : {}),
+  })
 }
