@@ -1,21 +1,28 @@
-# The images of a pull request for its AWS preview (ADR-061 decisions 5 and 19 to 24; factory CTX-1218). On each push
-# to a pull request from this repo, this builds the linux/arm64 images that a preview runs on Graviton (backend,
-# worker, ui, codesearch) and pushes them to the preview account's ECR as
-# `ctxpipe-pr/<image>:pr-<N>-<head sha>-<run>-<attempt>`.
+# The images of a pull request for its AWS preview (ADR-061 decisions 5 and 19 to 24; factory CTX-1218). This builds
+# the linux/arm64 images that a preview runs on Graviton (backend, worker, ui, codesearch) and pushes them to the
+# preview account's ECR as `ctxpipe-pr/<image>:pr-<N>-<head sha>-<run>-<attempt>`.
 # The factory preview workflow (`factory preview up <N>`) takes them by the digests that a successful run of this
 # workflow reported for the PR's head commit (factory machines/previews/pr, `images`).
 #
+# - Only when the PR gets a preview. The first attempt of the run of each push builds nothing. The job "Merge gate
+#   starts PR Deploy" of CI re-runs this run when it starts PR Deploy (scripts/checks/README.md, Merge gate). A
+#   person can start the build with "Re-run all jobs".
+# - Only the images whose inputs changed. The plan (scripts/ci/preview-images.mjs) keeps each other image of the
+#   PR's last preview run or of main by its digest. The push job copies a kept image under the tag of this run.
 # - Only pull requests from this repo (the role trusts no fork) into main.
-# - Two jobs. `build` runs the PR's code (the Dockerfile steps) and holds no credential and no OIDC token: it hands the
-#   image on as an artifact. `push` runs no code of the PR (no checkout, no local action, pinned actions only), gets
-#   the role, and pushes that image. The role (`ctxpipe/preview-pr-image-push`, factory machines/previews/base) can
-#   only push to `ctxpipe-pr/*` in the preview account.
+# - Three jobs. `plan` runs the plan of the PR base, not of the PR, and reads the PR's files only as data. `build`
+#   runs the PR's code (the Dockerfile steps) and holds no credential and no OIDC token: it hands the image on as an
+#   artifact. `push` runs no code of the PR (no checkout, no local action, pinned actions only), gets the role, and
+#   pushes that image or copies the kept image. The role (`ctxpipe/preview-pr-image-push`, factory
+#   machines/previews/base) can only push to `ctxpipe-pr/*` in the preview account.
 # - The image is the PR's head commit, not the merge commit, so the tag names the code it holds.
 # - Provenance: every same-repo pull request has the role, so another PR can push and tag in `ctxpipe-pr/*`, and
 #   neither a tag nor a push time says which run pushed an image. So each push job reports the digest it pushed as
 #   one notice `preview-image` on its own check run, and the factory takes only those digests: of a run that
 #   succeeded, of this workflow, at the PR's head commit, whose only pull request is that PR into main. A PR's run
 #   runs the PR's own version of this file, so the factory gives no preview to a PR whose copy differs from main's.
+#   The plan keeps only a digest that one such notice reported, in a run of the same PR with the same version of
+#   this file, or that one `deploy-image` notice of a Deploy run on main reported.
 #   The tag names this run and attempt and is immutable, so a tag that is there already fails the push and the run.
 name: PR preview images
 
@@ -32,9 +39,58 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  plan:
+    name: Plan the preview images
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    timeout-minutes: 10
+    # github-hosted: a short job without Docker (ADR-065)
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      reuse: ${{ steps.plan.outputs.reuse }}
+    steps:
+      - if: github.run_attempt == '1'
+        run: echo "::notice::A push builds no preview image. The merge gate re-runs this run when it starts PR Deploy."
+      # The full history: the plan compares the PR head with earlier commits.
+      - if: github.run_attempt != '1'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - if: github.run_attempt != '1'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+      # The plan of the PR base decides: the plan of the PR could keep any digest. When the base has no plan, every
+      # image builds.
+      - id: plan
+        if: github.run_attempt != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/plan"
+          if git archive "$BASE_SHA" scripts/ci/deploy-images.mjs scripts/ci/preview-images.mjs |
+            tar -x -C "$RUNNER_TEMP/plan"; then
+            node "$RUNNER_TEMP/plan/scripts/ci/preview-images.mjs" "$PWD"
+          else
+            echo 'build=[{"image":"backend","dockerfile":"apps/backend/Dockerfile"},{"image":"worker","dockerfile":"apps/backend/Dockerfile.worker"},{"image":"ui","dockerfile":"apps/ui/Dockerfile"},{"image":"codesearch","dockerfile":"apps/codesearch/Dockerfile"}]' >> "$GITHUB_OUTPUT"
+            echo 'reuse={}' >> "$GITHUB_OUTPUT"
+          fi
+
   build:
     name: Build preview image (${{ matrix.image }})
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    needs: plan
+    if: needs.plan.outputs.build != '' && needs.plan.outputs.build != '[]'
     timeout-minutes: 45
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     permissions:
@@ -42,15 +98,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - image: backend
-            dockerfile: apps/backend/Dockerfile
-          - image: worker
-            dockerfile: apps/backend/Dockerfile.worker
-          - image: ui
-            dockerfile: apps/ui/Dockerfile
-          - image: codesearch
-            dockerfile: apps/codesearch/Dockerfile
+        include: ${{ fromJSON(needs.plan.outputs.build) }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -75,12 +123,17 @@ jobs:
 
   push:
     name: Push preview image (${{ matrix.image }})
-    needs: build
+    needs: [plan, build]
+    # The build is skipped when the plan keeps every image.
+    if: |
+      !cancelled() && needs.plan.outputs.build != '' &&
+      (needs.build.result == 'success' || needs.build.result == 'skipped')
     timeout-minutes: 20
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     permissions:
       contents: read
       id-token: write
+      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -88,11 +141,22 @@ jobs:
     env:
       REGISTRY: 573018602187.dkr.ecr.us-west-2.amazonaws.com
       TAG: pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+      # "<pr|main> <digest>" of a kept image, else empty.
+      KEEP: ${{ fromJSON(needs.plan.outputs.reuse)[matrix.image] }}
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - if: env.KEEP == ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: preview-image-${{ matrix.image }}
           path: ${{ runner.temp }}/image
+      # The pinned release of deploy.yaml: it copies a kept image by its digest.
+      - name: Install crane
+        if: env.KEEP != ''
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/crane.tar.gz" \
+            https://github.com/google/go-containerregistry/releases/download/v0.22.1/go-containerregistry_Linux_arm64.tar.gz
+          echo "898c0cff975f898a33e8c4580bdafb0e7c02c7faa33374e946762f97c4ab7110  $RUNNER_TEMP/crane.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/crane.tar.gz" -C "$RUNNER_TEMP" crane
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: arn:aws:iam::573018602187:role/ctxpipe/preview-pr-image-push
@@ -100,14 +164,30 @@ jobs:
       - name: Push to the preview account
         env:
           IMAGE: ${{ matrix.image }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           target="$REGISTRY/ctxpipe-pr/$IMAGE:$TAG"
-          # The tag is this run's own: one that is there already fails the push (immutable), and with it the run.
-          docker load --input "$RUNNER_TEMP/image/image.tar"
           aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
-          docker tag "preview/$IMAGE:local" "$target"
-          docker push "$target"
+          # The tag is this run's own: one that is there already fails the push (immutable), and with it the run.
+          if [ -z "$KEEP" ]; then
+            docker load --input "$RUNNER_TEMP/image/image.tar"
+            docker tag "preview/$IMAGE:local" "$target"
+            docker push "$target"
+          else
+            read -r from kept <<< "$KEEP"
+            [[ $kept =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::Not a digest: $KEEP"; exit 1; }
+            case "$from" in
+              pr) source="$REGISTRY/ctxpipe-pr/$IMAGE@$kept" ;;
+              main)
+                source="ghcr.io/ctxpipe-ai/$IMAGE@$kept"
+                echo "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+                ;;
+              *) echo "::error::Unknown source of a kept image: $KEEP"; exit 1 ;;
+            esac
+            # A copy with the same digest, under this run's tag. crane reads the logins of docker.
+            "$RUNNER_TEMP/crane" copy "$source" "$target"
+          fi
           # The digest the factory takes: one notice on this job's check run (factory previews/pr, runDigests).
           # From ECR, under this run's own tag: the image that the push above made.
           digest=$(aws ecr describe-images --repository-name "ctxpipe-pr/$IMAGE" --image-ids imageTag="$TAG" \

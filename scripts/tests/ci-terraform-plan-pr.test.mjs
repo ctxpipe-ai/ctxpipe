@@ -504,6 +504,37 @@ test("both dispatch steps look up a branch with a slash by its encoded name", ()
   assert.deepEqual(gone.calls, [])
 })
 
+test("the start of PR Deploy re-runs the first attempt of the preview image run, and only that", () => {
+  const runs = `repos/${repo}/actions/workflows/pr-preview-images.yaml/runs?head_sha=${head}&event=pull_request&per_page=1`
+  const branch = `repos/${repo}/branches/feature`
+  const deploy = (runList) =>
+    run(
+      "start-pr-deploy",
+      setup({ api: { [branch]: {}, [runs]: { workflow_runs: runList } } }),
+      { REPO: repo, PR: "7", BRANCH: "feature", HEAD: head },
+    )
+  const started = `workflow run pr-deploy.yaml --repo ${repo} --ref feature -f pr_number=7`
+  const first = deploy([{ id: 31, status: "completed", run_attempt: 1 }])
+  assert.equal(first.status, 0, first.stderr)
+  assert.deepEqual(first.calls, [
+    started,
+    `api --method POST repos/${repo}/actions/runs/31/rerun --silent`,
+  ])
+  // A later attempt built the images already, or a person started it.
+  const later = deploy([{ id: 31, status: "completed", run_attempt: 2 }])
+  assert.equal(later.status, 0, later.stderr)
+  assert.deepEqual(later.calls, [started])
+  // A run that does not complete is not re-run; PR Deploy still starts.
+  const busy = deploy([{ id: 31, status: "in_progress", run_attempt: 1 }])
+  assert.equal(busy.status, 0, busy.stderr)
+  assert.deepEqual(busy.calls, [started])
+  assert.equal(busy.sleeps.length, 5)
+  assert.match(busy.stdout, /did not complete/)
+  const none = deploy([])
+  assert.equal(none.status, 0, none.stderr)
+  assert.deepEqual(none.calls, [started])
+})
+
 const remind = ({ change, labels }) => {
   const dir = setup({
     api: {

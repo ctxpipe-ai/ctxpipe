@@ -111,7 +111,7 @@ export const images = [
   },
 ]
 
-const inputsOf = ({ dockerfile, context = ".", inputs }) => [
+export const inputsOf = ({ dockerfile, context = ".", inputs }) => [
   dockerfile,
   context === "." ? ".dockerignore" : `${context}/.dockerignore`,
   ...inputs,
@@ -121,7 +121,8 @@ const inputsOf = ({ dockerfile, context = ".", inputs }) => [
 // builds more, never less: the coverage check and the change check use the
 // same rule. A segment rule would miss a file that a COPY glob reads, for
 // example `pnpm-lock.yaml.orig` for `pnpm-lock.yaml*`.
-const covers = (inputs, path) => inputs.some((input) => path.startsWith(input))
+export const covers = (inputs, path) =>
+  inputs.some((input) => path.startsWith(input))
 
 // The instructions of a Dockerfile, with continuation lines joined and
 // comment lines removed.
@@ -291,7 +292,7 @@ export function uncoveredSources(root, image) {
   return [...new Set([...uncovered, ...unreadable])]
 }
 
-async function github(path, token) {
+export async function github(path, token) {
   const response = await fetch(`https://api.github.com${path}`, {
     headers: {
       accept: "application/vnd.github+json",
@@ -303,29 +304,38 @@ async function github(path, token) {
   return response.json()
 }
 
-// The digest that the base run published for each image: the one
-// `deploy-image` notice on the check run of its successful Publish job. A
-// digest that is missing or not valid is a reason to build.
+// The digest that a run reported for each image in `names`: the one notice
+// `title` (`<image> sha256:…`) on the check run of its successful job
+// `jobName(image)`. A digest that is missing or not valid is a reason to build.
 //
-// Only a Publish job of a main run writes that notice, but any job with
-// `checks: write` can add annotations to a check run, and no job can delete
-// one. So a second notice, also a forged one, makes the image build: never
-// take the first or the last notice. A GHCR tag is no proof either: PR
-// builds (pr-deploy.yaml) push tags to the same packages.
-async function baseDigests({ repo, jobs, token }) {
+// Only that job writes the notice, but any job with `checks: write` can add
+// annotations to a check run, and no job can delete one. So a second notice,
+// also a forged one, makes the image build: never take the first or the last
+// notice. A tag is no proof either: PR builds (pr-deploy.yaml) push tags to
+// the same GHCR packages, and each same-repo PR can push to ctxpipe-pr/*.
+export async function noticeDigests({
+  repo,
+  jobs,
+  token,
+  names,
+  jobName,
+  title,
+}) {
   const digests = {}
-  for (const { image } of images) {
+  for (const image of names) {
     const job = jobs.find(
       ({ name, conclusion }) =>
-        name === `Publish image (${image})` && conclusion === "success",
+        name === jobName(image) && conclusion === "success",
     )
     const checkRun = /\/check-runs\/(\d+)$/.exec(job?.check_run_url ?? "")?.[1]
     if (!checkRun) {
-      digests[image] = { reason: "the base run has no successful Publish job" }
+      digests[image] = {
+        reason: `the base run has no successful ${jobName(image)} job`,
+      }
       continue
     }
     // Every page: a notice on a later page counts too. More than 10 pages
-    // is not a Publish job of ours, so the image builds.
+    // is not a job of ours, so the image builds.
     const annotations = []
     for (let page = 1; page <= 11; page += 1) {
       const batch = await github(
@@ -336,8 +346,8 @@ async function baseDigests({ repo, jobs, token }) {
       if (batch.length < 100) break
     }
     const notices = annotations.filter(
-      ({ annotation_level, title }) =>
-        annotation_level === "notice" && title === "deploy-image",
+      ({ annotation_level, title: noticeTitle }) =>
+        annotation_level === "notice" && noticeTitle === title,
     )
     const match =
       annotations.length <= 1000 &&
@@ -346,10 +356,48 @@ async function baseDigests({ repo, jobs, token }) {
     digests[image] = match
       ? { digest: match[1] }
       : {
-          reason: `the base Publish job has ${notices.length} deploy-image notices, not one valid notice`,
+          reason: `the base job ${jobName(image)} has ${notices.length} ${title} notices, not one valid notice`,
         }
   }
   return digests
+}
+
+/**
+ * The newest successful Deploy run on main that published images (a push, or
+ * a dispatch with the input `deploy`), with its jobs and the digest that it
+ * published for each image: `{ run, digests }`, or undefined. A dispatch
+ * without `deploy` (the prerelease) has no Publish job. A run in progress is
+ * not in the list.
+ */
+export async function lastDeploy({ repo, token }) {
+  const { workflow_runs: runs } = await github(
+    `/repos/${repo}/actions/workflows/deploy.yaml/runs?branch=main&status=success&per_page=20`,
+    token,
+  )
+  for (const run of runs) {
+    if (!["push", "workflow_dispatch"].includes(run.event)) continue
+    const { jobs } = await github(
+      `/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`,
+      token,
+    )
+    if (
+      jobs.some(
+        ({ name, conclusion }) =>
+          name.startsWith("Publish image (") && conclusion === "success",
+      )
+    ) {
+      const digests = await noticeDigests({
+        repo,
+        jobs,
+        token,
+        names: images.map(({ image }) => image),
+        jobName: (image) => `Publish image (${image})`,
+        title: "deploy-image",
+      })
+      return { run, digests }
+    }
+  }
+  return undefined
 }
 
 // The matrix entry of an image: the image without its inputs.
@@ -371,32 +419,9 @@ export async function planImages({ root, event, repo, token }) {
   let changed
   let digests
   try {
-    // The newest successful run on main that published images: a push, or a
-    // dispatch with the input `deploy`. A dispatch without it (the
-    // prerelease) has no Publish job. A run in progress, this one too, is not
-    // in the list.
-    const { workflow_runs: runs } = await github(
-      `/repos/${repo}/actions/workflows/deploy.yaml/runs?branch=main&status=success&per_page=20`,
-      token,
-    )
-    let jobs
-    for (const run of runs) {
-      if (!["push", "workflow_dispatch"].includes(run.event)) continue
-      ;({ jobs } = await github(
-        `/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`,
-        token,
-      ))
-      if (
-        jobs.some(
-          ({ name, conclusion }) =>
-            name.startsWith("Publish image (") && conclusion === "success",
-        )
-      ) {
-        base = run
-        break
-      }
-    }
-    if (!base) return everything("no successful Deploy run on main")
+    const last = await lastDeploy({ repo, token })
+    if (!last) return everything("no successful Deploy run on main")
+    ;({ run: base, digests } = last)
     if (!/^[0-9a-f]{40}$/.test(base.head_sha))
       return everything("the base run has no commit")
     try {
@@ -418,7 +443,6 @@ export async function planImages({ root, event, repo, token }) {
     )
       .split("\n")
       .filter(Boolean)
-    digests = await baseDigests({ repo, jobs, token })
   } catch (error) {
     return everything(`no base: ${error.message}`)
   }
