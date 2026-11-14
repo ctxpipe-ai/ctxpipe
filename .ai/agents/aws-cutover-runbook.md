@@ -46,7 +46,8 @@ output.
    `cutover-reset-indexes` included. Each of these three refuses while `CUTOVER_G4_PASSED` is `true`.
 4. The local rehearsal passes on the images of the day:
    `ops/aws-cutover/local-rehearsal/run.sh <backend image> <codesearch image>`. It runs the commands of the tasks.
-5. The aws-core role `cutover-transfer-writer` exists: the Railway export takes its credentials.
+5. The aws-core role `arn:aws:iam::213102790567:role/guard/cutover-transfer-writer` exists: the Railway export takes
+   its credentials.
 6. A test organization with a personal API key exists in production (Railway today), for the smoke check
    (`VALIDATE_API_KEY`).
 
@@ -167,7 +168,7 @@ line gives its expected output. The dry run of the copy is its preflight against
 - **Indexes (person):**
   1. Fill `hosted/cutover/transfer-url` with `s3://<shard bucket>/cutover-transfer/<run id>` (a new run id).
   2. On your machine, get credentials that can write only `cutover-transfer/*`. They are valid for one hour:
-     `aws sts assume-role --role-arn <cutover-transfer-writer ARN> --role-session-name railway-export --duration-seconds 3600 --query Credentials`.
+     `aws sts assume-role --role-arn arn:aws:iam::213102790567:role/guard/cutover-transfer-writer --role-session-name railway-export --duration-seconds 3600 --query Credentials`.
      Also read the graph URL of the Railway `backend` service (the codesearch service has no `GRAPH_DB_URI`):
      `railway variables --service backend --environment production --json | jq -r .GRAPH_DB_URI`.
   3. Open the shell with `railway ssh --service codesearch --environment production`. Type `unset HISTFILE` first.
@@ -273,7 +274,10 @@ Do the steps that apply, in this order. Skip a step whose change was not made ye
   4. Delete the transfer copies of every run, the rehearsals too. They hold the graphs and the source code of each
      organization, outside the deletion path of ctxpipe:
      `aws s3 rm --recursive "s3://<shard bucket>/cutover-transfer/"`.
-- **Expected:** `aws s3 ls "s3://<shard bucket>/cutover-transfer/"` prints nothing.
+  5. Delete the seed file of the MCP evals, if one stays. It holds an API key of the test organizations:
+     `aws s3 rm --recursive "s3://<shard bucket>/cutover-mcp-evals/"`.
+- **Expected:** `aws s3 ls "s3://<shard bucket>/cutover-transfer/"` and
+  `aws s3 ls "s3://<shard bucket>/cutover-mcp-evals/"` print nothing.
 
 After a rollback, AWS still holds copies that no step deletes. AWS deletes them after a time:
 
@@ -283,8 +287,7 @@ After a rollback, AWS still holds copies that no step deletes. AWS deletes them 
 
 ## Open items
 
-- The MCP evals run in a rehearsal only, never in the window: they write test organizations. They are the task
-  `cutover-mcp-evals` (`run-seed.ts deployed`, then the eval client with `--no-advance`; see
-  `apps/backend/evals/mcp/README.md`). The factory pull request that adds the task is open. The task must refuse to
-  run while `CUTOVER_G4_PASSED` is `true`.
+- The MCP evals run in a rehearsal only, never in the window: they write test organizations. Run the task
+  `cutover-mcp-evals-seed`, then `cutover-mcp-evals` (see `apps/backend/evals/mcp/README.md`). Both refuse to run
+  while `CUTOVER_G4_PASSED` is `true`.
 - Delete this file in the pull request that removes the cutover tasks.
