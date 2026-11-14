@@ -125,6 +125,7 @@ export const EditsAnExistingScope: Story = {
 
 export const LoadError: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: { handlers: { page: [slackChannelsHandler("error")] } },
   },
   play: async ({ canvasElement }) => {

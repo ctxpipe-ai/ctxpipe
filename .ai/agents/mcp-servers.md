@@ -10,8 +10,7 @@ Claude Code and Codex read keys from environment variables. Only `ctxpipe` can f
 | `ctxpipe-storybook` | Storybook MCP at `http://127.0.0.1:6006/mcp` | None. Storybook must be running: `pnpm --filter @ctxpipe/ui storybook` |
 | `neon` | Neon Lakebase Postgres, **read-only** | `NEON_API_KEY` (Bearer) is required. The URL forces read-only. [Neon MCP docs](https://neon.com/docs/ai/neon-mcp-server) |
 | `railway` | Railway status + deploy/runtime stdout | Stdio server (`railway mcp local`). Set `RAILWAY_API_TOKEN`, or run `railway login` |
-| `hyperdx` | ClickStack logs, traces, metrics, dashboards | `HYPERDX_ACCESS_KEY` = personal access key (Bearer), not the `HYPERDX_API_KEY` ingest token. It is required |
-| `langfuse` | Langfuse **project** MCP (LLM traces / prompts) | `LANGFUSE_AUTH_STRING` = base64(`pk:sk`) is required. Codex sends it through a stdio `mcp-remote` bridge. See [ops/observability/USING.md](../../ops/observability/USING.md) |
+| `hyperdx` | ClickStack logs, traces with prompt text, metrics, dashboards (`hyperdx.ctxpipe.dev`, behind Cloudflare Access) | All required: `HYPERDX_ACCESS_KEY` = personal access key (Bearer), not the ingest token; `HYPERDX_CF_ACCESS_CLIENT_ID` and `HYPERDX_CF_ACCESS_CLIENT_SECRET` = the Access service token `agents`. Where each agent host keeps them: [ops/observability/USING.md](../../ops/observability/USING.md#agent-hosts) |
 | `cloudflare` | Cloudflare API, **read-only** by token: zones, DNS records, Access apps and policies, tunnel configuration, Logpush jobs. See [Cloudflare](#cloudflare) | `CLOUDFLARE_API_TOKEN_READONLY` (Bearer) is required |
 
 ## Cloudflare

@@ -60,6 +60,7 @@ const card = () =>
 export const Connected: Story = {
   render: card,
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [

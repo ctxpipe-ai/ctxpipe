@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { getWorker, initialize, mswLoader } from "msw-storybook-addon"
 import { type ReactElement, Suspense, useMemo } from "react"
 
+import { layoutProblems } from "../src/lib/layout-checks"
 import {
   authConfigHandler,
   organizationListWithOrgHandler,
@@ -18,7 +19,10 @@ initialize({ onUnhandledRequest: "bypass" })
 
 // The check runner (scripts/checks/README.md) records which MSW handlers
 // answered a request of the story. A handler header is `<METHOD> <path>`.
+// The screenshot capture (scripts/ci/visual-capture.mjs) runs the layout
+// checks of each story.
 Object.assign(window, {
+  __ctxpipeLayoutProblems: layoutProblems,
   __ctxpipeMswHandlers: () =>
     getWorker()
       .listHandlers()

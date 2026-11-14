@@ -250,6 +250,41 @@ describe("visual:check", () => {
     })
   })
 
+  test("fails on a layout problem of an unchanged screenshot, and keeps the problem in the manifest", async () => {
+    await visual("update")
+    const problem = {
+      rule: "axes" as const,
+      element: 'div[role=dialog] "Choose the scope"',
+      detail: "4 leading markers sit on 2 near axes",
+    }
+    shots.set(`${card.id} desktop`, {
+      status: "captured",
+      png: blue,
+      layout: [problem],
+    })
+    expect(await visual("check")).toBe(1)
+    expect(await statuses()).toMatchObject({ [cardDesktop]: "unchanged" })
+    const story = (await manifest()).stories.find(
+      (entry) => entry.baseline === cardDesktop,
+    )
+    expect(story?.layout).toEqual([problem])
+    expect(lines).toContain(
+      `layout: ${cardDesktop}: axes: ${problem.element}: ${problem.detail}`,
+    )
+    // A new baseline does not fix the layout: update writes it, and names
+    // the problem.
+    lines = []
+    shots.set(`${card.id} desktop`, {
+      status: "captured",
+      png: red,
+      layout: [problem],
+    })
+    expect(await visual("update")).toBe(0)
+    expect(lines).toContain(
+      `layout: ${cardDesktop}: axes: ${problem.element}: ${problem.detail}`,
+    )
+  })
+
   test("fails on an orphan baseline and on a screenshots folder with no story file, and deletes neither", async () => {
     await visual("update")
     const gone =

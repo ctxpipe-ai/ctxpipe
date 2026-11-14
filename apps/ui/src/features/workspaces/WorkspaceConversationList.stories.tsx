@@ -107,6 +107,7 @@ export const Loading: Story = {
 
 export const LoadMore: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -467,6 +468,7 @@ export const DeleteError: Story = {
     requests.length = 0
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: conversationRequestHandlers({
@@ -502,6 +504,7 @@ export const DeleteRefusedWhileTurnRuns: Story = {
     requests.length = 0
   },
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: conversationRequestHandlers({

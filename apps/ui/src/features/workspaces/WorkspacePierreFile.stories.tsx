@@ -38,9 +38,16 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Markdown: Story = {}
+export const Markdown: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
+}
 
 export const TypeScript: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   args: {
     path: "apps/ui/src/main.tsx",
     body: 'export function boot() {\n  return "ok"\n}\n',
@@ -49,6 +56,9 @@ export const TypeScript: Story = {
 }
 
 export const DiffVsHead: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   args: {
     path: "knowledge/billing/ledger.md",
     body: `${docsWorkspaceGitBlobs["knowledge/billing/ledger.md"] ?? ""}\nLocal edit.\n`,
@@ -70,6 +80,9 @@ const longLine =
   "A single row that is wider than the preview so the horizontal scrollbar sits on the pane, not under the last line of text. "
 
 export const ShortFile: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   args: {
     path: "apps/ui/src/main.tsx",
     body: 'export function boot() {\n  return "ok"\n}\n',
@@ -78,6 +91,9 @@ export const ShortFile: Story = {
 }
 
 export const LongFile: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   args: {
     path: "knowledge/handbook.md",
     body: [

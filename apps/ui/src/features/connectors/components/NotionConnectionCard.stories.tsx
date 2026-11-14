@@ -146,6 +146,7 @@ const deleted = fn()
 export const PendingSetup: Story = {
   render: () => shell(card()),
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [

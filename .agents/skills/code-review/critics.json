@@ -147,6 +147,7 @@
         "packages/visual-review/package.json",
         "packages/visual-review/rubric.json",
         "packages/visual-review/src/command.ts",
+        "packages/visual-review/src/explain.ts",
         "packages/visual-review/src/index.ts",
         "packages/visual-review/src/prepare.ts",
         "packages/visual-review/src/prompt.ts",

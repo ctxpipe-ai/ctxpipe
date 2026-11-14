@@ -18,11 +18,15 @@
     {
       "id": "color-tokens",
       "name": "Color tokens",
-      "definition": "Color comes from the house tokens: a zinc floor, a white primary, a teal accent. Red marks an error alert and the filled danger button of a confirm dialog. The dark UI has no large bright or saturated area: bright color is a small accent, such as a border, an icon or a dot. A warning is a dark surface with a yellow or amber border and icon; a yellow fill with dark text is only for a small element and only when it passes AA. An embedded editor, diff viewer or preview uses the dark theme. No indigo, no purple gradient, no second accent.",
+      "definition": "Color comes from the house tokens: a zinc floor, a white primary, a teal accent. Red marks an error alert and the filled danger button of a confirm dialog. The dark UI has no large bright or saturated area: bright color is a small accent, such as a border, an icon or a dot. A warning or error block has one strong signal: one frame, or one icon with one colored line, not a colored side border, colored dots and boxed alerts together. The items inside it show their state as quiet text with at most one icon. The action sits next to the problem that it fixes. A warning is a dark surface with a yellow or amber border and icon; a yellow fill with dark text is only for a small element and only when it passes AA. An embedded editor, diff viewer or preview uses the dark theme. No indigo, no purple gradient, no second accent.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
           "section": "Color"
+        },
+        {
+          "file": "apps/ui/DESIGN.md",
+          "section": "Targets (new or touched UI)"
         }
       ]
     },
@@ -48,7 +52,7 @@
     {
       "id": "overflow",
       "name": "Overflow and truncation",
-      "definition": "Text, icons and focus rings fit their box. Nothing is cut off by a parent, nothing runs over a neighbor, and no element covers text.",
+      "definition": "Text, icons and focus rings fit their box. Nothing is cut off by a parent, nothing runs over a neighbor, and no element covers text. Long machine text (a URL, a token, an id, a stack trace, raw error text) never fills a message: a short sentence shows, and the detail is behind a disclosure or in a mono block with a capped height that scrolls. A signed URL or a value that looks like a secret never shows in full.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
@@ -57,13 +61,17 @@
         {
           "file": ".agents/skills/product-ui/references/visual-craft.md",
           "section": "Finishing"
+        },
+        {
+          "file": "apps/ui/DESIGN.md",
+          "section": "Targets (new or touched UI)"
         }
       ]
     },
     {
       "id": "contrast",
       "name": "Contrast",
-      "definition": "Text is readable on its surface: about 4.5:1 for body text and 3:1 for large text and icons. On a teal, red or amber slab, secondary text is a lighter stop of the same hue at full opacity, not white at reduced opacity. The text of a file tree or a nav list is never so dim that it reads as disabled.",
+      "definition": "Text is readable on its surface: about 4.5:1 for body text and 3:1 for large text and icons. On a teal, red or amber slab, secondary text is a lighter stop of the same hue at full opacity, not white at reduced opacity. The text of a file tree or a nav list is never so dim that it reads as disabled. A tile, card or row differs from the page by its surface, by a border that is easy to see, or both: a thin dim border on the page color looks like a wireframe.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
@@ -72,13 +80,17 @@
         {
           "file": ".agents/skills/product-ui/references/visual-craft.md",
           "section": "Color on color"
+        },
+        {
+          "file": "apps/ui/DESIGN.md",
+          "section": "Targets (new or touched UI)"
         }
       ]
     },
     {
       "id": "alignment",
       "name": "Alignment",
-      "definition": "Items in one column share one left edge: a message, an answer and the composer; an icon row, a checklist and a step card. The leading markers of a vertical stack (a header icon, checkboxes, step numbers, list icons) share one vertical axis, and the center of each marker sits on its text line. Long copy is left-aligned, never justified. Numbers are right-aligned with tabular figures. Mixed type on one row shares a baseline.",
+      "definition": "Items in one column share one left edge: a message, an answer and the composer; an icon row, a checklist and a step card. The leading markers of the siblings at one level of a vertical stack (a header icon, checkboxes, step numbers, list icons) share one vertical axis, and the center of each marker sits on its text line. Hierarchy beats alignment: a child group (a nested list, the options of one choice, the scope of one item) starts one clear step in or sits in a frame under its parent, with its own axis. A nesting, a frame or an inset removed to put markers on one axis is a defect. Long copy is left-aligned, never justified. Numbers are right-aligned with tabular figures. Mixed type on one row shares a baseline.",
       "sources": [
         {
           "file": ".agents/skills/product-ui/references/visual-craft.md",
@@ -93,7 +105,7 @@
     {
       "id": "missing-elements",
       "name": "Missing elements",
-      "definition": "An addition or deletion region adds or removes an element. A label, an icon, a status word or a control does not disappear without a reason. A status keeps its dot and its word.",
+      "definition": "An addition or deletion region adds or removes an element. A label, an icon, a status word or a control does not disappear without a reason. A status keeps its dot and its word. A block keeps the shape that shows what it is: a status block, a step or a result (a done state, a merge step, a tile) that loses its surface, frame or icon and becomes bare text is a regression.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
@@ -201,7 +213,7 @@
     {
       "id": "hierarchy",
       "name": "Hierarchy",
-      "definition": "One element leads: the title is the loudest ink. Hierarchy comes from weight and muted color, not from a size jump. Neighbors and decorative icons are muted first. Items of different importance do not get the same weight, as in a grid of equal cards. Secondary chrome (legends, hints, help) is smaller and dimmer than the content.",
+      "definition": "One element leads: the title is the loudest ink. Hierarchy comes from weight and muted color, not from a size jump. Neighbors and decorative icons are muted first. Items of different importance do not get the same weight, as in a grid of equal cards. Secondary chrome (legends, hints, help) is smaller and dimmer than the content. A child group stays inset or framed under its parent, so that the reader sees the tree; a flattened tree is worse hierarchy, also when its markers now share one axis.",
       "sources": [
         {
           "file": ".agents/skills/product-ui/references/visual-craft.md",
@@ -210,6 +222,14 @@
         {
           "file": ".agents/skills/product-ui/SKILL.md",
           "section": "4. Hierarchy + layout pass"
+        },
+        {
+          "file": "apps/ui/DESIGN.md",
+          "section": "Targets (new or touched UI)"
+        },
+        {
+          "file": ".agents/skills/product-ui/references/visual-craft.md",
+          "section": "Space and layout"
         }
       ],
       "pageOnly": false

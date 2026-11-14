@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Git ref to publish from
+        description: Git ref to publish from (snapshot prerelease only)
         default: main
         type: string
       dist_tag:
@@ -18,6 +18,14 @@ on:
           - next
           - canary
           - beta
+      # Off: the run publishes the snapshot prerelease only. On, from main:
+      # the run builds every image and deploys production as a push to main
+      # does, without the release job and the prerelease. On, from another
+      # branch: no job runs.
+      deploy:
+        description: Build every image and deploy production (run from main)
+        default: false
+        type: boolean
 
 concurrency:
   group: deploy-main
@@ -28,16 +36,58 @@ permissions:
   pull-requests: write
 
 jobs:
-  # Each image builds natively on an amd64 runner and on an arm64 runner. QEMU
-  # is too slow for the codesearch toolchain. Each build pushes its image by
-  # digest only. The publish_images job then joins the two digests in one
-  # manifest list with the tags <sha> and latest. Railway pulls the
-  # linux/amd64 image, and the AWS hosts (Graviton) pull the linux/arm64
+  # The deploy runs on a push to main, and on a dispatch from main with the
+  # input `deploy`. The jobs that hold production secrets (terraform,
+  # forge_deploy) state this condition in their own `if:`
+  # (scripts/ci/check-secret-jobs.mjs); each other job runs only after the
+  # job before it succeeded.
+  #
+  # Decides which images this run builds (scripts/ci/deploy-images.mjs). On a
+  # push, an image builds when one of its inputs changed since the commit of
+  # the last successful deploy run on main. Each other image keeps the
+  # multi-platform image that the base run published: publish_images gives
+  # that digest the new tags. Every image builds on a dispatch, when no base
+  # is found, when the base commit is not in the history of this commit, or
+  # when this file or the plan changed. The job reads the base run only
+  # through the GitHub API, as data.
+  image_plan:
+    timeout-minutes: 5
+    name: Plan the image builds
+    if: (github.event_name == 'push' || inputs.deploy && github.ref == 'refs/heads/main')
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      reuse: ${{ steps.plan.outputs.reuse }}
+      images: ${{ steps.plan.outputs.images }}
+    steps:
+      # The full history: the plan compares this commit with the base commit.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/deploy-images.mjs
+
+  # Each image that the plan selects builds natively on an amd64 runner and on
+  # an arm64 runner. QEMU is too slow for the codesearch toolchain. Each build
+  # pushes its image by digest only. The publish_images job then joins the two
+  # digests in one manifest list with the tags <sha> and latest. Railway pulls
+  # the linux/amd64 image, and the AWS hosts (Graviton) pull the linux/arm64
   # image. Self-hosters can run either.
   build_images_amd64:
     timeout-minutes: 45
     name: Build image (${{ matrix.image }}, amd64)
-    if: github.event_name != 'workflow_dispatch'
+    needs: image_plan
+    if: needs.image_plan.outputs.build != '[]'
     # amd64: it builds the linux/amd64 image of each service natively.
     runs-on: blacksmith-4vcpu-ubuntu-2404
     environment: production
@@ -45,27 +95,8 @@ jobs:
       ARCH: amd64
     strategy:
       fail-fast: false
-      matrix: &images
-        include:
-          - image: backend
-            dockerfile: apps/backend/Dockerfile
-          - image: worker
-            dockerfile: apps/backend/Dockerfile.worker
-          - image: ui
-            dockerfile: apps/ui/Dockerfile
-          - image: codesearch
-            dockerfile: apps/codesearch/Dockerfile
-          # Workspace chat sandboxes.
-          - image: chat-sandbox
-            dockerfile: scripts/chat-sandbox/Dockerfile
-            context: scripts/chat-sandbox
-          # The AgentCore Runtime image of the chat sandbox: the `agentcore`
-          # target of the same Dockerfile, with the shim as its entry point
-          # (CTX-1219).
-          - image: chat-sandbox-agentcore
-            dockerfile: scripts/chat-sandbox/Dockerfile
-            context: scripts/chat-sandbox
-            target: agentcore
+      matrix: &build_images
+        include: ${{ fromJSON(needs.image_plan.outputs.build) }}
     steps: &build_image_steps
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
@@ -106,21 +137,32 @@ jobs:
   build_images_arm64:
     timeout-minutes: 45
     name: Build image (${{ matrix.image }}, arm64)
-    if: github.event_name != 'workflow_dispatch'
+    needs: image_plan
+    if: needs.image_plan.outputs.build != '[]'
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     environment: production
     env:
       ARCH: arm64
     strategy:
       fail-fast: false
-      matrix: *images
+      matrix: *build_images
     steps: *build_image_steps
 
+  # Tags each image of the plan with <sha> and latest: a built image as the
+  # list of its two digests, and a reused image by the digest of the base run.
+  # A copy of one list keeps its digest. Each job reports the digest that it
+  # pushed as one `deploy-image` notice on its own check run: the plan of a
+  # later run reads only that notice. The build jobs are skipped when the plan
+  # builds no image, and a job after a skipped job runs only with a status
+  # function. Thus this job and each job after it check the result of the job
+  # before them, and do not run when a job before them failed or the run was
+  # cancelled.
   publish_images:
     timeout-minutes: 10
     name: Publish image (${{ matrix.image }})
-    if: github.event_name != 'workflow_dispatch'
+    if: ${{ !cancelled() && !failure() && needs.image_plan.result == 'success' }}
     needs:
+      - image_plan
       - build_images_amd64
       - build_images_arm64
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm
@@ -129,15 +171,20 @@ jobs:
       packages: write
     strategy:
       fail-fast: false
-      matrix: *images
+      matrix:
+        include: ${{ fromJSON(needs.image_plan.outputs.images) }}
+    env:
+      REUSE: ${{ fromJSON(needs.image_plan.outputs.reuse)[matrix.image] }}
     steps:
       # Each architecture by its exact name: a pattern such as
       # `digest-chat-sandbox-*` also matches `digest-chat-sandbox-agentcore-*`.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: env.REUSE == ''
         with:
           name: digest-${{ matrix.image }}-amd64
           path: ${{ runner.temp }}/digest
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: env.REUSE == ''
         with:
           name: digest-${{ matrix.image }}-arm64
           path: ${{ runner.temp }}/digest
@@ -151,21 +198,31 @@ jobs:
 
       - name: Tag the multi-platform image
         env:
+          NAME: ${{ matrix.image }}
           IMAGE: ghcr.io/ctxpipe-ai/${{ matrix.image }}
           INDEX: ${{ runner.temp }}/index/${{ matrix.image }}
         run: |
           set -o pipefail
+          if [ -n "$REUSE" ]; then
+            sources=("$IMAGE@$REUSE")
+          else
+            sources=("$IMAGE@$(cat "$RUNNER_TEMP/digest/amd64")" "$IMAGE@$(cat "$RUNNER_TEMP/digest/arm64")")
+          fi
           docker buildx imagetools create --progress plain \
             --tag "$IMAGE:$GITHUB_SHA" \
             --tag "$IMAGE:latest" \
-            "$IMAGE@$(cat "$RUNNER_TEMP/digest/amd64")" \
-            "$IMAGE@$(cat "$RUNNER_TEMP/digest/arm64")" 2>&1 | tee "$RUNNER_TEMP/create.log"
+            "${sources[@]}" 2>&1 | tee "$RUNNER_TEMP/create.log"
           # The digest of the list that this job pushed, from the push and not
           # from a later read of the tag. copy_images_to_ecr copies it.
           mkdir -p "$(dirname "$INDEX")"
           grep -oE 'pushing sha256:[0-9a-f]{64} to ' "$RUNNER_TEMP/create.log" | sort -u | cut -d' ' -f2 > "$INDEX"
           [ "$(wc -l < "$INDEX")" -eq 1 ]
+          if [ -n "$REUSE" ] && [ "$(cat "$INDEX")" != "$REUSE" ]; then
+            echo "::error::The copy of $IMAGE@$REUSE pushed $(cat "$INDEX")" >&2
+            exit 1
+          fi
           docker buildx imagetools inspect "$IMAGE@$(cat "$INDEX")"
+          echo "::notice title=deploy-image::$NAME $(cat "$INDEX")"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -182,7 +239,7 @@ jobs:
   ecr_digests:
     timeout-minutes: 5
     name: Digests for the production ECR
-    if: github.event_name != 'workflow_dispatch'
+    if: ${{ !cancelled() && !failure() && needs.publish_images.result == 'success' }}
     needs:
       - publish_images
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm
@@ -234,7 +291,7 @@ jobs:
   copy_images_to_ecr:
     timeout-minutes: 15
     name: Copy images to the ECR
-    if: github.event_name != 'workflow_dispatch'
+    if: ${{ !cancelled() && !failure() && needs.ecr_digests.result == 'success' }}
     needs:
       - ecr_digests
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm
@@ -361,7 +418,7 @@ jobs:
   release:
     timeout-minutes: 20
     name: Release
-    if: github.event_name != 'workflow_dispatch'
+    if: ${{ !cancelled() && !failure() && needs.ecr_digests.result == 'success' && github.event_name == 'push' }}
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     needs:
       - publish_images
@@ -417,12 +474,14 @@ jobs:
   terraform:
     timeout-minutes: 90
     name: Terraform Init/Plan/Apply
-    if: github.event_name != 'workflow_dispatch'
+    if: ${{ !cancelled() && !failure() && needs.ecr_digests.result == 'success' && (github.event_name == 'push' || inputs.deploy && github.ref == 'refs/heads/main') }}
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     environment: production
     needs:
       - publish_images
       - ecr_digests
+    outputs:
+      roll_prs: ${{ steps.otel_previews.outputs.prs }}
     defaults:
       run:
         working-directory: infra
@@ -571,6 +630,39 @@ jobs:
       # Provider Update() serviceConnects the image for every environment and
       # redeploys previews. App image tags are ignore_changes; this step
       # deploys production only (ADR-039).
+      # The switch to the new collector (CTX-1216): the previews whose backend
+      # has no Access token in its OTEL headers roll after this job (job
+      # roll_previews_onto_collector). Their OTEL sync skipped while
+      # production had no token to compare with (scripts/preview-otel-vars.sh).
+      # It reads the state after the sync, so a re-run of a failed attempt
+      # finds the same previews. A failure here does not stop the deploy.
+      - name: Find the previews that need the new collector
+        id: otel_previews
+        continue-on-error: true
+        working-directory: ${{ github.workspace }}
+        env:
+          OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source scripts/railway-graphql.sh
+          # shellcheck disable=SC1091
+          source scripts/preview-otel-vars.sh
+          # Until production sends with its Access token, previews keep skipping.
+          [[ -n "$(otlp_header_values "$OBSERVABILITY_OTLP_HEADERS" CF-Access-Client-Id)" ]] || exit 0
+          BACKEND_SERVICE_ID="$(terraform -chdir=infra output -json railway_service_ids | jq -er '.backend')"
+          export BACKEND_SERVICE_ID
+          prs="$(previews_without_access_otel | tr '\n' ' ')"
+          echo "prs=${prs% }" >> "$GITHUB_OUTPUT"
+          echo "Previews without the Access token: ${prs:-none}"
+
+      # Each production deploy scans again (it reads the state), so the next
+      # one retries what this one could not read; this says so where people look.
+      - name: Say that the preview scan failed
+        if: steps.otel_previews.outcome == 'failure'
+        run: |
+          echo "::warning title=Previews not rolled::The scan for previews without the Access token failed; the next production deploy scans again." | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Deploy production images
         working-directory: ${{ github.workspace }}
         env:
@@ -608,13 +700,61 @@ jobs:
           VERCEL_PROJECT_ID: ctxpipe
         run: bun src/scripts/deletePreviewSandboxes.ts 'pr-*'
 
+  # The switch to the new collector (CTX-1216): roll each preview that the
+  # terraform job found without the Access token, on the images of its PR's
+  # last deployed commit, so its OTEL sync compares its token with
+  # production's and sets its variables. Each roll is
+  # pr-preview-roll-existing.yaml run from main: main's reviewed workflow and
+  # scripts hold the Preview secrets, and the PR's commit selects only the
+  # images. A branch's own older scripts could copy production's new OTEL
+  # token into its preview. The job holds no secret: the GitHub token
+  # dispatches the rolls.
+  roll_previews_onto_collector:
+    timeout-minutes: 10
+    name: Roll the previews onto the new collector
+    # A truthy output: GitHub gives '' and the deploy tests' model gives null
+    # when the terraform job set none.
+    if: needs.terraform.outputs.roll_prs
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    needs: terraform
+    permissions:
+      actions: write
+      pull-requests: read
+    steps:
+      - name: Roll each preview on its last deployed commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PRS: ${{ needs.terraform.outputs.roll_prs }}
+        run: |
+          set -euo pipefail
+          for number in $PRS; do
+            [[ "$number" =~ ^[0-9]+$ ]] || continue
+            pr="$(gh pr view "$number" --repo "$REPO" --json state,headRefName,isCrossRepository)"
+            ref="$(jq -r .headRefName <<<"$pr")"
+            if [[ "$(jq -r .state <<<"$pr")" != OPEN || "$(jq -r .isCrossRepository <<<"$pr")" == true ]]; then
+              echo "PR #$number: not an open PR of this repository; skipped"
+              continue
+            fi
+            # The images of the last commit that PR Deploy deployed, not only of the head.
+            sha="$(gh run list --repo "$REPO" --workflow pr-deploy.yaml --branch "$ref" --limit 50 \
+              --json headSha,conclusion | jq -r '[.[] | select(.conclusion == "success")][0].headSha // ""')"
+            if [[ -z "$sha" ]]; then
+              echo "PR #$number: no successful PR Deploy; skipped"
+              continue
+            fi
+            gh workflow run pr-preview-roll-existing.yaml --repo "$REPO" --ref "$GITHUB_REF_NAME" \
+              -f pr_number="$number" -f head_sha="$sha" -f pr_branch="$ref"
+            echo "PR #$number: roll dispatched"
+          done
+
   # A reviewed exception in scripts/ci/check-secret-jobs.mjs (productionJobs):
   # the Forge CLI is a package, and it runs with the Forge token. The job runs
   # only on a push to main, with merged code and a frozen lockfile.
   forge_deploy:
     timeout-minutes: 20
     name: Deploy Forge app (production)
-    if: github.event_name != 'workflow_dispatch'
+    if: ${{ !cancelled() && !failure() && needs.terraform.result == 'success' && (github.event_name == 'push' || inputs.deploy && github.ref == 'refs/heads/main') }}
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     environment: production
     needs: terraform
@@ -655,7 +795,7 @@ jobs:
   prerelease:
     timeout-minutes: 20
     name: Prerelease
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && !inputs.deploy
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     permissions:
       contents: read

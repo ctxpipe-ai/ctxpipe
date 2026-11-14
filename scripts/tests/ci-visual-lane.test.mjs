@@ -382,3 +382,73 @@ export const Menu = { parameters: { visual: ${visual} }${play} }
       play,
     )
 })
+
+test("a story accepts a layout rule with a reason in parameters.visual.allow", () => {
+  const text = `export default {
+  title: "Features/X",
+  parameters: { visual: { allow: { contrast: "The brand teal on white." } } },
+}
+export const Plain = {}
+export const Wide = {
+  parameters: { visual: { allow: { overflow: "A log line scrolls in CI." } } },
+}
+`
+  const options = optionsOf(text, [storyOf("Plain"), storyOf("Wide")])
+  assert.deepEqual(options.get("features-x--plain").allow, {
+    contrast: "The brand teal on white.",
+  })
+  // The value of the story replaces the value of the meta.
+  assert.deepEqual(options.get("features-x--wide").allow, {
+    overflow: "A log line scrolls in CI.",
+  })
+  const story = (allow) => `export default { title: "Features/X" }
+export const Menu = { parameters: { visual: { allow: ${allow} } } }
+`
+  for (const allow of [
+    '{ overflow: "" }',
+    "{ overflow: true }",
+    '{ spacing: "A reason." }',
+    '["overflow"]',
+  ])
+    assert.throws(
+      () => optionsOf(story(allow), [storyOf("Menu")]),
+      /X\.stories\.tsx Menu: parameters\.visual\.allow (must be an object|needs a layout rule)/,
+      allow,
+    )
+})
+
+test("a screenshot with a layout problem fails its record, and the message names the rule, the element and the numbers", () => {
+  const [record] = visualRecords(
+    {
+      stories: [
+        entry(home, "desktop", "unchanged", { baseline: homeDesktop }),
+        entry(home, "mobile", "unchanged", {
+          layout: [
+            {
+              rule: "overflow",
+              element: 'p "https://example.atlassian.net/wiki"',
+              detail: "content 512 px wide runs out of its 302 px box",
+            },
+          ],
+        }),
+      ],
+      budget: [],
+    },
+    10,
+  )
+  assert.equal(record.status, "failed")
+  assert.deepEqual(
+    record.cases.map(({ name, status }) => [name, status]),
+    [
+      ["desktop", "passed"],
+      ["mobile", "failed"],
+    ],
+  )
+  assert.match(
+    record.message,
+    /mobile layout overflow: p "https:\/\/example\.atlassian\.net\/wiki": content 512 px wide runs out of its 302 px box/,
+  )
+  // The pixels are unchanged, so a new baseline does not fix it.
+  assert.doesNotMatch(record.message, /visual:update/)
+  assert.match(record.message, /parameters\.visual\.allow/)
+})

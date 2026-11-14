@@ -432,18 +432,22 @@ async function decide(
  * quality, and the flat-page question only on a page screenshot), and the state gives Jev
  * `judgingRule`, what not to report. The verdict says `regression` when an
  * area, a rule question or a quality breaks a rule with a probability of 0.5
- * or more (a rule answer under 0.5 does not count for `unsure`), and
- * `unsure` when a probability is from 0.2 up to 0.5, when a question has no
- * answer, or when a defect has no area. Else it is `intended` (with a brief;
- * see `parseNewVerdict`). A quality is `fails` from 0.5, `weak` from 0.2, and
- * else `meets`. Only Jev 1.14 takes the box question, on the first image.
- * For another model, the region of a finding is the whole first image.
- * The bake-off of the critic uses it (CTX-1243), and the visual critic of
- * the factory (`visual:review --judge jev`, ADR-063).
+ * or more, and the highest probability is 0.8 or more (a rule answer under
+ * 0.5 does not count for `unsure`). It says `unsure` when such a flag has a
+ * highest probability under 0.8 (CTX-1267: with the findings, and the reason
+ * in the summary), when a probability is from 0.2 up to 0.5, when a question
+ * has no answer, or when a defect has no area. Else it is `intended` (with a
+ * brief; see `parseNewVerdict`). A quality is `fails` from 0.5, `weak` from
+ * 0.2, and else `meets`. Only Jev 1.14 takes the box question, on the first
+ * image. For another model, the region of a finding is the whole first
+ * image. `onAnswers` gets the raw answers of Jev, for the bake-off. The
+ * bake-off of the critic uses it (CTX-1243), and the visual critic of the
+ * factory (`visual:review --judge jev`, ADR-063).
  */
 export async function judgeNewWithJev(
   story: NewStoryInput,
   requestedModel = "typesafe/jev-1.14",
+  onAnswers?: (answers: Record<string, unknown>) => void,
 ): Promise<Verdict> {
   const unsure = (error: string, latencyMs = 0) =>
     noAnswer(story.storyId, requestedModel, error, latencyMs)
@@ -574,6 +578,7 @@ export async function judgeNewWithJev(
   const decided = await decide(requestedModel, state, questions)
   if ("error" in decided) return unsure(decided.error, decided.latencyMs)
   const { answers, model, costUsd, latencyMs } = decided
+  onAnswers?.(answers)
 
   const noul = z.object({
     type: z.literal("noul"),
@@ -647,6 +652,11 @@ export async function judgeNewWithJev(
         defect: defectProbability ?? 0,
         unanswered,
         strongest,
+        // Jev does not tell a clean new screenshot from a broken one by its
+        // flags: in the bake-off, it flagged 8 of 10 clean and 10 of 10
+        // broken new screenshots, with the same spread of probabilities
+        // (CTX-1267). A flag under 0.8 is `unsure`, a nit with no images.
+        floor: 0.8,
       }),
       qualities: qualityResults.map(({ id, probability }) => ({
         name: id,
@@ -666,9 +676,10 @@ export async function judgeNewWithJev(
  * or broken (a new screenshot) with a probability of 0.5 or more. Each such
  * area is a finding in `region`; with no region, it is not placed, and the
  * verdict stays `unsure`. A flagged quality is a regression with no finding,
- * since a finding names an area. Else a probability from 0.2 up, or a
- * question with no answer, is `unsure`, and the rest is `intended`. A
- * regression has severity `minor`: it does not block.
+ * since a finding names an area. A flag whose highest probability is under
+ * `floor` is `unsure`. Else a probability from 0.2 up, or a question with no
+ * answer, is `unsure`, and the rest is `intended`. A regression has severity
+ * `minor`: it does not block.
  */
 function decision({
   word,
@@ -679,6 +690,7 @@ function decision({
   unanswered,
   strongest,
   note,
+  floor = 0.5,
 }: {
   word: "worse" | "broken"
   flaggedAreas: readonly {
@@ -693,14 +705,26 @@ function decision({
   strongest: number
   /** A sentence to add to the summary of an `unsure` verdict. */
   note?: string
+  /**
+   * The lowest confidence of a `regression`. A flag with a lower confidence
+   * is `unsure`, with its findings. Default 0.5: each flag is a regression.
+   */
+  floor?: number
 }) {
   const placed = region ? flaggedAreas : []
+  const flagged = placed.length > 0 || flaggedQualities.length > 0
+  const top = Math.max(
+    strongest,
+    ...placed.map(({ probability }) => probability),
+    ...flaggedQualities.map(({ probability }) => probability),
+  )
+  const underFloor = flagged && top < floor
   // A flagged area with no region is `unsure`, also when its probability is
   // not in `strongest` (the run-together question).
   const verdict =
-    placed.length || flaggedQualities.length
+    flagged && !underFloor
       ? "regression"
-      : unanswered || strongest >= 0.2 || flaggedAreas.length
+      : underFloor || unanswered || strongest >= 0.2 || flaggedAreas.length
         ? "unsure"
         : "intended"
   const labels = [
@@ -712,16 +736,19 @@ function decision({
       ({ id, probability }) => `${id} ${probability.toFixed(2)}`,
     ),
   ]
+  // The region also for a flagged quality, which has no finding.
+  const flags = `Jev: defect ${defect.toFixed(2)}; ${word}: ${labels.join(", ")}.${region ? ` Region: x ${region.x.toFixed(2)}, y ${region.y.toFixed(2)}, width ${region.width.toFixed(2)}, height ${region.height.toFixed(2)}.` : ""}`
   const summary = {
-    // The region also for a flagged quality, which has no finding.
-    regression: `Jev: defect ${defect.toFixed(2)}; ${word}: ${labels.join(", ")}.${region ? ` Region: x ${region.x.toFixed(2)}, y ${region.y.toFixed(2)}, width ${region.width.toFixed(2)}, height ${region.height.toFixed(2)}.` : ""}`,
+    regression: flags,
     intended: `Jev found nothing ${word}: defect ${defect.toFixed(2)}.`,
     unsure: [
-      defect >= 0.5 || flaggedAreas.length
-        ? "Jev flagged a problem, but it cannot place it in an area and a region."
-        : unanswered
-          ? `Jev left ${unanswered} questions without an answer.`
-          : `Jev is not sure: the strongest ${word} probability is ${strongest.toFixed(2)}.`,
+      underFloor
+        ? `Jev is not sure: its highest probability ${top.toFixed(2)} is under ${floor.toFixed(2)}, the lowest for a regression here. ${flags}`
+        : defect >= 0.5 || flaggedAreas.length
+          ? "Jev flagged a problem, but it cannot place it in an area and a region."
+          : unanswered
+            ? `Jev left ${unanswered} questions without an answer.`
+            : `Jev is not sure: the strongest ${word} probability is ${strongest.toFixed(2)}.`,
       ...(note ? [note] : []),
     ].join(" "),
   }[verdict]
@@ -732,15 +759,7 @@ function decision({
     // never a block (owner decision, ADR-063), so each one is minor.
     severity: verdict === "regression" ? "minor" : "none",
     confidence:
-      verdict === "regression"
-        ? Math.max(
-            strongest,
-            ...placed.map(({ probability }) => probability),
-            ...flaggedQualities.map(({ probability }) => probability),
-          )
-        : verdict === "unsure"
-          ? 0
-          : 1 - strongest,
+      verdict === "regression" ? top : verdict === "unsure" ? 0 : 1 - strongest,
     summary,
     // One finding for each area: a run-together label and a worse
     // spacing area are one spacing finding.

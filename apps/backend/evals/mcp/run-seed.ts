@@ -95,7 +95,7 @@ async function seedForCi(run: string, directory: string, out: string) {
 async function seedDeployed(out: string) {
   const work = await mkdtemp(join(tmpdir(), "mcp-eval-"))
   try {
-    const differences = await publishedFixtureDifferences(
+    const { differences, commits } = await publishedFixtureDifferences(
       mcpEvalGithubRemotes,
       join(work, "fixtures"),
     )
@@ -108,6 +108,8 @@ async function seedDeployed(out: string) {
       `d${Date.now().toString(36)}`,
       mcpEvalGithubRemotes,
       out,
+      undefined,
+      commits,
     )
   } finally {
     await rm(work, { recursive: true, force: true })
@@ -124,6 +126,7 @@ async function seedWithNewUser(
   remotes: Record<string, string>,
   out: string,
   remoteFile?: string,
+  commits?: Record<string, string>,
 ) {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
   initDb(process.env.DATABASE_URL)
@@ -132,7 +135,7 @@ async function seedWithNewUser(
     await getSystemDb()
       .insert(users)
       .values({ id: userId, name: "MCP eval", email: `${run}@example.test` })
-    const seeded = await seedMcpEval({ run, userId, remotes })
+    const seeded = await seedMcpEval({ run, userId, remotes, commits })
     const { key } = await createMcpEvalApiKey({
       userId,
       organizationIds: seeded.organizations.map((org) => org.id),

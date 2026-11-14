@@ -61,6 +61,7 @@ export const Loading: Story = {
 
 export const NotUsedInAnyWorkspace: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
