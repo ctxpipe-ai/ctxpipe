@@ -150,49 +150,26 @@ async function destroyWorkspaceSandboxUnderFence(
         await deleteSandboxInstance(id, stored.orgId, ownershipOf(stored))
         return true
       }
-      const destroyOwned = async () => {
-        signal.throwIfAborted()
-        try {
-          const snapshotOwners = stored.latestSnapshotId
-            ? await withOrgDbContext(stored.orgId, () =>
-                listSandboxInstances({ workspaceId: stored.workspaceId }),
-              )
-            : []
-          const lastSnapshotOwner =
-            stored.latestSnapshotId &&
-            !snapshotOwners.some(
-              (row) =>
-                row.id !== stored.id &&
-                row.latestSnapshotId === stored.latestSnapshotId,
-            )
-          if (stored.providerSandboxId)
-            await destroyDetachedProviderSandbox({
-              provider: stored.provider,
-              providerSandboxId: stored.providerSandboxId,
-              snapshotId: lastSnapshotOwner
-                ? (stored.latestSnapshotId ?? undefined)
-                : undefined,
-            })
-        } catch (error) {
-          signal.throwIfAborted()
-          await persistSandboxInstance({ ...stored, state: "destroy_failed" })
-          log.error({
-            step: "destroy-native-workspace-sandbox",
-            sandboxId: id,
-            error: error instanceof Error ? error.message : String(error),
+      signal.throwIfAborted()
+      try {
+        if (stored.providerSandboxId)
+          await destroyDetachedProviderSandbox({
+            provider: stored.provider,
+            providerSandboxId: stored.providerSandboxId,
           })
-          return false
-        }
+      } catch (error) {
         signal.throwIfAborted()
-        await deleteSandboxInstance(id, stored.orgId, ownershipOf(stored))
-        return true
+        await persistSandboxInstance({ ...stored, state: "destroy_failed" })
+        log.error({
+          step: "destroy-native-workspace-sandbox",
+          sandboxId: id,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        return false
       }
-      return stored.latestSnapshotId
-        ? postgresSandboxLocks(stored.orgId).withLock(
-            `sandbox-snapshot:${stored.latestSnapshotId}`,
-            destroyOwned,
-          )
-        : destroyOwned()
+      signal.throwIfAborted()
+      await deleteSandboxInstance(id, stored.orgId, ownershipOf(stored))
+      return true
     },
   )
 }

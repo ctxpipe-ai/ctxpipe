@@ -587,7 +587,7 @@ Read this when you set up or change a deployment: Railway production or previews
 
 
 ### CI secrets use plain names in GitHub environments
-- **Rule:** A CI secret keeps its plain name (for example `MODEL_PROVIDER_API_KEY`). Never add a prefix such as `PREVIEW_`. The GitHub environment decides which value a job reads. `Preview` is only for the Railway PR preview deploy, roll and cleanup jobs. `workbench` is for checks, evals, proofs and live contracts that call outside services; it holds only spend-capped or test-scoped keys. `Production` is the production deploy. Do not add a new environment without a stated need. `scripts/ci/check-secret-jobs.mjs` enforces the rules.
+- **Rule:** A CI secret keeps its plain name (for example `MODEL_PROVIDER_API_KEY`). Never add a prefix such as `PREVIEW_`. The GitHub environment decides which value a job reads. `workbench` is for checks, evals, proofs and live contracts that call outside services; it holds only spend-capped or test-scoped keys. `Production` is the production deploy. Do not add a new environment without a stated need. `scripts/ci/check-secret-jobs.mjs` enforces the rules.
 - **Category:** tooling
 - **Date:** 2026-10-18
 - **Source:** CTO decision for the PR preview secrets work
