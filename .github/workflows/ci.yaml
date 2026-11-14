@@ -1356,7 +1356,7 @@ jobs:
     if: |
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request'
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     services:
       postgres:
         # Matches local Compose (pgvector); plain postgres:16 lacks the vector extension.
@@ -1793,7 +1793,7 @@ jobs:
   # that can fail. A same-repo PR without a critics record fails the gate: no
   # id (the upload failed, or the job did not run), or no critics.json in the
   # artifact. The job has no continue-on-error, so a failed upload shows as a
-  # failed job. The job runs beside the test jobs, so it adds no time to the
+  # failed job (a failed Terraform step below also does). The job runs beside the test jobs, so it adds no time to the
   # run. A lookup of 16 hunks and 4 critics took 5 s. The timeout is large, because a large diff (a
   # lockfile) has many hunks and so many store keys.
   #
@@ -1805,7 +1805,9 @@ jobs:
   # this job because this job also starts with the run and runs no repository
   # code. Only that step gives the job token (pull-requests: read) to a
   # command. It runs after the critics record is kept, so its failure cannot
-  # take the record away.
+  # take the record away. The plan thus starts when this job ends: after the
+  # critics lookup (5 s to 1 min, at most 20 min on a very large diff). The
+  # plan waits for its reviewers anyway.
   merge-gate-critics:
     timeout-minutes: 25
     name: Merge gate critics
@@ -2060,7 +2062,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
       needs.merge-gate-manifest.result == 'success'
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     permissions:
       contents: read
       actions: read
@@ -2322,8 +2324,8 @@ jobs:
 
   # Calls terraform-plan-pr.yaml when the critics job found a change under
   # infra/ (see that job). A call keeps the PR author as the actor, so
-  # "Prevent self-review" of the environment works. A failed critics lookup
-  # fails the critics job, but it does not stop the plan.
+  # "Prevent self-review" of the environment works. A failed step of the
+  # critics job does not stop the plan.
   merge-gate-terraform-plan:
     name: Terraform plan
     needs: merge-gate-critics
@@ -2591,7 +2593,7 @@ jobs:
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
       needs.merge-gate-manifest.result == 'success' && needs.trace.result == 'success'
     continue-on-error: true
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     permissions:
       contents: read
       id-token: write

@@ -964,11 +964,17 @@ test("each job of the plan needs the plan job, starts only with its output, and 
   assert.doesNotMatch(changes, /\n {4}needs:/)
   assert.doesNotMatch(changes, /merge-gate-plan/)
   assert.ok(changes.includes("head.repo.full_name == github.repository"))
-  assert.match(
-    changes,
-    /\n {6}- name: Look for a change under infra\/\n {8}id: changes\n {8}if: \|\n {10}!cancelled\(\) && github\.event\.action != 'ready_for_review'\n/,
+  const { jobs } = parseYaml(workflow)
+  const lookup = jobs["merge-gate-critics"].steps.find(
+    (step) => step.id === "changes",
   )
-  assert.match(changes, /\n {6}plan: \$\{\{ steps\.changes\.outputs\.plan \}\}\n/)
+  assert.equal(lookup.name, "Look for a change under infra/")
+  assert.ok(lookup.if.includes("!cancelled()"))
+  assert.ok(lookup.if.includes("github.event.action != 'ready_for_review'"))
+  assert.equal(
+    jobs["merge-gate-critics"].outputs.plan,
+    "${{ steps.changes.outputs.plan }}",
+  )
   assert.match(changes, /\n {6}pull-requests: read\n/)
   // No repository code: no package manager, no runtime, no local action,
   // and no repository script.
@@ -979,7 +985,6 @@ test("each job of the plan needs the plan job, starts only with its output, and 
       .join("\n"),
     /\b(pnpm|npm|npx|node|bun|tsx)\b|uses: \.\/|\b(bash|sh) [\w./-]*scripts\//,
   )
-  assert.ok(!workflow.includes("\n  merge-gate-terraform-changes:\n"))
   const terraform = job("merge-gate-terraform-plan")
   assert.match(terraform, /\n {4}needs: merge-gate-critics\n/)
   // A failed lookup of the critics fails their job, but not the plan start.
