@@ -1,12 +1,12 @@
-# node:24.22.1-bookworm multi-arch index, pinned 2026-10-25.
-FROM node@sha256:6449e19d8184d84062525b6a7524def03146c2cb04a7f08b076680d0e8e4240a AS base
+# node:26.13.1-bookworm multi-arch index, pinned 2026-11-14.
+FROM node@sha256:b7087bc4d973034b30854b378ba107f9fab622b47514cb7e2592e41b8bab8d49 AS base
 
 # Build-time tools only; a conversation never installs its harness as root.
 # The ingest skills run ast-grep and ripgrep in this image (ADR-052).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates git gh findutils ripgrep \
     && rm -rf /var/lib/apt/lists/* \
-    && npm install --global opencode-ai@1.18.34 undici@7.30.0 @ast-grep/cli@0.45.0 \
+    && npm install --global opencode-ai@1.18.34 undici@8.12.4 @ast-grep/cli@0.45.0 \
     && npm cache clean --force \
     && mkdir -p /workspace /home/node/.config /home/node/.local/share /home/node/.local/state /home/node/.cache \
     && chown -R 1000:1000 /workspace /home/node

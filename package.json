@@ -6,7 +6,7 @@
   "packageManager": "pnpm@10.12.1",
   "engines": {
     "bun": "^1.4.4",
-    "node": "^24"
+    "node": "^26"
   },
   "scripts": {
     "dev": "bash scripts/dev-apps.sh",
