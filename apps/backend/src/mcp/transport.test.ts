@@ -3,12 +3,13 @@ import { initLogger } from "evlog"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
-import { beforeAll, describe, expect, it } from "vitest"
+import { beforeAll, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
 import { recordSpans } from "../../test/spans.js"
 import type { AppEnv } from "../app/env.js"
 import { backendOtelMiddleware } from "../observability/http.js"
+import { runMcpToolCall } from "./correlation.js"
 import { INSTRUCTION_RULES } from "./framework/instructions.js"
 import { registerWorkspaceFileResource } from "./resources/workspace-file.js"
 import {
@@ -183,6 +184,50 @@ function post(app: Hono<AppEnv>, body: unknown) {
     body: JSON.stringify(body),
   })
 }
+
+describe("MCP tool call request log", () => {
+  it("holds the facts that the tool call sets, and evlog warns of no late set", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const events: Record<string, unknown>[] = []
+    const app = buildApp(
+      (server) =>
+        server.registerTool(
+          "search_knowledge",
+          {
+            annotations: { readOnlyHint: true },
+            inputSchema: z.object({ query: z.string() }),
+          },
+          (_args, extra) =>
+            runMcpToolCall(
+              { toolName: "search_knowledge", extra },
+              async () => {
+                // The tool is slower than the transport: it ends after a tick.
+                await new Promise((resolve) => setTimeout(resolve, 10))
+                return { content: [{ type: "text" as const, text: "ok" }] }
+              },
+            ),
+        ),
+      {},
+      events,
+    )
+
+    const response = await post(app, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "search_knowledge", arguments: { query: "hello" } },
+    })
+    expect(await response.text()).toContain("ok")
+
+    const lateSets = warn.mock.calls.filter(([message]) =>
+      String(message).includes("called after the wide event was emitted"),
+    )
+    warn.mockRestore()
+    expect(lateSets).toEqual([])
+    expect(events).toHaveLength(1)
+    expect(events[0]?.["ctxpipe.mcp.result.bytes"]).toEqual(expect.any(Number))
+  })
+})
 
 describe("MCP resource read attribution", () => {
   it("puts the resource name, not the URI, on the POST /mcp span and request log", async () => {

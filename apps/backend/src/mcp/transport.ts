@@ -116,9 +116,8 @@ export async function handleMcpTransportRequest(
     )
   }
 
-  // Streamable HTTP returns the Response before tools/call or resources/read
-  // runs, so the server span and request log would otherwise close without
-  // these fields.
+  // Put the tool or resource name on the server span and the request log
+  // before the call runs.
   const callAttribution = attributionFromCall(messages)
   if (callAttribution) applyAttribution(callAttribution)
 
@@ -174,7 +173,10 @@ export async function handleMcpTransportRequest(
     }),
   )
   if (discover) return logResponse(c.json(discover))
-  const transport = new StreamableHTTPTransport()
+  // A JSON response waits for each call result. An SSE response returns
+  // before the call runs, so evlog emits the request log first and drops each
+  // field that the call sets after that. The tools send no progress events.
+  const transport = new StreamableHTTPTransport({ enableJsonResponse: true })
   try {
     await server.connect(transport)
     const res = await transport.handleRequest(c, parsedBody)
