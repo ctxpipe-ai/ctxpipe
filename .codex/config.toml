@@ -26,8 +26,10 @@ env_http_headers = { "x-api-key" = "CTXPIPE_API_KEY" }
 url = "http://127.0.0.1:6006/mcp"
 
 [mcp_servers.hyperdx]
-url = "https://hyperdx.ctxpipe.ai/api/mcp"
+url = "https://hyperdx.ctxpipe.dev/api/mcp"
 bearer_token_env_var = "HYPERDX_ACCESS_KEY"
+# The Cloudflare Access service token of agents (ops/observability/USING.md, "Agent hosts").
+env_http_headers = { "CF-Access-Client-Id" = "HYPERDX_CF_ACCESS_CLIENT_ID", "CF-Access-Client-Secret" = "HYPERDX_CF_ACCESS_CLIENT_SECRET" }
 
 [mcp_servers.cloudflare]
 url = "https://mcp.cloudflare.com/mcp"

@@ -71,7 +71,7 @@ export function ActivitySparkline({ buckets }: { buckets: ActivityBuckets }) {
             y: "bar",
             text: "count",
             fill: "#000",
-            fontSize: 11,
+            fontSize: 12,
             fontWeight: 500,
             anchor: "middle",
             dy: 8,

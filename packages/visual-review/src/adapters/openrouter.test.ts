@@ -20,6 +20,7 @@ import {
   buildPrompt,
   judgementJsonSchema,
   judgeWithOpenRouter,
+  packagedRubric,
   openRouterModelId,
   openRouterPrices,
   usageCost,
@@ -35,6 +36,7 @@ writeFileSync(join(directory, "locator.png"), locatorBytes)
 const story: StoryInput = {
   storyId: "connectors-catalog--default",
   scope: "component",
+  rubric: packagedRubric,
   viewport: { width: 1440, height: 900 },
   regions: [
     {
@@ -181,7 +183,7 @@ describe("judgeWithOpenRouter", () => {
       json_schema: {
         name: "visual_verdict",
         strict: true,
-        schema: judgementJsonSchema,
+        schema: judgementJsonSchema(packagedRubric),
       },
     })
     expect(seen?.body.provider).toEqual({ data_collection: "deny" })

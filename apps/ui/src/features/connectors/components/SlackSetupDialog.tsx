@@ -290,14 +290,14 @@ export function SlackSetupDialog({
                 </li>
                 <li>
                   In Slack, invite the bot to each channel with{" "}
-                  <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
+                  <code className="rounded-md bg-muted px-1 py-0.5 text-xs">
                     /invite {formatSlackBotMention(status?.botHandle)}
                   </code>
                   .
                 </li>
                 <li>
                   In a thread of that channel, mention{" "}
-                  <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
+                  <code className="rounded-md bg-muted px-1 py-0.5 text-xs">
                     {formatSlackBotMention(status?.botHandle)}
                   </code>
                   . ctxpipe saves the thread to each Workspace with that

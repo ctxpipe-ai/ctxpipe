@@ -22,6 +22,7 @@ import { zoektRepositoryName } from "../domain/zoekt/shardPrefix.js"
 import { startS3Server } from "../test/s3Server.js"
 import { exportIndexes, exportVolume } from "./exportIndexes.js"
 import { importIndexes } from "./importIndexes.js"
+import { resetIndexes } from "./resetIndexes.js"
 import { seedShardStore } from "./seedShardStore.js"
 import {
   downloadChecked,
@@ -333,5 +334,69 @@ describe("seed-shard-store", () => {
     const report = await seedShardStore({ coldDir })
 
     expect(report).toMatchObject({ ok: true, published: 1, skipped: 1 })
+  })
+})
+
+describe("reset-indexes", () => {
+  it("deletes the published shards of each repository on the host, both volumes and the RDB", async () => {
+    server.stubEnv("store")
+    const target = targets("target")
+    // A repository that is not on the host: its artifacts stay.
+    const other = "store/v1/org_other/repo_other/default/zoekt"
+    await uploadStream(
+      transferFromUrl(`s3://${server.bucket}/${other}`),
+      "manifest.json",
+      (async function* () {
+        yield Buffer.from("{}")
+      })(),
+    )
+
+    // A shard whose Name has another form: no address in the store.
+    await writeFile(
+      join(target.zoektIndexDir, "other-name_v16.00000.zoekt"),
+      "x",
+    )
+
+    const report = await resetIndexes(target)
+
+    expect(report).toMatchObject({
+      ok: true,
+      repositories: 1,
+      unknownShards: 1,
+    })
+    expect(report.zoektIndexEntries).toBeGreaterThan(0)
+    expect(
+      (await server.keys()).filter((key) => key.startsWith("store/")),
+    ).toEqual([`${other}/manifest.json`])
+    expect(await readdir(target.zoektIndexDir)).toEqual([])
+    expect(await readdir(target.repoCacheDir)).toEqual([])
+    await expect(stat(target.falkordbDataFile)).rejects.toMatchObject({
+      code: "ENOENT",
+    })
+
+    // A second run finds nothing and changes nothing.
+    expect(await resetIndexes(target)).toMatchObject({
+      ok: true,
+      repositories: 0,
+      zoektIndexEntries: 0,
+    })
+  })
+
+  it("gives only the kind of an error, without a path", async () => {
+    server.stubEnv("store")
+    const dir = join(root, "reset-error")
+    await mkdir(dir, { recursive: true })
+    // A file where the directory must be: readdir fails with ENOTDIR.
+    await writeFile(join(dir, "zoekt-index"), "x")
+
+    await expect(
+      resetIndexes({
+        zoektIndexDir: join(dir, "zoekt-index"),
+        repoCacheDir: join(dir, "repo-cache"),
+        falkordbDataFile: join(dir, "dump.rdb"),
+      }),
+    ).rejects.toThrow(
+      /^The reset stopped \(Error ENOTDIR\)\. Run it again: it continues\.$/,
+    )
   })
 })

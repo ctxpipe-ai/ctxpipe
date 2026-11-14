@@ -13,9 +13,11 @@
     },
     "hyperdx": {
       "type": "http",
-      "url": "https://hyperdx.ctxpipe.ai/api/mcp",
+      "url": "https://hyperdx.ctxpipe.dev/api/mcp",
       "headers": {
-        "Authorization": "Bearer ${HYPERDX_ACCESS_KEY:-}"
+        "Authorization": "Bearer ${HYPERDX_ACCESS_KEY:-}",
+        "CF-Access-Client-Id": "${HYPERDX_CF_ACCESS_CLIENT_ID:-}",
+        "CF-Access-Client-Secret": "${HYPERDX_CF_ACCESS_CLIENT_SECRET:-}"
       }
     },
     "cloudflare": {
