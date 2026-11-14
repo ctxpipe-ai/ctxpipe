@@ -2018,39 +2018,36 @@ jobs:
           # The changed paths come from git, not from the GitHub API (its rate
           # limit failed this step). The checkout is the merge revision, and
           # its first parent is main. With no rename detection, a renamed
-          # file counts at its old path too.
-          if ! git diff-tree -r --no-commit-id --name-only HEAD^1 HEAD | grep -q '^infra/'; then
+          # file counts at its old path too. Exit code 1: a change.
+          code=0
+          git diff-tree --quiet -r HEAD^1 HEAD -- infra/ || code=$?
+          if [ "$code" = 0 ]; then
             echo "::notice::The PR changes no file under infra/; no Terraform plan"
             exit 0
           fi
+          [ "$code" = 1 ] || exit "$code"
+          # gh_retry runs `gh "$@"`. On a GitHub API rate limit, it waits until the
+          # reset time that GitHub gives (one minute for a secondary limit), at most 5
+          # minutes, and runs the call again one time. Exit code 2: the limit stays.
+          # Each step that calls the API holds this same text (a test checks it).
           gh_retry() {
-            local out err try remaining reset wait code=1
-            out="$(mktemp)"
-            err="$(mktemp)"
+            local err="$RUNNER_TEMP/gh-retry.err" out wait try
             for try in 1 2; do
-              if gh "$@" > "$out" 2> "$err"; then
-                cat "$out"
-                rm -f "$out" "$err"
+              if out=$(gh "$@" 2> "$err"); then
+                [ -z "$out" ] || printf '%s\n' "$out"
                 return 0
               fi
-              grep -qi 'rate limit' "$err" || break
-              code=2
+              grep -qi 'rate limit' "$err" || { cat "$err" >&2; return 1; }
               [ "$try" = 1 ] || break
-              # No calls left: wait until the reset. Calls left (a secondary limit):
-              # GitHub tells the client to wait one minute.
-              read -r remaining reset < <(gh api rate_limit \
-                --jq '.resources.core | "\(.remaining) \(.reset)"' 2> /dev/null) || break
-              wait=60
-              [ "$remaining" -gt 0 ] || wait=$((reset - $(date +%s) + 1))
+              wait=$(gh api rate_limit --jq '.resources.core |
+                if .remaining > 0 then 60 else .reset - now + 1 | floor end') || break
               [ "$wait" -le 300 ] || break
-              [ "$wait" -ge 1 ] || wait=1
+              wait=$((wait > 1 ? wait : 1))
               echo "::notice::GitHub API rate limit: the call runs again in ${wait}s" >&2
               sleep "$wait"
-              code=1
             done
             cat "$err" >&2
-            rm -f "$out" "$err"
-            return "$code"
+            return 2
           }
           limited() {
             echo "::warning::The GitHub API rate limit stays; no Terraform plan. Start it with Run workflow of terraform-plan-pr.yaml."
@@ -2059,21 +2056,23 @@ jobs:
           # The PR can merge and lose its branch while the gate goes on.
           # Skip only on a definite answer; a rate limit that stays skips with
           # a warning, and any other failure fails the step.
-          state=$(gh_retry pr view "$PR" --repo "$REPO" --json state --jq .state) ||
+          state=$(gh_retry api "repos/$REPO/pulls/$PR" --jq .state) ||
             { [ $? = 2 ] && limited; exit 1; }
-          if [ "$state" != "OPEN" ]; then
+          if [ "$state" != open ]; then
             echo "::notice::PR is closed or its branch is gone; no Terraform plan"
             exit 0
           fi
           # A branch name can hold a slash: encode it for the path.
           encoded=$(jq -rn --arg branch "$BRANCH" '$branch | @uri')
-          if ! out=$(gh_retry api "repos/$REPO/branches/$encoded" --silent 2>&1); then
+          code=0
+          out=$(gh_retry api "repos/$REPO/branches/$encoded" --silent 2>&1) || code=$?
+          if [ "$code" != 0 ]; then
+            [ "$code" != 2 ] || limited
             case "$out" in
               *"HTTP 404"*)
                 echo "::notice::PR is closed or its branch is gone; no Terraform plan"
                 exit 0
                 ;;
-              *[Rr]"ate limit"*) limited ;;
             esac
             echo "$out" >&2
             exit 1
@@ -2453,41 +2452,35 @@ jobs:
           BRANCH: ${{ github.head_ref }}
           PR: ${{ github.event.pull_request.number }}
         run: |
+          # gh_retry runs `gh "$@"`. On a GitHub API rate limit, it waits until the
+          # reset time that GitHub gives (one minute for a secondary limit), at most 5
+          # minutes, and runs the call again one time. Exit code 2: the limit stays.
+          # Each step that calls the API holds this same text (a test checks it).
           gh_retry() {
-            local out err try remaining reset wait code=1
-            out="$(mktemp)"
-            err="$(mktemp)"
+            local err="$RUNNER_TEMP/gh-retry.err" out wait try
             for try in 1 2; do
-              if gh "$@" > "$out" 2> "$err"; then
-                cat "$out"
-                rm -f "$out" "$err"
+              if out=$(gh "$@" 2> "$err"); then
+                [ -z "$out" ] || printf '%s\n' "$out"
                 return 0
               fi
-              grep -qi 'rate limit' "$err" || break
-              code=2
+              grep -qi 'rate limit' "$err" || { cat "$err" >&2; return 1; }
               [ "$try" = 1 ] || break
-              # No calls left: wait until the reset. Calls left (a secondary limit):
-              # GitHub tells the client to wait one minute.
-              read -r remaining reset < <(gh api rate_limit \
-                --jq '.resources.core | "\(.remaining) \(.reset)"' 2> /dev/null) || break
-              wait=60
-              [ "$remaining" -gt 0 ] || wait=$((reset - $(date +%s) + 1))
+              wait=$(gh api rate_limit --jq '.resources.core |
+                if .remaining > 0 then 60 else .reset - now + 1 | floor end') || break
               [ "$wait" -le 300 ] || break
-              [ "$wait" -ge 1 ] || wait=1
+              wait=$((wait > 1 ? wait : 1))
               echo "::notice::GitHub API rate limit: the call runs again in ${wait}s" >&2
               sleep "$wait"
-              code=1
             done
             cat "$err" >&2
-            rm -f "$out" "$err"
-            return "$code"
+            return 2
           }
           # The PR can merge and lose its branch while this run goes on.
           # Skip only on a definite answer; any other failure fails the step.
           # Without the deploy the gate cannot pass, so a rate limit that
           # stays after the wait fails the step too.
-          state=$(gh_retry pr view "$PR" --repo "$REPO" --json state --jq .state)
-          if [ "$state" != "OPEN" ]; then
+          state=$(gh_retry api "repos/$REPO/pulls/$PR" --jq .state)
+          if [ "$state" != open ]; then
             echo "::notice::PR is closed or its branch is gone; no preview deploy"
             exit 0
           fi
@@ -2652,7 +2645,29 @@ jobs:
         # in an earlier attempt and passed in this one. The jobs of the newest
         # PR Deploy run of the PR head give the deploy checks their results.
         run: |
-          source scripts/ci/gh-retry.sh
+          # gh_retry runs `gh "$@"`. On a GitHub API rate limit, it waits until the
+          # reset time that GitHub gives (one minute for a secondary limit), at most 5
+          # minutes, and runs the call again one time. Exit code 2: the limit stays.
+          # Each step that calls the API holds this same text (a test checks it).
+          gh_retry() {
+            local err="$RUNNER_TEMP/gh-retry.err" out wait try
+            for try in 1 2; do
+              if out=$(gh "$@" 2> "$err"); then
+                [ -z "$out" ] || printf '%s\n' "$out"
+                return 0
+              fi
+              grep -qi 'rate limit' "$err" || { cat "$err" >&2; return 1; }
+              [ "$try" = 1 ] || break
+              wait=$(gh api rate_limit --jq '.resources.core |
+                if .remaining > 0 then 60 else .reset - now + 1 | floor end') || break
+              [ "$wait" -le 300 ] || break
+              wait=$((wait > 1 ? wait : 1))
+              echo "::notice::GitHub API rate limit: the call runs again in ${wait}s" >&2
+              sleep "$wait"
+            done
+            cat "$err" >&2
+            return 2
+          }
           gh_retry api "repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=100" --paginate \
             --jq '.jobs[]' | jq -s '{jobs: .}' > "$RUNNER_TEMP/jobs.json"
           for ((attempt = 1; attempt < ATTEMPT; attempt++)); do
@@ -2758,7 +2773,29 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: |
-          source scripts/ci/gh-retry.sh
+          # gh_retry runs `gh "$@"`. On a GitHub API rate limit, it waits until the
+          # reset time that GitHub gives (one minute for a secondary limit), at most 5
+          # minutes, and runs the call again one time. Exit code 2: the limit stays.
+          # Each step that calls the API holds this same text (a test checks it).
+          gh_retry() {
+            local err="$RUNNER_TEMP/gh-retry.err" out wait try
+            for try in 1 2; do
+              if out=$(gh "$@" 2> "$err"); then
+                [ -z "$out" ] || printf '%s\n' "$out"
+                return 0
+              fi
+              grep -qi 'rate limit' "$err" || { cat "$err" >&2; return 1; }
+              [ "$try" = 1 ] || break
+              wait=$(gh api rate_limit --jq '.resources.core |
+                if .remaining > 0 then 60 else .reset - now + 1 | floor end') || break
+              [ "$wait" -le 300 ] || break
+              wait=$((wait > 1 ? wait : 1))
+              echo "::notice::GitHub API rate limit: the call runs again in ${wait}s" >&2
+              sleep "$wait"
+            done
+            cat "$err" >&2
+            return 2
+          }
           limited() {
             echo "::warning::The GitHub API rate limit stays; the PR comment is not updated. The job summary has the decision."
             exit 0

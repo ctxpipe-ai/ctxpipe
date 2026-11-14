@@ -29,14 +29,13 @@ const head = "a".repeat(40)
 // `gh api <path> [--paginate|--silent] [--jq <expr>]` prints the file of that
 // path (slashes become underscores), through jq when --jq is given, or fails
 // with the text in `<name>.error`, or one time with the text in
-// `<name>.error-once` (each command fails in the same way). `gh pr view` prints the state file (name `pr-state`).
-// `gh workflow run` and `gh api --method <verb>` append their arguments to
-// calls.log.
+// `<name>.error-once`. `gh workflow run` and `gh api --method <verb>` append
+// their arguments to calls.log. The fake `sleep` appends its argument to
+// sleeps.log and does not wait.
 const fakeGh = `#!/usr/bin/env bash
 set -euo pipefail
 dir="$FAKE_GH_DIR"
 name="$(printf '%s' "$2" | tr '/' '_')"
-[ "$1" = pr ] && name=pr-state
 if [ -f "$dir/$name.error-once" ]; then
   cat "$dir/$name.error-once" >&2
   rm "$dir/$name.error-once"
@@ -48,10 +47,6 @@ if [ -f "$dir/$name.error" ]; then
 fi
 if [ "$1" = workflow ] || [ "$2" = --method ]; then
   echo "$*" >> "$dir/calls.log"
-  exit 0
-fi
-if [ "$1" = pr ]; then
-  cat "$dir/pr-state"
   exit 0
 fi
 expr=""
@@ -73,6 +68,11 @@ const setup = ({
   mkdirSync(bin)
   writeFileSync(join(bin, "gh"), fakeGh)
   chmodSync(join(bin, "gh"), 0o755)
+  writeFileSync(
+    join(bin, "sleep"),
+    '#!/usr/bin/env bash\necho "$1" >> "$FAKE_GH_DIR/sleeps.log"\n',
+  )
+  chmodSync(join(bin, "sleep"), 0o755)
   const file = (path) => path.replaceAll("/", "_")
   for (const [path, body] of Object.entries(api))
     writeFileSync(join(dir, `${file(path)}.json`), JSON.stringify(body))
@@ -80,7 +80,10 @@ const setup = ({
     writeFileSync(join(dir, `${file(path)}.error`), text)
   for (const [path, text] of Object.entries(errorsOnce))
     writeFileSync(join(dir, `${file(path)}.error-once`), text)
-  writeFileSync(join(dir, "pr-state"), state)
+  // The state of the PR, as the REST API gives it.
+  const pull = join(dir, `${file(`repos/${repo}/pulls/7`)}.json`)
+  if (!existsSync(pull))
+    writeFileSync(pull, JSON.stringify({ state: state.toLowerCase() }))
   return dir
 }
 
@@ -99,14 +102,19 @@ const steps = {
   ],
   "start-pr-deploy": ["merge-gate-deploy", "Start PR Deploy on the PR branch"],
 }
-const sourcedSteps = {
+const otherSteps = {
   "post-comment": ["merge-gate", "Post or update the PR comment"],
+  "jobs-of-the-run": ["merge-gate", "The jobs of this run"],
 }
 
 const run = (script, dir, env, args = [], cwd = undefined) => {
+  const log = (name) =>
+    existsSync(join(dir, name))
+      ? readFileSync(join(dir, name), "utf8").trim().split("\n")
+      : []
   const output = join(dir, "github-output")
   writeFileSync(output, "")
-  const step = steps[script] ?? sourcedSteps[script]
+  const step = steps[script] ?? otherSteps[script]
   const command = step
     ? ["-c", `set -eo pipefail\n${stepShell(...step)}`]
     : [join(root, "scripts/ci", script), ...args]
@@ -126,9 +134,8 @@ const run = (script, dir, env, args = [], cwd = undefined) => {
     stdout: result.stdout,
     stderr: result.stderr,
     outputs: readFileSync(output, "utf8").trim().split("\n").filter(Boolean),
-    calls: existsSync(join(dir, "calls.log"))
-      ? readFileSync(join(dir, "calls.log"), "utf8").trim().split("\n")
-      : [],
+    calls: log("calls.log"),
+    sleeps: log("sleeps.log"),
   }
 }
 
@@ -372,20 +379,21 @@ test("the step lists the changed files without the GitHub API", () => {
 test("a rate limit makes the step wait for the reset and call again", () => {
   const result = start(({ write }) => write("infra/a.tf", "changed"), {
     errorsOnce: {
-      "pr-state": "API rate limit exceeded for installation ID 1 (HTTP 403)",
+      [`repos/${repo}/pulls/7`]: "API rate limit exceeded for installation ID 1 (HTTP 403)",
       [`repos/${repo}/branches/feature`]:
         "API rate limit exceeded for installation ID 1 (HTTP 403)",
     },
   })
   assert.equal(result.status, 0, result.stderr)
   assert.match(result.stderr, /the call runs again in 1s/)
+  assert.deepEqual(result.sleeps, ["1", "1"])
   assert.deepEqual(result.outputs, ["plan=false", "plan=true"])
 })
 
 test("a rate limit that stays skips the plan with a warning, and does not fail the step", () => {
   const limit = "API rate limit exceeded for installation ID 1 (HTTP 403)"
   for (const errors of [
-    { "pr-state": limit },
+    { [`repos/${repo}/pulls/7`]: limit },
     { [`repos/${repo}/branches/feature`]: limit },
   ]) {
     const result = start(({ write }) => write("infra/a.tf", "changed"), {
@@ -404,25 +412,76 @@ test("a rate limit that stays skips the plan with a warning, and does not fail t
         },
       },
     },
-    errorsOnce: { "pr-state": limit },
+    errorsOnce: { [`repos/${repo}/pulls/7`]: limit },
   })
   assert.equal(far.status, 0, far.stderr)
   assert.doesNotMatch(far.stderr, /runs again/)
+  assert.deepEqual(far.sleeps, [])
   assert.match(far.stdout, /rate limit stays/)
 })
 
-test("the steps without a repository script hold the same gh_retry as scripts/ci/gh-retry.sh", () => {
-  const text = readFileSync(join(root, "scripts/ci/gh-retry.sh"), "utf8")
-  const fn = text.slice(
-    text.indexOf("# gh_retry begin\n") + "# gh_retry begin\n".length,
-    text.indexOf("# gh_retry end\n"),
+const infraChange = ({ write }) => write("infra/main.tf")
+
+test("a secondary rate limit waits one minute, and another error after the wait fails the step", () => {
+  const secondary = start(({ write }) => write("infra/a.tf", "changed"), {
+    api: {
+      [`repos/${repo}/branches/feature`]: {},
+      rate_limit: { resources: { core: { remaining: 10, reset: 0 } } },
+    },
+    errorsOnce: {
+      [`repos/${repo}/pulls/7`]:
+        "You have exceeded a secondary rate limit (HTTP 403)",
+    },
+  })
+  assert.equal(secondary.status, 0, secondary.stderr)
+  assert.deepEqual(secondary.sleeps, ["60"])
+  assert.equal(secondary.outputs.at(-1), "plan=true")
+  // The branch call hits the limit, then a server error: not a rate limit.
+  const dir = setup({
+    api: { rate_limit: { resources: { core: { remaining: 0, reset: 0 } } } },
+    errorsOnce: {
+      [`repos/${repo}/branches/feature`]: "API rate limit exceeded (HTTP 403)",
+    },
+    errors: {},
+  })
+  writeFileSync(
+    join(dir, `repos_acme_widgets_branches_feature.error`),
+    "gh: Server Error (HTTP 500)",
   )
-  assert.match(fn, /^gh_retry\(\) \{\n/)
-  for (const step of Object.values(steps))
-    assert.ok(stepShell(...step).includes(fn), step.join(": "))
+  const broken = run(
+    "start-terraform-plan",
+    dir,
+    { REPO: repo, PR: "7", BRANCH: "feature" },
+    [],
+    mergeRevision(infraChange),
+  )
+  assert.equal(broken.status, 1)
+  assert.match(broken.stderr, /HTTP 500/)
+  assert.doesNotMatch(broken.stdout, /rate limit stays/)
 })
 
-const infraChange = ({ write }) => write("infra/main.tf")
+test("each step that calls the GitHub API holds the same gh_retry", () => {
+  const all = [...Object.values(steps), ...Object.values(otherSteps)]
+  const texts = all.map((step) => {
+    const text = stepShell(...step)
+    const start = text.indexOf("# gh_retry runs")
+    assert.ok(start >= 0, step.join(": "))
+    return text.slice(start, text.indexOf("\n}\n", start) + 3)
+  })
+  for (const [index, text] of texts.entries())
+    assert.equal(text, texts[0], all[index].join(": "))
+  // No step of the workflow calls the GitHub API to list the PR files.
+  assert.doesNotMatch(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+    /pulls\/\$PR\/files/,
+  )
+})
+
+test("a path that git quotes still counts as a change under infra/", () => {
+  const result = start(({ write }) => write("infra/café \"x\".tf"))
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.outputs.at(-1), "plan=true")
+})
 
 test("the plan is not called for a closed PR", () => {
   const result = start(infraChange, { state: "MERGED" })
@@ -529,8 +588,7 @@ test("the evals reminder stays away with the label or without an MCP change", ()
   }
 })
 
-// The comment step sources scripts/ci/gh-retry.sh of the checkout.
-const comment = (options) => {
+const postComment = (options) => {
   const dir = setup({
     api: {
       [`repos/${repo}/issues/7/comments`]: [
@@ -542,27 +600,28 @@ const comment = (options) => {
   })
   mkdirSync(join(dir, "decision"))
   writeFileSync(join(dir, "decision/comment.md"), "<!-- merge-gate -->\nnew")
-  return run("post-comment", dir, { REPO: repo, PR: "7" }, [], root)
+  return run("post-comment", dir, { REPO: repo, PR: "7" })
 }
 
 test("the PR comment waits for the rate limit reset, and a limit that stays does not fail the job", () => {
   const limit = "API rate limit exceeded for installation ID 1 (HTTP 403)"
-  const once = comment({
+  const once = postComment({
     errorsOnce: { [`repos/${repo}/issues/7/comments`]: limit },
   })
   assert.equal(once.status, 0, once.stderr)
   assert.match(once.stderr, /the call runs again in 1s/)
+  assert.deepEqual(once.sleeps, ["1"])
   assert.equal(
     once.calls[0],
     `api --method PATCH repos/${repo}/issues/comments/5 -f body=<!-- merge-gate -->`,
   )
-  const stays = comment({
+  const stays = postComment({
     errors: { [`repos/${repo}/issues/7/comments`]: limit },
   })
   assert.equal(stays.status, 0, stays.stderr)
   assert.match(stays.stdout, /::warning::The GitHub API rate limit stays/)
   assert.deepEqual(stays.calls, [])
-  const broken = comment({
+  const broken = postComment({
     errors: { [`repos/${repo}/issues/7/comments`]: "gh: Server Error (HTTP 500)" },
   })
   assert.equal(broken.status, 1)

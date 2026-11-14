@@ -13,10 +13,10 @@ set -euo pipefail
 comment="${1:?usage: mcp-evals-reminder.sh <comment-file>}"
 # No comment text (the decision failed): the comment step posts nothing new.
 [ -f "$comment" ] || exit 0
-files="$(git diff-tree -r --no-commit-id --name-only HEAD^1 HEAD)"
-if ! grep -q '^apps/backend/src/mcp/' <<<"$files"; then
-  exit 0
-fi
+# Exit code 0: no change under the path; 1: a change.
+code=0
+git diff-tree --quiet -r HEAD^1 HEAD -- apps/backend/src/mcp/ || code=$?
+[ "$code" = 1 ] || exit "$code"
 labels="$(gh api "repos/$REPO/issues/$PR/labels" --jq '.[].name')"
 if grep -qx 'mcp-evals' <<<"$labels"; then
   exit 0
