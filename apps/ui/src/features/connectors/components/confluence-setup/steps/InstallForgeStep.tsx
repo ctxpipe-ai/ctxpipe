@@ -12,6 +12,7 @@ import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Spinner } from "@/components/ui/spinner"
 import { TextField } from "@/components/ui/TextField"
 import { pollWhileOk } from "@/lib/api-result"
+import { hideSecrets } from "@/lib/hide-secrets"
 import { useConfluenceForgeRuntime } from "@/providers/ConfluenceForgeRuntimeContext"
 
 import {
@@ -33,12 +34,6 @@ type InstallForgeStepProps = {
 const PROVISION_POLL_MS = 2000
 const PROVISION_TIMEOUT_MS = 15 * 60 * 1000
 const PROVISION_SUCCESS_MS = 550
-
-/** A URL without its query: a signed install link never shows in full. */
-function withoutQuery(url: string): string {
-  const cut = url.search(/[?#]/)
-  return cut === -1 ? url : `${url.slice(0, cut)}?…`
-}
 
 function pickHttps(candidate: string | null | undefined): string | null {
   const s = candidate?.trim()
@@ -342,7 +337,7 @@ export function InstallForgeStep({
                 <p className="max-h-24 overflow-y-auto rounded-md bg-zinc-950/60 p-2 font-mono text-xs wrap-anywhere text-muted-foreground">
                   The capabilities request failed. CONFLUENCE_FORGE_INSTALL_URL
                   is not used until the server responds. Runtime fallback:{" "}
-                  {withoutQuery(
+                  {hideSecrets(
                     pickHttps(forgeRuntime.installUrlFallback) ??
                       pickHttps(CONFLUENCE_FORGE_INSTALL_URL) ??
                       "none",
