@@ -109,6 +109,10 @@
                 "required": ["before", "after"],
                 "additionalProperties": false
               },
+              "scope": {
+                "type": "string",
+                "enum": ["page", "component"]
+              },
               "panel": {
                 "type": "object",
                 "properties": {
@@ -278,6 +282,10 @@
                 },
                 "required": ["before", "after"],
                 "additionalProperties": false
+              },
+              "scope": {
+                "type": "string",
+                "enum": ["page", "component"]
               },
               "panel": {
                 "type": "object",
@@ -470,6 +478,10 @@
                 "required": ["before", "after"],
                 "additionalProperties": false
               },
+              "scope": {
+                "type": "string",
+                "enum": ["page", "component"]
+              },
               "panel": {
                 "type": "object",
                 "properties": {
@@ -627,6 +639,10 @@
                 },
                 "required": ["before", "after"],
                 "additionalProperties": false
+              },
+              "scope": {
+                "type": "string",
+                "enum": ["page", "component"]
               },
               "panel": {
                 "type": "object",
@@ -825,6 +841,10 @@
                 },
                 "required": ["after"],
                 "additionalProperties": false
+              },
+              "scope": {
+                "type": "string",
+                "enum": ["page", "component"]
               },
               "kind": {
                 "type": "string",

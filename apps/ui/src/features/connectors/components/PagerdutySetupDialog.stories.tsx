@@ -261,6 +261,7 @@ export const ReplacedSetup: Story = {
   name: "Replaced setup with a config pull request",
   render: () => dialog(),
   parameters: {
+    visual: { allow: { axes: "Fixed by PR #722." } },
     msw: {
       handlers: {
         page: [

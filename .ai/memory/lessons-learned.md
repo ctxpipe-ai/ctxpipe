@@ -357,7 +357,7 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Source:** user correction after a PR 280 retest (the single step from `f52640644` was removed in `767082725` and restored)
 
 ### Connector list accordion
-- **Rule:** Connectors page rows share `ConnectorListItem`. Closed: icon, name, pulsing health (`connected` / `not yet connected` / `couldn't load` / `sync failed` / `config PR failed`), overflow menu, chevron. Open: Workspace, Scope, synchronised repository, text action link. Do not put setup steppers on the list — those belong in the wizard. Do not use a generic “Error” chip or orange alert icons; the chip names the cause. Display order is GitHub first (`sortOrgConnectionsForDisplay`). Linear “Manage scope” must open the scope editor (`manageScope`), same as Notion — not the “connected” splash.
+- **Rule:** Connectors page rows share `ConnectorListItem`. Closed: icon, name, health dot plus its word (`connected` / `not yet connected` / `couldn't load` / `sync failed` / `config PR failed`), overflow menu, chevron. The dot pulses only for a live state (`checking`, `syncing`); a static state has a still dot ([CTX-1259](https://linear.app/ctxpipe/issue/CTX-1259)). Open: Workspace, Scope, synchronised repository, text action link. Do not put setup steppers on the list — those belong in the wizard. Do not use a generic “Error” chip or orange alert icons; the chip names the cause. Display order is GitHub first (`sortOrgConnectionsForDisplay`). Linear “Manage scope” must open the scope editor (`manageScope`), same as Notion — not the “connected” splash.
 - **Category:** pattern
 - **Date:** 2026-08-13
 - **Source:** repo-page-ux
@@ -441,7 +441,7 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Source:** Claude Code 2.1.251 Stop hook validation failure after `npx ctxpipe init`; [anthropics/claude-code#50682](https://github.com/anthropics/claude-code/issues/50682)
 
 ### ctxpipe-observability stays in us-east4-eqdc4a
-- **Rule:** Hosted observability uses the same Railway metal as product: `us-east4-eqdc4a` (Virginia, next to Neon `aws-us-east-1`). Pin with `RAILWAY_SERVICE_SET=observability scripts/railway-set-regions.sh`. The pin is unfinished while any service or volume still shows `asia-southeast1-eqsg3a`.
+- **Rule:** Hosted observability uses the same Railway metal as product: `us-east4-eqdc4a` (Virginia, next to Neon `aws-us-east-1`). Pin with `scripts/railway-set-regions.sh`. The pin is unfinished while any service or volume still shows `asia-southeast1-eqsg3a`.
 - **Category:** convention
 - **Date:** 2026-09-25
 - **Source:** user correction on PR-343 (stack landed in Singapore again after image-service create / region pin)

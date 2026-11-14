@@ -105,8 +105,7 @@ export function WorkspaceHydrateProgress(props: {
   return (
     <main className="flex min-h-0 flex-1 items-center justify-center px-6 py-16">
       <div className="max-w-md">
-        <p className="ctx-label text-teal-400">Workspace</p>
-        <h1 className="mt-3 text-xl font-medium tracking-tight">
+        <h1 className="text-xl font-medium tracking-tight">
           Preparing {workspace.displayName}
         </h1>
         <p className="mt-3 text-sm text-muted-foreground">

@@ -53,12 +53,12 @@ Notes:
 
 Cursor is not in use now. Use this section only when Cursor Cloud runs again. Follow the shared runbook above for the dev servers.
 
-- [`.cursor/environment.json`](../../.cursor/environment.json) sets the environment. It builds from [`.cursor/Dockerfile`](../../.cursor/Dockerfile) (Docker CE, Node.js, pnpm, Bun) and runs `corepack enable && pnpm install` after boot.
+- [`.cursor/environment.json`](../../.cursor/environment.json) sets the environment. It builds from [`.cursor/Dockerfile`](../../.cursor/Dockerfile) (Docker CE, Node.js, pnpm, Bun) and runs `pnpm install` after boot.
 - [`.cursor/start.sh`](../../.cursor/start.sh) starts Docker and waits for `docker info`. It also writes `apps/backend/.env.local` from the Cursor secrets `AUTH_SECRET`, `DATABASE_URL`, and `GRAPH_DB_URI` when the file is missing. It uses the values in the shared runbook.
 - Set the secrets in the Cursor dashboard under Cloud Agents. `AUTH_SECRET` (32 or more characters) is required. `DATABASE_URL` and `GRAPH_DB_URI` are optional.
 - A personal dashboard environment can override the committed `environment.json`. If agents boot without Docker or Bun, remove the override or save a personal install that includes them.
 - Cursor applies `environment.json` only when it builds the image. If `docker` is missing on the VM, rebuild at [cursor.com/onboard](https://cursor.com/onboard).
-- CI and Changeset Guard run on `pull_request`. The merge gate of CI starts PR Deploy when it selects a deploy check; PR Deploy also runs on `pull_request` in shadow mode. The merge gate calls the Terraform plan workflow when the PR changes a file under `infra/`. CI also runs on `push` to `main`. PR Deploy keeps one concurrency group for each PR branch. Manual fallback: Actions, PR Deploy, Run workflow. Select the PR branch (never `main`), then enter the PR number.
+- CI and Changeset Guard run on `pull_request`. CI also runs on `push` to `main`.
 
 ## Claude Code on the web
 

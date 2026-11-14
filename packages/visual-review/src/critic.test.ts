@@ -22,6 +22,7 @@ import { screenshot } from "./compare/fixtures.ts"
 import {
   diff,
   judgeWithJev,
+  packagedRubric,
   reviewStories,
   toStoryInput,
   writeStoryImages,
@@ -131,6 +132,7 @@ async function ripple(count: number): Promise<StoryInput[]> {
     toStoryInput(manifest, story, {
       root,
       brief: "Make the badge red.",
+      rubric: packagedRubric,
     }),
   )
 }

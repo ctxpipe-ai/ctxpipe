@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Connect a Railway service instance to a Docker image, then deploy once
 # and wait for a terminal Railway status.
-# Same mutations as .github/workflows/pr-deploy.yaml (source image on
-# serviceInstanceUpdate, then serviceInstanceDeployV2). Runs after
+# It sets the source image with serviceInstanceUpdate, then deploys with
+# serviceInstanceDeployV2. Runs after
 # restartPolicyType=NEVER is already set; does not write the policy.
 #
 # serviceInstanceDeployV2 is a GraphQL String scalar (the deployment id),
-# not an object — same document as scripts/railway-set-regions.sh and
-# pr-deploy.yaml. A non-string payload is treated as "no id".
+# not an object — same document as scripts/railway-set-regions.sh. A
+# non-string payload is treated as "no id".
 set -euo pipefail
 
 # Image pull + start for cost-telemetry. Matches STATELESS_WAIT_SECONDS

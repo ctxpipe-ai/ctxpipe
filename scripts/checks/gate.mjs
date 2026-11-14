@@ -4,6 +4,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   writeFileSync,
 } from "node:fs"
 import { join } from "node:path"
@@ -20,7 +21,6 @@ import {
 } from "./plan.mjs"
 import {
   checkJobs,
-  lintSteps,
   profiles,
   readTrace,
   runsInOf,
@@ -38,7 +38,10 @@ import {
 //     Prints {"mode", "reason"}: `select` when the selector runs for this
 //     run, else `full` and why. <file> lists the changed paths of the PR.
 //     With `select`, "jobs" names the jobs of a ci.yaml change whose checks
-//     all run. It runs git on the checkout (HEAD^1 and HEAD).
+//     all run, and "gateInputs" the changed gate inputs that the base
+//     revision decides. It runs git on the checkout (HEAD^1 and HEAD). The
+//     gate jobs of ci.yaml run each command of this file from the base
+//     revision of a PR.
 //
 //   gate.mjs plan --config <merge-gate.json> --inputs <dir> --needs <file>
 //                 --store <file> --out <dir>
@@ -66,15 +69,11 @@ import {
 //     critics job). In gate mode, the exit code is 1 when a critic has no
 //     stored verdict, or when a same-repo PR has no critics record.
 
-// The step of the Lint and format job that the gated run always runs.
-const ciScriptTests = "CI command regression tests"
-
 // The result of a job or step conclusion.
 const conclusion = (value) =>
   value === "success" ? "passed" : value === "failure" ? "failed" : "unknown"
 
-// The result of each step above in this run, and of the CI script tests.
-// Also the result of each image build: the matrix job `Production build
+// The result of each image build: the matrix job `Production build
 // (<name>)` of ci.yaml is a plain Docker build of the check
 // `build:image-<name>:`, so the job result is the check result.
 export function stepResults(jobs) {
@@ -82,13 +81,6 @@ export function stepResults(jobs) {
   for (const job of jobs?.jobs ?? []) {
     const image = /^Production build \((.+)\)$/.exec(job.name)?.[1]
     if (image) results.set(`build:image-${image}:`, conclusion(job.conclusion))
-    if (job.name !== "Lint and format") continue
-    for (const step of job.steps ?? []) {
-      const key =
-        lintSteps[step.name] ??
-        (step.name === ciScriptTests ? ciScriptTests : undefined)
-      if (key) results.set(key, conclusion(step.conclusion))
-    }
   }
   return results
 }
@@ -169,15 +161,17 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
   const full = (reason) => ({ mode: "full", reason })
   if (event !== "pull_request") return full(`event ${event}`)
   if (fork) return full("fork PR")
-  // A change to one of these can change how the gate decides, so the run is
-  // full: the workflow that runs the gate, its actions, its pin, and the code
-  // that the gate and the runner execute. The manifest job runs the code of
-  // the PR (`pnpm install`, `pnpm -s checks:list`), so a file that changes
-  // how the manifest is made is here too: .npmrc, the patches, and each file
-  // that scripts/checks/list.mjs runs outside scripts/checks/ (a test keeps
-  // this list complete). Package files and the lockfile are lane inputs that
-  // the selector reads, not gate inputs. Other workflows, Markdown files and
+  // A change to one of these can change how the gate decides: the workflow
+  // that runs the gate, its actions, its pin, and the code that the gate and
+  // the runner execute. The manifest job runs the code of the PR (`pnpm
+  // install`, `pnpm -s checks:list`), so a file that changes how the manifest
+  // is made is here too: .npmrc, the patches, and each file that
+  // scripts/checks/list.mjs runs outside scripts/checks/ (a test keeps this
+  // list complete). Package files and the lockfile are lane inputs that the
+  // selector reads, not gate inputs. Other workflows, Markdown files and
   // .node-version are lane inputs too, and the toolchain is part of each key.
+  // The run is full, except for the inputs that the base revision decides
+  // and a ci.yaml change in the steps of check jobs.
   let inputs = changed.filter((path) =>
     [
       /^\.github\/workflows\/ci\.yaml$/,
@@ -193,6 +187,19 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
       /^apps\/codesearch\/scripts\/run-vitest-contracts\.mjs$/,
     ].some((input) => input.test(path)),
   )
+  // The gate inputs whose PR version no job of a PR run executes: the gate
+  // jobs of ci.yaml run the gate code and read the pin of the base revision
+  // (the step "The gate of the base revision"). Only the tests of the CI
+  // scripts read the PR version, and the plan runs each of them
+  // (withGateTests in plan.mjs). A test keeps each other importer out.
+  const decided = inputs.filter((path) =>
+    [
+      /^\.github\/merge-gate\.json$/,
+      /^scripts\/checks\/(?:gate|plan|shard|schema)\.mjs$/,
+      /^scripts\/checks\/schema\/[^/]+\.json$/,
+    ].some((input) => input.test(path)),
+  )
+  inputs = inputs.filter((path) => !decided.includes(path))
   // A change to ci.yaml only in the `steps` of check jobs runs
   // the selector; the shadow job then runs each check of those jobs.
   let jobs = []
@@ -216,13 +223,19 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
     !/^[0-9a-f]{64}$/.test(config.factory?.sha256 ?? "")
   )
     return full("selector unavailable: no pinned factory release")
-  return { mode: "select", reason: config.mode, ...(jobs.length && { jobs }) }
+  return {
+    mode: "select",
+    reason: config.mode,
+    ...(jobs.length && { jobs }),
+    ...(decided.length && { gateInputs: decided }),
+  }
 }
 
-// The result of each check id in the full run: its own record, else its
-// step of the Lint and format job, else `missing result` with the result of
-// its job. Each job of the full run writes a record for each check that it
-// runs, so a check without one did not run, or its job lost the record.
+// The result of each check id in the full run: its own record, else the
+// result of its image build job, else `missing result`
+// with the result of its job. Each job of the full run writes a record for
+// each check that it runs, so a check without one did not run, or its job
+// lost the record.
 export function fullRunResults(records, needs, steps = new Map()) {
   const results = new Map()
   for (const record of records) {
@@ -273,7 +286,6 @@ export function gatedVerdict({
   config,
   result,
   needs,
-  steps = new Map(),
 }) {
   const hits = new Map(
     (selection.cache?.hits ?? []).map((hit) => [hit.id, hit]),
@@ -304,7 +316,6 @@ export function gatedVerdict({
     "packages",
     "migrate",
   ].filter((job) => ["failure", "cancelled"].includes(needs[job]?.result))
-  if (steps.get(ciScriptTests) === "failed") failedAlwaysRun.push(ciScriptTests)
   const failedChecks = ran.some(
     (item) =>
       ["failed", "error"].includes(item.result) ||
@@ -320,11 +331,11 @@ export function gatedVerdict({
 }
 
 // The failed checks of the full run that the gated run would not run, and why.
-// A failed check has a failed record, or a failed step of the Lint and format
-// job. A check that the gated run would run also fails with an error record or
-// without a record, as in the gated verdict. An omitted check or a hit with an
-// error record or without a record is `unverified`: the full run did not prove
-// it, and the gated run would not run it.
+// A failed check has a failed record, or a failed image build job. A check
+// that the gated run would run also fails with an error record or without a
+// record, as in the gated verdict. An omitted check or a hit with an error
+// record or without a record is `unverified`: the full run did not prove it,
+// and the gated run would not run it.
 export function escapes({
   selection,
   records,
@@ -430,8 +441,7 @@ export function cost({ ranIds, seconds, jobs }) {
       60_000
     : undefined
   const profileMinutes = shardMinutes(shards)
-  // The CI script tests run in the Lint and format job, on each run.
-  const always = sum(alwaysRunJob) + 0.7
+  const always = sum(alwaysRunJob)
   return {
     fullRunMinutes: round(sum((name) => !shadowJob(name))),
     gatedRunMinutes: round(manifest + select + always + profileMinutes),
@@ -720,6 +730,8 @@ export function describe(reason) {
       return `reads ${reason.path}${share(reason)}`
     case "jobs":
       return `ci.yaml changed in job ${reason.jobs?.join(", ")}`
+    case "gate":
+      return `gate input ${reason.inputs?.join(", ")} changed`
     case "added":
       return `added by the LLM: ${reason.why}`
     case "contract":
@@ -823,7 +835,7 @@ export function shadow({
     decision.gatedRun = { verdict: full.verdict }
     return decision
   }
-  const gated = gatedVerdict({ selection, config, result, needs, steps })
+  const gated = gatedVerdict({ selection, config, result, needs })
   const trace = existsSync(join(inputs, "trace.json.gz"))
     ? readTrace(join(inputs, "trace.json.gz"))
     : undefined
@@ -939,10 +951,9 @@ export function gateDecision({
       })
   }
   // The jobs that run on each gated run.
-  const failedAlwaysRun = ["lint", "migrate"].filter(
-    (job) => ["failure", "cancelled"].includes(needs[job]?.result),
+  const failedAlwaysRun = ["migrate"].filter((job) =>
+    ["failure", "cancelled"].includes(needs[job]?.result),
   )
-  if (steps.get(ciScriptTests) === "failed") failedAlwaysRun.push(ciScriptTests)
   const bad = (status) =>
     ["failed", "error"].includes(status) || status.startsWith("missing result")
   const failedChecks = ran.filter((item) => bad(item.result))
@@ -972,6 +983,8 @@ export function gateDecision({
       schemaVersion: 1,
       mode: "gate",
       reason: "gate: the gated run gates",
+      // The changed gate inputs that the base revision decided (decideMode).
+      gateInputs: planned.gateInputs ?? [],
       factory: config.factory?.version ?? null,
       acceptAgentResults: config.acceptAgentResults === true,
       acceptPrResults: config.acceptPrResults === true,
@@ -1023,9 +1036,7 @@ export function gateDecision({
         fullRunMinutesEstimate: round(
           shardMinutes(shard(all, seconds)) +
             [...measured]
-              .filter(([name]) =>
-                /^(Lint and format|Migrations)/.test(name),
-              )
+              .filter(([name]) => /^Migrations/.test(name))
               .reduce((sum, [, value]) => sum + value, 0),
         ),
       },
@@ -1102,6 +1113,11 @@ export function gateText(
     "",
     `**Runner minutes:** this run ${decision.cost.gatedRunMinutes}; a full run about ${decision.cost.fullRunMinutesEstimate} (estimate of the tests and their setup, without builds).`,
   )
+  if (decision.gateInputs?.length)
+    lines.push(
+      "",
+      `**Gate inputs changed:** ${decision.gateInputs.map((path) => code(path)).join(", ")}. The gate code and the pin of the base revision decided this run, not the code of this PR, and every test of the CI scripts was selected.`,
+    )
   const shards = Object.entries(decision.shards ?? {})
   if (shards.length)
     lines.push(
@@ -1353,7 +1369,12 @@ function args(list) {
   return out
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
+// The gate jobs run this file from a temporary directory, which can be a
+// symbolic link; Node resolves the module path.
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
+)
   try {
     const [command, ...rest] = process.argv.slice(2)
     const options = args(rest)

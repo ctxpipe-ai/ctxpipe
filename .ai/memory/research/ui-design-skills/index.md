@@ -118,6 +118,8 @@ Landing-page chapters and “invent a new palette” are **out of scope** for `a
 
 Today’s UI is **not** treated as the gold standard. Several house patterns fail the same tests we want agents to apply. `DESIGN.md` records **decided** personality, not a dump of `styles.css`.
 
+> **Changed on 2026-11-13** ([CTX-1259](https://linear.app/ctxpipe/issue/CTX-1259)): the product owner replaced the four "Keep" rows below for the corner crosses, `ctx-label`, the pulsing dots and the quiet glow. See [DESIGN.md](../../../../apps/ui/DESIGN.md) **Personality**.
+
 | Current pattern | Verdict | Locked decision |
 |-----------------|---------|-----------------|
 | `--radius: 0.625rem` vs mass `rounded-none` vs Button `rounded-lg` vs outline `rounded-sm` | Mixing radii almost always looks worse | Unify on ~8–10px (`rounded-lg`). Do not add `rounded-none` on **new** product chrome. Existing square overrides stay until a later pass. |

@@ -121,11 +121,11 @@ export function SlackConnectionCard({
         {capturing ? (
           <p className="text-sm text-muted-foreground">
             Invite the bot with{" "}
-            <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
+            <code className="rounded-md bg-muted px-1 py-0.5 text-xs">
               /invite {formatSlackBotMention(status?.botHandle)}
             </code>
             , then mention{" "}
-            <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
+            <code className="rounded-md bg-muted px-1 py-0.5 text-xs">
               {formatSlackBotMention(status?.botHandle)}
             </code>{" "}
             in a thread to capture it, or say capture this.

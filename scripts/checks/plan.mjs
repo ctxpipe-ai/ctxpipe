@@ -2,14 +2,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 
 import { schemaErrors } from "./schema.mjs"
-import {
-  lintSteps,
-  profiles,
-  readTrace,
-  runsInOf,
-  shard,
-  traceSeconds,
-} from "./shard.mjs"
+import { profiles, readTrace, runsInOf, shard, traceSeconds } from "./shard.mjs"
 
 // The plan of a gated run (scripts/checks/README.md, Merge gate): which
 // checks run, in which ci.yaml job and shard, and which stored pass each
@@ -39,19 +32,12 @@ export function accepted(source, config) {
   return false
 }
 
-// The selection with each check of the jobs of a job-scoped ci.yaml change
-// (decideMode) selected and without a hit: no cache key holds ci.yaml. A
-// Storybook job runs on the Storybook build.
-export function withJobChecks(selection, jobs) {
-  const reached = new Set(
-    jobs.flatMap((job) =>
-      job === "storybook-build"
-        ? ["storybook-required", "storybook-plays", "storybook-visual"]
-        : [job],
-    ),
-  )
-  const runs = (check) => reached.has(runsInOf(check.id)?.job)
-  const reason = { kind: "jobs", jobs }
+// The selection with each check that `runs` gives selected, because the
+// gate inputs changed (`reason.kind` is `jobs` or `gate`). Unless
+// `keepHits`, each hit of such a check, also a `pr` hit, becomes a miss of
+// this run with that mode: an earlier run of the PR can have run it with
+// other gate inputs under the same key.
+function withChecks(selection, runs, reason, { keepHits = false } = {}) {
   const added = selection.omitted
     .filter(runs)
     .map((check) => ({ ...check, reason }))
@@ -63,20 +49,55 @@ export function withJobChecks(selection, jobs) {
       ...selection.counts,
       selected: selection.counts.selected + added.length,
     },
-    cache: selection.cache && {
-      ...selection.cache,
-      hits: (selection.cache.hits ?? []).filter((hit) => !runs(hit)),
-      // A check of such a job runs, so its key is a miss of this run.
-      misses: [
-        ...(selection.cache.misses ?? []),
-        ...(selection.cache.hits ?? []).filter(runs).map((hit) => ({
-          id: hit.id,
-          key: hit.key,
-          mode: "jobs",
-        })),
-      ],
-    },
+    cache: keepHits
+      ? selection.cache
+      : selection.cache && {
+          ...selection.cache,
+          hits: (selection.cache.hits ?? []).filter((hit) => !runs(hit)),
+          // A stored pass for the key of a check that runs: a failure
+          // contradicts it (`rerun`).
+          misses: [
+            ...(selection.cache.misses ?? []),
+            ...(selection.cache.hits ?? []).filter(runs).map((hit) => ({
+              id: hit.id,
+              key: hit.key,
+              mode: reason.kind,
+            })),
+          ],
+        },
   }
+}
+
+// The selection with each check of the jobs of a job-scoped ci.yaml change
+// (decideMode): no cache key holds ci.yaml. A Storybook job runs on the
+// Storybook build.
+export function withJobChecks(selection, jobs) {
+  const reached = new Set(
+    jobs.flatMap((job) =>
+      job === "storybook-build"
+        ? ["storybook-required", "storybook-plays", "storybook-visual"]
+        : [job],
+    ),
+  )
+  return withChecks(
+    selection,
+    (check) => reached.has(runsInOf(check.id)?.job),
+    { kind: "jobs", jobs },
+  )
+}
+
+// The selection with each test of the CI scripts (`policy:tests-*`) of a
+// change to a gate input that the base revision decides (decideMode). These
+// tests cover the gate code and read the pin, which no other job of the run
+// executes, so the LLM stage must not drop them. Their keys hold scripts/**
+// and .github/**, so a hit is a pass of this gate code.
+function withGateTests(selection, inputs) {
+  return withChecks(
+    selection,
+    (check) => check.id.startsWith("policy:tests-"),
+    { kind: "gate", inputs },
+    { keepHits: true },
+  )
 }
 
 // The selection of the gate: the selected and omitted checks of the LLM job
@@ -196,8 +217,7 @@ export function withStoreHits(selection, store) {
   }
 }
 
-// Where a check runs in a gated run. The Lint and format job runs each lint
-// and policy check as a step, on each run. Every Storybook play runs in the
+// Where a check runs in a gated run. Every Storybook play runs in the
 // Storybook plays shards, and each screenshot in the screenshots shards
 // (runsIn). A check that ci.yaml does not run is `external`:
 // another workflow runs it, and its own status reports the result.
@@ -206,8 +226,6 @@ const external = {
 }
 export function placeOf(id) {
   const [family, lane] = id.split(":")
-  if (Object.values(lintSteps).some((prefix) => id.startsWith(prefix)))
-    return { job: "lint" }
   const workflow = external[`${family}:${lane}`] ?? external[family]
   if (workflow) return { workflow }
   if (family === "storybook" && lane !== "visual")
@@ -237,7 +255,7 @@ export function jobPlans(ran, seconds, rerun = new Set()) {
   const byJob = new Map()
   for (const id of ran) {
     const { job } = placeOf(id)
-    if (!job || job === "lint") continue
+    if (!job) continue
     byJob.set(job, [...(byJob.get(job) ?? []), id])
   }
   const jobs = {}
@@ -313,16 +331,16 @@ export function nightlyPlan(factory, seconds) {
   const visual = (id) => id.startsWith("storybook:visual:")
   const playsOf = (id) =>
     visual(id) ? `storybook:plays:${id.slice("storybook:visual:".length)}` : id
-  const rendered = [
-    ...new Set(
-      factory.run
-        .filter(
-          (id) =>
-            family(id) === "storybook" && (!visual(id) || traced.has(id)),
-        )
-        .map(playsOf),
-    ),
-  ].sort()
+  // One id for each story (`<file>#<story>`): a render records every check id
+  // of its story in the trace of its shard, and `trace.mjs merge` rejects an
+  // id in two traces. The id of the play or required check wins.
+  const byStory = new Map()
+  for (const id of factory.run)
+    if (family(id) === "storybook" && (!visual(id) || traced.has(id))) {
+      const story = id.split(":").slice(2).join(":")
+      if (!visual(id) || !byStory.has(story)) byStory.set(story, playsOf(id))
+    }
+  const rendered = [...byStory.values()].sort()
   const rest = factory.run.filter(
     (id) => !project(id) && (family(id) !== "storybook" || visual(id)),
   )
@@ -410,8 +428,12 @@ export function plan({ config, inputs, needs, store }) {
     readJson(join(inputs, "llm-selection.json")),
     readText(join(inputs, "llm-cause.txt")),
   )
-  if (mode.jobs?.length) selection = withJobChecks(selection, mode.jobs)
+  // The PR store first: a check of a job-scoped ci.yaml change then loses
+  // its `pr` hit too.
   selection = withStoreHits(selection, store)
+  if (mode.jobs?.length) selection = withJobChecks(selection, mode.jobs)
+  const gateInputs = mode.gateInputs ?? []
+  if (gateInputs.length) selection = withGateTests(selection, gateInputs)
   const selected = new Set(selection.selected.map((check) => check.id))
   const hits = new Map()
   for (const hit of selection.cache?.hits ?? [])
@@ -425,7 +447,8 @@ export function plan({ config, inputs, needs, store }) {
     .filter((check) => !hits.has(check.id))
     .map((check) => check.id)
   // A check that runs although a pass is stored for its key: a hit that is
-  // not accepted, or a check of a job-scoped ci.yaml change.
+  // not accepted, a check of a job-scoped ci.yaml change, or a quarantined
+  // key.
   const stored = new Set([
     ...(selection.cache?.hits ?? []).map((hit) => hit.id),
     ...(selection.cache?.misses ?? [])
@@ -442,7 +465,12 @@ export function plan({ config, inputs, needs, store }) {
     schemaVersion: 1,
     config: config.mode,
     mode: gate ? "gate" : "full",
-    reason: gate ? "gate" : config.mode,
+    reason: `${gate ? "gate" : config.mode}${
+      gateInputs.length
+        ? `; gate inputs changed (${gateInputs.join(", ")}): the gate code and the pin of the base revision decide, and every test of the CI scripts runs`
+        : ""
+    }`,
+    gateInputs,
     selection,
     hits: [...hits.values()],
     ran,

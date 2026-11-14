@@ -60,7 +60,7 @@ export function WorkspaceNavList(props: {
               <>
                 {props.expanded ? (
                   <li className="mx-1.5 mt-2.5 mb-0.5 flex h-8 w-[calc(100%-0.75rem)] items-center pl-2">
-                    <p className="text-[10px] font-normal uppercase tracking-tighter text-muted-foreground">
+                    <p className="text-xs font-normal uppercase tracking-tighter text-muted-foreground">
                       Workspaces
                     </p>
                   </li>
@@ -161,7 +161,7 @@ function WorkspaceNavListReady(props: {
     <>
       {expanded ? (
         <li className="mx-1.5 mt-2.5 mb-0.5 flex h-8 w-[calc(100%-0.75rem)] items-center justify-between pl-2">
-          <p className="text-[10px] font-normal uppercase tracking-tighter text-muted-foreground">
+          <p className="text-xs font-normal uppercase tracking-tighter text-muted-foreground">
             Workspaces
           </p>
           <span ref={addRef} className="inline-flex">

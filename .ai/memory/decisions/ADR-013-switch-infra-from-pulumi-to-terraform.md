@@ -1,6 +1,6 @@
 # ADR-013: Terraform as our IAC
 
-**Status:** Accepted | **Date:** 2026-03-17 | **Tags:** infra, pulumi, terraform, railway, neon
+**Status:** Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) for hosted infrastructure | **Date:** 2026-03-17 | **Tags:** infra, pulumi, terraform, railway, neon
 
 ## Context
 

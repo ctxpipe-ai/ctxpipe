@@ -27,7 +27,6 @@ export function OAuthOrganizationSelector({
     <main className="mx-auto max-w-xl px-6 py-16 text-foreground">
       <section className="space-y-6 rounded-md border border-border bg-card/80 p-6">
         <div className="space-y-2">
-          <p className="ctx-label">OAuth connection</p>
           <h1 className="text-xl font-medium">Choose an organization</h1>
           <p className="text-sm text-muted-foreground">
             Claude will use ctxpipe data from this organization. The choice is

@@ -3,7 +3,7 @@ import { type ConnectorHealth, connectorHealthLabel } from "../connectorHealth"
 const failureTone = {
   text: "text-red-400",
   dot: "bg-red-400",
-  pulse: true,
+  pulse: false,
 } as const
 
 const TONE: Record<
@@ -38,7 +38,7 @@ const TONE: Record<
   connected: {
     text: "text-emerald-400",
     dot: "bg-emerald-400",
-    pulse: true,
+    pulse: false,
   },
   couldnt_load: failureTone,
   sync_failed: failureTone,

@@ -88,9 +88,6 @@ export function GitHubSetupPageContent({ orgSlug }: { orgSlug: string }) {
   if (loading) {
     return (
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-        <header className="mb-8">
-          <span className="ctx-label text-teal-400">GitHub</span>
-        </header>
         <div aria-busy>
           <span className="sr-only">Checking GitHub connection</span>
           <SkeletonRow size="catalog" lines={2} />
@@ -113,9 +110,6 @@ export function GitHubSetupPageContent({ orgSlug }: { orgSlug: string }) {
   if (installationQuery.isError) {
     return (
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-        <header className="mb-8">
-          <span className="ctx-label text-teal-400">GitHub</span>
-        </header>
         <InlineAlert
           variant="error"
           title="Could not check GitHub"
@@ -143,9 +137,6 @@ export function GitHubSetupPageContent({ orgSlug }: { orgSlug: string }) {
   if (!installationLinked) {
     return (
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-        <header className="mb-8">
-          <span className="ctx-label text-teal-400">GitHub</span>
-        </header>
         <h1 className="text-xl font-medium tracking-tight text-foreground">
           Finish connecting GitHub
         </h1>

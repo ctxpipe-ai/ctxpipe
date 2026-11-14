@@ -1,0 +1,117 @@
+# The images of a pull request for its AWS preview (ADR-061 decisions 5 and 19 to 24; factory CTX-1218). On each push
+# to a pull request from this repo, this builds the linux/arm64 images that a preview runs on Graviton (backend,
+# worker, ui, codesearch) and pushes them to the preview account's ECR as
+# `ctxpipe-pr/<image>:pr-<N>-<head sha>-<run>-<attempt>`.
+# The factory preview workflow (`factory preview up <N>`) takes them by the digests that a successful run of this
+# workflow reported for the PR's head commit (factory machines/previews/pr, `images`).
+#
+# - Only pull requests from this repo (the role trusts no fork) into main.
+# - Two jobs. `build` runs the PR's code (the Dockerfile steps) and holds no credential and no OIDC token: it hands the
+#   image on as an artifact. `push` runs no code of the PR (no checkout, no local action, pinned actions only), gets
+#   the role, and pushes that image. The role (`ctxpipe/preview-pr-image-push`, factory machines/previews/base) can
+#   only push to `ctxpipe-pr/*` in the preview account.
+# - The image is the PR's head commit, not the merge commit, so the tag names the code it holds.
+# - Provenance: every same-repo pull request has the role, so another PR can push and tag in `ctxpipe-pr/*`, and
+#   neither a tag nor a push time says which run pushed an image. So each push job reports the digest it pushed as
+#   one notice `preview-image` on its own check run, and the factory takes only those digests: of a run that
+#   succeeded, of this workflow, at the PR's head commit, whose only pull request is that PR into main. A PR's run
+#   runs the PR's own version of this file, so the factory gives no preview to a PR whose copy differs from main's.
+#   The tag names this run and attempt and is immutable, so a tag that is there already fails the push and the run.
+name: PR preview images
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-preview-images-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build preview image (${{ matrix.image }})
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    timeout-minutes: 45
+    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            dockerfile: apps/backend/Dockerfile
+          - image: worker
+            dockerfile: apps/backend/Dockerfile.worker
+          - image: ui
+            dockerfile: apps/ui/Dockerfile
+          - image: codesearch
+            dockerfile: apps/codesearch/Dockerfile
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      # The repo's own: it retries the buildkit boot that fails on some Blacksmith runners. This job holds no
+      # credential, so a local action of the PR is fine here.
+      - uses: ./.github/actions/setup-buildx
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/arm64
+          tags: preview/${{ matrix.image }}:local
+          outputs: type=docker,dest=${{ runner.temp }}/image.tar
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: preview-image-${{ matrix.image }}
+          path: ${{ runner.temp }}/image.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  push:
+    name: Push preview image (${{ matrix.image }})
+    needs: build
+    timeout-minutes: 20
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [backend, worker, ui, codesearch]
+    env:
+      REGISTRY: 573018602187.dkr.ecr.us-west-2.amazonaws.com
+      TAG: pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: preview-image-${{ matrix.image }}
+          path: ${{ runner.temp }}/image
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::573018602187:role/ctxpipe/preview-pr-image-push
+          aws-region: us-west-2
+      - name: Push to the preview account
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          set -euo pipefail
+          target="$REGISTRY/ctxpipe-pr/$IMAGE:$TAG"
+          # The tag is this run's own: one that is there already fails the push (immutable), and with it the run.
+          docker load --input "$RUNNER_TEMP/image/image.tar"
+          aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY"
+          docker tag "preview/$IMAGE:local" "$target"
+          docker push "$target"
+          # The digest the factory takes: one notice on this job's check run (factory previews/pr, runDigests).
+          # From ECR, under this run's own tag: the image that the push above made.
+          digest=$(aws ecr describe-images --repository-name "ctxpipe-pr/$IMAGE" --image-ids imageTag="$TAG" \
+            --query 'imageDetails[0].imageDigest' --output text)
+          [[ $digest =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::No digest for $target"; exit 1; }
+          echo "::notice title=preview-image::$IMAGE $digest"
+          echo "Pushed $target ($digest)" >> "$GITHUB_STEP_SUMMARY"

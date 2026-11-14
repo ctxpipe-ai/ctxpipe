@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs"
+
 import { describe, expect, test } from "vitest"
 
 import { diff } from "../index.ts"
@@ -66,6 +68,34 @@ describe("diff", () => {
       status: "changed",
       diffPixels: 10,
     })
+  })
+
+  test("a faint color change over a large area is a changed story", async () => {
+    // Two captures of one story: the Card surface changed from rgb(10,10,10)
+    // to about rgb(18,18,21). Each pixel is below `threshold`.
+    const fixture = (name: string) =>
+      readFileSync(new URL(`./card-surface/${name}.png`, import.meta.url))
+    const card = { x: 528, y: 116, width: 608, height: 64 }
+
+    const result = await diff(fixture("before"), fixture("after"))
+
+    if (result.status !== "changed") throw new Error(result.summary)
+    expect(result.diffPixels).toBeGreaterThan(100_000)
+    expect(result.regions.some(({ box }) => contains(box, card))).toBe(true)
+    expect(result.summary).toMatch(/faint/i)
+  })
+
+  test("a faint color change in small or thin parts only is unchanged", async () => {
+    // A text-sized box and a line 1 px high across the image, 6 levels of
+    // gray darker: below `threshold`, and smaller than one full area.
+    const near = [249, 249, 249] as const
+    const page = screenshot(200, 120, [])
+    const after = screenshot(200, 120, [
+      { box: { x: 10, y: 10, width: 20, height: 20 }, color: near },
+      { box: { x: 0, y: 60, width: 200, height: 1 }, color: near },
+    ])
+
+    expect(await diff(page, after)).toMatchObject({ status: "unchanged" })
   })
 
   test("images of different sizes are a size-changed story", async () => {

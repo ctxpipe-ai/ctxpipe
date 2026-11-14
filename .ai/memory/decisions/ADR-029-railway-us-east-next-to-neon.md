@@ -1,6 +1,6 @@
 # ADR-029: Railway compute in US East next to Neon
 
-**Status:** Accepted | **Date:** 2026-09-13 | **Tags:** infra, railway, neon, latency
+**Status:** Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) | **Date:** 2026-09-13 | **Tags:** infra, railway, neon, latency
 
 ## Context
 
