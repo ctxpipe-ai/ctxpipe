@@ -4,19 +4,15 @@ import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseArgs } from "node:util"
 
+import { csfTools } from "../../apps/ui/.storybook/check-modules.mjs"
 import { runVisual } from "../../packages/visual-review/src/compare/baselines.ts"
 import { threshold } from "../../packages/visual-review/src/compare/diff.ts"
-import { csfTools } from "../../apps/ui/.storybook/check-modules.mjs"
 import {
   readUnstable,
   visualOptions,
   visualRecords,
 } from "../checks/visual.mjs"
-import {
-  captureInContainer,
-  shotKey,
-  viewports,
-} from "./visual-capture.mjs"
+import { captureInContainer, shotKey, viewports } from "./visual-capture.mjs"
 import pin from "./visual-container.json" with { type: "json" }
 
 // `pnpm visual:check` and `pnpm visual:update [--only <id>,<id>... | --failed]`.
@@ -30,7 +26,8 @@ import pin from "./visual-container.json" with { type: "json" }
 // - check: writes the run into .ci-results/visual/ (manifest.json, and the
 //   images of each story that is not unchanged). It never writes a baseline.
 //   It fails on a story that is new, changed, removed (an orphan baseline),
-//   unstable, play-failed or size-changed, and above the size budget. With
+//   unstable, play-failed or size-changed, that has a layout problem (the
+//   layout checks of the capture), and above the size budget. With
 //   --only, it checks only those stories: it does not look for orphans, and
 //   only the image budget of their baselines applies. With --records <dir>,
 //   it also writes one result record for each story to <dir>/records.ndjson

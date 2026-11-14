@@ -49,6 +49,8 @@ export type VisualOptions = {
   /** The capture applies these; the compare does not read them. */
   fullPage?: boolean
   masks?: string[]
+  /** The layout rules that the story accepts, each with its reason. */
+  allow?: Partial<Record<"overflow" | "axes" | "contrast", string>>
 }
 
 /**
@@ -59,6 +61,8 @@ export type Captured = {
   status: "captured" | "unstable" | "play-failed" | "capture-failed" | "not-run"
   png?: Uint8Array
   error?: string
+  /** The problems of the layout checks in the page of the screenshot. */
+  layout?: ManifestStory["layout"]
 }
 
 /**
@@ -114,8 +118,9 @@ const shotKey = (shot: Shot) =>
  *   orphans.
  *
  * Both fail (code 1) when a baseline is above the size `budget`. `check`
- * also fails on each story that is not unchanged; `update` on each story with
- * no steady screenshot. The result also holds the manifest entries of a
+ * also fails on each story that is not unchanged or that has a layout
+ * problem (`Captured.layout`); `update` on each story with no steady
+ * screenshot. Both print each layout problem. The result also holds the manifest entries of a
  * `check`, and each budget error with the baseline that it names.
  */
 export async function runVisual({
@@ -280,6 +285,8 @@ export async function runVisual({
         failures++
         print(`${entry.status}: ${shot.baseline}`)
       }
+      if (entry.layout?.length) failures++
+      printLayout(print, shot, result)
       entries.push(entry)
     }
     for (const orphan of orphans) {
@@ -299,6 +306,7 @@ export async function runVisual({
   } else {
     let written = 0
     for (const [shot, result] of results) {
+      printLayout(print, shot, result)
       if (result.status !== "captured" || !result.png) {
         failures++
         print(
@@ -354,6 +362,18 @@ export async function runVisual({
   }
 }
 
+/** Prints each layout problem of a screenshot, with its baseline. */
+const printLayout = (
+  print: (line: string) => void,
+  shot: Shot,
+  result: Captured,
+) => {
+  for (const problem of result.layout ?? [])
+    print(
+      `layout: ${shot.baseline}: ${problem.rule}: ${problem.element}: ${problem.detail}`,
+    )
+}
+
 /** The manifest status of a screenshot that the capture did not give. */
 const notCaptured = (result: Captured) =>
   result.status === "unstable" ? "unstable" : "play-failed"
@@ -386,6 +406,7 @@ async function compareShot(
     signature: null,
     omittedRegions: 0,
     images: {},
+    ...(result.layout && { layout: result.layout }),
   }
   const writeAfter = async (png: Uint8Array) => {
     await mkdir(join(out, dir), { recursive: true })

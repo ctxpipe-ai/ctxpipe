@@ -94,6 +94,7 @@ The product owner decided on 2026-11-13: "Use Jev for this capability and just f
     - **Limits.** Sonnet found the same 11 issues in total, but other ones: on round 1 it found 3 fewer than before, with the same rules for those screenshots, so one run of Sonnet differs by a few issues. No judge flagged the unbalanced row of the owner, and Jev fails `balance` on about half of the screenshots ([CTX-1276](https://linear.app/ctxpipe/issue/CTX-1276)). Jev still gives `dialog` findings on a banner and an error alert, which are not dialogs, and `regression` on all 16 screenshots ([CTX-1267](https://linear.app/ctxpipe/issue/CTX-1267)).
 ## Consequences
 
+- Deterministic checks come first, and Jev is for taste. The screenshot capture measures overflow, off-axis leading markers and text contrast in the page of each story ([CTX-1277](https://linear.app/ctxpipe/issue/CTX-1277)). A failure fails the `storybook:visual` check of the story; Jev does not have to find these defects.
 - A visual review costs fractions of a cent for a normal PR, and it takes seconds.
 - A visual finding has an area, a region, a probability and the images, but no written evidence: Jev gives no text. The agent must find the defect in the images. To get a written verdict, run `pnpm visual:review --judge model` or `--judge agent` on your own machine.
 - No visual finding stops a merge. A real regression that the agent ignores can merge. The agent must answer each suspected regression with a fix or a reason in the PR.

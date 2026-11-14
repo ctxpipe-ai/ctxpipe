@@ -15,7 +15,7 @@ const root = fileURLToPath(new URL("../../", import.meta.url))
 // The files that change every screenshot, but that a story does not import:
 // the Storybook and Vite configs, the static files, the lockfile, the
 // runner, the image pin, the list of unstable screenshots, the capture
-// script, and the compare engine with its tolerance.
+// script with its layout checks, and the compare engine with its tolerance.
 const inputs = [
   "package.json",
   "pnpm-lock.yaml",
@@ -26,6 +26,7 @@ const inputs = [
   "apps/ui/vite.config.ts",
   "apps/ui/.storybook/**",
   "apps/ui/public/**",
+  "apps/ui/src/lib/layout-checks.ts",
   "scripts/checks/run.mjs",
   "scripts/checks/storybook.mjs",
   "scripts/checks/visual.mjs",
@@ -80,13 +81,15 @@ export function listVisual(entries, unstable, options = new Map()) {
             ),
         )
         .flatMap((viewport) =>
-          [story.exportName, ...snapshots.map((name) => `${story.exportName}@${name}`)].map(
-            (name) =>
-              posix.join(
-                posix.dirname(file),
-                "screenshots",
-                `${stem}.${name}.${viewport}.screenshot.png`,
-              ),
+          [
+            story.exportName,
+            ...snapshots.map((name) => `${story.exportName}@${name}`),
+          ].map((name) =>
+            posix.join(
+              posix.dirname(file),
+              "screenshots",
+              `${stem}.${name}.${viewport}.screenshot.png`,
+            ),
           ),
         )
       if (!ownInputs.length) return []
@@ -155,6 +158,9 @@ export const readUnstable = () =>
 // - `viewports`: the viewports, from "desktop" and "mobile" (default
 //   desktop, and mobile too for a story with the `page` tag).
 // - `masks`: CSS selectors of content that the capture hides for the shot.
+// - `allow`: an object of layout rules (overflow, axes, contrast) that the
+//   story accepts, each with its reason (a string). The capture does not run
+//   these layout checks (apps/ui/src/lib/layout-checks.ts) for the story.
 // Each `snapshot("<name>")` call in the play function of the story (its own,
 // or that of the meta) is one named snapshot, in `snapshots`. The name must
 // be a string literal in kebab case. An option that is not valid is an error.
@@ -194,7 +200,8 @@ export function visualOptions(
 const property = (node, key) =>
   node?.properties?.find(
     (item) =>
-      item.type === "ObjectProperty" && (item.key.name ?? item.key.value) === key,
+      item.type === "ObjectProperty" &&
+      (item.key.name ?? item.key.value) === key,
   )
 
 const strings = (node) =>
@@ -244,9 +251,25 @@ function parameterOptions(file, name, annotations) {
       if (!masks?.every((mask) => mask.trim()))
         fail(".masks must be a list of CSS selectors (string literals).")
       options.masks = masks
+    } else if (key === "allow") {
+      if (value.type !== "ObjectExpression") fail(".allow must be an object.")
+      options.allow = {}
+      for (const rule of value.properties) {
+        const name = rule.key?.name ?? rule.key?.value
+        if (
+          rule.type !== "ObjectProperty" ||
+          !["overflow", "axes", "contrast"].includes(name) ||
+          rule.value.type !== "StringLiteral" ||
+          !rule.value.value.trim()
+        )
+          fail(
+            ".allow needs a layout rule (overflow, axes or contrast) and a reason (a string literal) for each entry.",
+          )
+        options.allow[name] = rule.value.value
+      }
     } else
       fail(
-        ` has no option ${JSON.stringify(key)}. The options are skip, fullPage, maxDiffPixels, viewports and masks.`,
+        ` has no option ${JSON.stringify(key)}. The options are skip, fullPage, maxDiffPixels, viewports, masks and allow.`,
       )
   }
   return options
@@ -286,10 +309,10 @@ function snapshotNames(story, play) {
 }
 
 // One result record for each story of a `visual:check` result (runVisual):
-// passed when each screenshot of the story is unchanged and no baseline of
-// it is above the image budget. The message of a failed record gives the
-// change of each screenshot and the image folder of the story; the log is
-// the manifest. An orphan baseline (status `removed`) is no check.
+// passed when each screenshot of the story is unchanged, has no layout
+// problem, and no baseline of it is above the image budget. The message of a
+// failed record gives the change and the layout problems of each screenshot
+// and the image folder of the story; the log is the manifest. An orphan baseline (status `removed`) is no check.
 export function visualRecords({ stories, budget }, durationMs) {
   const byCheck = new Map()
   for (const entry of stories) {
@@ -305,7 +328,7 @@ export function visualRecords({ stories, budget }, durationMs) {
       const name = entry.snapshot
         ? `${entry.viewport}@${entry.snapshot}`
         : entry.viewport
-      const problems = [
+      const image = [
         ...(entry.status === "unchanged"
           ? []
           : [
@@ -315,22 +338,41 @@ export function visualRecords({ stories, budget }, durationMs) {
           .filter((error) => error.path === entry.baseline)
           .map((error) => error.message.replace(/\.$/, "")),
       ]
+      const layout = (entry.layout ?? []).map(
+        (problem) =>
+          `${name} layout ${problem.rule}: ${problem.element}: ${problem.detail.replace(/\.$/, "")}`,
+      )
+      const problems = [...image, ...layout]
       return {
         name,
         status: problems.length ? "failed" : "passed",
         durationMs: Math.round(each / entries.length),
         ...(problems.length && { message: problems.join("; ") }),
+        image: image.length > 0,
+        layout: layout.length > 0,
       }
     })
     const failed = cases.filter((item) => item.status === "failed")
+    const advice = [
+      ...(failed.some((item) => item.image)
+        ? [
+            `Images: .ci-results/visual/${storyId}/. If the change is intended, run: pnpm visual:update --only ${storyId}`,
+          ]
+        : []),
+      ...(failed.some((item) => item.layout)
+        ? [
+            "Fix the layout, or accept the rule with a reason in parameters.visual.allow (storybook skill, Layout checks)",
+          ]
+        : []),
+    ]
     return {
       id,
       status: failed.length ? "failed" : "passed",
       durationMs: each,
-      cases,
+      cases: cases.map(({ image: _image, layout: _layout, ...item }) => item),
       log: ".ci-results/visual/manifest.json",
       ...(failed.length && {
-        message: `${failed.map((item) => item.message).join("; ")}. Images: .ci-results/visual/${storyId}/. If the change is intended, run: pnpm visual:update --only ${storyId}`,
+        message: `${failed.map((item) => item.message).join("; ")}. ${advice.join(". ")}`,
       }),
     }
   })

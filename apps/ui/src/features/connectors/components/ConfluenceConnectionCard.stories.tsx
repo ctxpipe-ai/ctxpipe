@@ -253,6 +253,12 @@ export const PendingSetup: Story = {
     <ConfluenceConnectionCard {...cardProps} onOpenWizard={onOpenWizard} />
   ),
   parameters: {
+    visual: {
+      allow: {
+        overflow: "Fixed by PR #722.",
+        contrast: "Text below WCAG AA on main (CTX-1278).",
+      },
+    },
     msw: {
       handlers: {
         page: [atlassianStatus(statusNotLinked), orgAtlassianOauthHandler],
@@ -286,6 +292,12 @@ export const PendingSetup: Story = {
 export const RemovePendingSetup: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
+    visual: {
+      allow: {
+        overflow: "Fixed by PR #722.",
+        contrast: "Text below WCAG AA on main (CTX-1278).",
+      },
+    },
     msw: {
       handlers: {
         page: [

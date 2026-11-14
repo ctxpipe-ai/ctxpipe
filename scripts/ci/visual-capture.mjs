@@ -37,7 +37,9 @@ import pin from "./visual-container.json" with { type: "json" }
 // the play takes one more screenshot at that point of the play.
 // Each one is written as <out>/<story id>.png (<out>/<story id>@<name>.png
 // for a named snapshot), with <out>/capture.json (the status of each shot:
-// captured, unstable, play-failed or capture-failed).
+// captured, unstable, play-failed or capture-failed). The shot of the end
+// state also has `layout`: the problems of the layout checks
+// (apps/ui/src/lib/layout-checks.ts) in the same page.
 //
 // Usage: node scripts/ci/visual-capture.mjs --out <dir> <story id>...
 // (desktop; pnpm visual:check also captures the mobile screenshots)
@@ -103,9 +105,34 @@ async function takeShot(page, { fullPage = false, masks = [] }, out, key) {
   }
 }
 
+// Runs the layout checks of the story (apps/ui/src/lib/layout-checks.ts) in
+// its page, after the screenshot of the end state: thus a check cannot
+// change the pixels. The rules of `parameters.visual.allow` do not run.
+// Returns the problems; an error of the checks is one problem.
+async function checkLayout(page, { allow = {} }) {
+  const problems = await page
+    .evaluate(
+      (skip) => window.__ctxpipeLayoutProblems?.(document.body, { skip }),
+      Object.keys(allow),
+    )
+    .catch((checkError) => [
+      { rule: "error", element: "page", detail: String(checkError.message) },
+    ])
+  return (
+    problems ?? [
+      {
+        rule: "error",
+        element: "page",
+        detail:
+          "The Storybook build has no layout checks (window.__ctxpipeLayoutProblems). Rebuild Storybook.",
+      },
+    ]
+  )
+}
+
 // Runs inside the container: /work is the repo, /out the folder of the PNGs.
 // `plan` holds the screenshot options of each story
-// (`{ id, fullPage, masks, snapshots }`).
+// (`{ id, fullPage, masks, snapshots, allow }`).
 async function captureHere(plan, out, viewport) {
   mkdirSync(out, { recursive: true })
   const server = await serveStatic(staticDir, 0)
@@ -113,6 +140,7 @@ async function captureHere(plan, out, viewport) {
   const options = new Map(plan.map((story) => [story.id, story]))
   // The result of each shot of the story that plays now, by key.
   let taken = new Map()
+  let layoutMs = 0
   try {
     const url = `http://127.0.0.1:${server.address().port}`
     await waitFor(`${url}/index.json`)
@@ -159,16 +187,30 @@ async function captureHere(plan, out, viewport) {
             if (taken.has(key))
               throw new Error(`The play called snapshot("${name}") two times.`)
             await page.evaluate(() => document.fonts.ready)
-            taken.set(key, await takeShot(page, options.get(story.id), out, key))
+            taken.set(
+              key,
+              await takeShot(page, options.get(story.id), out, key),
+            )
           }),
         afterPlay: async (page, story, error) => {
           if (error) return
-          taken.set(
+          const shot = await takeShot(
+            page,
+            options.get(story.id),
+            out,
             story.id,
-            await takeShot(page, options.get(story.id), out, story.id),
           )
+          if (shot.status !== "capture-failed") {
+            const started = performance.now()
+            shot.layout = await checkLayout(page, options.get(story.id))
+            layoutMs += performance.now() - started
+          }
+          taken.set(story.id, shot)
         },
       },
+    )
+    process.stdout.write(
+      `Layout checks: ${(layoutMs / 1000).toFixed(1)} s for ${options.size} stories.\n`,
     )
   } finally {
     await new Promise((resolveClose) => server.close(resolveClose))
@@ -297,9 +339,11 @@ export async function captureInContainer(plan, out, viewport = "desktop") {
   return plan.flatMap(({ id, snapshots = [] }) =>
     [undefined, ...snapshots].map(
       (snapshot) =>
-        shots.find(
-          (shot) => shot.id === id && shot.snapshot === snapshot,
-        ) ?? { id, ...(snapshot && { snapshot }), status: "not-run" },
+        shots.find((shot) => shot.id === id && shot.snapshot === snapshot) ?? {
+          id,
+          ...(snapshot && { snapshot }),
+          status: "not-run",
+        },
     ),
   )
 }

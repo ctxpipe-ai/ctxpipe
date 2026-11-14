@@ -74,6 +74,21 @@ const storySchema = z.object({
   omittedRegions: count,
   /** Image files, from the folder of the manifest. */
   images: z.partialRecord(z.enum(roles), z.string()),
+  /**
+   * The problems of the layout checks of the capture
+   * (apps/ui/src/lib/layout-checks.ts) in the page of the screenshot.
+   * Absent when no layout check ran (a named snapshot, or no capture).
+   */
+  layout: z
+    .array(
+      z.object({
+        /** overflow, axes or contrast; `error` when the checks failed. */
+        rule: z.string(),
+        element: z.string(),
+        detail: z.string(),
+      }),
+    )
+    .optional(),
 })
 
 export const manifestSchema = z.object({

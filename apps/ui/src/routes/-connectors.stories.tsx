@@ -516,90 +516,96 @@ export const NeedsFormatUpgradeNoConnections: Story = {
 
 export const InProgress: Story = {
   render: pageRender,
-  parameters: pageHandlers([
-    connectorsListHandler(),
-    githubInstallationHandler(null),
-    orgAtlassianOauthHandler,
-    atlassianStatusHandler({
-      isLinked: true,
-      isInstalled: true,
-      installationStatus: "installed",
-      isGithubLinked: false,
-      selectedSpaceCount: 0,
-      syncTargetConfigured: false,
-      syncTarget: null,
-      selectedSpaces: [],
-    }),
-    linearStatusHandler({
-      isInstalled: false,
-      installationStatus: null,
-      workspaceName: null,
-      isGithubLinked: false,
-      selectedScopeCount: 0,
-      setupPhase: "draft",
-      pendingConfigPullUrl: null,
-      pendingConfigPrCreating: false,
-      syncTarget: null,
-    }),
-    notionStatusHandler({
-      isInstalled: true,
-      installationStatus: "installed",
-      workspaceName: "Acme",
-      isGithubLinked: true,
-      selectedResourceCount: 2,
-      syncTargetConfigured: true,
-      setupPhase: "awaiting_merge",
-      pendingConfigPullUrl: "https://github.com/acme/ingest/pull/42",
-      pendingConfigPrCreating: false,
-      syncTarget: notionStatusComplete.syncTarget,
-    }),
-    slackStatusHandler({
-      ...slackStatusComplete,
-      isGithubLinked: false,
-      setupPhase: "draft",
-      syncTarget: null,
-    }),
-    pagerdutyStatusHandler({
-      ...pagerdutyStatusComplete,
-      isGithubLinked: true,
-      syncTargetConfigured: true,
-      selectedServiceCount: 2,
-      setupPhase: "awaiting_merge",
-      pendingConfigPullUrl: "https://github.com/acme/ingest/pull/43",
-    }),
-  ]),
+  parameters: {
+    ...pageHandlers([
+      connectorsListHandler(),
+      githubInstallationHandler(null),
+      orgAtlassianOauthHandler,
+      atlassianStatusHandler({
+        isLinked: true,
+        isInstalled: true,
+        installationStatus: "installed",
+        isGithubLinked: false,
+        selectedSpaceCount: 0,
+        syncTargetConfigured: false,
+        syncTarget: null,
+        selectedSpaces: [],
+      }),
+      linearStatusHandler({
+        isInstalled: false,
+        installationStatus: null,
+        workspaceName: null,
+        isGithubLinked: false,
+        selectedScopeCount: 0,
+        setupPhase: "draft",
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: false,
+        syncTarget: null,
+      }),
+      notionStatusHandler({
+        isInstalled: true,
+        installationStatus: "installed",
+        workspaceName: "Acme",
+        isGithubLinked: true,
+        selectedResourceCount: 2,
+        syncTargetConfigured: true,
+        setupPhase: "awaiting_merge",
+        pendingConfigPullUrl: "https://github.com/acme/ingest/pull/42",
+        pendingConfigPrCreating: false,
+        syncTarget: notionStatusComplete.syncTarget,
+      }),
+      slackStatusHandler({
+        ...slackStatusComplete,
+        isGithubLinked: false,
+        setupPhase: "draft",
+        syncTarget: null,
+      }),
+      pagerdutyStatusHandler({
+        ...pagerdutyStatusComplete,
+        isGithubLinked: true,
+        syncTargetConfigured: true,
+        selectedServiceCount: 2,
+        setupPhase: "awaiting_merge",
+        pendingConfigPullUrl: "https://github.com/acme/ingest/pull/43",
+      }),
+    ]),
+    visual: { allow: { overflow: "Fixed by PR #722." } },
+  },
 }
 
 export const MixedHealth: Story = {
   render: pageRender,
-  parameters: pageHandlers([
-    connectorsListHandler(),
-    githubInstallationHandler(githubInstallationComplete),
-    orgAtlassianOauthHandler,
-    atlassianStatusHandler({
-      isLinked: false,
-      isInstalled: false,
-      installationStatus: null,
-      isGithubLinked: false,
-      selectedSpaceCount: 0,
-      syncTargetConfigured: false,
-      syncTarget: null,
-      selectedSpaces: [],
-    }),
-    linearStatusHandler({
-      ...linearStatusComplete,
-      setupPhase: "sync_failed",
-    }),
-    notionStatusHandler({
-      ...notionStatusComplete,
-      setupPhase: "config_failed",
-    }),
-    slackStatusHandler(slackStatusComplete),
-    pagerdutyStatusHandler({
-      ...pagerdutyStatusComplete,
-      setupPhase: "sync_failed",
-    }),
-  ]),
+  parameters: {
+    ...pageHandlers([
+      connectorsListHandler(),
+      githubInstallationHandler(githubInstallationComplete),
+      orgAtlassianOauthHandler,
+      atlassianStatusHandler({
+        isLinked: false,
+        isInstalled: false,
+        installationStatus: null,
+        isGithubLinked: false,
+        selectedSpaceCount: 0,
+        syncTargetConfigured: false,
+        syncTarget: null,
+        selectedSpaces: [],
+      }),
+      linearStatusHandler({
+        ...linearStatusComplete,
+        setupPhase: "sync_failed",
+      }),
+      notionStatusHandler({
+        ...notionStatusComplete,
+        setupPhase: "config_failed",
+      }),
+      slackStatusHandler(slackStatusComplete),
+      pagerdutyStatusHandler({
+        ...pagerdutyStatusComplete,
+        setupPhase: "sync_failed",
+      }),
+    ]),
+    visual: { allow: { overflow: "Fixed by PR #722." } },
+  },
 }
 
 export const CouldntLoad: Story = {
@@ -630,6 +636,7 @@ export const ReopensConfluenceWizardAfterAccountLink: Story = {
     )
   },
   parameters: {
+    visual: { allow: { overflow: "Fixed by PR #722." } },
     storyRoute: {
       pattern: "orgConnectors",
       orgSlug,

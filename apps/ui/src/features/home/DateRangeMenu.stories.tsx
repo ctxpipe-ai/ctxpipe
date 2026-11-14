@@ -47,24 +47,36 @@ function AtHeight(props: { fromBottom: number }) {
 
 /** The trigger is far from the bottom: the menu opens below. */
 export const TriggerHigh: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   render: () => <AtHeight fromBottom={400} />,
   play: ({ canvasElement }) => expectWholeMenuInView(canvasElement),
 }
 
 /** Not enough room below for the whole menu: it opens above. */
 export const TriggerNearBottom: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   render: () => <AtHeight fromBottom={200} />,
   play: ({ canvasElement }) => expectWholeMenuInView(canvasElement),
 }
 
 /** A little higher than that: still not enough room below. */
 export const TriggerNearBottomHigher: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   render: () => <AtHeight fromBottom={225} />,
   play: ({ canvasElement }) => expectWholeMenuInView(canvasElement),
 }
 
 /** Little room below and plenty above. */
 export const TriggerWellInsideBottom: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   render: () => <AtHeight fromBottom={150} />,
   play: ({ canvasElement }) => expectWholeMenuInView(canvasElement),
 }

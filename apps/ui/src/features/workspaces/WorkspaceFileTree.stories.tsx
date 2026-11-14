@@ -61,9 +61,16 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Nested: Story = {}
+export const Nested: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
+}
 
 export const SearchOpen: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const search = await canvas.findByRole("button", { name: "Search files" })
@@ -72,6 +79,9 @@ export const SearchOpen: Story = {
 }
 
 export const LongNames: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   decorators: [
     (Story) => (
       <div className="flex h-96 w-44 flex-col bg-card">
@@ -93,12 +103,18 @@ export const EmptyProjection: Story = {
 }
 
 export const SelectedFile: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   args: {
     selectedPath: "knowledge/auth/session.ts",
   },
 }
 
 export const GitShaped: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   args: {
     paths: docsWorkspaceGitTree.paths,
     selectedPath: "AGENTS.md",
@@ -106,6 +122,9 @@ export const GitShaped: Story = {
 }
 
 export const GitStatus: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   decorators: [
     (Story) => (
       <div className="flex h-96 w-80 flex-col bg-card">
@@ -135,6 +154,9 @@ export const GitStatus: Story = {
 }
 
 export const ReadOnly: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   args: {
     paths: docsWorkspaceGitTree.paths,
     selectedPath: "AGENTS.md",
@@ -143,6 +165,9 @@ export const ReadOnly: Story = {
 }
 
 export const LargeTree: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   args: {
     paths: largeTree(),
     selectedPath: "pkg-0/file-0.ts",
@@ -178,6 +203,7 @@ function PierreKeyboardFocusHarness(
 
 export const PierreKeyboardFocus: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a file tree search that loses keyboard focus. Typing then Enter selects a file, and Escape returns focus to the selected row. Not for the file list content.",
   },
@@ -250,6 +276,9 @@ export const PierreKeyboardFocus: Story = {
 }
 
 export const DeletedFile: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   args: {
     paths: ["AGENTS.md", "knowledge/billing.md"],
     selectedPath: "knowledge/billing.md",
@@ -260,6 +289,9 @@ export const DeletedFile: Story = {
 }
 
 export const DeletedFolder: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   args: {
     paths: ["AGENTS.md", "knowledge/billing.md"],
     selectedPath: "knowledge/billing.md",
@@ -271,6 +303,9 @@ export const DeletedFolder: Story = {
 }
 
 export const MixedAddedModifiedDeleted: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   decorators: [
     (Story) => (
       <div className="flex h-96 w-80 flex-col bg-card">
@@ -304,6 +339,9 @@ export const MixedAddedModifiedDeleted: Story = {
 }
 
 export const DeletedLongNestedName: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   decorators: [
     (Story) => (
       <div className="flex h-96 w-44 flex-col bg-card">
@@ -340,6 +378,7 @@ const deletedRowSelector = "button[data-item-path='old-pricing.md']"
 
 export const DeletedFileStaysUntilMerged: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a deleted file that vanishes from the tree or can be selected. It stays as a struck-through row with a text summary and is not selectable. Not for other markers.",
   },
@@ -393,6 +432,7 @@ export const DeletedFileStaysUntilMerged: Story = {
 
 export const ChangeMarkers: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches file tree rows that miss their change markers. Added, modified, and deleted files show the right marker and counts. Not for folder expansion.",
   },
@@ -481,6 +521,7 @@ function NewPathsHarness(props: ComponentProps<typeof WorkspaceFileTree>) {
 /** A new path list (for example the sandbox tree) keeps the open folders. */
 export const NewPathsKeepExpandedFolders: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a path reload that collapses folders the user opened. New paths appear and open folders stay open. Not for the first load.",
   },

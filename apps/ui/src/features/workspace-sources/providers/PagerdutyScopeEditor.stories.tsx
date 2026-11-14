@@ -26,7 +26,7 @@ function EditorWithOutput(props: {
         label={props.label}
         onChange={setScope}
       />
-      <output className="mt-4 block text-xs text-muted-foreground">
+      <output className="mt-4 block break-all text-xs text-muted-foreground">
         {scope ? JSON.stringify(scope) : "Not ready"}
       </output>
     </>
@@ -121,6 +121,9 @@ export const SearchKeepsTheSelection: Story = {
 }
 
 export const RemoveTheLastService: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   args: { initialScope: { services: ["PSVC002"] } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -163,6 +166,9 @@ export const ServiceListFails: Story = {
 }
 
 export const OverTheServiceLimit: Story = {
+  parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+  },
   args: {
     // A full selection: one more service goes above the cap.
     initialScope: {

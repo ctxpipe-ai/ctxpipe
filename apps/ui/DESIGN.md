@@ -145,6 +145,7 @@ Decorative icons: `aria-hidden`, `text-muted-foreground`, intended size (~16–2
 - **Flows:** the next step of a flow (for example “Merge the pull request” after setup) is a card or a selected item, not loose text under a checklist.
 - **Secondary chrome:** legends, hints and help are smaller and dimmer than the content, and do not cover it. A first-run help tour can cover content until the user dismisses it. Remember the dismissal (local storage), so the tour does not come back.
 - **Interactive lists:** the text of a file tree or a nav list is never so dim that it reads as disabled. Use `text-muted-foreground` or brighter for an item that the user can click.
+- **Measured rules:** the screenshot capture checks three rules in the page of each story: no text overflows or is clipped (`overflow`), the leading markers of a dialog or a list share one axis (`axes`), and text passes WCAG AA contrast (`contrast`). A failure fails the screenshot check of the story. To accept a rule in one story, give a reason in `parameters.visual.allow`. See the storybook skill, "Layout checks".
 - **Status:** existing pill + dot **and** the word ([`RepositoryStatus`](src/features/repositories/components/RepositoryStatus.tsx)). The dot pulses only for a live state; a static state has a still dot. Not color-only. Not a glowing dot without a label.
   - The color is on the dot. The word is restrained text in one color: not green, red and amber words side by side.
   - In a list, the dots and the words of all rows sit in one aligned column.
