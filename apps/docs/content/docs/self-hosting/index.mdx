@@ -14,16 +14,15 @@ your deployment to the provider that you choose.
 | --- | --- | --- |
 | [Docker Compose](/docs/self-hosting/deployment/docker) | You evaluate ctxpipe, or run a small internal deployment on one host. | One Compose project and its volumes |
 | [AWS CDK](/docs/self-hosting/deployment/aws) | You run ctxpipe in your own AWS account. | The `CtxPipe` construct, a domain, and model access |
-| [Terraform](/docs/self-hosting/deployment/terraform) | You want a starting point for Railway and Neon. It is the layout of hosted ctxpipe, so you must fork it. | Railway, Neon, Vercel Sandbox, and your CI |
 
 Each path provides the same services in a different way:
 
-| | Docker Compose | AWS CDK | Terraform |
-| --- | --- | --- | --- |
-| Postgres | `pgvector/pgvector:pg17` container | Aurora PostgreSQL 16 | Neon PostgreSQL 17 |
-| Graph database | FalkorDB container | Amazon Neptune | FalkorDB on Railway |
-| Sandboxes | Docker-in-Docker (`dind`) | A Graviton EC2 Docker host | Vercel Sandbox |
-| Public origin | Your TLS proxy in front of the backend | Route 53 and a load balancer | Railway domains |
+| | Docker Compose | AWS CDK |
+| --- | --- | --- |
+| Postgres | `pgvector/pgvector:pg17` container | Aurora PostgreSQL 16 |
+| Graph database | FalkorDB container | Amazon Neptune |
+| Sandboxes | Docker-in-Docker (`dind`) | A Graviton EC2 Docker host |
+| Public origin | Your TLS proxy in front of the backend | Route 53 and a load balancer |
 
 Start with the [quickstart](/docs/self-hosting/quickstart). It covers each path.
 

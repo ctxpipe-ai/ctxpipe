@@ -108,13 +108,6 @@ SLACK_SIGNING_SECRET=...
 docker compose --profile deploy up -d --force-recreate backend worker
 ```
 
-### Terraform (Railway)
-
-Store `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `SLACK_SIGNING_SECRET` in
-the secret store of your CI. The deploy writes them to the Railway services
-with `scripts/railway-sync-variables.mjs`. See
-[Terraform](/docs/self-hosting/deployment/terraform#secrets).
-
 ### AWS CDK
 
 Pass Slack credentials through `connectorSecrets`:
