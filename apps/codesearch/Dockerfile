@@ -25,8 +25,8 @@ RUN export GOTOOLCHAIN=auto GOBIN=/zoekt-bin GOPROXY='https://proxy.golang.org|d
     exit 1
 
 # ── Stage 2: Node toolchain and npm-distributed SCIP tools ───────────────────
-# node:24.22.1-bookworm-slim
-FROM node@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS node-tools
+# node:26.13.1-bookworm-slim
+FROM node@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS node-tools
 RUN npm install --global \
     @ast-grep/cli@0.45.0 \
     @sourcegraph/scip-python@0.6.6 \
@@ -99,8 +99,8 @@ RUN --mount=type=bind,source=apps/codesearch/release-assets.txt,target=/release-
 # oven/bun:1.4.4-slim
 FROM oven/bun@sha256:1846adf22496bd711036aae8be147e57bdebbaea2e5264e3e0b5af1db187d9a4 AS bun-runtime
 
-# node:24.22.1-bookworm-slim
-FROM node@sha256:be8204d4bd327363357f532187b752ff62759c31bedf98e9e18fc08c9cbd605c AS deps
+# node:26.13.1-bookworm-slim
+FROM node@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS deps
 WORKDIR /app
 ENV CI=true
 RUN npm install -g pnpm@10.12.1
