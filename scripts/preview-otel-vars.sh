@@ -6,13 +6,6 @@ set -euo pipefail
 # shellcheck source=scripts/preview-service-vars.sh
 source "$(dirname "${BASH_SOURCE[0]}")/preview-service-vars.sh"
 
-PREVIEW_OTEL_VARIABLES=(
-  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
-  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
-  OTEL_EXPORTER_OTLP_HEADERS
-)
-
 # The collector on otel.ctxpipe.dev is behind Cloudflare Access: it refuses headers without an Access service token,
 # and the telemetry is lost. Fails (1) when the endpoint is that collector and the headers lack CF-Access-Client-Id or
 # CF-Access-Client-Secret, so a deploy stops before it points an app there without its token. Prints no value.
@@ -45,13 +38,15 @@ otlp_header_values() {
 # export nothing. Deletes only the ones that exist: a delete redeploys the service on its current image.
 sync_preview_otel_variables() {
   local service_id present name
+  local names=(OTEL_EXPORTER_OTLP_TRACES_ENDPOINT OTEL_EXPORTER_OTLP_LOGS_ENDPOINT OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
+    OTEL_EXPORTER_OTLP_HEADERS)
   if [[ -z "${RAILWAY_PROJECT_ID:-}" || -z "${ENV_ID:-}" ]]; then
     echo "preview-otel-vars: RAILWAY_PROJECT_ID and ENV_ID are required" >&2
     return 1
   fi
   for service_id in "${BACKEND_SERVICE_ID:-}" "${WORKER_SERVICE_ID:-}" "${UI_SERVICE_ID:-}" "${CODESEARCH_SERVICE_ID:-}"; do
     [[ -n "$service_id" ]] || { echo "preview-otel-vars: a service id is empty" >&2; return 1; }
-    present="$(service_vars "$ENV_ID" "$service_id" "${PREVIEW_OTEL_VARIABLES[@]}" | jq -r 'keys[]')" || return 1
+    present="$(service_vars "$ENV_ID" "$service_id" "${names[@]}" | jq -r 'keys[]')" || return 1
     for name in $present; do
       railway_graphql \
         'mutation variableDelete($input: VariableDeleteInput!) { variableDelete(input: $input) }' \
@@ -60,4 +55,13 @@ sync_preview_otel_variables() {
       echo "Removed $name from service $service_id"
     done
   done
+}
+
+# The ids of the preview environments (pr-<N>) of the project, one per line: the production deploy removes their OTEL
+# exporter variables, so a preview that nobody pushes to exports nothing either.
+preview_environment_ids() {
+  railway_graphql \
+    'query($id: String!) { project(id: $id) { environments { edges { node { id name } } } } }' \
+    "$(jq -nc --arg id "$RAILWAY_PROJECT_ID" '{id:$id}')" \
+    | jq -r '.data.project.environments.edges[]?.node | select(.name | test("^pr-[0-9]+$")) | .id'
 }

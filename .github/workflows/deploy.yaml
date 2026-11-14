@@ -645,6 +645,30 @@ jobs:
       # Provider Update() serviceConnects the image for every environment and
       # redeploys previews. App image tags are ignore_changes; this step
       # deploys production only (ADR-039).
+      # Railway sends no telemetry until the cutover (CTX-1216): remove the
+      # OTEL exporter variables of every preview, also of one that nobody pushes
+      # to. A failure here does not stop the production deploy; the next one
+      # tries again.
+      - name: Remove the previews' OTEL exporter variables
+        continue-on-error: true
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source scripts/railway-graphql.sh
+          # shellcheck disable=SC1091
+          source scripts/preview-otel-vars.sh
+          ids="$(terraform -chdir=infra output -json railway_service_ids)"
+          BACKEND_SERVICE_ID="$(jq -er .backend <<<"$ids")"
+          WORKER_SERVICE_ID="$(jq -er .open_workflow <<<"$ids")"
+          UI_SERVICE_ID="$(jq -er .ui <<<"$ids")"
+          CODESEARCH_SERVICE_ID="$(jq -er .code_search <<<"$ids")"
+          export BACKEND_SERVICE_ID WORKER_SERVICE_ID UI_SERVICE_ID CODESEARCH_SERVICE_ID
+          for ENV_ID in $(preview_environment_ids); do
+            export ENV_ID
+            sync_preview_otel_variables
+          done
+
       - name: Deploy production images
         working-directory: ${{ github.workspace }}
         env:

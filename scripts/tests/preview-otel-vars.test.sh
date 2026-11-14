@@ -52,6 +52,20 @@ sync_line="$(grep -n 'name: Sync production secrets to Railway' "$deploy_workflo
 apply_line="$(grep -n 'name: Terraform Apply' "$deploy_workflow" | cut -d: -f1)"
 ((guard_line < sync_line && guard_line < apply_line)) \
   || fail "deploy.yaml must refuse before the sync and before Terraform applies"
+grep -Fq 'for ENV_ID in $(preview_environment_ids); do' "$deploy_workflow" \
+  || fail "the production deploy must remove the OTEL variables of every preview"
+envs="$(
+  set -euo pipefail
+  # shellcheck disable=SC1091
+  source "$script"
+  railway_graphql() {
+    jq -n '{data:{project:{environments:{edges:[{node:{id:"env_prod",name:"production"}},
+      {node:{id:"env_1",name:"pr-1"}},{node:{id:"env_x",name:"pr-x"}},{node:{id:"env_2",name:"pr-22"}}]}}}}'
+  }
+  export RAILWAY_PROJECT_ID=proj_test
+  preview_environment_ids
+)"
+[[ "$(paste -sd' ' - <<<"$envs")" == "env_1 env_2" ]] || fail "only the pr-<N> environments are previews (got: $envs)"
 if grep -q 'roll_previews_onto_collector' "$deploy_workflow"; then
   fail "previews get no OTEL variables, so the production deploy rolls none"
 fi
