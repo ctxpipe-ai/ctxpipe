@@ -197,8 +197,8 @@ line gives its expected output. The dry run of the copy is its preflight against
      takes about 6 minutes (rehearsal 1). When the report is there, run `rm /tmp/export.log`, then close the shell
      with `exit`.
   - **Expected:** the log ends with a JSON report with the sizes, the sha256 values and the graph counts.
-    `manifest.json` is in S3. If the export stopped, use a new run id: the export refuses a run id that has a
-    manifest, and the retire step deletes the old prefix.
+    `manifest.json` is in S3. If the export stopped, start again at step 1 with a new run id. The old prefix holds
+    partial files and no manifest; the retire step deletes it.
 - **If either fails:** the full rollback. Write the cause into [CTX-1217].
 
 ### T+40 · Indexes into AWS
