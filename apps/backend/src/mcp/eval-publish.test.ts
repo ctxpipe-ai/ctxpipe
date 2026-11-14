@@ -45,15 +45,23 @@ describe("published fixture repositories", () => {
   it("makes the same commits on each run, so a fresh copy matches", async () => {
     const published = await prepareMcpEvalRepositories(join(root, "first"))
 
-    expect(
-      await publishedFixtureDifferences(published, join(root, "second")),
-    ).toEqual([])
+    const { differences, commits } = await publishedFixtureDifferences(
+      published,
+      join(root, "second"),
+    )
+
+    expect(differences).toEqual([])
+    // The checked commit of each repository is its published main.
+    for (const [key, url] of Object.entries(published))
+      expect(commits[key]).toBe(
+        git("--git-dir", fileURLToPath(url), "rev-parse", "main"),
+      )
   })
 
   it("names each branch that an empty repository lacks", async () => {
     const remotes = emptyRemotes("empty")
 
-    const differences = await publishedFixtureDifferences(
+    const { differences } = await publishedFixtureDifferences(
       remotes,
       join(root, "check-empty"),
     )
@@ -69,7 +77,8 @@ describe("published fixture repositories", () => {
     await publishMcpEvalRepositories(remotes, join(root, "publish"))
 
     expect(
-      await publishedFixtureDifferences(remotes, join(root, "check")),
+      (await publishedFixtureDifferences(remotes, join(root, "check")))
+        .differences,
     ).toEqual([])
     const second = mcpEvalManifest.secondProjection
     const bare = fileURLToPath(remotes[second.workspace] ?? "")
