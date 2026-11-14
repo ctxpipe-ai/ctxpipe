@@ -1794,8 +1794,10 @@ jobs:
   # id (the upload failed, or the job did not run), or no critics.json in the
   # artifact. The job has no continue-on-error, so a failed upload shows as a
   # failed job (a failed Terraform step below also does). The job runs beside
-  # the test jobs, so it adds no time to the run. A lookup of 16 hunks and 4 critics took 5 s. The timeout is large, because a large diff (a
-  # lockfile) has many hunks and so many store keys.
+  # the test jobs, so it adds no time to the run.
+  # A lookup of 16 hunks and 4 critics took 5 s.
+  # The timeout is large, because a large diff (a lockfile) has many hunks
+  # and so many store keys.
   #
   # The last step decides the Terraform plan (scripts/checks/README.md, Other
   # pull request workflows). Only that step gives the job token
