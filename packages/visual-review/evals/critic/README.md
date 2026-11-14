@@ -113,6 +113,7 @@ An arm is a judge with its settings. `<model>` is an OpenRouter id.
 | `llm-one-step:<model>` | The critic prompt with a one-step comparison. |
 | `llm-no-facts:<model>` | The critic prompt without the interpreter facts: no change type and no confidence for a region, as when the interpreter is not available. |
 | `jev` | Jev alone (`typesafe/jev-1.14`). |
+| `jev-explain:<model>` | Jev alone, and `<model>` explains each Jev `regression`, as `pnpm visual:review --judge jev` does ([CTX-1256](https://linear.app/ctxpipe/issue/CTX-1256)). The verdicts are the ones of Jev. The cost of a verdict adds both calls, and `explainer` in `results.json` has the cost of the explainer call alone. |
 | `decision:<model>` | Another decision model of the OpenRouter Decisions API, for example `baseten/elephant-1` or `baseten/mammoth-1`, with the questions of the Jev adapter. All decision models take the same request. Only Jev 1.14 takes the box question, so for another model the region of a worse area is the box of the largest measured region. |
 | `cascade:<model>` | Jev, then `<model>` when Jev does not accept the change (the `--filter jev` of `pnpm visual:review`). |
 | `cascade:<filter>+<model>` | The same cascade with the decision model `<filter>` in place of Jev. |
@@ -121,7 +122,7 @@ An arm is a judge with its settings. `<model>` is an OpenRouter id.
 A `new` case has no before image. Each arm judges it with its judge of a new screenshot, as `pnpm visual:review` judges one:
 
 - The three prompt arms (`llm`, `llm-one-step`, `llm-no-facts`) use the new-screenshot prompt (`judgeNewWithOpenRouter`). That prompt has no steps and no interpreter facts, so the three arms get the same prompt.
-- `jev` and `decision:<model>` ask whether the screenshot breaks a rule of each area and each quality of the rubric (`judgeNewWithJev`). Only Jev 1.14 takes the box question. For another model, the region of a finding is the whole image.
+- `jev`, `jev-explain` and `decision:<model>` ask whether the screenshot breaks a rule of each area and each quality of the rubric (`judgeNewWithJev`). Only Jev 1.14 takes the box question. For another model, the region of a finding is the whole image.
 - A `cascade` arm sends a new screenshot to its model, never to the filter, as `pnpm visual:review --filter jev` does.
 - `blazediff-local` judges a pair of images, so it cannot judge a new screenshot. The report says "not applicable" for it, and the run makes no call.
 
@@ -131,7 +132,7 @@ The real changes have the labels of the judge panel. A real change with the labe
 
 Two limits stop the run. A paid call starts only while the spend is below `--max-cost`. After `--max-minutes`, no call starts. Each call checks both limits, also a retry, and a case gets its images only after the same check. Calls that already run finish, so a run can end above the cap by at most the cost of the calls in flight. A call without `usage.cost`, and a failed call, count as the most expensive call so far, and at least $0.10. The report gives the number of such calls. When a limit stops the run, the report counts only the cases and runs that every arm judged.
 
-The runner writes `results.json` (each verdict of each arm, case and run) and `report.md` in `--out`, and prints the report. A verdict of the `jev` or a `decision` arm on a change also has `answers`: the raw answers of the decision model. A new threshold can be tested on them with no new call.
+The runner writes `results.json` (each verdict of each arm, case and run) and `report.md` in `--out`, and prints the report. A verdict of the `jev`, `jev-explain` or a `decision` arm also has `answers`: the raw answers of the decision model, on a change and on a new screenshot. A new threshold can be tested on them with no new call.
 
 ## Report
 

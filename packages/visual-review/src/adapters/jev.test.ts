@@ -854,7 +854,7 @@ describe("judgeNewWithJev", () => {
     // Also when the grouping quality has no answer.
     serve((name) =>
       name === "rule.flat-page"
-        ? noul(0.7)
+        ? noul(0.85)
         : name === "quality.grouping-and-rhythm"
           ? {}
           : noul(0.02),
@@ -920,7 +920,7 @@ describe("judgeNewWithJev", () => {
   })
 
   test("another decision model places a finding on the whole image", async () => {
-    serve((name) => (name === "area.spacing" ? noul(0.7) : noul(0.02)))
+    serve((name) => (name === "area.spacing" ? noul(0.9) : noul(0.02)))
     const verdict = await judgeNewWithJev(await newStory(), "baseten/mammoth-1")
     expect(verdict.verdict).toBe("regression")
     expect(verdict.severity).toBe("minor")
@@ -933,15 +933,44 @@ describe("judgeNewWithJev", () => {
   })
 
   test("a failed quality is a regression with a fails rating", async () => {
-    serve((name) => (name === "quality.clarity" ? noul(0.6) : noul(0.02)))
+    serve((name) => (name === "quality.clarity" ? noul(0.85) : noul(0.02)))
     const verdict = await judgeNewWithJev(await newStory())
     expect(verdict.verdict).toBe("regression")
     expect(verdict.findings).toEqual([])
     expect(verdict.qualities).toContainEqual({
       name: "clarity",
       delta: "fails",
-      confidence: 0.6,
+      confidence: 0.85,
     })
+  })
+
+  test("a flag under 0.8 is unsure: it keeps its finding, and the summary gives the reason (CTX-1267)", async () => {
+    serve((name) => {
+      if (name === "area.spacing") return noul(0.75)
+      if (name === "quality.clarity") return noul(0.6)
+      if (name === "defect") return noul(0.5)
+      if (name === "defect-box") return box(0.2, 0.5, 0.1, 0.4)
+      return noul(0.02)
+    })
+    const verdict = await judgeNewWithJev(await newStory("Add the card."))
+    expect(verdictSchema.parse(verdict)).toEqual(verdict)
+    expect(verdict).toMatchObject({
+      verdict: "unsure",
+      severity: "none",
+      confidence: 0,
+      findings: [{ kind: "spacing" }],
+    })
+    expect(verdict.summary).toBe(
+      "Jev is not sure: its highest probability 0.75 is under 0.80, the lowest for a regression here. Jev: defect 0.50; broken: spacing 0.75, clarity 0.60. Region: x 0.10, y 0.20, width 0.30, height 0.30.",
+    )
+
+    // At 0.8, the same flags are a regression.
+    serve((name) => {
+      if (name === "area.spacing") return noul(0.8)
+      if (name === "defect-box") return box(0.2, 0.5, 0.1, 0.4)
+      return noul(0.02)
+    })
+    expect((await judgeNewWithJev(await newStory())).verdict).toBe("regression")
   })
 
   test("nothing broken is intended with a brief, and unsure without one", async () => {
