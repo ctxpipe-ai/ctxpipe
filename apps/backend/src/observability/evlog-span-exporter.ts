@@ -9,7 +9,7 @@ import { log } from "./logger.js"
 const LLM_CONTENT_KEY =
   /^(langfuse\.observation\.(input|output)$|gen_ai\.(prompt|completion|input\.messages|output\.messages))/
 
-/** Compact evlog dump of workspace-chat spans when OTLP/Langfuse is off or alongside it. */
+/** Compact evlog dump of workspace-chat spans when OTLP is off or alongside it. */
 export class EvlogSpanExporter implements SpanExporter {
   export(
     spans: ReadableSpan[],
