@@ -628,14 +628,23 @@ export const ReopensConfluenceWizardAfterAccountLink: Story = {
         page.getByRole("heading", { name: "Set up Confluence connector" }),
       ).toBeVisible(),
     )
-    // The long URL in the alert wraps inside the alert box (CTX-1263).
+    // The alert says one short sentence. The technical detail is behind
+    // "Show details", stays inside the alert box (CTX-1263), and never shows
+    // the signed query of the install link.
     const title = await page.findByText(
-      "Could not load capabilities",
+      "Could not load the hosted install link",
       {},
       { timeout: 10_000 },
     )
     const alert = title.closest<HTMLElement>('[role="alert"]')
     if (!alert) throw new Error("No alert around the title")
+    await userEvent.click(
+      within(alert).getByRole("button", { name: "Show details" }),
+    )
+    await expect(
+      await within(alert).findByText(/Runtime fallback/),
+    ).toBeVisible()
+    await expect(alert).not.toHaveTextContent("signature=")
     await document.fonts.ready
     await waitFor(() =>
       expect(alert.scrollWidth).toBeLessThanOrEqual(alert.clientWidth),

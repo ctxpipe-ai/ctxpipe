@@ -2,6 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { type FormEventHandler, useEffect, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/Button"
+import {
+  Disclosure,
+  DisclosureHeader,
+  DisclosurePanel,
+} from "@/components/ui/Disclosure"
 import { ExternalLink } from "@/components/ui/ExternalLink"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Spinner } from "@/components/ui/spinner"
@@ -28,6 +33,12 @@ type InstallForgeStepProps = {
 const PROVISION_POLL_MS = 2000
 const PROVISION_TIMEOUT_MS = 15 * 60 * 1000
 const PROVISION_SUCCESS_MS = 550
+
+/** A URL without its query: a signed install link never shows in full. */
+function withoutQuery(url: string): string {
+  const cut = url.search(/[?#]/)
+  return cut === -1 ? url : `${url.slice(0, cut)}?…`
+}
 
 function pickHttps(candidate: string | null | undefined): string | null {
   const s = candidate?.trim()
@@ -311,22 +322,34 @@ export function InstallForgeStep({
 
       <div className="space-y-3">
         {caps.isError ? (
-          <InlineAlert variant="warning" title="Could not load capabilities">
+          <InlineAlert
+            variant="warning"
+            title="Could not load the hosted install link"
+          >
             <p>
-              This step falls back to self-hosted provisioning only. If your
-              deployment normally provides a hosted Forge install link, fix the
-              capabilities request and reopen setup.
+              You can still provision the Forge app yourself below. Reopen setup
+              to try the hosted link again.
             </p>
-            <p className="mt-2 text-xs text-amber-100/80">
-              Bundled default (
-              <code className="text-xs">CONFLUENCE_FORGE_INSTALL_URL</code>) is
-              not used to choose the UI until the server responds; runtime
-              fallback is still{" "}
-              {pickHttps(forgeRuntime.installUrlFallback) ??
-                pickHttps(CONFLUENCE_FORGE_INSTALL_URL) ??
-                "none"}
-              .
-            </p>
+            {/* The technical detail stays small: a capped mono block behind a
+                disclosure, and the install link without its signed query. */}
+            <Disclosure className="mt-1 -mx-2 min-w-0">
+              <DisclosureHeader>
+                <span className="text-xs font-normal text-muted-foreground">
+                  Show details
+                </span>
+              </DisclosureHeader>
+              <DisclosurePanel className="px-2">
+                <p className="max-h-24 overflow-y-auto rounded-md bg-zinc-950/60 p-2 font-mono text-xs wrap-anywhere text-muted-foreground">
+                  The capabilities request failed. CONFLUENCE_FORGE_INSTALL_URL
+                  is not used until the server responds. Runtime fallback:{" "}
+                  {withoutQuery(
+                    pickHttps(forgeRuntime.installUrlFallback) ??
+                      pickHttps(CONFLUENCE_FORGE_INSTALL_URL) ??
+                      "none",
+                  )}
+                </p>
+              </DisclosurePanel>
+            </Disclosure>
           </InlineAlert>
         ) : null}
 

@@ -77,7 +77,7 @@ export function CopyableBlock({
                 <span className="text-muted-foreground">…</span>
               )
             ) : (
-              <code className="whitespace-nowrap font-mono text-sm text-muted-foreground">
+              <code className="whitespace-nowrap font-mono text-sm text-foreground">
                 {value}
               </code>
             )}

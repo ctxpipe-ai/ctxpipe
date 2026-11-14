@@ -17,12 +17,20 @@ const variantClass: Record<InlineAlertVariant, string> = {
   success: "border-teal-500/40 bg-teal-950/25 text-teal-50",
 }
 
+/** The icon color of an alert without a frame: the one color of the alert. */
+const plainIconClass: Record<InlineAlertVariant, string> = {
+  error: "text-red-400",
+  warning: "text-amber-300",
+  success: "text-teal-300",
+}
+
 export function InlineAlert({
   variant,
   title,
   children,
   actions,
   actionsPlacement = "below",
+  framed = true,
 }: {
   variant: InlineAlertVariant
   title?: string
@@ -33,6 +41,12 @@ export function InlineAlert({
    * wrap below it only when the slab is narrow. The default is below.
    */
   actionsPlacement?: "below" | "end"
+  /**
+   * `false`: no frame and no surface, only the colored icon, the text and the
+   * actions. Use it inside a block that already shows the problem (a settings
+   * card with the amber edge), so that the block has one warning signal.
+   */
+  framed?: boolean
 }) {
   const Icon =
     variant === "error"
@@ -44,7 +58,13 @@ export function InlineAlert({
   const text = (
     <>
       {title ? <p className="text-sm font-medium">{title}</p> : null}
-      <div className="text-sm leading-snug opacity-95">{children}</div>
+      <div
+        className={`text-sm leading-snug ${
+          framed ? "opacity-95" : title ? "text-muted-foreground" : ""
+        }`}
+      >
+        {children}
+      </div>
     </>
   )
 
@@ -52,16 +72,29 @@ export function InlineAlert({
     <div
       role="alert"
       // A long URL or id wraps inside the slab.
-      className={`flex gap-3 rounded-md border p-3 wrap-anywhere ${variantClass[variant]}`}
+      className={`flex gap-3 wrap-anywhere ${
+        framed
+          ? `rounded-md border p-3 ${variantClass[variant]}`
+          : "text-foreground"
+      }`}
     >
       <Icon
         className={`mt-0.5 size-4 shrink-0 ${
-          variant === "warning" ? "text-amber-300" : "opacity-90"
+          !framed
+            ? plainIconClass[variant]
+            : variant === "warning"
+              ? "text-amber-300"
+              : "opacity-90"
         }`}
         aria-hidden
       />
       {actionsPlacement === "end" ? (
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-6 gap-y-3">
+        // Without a frame, the text starts on the line of the icon.
+        <div
+          className={`flex min-w-0 flex-1 flex-wrap gap-x-6 gap-y-3 ${
+            framed ? "items-center" : "items-start"
+          }`}
+        >
           <div className="min-w-0 flex-1 basis-64 space-y-2">{text}</div>
           {actions ? (
             <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>

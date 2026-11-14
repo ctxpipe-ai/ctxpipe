@@ -19,6 +19,7 @@ Every connector setup dialog (Linear, Notion, Confluence, Slack, PagerDuty, Buil
 
 - **Zones:** a header with the `ctx-node` mark, a body, and a footer with the one Close button at the bottom right. There is no other close control.
 - **Fit:** the dialog is never taller than the viewport. The header and the footer stay in view, and only the body scrolls.
-- **One axis:** the mark of the header, the setup steps (`ConnectorSetupStepper`), the merge step, the form checkboxes and the list checkboxes all start on the left edge of the body. A scope list has top and bottom rules and no side padding, so its checkboxes are on that edge too.
+- **One axis for siblings:** the mark of the header, the setup steps (`ConnectorSetupStepper`), the marker of the merge step and the form checkboxes start on the left edge of the body.
+- **Hierarchy before alignment:** a scope list (teams and projects, channels, pipelines, spaces) is a child group. It keeps its frame (`rounded-md border border-border`), and its checkboxes start 12 px inside the frame. Do not remove the frame or the inset to put the checkboxes on the body edge.
 - **Merge step:** "Merge the pull request" is the last item of the setup steps: `PullRequestsToMerge` as the `finalStep` of `ConnectorSetupStepper`. It is a selected item with semantic tokens (`bg-muted`, `ring-border`), not a zinc panel.
 - **Tokens:** use semantic color tokens and `rounded-md`. Do not nest a card in a card. Do not add a filled `bg-zinc-900` panel.

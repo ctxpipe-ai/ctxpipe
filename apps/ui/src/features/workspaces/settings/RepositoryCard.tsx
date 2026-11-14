@@ -314,10 +314,12 @@ function WriteAccessLine(props: {
       ? " After you fix it, reload this page. ctxpipe checks again at most once a minute."
       : null
   if (problem) {
-    // A problem uses the one warning look of the app.
+    // The amber edge of the card is the one warning signal of the block, so
+    // the problem has no second frame: the icon, the text and the fix.
     return (
       <InlineAlert
         variant="warning"
+        framed={false}
         title={title ?? undefined}
         actions={fix}
         actionsPlacement="end"
