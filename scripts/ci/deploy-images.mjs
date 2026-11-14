@@ -317,16 +317,23 @@ async function baseDigests({ repo, run, token }) {
       digests[image] = { reason: "the base run has no successful Publish job" }
       continue
     }
-    const notices = (
-      await github(
-        `/repos/${repo}/check-runs/${checkRun}/annotations?per_page=100`,
+    // Every page: a notice on a later page counts too. More than 10 pages
+    // is not a Publish job of ours, so the image builds.
+    const annotations = []
+    for (let page = 1; page <= 11; page += 1) {
+      const batch = await github(
+        `/repos/${repo}/check-runs/${checkRun}/annotations?per_page=100&page=${page}`,
         token,
       )
-    ).filter(
+      annotations.push(...batch)
+      if (batch.length < 100) break
+    }
+    const notices = annotations.filter(
       ({ annotation_level, title }) =>
         annotation_level === "notice" && title === "deploy-image",
     )
     const match =
+      annotations.length <= 1000 &&
       notices.length === 1 &&
       new RegExp(`^${image} (sha256:[0-9a-f]{64})$`).exec(notices[0].message)
     digests[image] = match

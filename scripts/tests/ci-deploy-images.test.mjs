@@ -141,18 +141,23 @@ function github({ base, runs, notices = {} }) {
     ),
     http.get(
       `https://api.github.com/repos/${repo}/check-runs/:id/annotations`,
-      ({ params }) => {
+      ({ params, request }) => {
         const name = jobs.find(({ check_run_url }) =>
           check_run_url.endsWith(`/${params.id}`),
         ).name
         const image = name.slice("Publish image (".length, -1)
-        const messages = notices[image] ?? [`${image} ${digestOf(image)}`]
+        const annotations = (
+          notices[image] ?? [`${image} ${digestOf(image)}`]
+        ).map((message) =>
+          typeof message === "string"
+            ? { annotation_level: "notice", title: "deploy-image", message }
+            : message,
+        )
+        const query = new URL(request.url).searchParams
+        const size = Number(query.get("per_page"))
+        const page = Number(query.get("page"))
         return HttpResponse.json(
-          messages.map((message) => ({
-            annotation_level: "notice",
-            title: "deploy-image",
-            message,
-          })),
+          annotations.slice((page - 1) * size, page * size),
         )
       },
     ),
@@ -296,4 +301,25 @@ test("an image whose Dockerfile copies an undeclared path builds on every merge"
   const result = await plan(dir)
   assert.deepEqual(built(result), ["ui"])
   assert.match(result.reasons.ui, /packages\/new/)
+})
+
+test("a notice on a later page of annotations counts, and too many annotations build the image", async () => {
+  const { dir, base } = repository({ "README.md": "x\n" })
+  const other = { annotation_level: "notice", title: "other", message: "x" }
+  server.use(
+    ...github({
+      base,
+      notices: {
+        // A forged notice and 99 other annotations push the real notice of
+        // ui to page 2.
+        ui: [
+          `ui ${digestOf("forged")}`,
+          ...Array(99).fill(other),
+          `ui ${digestOf("ui")}`,
+        ],
+        worker: [...Array(1000).fill(other), `worker ${digestOf("worker")}`],
+      },
+    }),
+  )
+  assert.deepEqual(built(await plan(dir)), ["worker", "ui"])
 })
