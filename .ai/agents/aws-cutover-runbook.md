@@ -45,7 +45,7 @@ output.
 
 ## Prerequisites (all must be true before T-1)
 
-1. The entry criteria of [CTX-1217] hold, and two real rehearsals passed (gate G1 below).
+1. The entry criteria of [CTX-1217] hold, and one real rehearsal passed (gate G1 below).
 2. The edge-stack pull requests for the day exist. They are reviewed and not merged:
    - (a) the maintenance page on `app.ctxpipe.ai`;
    - (b) `app.ctxpipe.ai` to the tunnel, behind a temporary Access app;
@@ -69,11 +69,12 @@ line gives its expected output. The dry run of the copy is its preflight against
 
 ## T-1 day
 
-### G1: rehearsals passed
+### G1: a rehearsal passed
 
 - **Who:** agent.
-- **Check:** [CTX-1217] has the reports of two real rehearsals. Each has `"ok": true` from copy-database, no
-  difference from verify-graph, and a window shorter than the planned length.
+- **Check:** [CTX-1217] has the report of one real rehearsal with `"ok": true` from copy-database, no difference
+  from verify-graph, a passed `validateTarget` and MCP eval run, and a window shorter than the planned length. One
+  rehearsal is enough (CTO, 2026-11-14: "After we do one successfully we're ready to do it properly").
 - **If not:** stop. Plan another rehearsal.
 
 ### 1. Production app secrets
