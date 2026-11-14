@@ -104,6 +104,7 @@ jobs:
           PUSH_SHA: ${{ github.sha }}
           EVENT_PR_NUMBER: ${{ github.event.number }}
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
@@ -144,10 +145,11 @@ jobs:
             HEAD_SHA="${EVENT_HEAD_SHA}"
             # In gate mode a push does not deploy: the merge gate of CI starts
             # this workflow when it selects a deploy check, or when its run is
-            # full (scripts/checks/README.md, Merge gate). When the mode does
-            # not read, the push deploys.
+            # full (scripts/checks/README.md, Merge gate). The mode of the base
+            # revision decides, as in the merge gate (ADR-064). When the mode
+            # does not read, the push deploys.
             MODE="$(gh api -H "Accept: application/vnd.github.raw+json" \
-              "repos/${REPO}/contents/.github/merge-gate.json?ref=${HEAD_SHA}" | jq -r .mode || true)"
+              "repos/${REPO}/contents/.github/merge-gate.json?ref=${EVENT_BASE_SHA}" | jq -r .mode || true)"
             if [[ "$MODE" == "gate" ]]; then
               echo "Gate mode: the merge gate of CI starts PR Deploy when it selects a deploy check"
               echo "pr_number=" >> "$GITHUB_OUTPUT"
