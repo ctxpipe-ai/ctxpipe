@@ -18,17 +18,27 @@ output.
 ## Commands that this runbook uses
 
 - Run a one-off task (agent): `gh workflow run hosted-run-task.yml -R ctxpipe-ai/factory --ref main -f task=<task>`.
-  Then `gh run watch -R ctxpipe-ai/factory <run id>`. The task log is in the run. The tasks are in
+  Then `gh run watch -R ctxpipe-ai/factory --exit-status <run id>`. The task log is in the run. The tasks are in
   `machines/hosted/README.md#the-cutover-tasks` (factory). The workflow refuses a task when its guard fails:
   - every copy-database task and `cutover-import-indexes`, while the repository variable `CUTOVER_G4_PASSED` is
     `true`;
   - `cutover-import-indexes`, until `falkordb` and `codesearch` are stopped (no task desired, running or pending);
   - `cutover-seed-shard-store`, until `codesearch` is stopped.
+- Stop or start the stateful services and the worker on AWS (agent, factory#234): a scale action of `hosted.yml`,
+  `gh workflow run hosted.yml -R ctxpipe-ai/factory --ref main -f action=<action>`, then
+  `gh run watch -R ctxpipe-ai/factory --exit-status <run id>`. Start the next step only after the run succeeds. It
+  deploys nothing, and it runs with the deploy role of `hosted.yml`:
+  - `cutover-scale-down` sets `worker`, `falkordb` and `codesearch` to 0 and holds the worker's autoscaling at 0. The
+    workflow refuses it after G4.
+  - `cutover-scale-up-indexes` starts `falkordb` and `codesearch` again.
+  - `cutover-scale-up-worker` starts the worker, and puts its autoscaling range back.
+
+  Each one waits until the services are stable. No deploy undoes them: only these actions start the services again.
 - Neon SQL (person, owner login): `psql "$NEON_OWNER_URL" -tAc "<sql>"`. A statement with `$$` goes in a quoted
   heredoc, as G3 shows, so that the shell does not expand it. The SQL uses `current_database()` and needs no database
   name.
-- Stop or start an AWS service (person):
-  `aws ecs update-service --cluster hosted --service <backend|worker|ui|falkordb|codesearch> --desired-count <n>`.
+- Stop or start `backend` or `ui` on AWS (person, production SSO; no task touches them):
+  `aws ecs update-service --cluster hosted --service <backend|ui> --desired-count <0|1>`.
 - Validate a target (agent, from `apps/backend`): `bun run src/scripts/validateTarget.ts <origin>`. Load
   `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` and `VALIDATE_API_KEY` into the environment from the secret store
   of the host. Do not type or print their values.
@@ -43,7 +53,8 @@ output.
 
    Each pull request shows its `pulumi preview`.
 3. factory#166 is merged: `hosted-run-task.yml` has the cutover tasks, `cutover-reset-database`, `cutover-migrate` and
-   `cutover-reset-indexes` included. Each of these three refuses while `CUTOVER_G4_PASSED` is `true`.
+   `cutover-reset-indexes` included. Each of these three refuses while `CUTOVER_G4_PASSED` is `true`. factory#234 is
+   merged too: it adds the three scale actions to `hosted.yml`.
 4. The local rehearsal passes on the images of the day:
    `ops/aws-cutover/local-rehearsal/run.sh <backend image> <codesearch image>`. It runs the commands of the tasks.
 5. The aws-core role `arn:aws:iam::213102790567:role/guard/cutover-transfer-writer` exists: the Railway export takes
@@ -83,7 +94,7 @@ line gives its expected output. The dry run of the copy is its preflight against
 
 - **Who:** person. **Do:** stop merges to ctxpipe `main` and to factory `machines/hosted` until the window ends. Both
   platforms must run the same release, so that migrate adds no migration to the copy. A `hosted.yml` deploy would
-  also start the stopped services again.
+  also start `backend` and `ui` again; it does not undo the scale actions.
 - **Expected:** Railway and AWS run the same backend image digest.
 
 ### 3. Customers
@@ -108,12 +119,13 @@ line gives its expected output. The dry run of the copy is its preflight against
 
 ### T+0 · Writes stop
 
-- **Who:** person.
+- **Who:** person; agent for step 4.
 - **Do:**
   1. Merge edge pull request (a): the maintenance page on `app.ctxpipe.ai`.
   2. Railway: set the replicas of the `backend` and `openworkflow` (the worker) services to 0. Codesearch and FalkorDB
      stay up.
-  3. AWS: stop `backend`, `worker` and `ui` (desired count 0).
+  3. AWS: stop `backend` and `ui` (desired count 0).
+  4. Agent: run the scale action `cutover-scale-down` (the worker, FalkorDB and codesearch on AWS).
 - **Expected:** `app.ctxpipe.ai` shows the maintenance page. Railway shows 0 replicas for both services.
 - **Dry run:** the `pulumi preview` of pull request (a); `railway status`; `aws ecs describe-services`.
 - **Rollback:** the full rollback.
@@ -183,12 +195,12 @@ line gives its expected output. The dry run of the copy is its preflight against
 
 ### T+40 · Indexes into AWS
 
-- **Who:** person stops and starts services; agent runs the tasks.
+- **Who:** agent. FalkorDB and codesearch are stopped since T+0.
 - **Do:**
-  1. Stop `falkordb` and `codesearch` (desired count 0).
-  2. Run the task `cutover-import-indexes`.
-  3. Start `falkordb` (desired count 1). Run the task `cutover-verify-graph`.
-  4. Run the task `cutover-seed-shard-store`. Then start `codesearch` (desired count 1).
+  1. Run the task `cutover-import-indexes`.
+  2. Run the task `cutover-seed-shard-store`.
+  3. Run the scale action `cutover-scale-up-indexes`.
+  4. Run the task `cutover-verify-graph`.
 - **Expected:** import checks each sha256 and count against the manifest. verify-graph reports no difference (it names
   graphs by position, with no organization id). seed-shard-store reports the count of names that it published.
 - **Rollback:** the full rollback.
@@ -227,12 +239,16 @@ line gives its expected output. The dry run of the copy is its preflight against
 
 ### T+75 · Writes open
 
-- **Who:** person.
+- **Who:** agent for step 1; person for steps 2 and 3.
 - **Do:**
-  1. Start `worker` (desired count 1).
+  1. Run the scale action `cutover-scale-up-worker`.
   2. Merge edge pull request (c): it removes the temporary Access app and the `cutover.ctxpipe.dev` route.
-  3. Merge the factory pull request that removes the cutover tasks and `hosted-run-task.yml`. After this, no task can
-     drop or overwrite the production data.
+  3. Merge the factory pull requests that remove the cutover tasks, `hosted-run-task.yml` with its runner role
+     `github-actions-hosted-run-task`, the scale actions of `hosted.yml`, and the role `guard/cutover-transfer-writer`.
+     After their deploys, no task can drop or overwrite the production data. Check:
+     - `aws iam get-role --role-name github-actions-hosted-run-task` and
+       `aws iam get-role --role-name cutover-transfer-writer` each fail with `NoSuchEntity`;
+     - `aws ecs list-task-definitions --family-prefix cutover- --status ACTIVE --query taskDefinitionArns` prints `[]`.
 - **Expected:** customer traffic reaches AWS. The worker takes the open OpenWorkflow runs.
 - **Rollback:** none. Fix forward.
 
@@ -252,15 +268,16 @@ Do the steps that apply, in this order. Skip a step whose change was not made ye
 
 1. Neon: the rollback of G3 (read-write again).
 2. Railway: set the replicas of `backend` and `openworkflow` back to their values before T+0.
-3. AWS: stop `backend`, `worker` and `ui`. Agent: run the task `cutover-reset-database`, so that Aurora keeps no copy
-   of the production data.
-4. If T+40 started: stop `falkordb` and `codesearch`. Agent: run the task `cutover-reset-indexes`. It empties both
-   volumes and deletes the shards that `cutover-seed-shard-store` published, so that AWS keeps no copy of the graphs
-   and the source code. Then start `falkordb` and `codesearch` again.
-5. Revert edge pull request (b), if it was merged. Then revert (a): `app.ctxpipe.ai` goes back to Railway.
-6. Person: [retire the cutover access and the copies](#retire-the-cutover-access-and-the-copies). The next window
+3. AWS: stop `backend` and `ui`. Agent: run the scale action `cutover-scale-down`, then the task
+   `cutover-reset-database`, so that Aurora keeps no copy of the production data.
+4. If T+40 started: agent, run the task `cutover-reset-indexes`. It empties both volumes and deletes the shards that
+   `cutover-seed-shard-store` published, so that AWS keeps no copy of the graphs and the source code.
+5. Agent: run the scale action `cutover-scale-up-indexes`, so that FalkorDB and codesearch run again. Do this step
+   after each `cutover-scale-down`, also when step 4 did not apply.
+6. Revert edge pull request (b), if it was merged. Then revert (a): `app.ctxpipe.ai` goes back to Railway.
+7. Person: [retire the cutover access and the copies](#retire-the-cutover-access-and-the-copies). The next window
    makes the access again. The cutover tasks stay.
-7. Write what failed into [CTX-1217], and plan the next window.
+8. Write what failed into [CTX-1217], and plan the next window.
 
 ## Retire the cutover access and the copies
 
