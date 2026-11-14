@@ -67,7 +67,7 @@ const choiceQuestion = (instructions: string): Question => ({
  * probability (density too) is from 0.2 up, or when a question has no
  * answer. The bake-off of CTX-1262 kept the 0.2
  * floor: a higher floor turned real regressions into `intended` (ADR-063).
- * Else nothing got worse: the verdict is `intended` when a brief or a
+ * If nothing got worse, the verdict is `intended` when a brief or a
  * source diff explains the change, and `unsure` when none does (the rule of
  * `parseVerdict`). The state gives Jev `judgingRule`, with the priority order
  * of the qualities. Jev gives no text, so `observations` is empty and each
