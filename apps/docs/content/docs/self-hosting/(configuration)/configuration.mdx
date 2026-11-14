@@ -126,18 +126,20 @@ resolved to a public address at the time when the backend wrote the rule.
 
 The backend uses the port to keep these rules away from the backend's ports:
 
-- Only a callback rule can use a port other than 443. The host of a
-  callback rule is the backend's own callback name: `SANDBOX_CALLBACK_HOST`,
-  or `ip-<a>-<b>-<c>-<d>.<SANDBOX_CALLBACK_DNS_SUFFIX>` for an address of
-  the backend. Each other rule gets port 443.
+- Only a callback rule can use a port other than 443. A callback rule is a
+  model proxy or tool bridge rule that the backend makes, and its host is
+  the backend's own callback name: `SANDBOX_CALLBACK_HOST`, or
+  `ip-<a>-<b>-<c>-<d>.<SANDBOX_CALLBACK_DNS_SUFFIX>` for an address of the
+  backend. Each other rule gets port 443.
 - The backend refuses each other rule that names another port, for example
   `PORT`, a tool bridge port, or 80 (plain HTTP).
 - Agent Vault forwards a request only when a rule matches its host and its
   port, and it connects to that port. A DNS answer cannot change the port.
 - Each run vault refuses each host that no rule names.
 - When the backend writes a rule, it refuses a host that resolves to an
-  address that is not public. This check is only a first layer, because
-  the DNS answer can change after the check.
+  address that is not public. If the host does not resolve, the sandbox
+  does not start. This check is only a first layer, because the DNS answer
+  can change after the check.
 
 The limit: a host that a customer names can still connect to port 443 of
 each address in the allowlist. Do not run a service that listens on port

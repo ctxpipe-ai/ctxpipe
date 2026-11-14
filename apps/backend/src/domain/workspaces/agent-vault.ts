@@ -51,7 +51,7 @@ export type AgentVaultAccess = {
   ownerPassword: () => Promise<string>
   /** Hosted AgentCore only; see {@link agentCoreRules}. */
   agentCore?: {
-    /** True for the backend's own callback name (model proxy, tool bridge). */
+    /** True for the backend's own callback name. */
     isCallbackHost: (hostname: string) => boolean
     /** Each address of a host name. Tests give their own answers. */
     lookup: (hostname: string) => Promise<string[]>
@@ -309,6 +309,9 @@ function servicesFor(rules: RunVaultRule[]): {
   return { credentials, services }
 }
 
+/** The names of the rules that the backend makes for its own callbacks. */
+const CALLBACK_RULE = /^(model-proxy-(chat|models)|tool-bridge)$/
+
 /** A rule that the run vault of a hosted AgentCore sandbox must not hold. */
 export class RunVaultRuleRefusedError extends Error {
   constructor(message: string) {
@@ -337,12 +340,14 @@ export class RunVaultRuleRefusedError extends Error {
  * except a callback rule gets port 443: a rule with no port gets `:443`,
  * and a rule with another port (`PORT`, the tool bridge ports, or 80 for
  * plain HTTP) is refused. The backend does not listen on 443, and the
- * allowlist must hold no other service that does. A callback rule is a rule
- * whose host is the backend's own callback name.
+ * allowlist must hold no other service that does. A callback rule is a
+ * model proxy or tool bridge rule (by its name) whose host is the backend's
+ * own callback name; a rule needs both.
  *
  * As a first layer only, a rule host that resolves to an address that is
- * not public now is refused. The vault must also refuse each request that
- * no rule matches ({@link openRunVault}).
+ * not public now is refused. A failed lookup fails closed as
+ * {@link AgentVaultUnavailableError}. The vault must also refuse each
+ * request that no rule matches ({@link openRunVault}).
  */
 async function agentCoreRules(
   access: AgentVaultAccess,
@@ -357,14 +362,18 @@ async function agentCoreRules(
         throw new RunVaultRuleRefusedError(
           `The host of the vault rule ${rule.name} is not "<name>" or "<name>:<port>"`,
         )
-      if (agentCore.isCallbackHost(hostname)) return rule
+      if (CALLBACK_RULE.test(rule.name) && agentCore.isCallbackHost(hostname))
+        return rule
       if (port !== undefined && Number(port) !== 443)
         throw new RunVaultRuleRefusedError(
           `The vault rule ${rule.name} names port ${port}: on AgentCore, only the backend's callback rules can use a port other than 443`,
         )
-      const addresses = await agentCore
-        .lookup(hostname)
-        .catch((): string[] => [])
+      const addresses = await agentCore.lookup(hostname).catch((error) => {
+        throw new AgentVaultUnavailableError(
+          `The host ${hostname} of the vault rule ${rule.name} does not resolve`,
+          { cause: error },
+        )
+      })
       if (!addresses.length || !addresses.every(isPublicAddress))
         throw new RunVaultRuleRefusedError(
           `The host ${hostname} of the vault rule ${rule.name} has no public address`,

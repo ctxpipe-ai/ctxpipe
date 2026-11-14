@@ -38,13 +38,18 @@ export function parseSandboxCallbackHost(raw: string): string {
   return parsed.host
 }
 
+/** The VPC DNS name of an IPv4 address: `ip-<a>-<b>-<c>-<d>.<suffix>`. */
+export function callbackDnsName(address: string, suffix: string): string {
+  return `ip-${address.replaceAll(".", "-")}.${suffix}`
+}
+
 /**
  * A test of whether a host name is this backend's own callback name: the
  * host of its model proxy and tool bridge rules. It is the value of
- * `SANDBOX_CALLBACK_HOST`, or else `ip-<a>-<b>-<c>-<d>.<SANDBOX_CALLBACK_DNS_SUFFIX>`
- * for an address of a local network interface (the name that
- * `sandboxCallbackHost` derives on AWS). A name for an address of another
- * machine is not this backend's name.
+ * `SANDBOX_CALLBACK_HOST`, or else the {@link callbackDnsName} of an IPv4
+ * address of a local network interface under `SANDBOX_CALLBACK_DNS_SUFFIX`
+ * (the name that `sandboxCallbackHost` derives on AWS). A name for an
+ * address of another machine is not this backend's name.
  */
 export function isOwnCallbackHost(
   env: Record<string, string | undefined>,
@@ -56,14 +61,12 @@ export function isOwnCallbackHost(
   }
   const suffix = env.SANDBOX_CALLBACK_DNS_SUFFIX?.trim().toLowerCase()
   if (!suffix) return () => false
-  return (hostname) => {
-    const match = /^ip-(\d{1,3})-(\d{1,3})-(\d{1,3})-(\d{1,3})\.(.+)$/.exec(
-      hostname.toLowerCase(),
+  return (hostname) =>
+    Object.values(networkInterfaces()).some((entries) =>
+      entries?.some(
+        (entry) =>
+          entry.family === "IPv4" &&
+          callbackDnsName(entry.address, suffix) === hostname.toLowerCase(),
+      ),
     )
-    if (match?.[5] !== suffix) return false
-    const address = match.slice(1, 5).map(Number).join(".")
-    return Object.values(networkInterfaces()).some((entries) =>
-      entries?.some((entry) => entry.address === address),
-    )
-  }
 }

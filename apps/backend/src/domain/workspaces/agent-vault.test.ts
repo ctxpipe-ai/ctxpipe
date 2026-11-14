@@ -283,13 +283,37 @@ describe("run vault rules on hosted AgentCore (CTX-1287)", () => {
       "backend.ctxpipe.test:8080/acme/api/v1/workspace-chat/openai/v1/models",
       "backend.ctxpipe.test:41234/mcp",
     ])
-    // A later step's rules get the same check.
-    await expect(
-      setRunVaultRules(access, runKey, [
-        { name: "other", host: "git.example.test:8080", authorization: null },
-      ]),
-    ).rejects.toBeInstanceOf(RunVaultRuleRefusedError)
+    // A later step's rules get the same check. A rule that the backend does
+    // not make for its callbacks gets it also on the callback name.
+    for (const host of ["git.example.test:8080", "backend.ctxpipe.test:8080"])
+      await expect(
+        setRunVaultRules(access, runKey, [
+          { name: "git-plain-0123456789abcdef", host, authorization: null },
+        ]),
+      ).rejects.toBeInstanceOf(RunVaultRuleRefusedError)
     expect(calls.hosts).toHaveLength(6)
+  })
+
+  it("fails closed as unavailable when a rule host does not resolve", async () => {
+    const address = "http://agent-vault-no-dns.test"
+    const calls = agentVault(address, () =>
+      HttpResponse.json({ unmatched_host_policy: "deny" }),
+    )
+    const access = agentCoreAccess(address)
+    await expect(
+      setRunVaultRules(
+        {
+          ...access,
+          agentCore: {
+            isCallbackHost: () => false,
+            lookup: () => Promise.reject(new Error("ESERVFAIL")),
+          },
+        },
+        `test:${crypto.randomUUID()}`,
+        githubCredentialRules("ghs_test"),
+      ),
+    ).rejects.toBeInstanceOf(AgentVaultUnavailableError)
+    expect(calls.hosts).toEqual([])
   })
 
   it("refuses a vault that forwards hosts with no rule", async () => {
