@@ -12,7 +12,7 @@ Hosted observability was Langfuse Cloud plus unused Better Stack and Amplitude. 
 
 1. **Separate Railway project** `ctxpipe-observability`, with no preview deploys, in region `us-east4-eqdc4a` (same Virginia metal as product Railway and Neon). Internal ops only, under [`ops/observability/`](../../../ops/observability/). Not in the product Terraform module, the product deploy workflow, or the AWS CDK templates. Pin the region after create or apply. Detail: [ops/observability/README.md](../../../ops/observability/README.md).
 
-2. **One ClickHouse** (4 GiB memory cap) shared by HyperDX and Langfuse, databases `otel` and `langfuse`. Railway bills used RAM, not the cap. Detail: [clickhouse/README.md](../../../ops/observability/clickhouse/README.md).
+2. **One ClickHouse** (4 GiB memory cap) shared by HyperDX and Langfuse, databases `otel` and `langfuse`. Railway bills used RAM, not the cap. The detail was in `ops/observability/clickhouse/README.md`, which is deleted; the stack is now in the factory repo (`machines/observability`).
 
 3. **One collector** is the only OTLP ingress. Apps export each signal once. The ClickStack config keeps traces in ClickHouse and routes LLM spans to Langfuse with `filter/llm_only`. A second collector is rejected. [`apps/otel-collector`](../../../apps/otel-collector/) is a laptop debug sink and is not started by self-host deploy.
 
@@ -22,7 +22,7 @@ Hosted observability was Langfuse Cloud plus unused Better Stack and Amplitude. 
 
 6. **Browser:** `@hyperdx/browser` posts `POST /.otel/v1/$signal` on the same origin. The UI server holds the collector URL and ingest key. Replay is off. Supersedes [ADR-017](ADR-017-amplitude-analytics.md).
 
-7. **Images and apply.** CI-built images pinned by Terraform; applied from [`observability.yaml`](../../../.github/workflows/observability.yaml) on `main`. Detail: [terraform/README.md](../../../ops/observability/terraform/README.md).
+7. **Images and apply.** CI-built images pinned by Terraform; applied from [`observability.yaml`](../../../.github/workflows/observability.yaml) on `main`. The detail was in `ops/observability/terraform/README.md`, which is deleted.
 
 8. **Self-hosters** set `OTEL_EXPORTER_OTLP_*` on their own collector. Compose `deploy` and `@ctxpipe/aws-cdk` pass that endpoint through and do not bundle a collector or this stack. Better Stack and Amplitude are removed.
 

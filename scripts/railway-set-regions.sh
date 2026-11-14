@@ -18,12 +18,12 @@
 #   STATELESS_WAIT_SECONDS (default: 600)
 #   VOLUME_WAIT_SECONDS    (default: 2700)  # 50GB volume copy
 #
-# In the product set it also sets restartPolicyType ALWAYS on falkordb, in
+# It also sets restartPolicyType ALWAYS on falkordb, in
 # the same update as the region pin. Railway applies a policy change only
 # when a new deployment starts, so FalkorDB redeploys when either is wrong.
 #
-# Both hosted Railway projects use the same Virginia region as Neon
-# (ADR-029 / ADR-038). Terraform ignore_changes + provider issue #77
+# The hosted Railway product project uses the same Virginia region as Neon
+# (ADR-029). Terraform ignore_changes + provider issue #77
 # never correct a create that landed in the workspace preferred region
 # (Singapore). Run this after apply. Volume-backed services copy the
 # volume during the redeploy and go down for that copy.

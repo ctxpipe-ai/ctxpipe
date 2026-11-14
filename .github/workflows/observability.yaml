@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   test:
-    name: Test observability packages
+    name: Test cost-telemetry
     if: github.event_name == 'pull_request' && github.repository == 'ctxpipe-ai/ctxpipe'
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     timeout-minutes: 15
