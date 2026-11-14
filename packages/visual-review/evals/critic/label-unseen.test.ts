@@ -49,7 +49,7 @@ const image = (width: number) => {
   writeFileSync(join(images, `${sha256}.png`), bytes)
   return sha256
 }
-const shot = (id: string, source: string) => ({
+const shot = (id: string, source: Unseen["screenshots"][number]["source"]) => ({
   id,
   source,
   path: `apps/ui/src/screenshots/${id}.desktop.screenshot.png`,
@@ -208,18 +208,21 @@ test("a second run judges again only the screenshots with a failed vote", async 
   server.use(chat)
   const { path } = await run()
   script["new-error"] = ["fine", "fine", "fine"]
-  calls = []
+  try {
+    calls = []
 
-  const { code, byId } = await run([], path)
+    const { code, byId } = await run([], path)
 
-  expect(code).toBe(0)
-  expect(calls).toHaveLength(3)
-  expect(calls.every(({ story }) => story.includes("Story: new-error\n"))).toBe(
-    true,
-  )
-  expect(byId.get("new-error")?.panel?.label).toBe("fine")
-  expect(byId.get("new-agree")?.panel?.label).toBe("defect")
-  script["new-error"] = ["fine", "fine", null]
+    expect(code).toBe(0)
+    expect(calls).toHaveLength(3)
+    expect(
+      calls.every(({ story }) => story.includes("Story: new-error\n")),
+    ).toBe(true)
+    expect(byId.get("new-error")?.panel?.label).toBe("fine")
+    expect(byId.get("new-agree")?.panel?.label).toBe("defect")
+  } finally {
+    script["new-error"] = ["fine", "fine", null]
+  }
 })
 
 test("the spend cap stops the panel before a call, and a screenshot without all votes gets no panel", async () => {
@@ -231,6 +234,8 @@ test("the spend cap stops the panel before a call, and a screenshot without all 
   expect(code).toBe(0)
   expect(calls).toHaveLength(0)
   expect(set.screenshots.every(({ panel }) => panel === undefined)).toBe(true)
+  // No vote, so the set is not tied to these models.
+  expect(set.panelModels).toBeUndefined()
   expect(text).toContain("The spend cap stopped the panel")
 })
 

@@ -94,6 +94,14 @@ jobs:
             echo "::error::MODEL_PROVIDER_API_KEY is missing. Add the spend-capped model key to the workbench environment (Settings > Environments)."
             exit 1
           }
+      - name: Check that one mode is set
+        env:
+          MODES: ${{ format('{0}{1}{2}', inputs.panel && 'p' || '', inputs.unseen_panel && 'u' || '', inputs.calibration && 'c' || '') }}
+        run: |
+          [[ ${#MODES} -le 1 ]] || {
+            echo "::error::Set at most one of panel, unseen_panel and calibration."
+            exit 1
+          }
       - uses: actions/checkout@v6
         with:
           persist-credentials: false

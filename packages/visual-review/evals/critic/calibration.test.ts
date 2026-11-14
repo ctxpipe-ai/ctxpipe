@@ -80,7 +80,7 @@ const votes = (label: "defect" | "fine" | null) => ({
 })
 const unseenShot = (id: string, gray: number) => ({
   id,
-  source: "main",
+  source: "main" as const,
   path: `apps/ui/src/${id}.png`,
   commit: "a".repeat(40),
   image: store(gray),
@@ -341,6 +341,36 @@ test("reports the unseen set beside the owner examples, and runs only the unseen
   expect(printed).toContain("| unseen-defect | main | defect | regression |")
   expect(printed).toContain("| unseen-fine | main | fine | regression |")
   expect(printed).not.toContain("| unseen-disputed |")
+})
+
+test("a run that the spend cap stops marks the unseen scores incomplete", async () => {
+  vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
+  vi.stubEnv("MODEL_PROVIDER_URL", gateway)
+  let printed = ""
+
+  const code = await calibrate(
+    [
+      "--arms",
+      "llm:anthropic/claude-sonnet-5.5",
+      "--calibration",
+      calibrationPath,
+      "--unseen",
+      unseenPath,
+      "--images",
+      images,
+      "--out",
+      join(dir, "out-stopped"),
+      "--max-cost",
+      "0",
+    ],
+    (text) => (printed += text),
+  )
+
+  expect(code).toBe(0)
+  expect(printed).toContain("The run stopped early (cost).")
+  expect(printed).toContain(
+    "| llm:anthropic/claude-sonnet-5.5 (incomplete) | 0 / 0 | 0 / 0 | 0 / 0 |",
+  )
 })
 
 test("an id in both sets is an input error, with no call", async () => {

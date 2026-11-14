@@ -18,6 +18,7 @@ import { z } from "zod"
 
 import { askOpenRouter } from "../../src/adapters/openrouter.ts"
 import { buildPanelPrompt, type Prompt } from "../../src/prompt.ts"
+import type { StoryInput } from "../../src/story.ts"
 import { parseJsonReply } from "../../src/verdict.ts"
 import {
   caseManifestSchema,
@@ -101,50 +102,175 @@ const noVote = (model: string, error: string) => ({
 })
 
 /**
- * The function that asks one member for its vote on `prompt`, with a reply
- * of `reply`, while the spend of `spend` is below its cap. A failed call gets
- * one retry; then the member gives no vote. It gives undefined when the cap
- * stops the call. The judge panel of the cases and the panel of the unseen
+ * One question to the panel: the prompt, the schema of a reply, and the
+ * label that a reply label gives.
+ */
+type Ballot<Label extends string> = {
+  prompt: Prompt
+  reply: z.ZodType<{ reason: string; label: string }>
+  label: (given: string) => Label
+}
+
+/** The options of a panel command. `file` is the file of the votes. */
+type PanelOptions = {
+  models: string[]
+  maxCost: number
+  images: string
+  file: string
+}
+
+/**
+ * Parse the options of a panel command: `--models`, `--max-cost`, `--images`
+ * and the option `file.name` of the file of the votes. Gives the options, or
+ * the error text (also for a missing key).
+ */
+export function panelOptions(
+  args: readonly string[],
+  usage: string,
+  defaults: { maxCost: string; file: { name: string; path: string } },
+): PanelOptions | string {
+  let values
+  try {
+    ;({ values } = parseArgs({
+      args: [...args],
+      strict: true,
+      options: {
+        models: { type: "string", default: defaultModels.join(",") },
+        "max-cost": { type: "string", default: defaults.maxCost },
+        images: {
+          type: "string",
+          default: ".ci-results/visual-bakeoff/images",
+        },
+        [defaults.file.name]: { type: "string", default: defaults.file.path },
+      },
+    }))
+  } catch (error) {
+    return `${(error as Error).message}\n\n${usage}`
+  }
+  const models = String(values.models)
+    .split(",")
+    .map((model) => model.trim())
+    .filter(Boolean)
+  const maxCost = Number(values["max-cost"])
+  if (
+    models.length < 3 ||
+    new Set(models).size !== models.length ||
+    !(maxCost >= 0)
+  )
+    return `--models needs 3 or more different models, and --max-cost a number of 0 or more.\n\n${usage}`
+  if (!process.env.MODEL_PROVIDER_API_KEY)
+    return "Set MODEL_PROVIDER_API_KEY (the OpenRouter key) for the panel."
+  return {
+    models,
+    maxCost,
+    images: resolve(String(values.images)),
+    file: resolve(String(values[defaults.file.name])),
+  }
+}
+
+/** The votes of one file come from one panel: the error text, or undefined. */
+export const otherPanel = (
+  panelModels: readonly string[] | undefined,
+  models: readonly string[],
+) =>
+  panelModels && panelModels.join(",") !== models.join(",")
+    ? `The file has the votes of the panel ${panelModels.join(", ")}. Use the same --models, or remove the panel votes first.`
+    : undefined
+
+/**
+ * Ask each member about each item, 4 items at the same time. `ballot` gives
+ * the question of an item, or undefined when the panel does not judge it;
+ * it prepares the images of a case with `prepareCase`. A call starts only
+ * while the spend is below the cap. A failed call gets one retry; then the
+ * member gives no vote. An item that the cap stopped gets no votes: the next
+ * run judges it again. A missing or changed image stops the run with
+ * `imageError`. The judge panel of the cases and the panel of the unseen
  * calibration set (label-unseen.ts) use it.
  */
-export function panelMember<Label extends string>(
-  reply: z.ZodType<{ reason: string; label: Label }>,
-  spend: ReturnType<typeof spendMeter>,
+export async function runPanel<
+  Item extends { id: string },
+  Label extends string,
+>(
+  items: readonly Item[],
+  { models, maxCost, images }: PanelOptions,
+  ballot: (
+    item: Item,
+    prepareCase: (
+      entry: Case,
+      scope: StoryInput["scope"],
+    ) => ReturnType<typeof prepare>,
+  ) => Promise<Ballot<Label> | undefined>,
 ) {
-  const schema = z.toJSONSchema(reply)
-  const vote = async (prompt: Prompt, model: string) => {
-    const { content, run } = await askOpenRouter(
-      prompt,
-      schema,
-      model,
-      process.env,
-    )
-    const parsed = parseJsonReply(content, reply)
-    return {
-      vote:
-        "error" in parsed
+  const spend = spendMeter(maxCost)
+  let stopped = false
+  let imageError: string | undefined
+  const votes = new Map<string, Vote<Label>[]>()
+  const get = imageStore(images, releaseUrl)
+  const work = await mkdtemp(join(tmpdir(), "visual-panel-"))
+  const ask = async (
+    { prompt, reply, label }: Ballot<Label>,
+    model: string,
+  ): Promise<Vote<Label> | undefined> => {
+    for (let attempt = 1; ; attempt++) {
+      if (!spend.open()) return undefined
+      try {
+        const { content, run } = await askOpenRouter(
+          prompt,
+          z.toJSONSchema(reply),
+          model,
+          process.env,
+        )
+        spend.count(run.costUsd)
+        const parsed = parseJsonReply(content, reply)
+        return "error" in parsed
           ? noVote(model, parsed.error)
-          : { model, ...parsed.data },
-      cost: run.costUsd,
+          : {
+              model,
+              reason: parsed.data.reason,
+              label: label(parsed.data.label),
+            }
+      } catch (error) {
+        spend.count(null)
+        if (attempt === 2) return noVote(model, (error as Error).message)
+        await new Promise((done) => setTimeout(done, 5_000))
+      }
     }
   }
-  return {
-    schema,
-    async ask(prompt: Prompt, model: string): Promise<Vote<Label> | undefined> {
-      for (let attempt = 1; ; attempt++) {
-        if (!spend.open()) return undefined
-        try {
-          const { vote: given, cost } = await vote(prompt, model)
-          spend.count(cost)
-          return given
-        } catch (error) {
-          spend.count(null)
-          if (attempt === 2) return noVote(model, (error as Error).message)
-          await new Promise((done) => setTimeout(done, 5_000))
+  const queue = [...items]
+  try {
+    await Promise.all(
+      Array.from({ length: 4 }, async () => {
+        for (let item = queue.shift(); item; item = queue.shift()) {
+          if (stopped || imageError) return
+          let question: Ballot<Label> | undefined
+          try {
+            question = await ballot(item, (entry, scope) =>
+              prepare(entry, scope, get, images, work),
+            )
+          } catch (error) {
+            imageError ??= (error as Error).message
+            return
+          }
+          if (!question) continue
+          const asked = question
+          const given = await Promise.all(
+            models.map((model) => ask(asked, model)),
+          )
+          if (given.some((one) => one === undefined)) {
+            stopped = true
+            return
+          }
+          votes.set(
+            item.id,
+            given.filter((one) => one !== undefined),
+          )
         }
-      }
-    },
+      }),
+    )
+  } finally {
+    await rm(work, { recursive: true, force: true })
   }
+  return { votes, stopped, imageError, spent: spend.totals().spent }
 }
 
 /**
@@ -156,67 +282,22 @@ export async function judgePanel(
   args: readonly string[],
   print: (text: string) => void,
 ): Promise<number> {
-  let options
-  try {
-    ;({ values: options } = parseArgs({
-      args: [...args],
-      strict: true,
-      options: {
-        models: { type: "string", default: defaultModels.join(",") },
-        "max-cost": { type: "string", default: "40" },
-        images: {
-          type: "string",
-          default: ".ci-results/visual-bakeoff/images",
-        },
-        cases: { type: "string" },
-      },
-    }))
-  } catch (error) {
-    print(`${(error as Error).message}\n\n${usage}`)
+  const options = panelOptions(args, usage, {
+    maxCost: "40",
+    file: { name: "cases", path: join(import.meta.dirname, "cases.json") },
+  })
+  if (typeof options === "string") {
+    print(options)
     return 2
   }
-  const models = options.models
-    .split(",")
-    .map((model) => model.trim())
-    .filter(Boolean)
-  const maxCost = Number(options["max-cost"])
-  if (
-    models.length < 3 ||
-    new Set(models).size !== models.length ||
-    !(maxCost >= 0)
-  ) {
-    print(
-      `--models needs 3 or more different models, and --max-cost a number of 0 or more.\n\n${usage}`,
-    )
-    return 2
-  }
-  if (!process.env.MODEL_PROVIDER_API_KEY) {
-    print("Set MODEL_PROVIDER_API_KEY (the OpenRouter key) for the panel.")
-    return 2
-  }
-  const casesPath = resolve(
-    options.cases ?? join(import.meta.dirname, "cases.json"),
-  )
-  const manifest = await readManifest(casesPath)
-  // The votes of one manifest come from one panel.
-  if (
-    manifest.panelModels &&
-    manifest.panelModels.join(",") !== models.join(",")
-  ) {
-    print(
-      `The manifest has the votes of the panel ${manifest.panelModels.join(", ")}. Use the same --models, or remove the panel votes first.`,
-    )
+  const { models, maxCost } = options
+  const manifest = await readManifest(options.file)
+  const mismatch = otherPanel(manifest.panelModels, models)
+  if (mismatch) {
+    print(mismatch)
     return 2
   }
 
-  const spend = spendMeter(maxCost)
-  let stopped = false
-  let imageError: string | undefined
-  const panels = new Map<string, Panel>()
-  const images = resolve(options.images)
-  const get = imageStore(images, releaseUrl)
-  const work = await mkdtemp(join(tmpdir(), "visual-panel-"))
-  const member = panelMember(replySchema, spend)
   // A new case has no before image, so the panel does not judge it: its
   // label stays the one of the builder. A case with a failed vote (an outage,
   // a reply that is not usable) is judged again, so that a short outage does
@@ -233,47 +314,29 @@ export async function judgePanel(
             entry.label !== "unsure"
           ))),
   )
-  try {
-    await Promise.all(
-      Array.from({ length: 4 }, async () => {
-        for (let entry = queue.shift(); entry; entry = queue.shift()) {
-          if (stopped || imageError) return
-          let prompt: Prompt
-          try {
-            const prepared = await prepare(
-              entry,
-              manifest.scope,
-              get,
-              images,
-              work,
-            )
-            if (prepared.kind !== "change") continue
-            // The Storybook story id names the page: context for the judge.
-            prompt = buildPanelPrompt(
-              { ...prepared.story, storyId: entry.storyId },
-              member.schema,
-            )
-          } catch (error) {
-            imageError ??= (error as Error).message
-            return
-          }
-          const votes = await Promise.all(
-            models.map((model) => member.ask(prompt, model)),
-          )
-          // A case that the cap stopped gets no panel: the next run judges
-          // it again.
-          if (votes.some((given) => given === undefined)) {
-            stopped = true
-            return
-          }
-          const given = votes.filter((one) => one !== undefined)
-          panels.set(entry.id, { label: agreement(given), votes: given })
-        }
-      }),
-    )
-  } finally {
-    await rm(work, { recursive: true, force: true })
-  }
+  const { votes, stopped, imageError, spent } = await runPanel(
+    queue,
+    options,
+    async (entry, prepareCase) => {
+      const prepared = await prepareCase(entry, manifest.scope)
+      if (prepared.kind !== "change") return undefined
+      return {
+        // The Storybook story id names the page: context for the judge.
+        prompt: buildPanelPrompt(
+          { ...prepared.story, storyId: entry.storyId },
+          z.toJSONSchema(replySchema),
+        ),
+        reply: replySchema,
+        label: (given) => given as PanelLabel,
+      }
+    },
+  )
+  const panels = new Map<string, Panel>(
+    [...votes].map(([id, given]) => [
+      id,
+      { label: agreement(given), votes: given },
+    ]),
+  )
 
   const cases = manifest.cases.map((entry) => {
     const panel = panels.get(entry.id)
@@ -299,7 +362,7 @@ export async function judgePanel(
     panelModels: models,
     cases,
   })
-  await writeFile(casesPath, `${JSON.stringify(next, null, 2)}\n`)
+  await writeFile(options.file, `${JSON.stringify(next, null, 2)}\n`)
 
   const judged = next.cases.filter(({ id }) => panels.has(id))
   const real = judged.filter(({ kind }) => kind === "intended")
@@ -313,7 +376,6 @@ export async function judgePanel(
   const synthetic = judged.filter((entry) => known(entry))
   const right = (label: PanelLabel | null | undefined, entry: Case) =>
     label === known(entry)
-  const { spent } = spend.totals()
   const lines = [
     `Judge panel: ${models.join(", ")}. Rule: a label counts when more than half of the members give it.`,
     `${judged.length} cases judged, $${spent.toFixed(2)} of the $${maxCost} cap.${stopped ? " The spend cap stopped the panel: run it again to judge the other cases." : ""}`,

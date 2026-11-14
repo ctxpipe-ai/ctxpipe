@@ -192,7 +192,7 @@ An issue is a hit when the verdict flags one of its kinds. A fine item is a fals
 | `pr-722-round-3` | 24 | Changes from round 2 (`f8084e7d1`) to round 3 (`8eda68fe6`) of PR #722, which the owner called a regression overall but did not name one by one: 17 component stories and 7 page stories. The brief is the brief of round 3. |
 | `pr-717` | 5 | Regressions that the design review of PR #717 found (`redesign.json`), with the brief of PR #717. |
 
-The selection took at most one story of each component, in the order of a SHA-256 of a fixed salt and the path. Each screenshot keeps its `path` and `commit`, so its source is in git. The image release has the GitHub limit of 1,000 assets and is full, so the component stories of `main` are ones whose image the release had already. A set with more new images needs a second release.
+Within each source, the selection took at most one story of each component, in the order of a SHA-256 of a fixed salt and the path. Each screenshot keeps its `path` and `commit`, so its source is in git. The image release has the GitHub limit of 1,000 assets and is full, so the component stories of `main` are ones whose image the release had already. A set with more new images needs a second release.
 
 **Labels.** The owner did not label these screenshots, so the judge panel does. Each member (`panel.ts`: Opus 5.5, GPT-6.1-Sol, Gemini 4 Argon by default) judges each screenshot on its own:
 

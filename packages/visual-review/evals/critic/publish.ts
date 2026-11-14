@@ -29,16 +29,6 @@ const usage = `Usage: pnpm visual:bakeoff:publish [--images <dir>] [--cases <pat
   --calibration  A calibration set in place of the manifest, for example
                  unseen-calibration.json: its images and before images.`
 
-/** The images of a calibration set (calibration.ts): the owner or the unseen set. */
-const calibrationImages = z.object({
-  screenshots: z.array(
-    z.object({
-      image: z.string(),
-      before: z.object({ image: z.string() }).optional(),
-    }),
-  ),
-})
-
 /**
  * Upload each image of the manifest that the release does not have. Creates
  * the release (a pre-release on main) when it does not exist. Returns the
@@ -70,7 +60,16 @@ export async function publish(
   }
   const hashes = new Set(
     options.calibration
-      ? calibrationImages
+      ? // A calibration set (calibration.ts): the owner or the unseen set.
+        z
+          .object({
+            screenshots: z.array(
+              z.object({
+                image: z.string(),
+                before: z.object({ image: z.string() }).optional(),
+              }),
+            ),
+          })
           .parse(JSON.parse(await readFile(options.calibration, "utf8")))
           .screenshots.flatMap(({ image, before }) =>
             before ? [image, before.image] : [image],

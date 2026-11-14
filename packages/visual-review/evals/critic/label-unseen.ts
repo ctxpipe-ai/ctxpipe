@@ -7,10 +7,8 @@
 // Usage: node packages/visual-review/evals/critic/label-unseen.ts
 //          [--models <list>] [--max-cost 15] [--images <dir>] [--unseen <path>]
 
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
-import { parseArgs } from "node:util"
+import { readFile, writeFile } from "node:fs/promises"
+import { join } from "node:path"
 
 import { z } from "zod"
 
@@ -22,10 +20,13 @@ import {
   type Unseen,
   type UnseenLabel,
 } from "./calibration.ts"
-import { imageStore, releaseUrl } from "./images.ts"
-import { defaultModels, panelMember, replySchema, type Vote } from "./panel.ts"
-import { prepare } from "./run.ts"
-import { spendMeter } from "./spend.ts"
+import {
+  defaultModels,
+  otherPanel,
+  panelOptions,
+  replySchema,
+  runPanel,
+} from "./panel.ts"
 
 const usage = `Usage: node packages/visual-review/evals/critic/label-unseen.ts [--models <list>] [--max-cost 15] [--images <dir>] [--unseen <path>]
 
@@ -59,23 +60,6 @@ export function unanimous(
     : null
 }
 
-/** The reply of a member on a screenshot with no earlier image. */
-const newReplySchema = z.object({
-  reason: z.string(),
-  label: z.enum(unseenLabels),
-})
-
-/** The unseen label of a vote on a change: a regression is a defect. */
-const fromChange = (vote: Vote<string>): Vote<UnseenLabel> => ({
-  ...vote,
-  label:
-    vote.label === null
-      ? null
-      : vote.label === "regression"
-        ? "defect"
-        : "fine",
-})
-
 /**
  * Run `node packages/visual-review/evals/critic/label-unseen.ts` with the
  * command-line arguments `args`. `print` gets the output. Returns the exit
@@ -85,134 +69,77 @@ export async function labelUnseen(
   args: readonly string[],
   print: (text: string) => void,
 ): Promise<number> {
-  let options
+  const options = panelOptions(args, usage, {
+    maxCost: "15",
+    file: {
+      name: "unseen",
+      path: join(import.meta.dirname, "unseen-calibration.json"),
+    },
+  })
+  if (typeof options === "string") {
+    print(options)
+    return 2
+  }
+  const { models, maxCost } = options
   let unseen: Unseen
   try {
-    ;({ values: options } = parseArgs({
-      args: [...args],
-      strict: true,
-      options: {
-        models: { type: "string", default: defaultModels.join(",") },
-        "max-cost": { type: "string", default: "15" },
-        images: {
-          type: "string",
-          default: ".ci-results/visual-bakeoff/images",
-        },
-        unseen: {
-          type: "string",
-          default: join(import.meta.dirname, "unseen-calibration.json"),
-        },
-      },
-    }))
     unseen = unseenSchema.parse(
-      JSON.parse(await readFile(options.unseen, "utf8")),
+      JSON.parse(await readFile(options.file, "utf8")),
     )
   } catch (error) {
     print(`${(error as Error).message}\n\n${usage}`)
     return 2
   }
-  const models = options.models
-    .split(",")
-    .map((model) => model.trim())
-    .filter(Boolean)
-  const maxCost = Number(options["max-cost"])
-  if (
-    models.length < 3 ||
-    new Set(models).size !== models.length ||
-    !(maxCost >= 0)
-  ) {
-    print(
-      `--models needs 3 or more different models, and --max-cost a number of 0 or more.\n\n${usage}`,
-    )
-    return 2
-  }
-  if (!process.env.MODEL_PROVIDER_API_KEY) {
-    print("Set MODEL_PROVIDER_API_KEY (the OpenRouter key) for the panel.")
-    return 2
-  }
-  // The votes of one set come from one panel.
-  if (unseen.panelModels && unseen.panelModels.join(",") !== models.join(",")) {
-    print(
-      `The set has the votes of the panel ${unseen.panelModels.join(", ")}. Use the same --models, or remove the panel votes first.`,
-    )
+  const mismatch = otherPanel(unseen.panelModels, models)
+  if (mismatch) {
+    print(mismatch)
     return 2
   }
 
-  const spend = spendMeter(maxCost)
-  const change = panelMember(replySchema, spend)
-  const fresh = panelMember(newReplySchema, spend)
-  let stopped = false
-  let imageError: string | undefined
-  const panels = new Map<
-    string,
-    NonNullable<Unseen["screenshots"][number]["panel"]>
-  >()
-  const images = resolve(options.images)
-  const get = imageStore(images, releaseUrl)
-  const work = await mkdtemp(join(tmpdir(), "visual-unseen-"))
   // A screenshot with a failed vote (an outage, a reply that is not usable)
   // is judged again.
   const queue = unseen.screenshots.filter(
     ({ panel }) => !panel || panel.votes.some(({ error }) => error),
   )
-  try {
-    await Promise.all(
-      Array.from({ length: 4 }, async () => {
-        for (let shot = queue.shift(); shot; shot = queue.shift()) {
-          if (stopped || imageError) return
-          let ask: (model: string) => Promise<Vote<UnseenLabel> | undefined>
-          try {
-            const prepared = await prepare(
-              screenshotCase(shot),
-              shot.scope,
-              get,
-              images,
-              work,
-            )
-            if (prepared.kind === "change") {
-              const prompt = buildPanelPrompt(prepared.story, change.schema)
-              ask = async (model) => {
-                const given = await change.ask(prompt, model)
-                return given && fromChange(given)
-              }
-            } else {
-              const prompt = buildNewPanelPrompt(
-                prepared.newStory,
-                fresh.schema,
-              )
-              ask = (model) => fresh.ask(prompt, model)
-            }
-          } catch (error) {
-            imageError ??= (error as Error).message
-            return
-          }
-          const votes = await Promise.all(models.map((model) => ask(model)))
-          // A screenshot that the cap stopped gets no panel: the next run
-          // judges it again.
-          if (votes.some((given) => given === undefined)) {
-            stopped = true
-            return
-          }
-          const given = votes.filter((one) => one !== undefined)
-          panels.set(shot.id, { label: unanimous(given), votes: given })
+  const { votes, stopped, imageError, spent } = await runPanel(
+    queue,
+    options,
+    async (shot, prepareCase) => {
+      const prepared = await prepareCase(screenshotCase(shot), shot.scope)
+      if (prepared.kind === "change")
+        // A change gets the change prompt of the panel: a regression is a
+        // defect, an improvement or no change is fine.
+        return {
+          prompt: buildPanelPrompt(prepared.story, z.toJSONSchema(replySchema)),
+          reply: replySchema,
+          label: (given): UnseenLabel =>
+            given === "regression" ? "defect" : "fine",
         }
-      }),
-    )
-  } finally {
-    await rm(work, { recursive: true, force: true })
-  }
+      const reply = z.object({
+        reason: z.string(),
+        label: z.enum(unseenLabels),
+      })
+      return {
+        prompt: buildNewPanelPrompt(prepared.newStory, z.toJSONSchema(reply)),
+        reply,
+        label: (given) => given as UnseenLabel,
+      }
+    },
+  )
 
   const next = unseenSchema.parse({
     ...unseen,
-    panelModels: models,
+    // A run that judged nothing does not tie the set to its models.
+    ...(votes.size && { panelModels: models }),
     screenshots: unseen.screenshots.map((shot) => {
-      const panel = panels.get(shot.id)
-      return panel ? { ...shot, panel } : shot
+      const given = votes.get(shot.id)
+      return given
+        ? { ...shot, panel: { label: unanimous(given), votes: given } }
+        : shot
     }),
   })
-  await writeFile(options.unseen, `${JSON.stringify(next, null, 2)}\n`)
+  await writeFile(options.file, `${JSON.stringify(next, null, 2)}\n`)
 
-  const { spent } = spend.totals()
   const sources = [...new Set(next.screenshots.map(({ source }) => source))]
   const tally = (shots: Unseen["screenshots"]) => {
     const of = (label: UnseenLabel | null) =>
@@ -221,7 +148,7 @@ export async function labelUnseen(
   }
   const lines = [
     `Judge panel: ${models.join(", ")}. Rule: a label counts when each member gives it.`,
-    `${panels.size} screenshots judged, $${spent.toFixed(2)} of the $${maxCost} cap.${stopped ? " The spend cap stopped the panel: run it again to judge the other screenshots." : ""}`,
+    `${votes.size} screenshots judged, $${spent.toFixed(2)} of the $${maxCost} cap.${stopped ? " The spend cap stopped the panel: run it again to judge the other screenshots." : ""}`,
     `All: ${tally(next.screenshots)}.`,
     ...sources.map(
       (source) =>

@@ -112,7 +112,7 @@ export const unseenSchema = z
            * regression overall), `pr-717` (a regression that the design
            * review of PR 717 found).
            */
-          source: z.string().regex(/^[a-z0-9-]+$/),
+          source: z.enum(["main", "pr-722-round-3", "pr-717"]),
           /** The screenshot file, at `commit`. */
           path: z.string().min(1),
           commit: z.string().regex(/^[0-9a-f]{40}$/),
@@ -245,6 +245,7 @@ function calibrationReport(
   arms: readonly string[],
   results: readonly Result[],
   spent: number,
+  stopped: string | null,
 ): string {
   const issues = owner.screenshots.reduce((n, s) => n + s.flag.length, 0)
   const fine = owner.screenshots.reduce((n, s) => n + s.ok.length, 0)
@@ -256,18 +257,18 @@ function calibrationReport(
       ? [{ ...result, screenshot, ...scoreOne(screenshot, result.verdict) }]
       : []
   })
-  const unseenScored = results.flatMap((result) => {
+  const resultsOfLabeled = results.flatMap((result) => {
     const screenshot = unseen.screenshots.find(({ id }) => id === result.case)
     const label = screenshot?.panel?.label
     return screenshot && label ? [{ ...result, screenshot, label }] : []
   })
-  const scoredUnseen = unseen.screenshots.filter(({ panel }) => panel?.label)
+  const labeledUnseen = unseen.screenshots.filter(({ panel }) => panel?.label)
   const count = <T>(items: readonly T[], test: (item: T) => boolean) =>
     items.filter(test).length
   const flagged = (verdict: Verdict) => verdict.verdict === "regression"
 
   const totals = arms.map((arm) => {
-    const ofUnseen = unseenScored.filter((result) => result.arm === arm)
+    const ofUnseen = resultsOfLabeled.filter((result) => result.arm === arm)
     const defects = ofUnseen.filter(({ label }) => label === "defect")
     const fines = ofUnseen.filter(({ label }) => label === "fine")
     const ofOwner = ownerScored.filter((result) => result.arm === arm)
@@ -277,11 +278,14 @@ function calibrationReport(
       [...ofUnseen, ...ofOwner],
       ({ verdict }) => !!verdict.error,
     )
-    return `| ${arm} | ${count(defects, ({ verdict }) => flagged(verdict))} / ${defects.length} | ${count(fines, ({ verdict }) => flagged(verdict))} / ${fines.length} | ${count(ofUnseen, ({ verdict }) => verdict.verdict === "unsure")} / ${ofUnseen.length} | ${sum((r) => r.hits.length)} / ${issues} | ${sum((r) => r.falseFlags.length)} / ${fine} | ${sum((r) => (flagged(r.verdict) ? 1 : 0))} / ${ofOwner.length} | ${errors} |`
+    // A score with a missing or failed verdict cannot select a change.
+    const complete =
+      count(ofUnseen, ({ verdict }) => !verdict.error) === labeledUnseen.length
+    return `| ${arm}${complete ? "" : " (incomplete)"} | ${count(defects, ({ verdict }) => flagged(verdict))} / ${defects.length} | ${count(fines, ({ verdict }) => flagged(verdict))} / ${fines.length} | ${count(ofUnseen, ({ verdict }) => verdict.verdict === "unsure")} / ${ofUnseen.length} | ${sum((r) => r.hits.length)} / ${issues} | ${sum((r) => r.falseFlags.length)} / ${fine} | ${sum((r) => (flagged(r.verdict) ? 1 : 0))} / ${ofOwner.length} | ${errors} |`
   })
   const verdictOf = (arm: string, id: string) =>
     results.find((result) => result.arm === arm && result.case === id)?.verdict
-  const unseenRows = scoredUnseen.map((screenshot) => {
+  const unseenRows = labeledUnseen.map((screenshot) => {
     const cells = arms.map(
       (arm) => verdictOf(arm, screenshot.id)?.verdict ?? "not run",
     )
@@ -308,7 +312,13 @@ function calibrationReport(
   return [
     `# Calibration of the visual critic`,
     "",
-    `Unseen set: ${scoredUnseen.length} of ${unseen.screenshots.length} screenshots have a panel label (${count(scoredUnseen, ({ panel }) => panel?.label === "defect")} defect, ${count(scoredUnseen, ({ panel }) => panel?.label === "fine")} fine). ${disputed} without agreement and ${unlabeled} with no panel run do not count. A critic change is selected on the unseen set (ADR-063, rule 16).`,
+    ...(stopped
+      ? [
+          `The run stopped early (${stopped}). Some screenshots have no verdict.`,
+          "",
+        ]
+      : []),
+    `Unseen set: ${labeledUnseen.length} of ${unseen.screenshots.length} screenshots have a panel label (${count(labeledUnseen, ({ panel }) => panel?.label === "defect")} defect, ${count(labeledUnseen, ({ panel }) => panel?.label === "fine")} fine). ${disputed} without agreement and ${unlabeled} with no panel run do not count. A critic change is selected on the unseen set (ADR-063, rule 16). An arm marked "(incomplete)" has a missing or failed verdict on a labeled unseen screenshot: its scores do not select a change.`,
     "",
     `Owner examples (${owner.date}): ${owner.screenshots.length} screenshots, ${issues} issues, ${fine} fine items. A hit is an owner issue that the arm flags. A false flag is a fine item that the arm flags.`,
     "",
@@ -432,10 +442,15 @@ export async function calibrate(
     print(runnerOutput)
     return code
   }
-  const { arms, spent, results } = JSON.parse(
+  const { arms, spent, stopped, results } = JSON.parse(
     await readFile(join(runner, "results.json"), "utf8"),
-  ) as { arms: string[]; spent: number; results: Result[] }
-  const text = calibrationReport(owner, unseen, arms, results, spent)
+  ) as {
+    arms: string[]
+    spent: number
+    stopped: string | null
+    results: Result[]
+  }
+  const text = calibrationReport(owner, unseen, arms, results, spent, stopped)
   await writeFile(join(out, "report.md"), `${text}\n`)
   print(text)
   return 0
