@@ -17,8 +17,9 @@
  * Stored write jobs and resolve steps supply these commits by default.
  * Manual values fill missing stored values only.
  * `labels.json`: an array of `IngestionLabelSet`. `costs.json`: an object
- * from shadow run id to `{ "old": <USD>, "shadow": <USD> }` (read the model
- * cost from Langfuse). `--injection-fixtures` scans for the T19 payloads.
+ * from shadow run id to `{ "old": <USD>, "shadow": <USD> }` (the sum of
+ * `gen_ai.usage.cost` of the run in HyperDX). `--injection-fixtures` scans
+ * for the T19 payloads.
  * The Markdown report goes to stdout; put it in the Linear document of T20.
  *
  * Env: apps/backend/.env.local (DATABASE_URL and the GitHub App settings).

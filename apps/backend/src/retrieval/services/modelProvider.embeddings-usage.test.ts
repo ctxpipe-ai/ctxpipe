@@ -18,7 +18,6 @@ import {
 } from "vitest"
 
 import { useMswServer } from "../../../test/msw.js"
-import { LangfuseContextSpanProcessor } from "../../observability/langfuseContextProcessor.js"
 import { generateEmbeddings } from "./modelProvider.js"
 
 const exporter = new InMemorySpanExporter()
@@ -26,27 +25,23 @@ const provider = new NodeTracerProvider({
   resource: resourceFromAttributes({
     "deployment.environment": "test",
   }),
-  spanProcessors: [
-    new LangfuseContextSpanProcessor(),
-    new SimpleSpanProcessor(exporter),
-  ],
+  spanProcessors: [new SimpleSpanProcessor(exporter)],
 })
 
 const server = useMswServer()
 
-function generationUsageDetails(): unknown {
+function generationInputTokens(): unknown {
   const generation = exporter
     .getFinishedSpans()
     .find(
       (span) =>
         span.name === "modelProvider.generateEmbeddings" &&
-        span.attributes["langfuse.observation.type"] === "generation",
+        span.attributes["gen_ai.operation.name"] === "embeddings",
     )
-  const raw = generation?.attributes["langfuse.observation.usage_details"]
-  return typeof raw === "string" ? JSON.parse(raw) : raw
+  return generation?.attributes["gen_ai.usage.input_tokens"]
 }
 
-describe("generateEmbeddings Langfuse usage", () => {
+describe("generateEmbeddings span usage", () => {
   beforeAll(() => {
     trace.disable()
     provider.register()
@@ -90,8 +85,17 @@ describe("generateEmbeddings Langfuse usage", () => {
     const generation = exporter
       .getFinishedSpans()
       .find((span) => span.name === "modelProvider.generateEmbeddings")
-    expect(generation?.attributes["gen_ai.usage.cost"]).toBe(0.0002)
-    expect(generation?.attributes["gen_ai.usage.input_tokens"]).toBe(8)
+    expect(generation?.attributes).toMatchObject({
+      "gen_ai.operation.name": "embeddings",
+      "gen_ai.request.model": "openai/text-embedding-3-large",
+      "gen_ai.provider.name": "openai-like",
+      "gen_ai.input.messages": JSON.stringify({
+        textCount: 1,
+        totalCharacters: 5,
+      }),
+      "gen_ai.usage.cost": 0.0002,
+      "gen_ai.usage.input_tokens": 8,
+    })
   })
 
   it("keeps the cost of the batches before a failed one", async () => {
@@ -126,7 +130,7 @@ describe("generateEmbeddings Langfuse usage", () => {
     expect(generation?.attributes["gen_ai.usage.input_tokens"]).toBe(64)
   })
 
-  it("copies provider prompt and total tokens onto the generation", async () => {
+  it("copies the provider prompt tokens onto the generation", async () => {
     server.use(
       http.post("https://api.openai.com/v1/embeddings", async ({ request }) => {
         const body = (await request.json()) as { input: string[] }
@@ -145,7 +149,7 @@ describe("generateEmbeddings Langfuse usage", () => {
 
     const embeddings = await generateEmbeddings(["hello"])
     expect(embeddings).toHaveLength(1)
-    expect(generationUsageDetails()).toEqual({ input: 8, total: 8 })
+    expect(generationInputTokens()).toBe(8)
   })
 
   it("omits usage details when the provider response has no usage", async () => {
@@ -165,7 +169,7 @@ describe("generateEmbeddings Langfuse usage", () => {
     )
 
     await generateEmbeddings(["hello"])
-    expect(generationUsageDetails()).toBeUndefined()
+    expect(generationInputTokens()).toBeUndefined()
   })
 
   it("sums provider usage across embedding batches", async () => {
@@ -191,6 +195,6 @@ describe("generateEmbeddings Langfuse usage", () => {
 
     const embeddings = await generateEmbeddings(texts)
     expect(embeddings).toHaveLength(65)
-    expect(generationUsageDetails()).toEqual({ input: 67, total: 67 })
+    expect(generationInputTokens()).toBe(67)
   })
 })

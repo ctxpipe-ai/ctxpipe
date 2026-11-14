@@ -4,9 +4,9 @@ import { assertNotInOrgDbContext } from "../../db/client.js"
 import { mapPool } from "../../lib/mapPool.js"
 import { gatewayCost } from "../../observability/gatewayCost.js"
 import {
-  type LangfuseUsageDetails,
-  withLangfuseGeneration,
-} from "../../observability/langfuse.js"
+  type LlmUsage,
+  withLlmGeneration,
+} from "../../observability/llm-spans.js"
 import {
   type ModelParams,
   mergeModelParams,
@@ -86,7 +86,7 @@ type GetModelOptions = {
   reasoning?: boolean
   /** Legacy transport setting. Host calls always use a single response. */
   streaming?: boolean
-  /** Langfuse generation name for host calls. */
+  /** The generation span name of host calls. */
   name?: string
   /** Name of the forced structured output tool. */
   outputName?: string
@@ -207,20 +207,14 @@ function nonNegativeInt(value: unknown): number | undefined {
 }
 
 /** OpenAI-compatible `/embeddings` usage. Omit keys the provider did not send. */
-function usageFromOpenAiCompatible(
-  usage: unknown,
-): LangfuseUsageDetails | undefined {
+function usageFromOpenAiCompatible(usage: unknown): LlmUsage | undefined {
   if (usage == null || typeof usage !== "object") return undefined
   const record = usage as Record<string, unknown>
   const input = nonNegativeInt(record.prompt_tokens)
-  const total = nonNegativeInt(record.total_tokens)
   const cost = gatewayCost(record)
-  if (input === undefined && total === undefined && cost === undefined) {
-    return undefined
-  }
+  if (input === undefined && cost === undefined) return undefined
   return {
     ...(input !== undefined ? { input } : {}),
-    ...(total !== undefined ? { total } : {}),
     ...(cost !== undefined ? { cost } : {}),
   }
 }
@@ -235,20 +229,16 @@ function addOptionalCount(
 }
 
 function addUsage(
-  left: LangfuseUsageDetails | undefined,
-  right: LangfuseUsageDetails | undefined,
-): LangfuseUsageDetails | undefined {
+  left: LlmUsage | undefined,
+  right: LlmUsage | undefined,
+): LlmUsage | undefined {
   if (!left) return right
   if (!right) return left
   const input = addOptionalCount(left.input, right.input)
-  const total = addOptionalCount(left.total, right.total)
   const cost = addOptionalCount(left.cost, right.cost)
-  if (input === undefined && total === undefined && cost === undefined) {
-    return undefined
-  }
+  if (input === undefined && cost === undefined) return undefined
   return {
     ...(input !== undefined ? { input } : {}),
-    ...(total !== undefined ? { total } : {}),
     ...(cost !== undefined ? { cost } : {}),
   }
 }
@@ -291,19 +281,16 @@ export async function generateEmbeddings(
   if (env.MODEL_PROVIDER === "azure") providerFn = azureModelProvider
   if (env.MODEL_PROVIDER === "openrouter") providerFn = openrouterModelProvider
 
-  let usage: LangfuseUsageDetails | undefined
-  return withLangfuseGeneration(
+  let usage: LlmUsage | undefined
+  return withLlmGeneration(
     {
       name: "modelProvider.generateEmbeddings",
+      operation: "embeddings",
       model: embeddingModel,
+      provider: env.MODEL_PROVIDER,
       input: {
         textCount: texts.length,
         totalCharacters: texts.reduce((sum, text) => sum + text.length, 0),
-      },
-      metadata: {
-        provider: env.MODEL_PROVIDER,
-        embeddingModel,
-        dimensions: EMBEDDING_DIMENSIONS,
       },
       summarizeOutput: (embeddings) => ({
         embeddingCount: embeddings.length,

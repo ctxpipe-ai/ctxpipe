@@ -620,7 +620,7 @@ try {
           // Network edges may use MSW. Module replacement cannot prove execution
           // of the application or its runtime collaborators.
           const networkSdkPattern =
-            /^(?:@aws-sdk\/|@hyperdx\/browser$|@linear\/sdk$|@langchain\/(?:aws|core\/)|@langfuse\/|octokit$)/
+            /^(?:@aws-sdk\/|@hyperdx\/browser$|@linear\/sdk$|@langchain\/(?:aws|core\/)|octokit$)/
           // spyOn may also target a bare identifier bound by a default or
           // namespace import of such a module.
           const importedNetworkSdk =

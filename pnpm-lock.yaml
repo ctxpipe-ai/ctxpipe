@@ -102,12 +102,6 @@ importers:
       '@infisical/agent-vault-sdk':
         specifier: ^0.7.0
         version: 0.7.0
-      '@langfuse/core':
-        specifier: 5.9.1
-        version: 5.9.1(@opentelemetry/api@1.9.1)
-      '@langfuse/tracing':
-        specifier: 5.9.1
-        version: 5.9.1(@opentelemetry/api@1.9.1)
       '@linear/sdk':
         specifier: ^89.0.0
         version: 89.0.0(graphql@16.13.2)
@@ -3598,17 +3592,6 @@ packages:
 
   '@juggle/resize-observer@3.4.0':
     resolution: {integrity: sha512-dfLbk+PwWvFzSxwk3n5ySL0hfBog779o8h68wK/7/APo/7cgyWp5jcXockbxdk5kFRkbeXWm4Fbi9FrdN381sA==}
-
-  '@langfuse/core@5.9.1':
-    resolution: {integrity: sha512-KvyAskAO+2ixJwr9wy148ttR/Zn3oapvOJ2Br4Xcp6zhDpjSIIGB4jW/jkp53/KU9MyEHj0RSFPK/yKoxLC4KA==}
-    peerDependencies:
-      '@opentelemetry/api': ^1.9.0
-
-  '@langfuse/tracing@5.9.1':
-    resolution: {integrity: sha512-tJRyVAv1JkuOPh4Uz5eWUNH8U4jcJVtK2F5QNy5cZUzXCSrXobCSHusPbxY6VFZcLcFgtpDtSaxL7ev1tV2JNQ==}
-    engines: {node: '>=20'}
-    peerDependencies:
-      '@opentelemetry/api': ^1.9.0
 
   '@leichtgewicht/ip-codec@2.0.5':
     resolution: {integrity: sha512-Vo+PSpZG2/fmgmiNzYK9qWRh8h/CHrwD0mo1h1DzL4yzHNSfWYujGTYsWGreD000gcgmZ7K4Ys6Tx9TxtsKdDw==}
@@ -19277,15 +19260,6 @@ snapshots:
       tslib: 2.8.1
 
   '@juggle/resize-observer@3.4.0': {}
-
-  '@langfuse/core@5.9.1(@opentelemetry/api@1.9.1)':
-    dependencies:
-      '@opentelemetry/api': 1.9.1
-
-  '@langfuse/tracing@5.9.1(@opentelemetry/api@1.9.1)':
-    dependencies:
-      '@langfuse/core': 5.9.1(@opentelemetry/api@1.9.1)
-      '@opentelemetry/api': 1.9.1
 
   '@leichtgewicht/ip-codec@2.0.5': {}
 

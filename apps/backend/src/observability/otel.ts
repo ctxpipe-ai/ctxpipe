@@ -41,7 +41,6 @@ import { baggageWithAttribution, copyAttributionToSpan } from "./attribution.js"
 import { BetterAuthSpanFilter } from "./betterAuthSpanFilter.js"
 import { EvlogSpanExporter } from "./evlog-span-exporter.js"
 import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
-import { LangfuseContextSpanProcessor } from "./langfuseContextProcessor.js"
 import { scrubExportedSpan } from "./scrubDbError.js"
 import { redactSecretPath } from "./secretPath.js"
 
@@ -62,8 +61,8 @@ export function otelServiceName(
 /**
  * The deployment name (`shared/deployment-environment.ts`), else
  * `deployment.environment` in `OTEL_RESOURCE_ATTRIBUTES`, else `production`
- * when NODE_ENV is production, else `development`. Logs and the Langfuse
- * `env:` tag call this.
+ * when NODE_ENV is production, else `development`. The resource and the logs
+ * use this name.
  */
 export function otelDeploymentEnvironment(
   nodeEnv = process.env.NODE_ENV,
@@ -191,7 +190,6 @@ export function initOtel(env: Env): void {
     resourceDetectors: [processDetector, hostDetector],
     spanProcessors: [
       new AttributionUrlSpanProcessor(),
-      new LangfuseContextSpanProcessor(),
       evlogProcessor,
       spanProcessor,
     ],

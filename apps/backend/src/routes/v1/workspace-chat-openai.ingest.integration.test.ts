@@ -40,7 +40,6 @@ import {
 } from "../../domain/workspaces/workspace-chat-run-capability.js"
 import { generateObjectId } from "../../lib/id.js"
 import { backendOtelMiddleware } from "../../observability/http.js"
-import { LangfuseContextSpanProcessor } from "../../observability/langfuseContextProcessor.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import {
   contextStorage,
@@ -51,10 +50,7 @@ import { workspaceChatOpenaiRoutes } from "./workspace-chat-openai.js"
 const AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
 const exporter = new InMemorySpanExporter()
 const tracer = new NodeTracerProvider({
-  spanProcessors: [
-    new LangfuseContextSpanProcessor(),
-    new SimpleSpanProcessor(exporter),
-  ],
+  spanProcessors: [new SimpleSpanProcessor(exporter)],
 })
 const MODEL_PROVIDER_URL = "http://model-provider.test/v1"
 
@@ -320,7 +316,7 @@ describe("workspace-ingest-model capability", () => {
       "ctxpipe.ingest.step": "skill:root:docs",
     })
     expect(span?.attributes["ctxpipe.conversation.id"]).toBeUndefined()
-    // The model call is a generation in the Langfuse session of the run.
+    // The model call is a generation span of the run.
     const call = exporter
       .getFinishedSpans()
       .find((item) => item.name === "ingestion.model_call")
@@ -329,7 +325,6 @@ describe("workspace-ingest-model capability", () => {
       "ctxpipe.ingest.run.id": runId,
       "ctxpipe.ingest.shard": "0",
       "ctxpipe.ingest.step": "skill:root:docs",
-      "session.id": `ingest:${runId}`,
     })
   })
 

@@ -12,21 +12,12 @@ import { afterAll, beforeAll, beforeEach, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
 import { applyAttribution } from "../../observability/attribution.js"
 import { backendOtelMiddleware } from "../../observability/http.js"
-import { LangfuseContextSpanProcessor } from "../../observability/langfuseContextProcessor.js"
-import { otelDeploymentEnvironment } from "../../observability/otel.js"
 import { withTestRequestLogger } from "../../test/hono-test-logger.js"
 
-const environment = otelDeploymentEnvironment()
 const exporter = new InMemorySpanExporter()
 const provider = new NodeTracerProvider({
-  resource: resourceFromAttributes({
-    "service.name": "ctxpipe-test",
-    "deployment.environment": environment,
-  }),
-  spanProcessors: [
-    new LangfuseContextSpanProcessor(),
-    new SimpleSpanProcessor(exporter),
-  ],
+  resource: resourceFromAttributes({ "service.name": "ctxpipe-test" }),
+  spanProcessors: [new SimpleSpanProcessor(exporter)],
 })
 
 let workspaceChatStreamResponse: typeof import("./transport.js").workspaceChatStreamResponse
@@ -112,15 +103,13 @@ it("tags the live create-stream generation from the request bag, not baggage", a
   const turn = exporter
     .getFinishedSpans()
     .find((span) => span.name === "workspace-chat.turn")
-  expect(turn?.attributes["langfuse.trace.tags"]).toEqual(
-    expect.arrayContaining(["org:acme", `env:${environment}`]),
-  )
-  expect(turn?.attributes["langfuse.trace.metadata.orgId"]).toBe("org_acme")
-  expect(turn?.attributes["langfuse.trace.metadata.orgSlug"]).toBe("acme")
-  expect(turn?.attributes["langfuse.trace.metadata.requestId"]).toBe(
-    "req_create_chat",
-  )
-  expect(turn?.attributes["session.id"]).toBe(conversationId)
+  expect(turn?.attributes).toMatchObject({
+    "ctxpipe.org.id": "org_acme",
+    "ctxpipe.org.slug": "acme",
+    "request.id": "req_create_chat",
+    "ctxpipe.conversation.id": conversationId,
+    "enduser.id": "user_1",
+  })
   expect(JSON.stringify(turn?.attributes)).not.toContain("org_SPOOFED")
   expect(JSON.stringify(turn?.attributes)).not.toContain("conv_SPOOFED")
 })

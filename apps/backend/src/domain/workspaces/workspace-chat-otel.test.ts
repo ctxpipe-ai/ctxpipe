@@ -8,7 +8,6 @@ import { chat } from "@tanstack/ai"
 import { BaseTextAdapter } from "@tanstack/ai/adapters"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
-import { LangfuseContextSpanProcessor } from "../../observability/langfuseContextProcessor.js"
 import { AttributionUrlSpanProcessor } from "../../observability/otel.js"
 import {
   beginWorkspaceChatProxyGeneration,
@@ -24,7 +23,6 @@ const exporter = new InMemorySpanExporter()
 const provider = new NodeTracerProvider({
   spanProcessors: [
     new AttributionUrlSpanProcessor(),
-    new LangfuseContextSpanProcessor(),
     new SimpleSpanProcessor(exporter),
   ],
 })
@@ -99,8 +97,7 @@ describe("workspace chat turn trace", () => {
       "ctxpipe.conversation.id": "conv_trace",
       "enduser.id": "user_1",
       "ctxpipe.actor.type": "user",
-      "langfuse.trace.name": "workspace-chat",
-      "session.id": "conv_trace",
+      "workspace_chat.source": "ui",
     })
     const traceId = root?.spanContext().traceId
     const rootId = root?.spanContext().spanId
@@ -114,19 +111,12 @@ describe("workspace chat turn trace", () => {
       expect(span, name).toBeDefined()
       expect(span?.spanContext().traceId, name).toBe(traceId)
       expect(span?.parentSpanContext?.spanId, name).toBe(rootId)
-      expect(span?.attributes["ctxpipe.org.id"], name).toBe("org_1")
-      expect(span?.attributes["langfuse.trace.tags"], name).toEqual(
-        expect.arrayContaining(["org:acme", "ui"]),
-      )
-      expect(span?.attributes["langfuse.trace.metadata.orgId"], name).toBe(
-        "org_1",
-      )
-      expect(span?.attributes["user.id"], name).toBe("user_1")
-      // The collector sends only gen_ai spans to Langfuse, so each one
-      // carries the trace name.
-      expect(span?.attributes["langfuse.trace.name"], name).toBe(
-        "workspace-chat",
-      )
+      expect(span?.attributes, name).toMatchObject({
+        "ctxpipe.org.id": "org_1",
+        "ctxpipe.org.slug": "acme",
+        "ctxpipe.conversation.id": "conv_trace",
+        "enduser.id": "user_1",
+      })
     }
     expect(
       byName("generation #0")?.links.map((link) => link.context.spanId),
@@ -232,18 +222,18 @@ describe("workspace chat otel turn summary", () => {
           span.attributes["workspace_chat.turn_id"] === "run_long" &&
           span.name.startsWith("generation"),
       )
-    const input = String(generation?.attributes["langfuse.observation.input"])
-    const output = String(generation?.attributes["langfuse.observation.output"])
+    const input = String(generation?.attributes["gen_ai.input.messages"])
+    const output = String(generation?.attributes["gen_ai.output.messages"])
     expect(input.length).toBeLessThanOrEqual(64 * 1024)
     expect(output.length).toBeLessThanOrEqual(64 * 1024)
     const kept = JSON.parse(input) as typeof messages
     expect(kept.at(-1)).toEqual(messages.at(-1))
     expect(kept[0]).not.toEqual(messages[0])
     expect(messages.slice(-kept.length)).toEqual(kept)
-    expect(JSON.parse(output).role).toBe("assistant")
+    expect(JSON.parse(output)[0].role).toBe("assistant")
   })
 
-  it("makes the TanStack turn summary and iteration plain Langfuse spans", async () => {
+  it("marks the TanStack turn summary and iteration as summary spans", async () => {
     class OneAnswer extends BaseTextAdapter<string, never, [], never> {
       readonly name = "one-answer"
       constructor() {
@@ -279,8 +269,6 @@ describe("workspace chat otel turn summary", () => {
       .filter((span) => span.name.startsWith("chat scripted/model"))
     expect(tanstack.length).toBeGreaterThanOrEqual(2)
     for (const span of tanstack)
-      expect(span.attributes["langfuse.observation.type"], span.name).toBe(
-        "span",
-      )
+      expect(span.attributes["ctxpipe.gen_ai.summary"], span.name).toBe(true)
   })
 })

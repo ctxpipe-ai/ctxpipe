@@ -2,9 +2,6 @@ import type { Mock } from "vitest"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mockBedrockSend = vi.hoisted(() => vi.fn())
-const withLangfuseGenerationMock = vi.hoisted(() =>
-  vi.fn((_attrs: unknown, fn: () => unknown) => fn()),
-)
 
 vi.mock("@aws-sdk/client-bedrock-runtime", () => {
   class MockInvokeModelCommand {
@@ -21,10 +18,6 @@ vi.mock("@aws-sdk/client-bedrock-runtime", () => {
     InvokeModelCommand: MockInvokeModelCommand,
   }
 })
-
-vi.mock("../../observability/langfuse.js", () => ({
-  withLangfuseGeneration: withLangfuseGenerationMock,
-}))
 
 function fakeEmbeddingResponse(): Response {
   const embedding = new Array(2000).fill(0.01)
@@ -46,7 +39,6 @@ describe("modelProvider", () => {
 
   beforeEach(() => {
     mockBedrockSend.mockReset()
-    withLangfuseGenerationMock.mockClear()
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(fakeEmbeddingResponse()))
   })
 
@@ -164,21 +156,5 @@ describe("modelProvider", () => {
     expect(out).toHaveLength(2)
     expect(out[0]?.[0]).toBe(0.1)
     expect(out[1]?.[0]).toBe(0.2)
-    expect(withLangfuseGenerationMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: "modelProvider.generateEmbeddings",
-        model: "openai/text-embedding-3-large",
-        input: {
-          textCount: 2,
-          totalCharacters: 2,
-        },
-        metadata: expect.objectContaining({
-          provider: "openai-like",
-          embeddingModel: "openai/text-embedding-3-large",
-          dimensions: 2000,
-        }),
-      }),
-      expect.any(Function),
-    )
   })
 })

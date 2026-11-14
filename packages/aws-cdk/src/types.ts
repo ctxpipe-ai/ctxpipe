@@ -92,7 +92,7 @@ export interface CtxPipeConnectorSecretsProps {
 
 /**
  * Optional OTLP export. Omit to leave telemetry off.
- * The construct does not deploy a collector, Langfuse, or ClickStack.
+ * The construct does not deploy a collector or ClickStack.
  *
  * One base URL covers traces, logs, and metrics. A different URL per signal
  * is not supported; point `endpoint` at a collector that fans out.
