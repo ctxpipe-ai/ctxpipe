@@ -15,8 +15,8 @@ describe("hideSecrets", () => {
 
   it("keeps the start of a long token only", () => {
     expect(
-      hideSecrets("token ghp_0123456789abcdefghijklmnopqrstuvwxyz refused"),
-    ).toBe("token ghp_… refused")
+      hideSecrets("GitHub refused ghp_0123456789abcdefghijklmnopqrstuvwxyz"),
+    ).toBe("GitHub refused ghp_…")
   })
 
   it("hides a short secret by its context", () => {
@@ -28,6 +28,10 @@ describe("hideSecrets", () => {
     )
     expect(hideSecrets('{"password": "hunter2"}')).toBe('{"password": "…"}')
     expect(hideSecrets("api_key: k-123")).toBe("api_key: …")
+    expect(hideSecrets("token abc123 was refused")).toBe("token … was refused")
+    expect(hideSecrets("the secret s3cr3t-v4lue leaked")).toBe(
+      "the secret … leaked",
+    )
   })
 
   it("keeps plain text and a URL without a query", () => {
