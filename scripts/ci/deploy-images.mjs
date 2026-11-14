@@ -50,7 +50,14 @@ export const images = [
   {
     image: "backend",
     dockerfile: "apps/backend/Dockerfile",
-    inputs: [...backend, "apps/backend/public", "apps/backend/migrations"],
+    inputs: [
+      ...backend,
+      "apps/backend/public",
+      "apps/backend/migrations",
+      // The MCP eval bundle of the `evals` stage (CTX-1217).
+      "apps/backend/evals/mcp",
+      "packages/visual-review",
+    ],
   },
   {
     image: "worker",
