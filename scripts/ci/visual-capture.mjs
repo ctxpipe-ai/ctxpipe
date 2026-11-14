@@ -277,23 +277,6 @@ export async function capturePlan(ids) {
 export const captureWorkers = ({ cpus, running }, stories) =>
   Math.max(1, Math.min(Math.floor((cpus - 3 * running) / 3), stories))
 
-// The CPUs of the Docker server, and its capture containers that run now.
-const dockerLoad = () => {
-  const docker = (args) =>
-    spawnSync("docker", args, { encoding: "utf8" }).stdout?.trim() ?? ""
-  return {
-    cpus: Number(docker(["info", "--format", "{{.NCPU}}"])) || 1,
-    running: docker([
-      "ps",
-      "--quiet",
-      "--filter",
-      "name=ctxpipe-visual-capture-",
-    ])
-      .split("\n")
-      .filter(Boolean).length,
-  }
-}
-
 // Splits the plan into `workers` parts: part k gets every `workers`-th story
 // from the k-th. The stories of one file are next to each other in the plan,
 // and often take the same time, so each part gets a share of the slow ones.
@@ -310,18 +293,36 @@ export const splitPlan = (plan, workers) =>
 // captured, unstable, play-failed, capture-failed or not-run. The PNG of a
 // shot is <out>/<shotKey>.png. `viewport` is desktop or mobile.
 //
-// More than one container captures at the same time (`workers`, by default
-// from the free CPUs of Docker, captureWorkers), each one a part of the plan (splitPlan). Each
-// container has its own browser with the same pins, and each story has its
-// own browser context, so a screenshot does not depend on the part of its
-// story: the capture proof (visual-capture-proof.mjs) compares one container
-// with the parallel containers.
+// More than one container captures at the same time: `workers`, by default
+// from the free CPUs of Docker (captureWorkers). Each container captures a
+// part of the plan (splitPlan). Each container has its own browser with the
+// same pins, and each story has its own browser context. Thus a screenshot
+// does not depend on the part of its story. The capture proof
+// (visual-capture-proof.mjs) compares one container with the parallel
+// containers.
 export async function captureInContainer(
   plan,
   out,
   viewport = "desktop",
-  workers = captureWorkers(dockerLoad(), plan.length),
+  workers,
 ) {
+  if (workers === undefined) {
+    const dockerOutput = (args) =>
+      spawnSync("docker", args, { encoding: "utf8" }).stdout?.trim() ?? ""
+    const running = dockerOutput([
+      "ps",
+      "--quiet",
+      "--filter",
+      "name=ctxpipe-visual-capture-",
+    ])
+    workers = captureWorkers(
+      {
+        cpus: Number(dockerOutput(["info", "--format", "{{.NCPU}}"])) || 1,
+        running: running.split("\n").filter(Boolean).length,
+      },
+      plan.length,
+    )
+  }
   if (!viewports[viewport]) throw new Error(`Unknown viewport: ${viewport}`)
   if (!existsSync(join(staticDir, "index.json")))
     throw new Error(

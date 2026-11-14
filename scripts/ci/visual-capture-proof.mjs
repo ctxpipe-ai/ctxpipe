@@ -13,8 +13,8 @@ import {
 
 // Proves that the capture container is deterministic: it captures a sample of
 // stories two times in a row and compares the PNGs byte by byte. The first
-// run uses one container, and the second run the parallel containers of a
-// normal capture (captureInContainer), so the proof also shows that the
+// run uses one container. The second run uses the parallel containers of a
+// normal capture (captureInContainer). Thus the proof also shows that the
 // split into parts does not change a screenshot.
 //
 // The sample is every n-th story of the static build, sorted by id, so it
@@ -70,13 +70,16 @@ async function prove() {
 
   const plan = await capturePlan(ids)
   const runs = []
-  for (const [run, workers] of [
-    [1, 1],
-    [2, undefined],
-  ]) {
+  for (const run of [1, 2]) {
     const directory = join(out, `run-${run}`)
     const started = Date.now()
-    const shots = await captureInContainer(plan, directory, "desktop", workers)
+    // Run 1 uses one container; run 2 uses the default count of containers.
+    const shots = await captureInContainer(
+      plan,
+      directory,
+      "desktop",
+      run === 1 ? 1 : undefined,
+    )
     process.stdout.write(
       `Run ${run}: ${((Date.now() - started) / 1000).toFixed(0)} s.\n`,
     )
