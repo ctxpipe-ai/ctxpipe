@@ -75,7 +75,8 @@ jobs:
       (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.lint != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: no Docker and no host program in a key (ADR-065)
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -144,7 +145,8 @@ jobs:
       (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.typecheck != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: no Docker; Bun is pinned (ADR-065)
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -252,6 +254,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/falkordb
+      # The record and the git lanes use one git version (ADR-065).
+      - uses: ./.github/actions/git
       - run: corepack enable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -397,13 +401,16 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.package-tests != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: no Docker; the CLI tests use the pinned git (ADR-065)
+    runs-on: ubuntu-24.04-arm
     env:
       EVENT: ${{ github.event_name }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
+      # The record and the git lanes use one git version (ADR-065).
+      - uses: ./.github/actions/git
       - run: corepack enable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -467,6 +474,8 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       needs.merge-gate-plan.outputs.mode != 'gate'
+    # The Vitest reports of the shards hold absolute paths of the Blacksmith
+    # workspace (/home/runner/_work), so this job runs there too (ADR-065).
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     steps:
       - name: Require every test job
@@ -774,7 +783,8 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.packages != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: package builds without Docker (ADR-065)
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - run: corepack enable
@@ -834,7 +844,8 @@ jobs:
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.storybook-build != '')
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    # github-hosted: a static build without Docker (ADR-065)
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1322,7 +1333,8 @@ jobs:
     if: |
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request'
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    # github-hosted: Terraform without state (ADR-065)
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
@@ -1349,6 +1361,44 @@ jobs:
             }
           done
           terraform validate -no-color
+
+  # Fills the GitHub Actions cache on main for the jobs on GitHub-hosted
+  # runners (ADR-065). A pull request run restores a cache of main, but not a
+  # cache of another pull request. This job saves the pnpm store and the
+  # Terraform providers with the keys of those jobs. Thus a pull request job
+  # restores them and does not save its own copy in the 10 GB of the cache.
+  github-cache:
+    timeout-minutes: 15
+    name: GitHub-hosted cache
+    if: github.event_name == 'push'
+    # github-hosted: it fills the cache of the GitHub-hosted jobs (ADR-065)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - run: corepack enable
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: 1.14.7
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/.terraform-plugin-cache
+          key: terraform-providers-${{ hashFiles('infra/.terraform.lock.hcl') }}
+      # A failed provider download fails only this job; the next push to
+      # main tries again, and a pull request job downloads the providers.
+      - name: Download the locked providers
+        working-directory: infra
+        env:
+          TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform-plugin-cache
+        run: |
+          mkdir -p "$TF_PLUGIN_CACHE_DIR"
+          terraform init -backend=false -input=false
 
   migrate:
     timeout-minutes: 20
@@ -1434,6 +1484,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: ./.github/actions/falkordb
+      # The record and the git lanes use one git version (ADR-065).
+      - uses: ./.github/actions/git
       - run: corepack enable
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -1557,7 +1609,7 @@ jobs:
   # rules (gate.mjs mode), and records the manifest and the toolchain for the
   # select job and for the nightly Results writer. It has the setup of the
   # test jobs (Node, pnpm, Bun) and sets none of the lane variables, so its
-  # toolchain record is theirs.
+  # toolchain record is theirs: the same pinned git, zoekt and ast-grep.
   merge-gate-manifest:
     timeout-minutes: 10
     name: Merge gate manifest
@@ -1567,7 +1619,8 @@ jobs:
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request')
     continue-on-error: true
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    # github-hosted: a short job; it uses the pinned git (ADR-065)
+    runs-on: ubuntu-24.04-arm
     outputs:
       mode: ${{ steps.mode.outputs.mode }}
       record: ${{ steps.mode.outputs.record }}
@@ -1612,6 +1665,9 @@ jobs:
             echo "mode=$(jq -r .mode "$RUNNER_TEMP/merge-gate/mode.json")"
             echo "record=$(jq -c . "$RUNNER_TEMP/merge-gate/mode.json")"
           } >> "$GITHUB_OUTPUT"
+      # The record and the git lanes use one git version (ADR-065).
+      - uses: ./.github/actions/git
+        if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
       - run: corepack enable
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
@@ -1658,8 +1714,10 @@ jobs:
           echo "$RUNNER_TEMP/host-programs/bin" >> "$GITHUB_PATH"
           # GITHUB_PATH reaches the next steps only; `go install` below needs it now.
           export PATH="$RUNNER_TEMP/host-programs/go/go/bin:$PATH"
-          # Install both binaries: the cache that this job saves is the one
-          # the test jobs restore, and they need zoekt-index too.
+          # Install both binaries: the cache key is the one of the test jobs,
+          # which need zoekt-index too. This job saves the GitHub cache, and
+          # the test jobs use the Blacksmith cache. The nightly run on main
+          # fills the GitHub cache that a pull request restores (ADR-065).
           if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ] || [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-index" ]; then
             mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
             for tool in zoekt-index zoekt-webserver; do
@@ -1706,7 +1764,8 @@ jobs:
       !cancelled() &&
       needs.merge-gate-manifest.outputs.mode == 'select'
     continue-on-error: true
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    # github-hosted: a short job without Docker (ADR-065)
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       actions: read
@@ -1838,7 +1897,8 @@ jobs:
     if: |
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    # github-hosted: a short job without Docker (ADR-065)
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       id-token: write
@@ -2001,7 +2061,8 @@ jobs:
       needs.merge-gate-select.result == 'success'
     continue-on-error: true
     environment: workbench
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    # github-hosted: a short job without Docker (ADR-065)
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       actions: read
@@ -2218,7 +2279,8 @@ jobs:
       !cancelled() &&
       (github.event_name == 'pull_request' || needs.nightly-plan.result == 'success')
     continue-on-error: true
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    # github-hosted: a short job; it shares the merge-gate-pr cache with Merge gate (ADR-065)
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       actions: read
@@ -2342,7 +2404,8 @@ jobs:
       (needs.merge-gate-plan.outputs.deploy == 'true' ||
       needs.merge-gate-plan.outputs.mode == '') &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    # github-hosted: a short job without Docker (ADR-065)
+    runs-on: ubuntu-24.04-arm
     permissions:
       actions: write
     steps:
@@ -2432,7 +2495,8 @@ jobs:
       ]
     if: |
       always() && github.event_name == 'pull_request'
-    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    # github-hosted: a short job; it shares the merge-gate-pr cache with Merge gate plan (ADR-065)
+    runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
       actions: read
