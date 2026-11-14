@@ -3,12 +3,14 @@ import { describe, expect, it } from "vitest"
 import { hideSecrets } from "./hide-secrets"
 
 describe("hideSecrets", () => {
-  it("drops the query of a signed URL", () => {
+  it("drops the query of a signed URL and keeps a UUID in its path", () => {
     expect(
       hideSecrets(
-        "fallback: https://developer.atlassian.com/console/install/abc?signature=AYABeHVDAf5aXClr&product=confluence.",
+        "fallback: https://developer.atlassian.com/console/install/4ce198e3-2ce7-4a6e-865f-a3e31d15fe43?signature=AYABeHVDAf5aXClr&product=confluence.",
       ),
-    ).toBe("fallback: https://developer.atlassian.com/console/install/abc?…")
+    ).toBe(
+      "fallback: https://developer.atlassian.com/console/install/4ce198e3-2ce7-4a6e-865f-a3e31d15fe43?…",
+    )
   })
 
   it("keeps the start of a long token only", () => {
@@ -17,8 +19,20 @@ describe("hideSecrets", () => {
     ).toBe("token ghp_… refused")
   })
 
+  it("hides a short secret by its context", () => {
+    expect(hideSecrets("Authorization: Bearer abc123 was refused")).toBe(
+      "Authorization: Bearer … was refused",
+    )
+    expect(hideSecrets("bad client_secret=s3cr3t, retry")).toBe(
+      "bad client_secret=…, retry",
+    )
+    expect(hideSecrets('{"password": "hunter2"}')).toBe('{"password": "…"}')
+    expect(hideSecrets("api_key: k-123")).toBe("api_key: …")
+  })
+
   it("keeps plain text and a URL without a query", () => {
-    const text = "The operation timed out at https://example.com/api/v1."
+    const text =
+      "The token check timed out at https://example.com/api/v1 (key not found)."
     expect(hideSecrets(text)).toBe(text)
   })
 })
