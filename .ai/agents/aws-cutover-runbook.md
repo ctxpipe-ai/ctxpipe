@@ -65,8 +65,12 @@ line gives its expected output. The dry run of the copy is its preflight against
 
 ### 1. Production app secrets
 
-- **Who:** person. **Do:** step C1 of [CTX-1217], production form. It copies the 23 `hosted/app/*` values from Railway,
-  and the sha256 check prints `same` for each key. Then force a new deployment of the backend and the worker.
+- **Who:** person. **Do:** step C1 of [CTX-1217], production form. It copies 17 `hosted/app/*` values from Railway,
+  and the sha256 check prints `same` for each key. `DATABASE_APP_PASSWORD` keeps its new value: migrate sets it.
+  Then force a new deployment of the backend and the worker.
+- **Copy, do not generate:** `AUTH_SECRET` (so that sessions stay valid) and `CONNECTION_SECRETS_ENCRYPTION_KEY` (so
+  that the stored connector tokens decrypt) must have the production values. The rehearsals use new values for both;
+  this step writes over them (ADR-061 decision 12).
 - **Dry run:** the sha256 check only (no `put-secret-value`).
 - **Rollback:** write the rehearsal form again.
 
