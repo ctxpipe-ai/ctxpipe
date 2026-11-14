@@ -1,0 +1,65 @@
+name: Main caches
+
+# Fills the caches of main that the pull request jobs of ci.yaml restore
+# (ADR-065). A push to main runs no install job (ADR-062), so no other job
+# saves the pnpm store on main. A pull request run restores a cache of main,
+# but not a cache of another pull request. Each runner type has its own cache
+# store. Each job uses the keys of the pull request jobs, so a pull request
+# job restores the store and does not save its own copy. setup-node keys the
+# pnpm store by the OS, the architecture and the lockfile hash, so a push
+# that changes the lockfile starts this workflow. A push that changes the
+# Node version also starts it, so that both stores hold the key of the PR
+# jobs after a toolchain change. The nightly jobs of ci.yaml
+# also save the store when they miss it. When the key is already in the
+# cache, setup-node saves nothing.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - pnpm-lock.yaml
+      - .node-version
+  workflow_dispatch:
+
+# A later push must not cancel a fill: its paths can be different.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.sha }}
+
+permissions:
+  contents: read
+
+jobs:
+  # The GitHub Actions cache, for the jobs on GitHub-hosted runners: the pnpm
+  # store.
+  github-cache:
+    timeout-minutes: 15
+    name: GitHub-hosted cache
+    # github-hosted: it fills the cache of the GitHub-hosted jobs (ADR-065)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - run: corepack enable
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+  # The Blacksmith cache, for the jobs that stay on Blacksmith: the pnpm store.
+  blacksmith-cache:
+    timeout-minutes: 15
+    name: Blacksmith cache
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - run: corepack enable
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile

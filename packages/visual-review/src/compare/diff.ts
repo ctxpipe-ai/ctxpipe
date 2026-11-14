@@ -45,7 +45,9 @@ type Size = { width: number; height: number }
 /**
  * The result of one comparison.
  * - `unchanged`: at most `maxDiffPixels` pixels differ. No regions.
- * - `changed`: more pixels differ. The regions come largest first.
+ * - `changed`: more pixels differ. The regions come largest first. For a
+ *   faint change (see `faintThreshold`), `diffPixels` and the regions use
+ *   the faint threshold.
  * - `size-changed`: the images have different sizes, so no pixel diff.
  */
 export type Comparison =
@@ -65,6 +67,16 @@ export type Comparison =
 
 // The pixelmatch color threshold. Lower is stricter.
 export const threshold = 0.1
+// A faint change is below `threshold` but fills a full square of
+// `faintWindow` × `faintWindow` pixels at `faintThreshold`: for example a
+// surface that changes from rgb(10,10,10) to rgb(18,18,21) (about 0.032 on
+// this scale). One gray level is about 0.004, so 0.02 is about 5 levels.
+// Noise does not fill a full square: anti-aliasing is at the edges, and a
+// shift of 1 or 2 levels in a gradient is below 0.02. On the baselines of
+// main (CTX-1286), noise filled at most 680 of the 1024 pixels of a square.
+// A faint change in a part less than 32 px high or wide is not found.
+const faintThreshold = 0.02
+const faintWindow = 32
 // The most fallback components that the merge step accepts.
 const maxComponents = 500
 const red = [255, 0, 0] as const
@@ -100,16 +112,25 @@ export async function diff(
     width: a.width,
     height: a.height,
   }
-  const result = await pixelDiff(a, b, {
-    threshold,
-    antialiasing: true,
-    output: diffImage,
-    render: { diffColor: [...red] },
-  })
-  if (result.kind !== "compared") {
-    throw new Error(`BlazeDiff could not compare the images: ${result.kind}`)
+  const compare = async (colorThreshold: number, window?: number) => {
+    const result = await pixelDiff(a, b, {
+      threshold: colorThreshold,
+      antialiasing: true,
+      ...(window ? { window } : { output: diffImage }),
+      render: { diffColor: [...red] },
+    })
+    if (result.kind !== "compared") {
+      throw new Error(`BlazeDiff could not compare the images: ${result.kind}`)
+    }
+    return result
   }
-  const diffPixels = result.count
+  let diffPixels = (await compare(threshold)).count
+  const faint =
+    diffPixels <= maxDiffPixels &&
+    (await compare(faintThreshold, faintWindow)).window?.count ===
+      faintWindow ** 2
+  // Draw the diff again at the faint threshold, so that the critic sees it.
+  if (faint) diffPixels = (await compare(faintThreshold)).count
 
   if (diffPixels <= maxDiffPixels) {
     return {
@@ -128,8 +149,14 @@ export async function diff(
   }
 
   const labeled =
-    (await interpreted(before, after, interpret)) ??
-    fallback(diffImage, diffPixels)
+    (await interpreted(
+      before,
+      after,
+      faint ? faintThreshold : threshold,
+      interpret,
+    )) ?? fallback(diffImage, diffPixels)
+  if (faint)
+    labeled.summary = `A faint color change: below the threshold of ${threshold}, but above ${faintThreshold} over at least one area of ${faintWindow} × ${faintWindow} pixels. ${labeled.summary}`
   const regions = labeled.regions.sort(
     (x, y) => y.box.width * y.box.height - x.box.width * x.box.height,
   )
@@ -159,6 +186,7 @@ type Labeled = {
 async function interpreted(
   before: Uint8Array,
   after: Uint8Array,
+  colorThreshold: number,
   interpret?: typeof blazeInterpret,
 ): Promise<Labeled | null> {
   try {
@@ -166,7 +194,7 @@ async function interpreted(
     const run =
       interpret ?? (await import("@blazediff/interpret-native")).interpret
     const result = await run(before, after, undefined, {
-      threshold,
+      threshold: colorThreshold,
       antialiasing: true,
     })
     return {

@@ -1327,27 +1327,6 @@ jobs:
           path: .ci-results/vercel/trace.json.gz
           if-no-files-found: ignore
 
-  # Fills the GitHub Actions cache on main for the jobs on GitHub-hosted
-  # runners (ADR-065). A pull request run restores a cache of main, but not a
-  # cache of another pull request. This job saves the pnpm store with the
-  # key of those jobs. Thus a pull request job restores it and does not save
-  # its own copy in the 10 GB of the cache.
-  github-cache:
-    timeout-minutes: 15
-    name: GitHub-hosted cache
-    if: github.event_name == 'push'
-    # github-hosted: it fills the cache of the GitHub-hosted jobs (ADR-065)
-    runs-on: ubuntu-24.04-arm
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - run: corepack enable
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
 
   migrate:
     timeout-minutes: 20
