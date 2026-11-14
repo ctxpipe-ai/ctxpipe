@@ -89,6 +89,8 @@ A single switch that replaced a one-adapter seam is not Repeated Switches. A typ
 
 **Spec critic.** Report (a) the requirements of the spec that are missing or partial; (b) the behavior in the diff that the spec did not ask for (scope creep); and (c) the requirements that look implemented, but where the implementation looks wrong. Quote the spec line for each finding.
 
+An artifact that a repo rule or a CI check requires is in scope of each spec, also when the spec says "change nothing else". Do not report it as scope creep. Examples are the changeset that every PR needs (`AGENTS.md`, Package releases), the row of a renamed test in `scripts/ci/test-classification.tsv`, the regenerated lockfile, and the matching `index.md` row.
+
 **Security critic.** Review only the trust surfaces that the `intent` of `critics.json` names. Report each place where the diff does one of these:
 
 - It gives a job, a token, or a role more permission than its job needs. Or it gives a credential to a job that runs PR code, or to a third-party action that is not pinned by commit.
