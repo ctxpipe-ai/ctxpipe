@@ -84,7 +84,7 @@ export const shotKey = (id, snapshot) => (snapshot ? `${id}@${snapshot}` : id)
 // Returns the status of the shot: captured, unstable or capture-failed.
 async function takeShot(page, { fullPage = false, masks = [] }, out, key) {
   try {
-    const style = `${["[data-visual-mask]", ...masks].join(", ")} { visibility: hidden !important; }`
+    const style = maskStyle(masks)
     const { steady, png } = await shootUntilSteady(
       () =>
         page.screenshot({
@@ -105,15 +105,23 @@ async function takeShot(page, { fullPage = false, masks = [] }, out, key) {
   }
 }
 
+// The style sheet that hides the masked elements of a story.
+const maskStyle = (masks) =>
+  `${["[data-visual-mask]", ...masks].join(", ")} { visibility: hidden !important; }`
+
 // Runs the layout checks of the story (apps/ui/src/lib/layout-checks.ts) in
 // its page, after the screenshot of the end state: thus a check cannot
-// change the pixels. The rules of `parameters.visual.allow` do not run.
+// change the pixels. The masks of the story hide the same elements as in the
+// screenshot, and the rules of `parameters.visual.allow` do not run.
 // Returns the problems; an error of the checks is one problem.
-async function checkLayout(page, { allow = {} }) {
+async function checkLayout(page, { allow = {}, masks = [] }) {
   const problems = await page
-    .evaluate(
-      (skip) => window.__ctxpipeLayoutProblems?.(document.body, { skip }),
-      Object.keys(allow),
+    .addStyleTag({ content: maskStyle(masks) })
+    .then(() =>
+      page.evaluate(
+        (skip) => window.__ctxpipeLayoutProblems?.(document.body, { skip }),
+        Object.keys(allow),
+      ),
     )
     .catch((checkError) => [
       { rule: "error", element: "page", detail: String(checkError.message) },

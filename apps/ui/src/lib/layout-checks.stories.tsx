@@ -3,6 +3,7 @@ import { IconCheck, IconInfoCircle } from "@tabler/icons-react"
 import { expect } from "storybook/test"
 
 import { Card } from "@/components/ui/Card"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 
 import { layoutProblems } from "./layout-checks"
 
@@ -33,26 +34,26 @@ function Overflow({ fixed }: { fixed: boolean }) {
   )
 }
 
+// The shared alert, with a long URL that runs out of it when `breakUrl` is
+// false.
 function Alert({ breakUrl }: { breakUrl: boolean }) {
   return (
-    <div
-      role="alert"
-      className="flex w-72 gap-3 rounded-md border border-zinc-700 bg-zinc-900 p-3 text-sm text-zinc-100"
-    >
-      <IconInfoCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
-      <div className="min-w-0 flex-1 space-y-2">
-        <p>Could not load the capabilities of</p>
-        <p className={breakUrl ? "break-all" : undefined}>{longUrl}</p>
-        <p className="truncate">
-          A long line that ends with an ellipsis, on purpose
-        </p>
-        <div className="h-12 overflow-y-auto">
-          <p>A scroll box shows its overflow on purpose.</p>
-          <p>Line two.</p>
-          <p>Line three.</p>
-          <p>Line four.</p>
+    <div className="w-72">
+      <InlineAlert variant="error">
+        <div className="space-y-2">
+          <p>Could not load the capabilities of</p>
+          <p className={breakUrl ? "break-all" : undefined}>{longUrl}</p>
+          <p className="truncate">
+            A long line that ends with an ellipsis, on purpose
+          </p>
+          <div className="h-12 overflow-y-auto">
+            <p>A scroll box shows its overflow on purpose.</p>
+            <p>Line two.</p>
+            <p>Line three.</p>
+            <p>Line four.</p>
+          </div>
         </div>
-      </div>
+      </InlineAlert>
     </div>
   )
 }

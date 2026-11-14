@@ -630,10 +630,11 @@ function conversationFileStory(path: string): Story {
  * not in git, so the conversation shows the reason and no editor.
  */
 export const LegacyKnowledgeReadOnly: Story = {
+  ...conversationFileStory(legacyPath),
   parameters: {
+    ...conversationFileStory(legacyPath).parameters,
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
-  ...conversationFileStory(legacyPath),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() => {
@@ -645,10 +646,11 @@ export const LegacyKnowledgeReadOnly: Story = {
 
 /** In the same conversation, a git file opens in the editor. */
 export const GitFileEditable: Story = {
+  ...conversationFileStory(ledgerPath),
   parameters: {
+    ...conversationFileStory(ledgerPath).parameters,
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
-  ...conversationFileStory(ledgerPath),
   play: async ({ canvasElement }) => {
     await expectFileEditable(canvasElement, "Billing ledger", true)
     expect(

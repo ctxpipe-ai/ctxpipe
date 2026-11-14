@@ -22,6 +22,7 @@ import {
 } from "./manifest.ts"
 
 type Viewport = "desktop" | "mobile"
+type LayoutProblem = NonNullable<ManifestStory["layout"]>[number]
 
 /** A story entry of the Storybook index (`storybook-static/index.json`). */
 export type IndexStory = {
@@ -50,7 +51,7 @@ export type VisualOptions = {
   fullPage?: boolean
   masks?: string[]
   /** The layout rules that the story accepts, each with its reason. */
-  allow?: Partial<Record<"overflow" | "axes" | "contrast", string>>
+  allow?: Partial<Record<Exclude<LayoutProblem["rule"], "error">, string>>
 }
 
 /**

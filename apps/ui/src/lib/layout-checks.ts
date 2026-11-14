@@ -16,7 +16,7 @@
  * (scripts/checks/visual.mjs). The fixture stories of
  * `layout-checks.stories.tsx` prove each rule.
  */
-export type LayoutRule = "overflow" | "axes" | "contrast"
+type LayoutRule = "overflow" | "axes" | "contrast"
 
 type LayoutProblem = {
   rule: LayoutRule
@@ -93,16 +93,9 @@ const dialogs = "dialog, [role=dialog], [role=alertdialog], [data-slot=modal]"
 function overflowProblems(root: Element): LayoutProblem[] {
   const problems: LayoutProblem[] = []
   const named = new Set<Element>()
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+  for (const { node, rects } of textRects(root)) {
     const parent = node.parentElement
-    if (!parent || !node.textContent?.trim() || parent.closest("svg")) continue
-    const range = document.createRange()
-    range.selectNodeContents(node)
-    const rects = [...range.getClientRects()].filter(
-      (rect) => rect.width && rect.height,
-    )
-    if (!rects.length || !visible(parent)) continue
+    if (!parent || parent.closest("svg") || !visible(parent)) continue
     const text = {
       left: Math.min(...rects.map((rect) => rect.left)),
       right: Math.max(...rects.map((rect) => rect.right)),
@@ -162,11 +155,7 @@ function boxAroundText(
       const hidden =
         inner.right - inner.left <= 1 ||
         inner.bottom - inner.top <= 1 ||
-        (clips &&
-          (text.right <= inner.left ||
-            text.left >= inner.right ||
-            text.bottom <= inner.top ||
-            text.top >= inner.bottom))
+        (clips && apart(text, inner))
       if (hidden || !seen(box, text)) return undefined
       return {
         box,
@@ -223,16 +212,32 @@ function seen(box: Element, text: Edges): boolean {
   ) {
     const style = getComputedStyle(element)
     if (style.overflowX === "visible" && style.overflowY === "visible") continue
-    const clip = element.getBoundingClientRect()
-    if (
-      text.right <= clip.left ||
-      text.left >= clip.right ||
-      text.bottom <= clip.top ||
-      text.top >= clip.bottom
-    )
-      return false
+    if (apart(text, element.getBoundingClientRect())) return false
   }
   return true
+}
+
+/** True when the text and the box have no area in common. */
+const apart = (text: Edges, box: Edges) =>
+  text.right <= box.left ||
+  text.left >= box.right ||
+  text.bottom <= box.top ||
+  text.top >= box.bottom
+
+/** Each text node in `root` with text, and the boxes of its lines. */
+function textRects(root: Element): { node: Text; rects: DOMRect[] }[] {
+  const found: { node: Text; rects: DOMRect[] }[] = []
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (!(node instanceof Text) || !node.textContent?.trim()) continue
+    const range = document.createRange()
+    range.selectNodeContents(node)
+    const rects = [...range.getClientRects()].filter(
+      (rect) => rect.width && rect.height,
+    )
+    if (rects.length) found.push({ node, rects })
+  }
+  return found
 }
 
 /** The edge of `box` that the text passes most, beyond the tolerance. */
@@ -262,9 +267,9 @@ function axisProblems(root: Element): LayoutProblem[] {
   const problems: LayoutProblem[] = []
   for (const scope of scopes) {
     if (!visible(scope)) continue
-    // Markers in one panel: a box with its own border or fill around two or
-    // more markers (a bordered list, a card) has its own axes. A box around
-    // one marker is a row of its column (a filled row, a selected item).
+    // Markers in one panel: a box with its own border or fill (a bordered
+    // list, a card, an alert) has its own axes. A list item with one marker
+    // is a row of its column (a filled row, a selected item).
     const markers = leadingMarkers(scope)
     const panels = new Map<Element, Marker[]>()
     for (const marker of markers) {
@@ -277,7 +282,10 @@ function axisProblems(root: Element): LayoutProblem[] {
         const holds = markers.filter((other) =>
           panel.contains(other.element),
         ).length
-        if (boxed && holds > 1) break
+        const row = panel.matches(
+          "li, [role=listitem], [role=option], [role=row], [role=menuitem], [role=treeitem]",
+        )
+        if (boxed && (holds > 1 || !row)) break
       }
       panels.set(panel, [...(panels.get(panel) ?? []), marker])
     }
@@ -315,14 +323,7 @@ function axisProblems(root: Element): LayoutProblem[] {
  * line. A table cell, and an icon before a text field, are not markers.
  */
 function leadingMarkers(scope: Element): Marker[] {
-  const lines: DOMRect[] = []
-  const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT)
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-    if (!node.textContent?.trim()) continue
-    const range = document.createRange()
-    range.selectNodeContents(node)
-    lines.push(...range.getClientRects())
-  }
+  const lines = textRects(scope).flatMap(({ rects }) => rects)
   const markers: Marker[] = []
   for (const row of scope.querySelectorAll("*")) {
     if (row instanceof SVGElement) continue
