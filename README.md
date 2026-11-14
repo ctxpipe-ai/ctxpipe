@@ -114,7 +114,7 @@ Nothing that your agents read is hidden from you.
 | One MCP endpoint | Seven read-only tools that return sources, not answers. |
 | Scoped access | Read-only, and limited to the organizations that you approve. |
 | Isolated sandboxes | Each agent holds only the repositories and keys that it needs. |
-| Self-hosting | Docker Compose, Terraform, or AWS CDK. |
+| Self-hosting | Docker Compose or AWS CDK. |
 
 ## Get started
 
@@ -129,8 +129,8 @@ zero-data-retention endpoints, and ctxpipe does not train on your code.
 
 ### Self-host
 
-The MIT core runs on Docker Compose for evaluation, and on Terraform or AWS CDK
-in production. It works with any OpenAI-compatible model provider, including
+The MIT core runs on Docker Compose for evaluation, and on AWS CDK in
+production. It works with any OpenAI-compatible model provider, including
 Azure and Bedrock. When you self-host, the servers of ctxpipe are not in the
 data path. Use the self-hosting docs as the deployment runbook, not this README:
 
