@@ -67,10 +67,10 @@ const choiceQuestion = (instructions: string): Question => ({
  * probability (density too) is from 0.2 up, or when a question has no
  * answer. The bake-off of CTX-1262 kept the 0.2
  * floor: a higher floor turned real regressions into `intended` (ADR-063).
- * The state gives Jev `judgingRule`, with the priority order of the
- * qualities. Else nothing got worse: the verdict is `intended` when a brief or a
+ * Else nothing got worse: the verdict is `intended` when a brief or a
  * source diff explains the change, and `unsure` when none does (the rule of
- * `parseVerdict`). Jev gives no text, so `observations` is empty and each
+ * `parseVerdict`). The state gives Jev `judgingRule`, with the priority order
+ * of the qualities. Jev gives no text, so `observations` is empty and each
  * finding has an empty `evidence`. `onAnswers` gets the raw answers of Jev:
  * the bake-off keeps them, to test other thresholds with no new call. A 400 or 413 answer gives `unsure` with
  * the error. An image that is not a PNG gives `unsure` with the error and no
