@@ -96,15 +96,8 @@
       "entry": ["bin/app.ts", "scripts/*.ts"],
       "project": ["**/*.ts"]
     },
-    "ops/observability/railway-telemetry": {
-      "entry": ["src/**/*.test.ts"],
-      "project": ["**/*.ts"]
-    },
     "ops/observability/cost-telemetry": {
       "entry": ["src/**/*.test.ts"],
-      "project": ["**/*.ts"]
-    },
-    "ops/observability/hyperdx": {
       "project": ["**/*.ts"]
     }
   }

@@ -159,10 +159,6 @@ const exceptions = new Map(
 const oidcToken =
   /^\s+id-token:\s*["']?write["']?(?![\w-])|^\s*permissions:\s*(?:["']?write-all["']?(?![\w-])|\{[^}]*\bid-token:\s*["']?write["']?(?![\w-]))/
 
-// Jobs that run only for main, as deploy.yaml does. The check keeps their
-// `if:` limited to refs/heads/main.
-const mainOnly = new Set(["observability.yaml:apply"])
-
 const secretUse =
   /(?<![\w./-])secrets\s*(\.\s*(?!GITHUB_TOKEN\b)\w+|\[)|toJSON\(\s*secrets\s*\)|^\s*secrets:\s*inherit\b/
 const dynamicSecrets = /toJSON\(\s*secrets\s*\)|(?<![\w./-])secrets\s*\[/
@@ -534,17 +530,6 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
       continue
     }
 
-    if (mainOnly.has(`${name}:${job.name}`)) {
-      if (
-        !job.lines.some(({ text }) =>
-          /^ {4}if:.*github\.ref == 'refs\/heads\/main'/.test(text),
-        )
-      )
-        failures.push(
-          `${file}: job ${job.name} is a main-only job, but its if: does not limit it to refs/heads/main.`,
-        )
-      continue
-    }
     if (!holdsSecret) continue
     const where = (number) =>
       `${file}:${number}: job ${job.name} holds a secret or an OIDC token and`

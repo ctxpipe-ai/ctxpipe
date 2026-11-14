@@ -440,12 +440,6 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Date:** 2026-08-31
 - **Source:** Claude Code 2.1.251 Stop hook validation failure after `npx ctxpipe init`; [anthropics/claude-code#50682](https://github.com/anthropics/claude-code/issues/50682)
 
-### ctxpipe-observability stays in us-east4-eqdc4a
-- **Rule:** Hosted observability uses the same Railway metal as product: `us-east4-eqdc4a` (Virginia, next to Neon `aws-us-east-1`). Pin with `RAILWAY_SERVICE_SET=observability scripts/railway-set-regions.sh`. The pin is unfinished while any service or volume still shows `asia-southeast1-eqsg3a`.
-- **Category:** convention
-- **Date:** 2026-09-25
-- **Source:** user correction on PR-343 (stack landed in Singapore again after image-service create / region pin)
-
 ### Distributed OAuth connectors require a clean external-workspace acceptance test
 - **Rule:** Never treat a provider workspace that already hosts the development app as proof that a new customer installation works. OAuth grants can be workspace-specific, additive, and contaminated by dashboard installs or earlier re-authorisations; Slack can also silently suppress Events API delivery when the installed token lacks an event scope. Before shipping a distributed connector, install it through the product OAuth flow into a fresh second workspace, inspect the returned and live token scopes, exercise the real webhook-to-durable-output path, and test re-authorisation after a required scope changes. Keep provider app configuration in a committed manifest and CI-check its scopes against the backend request.
 - **Category:** testing
