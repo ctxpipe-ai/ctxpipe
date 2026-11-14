@@ -1166,7 +1166,11 @@ test("a gated run packs its checks into the fewest shards that hold the target, 
   // A screenshot check counts 2 seconds, not the play time that the trace
   // holds for it.
   assert.equal(
-    estimate("storybook:visual:a#x", new Map([["storybook:visual:a#x", 0.2]]), {}),
+    estimate(
+      "storybook:visual:a#x",
+      new Map([["storybook:visual:a#x", 0.2]]),
+      {},
+    ),
     2,
   )
   // Two short screenshot checks fit in one shard; the shards need the
@@ -1189,8 +1193,9 @@ test("a gated run packs its checks into the fewest shards that hold the target, 
   )
   assert.equal(
     shardMinutes({ visual: [{ ids: [], seconds: 60 }] }),
-    Math.round((profiles.visual.setupMinutes + 1 + storybookBuildMinutes) * 10) /
-      10,
+    Math.round(
+      (profiles.visual.setupMinutes + 1 + storybookBuildMinutes) * 10,
+    ) / 10,
   )
   assert.equal(
     estimate("vitest:backend:apps/backend/src/x.test.ts", new Map(), {
@@ -1233,6 +1238,31 @@ test("the toolchain record hashes each value and matches its schema", () => {
   assert.notDeepEqual(
     schemaErrors({ ...record, env: { TZ: "UTC" } }, "toolchain.v1"),
     [],
+  )
+})
+
+// `go install tool` in scripts/zoekt (scripts/zoekt/build.sh) builds the
+// binary of the zoekt module itself, so its `mod` line is zoekt, not the tool
+// module. The output is the head of `go version -m .tools/bin/zoekt-webserver`.
+test("the zoekt version of the scripts/zoekt build is the zoekt module version", () => {
+  const output = [
+    ".tools/bin/zoekt-webserver: go1.27.3",
+    "\tpath\tgithub.com/sourcegraph/zoekt/cmd/zoekt-webserver",
+    "\tmod\tgithub.com/sourcegraph/zoekt\tv0.0.0-20260907153830-596c362fcf13\th1:9HmptK4WT1wYE/EQHin7lPEEe2eiSrPD6C0miin5jdg=",
+    "\tdep\tcloud.google.com/go\tv0.118.0\th1:tvZe1mgqRxpiVa3XlIGMiPcEUbP1gNXELgD4y/IXmeQ=",
+    "",
+  ].join("\n")
+  assert.equal(
+    programVersion("zoekt", output),
+    "v0.0.0-20260907153830-596c362fcf13",
+  )
+  const goMod = readFileSync(
+    new URL("../zoekt/go.mod", import.meta.url),
+    "utf8",
+  )
+  assert.match(
+    goMod,
+    /github\.com\/sourcegraph\/zoekt v0\.0\.0-20260907153830-596c362fcf13/,
   )
 })
 
@@ -1707,7 +1737,8 @@ test("each dismissed finding shows its reason, writer and commit; none is silent
         {
           critic: "critic:spec",
           status: "carried",
-          reason: "2 passes (2 held findings dismissed by a person with a reason)",
+          reason:
+            "2 passes (2 held findings dismissed by a person with a reason)",
           dismissals: [
             {
               finding: "f:0123abcd",

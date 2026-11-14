@@ -15,7 +15,7 @@
     ".": {
       "entry": ["scripts/**/*.{mjs,js,ts}"],
       "project": ["scripts/**/*.{mjs,js,ts}"],
-      "ignoreDependencies": ["vitest"]
+      "ignoreDependencies": ["vitest", "@ast-grep/cli", "opencode-ai"]
     },
     "apps/backend": {
       "entry": [

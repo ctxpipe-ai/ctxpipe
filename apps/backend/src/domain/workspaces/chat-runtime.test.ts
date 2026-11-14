@@ -43,7 +43,10 @@ describe("workspace chat runtime", () => {
   it("pins the host tools of the checks at the versions of the sandbox", () => {
     const root = JSON.parse(
       readFileSync(
-        join(dirname(fileURLToPath(import.meta.url)), "../../../../../package.json"),
+        join(
+          dirname(fileURLToPath(import.meta.url)),
+          "../../../../../package.json",
+        ),
         "utf8",
       ),
     ) as { devDependencies: Record<string, string> }

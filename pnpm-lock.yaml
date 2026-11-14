@@ -25,6 +25,9 @@ patchedDependencies:
   '@tanstack/ai-opencode@0.4.14':
     hash: 597b8afdb9d93bdcbd8a9dfc29b7bf98dc77673dc23e6061722741dd2dea7dd2
     path: patches/@tanstack__ai-opencode@0.4.14.patch
+  opencode-ai@1.19.5:
+    hash: 08277583ab9c82ec6c133c66e6de9a8e648ddaef03fd50a2ee61f40b97d85c18
+    path: patches/opencode-ai@1.19.5.patch
 
 importers:
 
@@ -50,7 +53,7 @@ importers:
         version: 2.13.6(@types/node@25.9.9)(typescript@6.0.3)
       opencode-ai:
         specifier: 1.19.5
-        version: 1.19.5
+        version: 1.19.5(patch_hash=08277583ab9c82ec6c133c66e6de9a8e648ddaef03fd50a2ee61f40b97d85c18)
       oxfmt:
         specifier: 0.74.0
         version: 0.74.0
@@ -15482,14 +15485,6 @@ snapshots:
       '@ai-sdk/provider-utils': 5.0.54(zod@4.6.5)
       zod: 4.6.5
 
-  '@ai-sdk/gateway@4.0.104(zod@4.3.6)':
-    dependencies:
-      '@ai-sdk/provider': 4.0.22
-      '@ai-sdk/provider-utils': 5.0.54(zod@4.3.6)
-      '@vercel/oidc': 3.2.0
-      zod: 4.3.6
-    optional: true
-
   '@ai-sdk/gateway@4.0.104(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.22
@@ -15523,16 +15518,6 @@ snapshots:
       eventsource-parser: 3.1.1
       undici: 7.29.0
       zod: 4.6.5
-
-  '@ai-sdk/provider-utils@5.0.54(zod@4.3.6)':
-    dependencies:
-      '@ai-sdk/provider': 4.0.22
-      '@standard-schema/spec': 1.1.0
-      '@workflow/serde': 4.1.0
-      eventsource-parser: 3.1.1
-      undici: 7.29.0
-      zod: 4.3.6
-    optional: true
 
   '@ai-sdk/provider-utils@5.0.54(zod@4.6.5)':
     dependencies:
@@ -25268,9 +25253,9 @@ snapshots:
 
   ai@7.0.128(zod@4.3.6):
     dependencies:
-      '@ai-sdk/gateway': 4.0.104(zod@4.3.6)
+      '@ai-sdk/gateway': 4.0.104(zod@4.6.5)
       '@ai-sdk/provider': 4.0.22
-      '@ai-sdk/provider-utils': 5.0.54(zod@4.3.6)
+      '@ai-sdk/provider-utils': 5.0.54(zod@4.6.5)
       zod: 4.3.6
     optional: true
 
@@ -30181,7 +30166,7 @@ snapshots:
     dependencies:
       yaml: 2.8.2
 
-  opencode-ai@1.19.5:
+  opencode-ai@1.19.5(patch_hash=08277583ab9c82ec6c133c66e6de9a8e648ddaef03fd50a2ee61f40b97d85c18):
     optionalDependencies:
       opencode-darwin-arm64: 1.19.5
       opencode-darwin-x64: 1.19.5

@@ -1,0 +1,58 @@
+diff --git a/bin/opencode.exe b/bin/opencode.exe
+index c658ba1bfe33b616a989f52ceea36a6cf44f3e35..017df69b02c33b5fedb70fa5a0bf421e5c29ed15 100755
+--- a/bin/opencode.exe
++++ b/bin/opencode.exe
+@@ -1,10 +1,43 @@
+-echo "Error: opencode-ai's postinstall script was not run." >&2
+-echo "" >&2
+-echo "This occurs when using --ignore-scripts during installation, or when using a" >&2
+-echo "package manager like pnpm that does not run postinstall scripts by default." >&2
+-echo "" >&2
+-echo "To fix this, run the postinstall script manually:" >&2
+-echo "  cd node_modules/opencode-ai && node postinstall.mjs" >&2
+-echo "" >&2
+-echo "Or reinstall opencode-ai without the --ignore-scripts flag." >&2
+-exit 1
++#!/usr/bin/env node
++// ctxpipe patch (pnpm patchedDependencies): run the OpenCode binary of the
++// platform package that the lockfile installed. No install script runs and
++// nothing is downloaded: the postinstall of opencode-ai, which copies the
++// binary here or installs it from the registry, stays off (pnpm runs no
++// dependency build script).
++const { spawn } = require("node:child_process")
++const { existsSync } = require("node:fs")
++const { dirname, join } = require("node:path")
++
++const platform = { darwin: "darwin", linux: "linux", win32: "windows" }[process.platform] ?? process.platform
++const base = `opencode-${platform}-${process.arch}`
++const musl = existsSync("/etc/alpine-release")
++const names = musl
++  ? [`${base}-musl`, `${base}-baseline-musl`, base, `${base}-baseline`]
++  : [base, `${base}-baseline`, `${base}-musl`, `${base}-baseline-musl`]
++const binary = names
++  .map((name) => {
++    try {
++      const file = join(dirname(require.resolve(`${name}/package.json`)), "bin", platform === "windows" ? "opencode.exe" : "opencode")
++      return existsSync(file) ? file : undefined
++    } catch {
++      return undefined
++    }
++  })
++  .find(Boolean)
++if (!binary) {
++  console.error(`opencode: no installed platform package (${names.join(", ")}). Run pnpm install.`)
++  process.exit(1)
++}
++
++const child = spawn(binary, process.argv.slice(2), { stdio: "inherit" })
++child.on("error", (error) => {
++  console.error(`opencode: ${error.message}`)
++  process.exit(1)
++})
++const signals = ["SIGINT", "SIGTERM", "SIGHUP"]
++for (const signal of signals) process.on(signal, () => child.kill(signal))
++child.on("exit", (code, signal) => {
++  for (const name of signals) process.removeAllListeners(name)
++  if (signal) process.kill(process.pid, signal)
++  else process.exit(code ?? 1)
++})
