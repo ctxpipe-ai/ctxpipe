@@ -67,6 +67,11 @@ describe("buildPrompt", () => {
     expect(prefix).toMatch(
       /an uppercase heading that names a page section is fine/i,
     )
+    // A fix for one rule does not excuse a worse quality elsewhere, also
+    // with a brief (the fourth owner round, CTX-1282).
+    expect(prefix).toMatch(
+      /must not make another quality worse[^]*also when the brief asks for the change/i,
+    )
     // Only the measured regions.
     expect(prefix).toMatch(/judge only the measured regions/i)
     expect(prefix).toMatch(

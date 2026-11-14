@@ -222,6 +222,7 @@ export const StatusError: Story = {
   name: "02 / Status error",
   render: () => wizard(),
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -297,6 +298,7 @@ export const WaitForInstall: Story = {
   name: "05 / Wait for install",
   render: () => wizard({ initialWaitForInstall: true }),
   parameters: {
+    visual: { allow: { axes: "Fixed by PR #722." } },
     msw: {
       handlers: {
         page: [
@@ -360,7 +362,10 @@ export const CloseCancelsTheSetup: Story = {
  */
 export const InstallMarksTheDraft: Story = {
   render: () => wizard(),
-  parameters: { msw: { handlers: { page: installHandlers } } },
+  parameters: {
+    visual: { allow: { axes: "Fixed by PR #722." } },
+    msw: { handlers: { page: installHandlers } },
+  },
   play: async () => {
     intentCalls.length = 0
     const open = window.open
@@ -441,6 +446,12 @@ export const ManageKeepsTheCurrentScope: Story = {
   name: "06b / Manage keeps the current scope",
   render: () => wizard(),
   parameters: {
+    visual: {
+      allow: {
+        axes: "Fixed by PR #722.",
+        contrast: "Text below WCAG AA on main (CTX-1278).",
+      },
+    },
     msw: {
       handlers: {
         page: [
@@ -498,6 +509,7 @@ export const ReplacedSetup: Story = {
   name: "07 / Replaced setup with a config pull request",
   render: () => wizard(),
   parameters: {
+    visual: { allow: { axes: "Fixed by PR #722." } },
     msw: {
       handlers: {
         page: [
@@ -534,6 +546,7 @@ export const MissingConnectionId: Story = {
   name: "08 / Missing connection id",
   render: () => wizard({ atlassianConnectionId: undefined }),
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [statusUnscoped(s0)],

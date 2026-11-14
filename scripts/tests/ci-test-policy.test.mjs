@@ -393,7 +393,7 @@ test("CI runs the full-tree proof policy; workflow_dispatch does not select chan
   const root = fileURLToPath(new URL("../../", import.meta.url))
   const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
   // The Lint and format job runs the policy check of the manifest
-  // (scripts/tests/ci-checks.test.mjs proves that it runs each one).
+  // (scripts/tests/ci-checks-repo.test.mjs proves that it runs each one).
   assert.deepEqual(
     projectCommands().get(
       "policy:test-policy:scripts/ci/check-test-policy.mjs",

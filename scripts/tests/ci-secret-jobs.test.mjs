@@ -423,7 +423,7 @@ test("rejects a restore-keys prefix that a branch-code job writes", () => {
 
 test("accepts a production sticky disk and a PR sticky disk with a longer key", () => {
   const result = check({
-    ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    if: github.event_name != 'workflow_dispatch'\n    steps:\n${pinnedSticky(`\${{ github.repository }}-pnpm-store`)}      - env:\n          T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: echo\n`,
+    ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    if: \${{ !cancelled() && (github.event_name == 'push' || inputs.deploy && github.ref == 'refs/heads/main') }}\n    steps:\n${pinnedSticky(`\${{ github.repository }}-pnpm-store`)}      - env:\n          T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: echo\n`,
     ".github/workflows/w.yaml": `on: pull_request\njobs:\n  migrate:\n    steps:\n${sticky(`\${{ github.repository }}-pnpm-store-pr`)}${install}`,
   })
   assert.equal(result.stderr, "")
@@ -472,7 +472,7 @@ ${tokenStep}  build:
 test("rejects an unpinned third-party action in a production job", () => {
   rejects(
     {
-      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    if: github.event_name != 'workflow_dispatch'\n    steps:\n      - uses: hashicorp/setup-terraform@v3\n      - env:\n          T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: echo\n`,
+      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    if: \${{ !cancelled() && (github.event_name == 'push' || inputs.deploy && github.ref == 'refs/heads/main') }}\n    steps:\n      - uses: hashicorp/setup-terraform@v3\n      - env:\n          T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: echo\n`,
     },
     /deploy\.yaml:6: job terraform holds a secret or an OIDC token and uses hashicorp\/setup-terraform@v3/,
   )
@@ -487,13 +487,19 @@ test("applies every rule to a deploy.yaml job that is not a named production job
   )
 })
 
-test("rejects a production job whose if: does not limit it to the push to main", () => {
-  rejects(
-    {
-      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    steps:\n${install}      - env:\n          T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: echo\n`,
-    },
-    /job terraform is a production job, but its if: does not limit it to the push to main/,
-  )
+test("rejects a production job whose if: does not limit it to a push to main or a deploy dispatch from main", () => {
+  for (const condition of [
+    "",
+    "    if: github.event_name != 'workflow_dispatch'\n",
+    // Another `||` widens the condition.
+    "    if: \${{ inputs.ref || true && (github.event_name == 'push' || inputs.deploy && github.ref == 'refs/heads/main') }}\n",
+  ])
+    rejects(
+      {
+        ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n${condition}    steps:\n${install}      - env:\n          T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: echo\n`,
+      },
+      /job terraform is a production job, but its if: does not limit it to a push to main or a deploy dispatch from main/,
+    )
 })
 
 test("rejects an artifact download in a job with a secret that is not a reviewed job", () => {

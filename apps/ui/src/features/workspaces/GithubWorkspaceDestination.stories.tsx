@@ -86,6 +86,7 @@ export const OnboardingEmpty: Story = {
  */
 export const LoadingSkeletonMatches: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a workspace destination skeleton whose size differs from the loaded list. This causes layout shift. Not for workspace data or selection.",
   },

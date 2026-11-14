@@ -23,6 +23,7 @@ import { judgeByModel } from "../../src/command.ts"
 import { diff, type Comparison } from "../../src/compare/diff.ts"
 import { writeStoryImages } from "../../src/compare/images.ts"
 import { storyInput } from "../../src/compare/manifest.ts"
+import { explainRegression, type Explained } from "../../src/explain.ts"
 import { pngSize } from "../../src/prepare.ts"
 import { reviewStories } from "../../src/review.ts"
 import { packagedRubric } from "../../src/rubric.ts"
@@ -40,6 +41,8 @@ const usage = `Usage: pnpm visual:bakeoff:run --arms <list> [--images <dir>] [--
                    llm-one-step:<model>  the critic prompt, with a one-step comparison
                    llm-no-facts:<model>  the critic prompt, without the interpreter facts
                    jev                   Jev alone
+                   jev-explain:<model>   Jev alone, and <model> explains each
+                                         Jev regression (it never changes it)
                    decision:<model>      another decision model, with the Jev questions
                    cascade:<model>       Jev, then <model> when Jev does not accept
                    cascade:<filter>+<model>
@@ -207,8 +210,45 @@ async function armOf(
         input: same,
         judge: (story) =>
           withAnswers((onAnswers) => judgeWithJev(story, undefined, onAnswers)),
-        judgeNew: (story) => judgeNewWithJev(story),
+        judgeNew: (story) =>
+          withAnswers((onAnswers) =>
+            judgeNewWithJev(story, undefined, onAnswers),
+          ),
       }
+    case "jev-explain": {
+      needsModel()
+      // Jev decides; the explainer only adds its text (CTX-1256). The
+      // verdict keeps the facts of the explainer call alone in `explainer`.
+      const explained = async (verdict: Verdict, input: Explained) => {
+        const result = await explainRegression(
+          verdict,
+          input,
+          model,
+          process.env,
+        )
+        return result.explainer
+          ? { ...result.verdict, explainer: result.explainer }
+          : result.verdict
+      }
+      return {
+        ...base,
+        input: same,
+        judge: async (story) =>
+          explained(
+            await withAnswers((onAnswers) =>
+              judgeWithJev(story, undefined, onAnswers),
+            ),
+            { kind: "change", story },
+          ),
+        judgeNew: async (story) =>
+          explained(
+            await withAnswers((onAnswers) =>
+              judgeNewWithJev(story, undefined, onAnswers),
+            ),
+            { kind: "new", story },
+          ),
+      }
+    }
     case "decision":
       needsModel()
       return {
@@ -216,7 +256,8 @@ async function armOf(
         input: same,
         judge: (story) =>
           withAnswers((onAnswers) => judgeWithJev(story, model, onAnswers)),
-        judgeNew: (story) => judgeNewWithJev(story, model),
+        judgeNew: (story) =>
+          withAnswers((onAnswers) => judgeNewWithJev(story, model, onAnswers)),
       }
     case "cascade": {
       needsModel()

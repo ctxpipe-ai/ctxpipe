@@ -10,43 +10,64 @@ fail() {
 
 bash -n "$script" || fail "preview-otel-vars.sh must pass bash -n"
 
-got="$(
-  jq -n '{
-    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://telemetry.ctxpipe.ai/v1/traces",
-    OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "https://telemetry.ctxpipe.ai/v1/logs",
-    OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "https://telemetry.ctxpipe.ai/v1/metrics",
-    OTEL_EXPORTER_OTLP_HEADERS: "authorization=test-ingest",
-    DATABASE_URL: "postgresql://should-not-copy"
-  }' | "$script" extract
-)"
-echo "$got" | jq -e '
-  .OTEL_EXPORTER_OTLP_TRACES_ENDPOINT == "https://telemetry.ctxpipe.ai/v1/traces"
-  and .OTEL_EXPORTER_OTLP_LOGS_ENDPOINT == "https://telemetry.ctxpipe.ai/v1/logs"
-  and .OTEL_EXPORTER_OTLP_METRICS_ENDPOINT == "https://telemetry.ctxpipe.ai/v1/metrics"
-  and .OTEL_EXPORTER_OTLP_HEADERS == "authorization=test-ingest"
-  and (keys | length) == 4
-  and (has("DATABASE_URL") | not)
-' >/dev/null || fail "extract should keep only the four exporter keys"
-
-if jq -n '{OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:"https://telemetry.ctxpipe.ai/v1/traces"}' | "$script" extract 2>/dev/null; then
-  fail "extract should fail when headers/logs/metrics are missing"
+# The guard: the collector on otel.ctxpipe.dev refuses headers without the Access token, so an endpoint there needs
+# both Access headers. No endpoint, or another endpoint, needs none.
+guard() {
+  (
+    set -euo pipefail
+    # shellcheck disable=SC1091
+    source "$script"
+    require_access_headers_for_endpoint "$1" "$2"
+  )
+}
+guard "" "authorization=key" || fail "no endpoint needs no Access token"
+guard "https://example.test/otel" "authorization=key" || fail "another endpoint keeps its own headers"
+guard "https://otel.ctxpipe.dev" "CF-Access-Client-Id=i,CF-Access-Client-Secret=s" \
+  || fail "both Access headers pass"
+if out="$(guard "https://otel.ctxpipe.dev" "authorization=old-ingest-key" 2>&1)"; then
+  fail "the new collector without the Access token should fail"
+fi
+printf '%s' "$out" | grep -Fq "needs the Access token" || fail "the guard should say why it failed"
+if printf '%s' "$out" | grep -Fq old-ingest-key; then fail "the guard must not print a header value"; fi
+if guard "https://otel.ctxpipe.dev" "CF-Access-Client-Id=only-id" 2>/dev/null; then
+  fail "the new collector with only one of the Access headers should fail"
 fi
 
-got="$(OBSERVABILITY_OTLP_HEADERS="authorization=from-secret" "$script" build)"
-echo "$got" | jq -e '
-  .OTEL_EXPORTER_OTLP_TRACES_ENDPOINT == "https://telemetry.ctxpipe.ai/v1/traces"
-  and .OTEL_EXPORTER_OTLP_LOGS_ENDPOINT == "https://telemetry.ctxpipe.ai/v1/logs"
-  and .OTEL_EXPORTER_OTLP_METRICS_ENDPOINT == "https://telemetry.ctxpipe.ai/v1/metrics"
-  and .OTEL_EXPORTER_OTLP_HEADERS == "authorization=from-secret"
-' >/dev/null || fail "build should use the ClickStack public collector default"
-
-got="$(OBSERVABILITY_OTLP_HEADERS="authorization=custom" "$script" build "https://example.test/otel/")"
-echo "$got" | jq -e '
-  .OTEL_EXPORTER_OTLP_TRACES_ENDPOINT == "https://example.test/otel/v1/traces"
-' >/dev/null || fail "build should trim a trailing slash on a custom endpoint"
-
-if OBSERVABILITY_OTLP_HEADERS="" "$script" build 2>/dev/null; then
-  fail "build should fail when OBSERVABILITY_OTLP_HEADERS is empty"
+# Until the cutover, production exports nothing: the ctxpipe module's otel_otlp_endpoint has no default, so Terraform
+# sets no exporter endpoint. A TF_VAR would reach the module only through a root variable that infra/ passes on.
+deploy_workflow="$root/.github/workflows/deploy.yaml"
+endpoint_of_module="$(cd "$root" && bash -c 'source scripts/preview-otel-vars.sh; production_otel_endpoint')"
+[[ -z "$endpoint_of_module" ]] \
+  || fail "the ctxpipe module's otel_otlp_endpoint should be empty until the cutover (got: $endpoint_of_module)"
+if grep -q 'TF_VAR_otel_otlp_endpoint' "$deploy_workflow" && ! grep -q 'variable "otel_otlp_endpoint"' "$root/infra/variables.tf"; then
+  fail "deploy.yaml sets TF_VAR_otel_otlp_endpoint, but infra/ has no root variable to take it"
+fi
+# The production deploy runs the guard on that endpoint before its sync and before Terraform applies.
+grep -Fq 'endpoint="$(production_otel_endpoint)"' "$deploy_workflow" \
+  || fail "deploy.yaml must check the endpoint that Terraform sets"
+grep -Fq 'require_access_headers_for_endpoint "$endpoint" "$OBSERVABILITY_OTLP_HEADERS"' "$deploy_workflow" \
+  || fail "deploy.yaml must refuse the new collector without its Access token"
+guard_line="$(grep -n 'name: Refuse the new collector without its Access token' "$deploy_workflow" | cut -d: -f1)"
+sync_line="$(grep -n 'name: Sync production secrets to Railway' "$deploy_workflow" | cut -d: -f1)"
+apply_line="$(grep -n 'name: Terraform Apply' "$deploy_workflow" | cut -d: -f1)"
+((guard_line < sync_line && guard_line < apply_line)) \
+  || fail "deploy.yaml must refuse before the sync and before Terraform applies"
+grep -Fq 'for ENV_ID in $(preview_environment_ids); do' "$deploy_workflow" \
+  || fail "the production deploy must remove the OTEL variables of every preview"
+envs="$(
+  set -euo pipefail
+  # shellcheck disable=SC1091
+  source "$script"
+  railway_graphql() {
+    jq -n '{data:{project:{environments:{edges:[{node:{id:"env_prod",name:"production"}},
+      {node:{id:"env_1",name:"pr-1"}},{node:{id:"env_x",name:"pr-x"}},{node:{id:"env_2",name:"pr-22"}}]}}}}'
+  }
+  export RAILWAY_PROJECT_ID=proj_test
+  preview_environment_ids
+)"
+[[ "$(paste -sd' ' - <<<"$envs")" == "env_1 env_2" ]] || fail "only the pr-<N> environments are previews (got: $envs)"
+if grep -q 'roll_previews_onto_collector' "$deploy_workflow"; then
+  fail "previews get no OTEL variables, so the production deploy rolls none"
 fi
 
 assert_workflow_syntax() {
@@ -139,167 +160,53 @@ do
   grep -Fq 'scripts/preview-otel-vars.sh' "$workflow" || fail "$workflow must source scripts/preview-otel-vars.sh"
   count="$(grep -c 'sync_preview_otel_variables' "$workflow" || true)"
   [[ "$count" == 1 ]] || fail "$workflow must invoke sync_preview_otel_variables once (got $count)"
-  if grep -E -q 'preview_otel_vars_json\(\)|upsert_preview_otel_variables\(\)' "$workflow"; then
-    fail "$workflow must not redefine preview OTEL orchestration"
-  fi
   assert_workflow_syntax "$workflow"
 done
+assert_workflow_syntax "$deploy_workflow"
 
-run_sync() {
-  local mock_prod_vars_json="$1"
-  local tmp="$2"
-  mkdir -p "$tmp"
-  : >"$tmp/queries"
-  : >"$tmp/upserts"
-  (
-    set -euo pipefail
-    # shellcheck disable=SC1091
-    source "$script"
-    curl() { fail "orchestration must not call curl; mock railway_graphql instead"; }
-    railway_graphql() {
-      local query="$1"
-      local variables="$2"
-      printf '%s\n' "$query" >>"$tmp/queries"
-      case "$query" in
-        *environments*)
-          jq -n '{data:{project:{environments:{edges:[{node:{id:"env_prod",name:"production"}}]}}}}'
-          ;;
-        *"query variables"*)
-          printf '%s\n' "$variables" >"$tmp/prod_read"
-          jq -nc --argjson vars "$mock_prod_vars_json" '{data:{variables:$vars}}'
-          ;;
-        *variableCollectionUpsert*)
-          printf '%s\n' "$variables" >>"$tmp/upserts"
-          echo '{"data":{"variableCollectionUpsert":true}}'
-          ;;
-        *)
-          echo "unexpected railway_graphql query: $query" >&2
-          return 1
-          ;;
-      esac
-    }
-    export RAILWAY_PROJECT_ID=proj_test
-    export ENV_ID=env_preview
-    export BACKEND_SERVICE_ID=svc_backend
-    export WORKER_SERVICE_ID=svc_worker
-    export UI_SERVICE_ID=svc_ui
-    export CODESEARCH_SERVICE_ID=svc_codesearch
-    export OBSERVABILITY_OTLP_HEADERS="${OBSERVABILITY_OTLP_HEADERS-}"
-    sync_preview_otel_variables
-  )
-}
-
-assert_four_upserts() {
-  local upserts_file="$1"
-  local expected_headers="$2"
-  local count
-  count="$(wc -l <"$upserts_file" | tr -d ' ')"
-  [[ "$count" == 4 ]] || fail "expected 4 service upserts, got $count"
-  python3 - "$upserts_file" "$expected_headers" <<'PY' || fail "upsert payloads did not match expected OTEL vars"
-import json, sys
-path, headers = sys.argv[1], sys.argv[2]
-wanted = [
-    "svc_backend",
-    "svc_worker",
-    "svc_ui",
-    "svc_codesearch",
-]
-rows = [json.loads(line) for line in open(path) if line.strip()]
-if [row["input"]["serviceId"] for row in rows] != wanted:
-    raise SystemExit(f"service order { [row['input']['serviceId'] for row in rows] } != {wanted}")
-for row in rows:
-    inp = row["input"]
-    if inp["projectId"] != "proj_test" or inp["environmentId"] != "env_preview":
-        raise SystemExit("upsert targeted the wrong project/env")
-    if inp.get("skipDeploys") is not True:
-        raise SystemExit("upsert must set skipDeploys=true")
-    vars_ = inp["variables"]
-    if set(vars_) != {
-        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
-        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
-        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
-        "OTEL_EXPORTER_OTLP_HEADERS",
-    }:
-        raise SystemExit(f"unexpected keys {sorted(vars_)}")
-    if vars_["OTEL_EXPORTER_OTLP_HEADERS"] != headers:
-        raise SystemExit("headers did not match expected source")
-    if "DATABASE_URL" in vars_:
-        raise SystemExit("DATABASE_URL must not be copied")
-    for key, suffix in (
-        ("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "/v1/traces"),
-        ("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "/v1/logs"),
-        ("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", "/v1/metrics"),
-    ):
-        if not vars_[key].endswith(suffix):
-            raise SystemExit(f"{key} missing {suffix}")
-PY
-}
-
+# The preview sync removes the OTEL exporter variables that exist, from the four services, and nothing else.
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-
-prod_complete="$(jq -nc '{
-  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://telemetry.ctxpipe.ai/v1/traces",
-  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "https://telemetry.ctxpipe.ai/v1/logs",
-  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: "https://telemetry.ctxpipe.ai/v1/metrics",
-  OTEL_EXPORTER_OTLP_HEADERS: "authorization=from-prod",
-  DATABASE_URL: "postgresql://should-not-copy"
-}')"
 out="$(
-  OBSERVABILITY_OTLP_HEADERS="authorization=from-secret" \
-    run_sync "$prod_complete" "$tmp/from-prod" 2>&1
-)" || fail "sync should succeed when production backend has exporter vars"
-printf '%s' "$out" | grep -Fq "Resolved preview OTEL exporter vars from production backend" \
-  || fail "sync should report the production-backend source"
-if printf '%s' "$out" | grep -Eq 'authorization=from-prod|authorization=from-secret|postgresql://should-not-copy'; then
-  fail "orchestration must not print OTEL headers or DATABASE_URL"
-fi
-assert_four_upserts "$tmp/from-prod/upserts" "authorization=from-prod"
-jq -e '
-  .projectId == "proj_test"
-  and .environmentId == "env_prod"
-  and .serviceId == "svc_backend"
-' "$tmp/from-prod/prod_read" >/dev/null || fail "production read must target production backend"
-
-prod_missing='{}'
-out="$(
-  OBSERVABILITY_OTLP_HEADERS="authorization=from-secret" \
-    run_sync "$prod_missing" "$tmp/from-secret" 2>&1
-)" || fail "sync should fall back to OBSERVABILITY_OTLP_HEADERS when production vars are incomplete"
-printf '%s' "$out" | grep -Fq "building from OBSERVABILITY_OTLP_HEADERS" \
-  || fail "sync should report the secret fallback"
-if printf '%s' "$out" | grep -Fq "authorization=from-secret"; then
-  fail "fallback must not print OBSERVABILITY_OTLP_HEADERS"
-fi
-assert_four_upserts "$tmp/from-secret/upserts" "authorization=from-secret"
-jq -e '
-  .input.variables.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT == "https://telemetry.ctxpipe.ai/v1/traces"
-' "$tmp/from-secret/upserts" >/dev/null || fail "fallback should build the default collector traces URL"
-
-if OBSERVABILITY_OTLP_HEADERS="" run_sync '{}' "$tmp/empty-secret" >/dev/null 2>&1; then
-  fail "sync should fail when production vars and OBSERVABILITY_OTLP_HEADERS are both missing"
-fi
-
-if (
   set -euo pipefail
   # shellcheck disable=SC1091
   source "$script"
-  curl() { fail "orchestration must not call curl; mock railway_graphql instead"; }
   railway_graphql() {
     case "$1" in
-      *environments*) echo '{"data":{"project":{"environments":{"edges":[]}}}}' ;;
-      *) echo "unexpected query $1" >&2; return 1 ;;
+      (*"query variables"*)
+        case "$(jq -r .serviceId <<<"$2")" in
+          (svc_backend) jq -n '{data:{variables:{
+            OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:"https://otel.ctxpipe.dev/v1/traces",
+            OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:"https://otel.ctxpipe.dev/v1/logs",
+            OTEL_EXPORTER_OTLP_METRICS_ENDPOINT:"https://otel.ctxpipe.dev/v1/metrics",
+            OTEL_EXPORTER_OTLP_HEADERS:"CF-Access-Client-Id=p,CF-Access-Client-Secret=preview-secret",
+            DATABASE_URL:"postgresql://should-stay"}}}' ;;
+          (svc_worker) jq -n '{data:{variables:{OTEL_EXPORTER_OTLP_HEADERS:"x=preview-secret"}}}' ;;
+          (svc_ui) jq -n '{data:{variables:{}}}' ;;
+          (svc_codesearch) jq -n '{data:{variables:{OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:"https://otel.ctxpipe.dev/v1/traces"}}}' ;;
+        esac ;;
+      (*variableDelete*) jq -r '"\(.input.serviceId) \(.input.name) \(.input.environmentId)"' <<<"$2" >>"$tmp/deletes"; echo '{}' ;;
+      (*) echo "unexpected query $1" >&2; return 1 ;;
     esac
   }
   export RAILWAY_PROJECT_ID=proj_test ENV_ID=env_preview
-  export BACKEND_SERVICE_ID=svc_backend WORKER_SERVICE_ID=svc_worker
-  export UI_SERVICE_ID=svc_ui CODESEARCH_SERVICE_ID=svc_codesearch
-  export OBSERVABILITY_OTLP_HEADERS="authorization=from-secret"
+  export BACKEND_SERVICE_ID=svc_backend WORKER_SERVICE_ID=svc_worker UI_SERVICE_ID=svc_ui CODESEARCH_SERVICE_ID=svc_codesearch
   sync_preview_otel_variables
-) >/dev/null 2>&1; then
-  fail "sync should fail when the production Railway environment cannot be resolved"
-fi
+)" || fail "the sync should succeed: $out"
+expected="svc_backend OTEL_EXPORTER_OTLP_HEADERS env_preview
+svc_backend OTEL_EXPORTER_OTLP_LOGS_ENDPOINT env_preview
+svc_backend OTEL_EXPORTER_OTLP_METRICS_ENDPOINT env_preview
+svc_backend OTEL_EXPORTER_OTLP_TRACES_ENDPOINT env_preview
+svc_codesearch OTEL_EXPORTER_OTLP_TRACES_ENDPOINT env_preview
+svc_worker OTEL_EXPORTER_OTLP_HEADERS env_preview"
+[[ "$(sort "$tmp/deletes")" == "$expected" ]] || fail "the sync should delete exactly the OTEL variables that exist (got: $(sort "$tmp/deletes" | paste -sd';' -))"
+if printf '%s' "$out" | grep -Eq 'preview-secret|should-stay|otel\.ctxpipe\.dev'; then fail "the sync must not print a value"; fi
 
+# production_backend_vars stays for the GitHub App guard: it returns only the named variables that exist.
+prod_complete="$(jq -nc '{
+  OTEL_EXPORTER_OTLP_HEADERS: "CF-Access-Client-Id=prod-id,CF-Access-Client-Secret=prod-secret",
+  DATABASE_URL: "postgresql://should-not-copy"
+}')"
 narrow="$(
   set -euo pipefail
   # shellcheck disable=SC1091
@@ -314,7 +221,7 @@ narrow="$(
   export RAILWAY_PROJECT_ID=proj_test BACKEND_SERVICE_ID=svc_backend
   production_backend_vars OTEL_EXPORTER_OTLP_HEADERS NOT_SET_IN_PRODUCTION
 )" || fail "production_backend_vars should succeed"
-[[ "$narrow" == '{"OTEL_EXPORTER_OTLP_HEADERS":"authorization=from-prod"}' ]] \
+[[ "$narrow" == '{"OTEL_EXPORTER_OTLP_HEADERS":"CF-Access-Client-Id=prod-id,CF-Access-Client-Secret=prod-secret"}' ]] \
   || fail "production_backend_vars must return only the named variables that exist (got keys: $(printf '%s' "$narrow" | jq -c keys))"
 
 echo "preview-otel-vars tests passed"

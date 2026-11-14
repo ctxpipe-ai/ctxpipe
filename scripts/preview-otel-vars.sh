@@ -1,80 +1,67 @@
 #!/usr/bin/env bash
-# Build, extract, or sync the four OTEL exporter variables Railway PR previews need.
-# Export stays off in app processes until these are set (observability skill).
-# Does not print values when sourced; CLI extract/build write JSON to stdout.
-# Sync uses the caller's railway_graphql and never prints secret values.
+# The OTEL exporter variables of Railway's PR previews. Until the cutover to AWS (CTX-1216, CTX-1217), Railway sends
+# no telemetry: previews have no OTEL exporter variables, and the apps export nothing without an endpoint.
+# Never prints a value. Uses the caller's railway_graphql.
 set -euo pipefail
 # shellcheck source=scripts/preview-service-vars.sh
 source "$(dirname "${BASH_SOURCE[0]}")/preview-service-vars.sh"
 
-preview_otel_vars_extract() {
-  jq -ce '
-    def req($k):
-      (.[$k] // "") | tostring | gsub("^\\s+|\\s+$"; "") as $v
-      | if $v == "" then error("missing \($k)") else $v end;
-    {
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: req("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
-      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: req("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"),
-      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: req("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"),
-      OTEL_EXPORTER_OTLP_HEADERS: req("OTEL_EXPORTER_OTLP_HEADERS")
-    }
-  '
+# The collector on otel.ctxpipe.dev is behind Cloudflare Access: it refuses headers without an Access service token,
+# and the telemetry is lost. Fails (1) when the endpoint is that collector and the headers lack CF-Access-Client-Id or
+# CF-Access-Client-Secret, so a deploy stops before it points an app there without its token. Prints no value.
+require_access_headers_for_endpoint() {
+  local endpoint="$1" headers="$2" name
+  [[ "$endpoint" =~ ^https://otel\.ctxpipe\.dev(/|$) ]] || return 0
+  for name in CF-Access-Client-Id CF-Access-Client-Secret; do
+    if [[ -z "$(otlp_header_values "$headers" "$name")" ]]; then
+      echo "preview-otel-vars: $endpoint needs the Access token, but the OTEL headers have no $name." >&2
+      return 1
+    fi
+  done
 }
 
-preview_otel_vars_build() {
-  local endpoint="${1:-https://telemetry.ctxpipe.ai}"
-  local headers="${OBSERVABILITY_OTLP_HEADERS:-}"
-  endpoint="${endpoint%/}"
-  if [[ -z "${headers//[[:space:]]/}" ]]; then
-    echo "preview-otel-vars: OBSERVABILITY_OTLP_HEADERS is empty" >&2
-    return 1
-  fi
-  if [[ -z "$endpoint" ]]; then
-    echo "preview-otel-vars: OTLP endpoint is empty" >&2
-    return 1
-  fi
-  jq -nc --arg endpoint "$endpoint" --arg headers "$headers" '{
-    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ($endpoint + "/v1/traces"),
-    OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: ($endpoint + "/v1/logs"),
-    OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: ($endpoint + "/v1/metrics"),
-    OTEL_EXPORTER_OTLP_HEADERS: $headers
-  }'
+# The OTLP endpoint that the production deploy's Terraform sets: the default of the ctxpipe module's otel_otlp_endpoint.
+# infra/ passes the module no value for it, so a TF_VAR would not reach it (2026-11-14).
+production_otel_endpoint() {
+  local file="${1:-infra/module/ctxpipe/variables.tf}"
+  awk '/^variable "otel_otlp_endpoint"/ { found = 1 } found && /^ *default *=/ { sub(/^[^"]*"/, ""); sub(/".*$/, ""); print; exit }' "$file"
 }
 
-preview_otel_vars_json() {
-  local prod_vars extracted
-  # Read only the four exporter variables, not every production variable.
-  prod_vars="$(production_backend_vars \
-    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT OTEL_EXPORTER_OTLP_LOGS_ENDPOINT \
-    OTEL_EXPORTER_OTLP_METRICS_ENDPOINT OTEL_EXPORTER_OTLP_HEADERS)" || return 1
-  if extracted="$(printf '%s' "$prod_vars" | preview_otel_vars_extract 2>/dev/null)"; then
-    echo "Resolved preview OTEL exporter vars from production backend" >&2
-    printf '%s' "$extracted"
-    return 0
-  fi
-  echo "Production backend OTEL exporter vars missing; building from OBSERVABILITY_OTLP_HEADERS" >&2
-  preview_otel_vars_build
+# Every value of one header in an OTLP header list (`Name=value,Name=value`), by name, trimmed, one per line.
+otlp_header_values() {
+  local headers="$1" name="$2"
+  printf '%s' "$headers" | jq -Rr --arg name "$name" '
+    split(",")[] | capture("^\\s*(?<k>[^=]+?)\\s*=\\s*(?<v>.*?)\\s*$")? | select((.k | ascii_downcase) == ($name | ascii_downcase)) | .v'
 }
 
+# Removes the OTEL exporter variables from the preview's backend, worker, ui and codesearch (ENV_ID), so the apps
+# export nothing. Deletes only the ones that exist: a delete redeploys the service on its current image.
 sync_preview_otel_variables() {
-  local vars_json
-  vars_json="$(preview_otel_vars_json)" || return 1
-  if [[ -z "$vars_json" ]]; then
-    echo "preview-otel-vars: failed to resolve exporter vars" >&2
+  local service_id present name
+  local names=(OTEL_EXPORTER_OTLP_TRACES_ENDPOINT OTEL_EXPORTER_OTLP_LOGS_ENDPOINT OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
+    OTEL_EXPORTER_OTLP_HEADERS)
+  if [[ -z "${RAILWAY_PROJECT_ID:-}" || -z "${ENV_ID:-}" ]]; then
+    echo "preview-otel-vars: RAILWAY_PROJECT_ID and ENV_ID are required" >&2
     return 1
   fi
-  upsert_service_vars "OTEL exporter vars" "$vars_json" \
-    "${BACKEND_SERVICE_ID:-}" "${WORKER_SERVICE_ID:-}" \
-    "${UI_SERVICE_ID:-}" "${CODESEARCH_SERVICE_ID:-}"
+  for service_id in "${BACKEND_SERVICE_ID:-}" "${WORKER_SERVICE_ID:-}" "${UI_SERVICE_ID:-}" "${CODESEARCH_SERVICE_ID:-}"; do
+    [[ -n "$service_id" ]] || { echo "preview-otel-vars: a service id is empty" >&2; return 1; }
+    present="$(service_vars "$ENV_ID" "$service_id" "${names[@]}" | jq -r 'keys[]')" || return 1
+    for name in $present; do
+      railway_graphql \
+        'mutation variableDelete($input: VariableDeleteInput!) { variableDelete(input: $input) }' \
+        "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" --arg name "$name" \
+          '{input:{projectId:$project, environmentId:$env, serviceId:$service, name:$name}}')" >/dev/null || return 1
+      echo "Removed $name from service $service_id"
+    done
+  done
 }
 
-if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
-  case "${1:-}" in
-    extract) preview_otel_vars_extract ;;
-    build) preview_otel_vars_build "${2:-}" ;;
-    *)
-      echo "Usage: scripts/preview-otel-vars.sh extract | build [otlp-base-url]" >&2
-      exit 2
-      ;;
-  esac
-fi
+# The ids of the preview environments (pr-<N>) of the project, one per line: the production deploy removes their OTEL
+# exporter variables, so a preview that nobody pushes to exports nothing either.
+preview_environment_ids() {
+  railway_graphql \
+    'query($id: String!) { project(id: $id) { environments { edges { node { id name } } } } }' \
+    "$(jq -nc --arg id "$RAILWAY_PROJECT_ID" '{id:$id}')" \
+    | jq -r '.data.project.environments.edges[]?.node | select(.name | test("^pr-[0-9]+$")) | .id'
+}

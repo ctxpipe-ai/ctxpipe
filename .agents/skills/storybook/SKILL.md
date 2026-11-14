@@ -130,7 +130,7 @@ Mac and Linux render text differently (81 of 86 sample stories differed). So eac
 
 Each story has a committed baseline PNG beside its story file: `<story file dir>/screenshots/<storyfile>.<storyname>.<viewport>.screenshot.png`. A named snapshot adds `@<name>` to `<storyname>` (see Screenshot options). `<storyfile>` is the story file name without `.stories.tsx`, `<storyname>` is the export name, and `<viewport>` is `desktop` (1440x900) or `mobile` (390x844). Every story has a `desktop` baseline. A page story (the `page` tag) also has a `mobile` baseline.
 
-- `pnpm visual:check` builds Storybook, captures every story in the container ([`scripts/ci/visual.mjs`](../../../scripts/ci/visual.mjs)) and compares each screenshot with its baseline. It writes `.ci-results/visual/manifest.json` and the images of each story that is not unchanged (`<story id>/<viewport>/`). It never writes a baseline. It fails on each status that is not `unchanged`: `new` (no baseline), `changed`, `removed` (an orphan baseline), `unstable`, `play-failed` or `size-changed`.
+- `pnpm visual:check` builds Storybook, captures every story in the container ([`scripts/ci/visual.mjs`](../../../scripts/ci/visual.mjs)) and compares each screenshot with its baseline. It writes `.ci-results/visual/manifest.json` and the images of each story that is not unchanged (`<story id>/<viewport>/`). It never writes a baseline. It fails on each status that is not `unchanged`: `new` (no baseline), `changed`, `removed` (an orphan baseline), `unstable`, `play-failed` or `size-changed`. It also fails on each layout problem (see Layout checks).
 - `pnpm visual:update` writes the baselines (recompressed without loss) and deletes the orphan baselines. `--only <id>,<id>` accepts only those stories. `--failed` accepts only the stories that the last `visual:check` failed. Look at each changed image before you accept it: the baseline is what a reviewer compares with.
 - An orphan baseline is a `*.screenshot.png` that no story has, or a `screenshots/` folder with no story file beside it. Thus when you rename or delete a story, run `pnpm visual:update` to delete its baseline.
 - The size budget: both commands fail above 60 MB for all baselines, or above 1 MB for one image.
@@ -146,6 +146,7 @@ A story controls its screenshots with `parameters: { visual: { ... } }`, in the 
 - `maxDiffPixels: <n>`: the count of pixels that may differ (default 10). Do not raise it to hide noise.
 - `viewports: ["desktop"]` or `["desktop", "mobile"]`: this list replaces the default viewports (desktop, and mobile for a `page` story). For example, a page story whose play asserts the desktop layout uses `["desktop"]`.
 - `masks: ["<CSS selector>"]`: the capture hides each element that a selector finds. Use it only when you cannot change the source of the element (for example, a library canvas).
+- `allow: { <rule>: "<reason>" }`: the story accepts a layout rule (`overflow`, `axes` or `contrast`, see Layout checks). The capture does not run that rule for the story. A reason is necessary.
 
 **Named snapshots.** To keep a state in the middle of a play, call `await snapshot("<name>")` from [`apps/ui/src/lib/visual-snapshot.ts`](../../../apps/ui/src/lib/visual-snapshot.ts). The baseline is `<storyfile>.<storyname>@<name>.<viewport>.screenshot.png`, beside the baseline of the end state. Write the name as a string literal in kebab case, in the play function of the story itself (not in a shared helper): the commands read the names from the story file. Each name is one time in a play. Outside the capture, `snapshot()` does nothing. The story Testing/Visual options ([`visual-options.stories.tsx`](../../../apps/ui/src/lib/visual-options.stories.tsx)) shows two named snapshots and both kinds of mask.
 
@@ -154,6 +155,16 @@ A story controls its screenshots with `parameters: { visual: { ... } }`, in the 
 - Mask noise. Do not re-baseline it: a new baseline only resets a flake, and the next run differs again.
 - Do not mask real content that changes often (a count, a list, a status). Make it deterministic with fixture data, or find the cause of the change.
 - Mask the smallest element that holds the noise. A mask on a container hides all of its content.
+
+## Layout checks
+
+After the screenshot of the end state of a story, the capture runs the layout checks in the same page ([`apps/ui/src/lib/layout-checks.ts`](../../../apps/ui/src/lib/layout-checks.ts)). The browser has the real layout, so the numbers are exact. A problem fails the `storybook:visual` check of the story, also when the pixels did not change. The message names the viewport, the rule, the element and the numbers. A named snapshot has no layout checks. The masks of the story (`data-visual-mask` and `masks`) hide the same elements for the checks as for the screenshot.
+
+- `overflow`: text that runs out of a box around it, or that a box clips with no ellipsis, and dialog text outside of the viewport. The message names the innermost box. Text in a scroll container, `truncate` and `line-clamp` text, and text that a clip or the viewport hides completely (a collapsed panel, a pane that slides in) are not problems. A positioned layer (a badge, a popover) can sit outside of its parent, but not outside of its dialog, alert or card. A vertical overflow up to a quarter of the font size is the line box of the font, not a cut. The rule measures text only: an empty box (an image, a field) outside of its container is not found.
+- `axes`: in one dialog or modal, or in one list outside of a dialog, the leading markers of the rows sit on near axes: their centers differ by more than 0.5 px and less than 8 px. A marker is an icon, a checkbox or a step marker (a box of 6 to 40 px, with no text or a step number) at the start of its line, with text to its right. One center line, or a clear indent, is not a problem. Markers in a box with its own border or fill around two or more markers (a bordered list, a card) have their own axes; a filled row with one marker stays in the column. An icon before a text field (a search icon) is not a marker.
+- `contrast`: text below WCAG AA (the axe-core rule `color-contrast`).
+
+Fix the layout. When the story must break a rule (for example a fixture), accept that rule with a reason: `parameters: { visual: { allow: { contrast: "<reason>" } } }`. The stories of Testing/Layout checks ([`layout-checks.stories.tsx`](../../../apps/ui/src/lib/layout-checks.stories.tsx)) break each rule and fix it; their plays prove the checks. To run the checks in a play, call `layoutProblems(canvasElement)`.
 
 ## Quick reference (commands)
 

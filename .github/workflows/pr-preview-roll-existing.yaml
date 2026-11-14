@@ -30,7 +30,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    runs-on: blacksmith-4vcpu-ubuntu-2404-arm
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     timeout-minutes: 40
     # RAILWAY_API_TOKEN, the preview GitHub App secrets and the preview
     # VERCEL_ACCESS_TOKEN come from this protected environment. That Vercel
@@ -95,7 +95,6 @@ jobs:
         env:
           ENV_ID: ${{ steps.env.outputs.env_id }}
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
-          OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
           VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
           GH_APP_ID: ${{ secrets.GH_APP_ID }}
           GH_APP_SLUG: ${{ secrets.GH_APP_SLUG }}

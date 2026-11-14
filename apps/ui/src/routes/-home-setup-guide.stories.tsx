@@ -382,6 +382,7 @@ const failedWorkspace: Workspace = {
 /** The build of the first Workspace failed: the row says so and links to it. */
 export const GuideAdminWorkspaceBuildFailed: Story = {
   parameters: {
+    visual: { allow: { overflow: "A layout defect on main (CTX-1279)." } },
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
@@ -807,6 +808,7 @@ export const GuideRepositoriesNeedUpgradeFirst: Story = {
 /** No GitHub connection yet: the dialog links to the Connectors page. */
 export const GuideRepositoriesWithoutConnectionLinksToConnectors: Story = {
   parameters: {
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         defaults: sessionDefaults(1),

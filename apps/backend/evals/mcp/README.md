@@ -109,3 +109,22 @@ bun --env-file=.env.local evals/mcp/run.ts \
 ```
 
 The server must offer exactly the seven read tools. Any other tool set exits with code 2.
+
+### Run against a deployed stack (AWS cutover rehearsal)
+
+Codesearch on a deployed stack cannot read the Git server of the seed host. Thus the stack reads published copies of the fixture repositories. They are the public repositories `ctxpipe-ai/mcp-eval-<workspace>` on GitHub (`mcpEvalGithubRemotes` in `seed.ts`), and they hold only the synthetic fixtures.
+
+When a fixture file changes, publish the repositories again. Run this from `apps/backend`, with a Git credential that can push to them:
+
+```sh
+bun --env-file=.env.local evals/mcp/run-seed.ts publish /tmp/mcp-eval-publish
+```
+
+Two one-off tasks of the hosted stack (factory, `hosted-run-task.yml`) run the suite in the production VPC, during a rehearsal only. Run them in this order:
+
+1. `cutover-mcp-evals-seed` runs `run-seed.ts deployed OUT_JSON` in the backend image, as the backend. It first compares each published branch with the commits of the fixtures, which are the same on each run. When one differs, it stops before a write. Then it seeds with a new run name and writes OUT_JSON as `ci` does. A second container puts OUT_JSON into the shard bucket under `cutover-mcp-evals/`.
+2. `cutover-mcp-evals` gets that file and deletes it. Then it runs `run.bundle.js`, the bundled `run.ts`, with only the model key. It runs against the backend in the VPC with `--no-advance`. It has no database access, so the `stale-cursor` case does not run. CI runs that case.
+
+The two tasks are separate because the security groups belong to a whole task: the eval client must not reach FalkorDB.
+
+The backend image builds the bundle in its `evals` stage, because the dependencies of `run.ts` are dev dependencies. The server never loads the bundle.

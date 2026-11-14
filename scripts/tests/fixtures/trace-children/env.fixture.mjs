@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 
 import { expect, test } from "vitest"
 
-// Started by scripts/tests/ci-checks.test.mjs with the trace on. The Bun child
+// Started by scripts/tests/ci-checks-repo.test.mjs with the trace on. The Bun child
 // gets an `env` without BUN_OPTIONS, so it cannot load the preload.
 const child = fileURLToPath(new URL("child.mjs", import.meta.url))
 

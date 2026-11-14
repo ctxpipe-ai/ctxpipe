@@ -18,6 +18,7 @@ import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest"
 
 import type { PixelBox } from "../../src/compare/diff.ts"
 import { screenshot } from "../../src/compare/fixtures.ts"
+import type { Verdict } from "../../src/verdict.ts"
 import { caseManifestSchema, type Case } from "./cases.ts"
 import { sha256Of } from "./images.ts"
 import { bakeOff, holdOut } from "./run.ts"
@@ -766,18 +767,116 @@ test("a run that skips the hold-out set judges only the other cases, and keeps t
   const { results } = JSON.parse(
     readFileSync(join(out, "results.json"), "utf8"),
   ) as { results: { case: string; verdict: { answers?: object } }[] }
-  // A new screenshot goes to the judge of a new screenshot, which keeps no
-  // answers.
-  const changes = new Set(
-    cases.filter(({ kind }) => kind !== "new").map(({ id }) => id),
+  // The judge of a new screenshot keeps the answers too (CTX-1267): it has
+  // its own rule questions.
+  const isNew = new Set(
+    cases.filter(({ kind }) => kind === "new").map(({ id }) => id),
   )
-  const judged = results.filter(
-    ({ case: id }) =>
-      changes.has(id) && calls.some((call) => call.endsWith(id)),
+  const judged = results.filter(({ case: id }) =>
+    calls.some((call) => call.endsWith(id)),
   )
-  expect(judged.length).toBeGreaterThan(0)
-  for (const { verdict } of judged)
-    expect(verdict.answers).toHaveProperty("run-together")
+  expect(judged.some(({ case: id }) => isNew.has(id))).toBe(true)
+  expect(judged.some(({ case: id }) => !isNew.has(id))).toBe(true)
+  for (const { case: id, verdict } of judged)
+    expect(verdict.answers).toHaveProperty(
+      isNew.has(id) ? "rule.uk-spelling" : "run-together",
+    )
+})
+
+test("the jev-explain arm keeps each Jev verdict, and the explainer adds its text and cost only to a regression", async () => {
+  const explained: string[] = []
+  // The explainer explains each flagged entry for $0.0007.
+  const explainer = http.post(
+    `${gateway}/chat/completions`,
+    async ({ request }) => {
+      const body = (await request.json()) as {
+        messages: { content: { type: string; text?: string }[] }[]
+        response_format: {
+          json_schema: {
+            schema: {
+              properties: {
+                explanations: {
+                  items: { properties: { id: { enum: string[] } } }
+                }
+              }
+            }
+          }
+        }
+      }
+      const [prefix, story] = body.messages[0]?.content ?? []
+      if (!prefix?.text?.startsWith("You explain one finding"))
+        throw new Error("Only the explainer calls the chat API in this test.")
+      explained.push(storyOf(story?.text ?? ""))
+      const ids =
+        body.response_format.json_schema.schema.properties.explanations.items
+          .properties.id.enum
+      return HttpResponse.json({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                before: "A gray bar.",
+                after: "A wider gray bar.",
+                explanations: ids.map((id) => ({
+                  id,
+                  visible: true,
+                  evidence: "The gray bar is wider.",
+                  suggestion: "Restore the width.",
+                })),
+              }),
+            },
+          },
+        ],
+        usage: { cost: 0.0007 },
+      })
+    },
+  )
+  server.use(explainer, decisions)
+
+  const { code, out } = await run([
+    "--cases",
+    writeManifest(),
+    "--arms",
+    "jev,jev-explain:openai/test-luna",
+    "--runs",
+    "1",
+  ])
+
+  expect(code).toBe(0)
+  type Row = {
+    arm: string
+    case: string
+    verdict: Verdict & { explainer?: { costUsd: number | null } }
+  }
+  const { results } = JSON.parse(
+    readFileSync(join(out, "results.json"), "utf8"),
+  ) as { results: Row[] }
+  const of = (arm: string) =>
+    new Map(
+      results
+        .filter((row) => row.arm === arm)
+        .map((row) => [row.case, row.verdict]),
+    )
+  const alone = of("jev")
+  const withText = of("jev-explain:openai/test-luna")
+  expect([...withText.keys()].sort()).toEqual([...alone.keys()].sort())
+  const regressions = [...withText].filter(
+    ([, verdict]) => verdict.verdict === "regression",
+  )
+  expect(regressions.length).toBeGreaterThan(0)
+  expect(explained.sort()).toEqual(regressions.map(([id]) => id).sort())
+  for (const [id, verdict] of withText) {
+    const jev = alone.get(id)
+    expect(verdict.verdict).toBe(jev?.verdict)
+    expect(verdict.severity).toBe(jev?.severity)
+    if (verdict.verdict !== "regression") {
+      expect(verdict.explainer).toBeUndefined()
+      continue
+    }
+    expect(verdict.explainer?.costUsd).toBe(0.0007)
+    expect(verdict.costUsd).toBeCloseTo((jev?.costUsd ?? 0) + 0.0007, 10)
+    expect(verdict.summary).toContain("The gray bar is wider.")
+  }
 })
 
 test("a run gets either the hold-out set only or no hold-out set, not both", async () => {

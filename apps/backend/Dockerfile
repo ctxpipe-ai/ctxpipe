@@ -13,6 +13,17 @@ COPY patches patches
 COPY apps/backend/package.json apps/backend/package.json
 RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
 
+# The MCP eval client (apps/backend/evals/mcp/run.ts) as one bundled file:
+# the AWS cutover rehearsal runs it in a one-off task of this image
+# (CTX-1217). Its dependencies are dev dependencies, so they stay in this
+# stage, and the server never loads the bundle.
+FROM deps AS evals
+COPY packages/visual-review/package.json packages/visual-review/package.json
+RUN pnpm install --frozen-lockfile --filter @ctxpipe/backend... --config.confirmModulesPurge=false
+COPY packages/visual-review packages/visual-review
+COPY apps/backend/evals/mcp apps/backend/evals/mcp
+RUN bun build apps/backend/evals/mcp/run.ts --target=bun --outfile /out/run.bundle.js
+
 # Production stage — Bun runs TypeScript natively, no tsc compilation needed
 FROM oven/bun:1.4.4-alpine
 WORKDIR /app
@@ -44,5 +55,8 @@ COPY apps/backend/migrations ./apps/backend/migrations
 COPY apps/backend/openworkflow.config.ts ./apps/backend/openworkflow.config.ts
 COPY apps/backend/package.json ./apps/backend/package.json
 COPY apps/backend/tsconfig.json ./apps/backend/tsconfig.json
+# The MCP eval seed and the bundled client, for the cutover rehearsal task.
+COPY apps/backend/evals/mcp ./apps/backend/evals/mcp
+COPY --from=evals /out/run.bundle.js ./apps/backend/evals/mcp/run.bundle.js
 EXPOSE 3000
 CMD ["bun", "run", "apps/backend/src/server.ts"]
