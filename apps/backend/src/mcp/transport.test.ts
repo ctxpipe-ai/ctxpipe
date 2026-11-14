@@ -3,12 +3,13 @@ import { initLogger } from "evlog"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
-import { beforeAll, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
 import { recordSpans } from "../../test/spans.js"
 import type { AppEnv } from "../app/env.js"
 import { backendOtelMiddleware } from "../observability/http.js"
+import { applyLogContract } from "../observability/logContract.js"
 import { runMcpToolCall } from "./correlation.js"
 import { INSTRUCTION_RULES } from "./framework/instructions.js"
 import { registerWorkspaceFileResource } from "./resources/workspace-file.js"
@@ -186,17 +187,31 @@ function post(app: Hono<AppEnv>, body: unknown) {
 }
 
 describe("MCP tool call request log", () => {
-  it("keeps SSE and puts the facts of the call on a call event, with no late-set warning", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    const events: Record<string, unknown>[] = []
-    const callEvents: Record<string, unknown>[] = []
-    // The event of the call goes to the global drain.
+  const callEvents: Record<string, unknown>[] = []
+  // The event of a call goes to the global drain, as in production.
+  beforeAll(() => {
     initLogger({
       env: { service: "ctxpipe-backend", environment: "test" },
       pretty: false,
       drain: (ctx) => {
+        applyLogContract(ctx.event)
         callEvents.push(ctx.event as Record<string, unknown>)
       },
+    })
+  })
+  afterAll(() => {
+    initLogger({
+      env: { service: "ctxpipe-backend", environment: "test" },
+      pretty: false,
+    })
+  })
+
+  it("keeps SSE and puts the facts of the call on a call event, with no late-set warning", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const events: Record<string, unknown>[] = []
+    let release = () => {}
+    const toolMayEnd = new Promise<void>((resolve) => {
+      release = resolve
     })
     const app = buildApp(
       (server) =>
@@ -210,8 +225,7 @@ describe("MCP tool call request log", () => {
             runMcpToolCall(
               { toolName: "search_knowledge", extra },
               async () => {
-                // The tool is slower than the transport: it ends after a tick.
-                await new Promise((resolve) => setTimeout(resolve, 10))
+                await toolMayEnd
                 return { content: [{ type: "text" as const, text: "ok" }] }
               },
             ),
@@ -234,9 +248,9 @@ describe("MCP tool call request log", () => {
         params: { name: "search_knowledge", arguments: { query: "hello" } },
       }),
     })
-    // The response streams: the request event is out before the tool ends.
+    // The response streams, and the request event is out before the tool ends.
     expect(response.headers.get("content-type")).toContain("text/event-stream")
-    expect(events).toHaveLength(1)
+    release()
     expect(await response.text()).toContain("ok")
 
     const lateSets = warn.mock.calls.filter(([message]) =>
@@ -248,7 +262,8 @@ describe("MCP tool call request log", () => {
     expect(callEvents).toHaveLength(1)
     expect(callEvents[0]).toMatchObject({
       step: "mcp.call",
-      requestId: "req_mcp_call",
+      "request.id": "req_mcp_call",
+      "ctxpipe.mcp.tool": "search_knowledge",
       "ctxpipe.mcp.result.bytes": expect.any(Number),
     })
   })

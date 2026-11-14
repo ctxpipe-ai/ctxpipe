@@ -63,9 +63,9 @@ beforeAll(() => {
   })
 })
 
-/** The wide event of the tool call (not the event of the POST /mcp request). */
-function callEvent() {
-  return events.find((event) => event.step === "mcp.call")
+/** The wide event of the call (not the event of the POST /mcp request). */
+function callEvent(step = "mcp.call") {
+  return events.find((event) => event.step === step)
 }
 
 function buildApp(
@@ -493,10 +493,15 @@ describe("bridge tool call facts", () => {
     expect(span()?.status.code).not.toBe(SpanStatusCode.ERROR)
   })
 
-  it("puts the code of an error result on the span, and leaves the span out of ERROR", async () => {
+  it("puts the code of an error result on the span and the call event, and leaves the span out of ERROR", async () => {
     await runBridgeToolCall("get_file", async () =>
       toToon({ error: "checkout_not_in_run", repositoryId: "repo_1" }),
     )
+
+    expect(callEvent("bridge.tool")).toMatchObject({
+      "ctxpipe.mcp.tool": "get_file",
+      "ctxpipe.mcp.error.code": "checkout_not_in_run",
+    })
 
     expect(span()?.attributes["ctxpipe.mcp.error.code"]).toBe(
       "checkout_not_in_run",

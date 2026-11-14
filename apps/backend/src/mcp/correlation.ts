@@ -17,7 +17,11 @@ import {
   applyAttribution,
   contextWithForkedAttributionBag,
 } from "../observability/attribution.js"
-import { createLogger, getLogger, withLogger } from "../observability/logger.js"
+import {
+  createLogger,
+  getLogger,
+  loggerStorage,
+} from "../observability/logger.js"
 import { MCP_TOOL_ERROR_CODES } from "./framework/tool-errors.js"
 import { TOOL_ERROR_META_KEY } from "./framework/tool-result.js"
 
@@ -403,7 +407,6 @@ async function runMcpCall<R>(
       _meta: { ...mcpResult._meta, "ai.ctxpipe/callId": callId },
     } as R
     // The size of what the client gets, and why a tool call failed.
-    // In a batch, the wide event holds the value of the last call.
     const bytes = Buffer.byteLength(JSON.stringify(final))
     trace.getActiveSpan()?.setAttribute("ctxpipe.mcp.result.bytes", bytes)
     getLogger().set({ "ctxpipe.mcp.result.bytes": bytes })
@@ -421,9 +424,15 @@ async function runMcpCall<R>(
     callContext,
     // The call has its own wide event. An MCP call over SSE ends after
     // the request event was emitted, and a bridge call ends while the chat
-    // streams, so the request logger is sealed then.
-    async (span) =>
-      withLogger(callLogger(bridge), async () => {
+    // streams, so the request logger is sealed then. The drain adds the
+    // request id, the trace id and the facts from the attribution bag.
+    // `withLogger` is not used: on a preview it waits for an OTel flush.
+    async (span) => {
+      const holder = {
+        logger: createLogger({ step: bridge ? "bridge.tool" : "mcp.call" }),
+        base: {},
+      }
+      return loggerStorage.run(holder, async () => {
         applyAttribution(attributes)
         try {
           return withMeta(await fn({ callId, connectionKey, correlation }))
@@ -466,26 +475,10 @@ async function runMcpCall<R>(
           if (!input.toResult) throw error
           return withMeta(input.toResult(exception))
         } finally {
+          holder.logger.emit()
           span.end()
         }
-      }),
+      })
+    },
   )
-}
-
-/**
- * The logger of one call. Its event has the request id of the request, so a
- * query joins the call to its request. `withLogger` emits it when the call
- * ends; the span and the attribution bag give the trace id and the facts.
- */
-function callLogger(bridge: boolean) {
-  let requestId: unknown
-  try {
-    requestId = getLogger().getContext().requestId
-  } catch {
-    // No request logger: the call event has no request id.
-  }
-  return createLogger({
-    step: bridge ? "bridge.tool" : "mcp.call",
-    ...(typeof requestId === "string" ? { requestId } : {}),
-  })
 }
