@@ -636,6 +636,7 @@ export const ReopensConfluenceWizardAfterAccountLink: Story = {
     )
     const alert = title.closest<HTMLElement>('[role="alert"]')
     if (!alert) throw new Error("No alert around the title")
+    await document.fonts.ready
     await waitFor(() =>
       expect(alert.scrollWidth).toBeLessThanOrEqual(alert.clientWidth),
     )

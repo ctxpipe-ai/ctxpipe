@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/Button"
 import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Modal } from "@/components/ui/Modal"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
-import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 
 import { orgConnectionsKeys } from "../queries/org-connections"
@@ -157,7 +156,7 @@ export function SlackSetupDialog({
   })
 
   // The merge step is the last item of the setup steps.
-  const mergeStep = setupView === "workspaces" && pullRequests.length > 0
+  const showMergeStep = setupView === "workspaces" && pullRequests.length > 0
 
   return (
     <Modal
@@ -178,16 +177,14 @@ export function SlackSetupDialog({
             currentIndex={
               pullRequests.length ? SLACK_SETUP_STEPS.length : setupStepIndex
             }
-            finalStep={
-              mergeStep
-                ? (stepNumber) => (
-                    <PullRequestsToMerge
-                      orgSlug={orgSlug}
-                      pullRequests={pullRequests}
-                      stepNumber={stepNumber}
-                      detail="The Slack source change applies after the merge. Until then, a mention in a new channel replies that no Workspace has the channel."
-                    />
-                  )
+            mergeStep={
+              showMergeStep
+                ? {
+                    orgSlug,
+                    pullRequests,
+                    detail:
+                      "The Slack source change applies after the merge. Until then, a mention in a new channel replies that no Workspace has the channel.",
+                  }
                 : undefined
             }
           />
@@ -256,7 +253,8 @@ export function SlackSetupDialog({
               })
             }}
           />
-        ) : mergeStep ? null : setupView === "workspaces" && connectionId ? (
+        ) : showMergeStep ? null : setupView === "workspaces" &&
+          connectionId ? (
           <div className="flex flex-col gap-5">
             <section
               aria-label="How capture works"

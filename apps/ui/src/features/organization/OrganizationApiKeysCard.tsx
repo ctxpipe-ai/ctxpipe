@@ -13,7 +13,7 @@
  * `organizationRoles` config (apps/backend/src/auth/config.ts) which only
  * grants `apiKey` actions to owner/admin — this card surfaces that 403.
  */
-import { IconCheck, IconCopy, IconKey, IconTrash } from "@tabler/icons-react"
+import { IconKey, IconTrash } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { useState } from "react"
@@ -28,6 +28,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/Card"
+import { CopyableBlock } from "@/components/ui/CopyableBlock"
 import {
   Dialog,
   DialogDescription,
@@ -54,7 +55,6 @@ import {
 import {
   API_KEY_MUTATION_KEYS,
   type ApiKey,
-  copyToClipboard,
   createOrganizationApiKey,
   createPersonalApiKey,
   deleteOrganizationApiKey,
@@ -699,7 +699,6 @@ function CreatedSecretDialog(props: {
   onDone: () => void
 }) {
   const { secret, onCopied, onCopyFailed, onDone } = props
-  const [copied, setCopied] = useState(false)
 
   return (
     <Dialog>
@@ -709,29 +708,15 @@ function CreatedSecretDialog(props: {
           Copy the key now. ctxpipe shows it only one time.
         </DialogDescription>
       </DialogHeader>
-      <div className="mt-4 flex items-center gap-2 rounded-md border border-border bg-zinc-900 py-1 pr-1 pl-3">
-        <code className="min-w-0 flex-1 break-all py-1.5 font-mono text-sm text-zinc-100">
-          {secret}
-        </code>
-        <Button
-          variant="secondary"
-          size="sm"
-          className="shrink-0"
-          aria-label={copied ? "API key copied" : "Copy API key"}
-          onPress={() => {
-            void copyToClipboard(secret).then(() => {
-              setCopied(true)
-              onCopied()
-            }, onCopyFailed)
-          }}
-        >
-          {copied ? (
-            <IconCheck className="size-3.5" aria-hidden />
-          ) : (
-            <IconCopy className="size-3.5" aria-hidden />
-          )}
-          {copied ? "Copied" : "Copy"}
-        </Button>
+      <div className="mt-4">
+        <CopyableBlock
+          value={secret}
+          copyAriaLabel="Copy API key"
+          copiedAriaLabel="API key copied"
+          copyErrorMessage="Could not copy. Select the key and copy it."
+          onCopied={onCopied}
+          onCopyFailed={onCopyFailed}
+        />
       </div>
       <p className="mt-3 text-sm text-zinc-400">
         Keep it in a secret manager, or set it as{" "}

@@ -12,6 +12,7 @@ import {
 
 import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Button } from "@/components/ui/Button"
+import { Card } from "@/components/ui/Card"
 import { Disclosure, DisclosurePanel } from "@/components/ui/Disclosure"
 import {
   DropdownMenu,
@@ -136,6 +137,10 @@ function ConnectorRemoveDialog({
   )
 }
 
+/**
+ * One connection on the Connectors page, as a tile. The rules of the tile
+ * (head, status column, actions, details) are in README.md in this folder.
+ */
 export function ConnectorListItem({
   connectionId,
   marked = false,
@@ -202,94 +207,95 @@ export function ConnectorListItem({
   }, [marked, modalOpen, connectionId])
   return (
     <>
-      <Disclosure
-        defaultExpanded={defaultExpanded}
-        className={`min-w-0 border bg-zinc-900/40 wrap-anywhere transition-colors ${
+      <Card
+        className={`gap-0 transition-colors ${
           marked
-            ? "border-teal-400/40 bg-teal-400/10 outline-2 -outline-offset-2 outline-teal-400"
-            : "border-white/[0.08]"
+            ? "bg-teal-400/10 outline-2 -outline-offset-2 outline-teal-400 ring-teal-400/40"
+            : ""
         }`}
       >
-        {marked ? (
-          <span id={markedHintId} className="sr-only">
-            Needs your attention
-          </span>
-        ) : null}
-        {/* The Disclosure keeps its own `id` off the DOM: the anchor is here. */}
-        <div id={connectionAnchorId(connectionId)} className="@container">
-          <div className={tileHeadClassName}>
-            <TileTrigger
-              name={name}
-              icon={icon}
-              ref={triggerRef}
-              describedBy={marked ? markedHintId : undefined}
-            />
-            {/*
-             * One column for the status of every tile, so the dots align. A
-             * narrow tile puts the status under the name.
-             */}
-            <div className={tileStatusClassName}>
-              <ConnectorHealthIndicator health={health} />
+        <Disclosure defaultExpanded={defaultExpanded} className="min-w-0">
+          {marked ? (
+            <span id={markedHintId} className="sr-only">
+              Needs your attention
+            </span>
+          ) : null}
+          {/* The Disclosure keeps its own `id` off the DOM: the anchor is here. */}
+          <div id={connectionAnchorId(connectionId)} className="@container">
+            <div className={tileHeadClassName}>
+              <TileTrigger
+                name={name}
+                icon={icon}
+                ref={triggerRef}
+                describedBy={marked ? markedHintId : undefined}
+              />
+              {/*
+               * One column for the status of every tile, so the dots align. A
+               * narrow tile puts the status under the name.
+               */}
+              <div className={tileStatusClassName}>
+                <ConnectorHealthIndicator health={health} />
+              </div>
+              {pending ? (
+                <span aria-hidden className={`size-8 ${tileMenuClassName}`} />
+              ) : (
+                <span className={tileMenuClassName}>
+                  <ConnectorActionsMenu
+                    ariaLabel={`${name} connector actions`}
+                    sync={sync}
+                    onRemove={() => setRemoveOpen(true)}
+                  />
+                </span>
+              )}
             </div>
             {pending ? (
-              <span aria-hidden className={`size-8 ${tileMenuClassName}`} />
-            ) : (
-              <span className={tileMenuClassName}>
-                <ConnectorActionsMenu
-                  ariaLabel={`${name} connector actions`}
-                  sync={sync}
-                  onRemove={() => setRemoveOpen(true)}
-                />
-              </span>
-            )}
-          </div>
-          {pending ? (
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-white/[0.06] px-3 py-2.5">
-              <Button
-                variant="quiet"
-                className="whitespace-nowrap"
-                aria-label={`Remove ${name} setup`}
-                onPress={() => setRemoveOpen(true)}
-              >
-                Remove
-              </Button>
-              {action ? (
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-white/[0.06] px-3 py-2.5">
                 <Button
-                  variant="secondary"
+                  variant="quiet"
                   className="whitespace-nowrap"
-                  aria-label={`${action.actionLabel} for ${name}`}
-                  onPress={action.onAction}
+                  aria-label={`Remove ${name} setup`}
+                  onPress={() => setRemoveOpen(true)}
                 >
-                  {action.actionLabel}
+                  Remove
                 </Button>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-        <DisclosurePanel>
-          <div className="space-y-4 border-t border-white/[0.06] px-3 py-4 sm:pl-14">
-            {children}
-            {usedIn}
-            <dl className="grid gap-4 text-sm sm:grid-cols-2">
-              <div>
-                <dt className="text-muted-foreground">Account</dt>
-                <dd className="mt-1 text-foreground">{workspace}</dd>
-              </div>
-            </dl>
-            {action && !pending ? (
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  className="text-sm text-teal-400 underline-offset-4 transition-colors hover:text-teal-300 hover:underline"
-                  onClick={action.onAction}
-                >
-                  {action.actionLabel}
-                </button>
+                {action ? (
+                  <Button
+                    variant="secondary"
+                    className="whitespace-nowrap"
+                    aria-label={`${action.actionLabel} for ${name}`}
+                    onPress={action.onAction}
+                  >
+                    {action.actionLabel}
+                  </Button>
+                ) : null}
               </div>
             ) : null}
           </div>
-        </DisclosurePanel>
-      </Disclosure>
+          <DisclosurePanel>
+            <div className="space-y-4 border-t border-white/[0.06] px-3 py-4 sm:pl-14">
+              {children}
+              {usedIn}
+              <dl className="grid gap-4 text-sm sm:grid-cols-2">
+                <div>
+                  <dt className="text-muted-foreground">Account</dt>
+                  <dd className="mt-1 text-foreground">{workspace}</dd>
+                </div>
+              </dl>
+              {action && !pending ? (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    className="text-sm text-teal-400 underline-offset-4 transition-colors hover:text-teal-300 hover:underline"
+                    onClick={action.onAction}
+                  >
+                    {action.actionLabel}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </DisclosurePanel>
+        </Disclosure>
+      </Card>
       <ConnectorRemoveDialog
         name={name}
         pending={pending}
@@ -320,7 +326,7 @@ export function connectorDash(value: string | null | undefined): string {
 /** The collapsed `ConnectorListItem` tile while the connections load. */
 export function ConnectorListItemSkeleton() {
   return (
-    <div className="@container rounded-md border border-white/[0.08] bg-zinc-900/40">
+    <Card className="@container gap-0">
       <div className={tileHeadClassName}>
         <div className="flex min-w-0 items-center gap-3 px-1.5 py-1.5">
           <Skeleton className="size-9 shrink-0" />
@@ -335,7 +341,7 @@ export function ConnectorListItemSkeleton() {
         />
         <Skeleton className={`size-8 ${tileMenuClassName}`} />
       </div>
-    </div>
+    </Card>
   )
 }
 

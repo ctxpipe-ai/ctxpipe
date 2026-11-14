@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/Button"
 import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Modal } from "@/components/ui/Modal"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
-import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 
 import { useNotionOAuthConnect } from "../hooks/useNotionOAuthConnect"
@@ -203,17 +202,7 @@ export function NotionSetupDialog({
           <ConnectorSetupStepper
             steps={setupSteps}
             currentIndex={setupStepIndex}
-            finalStep={
-              workspacesDone
-                ? (stepNumber) => (
-                    <PullRequestsToMerge
-                      orgSlug={orgSlug}
-                      pullRequests={pullRequests}
-                      stepNumber={stepNumber}
-                    />
-                  )
-                : undefined
-            }
+            mergeStep={workspacesDone ? { orgSlug, pullRequests } : undefined}
           />
         ) : null}
         {body}

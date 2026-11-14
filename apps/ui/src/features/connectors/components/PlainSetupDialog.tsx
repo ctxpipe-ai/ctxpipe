@@ -11,7 +11,6 @@ import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Modal } from "@/components/ui/Modal"
 import { TextField } from "@/components/ui/TextField"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
-import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import { retryQuery } from "@/lib/api-result"
 
@@ -145,17 +144,7 @@ export function PlainSetupDialog({
         <ConnectorSetupStepper
           steps={PLAIN_SETUP_STEPS}
           currentIndex={stepIndex}
-          finalStep={
-            workspacesDone
-              ? (stepNumber) => (
-                  <PullRequestsToMerge
-                    orgSlug={orgSlug}
-                    pullRequests={pullRequests}
-                    stepNumber={stepNumber}
-                  />
-                )
-              : undefined
-          }
+          mergeStep={workspacesDone ? { orgSlug, pullRequests } : undefined}
         />
         {body}
       </ConnectorSetupFrame>
