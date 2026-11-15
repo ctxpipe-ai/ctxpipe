@@ -30,12 +30,12 @@ export function OAuthOrganizationSelectionRoutePage() {
         fetchOptions: { throw: false },
       })
       if (continueError) {
-        throw new Error(continueError.message ?? "Authorisation failed")
+        throw new Error(continueError.message ?? "Authorization failed")
       }
 
       const redirectUri = getOAuthRedirectUri(data)
       if (!redirectUri) {
-        throw new Error("Authorisation did not return a redirect URI")
+        throw new Error("Authorization did not return a redirect URI")
       }
       window.location.href = redirectUri
     } catch (caught) {

@@ -42,7 +42,9 @@ function Alert({ breakUrl }: { breakUrl: boolean }) {
       <InlineAlert variant="error">
         <div className="space-y-2">
           <p>Could not load the capabilities of</p>
-          <p className={breakUrl ? "break-all" : undefined}>{longUrl}</p>
+          {/* The alert wraps long words (`wrap-anywhere`); `wrap-normal`
+              turns that off, so the unbroken URL runs out. */}
+          <p className={breakUrl ? "break-all" : "wrap-normal"}>{longUrl}</p>
           <p className="truncate">
             A long line that ends with an ellipsis, on purpose
           </p>

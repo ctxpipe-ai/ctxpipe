@@ -1632,7 +1632,7 @@ export const Primary = { render: () => null }
         const rubric = await headRubric((rubric) => {
           rubric.areas = [
             {
-              ...first(rubric.areas),
+              ...first(rubric.areas.filter(({ id }) => id === "spacing")),
               definition: "Space comes from the 4 px grid of the head.",
             },
             motion,
