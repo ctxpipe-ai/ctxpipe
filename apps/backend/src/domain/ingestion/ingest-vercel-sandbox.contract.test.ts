@@ -818,9 +818,11 @@ describe("hosted ingest shard", { timeout: 240_000 }, () => {
     expect(dns.stdout).toContain("none")
     // No credential is in the sandbox: not in a file, a config, or a
     // process environment. The search runs here, in the test process.
-    // The tool installs and caches of the snapshot build are left out.
+    // The tool installs and caches of the snapshot build are left out, and
+    // the native libraries that Bun (OpenCode is a Bun binary) unpacks from
+    // the OpenCode binary into /tmp on each run (`.bun-*`, 10 MB in 1.19.5).
     const searched =
-      "--exclude=/home/vercel-sandbox/.local --exclude=/home/vercel-sandbox/.npm --exclude=/root/.npm --exclude=/root/.cache /ctxpipe /etc /tmp /home /root"
+      "--exclude=/home/vercel-sandbox/.local --exclude=/home/vercel-sandbox/.npm --exclude=/root/.npm --exclude=/root/.cache --exclude=/tmp/.bun-* /ctxpipe /etc /tmp /home /root"
     const tree = await (
       await shardRoot()
     )(
