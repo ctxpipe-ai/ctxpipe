@@ -356,18 +356,6 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Date:** 2026-10-19
 - **Source:** user correction after a PR 280 retest (the single step from `f52640644` was removed in `767082725` and restored)
 
-### Connector list accordion
-- **Rule:** Connectors page rows share `ConnectorListItem`. Closed: icon, name, health dot plus its word (`connected` / `not yet connected` / `couldn't load` / `sync failed` / `config PR failed`), overflow menu, chevron. The dot pulses only for a live state (`checking`, `syncing`); a static state has a still dot ([CTX-1259](https://linear.app/ctxpipe/issue/CTX-1259)). Open: Workspace, Scope, synchronised repository, text action link. Do not put setup steppers on the list — those belong in the wizard. Do not use a generic “Error” chip or orange alert icons; the chip names the cause. Display order is GitHub first (`sortOrgConnectionsForDisplay`). Linear “Manage scope” must open the scope editor (`manageScope`), same as Notion — not the “connected” splash.
-- **Category:** pattern
-- **Date:** 2026-08-13
-- **Source:** repo-page-ux
-
-### Connector setup wizards
-- **Rule:** Linear, Notion, and Confluence share the same chrome: `ctx-node` mark in the header, semantic colour tokens, no nested zinc cards. Existing `rounded-none` on those wizards stays until a dedicated pass; **new or touched** chrome follows [apps/ui/DESIGN.md](../../apps/ui/DESIGN.md) (`rounded-md`). Do not add more square overrides. Do not leave Atlassian/Confluence on leftover `rounded-lg` callback boxes or filled `bg-zinc-900` panels.
-- **Category:** convention
-- **Date:** 2026-08-13
-- **Source:** repo-page-ux; radius follows [apps/ui/AGENTS.md](../../apps/ui/AGENTS.md) (`rounded-md`, 2026-10-01)
-
 ### Product UI skills vs marketing frontend-design
 - **Rule:** Do not install Anthropic `frontend-design` (or similar marketing taste skills) as always-on for `apps/ui`. Use first-party [product-ui](../../.agents/skills/product-ui/SKILL.md) + [DESIGN.md](../../apps/ui/DESIGN.md). Do not paste copyrighted book prose or figures (including Refactoring UI) into skills or the repo; encode tactics as house yes/no rules in our own words.
 - **Category:** convention
@@ -477,7 +465,7 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Source:** user correction (Workspaces nav label tracking)
 
 ### Workspace OpenCode chat uses the configured proxy, not native provider keys
-- **Rule:** OpenCode ignores `MODEL_PROVIDER_*`. Do not remap `MODEL_PROVIDER_API_KEY` to `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY`. Chat uses only `MODEL_FAST_NAME` / `MODEL_MEDIUM_NAME` / `MODEL_HIGH_NAME` (default **fast**) through the app's OpenAI-compatible model proxy (`workspace-chat-model-proxy.ts`). Pin one `opencode-ai` version everywhere: today `1.18.34` in `WORKSPACE_CHAT_OPENCODE_CLI`, `apps/backend/Dockerfile`, `scripts/chat-sandbox/Dockerfile` and `ci.yaml`. When TanStack tools exist, the adapter overwrites `OPENCODE_CONFIG_CONTENT` — ship config as `opencode.json` plus `OPENCODE_CONFIG` via `createSecrets`. Model ids containing `gpt-5` still post `/v1/chat/completions` and require `chat.completion.chunk` SSE. Sandbox providers are in [ADR-048](decisions/ADR-048-native-postgres-sandbox-ownership.md); unsandboxed is never chosen automatically.
+- **Rule:** OpenCode ignores `MODEL_PROVIDER_*`. Do not remap `MODEL_PROVIDER_API_KEY` to `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OPENROUTER_API_KEY`. Chat uses only `MODEL_FAST_NAME` / `MODEL_MEDIUM_NAME` / `MODEL_HIGH_NAME` (default **fast**) through the app's OpenAI-compatible model proxy (`workspace-chat-model-proxy.ts`). Pin one `opencode-ai` version everywhere: today `1.19.5` in `WORKSPACE_CHAT_OPENCODE_CLI`, `apps/backend/Dockerfile`, `scripts/chat-sandbox/Dockerfile` and the root devDependency `opencode-ai` (the checks and CI run that one; `chat-runtime.test.ts` compares it with the constant). When TanStack tools exist, the adapter overwrites `OPENCODE_CONFIG_CONTENT` — ship config as `opencode.json` plus `OPENCODE_CONFIG` via `createSecrets`. Model ids containing `gpt-5` still post `/v1/chat/completions` and require `chat.completion.chunk` SSE. Sandbox providers are in [ADR-048](decisions/ADR-048-native-postgres-sandbox-ownership.md); unsandboxed is never chosen automatically.
 - **Category:** convention
 - **Date:** 2026-08-22
 - **Source:** OpenCode chatStream 500 (H1: Claude fallback + empty Anthropic credentials)

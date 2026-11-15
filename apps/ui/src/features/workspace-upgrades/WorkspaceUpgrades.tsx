@@ -6,7 +6,7 @@ import {
   IconInfoCircle,
 } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Fragment, useState } from "react"
+import { Fragment, type ReactNode, useState } from "react"
 import {
   Button as AriaButton,
   Disclosure as AriaDisclosure,
@@ -118,12 +118,16 @@ export function useUpgradesStatus(orgSlug: string, workspaceSlug: string) {
   return { loading: query.isPending, needsYou, working }
 }
 
-/** The dot of an upgrade row: the kind of attention that it wants. */
+/**
+ * The dot of an upgrade row: the kind of attention that it wants. The amber
+ * edge of the card already says that a row needs the user, so that dot is
+ * neutral. Only a failed row (red) and a running row (teal pulse) color it.
+ */
 function upgradeDot(item: WorkspaceUpgradeItem, group: UpgradeGroup) {
   if (item.status === "failed")
     return { className: "bg-red-400", label: "Failed" }
   if (group === "needs_you")
-    return { className: "bg-amber-400", label: "Needs you" }
+    return { className: "bg-zinc-400", label: "Needs you" }
   return { className: "ctx-status-pulse bg-teal-400", label: "Working" }
 }
 
@@ -171,6 +175,47 @@ function PullRequestLink(props: {
 }
 
 /**
+ * The problem of one upgrade row (blocked or failed) as quiet text, with its
+ * fix next to it. It is not an `InlineAlert`: the amber edge of the card is
+ * the one warning signal of the block, and the dot of the row is the one
+ * marker of the item (owner review, rule R3). A frame or an icon here would
+ * be a third signal.
+ */
+function ItemProblem(props: {
+  /** A status word in front of the title, for example "Blocked". */
+  status?: string | undefined
+  title: string
+  children: ReactNode
+  actions?: ReactNode
+}) {
+  return (
+    <div className="mt-3 flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+      <div className="min-w-0 flex-1 basis-64 max-w-prose text-xs">
+        <p className="text-foreground">
+          {props.status ? (
+            <>
+              <span className="text-muted-foreground">{props.status}</span>
+              <span aria-hidden className="text-muted-foreground">
+                {" · "}
+              </span>
+            </>
+          ) : null}
+          <span>{props.title}</span>
+        </p>
+        <div className="mt-0.5 break-words text-muted-foreground">
+          {props.children}
+        </div>
+      </div>
+      {props.actions ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {props.actions}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/**
  * The detail of an upgrade: its steps, its run, its notes, the step reports,
  * and a block or a failure. An open row and an opened history row show it.
  */
@@ -178,6 +223,10 @@ function UpgradeDetail(props: {
   item: WorkspaceUpgradeItem
   /** The checking state shows no block: ctxpipe reads the new format. */
   showBlocked: boolean
+  /** The action that fixes the block (Check again): it sits next to it. */
+  blockedAction?: ReactNode
+  /** The status word of the row ("Blocked"), in front of the block title. */
+  blockedStatus?: string
   orgSlug?: string | undefined
   onFixWithAgent?: ((prompt: string) => void) | undefined
 }) {
@@ -187,6 +236,16 @@ function UpgradeDetail(props: {
   const stepsWithReport = item.steps.filter((step) => step.report.length > 0)
   return (
     <>
+      {props.showBlocked && item.status === "blocked" ? (
+        <ItemProblem
+          status={props.blockedStatus}
+          title={upgradeBlockedCopy(item).title}
+          actions={props.blockedAction}
+        >
+          <p>{upgradeBlockedCopy(item).body}</p>
+        </ItemProblem>
+      ) : null}
+
       {item.steps.length > 0 ? (
         <ol
           className="mt-3 flex flex-col gap-1"
@@ -275,29 +334,19 @@ function UpgradeDetail(props: {
         </Disclosure>
       ) : null}
 
-      {props.showBlocked && item.status === "blocked" ? (
-        <div className="mt-3">
-          <InlineAlert variant="warning" title={upgradeBlockedCopy(item).title}>
-            <p>{upgradeBlockedCopy(item).body}</p>
-          </InlineAlert>
-        </div>
-      ) : null}
-
       {item.status === "failed" ? (
-        <div className="mt-3">
-          {item.failure ? (
-            <UpgradeFailureAlert
-              item={item}
-              failure={item.failure}
-              orgSlug={props.orgSlug}
-              onFixWithAgent={props.onFixWithAgent}
-            />
-          ) : (
-            <InlineAlert variant="error" title="The upgrade failed">
-              <p>{item.failureReason ?? "ctxpipe gives no reason."}</p>
-            </InlineAlert>
-          )}
-        </div>
+        item.failure ? (
+          <UpgradeFailureDetail
+            item={item}
+            failure={item.failure}
+            orgSlug={props.orgSlug}
+            onFixWithAgent={props.onFixWithAgent}
+          />
+        ) : (
+          <ItemProblem title="The upgrade failed">
+            <p>{item.failureReason ?? "ctxpipe gives no reason."}</p>
+          </ItemProblem>
+        )
       ) : null}
     </>
   )
@@ -346,10 +395,14 @@ function UpgradeItemCard(props: {
     : upgradeStatusLabel(item, formatVersion)
   const spend = upgradeSpendLine(item)
   const dot = upgradeDot(item, props.group)
+  const showBlocked = !checkingFormat && !blockedWaits
+  // The fix of a block sits next to the block, not on the title row.
+  const actionAtProblem = showBlocked && item.status === "blocked"
   // One muted line of facts. A waiting item has its Start button (or "Ask an
   // admin"), so its tag does not repeat it.
   const meta = [
-    item.status === "awaiting_operator" ? null : status,
+    // A shown block names the status in front of its title.
+    item.status === "awaiting_operator" || actionAtProblem ? null : status,
     checkingFormat || blockedWaits || item.status === "blocked"
       ? null
       : item.note,
@@ -413,12 +466,16 @@ function UpgradeItemCard(props: {
             ) : null}
           </div>
         </div>
-        {action ? <div className="shrink-0">{action}</div> : null}
+        {action && !actionAtProblem ? (
+          <div className="shrink-0">{action}</div>
+        ) : null}
       </div>
       <div className="pl-3.5">
         <UpgradeDetail
           item={item}
-          showBlocked={!checkingFormat && !blockedWaits}
+          showBlocked={showBlocked}
+          blockedAction={actionAtProblem ? action : undefined}
+          blockedStatus={status}
           orgSlug={props.orgSlug}
           onFixWithAgent={props.onFixWithAgent}
         />
@@ -428,7 +485,7 @@ function UpgradeItemCard(props: {
 }
 
 /** A failed item: the step that failed, why, and the fix (CTX-895). */
-function UpgradeFailureAlert(props: {
+function UpgradeFailureDetail(props: {
   item: WorkspaceUpgradeItem
   failure: UpgradeFailure
   orgSlug: string | undefined
@@ -452,8 +509,7 @@ function UpgradeFailureAlert(props: {
       </Button>
     ) : null
   return (
-    <InlineAlert
-      variant="error"
+    <ItemProblem
       title="The upgrade failed"
       actions={
         link || agent ? (
@@ -466,16 +522,14 @@ function UpgradeFailureAlert(props: {
     >
       {copy.step ? <p>Failed step: {copy.step}.</p> : null}
       <p className={copy.step ? "mt-1" : undefined}>{copy.reason}</p>
-      <p className="mt-1 text-xs break-words opacity-80">
-        Details: {failure.summary}
-      </p>
+      <p className="mt-1 break-words">Details: {failure.summary}</p>
       <p className="mt-1">{copy.action}</p>
       {item.autoRetried ? (
         <p className="mt-1">
           ctxpipe already started this upgrade again once by itself.
         </p>
       ) : null}
-    </InlineAlert>
+    </ItemProblem>
   )
 }
 
@@ -795,8 +849,11 @@ export function WorkspaceUpgrades(props: {
           </div>
         </div>
       ) : query.isError ? (
+        // The amber edge of the card marks the block: no second frame.
         <InlineAlert
           variant="error"
+          framed={false}
+          actionsPlacement="end"
           actions={
             <Button variant="secondary" onPress={() => void query.refetch()}>
               Try again

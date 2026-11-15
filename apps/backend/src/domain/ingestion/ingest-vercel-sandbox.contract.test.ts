@@ -818,12 +818,26 @@ describe("hosted ingest shard", { timeout: 240_000 }, () => {
     expect(dns.stdout).toContain("none")
     // No credential is in the sandbox: not in a file, a config, or a
     // process environment. The search runs here, in the test process.
+    // The tool installs and caches of the snapshot build are left out, and
+    // the native libraries that Bun (OpenCode is a Bun binary) unpacks from
+    // the OpenCode binary into /tmp on each run (`.bun-*`, 10 MB in 1.19.5).
+    const searched =
+      "--exclude=/home/vercel-sandbox/.local --exclude=/home/vercel-sandbox/.npm --exclude=/root/.npm --exclude=/root/.cache --exclude=/tmp/.bun-* /ctxpipe /etc /tmp /home /root"
     const tree = await (
       await shardRoot()
     )(
-      // The tool installs and caches of the snapshot build are left out.
-      "cat /proc/[0-9]*/environ 2>/dev/null | base64 -w0; echo; tar -czf - --ignore-failed-read --exclude=/home/vercel-sandbox/.local --exclude=/home/vercel-sandbox/.npm --exclude=/root/.npm --exclude=/root/.cache /ctxpipe /etc /tmp /home /root 2>/dev/null | base64 -w0",
+      `cat /proc/[0-9]*/environ 2>/dev/null | base64 -w0; echo; tar -czf - --ignore-failed-read ${searched} 2>/dev/null | base64 -w0`,
     )
+    // A cut archive cannot be searched. Name the largest folders that the
+    // archive holds, so that a new leftover of a tool is easy to find.
+    if (tree.stdoutTruncated) {
+      const largest = await (
+        await shardRoot()
+      )(`du -xk ${searched} 2>/dev/null | sort -rn | head -40`)
+      throw new Error(
+        `The archive of the sandbox is larger than the command output limit. Largest folders (KiB):\n${largest.stdout}`,
+      )
+    }
     const [environ = "", archive = ""] = tree.stdout.split("\n")
     expect(Buffer.from(environ, "base64").includes(githubToken)).toBe(false)
     expect(

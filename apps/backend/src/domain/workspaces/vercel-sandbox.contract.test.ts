@@ -122,7 +122,7 @@ async function credentialShapesInside(
   return found.stdout
 }
 
-const OPENCODE_VERSION = "1.18.34"
+const OPENCODE_VERSION = "1.19.5"
 const tags = { purpose: "ci-contract" }
 const created: string[] = []
 const snapshots: string[] = []

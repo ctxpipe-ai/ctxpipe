@@ -19,7 +19,10 @@ import {
 import { Hono } from "hono"
 
 import type { RunVault } from "./agent-vault.js"
-import { parseSandboxCallbackHost } from "./sandbox-callback-host.js"
+import {
+  callbackDnsName,
+  parseSandboxCallbackHost,
+} from "./sandbox-callback-host.js"
 import { bearerUrlRule } from "./sandbox-credential-rules.js"
 import { remoteDockerHost } from "./sandbox-provider.js"
 import { WORKSPACE_CHAT_FIREWALL_PLACEHOLDER } from "./workspace-chat-opencode-contract.js"
@@ -54,7 +57,7 @@ export async function sandboxCallbackHost(
     // the VPC's DNS suffix, under which every VPC address has a name.
     const suffix = env.SANDBOX_CALLBACK_DNS_SUFFIX?.trim()
     if (address && suffix && isIP(address) === 4)
-      return `ip-${address.replaceAll(".", "-")}.${suffix}`
+      return callbackDnsName(address, suffix)
     return address
   }
 

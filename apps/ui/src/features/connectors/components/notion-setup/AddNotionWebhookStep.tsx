@@ -72,7 +72,7 @@ export function AddNotionWebhookStep({
         </div>
       ) : (
         <div className="flex items-center gap-3">
-          <Spinner className="shrink-0 text-muted-foreground" />
+          <Spinner className="size-4.5 shrink-0 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
             Waiting for Notion to send a verification token to that URL...
           </p>

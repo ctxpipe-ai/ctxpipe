@@ -298,7 +298,6 @@ export const WaitForInstall: Story = {
   name: "05 / Wait for install",
   render: () => wizard({ initialWaitForInstall: true }),
   parameters: {
-    visual: { allow: { axes: "Fixed by PR #722." } },
     msw: {
       handlers: {
         page: [
@@ -363,7 +362,6 @@ export const CloseCancelsTheSetup: Story = {
 export const InstallMarksTheDraft: Story = {
   render: () => wizard(),
   parameters: {
-    visual: { allow: { axes: "Fixed by PR #722." } },
     msw: { handlers: { page: installHandlers } },
   },
   play: async () => {
@@ -448,7 +446,6 @@ export const ManageKeepsTheCurrentScope: Story = {
   parameters: {
     visual: {
       allow: {
-        axes: "Fixed by PR #722.",
         contrast: "Text below WCAG AA on main (CTX-1278).",
       },
     },
@@ -509,7 +506,6 @@ export const ReplacedSetup: Story = {
   name: "07 / Replaced setup with a config pull request",
   render: () => wizard(),
   parameters: {
-    visual: { allow: { axes: "Fixed by PR #722." } },
     msw: {
       handlers: {
         page: [

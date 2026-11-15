@@ -43,7 +43,7 @@ import {
 /** @deprecated Alias for callers importing `GitHubInstallation`. */
 export type GitHubInstallation = GitHubInstallationShape
 
-function normalisePrivateKey(pem: string): string {
+export function normalisePrivateKey(pem: string): string {
   const t = pem.trim()
   return t.includes("\\n") ? t.replace(/\\n/g, "\n") : t
 }

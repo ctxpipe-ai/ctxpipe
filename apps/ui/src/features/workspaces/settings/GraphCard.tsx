@@ -67,7 +67,12 @@ export function GraphCard(props: {
     >
       <div className="flex flex-col gap-3">
         {failed ? (
-          <InlineAlert variant="error" title="The knowledge graph did not load">
+          // The amber edge of the card marks the block: no second frame.
+          <InlineAlert
+            variant="error"
+            framed={false}
+            title="The knowledge graph did not load"
+          >
             {workspace.hydrateError ?? "ctxpipe gives no reason."}
           </InlineAlert>
         ) : (
