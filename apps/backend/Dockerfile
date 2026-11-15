@@ -35,9 +35,13 @@ ENV PATH="/usr/local/bin:${PATH}"
 # git: clone-tree and paste-URL hydrate/explorer spawn the git CLI.
 # postgresql17-client: the cutover copy (src/scripts/copyDatabase.ts) runs
 # pg_dump and pg_restore in a one-off task of this image.
-RUN apk add --no-cache findutils git postgresql17-client
+# libatomic: the copied Node 26 binary needs it on x86_64, and the Bun image
+# has none.
+RUN apk add --no-cache findutils git libatomic postgresql17-client
 COPY --from=opencode /usr/local/bin/ /usr/local/bin/
 COPY --from=opencode /usr/local/lib/node_modules/ /usr/local/lib/node_modules/
+# The build fails here, not a process at start, when a library of node is missing.
+RUN node --version
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/backend/node_modules ./apps/backend/node_modules
 COPY tsconfig.json ./
