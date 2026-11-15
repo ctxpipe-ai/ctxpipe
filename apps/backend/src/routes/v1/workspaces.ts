@@ -486,8 +486,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       source: body.source,
       rootPath: body.rootPath,
       env: c.var.env,
-      // The lifecycle queues jobs that end after the response.
-      log: detachedErrorLog("workspace.create"),
+      log: c.get("log"),
     })
     return c.json(serializeWorkspace(created), 201)
   })
@@ -603,8 +602,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       persistConnection,
       bindingSubmitted,
       rootPath: body.rootPath,
-      // The lifecycle queues jobs that end after the response.
-      log: detachedErrorLog("workspace.relink"),
+      log: c.get("log"),
     })
     if (!updated) return c.json({ error: "Not found" }, 404)
     return c.json(serializeWorkspace(updated), 200)
@@ -682,7 +680,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       )
     void enqueueWorkspaceHydrate(
       { orgId: retried.orgId, workspaceId: retried.id },
-      detachedErrorLog("workspace.retry_prepare"),
+      detachedErrorLog("workspace.hydrate.enqueue"),
     )
     return c.json(serializeWorkspace(retried), 200)
   })
