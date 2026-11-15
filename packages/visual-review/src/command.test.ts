@@ -810,7 +810,7 @@ export const Primary = { parameters: { review: { purpose: "Inline text link in i
         '<data name=\\"story\\">\\n(none)',
       )
       expect(verdicts()[0]?.summary).toBe(
-        `${regression.summary} The scope is component: the story of this screenshot is not in apps/ui/src/components/Card.stories.tsx at the merge base, so the critic had no kind or purpose of the story, and the page-only qualities were not judged.`,
+        `${regression.summary} The scope is component: the story of this screenshot, with its kind, is not in apps/ui/src/components/Card.stories.tsx at the merge base, so the critic had no kind or purpose of the story, and the page-only qualities were not judged.`,
       )
     })
   })
@@ -983,7 +983,7 @@ export const Primary = { parameters: { review: { purpose: "Inline text link in i
       // page-only qualities do not apply, also with a mobile screenshot.
       expect(parts[1]?.text).toContain("Scope: component")
       expect(verdicts()[0]?.summary).toContain(
-        "The scope is component: the story of this screenshot is not in apps/ui/src/components/Card.stories.tsx at the merge base",
+        "The scope is component: the story of this screenshot, with its kind, is not in apps/ui/src/components/Card.stories.tsx at the merge base",
       )
       expect(verdicts()).toMatchObject([
         { path: desktop, verdict: "intended", costUsd: 0.01 },
@@ -1009,7 +1009,10 @@ export const Primary = { parameters: { review: { purpose: "Inline text link in i
 
   describe("--judge jev: the verdict of Jev is final; an explainer only adds text", () => {
     // The Decisions API: each question gets the answer of `answer`.
-    const decisions: { questions: Record<string, { type: string }> }[] = []
+    const decisions: {
+      questions: Record<string, { type: string }>
+      state: (string | object)[]
+    }[] = []
     const serveJev = (
       answer: (name: string, type: string) => Record<string, unknown>,
     ) =>
@@ -1213,7 +1216,7 @@ export const Primary = { parameters: { review: { purpose: "Home page with one pr
       // One call for the changed screenshot, one for the new one.
       expect(decisions).toHaveLength(2)
       for (const decision of decisions) {
-        const state = (decision as unknown as { state: unknown[] }).state
+        const state = decision.state
           .filter((part): part is string => typeof part === "string")
           .join("\n")
         expect(state).toContain("Scope: page.")
@@ -1376,6 +1379,10 @@ export const Primary = { parameters: { review: { purpose: "Home page with one pr
           '<data name="brief">\nMake the primary button red.',
         )
         expect(text).toContain("you cannot change the verdict or the severity")
+        // The kind of the story, and its name and purpose as data. This
+        // checkout has no story file of the screenshot.
+        expect(text).toContain("Scope: component, a part of the UI.")
+        expect(text).toContain('<data name="story">\n(none)\n</data>')
         // The text goes into the evidence, the fix, the observations and
         // the summary, on one line. The cost adds both calls.
         expect(explained).toMatchObject({

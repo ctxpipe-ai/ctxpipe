@@ -31,7 +31,10 @@ const qualityList = ({ qualities }: Rubric) =>
       ),
     )
     .join("\n")
-const scopeLine = (scope: StoryInput["scope"], { qualities }: Rubric) => {
+export const scopeLine = (
+  scope: StoryInput["scope"],
+  { qualities }: Rubric,
+) => {
   const pageOnly = qualities
     .filter((quality) => quality.pageOnly)
     .map(({ name }) => name)
@@ -137,9 +140,7 @@ export const storyData = ({
 }: Pick<StoryInput, "name" | "purpose">) =>
   data(
     "story",
-    name || purpose
-      ? `Name: ${name ?? "(none)"}\nPurpose: ${purpose ?? "(none)"}`
-      : undefined,
+    name ? `Name: ${name}\nPurpose: ${purpose ?? "(none)"}` : undefined,
   )
 
 /** The story part of the prompt of a change: the regions and the images. */

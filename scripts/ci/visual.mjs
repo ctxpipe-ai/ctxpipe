@@ -101,7 +101,7 @@ for (const importPath of new Set(stories.map((story) => story.importPath))) {
     readFileSync(join(root, file), "utf8"),
   ))
     reviews.set(`${importPath}#${story.name}`, {
-      name: story.label,
+      name: story.storybookName,
       kind: story.kind,
       purpose: story.purpose,
     })

@@ -4,6 +4,9 @@
 // manifest) and `visual:review` (what the critic knows about a screenshot)
 // read them with this one parser.
 
+import { readdirSync } from "node:fs"
+import { join } from "node:path"
+
 /** The few Babel node fields that the parser reads. */
 type Node = {
   type: string
@@ -30,7 +33,7 @@ export type StoryKind = "page" | "component"
  */
 type StoryTags = {
   name: string
-  label: string
+  storybookName: string
   page: boolean
   route: string | null
   kind: StoryKind | null
@@ -102,11 +105,21 @@ export function storiesOf(
     const purpose = stringOf(reviewOf(annotations, "purpose"))?.trim()
     return {
       name,
-      label: `${csf._meta?.title ?? file} / ${story.name ?? name}`,
+      storybookName: `${csf._meta?.title ?? file} / ${story.name ?? name}`,
       page: tags.has("page"),
       route: stringOf(route),
       kind: kind === "page" || kind === "component" ? kind : null,
       purpose: purpose || null,
     }
+  })
+}
+
+/** The paths of the story files under `directory`, outside `node_modules`. */
+export function storyFiles(directory: string): string[] {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name)
+    if (entry.isDirectory())
+      return entry.name === "node_modules" ? [] : storyFiles(path)
+    return /\.stories\.tsx?$/.test(entry.name) ? [path] : []
   })
 }

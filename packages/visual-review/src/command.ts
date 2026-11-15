@@ -693,7 +693,8 @@ async function judgeNewScreenshots(
  * from its story in `<dir>/<story file>.stories.tsx` of the current folder
  * (the merge-base tree): the scope from `parameters.review.kind`, the
  * Storybook name, and the purpose. When that story is not there, or has no
- * kind, the scope is `component`, with a note that says so.
+ * kind (a merge base from before the story review check), the scope is
+ * `component`, with a note that says so.
  */
 async function aboutStory(
   path: string,
@@ -721,23 +722,17 @@ async function aboutStory(
         storiesOf(loadCsf, file, code).find(({ name }) => name === story),
       )
       .catch(() => undefined)
-    if (!found) continue
-    const about = {
-      name: found.label,
-      ...(found.purpose ? { purpose: found.purpose } : {}),
-    }
-    return found.kind
-      ? { scope: found.kind, ...about }
-      : {
-          scope: "component",
-          ...about,
-          note: `The scope is component: the story ${found.label} has no parameters.review.kind at the merge base, so the page-only qualities were not judged.`,
-        }
+    if (found?.kind)
+      return {
+        scope: found.kind,
+        name: found.storybookName,
+        ...(found.purpose ? { purpose: found.purpose } : {}),
+      }
   }
   const files = candidates.map(({ file }) => file).join(" or ")
   return {
     scope: "component",
-    note: `The scope is component: the story of this screenshot is not in ${files || "a story file"} at the merge base, so the critic had no kind or purpose of the story, and the page-only qualities were not judged.`,
+    note: `The scope is component: the story of this screenshot, with its kind, is not in ${files || "a story file"} at the merge base, so the critic had no kind or purpose of the story, and the page-only qualities were not judged.`,
   }
 }
 

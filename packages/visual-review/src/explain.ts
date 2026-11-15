@@ -8,7 +8,7 @@
 import { z } from "zod"
 
 import { askOpenRouter } from "./adapters/openrouter.ts"
-import { judgingRule, storyData, type Prompt } from "./prompt.ts"
+import { judgingRule, scopeLine, storyData, type Prompt } from "./prompt.ts"
 import type { RubricEntry } from "./rubric.ts"
 import type { NewStoryInput, StoryImage, StoryInput } from "./story.ts"
 import { parseJsonReply, type Verdict } from "./verdict.ts"
@@ -232,6 +232,7 @@ Rules:
 
 Reply with one JSON object that matches the JSON Schema of the reply, and with no other text.`,
     story: `Story: ${input.story.storyId}
+${scopeLine(input.story.scope, input.story.rubric)}
 ${storyData(input.story)}
 Jev: ${verdict.summary}
 Region of Jev, in fractions of the ${input.kind === "change" ? "after image" : "first image"}: ${region ? `x ${region.x.toFixed(2)}, y ${region.y.toFixed(2)}, width ${region.width.toFixed(2)}, height ${region.height.toFixed(2)}` : "none, look at the whole image"}
