@@ -72,7 +72,8 @@ const choiceQuestion = (instructions: string): Question => ({
  * `parseVerdict`). The state gives Jev `judgingRule`, with the priority order
  * of the qualities. Jev gives no text, so `observations` is empty and each
  * finding has an empty `evidence`. `onAnswers` gets the raw answers of Jev:
- * the bake-off keeps them, to test other thresholds with no new call. A 400 or 413 answer gives `unsure` with
+ * only the bake-off of the factory (`factory eval visual:bakeoff`) uses it,
+ * to keep them and test other thresholds with no new call. A 400 or 413 answer gives `unsure` with
  * the error. An image that is not a PNG gives `unsure` with the error and no
  * call. An image with a side under 280 or over 1568 px is padded or scaled
  * before it is sent (see `prepareImage`). Another failure throws. The request asks the provider not to keep the data
@@ -383,9 +384,9 @@ async function decide(
  * brief; see `parseNewVerdict`). A quality is `fails` from 0.5, `weak` from
  * 0.2, and else `meets`. Only Jev 1.14 takes the box question, on the first
  * image. For another model, the region of a finding is the whole first
- * image. `onAnswers` gets the raw answers of Jev, for the bake-off. The
- * bake-off of the critic uses it (CTX-1243), and the visual critic of the
- * factory (`visual:review --judge jev`, ADR-063).
+ * image. `onAnswers` gets the raw answers of Jev, for the bake-off of the
+ * factory (`factory eval visual:bakeoff`, CTX-1243). The visual critic of the
+ * factory (`visual:review --judge jev`, ADR-063) uses this function too.
  */
 export async function judgeNewWithJev(
   story: NewStoryInput,

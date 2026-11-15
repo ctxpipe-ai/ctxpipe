@@ -60,7 +60,8 @@ const referenceRule = `\`rubricRef\` copies the source of the rubric entry that 
  * How the judge compares the two sides of a region. `describe-first` (the
  * default) describes the before crop and the after crop one at a time, and
  * then compares the two descriptions. `one-step` compares the crops in one
- * step. The bake-off measures both.
+ * step. The bake-off of the factory (`factory eval visual:bakeoff`) measures
+ * both. Only its harness uses `one-step`.
  */
 export type Steps = "describe-first" | "one-step"
 
@@ -185,10 +186,12 @@ export function buildPrompt(
 }
 
 /**
- * Build the prompt of a member of the judge panel of the bake-off
- * (evals/critic/panel.ts) for one change: the panel rules, the rubric and
- * `schema`, the JSON Schema of the reply, then the same story part as the
- * critic prompt. Each member gets the same prompt.
+ * Build the prompt of a member of the judge panel of the visual evals
+ * (`factory eval visual:panel`) for one change: the panel rules, the rubric
+ * and `schema`, the JSON Schema of the reply, then the same story part as the
+ * critic prompt. Each member gets the same prompt. Only the eval harness of
+ * the factory imports it. No module of this repo does.
+ * @public
  */
 export function buildPanelPrompt(
   input: StoryInput,
@@ -220,11 +223,13 @@ ${JSON.stringify(schema)}`
 
 /**
  * Build the prompt of a member of the judge panel for one screenshot with no
- * base image: the unseen calibration set (evals/critic/label-unseen.ts). The
- * panel rules, the rubric and `schema`, then the same story part as the
- * critic prompt of a new screenshot. The prompt does not have the
+ * base image: the unseen calibration set (`factory eval visual:label-unseen`).
+ * The panel rules, the rubric and `schema`, then the same story part as the
+ * critic prompt of a new screenshot. Only the eval harness of the factory
+ * imports it. No module of this repo does. The prompt does not have the
  * `judgingRule`: that rule comes from the feedback of the owner, and the
  * unseen set must not repeat it.
+ * @public
  */
 export function buildNewPanelPrompt(
   input: NewStoryInput,
