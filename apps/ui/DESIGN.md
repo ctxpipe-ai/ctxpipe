@@ -11,7 +11,7 @@ Implementation process: [`.agents/skills/product-ui/SKILL.md`](../../.agents/ski
 ## Priority order
 
 1. **Task clarity:** the user can tell what the screen is for, what each element does, and what to do next.
-2. **Hierarchy and grouping:** the most important element leads, and related elements read as one group.
+2. **Hierarchy and grouping:** the most important element leads, and related elements read as one group (**Gestalt lens**).
 3. **State and feedback:** each state (loading, empty, error, done, long or missing content) shows clearly.
 4. **Consistency:** the same meaning has the same look on every screen.
 5. **Alignment and spacing:** edges, axes and space are even.
@@ -56,7 +56,7 @@ Leading: tighter on large type, looser on small / wide prose. Do not use `leadin
 
 Letter-spacing: do not track body copy. Open tracking on short all-caps only (`.ctx-label` already does this). Tight tracking uses `tracking-tight` / `tracking-tighter`, not `tracking-[-0.5px]`.
 
-Pick sizes from the Tailwind scale by trying neighbors (`text-sm` ↔ `text-base`). Do not invent midpoints (`text-[15px]`, `h-[25px]`). Use `text-balance` on a title that can wrap.
+Pick sizes from the Tailwind scale by trying neighbors (`text-sm` ↔ `text-base`). Use `text-balance` on a title that can wrap.
 
 ### Color
 
@@ -71,18 +71,16 @@ Dark product floor: zinc-950 / `--background` / `--card`. Ink: `--foreground`. S
 | `--border` / `border-white/10` | Hairlines |
 
 <!-- rubric: color-tokens -->
-Color comes from the house tokens: a zinc floor, a white primary, a teal accent. Red marks an error and the filled danger button of a confirm dialog. The dark UI has no large bright or saturated area: bright color is a small accent, such as a border, an icon or a dot, and a block has at most one teal edge or wash. A warning is a dark surface with a yellow or amber border and icon; a yellow fill with dark text is only for a small element, and only when it passes AA. One block shows its state with one color signal: a frame, or an icon with one colored line or edge, not a colored edge, colored dots and boxed alerts together. The items inside such a block show their state as quiet text with at most one icon. An embedded editor, diff viewer or preview uses the dark theme. No indigo, no purple gradient, no second accent.
+Color comes from the house tokens: a zinc floor, a white primary, a teal accent. Red marks an error and the filled danger button of a confirm dialog. The dark UI has no large bright or saturated area: bright color is a small accent, such as a border, an icon or a dot, and a block has at most one teal edge or wash. A warning is a dark surface with a yellow or amber border and icon; a yellow fill with dark text is only for a small element, and only when it passes AA. An embedded editor, diff viewer or preview uses the dark theme. No indigo, no purple gradient, no second accent.
 <!-- /rubric -->
 
 Leftover shadcn indigo (`sidebar-primary` / `chart-1` hue 264) is not brand.
 
-### Space
+### Space and alignment
 
 <!-- rubric: spacing -->
-Space comes from the Tailwind scale. A group has more space around it than within it. A label is closer to its field than one field group is to the next. A heading is closer to its own content than to the block above it. A list row gap is larger than the line height. Text does not touch the edge of its button, card, pill or page. A chip, badge or icon tab has space on each side from its neighbors. The parts of a label keep a space or a separator between them, so that a number and a word do not read as one word.
+Space and alignment follow the Gestalt proximity and continuity. Space comes from the Tailwind scale. Text does not touch the edge of its button, card, pill or page. Long copy is left-aligned, never justified, and numbers are right-aligned with tabular figures.
 <!-- /rubric -->
-
-Use spacing steps (`gap-2`, `p-3`, `p-6`, `gap-7`), not arbitrary px (`p-[13px]`, `gap-[22px]`).
 
 ### Elevation
 
@@ -135,7 +133,7 @@ Every user can read and reach the UI. Text and icons are readable on their surfa
 <!-- /rubric -->
 
 <!-- rubric: contrast -->
-Text is readable on its surface: about 4.5:1 for body text and 3:1 for large text and icons. On a teal, red or amber slab, secondary text is a lighter stop of the same hue at full opacity, not white at reduced opacity. The text of an item that the user can click (a file tree, a nav list) is never so dim that it reads as disabled. A card, a tile or a row differs from the page by its surface, by a border that is easy to see, or both: a thin dim border on the page color looks like a wireframe.
+Text is readable on its surface: about 4.5:1 for body text and 3:1 for large text and icons. On a teal, red or amber slab, secondary text is a lighter stop of the same hue at full opacity, not white at reduced opacity. The text of an item that the user can click (a file tree, a nav list) is never so dim that it reads as disabled.
 <!-- /rubric -->
 
 Quiet text uses `text-muted-foreground` or brighter.
@@ -151,13 +149,13 @@ The page has one primary action: one filled white button. Other actions are outl
 <!-- /rubric -->
 
 <!-- rubric: actions -->
-Each control shows what it does: an icon tells its action, a chevron sits only on a row that opens or expands, and the main action of a page has a label, not a lone + icon. An action sits next to the thing that it acts on, for example a copy button at its field and a fix at its problem. An action keeps the size and the weight of its rank wherever it sits. Peer actions in one row have the same weight and type: two buttons, or two links.
+Each control shows what it does: an icon tells its action, a chevron sits only on a row that opens or expands, and the main action of a page has a label, not a lone + icon.
 <!-- /rubric -->
 
 Destructive actions are outline or quiet on the page; filled red is only on the confirm dialog ([`AlertDialog`](src/components/ui/AlertDialog.tsx)).
 
 <!-- rubric: dialog -->
-A modal has a header, a body and a footer zone on one aligned grid. It fits the viewport: the header and the footer stay in place, long content scrolls inside the body, and nothing is cut off at an edge of the screen. Each dialog and each step of a flow shows a way to close, cancel or go back, also when the screen would look cleaner without it.
+A modal has a header, a body and a footer zone. It fits the viewport: the header and the footer stay in place, long content scrolls inside the body, and nothing is cut off at an edge of the screen. Each dialog and each step of a flow shows a way to close, cancel or go back, also when the screen would look cleaner without it.
 <!-- /rubric -->
 
 <!-- rubric: copy -->
@@ -167,20 +165,29 @@ Copy is plain and specific US English in every visible word, also a legend and a
 ### Hierarchy and grouping
 
 <!-- rubric: hierarchy -->
-One element leads: the title is the loudest ink, and the rest steps down. Hierarchy comes from weight and muted color, not from a size jump; neighbors and decorative icons are muted first. Each screen has a small budget of strong signals (a filled button, a bright color, a badge, a colored edge, an icon in a tile): each signal marks something that matters, and signals of equal weight compete. Items of different importance do not get the same weight, as in a grid of equal cards. Secondary chrome (legends, hints, help) is smaller and dimmer than the content and does not cover it. A child group (a nested list, the options of one choice, the scope of one item) stays inset or framed under its parent, so that the reader sees the tree.
+One element leads: the title is the loudest ink, and the rest steps down. Hierarchy comes from weight and muted color, not from a size jump; neighbors and decorative icons are muted first. Each screen has a small budget of strong signals (a filled button, a bright color, a badge, a colored edge, an icon in a tile), and each one marks something that matters.
 <!-- /rubric -->
 
 A first-run help tour can cover content until the user dismisses it. A dismissed hint or tour stays dismissed.
 
-<!-- rubric: grouping-and-rhythm -->
-Related items sit together and read as one group. Each group reads as one figure on its ground: a surface, a frame, a heading or space shows where it starts and ends. Each level of containment has its own treatment: the page holds cards with their own surface; a card holds groups with an inset, a hairline frame or space, not a second card. Inside a group, space separates the items first, then one hairline.
-<!-- /rubric -->
-
-A page groups its content into areas that the reader can tell apart. This rule stays out of the critic rubric: as rubric text, it made the critic call intended changes worse ([ADR-063](../../.ai/memory/decisions/ADR-063-visual-critic-decides-with-jev.md) rule 11).
-
 <!-- rubric: missing-elements -->
-An addition or deletion region adds or removes an element. A label, an icon, a status word or a control does not disappear without a reason. A block keeps the shape that shows what it is: a status block, a step or a result that loses its surface, frame or icon and becomes bare text is a regression.
+An addition or deletion region adds or removes an element. A label, an icon, a status word, a control or the frame of a block does not disappear without a reason.
 <!-- /rubric -->
+
+#### Gestalt lens
+
+<!-- rubric: gestalt -->
+Read each screen through the Gestalt principles. A screen that breaks one is a smell, also when no other rule names it.
+
+- **Proximity:** less space inside a group than around it; an action sits at the thing it acts on.
+- **Similarity:** the same meaning has the same look; peer actions share one weight.
+- **Common region:** a surface, a frame or an inset holds each group; a card holds groups, not a second card.
+- **Figure–ground:** a card, a tile or a row stands off the page by its surface or a clear border, not a dim hairline.
+- **Continuity:** siblings share one edge and one marker axis; a child group steps in; a different edge marks a different role.
+- **Prägnanz:** each block reads in its simplest form: one state signal, quiet items inside, space before a hairline.
+<!-- /rubric -->
+
+**Common fate** applies to motion only (see **Motion**).
 
 ### State and feedback
 
@@ -194,7 +201,7 @@ Each state uses its house pattern. A region wait is a skeleton with the box of t
 - **Notices that wait for an action** (for example the Home upgrade toasts and Workspace hydrate problem toasts): toasts in a [`ToastStack`](src/components/ui/ToastStack.tsx) in a slot at the top of the Home content column, not a warning slab in the page. An upgrade toast has the upgrade icon; a problem toast has the warning icon. The front toast shows in full; hover or focus opens the stack.
 
 <!-- rubric: status -->
-A status is a dot and its word. The color is on the dot; the words share one restrained text color. In a list, the dots and the words of all rows sit in one aligned column. A dot pulses only while the work runs (running, syncing, indexing); a static state has a still dot.
+A status is a dot and its word. The color is on the dot; the words share one restrained text color. A dot pulses only while the work runs (running, syncing, indexing); a static state has a still dot.
 <!-- /rubric -->
 
 Use the existing pill + dot ([`RepositoryStatus`](src/features/repositories/components/RepositoryStatus.tsx)).
@@ -210,7 +217,7 @@ Labels, copy and field values show no rendering artifact: no undefined, null, Na
 ### Consistency
 
 <!-- rubric: consistency -->
-The same meaning has the same pattern on every screen, and a different meaning has a different pattern. The change reuses the house primitives and patterns: one corner radius (rounded-md), the button variants, the status pill, the alert. No new font, hex color, corner treatment, shadow or card style.
+Similarity holds across screens, so the change reuses the house primitives and patterns: one corner radius (rounded-md), the button variants, the status pill, the alert. No new font, hex color, corner treatment, shadow or card style.
 <!-- /rubric -->
 
 <!-- rubric: brand-fit -->
@@ -221,27 +228,21 @@ Build with `src/components/ui/*` (React Aria). Do not invent a new Button, Input
 
 ### Alignment and spacing
 
-<!-- rubric: alignment -->
-Alignment carries meaning. Blocks of one kind in one column share one left edge; a different edge marks a different role, as the messages of the user on the right of a chat. The leading markers of the siblings at one level of a vertical stack (a header icon, checkboxes, step numbers, list icons) share one vertical axis, and the center of each marker sits on its text line. A child group has its own axis, one clear step in. Long copy is left-aligned, never justified. Numbers are right-aligned with tabular figures. Mixed type on one row shares a baseline.
-<!-- /rubric -->
-
-<!-- rubric: balance -->
-Space is spread evenly across a row and a column. No element sits close to one neighbor while a large empty gap stays on its other side, and a moved element leaves no lopsided gap. Judge the balance of the whole composition, not only one element.
-<!-- /rubric -->
+Edges, axes and space follow the **Gestalt lens** and **Space and alignment**.
 
 <!-- rubric: density -->
 Operate density, as in chat, connectors and settings: tight, not landing-page air. Forms and prose keep a maximum width; data surfaces are full width.
 <!-- /rubric -->
 
-Start a little loose, then tighten. Forms and help use `max-w-*` / `max-w-prose` (~45–75ch). Full-bleed is for data surfaces (virtualized lists, tables). Do not stretch a settings form to match the nav.
+Start a little loose, then tighten. Forms and help use `max-w-*` / `max-w-prose` (~45–75ch). Do not stretch a settings form to match the nav.
 
 ### Polish
 
 <!-- rubric: restraint -->
-No generic AI decoration: no gradient, gradient text, glass, grain, glow or grid on product chrome, no hero type, no four equal KPI tiles, no teal on every row, no badge stacked above a title, no numbers on sections that are not a sequence, no icon tile above the heading of an empty state, no glow or drop shadow on hover. A colored edge on one side of a block marks a state, such as a block that needs the user, and is then the one signal of that block; a colored stripe that marks no state is decoration. An in-page card has no hard offset shadow and no wide black shadow; a dialog, popover, menu or toast keeps its house shadow. A blurred backdrop behind a modal, an uppercase heading that names a page section, and a status dot with its word are not decoration.
+No generic AI decoration: no gradient, gradient text, glass, grain, glow or grid on product chrome, no hero type, no four equal KPI tiles, no teal on every row, no badge stacked above a title, no numbers on sections that are not a sequence, no icon tile above the heading of an empty state, no glow or drop shadow on hover. A colored edge on one side of a block marks a state, such as a block that needs the user; a colored stripe that marks no state is decoration. An in-page card has no hard offset shadow and no wide black shadow; a dialog, popover, menu or toast keeps its house shadow. A blurred backdrop behind a modal, an uppercase heading that names a page section, and a status dot with its word are not decoration.
 <!-- /rubric -->
 
-The AppShell and product chrome have no background decoration (24px grid, teal/blue radial glow, gradients, grain, world maps, Hero Patterns). Onboarding may keep atmosphere. Replace a tell with the house element that the rules above name.
+Replace a tell with the house element that the rules above name.
 
 ## Loading states
 
@@ -250,7 +251,7 @@ All skeletons follow one rule. The rule is in [`Skeleton.tsx`](src/components/ui
 - **Delay:** a skeleton is not visible for the first `SKELETON_DELAY_MS` (1000 ms). Before that time, the region keeps its final size but stays empty. Thus a fast load shows no skeleton. A CSS animation (`ctx-skeleton-wait`) runs the delay, so the delay starts at first paint, also for server HTML.
 - **Hand-over:** when a skeleton of one thing hands over to a different skeleton of the same thing (for example the workspace skeleton to the Files pane skeleton), put both in a `SkeletonChain` with the same id, under one `SkeletonRegion`. The second skeleton then shows when the first one shows, so the area does not go blank. The chain takes its show time from the CSS animation, which starts at first paint. Skeletons of other chains keep their own delay. Give the chain id to `useSkeletonHold` and `SkeletonSuspense` too, so the hold starts when the chain shows.
 - **Minimum time:** when a skeleton is visible, it stays for at least `SKELETON_MIN_MS` (300 ms). Use `useSkeletonHold(isPending)` for a query-driven skeleton. Use `SkeletonSuspense` in place of `Suspense`. Put wait text in a skeleton inside `SkeletonReveal`.
-- **Match:** a skeleton has the same box as the loaded state: the same size, position, spacing and row height. A list skeleton follows the Rows rule, not the row count. Use the class names of the loaded component. Use `SkeletonText` for a text line, so that the bone row has the line height of the text. When one skeleton hands over to a different skeleton, put both in one `SkeletonChain`.
+- **Match:** a skeleton has the same box as the loaded state: the same size, position, spacing and row height. A list skeleton follows the Rows rule, not the row count. Use the class names of the loaded component. Use `SkeletonText` for a text line, so that the bone row has the line height of the text.
 - **Subtle:** bones are `bg-zinc-800/50` with a `white/5` shimmer. The bone has the `ctx-loading-motion` class, so the reduced-motion rule does not stop the shimmer.
 - **Space:** a block that always shows keeps the space it will use while it loads. Its skeleton has the same height as the loaded block. A block that may not show (for example Get started) reserves no space while it loads. When it appears, a view transition (150 ms, ease-out) moves the blocks below with transforms, so they do not jump (see Motion). Never animate its height. With reduced motion, it appears without animation.
 - **Rows:** a skeleton list shows at most 3 rows, with falling opacity (75%, 50%, 25%). Do not guess the full row count.
@@ -271,14 +272,6 @@ A dialog has one close control. In a wizard, it is one Close button at the botto
 <!-- rubric: restraint -->
 These ctxpipe signatures are not tells: the mono uppercase .ctx-label as a section label in a dense panel (not as an eyebrow above a page title or a card heading), and corner crosses on a hero or summary card.
 <!-- /rubric -->
-
-## What not to invent
-
-- A new font, hex color, or corner treatment
-- A new AppShell, sidebar fill, or page-wide glow/grid
-- Landing-page heroes, glass cards, four-stat strips, or Inter
-- Unbuilt attachments (paperclip with no backend)
-- Extra tabs, filters, or marketing chrome on an empty surface
 
 ## The visual critic
 

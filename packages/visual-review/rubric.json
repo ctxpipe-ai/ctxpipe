@@ -14,7 +14,7 @@
     {
       "id": "color-tokens",
       "name": "Color tokens",
-      "definition": "Color comes from the house tokens: a zinc floor, a white primary, a teal accent. Red marks an error and the filled danger button of a confirm dialog. The dark UI has no large bright or saturated area: bright color is a small accent, such as a border, an icon or a dot, and a block has at most one teal edge or wash. A warning is a dark surface with a yellow or amber border and icon; a yellow fill with dark text is only for a small element, and only when it passes AA. One block shows its state with one color signal: a frame, or an icon with one colored line or edge, not a colored edge, colored dots and boxed alerts together. The items inside such a block show their state as quiet text with at most one icon. An embedded editor, diff viewer or preview uses the dark theme. No indigo, no purple gradient, no second accent.",
+      "definition": "Color comes from the house tokens: a zinc floor, a white primary, a teal accent. Red marks an error and the filled danger button of a confirm dialog. The dark UI has no large bright or saturated area: bright color is a small accent, such as a border, an icon or a dot, and a block has at most one teal edge or wash. A warning is a dark surface with a yellow or amber border and icon; a yellow fill with dark text is only for a small element, and only when it passes AA. An embedded editor, diff viewer or preview uses the dark theme. No indigo, no purple gradient, no second accent.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
@@ -24,19 +24,19 @@
     },
     {
       "id": "spacing",
-      "name": "Spacing",
-      "definition": "Space comes from the Tailwind scale. A group has more space around it than within it. A label is closer to its field than one field group is to the next. A heading is closer to its own content than to the block above it. A list row gap is larger than the line height. Text does not touch the edge of its button, card, pill or page. A chip, badge or icon tab has space on each side from its neighbors. The parts of a label keep a space or a separator between them, so that a number and a word do not read as one word.",
+      "name": "Spacing and alignment",
+      "definition": "Space and alignment follow the Gestalt proximity and continuity. Space comes from the Tailwind scale. Text does not touch the edge of its button, card, pill or page. Long copy is left-aligned, never justified, and numbers are right-aligned with tabular figures.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
-          "section": "Space"
+          "section": "Space and alignment"
         }
       ]
     },
     {
       "id": "contrast",
       "name": "Contrast",
-      "definition": "Text is readable on its surface: about 4.5:1 for body text and 3:1 for large text and icons. On a teal, red or amber slab, secondary text is a lighter stop of the same hue at full opacity, not white at reduced opacity. The text of an item that the user can click (a file tree, a nav list) is never so dim that it reads as disabled. A card, a tile or a row differs from the page by its surface, by a border that is easy to see, or both: a thin dim border on the page color looks like a wireframe.",
+      "definition": "Text is readable on its surface: about 4.5:1 for body text and 3:1 for large text and icons. On a teal, red or amber slab, secondary text is a lighter stop of the same hue at full opacity, not white at reduced opacity. The text of an item that the user can click (a file tree, a nav list) is never so dim that it reads as disabled.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
@@ -47,7 +47,7 @@
     {
       "id": "actions",
       "name": "Actions and affordance",
-      "definition": "Each control shows what it does: an icon tells its action, a chevron sits only on a row that opens or expands, and the main action of a page has a label, not a lone + icon. An action sits next to the thing that it acts on, for example a copy button at its field and a fix at its problem. An action keeps the size and the weight of its rank wherever it sits. Peer actions in one row have the same weight and type: two buttons, or two links.",
+      "definition": "Each control shows what it does: an icon tells its action, a chevron sits only on a row that opens or expands, and the main action of a page has a label, not a lone + icon.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
@@ -58,7 +58,7 @@
     {
       "id": "dialog",
       "name": "Dialog structure",
-      "definition": "A modal has a header, a body and a footer zone on one aligned grid. It fits the viewport: the header and the footer stay in place, long content scrolls inside the body, and nothing is cut off at an edge of the screen. Each dialog and each step of a flow shows a way to close, cancel or go back, also when the screen would look cleaner without it. A dialog has one close control. In a wizard, it is one Close button at the bottom right, with no second Close or X at the top.",
+      "definition": "A modal has a header, a body and a footer zone. It fits the viewport: the header and the footer stay in place, long content scrolls inside the body, and nothing is cut off at an edge of the screen. Each dialog and each step of a flow shows a way to close, cancel or go back, also when the screen would look cleaner without it. A dialog has one close control. In a wizard, it is one Close button at the bottom right, with no second Close or X at the top.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
@@ -84,7 +84,7 @@
     {
       "id": "missing-elements",
       "name": "Missing elements",
-      "definition": "An addition or deletion region adds or removes an element. A label, an icon, a status word or a control does not disappear without a reason. A block keeps the shape that shows what it is: a status block, a step or a result that loses its surface, frame or icon and becomes bare text is a regression.",
+      "definition": "An addition or deletion region adds or removes an element. A label, an icon, a status word, a control or the frame of a block does not disappear without a reason.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
@@ -95,7 +95,7 @@
     {
       "id": "status",
       "name": "Status",
-      "definition": "A status is a dot and its word. The color is on the dot; the words share one restrained text color. In a list, the dots and the words of all rows sit in one aligned column. A dot pulses only while the work runs (running, syncing, indexing); a static state has a still dot.",
+      "definition": "A status is a dot and its word. The color is on the dot; the words share one restrained text color. A dot pulses only while the work runs (running, syncing, indexing); a static state has a still dot.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
@@ -122,17 +122,6 @@
         {
           "file": "apps/ui/DESIGN.md",
           "section": "State and feedback"
-        }
-      ]
-    },
-    {
-      "id": "alignment",
-      "name": "Alignment",
-      "definition": "Alignment carries meaning. Blocks of one kind in one column share one left edge; a different edge marks a different role, as the messages of the user on the right of a chat. The leading markers of the siblings at one level of a vertical stack (a header icon, checkboxes, step numbers, list icons) share one vertical axis, and the center of each marker sits on its text line. A child group has its own axis, one clear step in. Long copy is left-aligned, never justified. Numbers are right-aligned with tabular figures. Mixed type on one row shares a baseline.",
-      "sources": [
-        {
-          "file": "apps/ui/DESIGN.md",
-          "section": "Alignment and spacing"
         }
       ]
     }
@@ -177,7 +166,7 @@
     {
       "id": "hierarchy",
       "name": "Hierarchy",
-      "definition": "One element leads: the title is the loudest ink, and the rest steps down. Hierarchy comes from weight and muted color, not from a size jump; neighbors and decorative icons are muted first. Each screen has a small budget of strong signals (a filled button, a bright color, a badge, a colored edge, an icon in a tile): each signal marks something that matters, and signals of equal weight compete. Items of different importance do not get the same weight, as in a grid of equal cards. Secondary chrome (legends, hints, help) is smaller and dimmer than the content and does not cover it. A child group (a nested list, the options of one choice, the scope of one item) stays inset or framed under its parent, so that the reader sees the tree.",
+      "definition": "One element leads: the title is the loudest ink, and the rest steps down. Hierarchy comes from weight and muted color, not from a size jump; neighbors and decorative icons are muted first. Each screen has a small budget of strong signals (a filled button, a bright color, a badge, a colored edge, an icon in a tile), and each one marks something that matters.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
@@ -187,13 +176,13 @@
       "pageOnly": false
     },
     {
-      "id": "grouping-and-rhythm",
-      "name": "Grouping and rhythm",
-      "definition": "Related items sit together and read as one group. Each group reads as one figure on its ground: a surface, a frame, a heading or space shows where it starts and ends. Each level of containment has its own treatment: the page holds cards with their own surface; a card holds groups with an inset, a hairline frame or space, not a second card. Inside a group, space separates the items first, then one hairline.",
+      "id": "gestalt",
+      "name": "Gestalt",
+      "definition": "Read each screen through the Gestalt principles. A screen that breaks one is a smell, also when no other rule names it. Proximity: less space inside a group than around it; an action sits at the thing it acts on. Similarity: the same meaning has the same look; peer actions share one weight. Common region: a surface, a frame or an inset holds each group; a card holds groups, not a second card. Figure–ground: a card, a tile or a row stands off the page by its surface or a clear border, not a dim hairline. Continuity: siblings share one edge and one marker axis; a child group steps in; a different edge marks a different role. Prägnanz: each block reads in its simplest form: one state signal, quiet items inside, space before a hairline.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
-          "section": "Hierarchy and grouping"
+          "section": "Gestalt lens"
         }
       ],
       "pageOnly": false
@@ -213,7 +202,7 @@
     {
       "id": "consistency",
       "name": "Consistency",
-      "definition": "The same meaning has the same pattern on every screen, and a different meaning has a different pattern. The change reuses the house primitives and patterns: one corner radius (rounded-md), the button variants, the status pill, the alert. No new font, hex color, corner treatment, shadow or card style.",
+      "definition": "Similarity holds across screens, so the change reuses the house primitives and patterns: one corner radius (rounded-md), the button variants, the status pill, the alert. No new font, hex color, corner treatment, shadow or card style.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
@@ -235,18 +224,6 @@
       "pageOnly": false
     },
     {
-      "id": "balance",
-      "name": "Visual balance",
-      "definition": "Space is spread evenly across a row and a column. No element sits close to one neighbor while a large empty gap stays on its other side, and a moved element leaves no lopsided gap. Judge the balance of the whole composition, not only one element.",
-      "sources": [
-        {
-          "file": "apps/ui/DESIGN.md",
-          "section": "Alignment and spacing"
-        }
-      ],
-      "pageOnly": false
-    },
-    {
       "id": "density",
       "name": "Density",
       "definition": "Operate density, as in chat, connectors and settings: tight, not landing-page air. Forms and prose keep a maximum width; data surfaces are full width.",
@@ -261,7 +238,7 @@
     {
       "id": "restraint",
       "name": "Restraint",
-      "definition": "No generic AI decoration: no gradient, gradient text, glass, grain, glow or grid on product chrome, no hero type, no four equal KPI tiles, no teal on every row, no badge stacked above a title, no numbers on sections that are not a sequence, no icon tile above the heading of an empty state, no glow or drop shadow on hover. A colored edge on one side of a block marks a state, such as a block that needs the user, and is then the one signal of that block; a colored stripe that marks no state is decoration. An in-page card has no hard offset shadow and no wide black shadow; a dialog, popover, menu or toast keeps its house shadow. A blurred backdrop behind a modal, an uppercase heading that names a page section, and a status dot with its word are not decoration. These ctxpipe signatures are not tells: the mono uppercase .ctx-label as a section label in a dense panel (not as an eyebrow above a page title or a card heading), and corner crosses on a hero or summary card.",
+      "definition": "No generic AI decoration: no gradient, gradient text, glass, grain, glow or grid on product chrome, no hero type, no four equal KPI tiles, no teal on every row, no badge stacked above a title, no numbers on sections that are not a sequence, no icon tile above the heading of an empty state, no glow or drop shadow on hover. A colored edge on one side of a block marks a state, such as a block that needs the user; a colored stripe that marks no state is decoration. An in-page card has no hard offset shadow and no wide black shadow; a dialog, popover, menu or toast keeps its house shadow. A blurred backdrop behind a modal, an uppercase heading that names a page section, and a status dot with its word are not decoration. These ctxpipe signatures are not tells: the mono uppercase .ctx-label as a section label in a dense panel (not as an eyebrow above a page title or a card heading), and corner crosses on a hero or summary card.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",
