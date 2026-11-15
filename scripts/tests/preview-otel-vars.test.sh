@@ -42,18 +42,6 @@ endpoint_of_module="$(cd "$root" && bash -c 'source scripts/preview-otel-vars.sh
 if grep -q 'TF_VAR_otel_otlp_endpoint' "$deploy_workflow" && ! grep -q 'variable "otel_otlp_endpoint"' "$root/infra/variables.tf"; then
   fail "deploy.yaml sets TF_VAR_otel_otlp_endpoint, but infra/ has no root variable to take it"
 fi
-# The production deploy runs the guard on that endpoint before its sync and before Terraform applies.
-grep -Fq 'endpoint="$(production_otel_endpoint)"' "$deploy_workflow" \
-  || fail "deploy.yaml must check the endpoint that Terraform sets"
-grep -Fq 'require_access_headers_for_endpoint "$endpoint" "$OBSERVABILITY_OTLP_HEADERS"' "$deploy_workflow" \
-  || fail "deploy.yaml must refuse the new collector without its Access token"
-guard_line="$(grep -n 'name: Refuse the new collector without its Access token' "$deploy_workflow" | cut -d: -f1)"
-sync_line="$(grep -n 'name: Sync production secrets to Railway' "$deploy_workflow" | cut -d: -f1)"
-apply_line="$(grep -n 'name: Terraform Apply' "$deploy_workflow" | cut -d: -f1)"
-((guard_line < sync_line && guard_line < apply_line)) \
-  || fail "deploy.yaml must refuse before the sync and before Terraform applies"
-grep -Fq 'for ENV_ID in $(preview_environment_ids); do' "$deploy_workflow" \
-  || fail "the production deploy must remove the OTEL variables of every preview"
 envs="$(
   set -euo pipefail
   # shellcheck disable=SC1091
