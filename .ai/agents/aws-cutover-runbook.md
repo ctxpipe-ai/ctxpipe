@@ -368,9 +368,12 @@ Do the steps that apply, in this order. Skip a step whose change was not made ye
 - **Who:** person.
 - **When:** at T+90, or at the end of a full rollback.
 - **Do:**
-  1. Reset the password of the Neon owner role in the Neon console. If a Railway variable uses this login (for
-     example the migrate URL), put the new password into it before the next Railway deploy.
-  2. Put `retired` into the two `hosted/cutover/*` secrets.
+  1. Only after a full rollback: reset the password of the Neon owner role in the Neon console. If a Railway variable
+     uses this login (for example the migrate URL), put the new password into it before the next Railway deploy.
+     After G4, do not reset it: Neon stays read-only for a few days, and then the Neon project is deleted (CTO
+     decision, 2026-11-15).
+  2. Put `retired` into the two `hosted/cutover/*` secrets. This removes the stored copy of the Neon owner URL
+     (`hosted/cutover/source-database-url`).
   3. Delete the Access service token of the agent. Revoke the API key of the test organization.
   4. Delete the transfer copies of every run, the rehearsals too. They hold the graphs and the source code of each
      organization, outside the deletion path of ctxpipe:
