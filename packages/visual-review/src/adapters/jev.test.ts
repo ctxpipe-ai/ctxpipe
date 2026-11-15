@@ -196,9 +196,10 @@ describe("judgeWithJev questions", () => {
     expect(instructions("quality.clarity")).toContain(
       "Each form field has a visible label",
     )
-    // The rules of the former literal questions are in the definitions.
-    expect(instructions("area.spacing")).toContain(
-      "a number and a word do not read as one word",
+    // The rules of the former literal questions are in the definitions. The
+    // Gestalt lens holds the ones that a principle covers.
+    expect(instructions("quality.gestalt")).toContain(
+      "Proximity: less space inside a group than around it",
     )
     expect(instructions("area.dialog")).toContain(
       "A dialog has one close control.",

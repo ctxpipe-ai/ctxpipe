@@ -10,11 +10,11 @@
       "flag": [
         {
           "issue": "The page is a flat legacy list: no tiles, weak hierarchy and no area boundaries, unlike the chat page.",
-          "kinds": ["grouping-and-rhythm", "hierarchy", "consistency"]
+          "kinds": ["gestalt", "hierarchy", "consistency"]
         },
         {
           "issue": "The status dots and words are not in one aligned column.",
-          "kinds": ["status", "alignment"]
+          "kinds": ["status", "spacing"]
         },
         {
           "issue": "The status words have many text colors (green, red, gray).",
@@ -46,7 +46,7 @@
       "ok": [
         {
           "item": "The notices above the composer are expanded: the state after the user clicked them.",
-          "kinds": ["focus", "grouping-and-rhythm", "overflow"]
+          "kinds": ["focus", "gestalt", "overflow"]
         },
         {
           "item": "ACTIVITY and RECENT are headings of page sections, not eyebrows.",
@@ -77,7 +77,7 @@
       "ok": [
         {
           "item": "The large empty viewer area in the maximized file pane.",
-          "kinds": ["density", "grouping-and-rhythm", "feedback-and-state"]
+          "kinds": ["density", "gestalt", "feedback-and-state"]
         },
         {
           "item": "The tabs are icon-only.",
@@ -98,7 +98,7 @@
       "flag": [
         {
           "issue": "The blocks of the conversation column do not share a left edge.",
-          "kinds": ["alignment"]
+          "kinds": ["spacing"]
         },
         {
           "issue": "The chat/1 branch chip needs more space from its neighbors.",
@@ -108,7 +108,7 @@
       "ok": [
         {
           "item": "The user message is on the right and the answers are on the left.",
-          "kinds": ["alignment", "consistency"]
+          "kinds": ["spacing", "consistency"]
         }
       ]
     },
@@ -152,7 +152,7 @@
         },
         {
           "issue": "The status dots and words are not in one aligned column.",
-          "kinds": ["status", "alignment"]
+          "kinds": ["status", "spacing"]
         },
         {
           "issue": "The Fix button sits next to the text link Add another: peer actions of uneven weight.",
@@ -162,7 +162,7 @@
       "ok": [
         {
           "item": "The category sidebar with counts.",
-          "kinds": ["grouping-and-rhythm", "density"]
+          "kinds": ["gestalt", "density"]
         }
       ]
     },
@@ -175,11 +175,11 @@
       "flag": [
         {
           "issue": "The content alignment and spacing are poor: the blocks do not share one grid.",
-          "kinds": ["alignment", "spacing"]
+          "kinds": ["spacing"]
         },
         {
           "issue": "The modal does not feel designed: no clear header, body and footer zones.",
-          "kinds": ["dialog", "grouping-and-rhythm"]
+          "kinds": ["dialog", "gestalt"]
         },
         {
           "issue": "The modal has two Close buttons; keep one, at the bottom right.",
@@ -206,7 +206,7 @@
       "flag": [
         {
           "issue": "The Copy button is not at the right end of the secret field.",
-          "kinds": ["actions", "alignment"]
+          "kinds": ["actions", "spacing"]
         },
         {
           "issue": "The copy text of the dialog needs improvement.",
@@ -287,13 +287,13 @@
       "flag": [
         {
           "issue": "The status sits close to the description while a large gap stays before the action: the rows are unbalanced.",
-          "kinds": ["balance", "spacing"]
+          "kinds": ["gestalt", "spacing"]
         }
       ],
       "ok": [
         {
           "item": "The category sidebar with counts.",
-          "kinds": ["grouping-and-rhythm", "density"]
+          "kinds": ["gestalt", "density"]
         }
       ]
     },
@@ -306,7 +306,7 @@
       "flag": [
         {
           "issue": "The header icon, the checkboxes and the step number of the next-step card are not on one vertical axis.",
-          "kinds": ["alignment"]
+          "kinds": ["spacing"]
         }
       ],
       "ok": [
@@ -413,7 +413,7 @@
       "flag": [
         {
           "issue": "The change removed the frame and the inset of the team and project lists: the child group now sits on the axis of its parent, and the reader no longer sees the tree.",
-          "kinds": ["hierarchy", "alignment", "grouping-and-rhythm"]
+          "kinds": ["hierarchy", "spacing", "gestalt"]
         }
       ],
       "ok": [
@@ -459,7 +459,7 @@
       "flag": [
         {
           "issue": "The tiles lost their lighter surface: thin dim borders on the page color look like a wireframe, and the hierarchy is weaker.",
-          "kinds": ["contrast", "hierarchy", "grouping-and-rhythm"]
+          "kinds": ["contrast", "hierarchy", "gestalt"]
         }
       ],
       "ok": [

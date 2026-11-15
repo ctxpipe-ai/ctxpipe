@@ -169,11 +169,14 @@ line gives its expected output. The dry run of the copy is its preflight against
 - **Who:** person; agent for step 4.
 - **Do:**
   1. Merge edge pull request (a): the maintenance page on `app.ctxpipe.ai`.
-  2. Railway: set the replicas of the `backend` and `openworkflow` (the worker) services to 0. Codesearch and FalkorDB
-     stay up.
+  2. Railway: write down the ID of the active deployment of `backend` and of `openworkflow` (the worker)
+     (`railway deployment list --service <service> --environment production --project 119e3cc3-ef73-43aa-895a-8c8ccff73ff8`).
+     Then remove both deployments:
+     `railway down --service <service> --environment production --project 119e3cc3-ef73-43aa-895a-8c8ccff73ff8 --yes`.
+     The window used `railway down`, not 0 replicas. Codesearch and FalkorDB stay up for the export.
   3. AWS: stop `backend` and `ui` (desired count 0).
   4. Agent: run the scale action `cutover-scale-down` (the worker, FalkorDB and codesearch on AWS).
-- **Expected:** `app.ctxpipe.ai` shows the maintenance page. Railway shows 0 replicas for both services.
+- **Expected:** `app.ctxpipe.ai` shows the maintenance page. Railway shows the two deployments as `REMOVED`.
 - **Dry run:** the `pulumi preview` of pull request (a); `railway status`; `aws ecs describe-services`.
 - **Rollback:** the full rollback.
 
@@ -195,9 +198,18 @@ line gives its expected output. The dry run of the copy is its preflight against
      psql "$NEON_OWNER_URL" -tAc "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND usename = 'ctxpipe_app'"
      ```
 
-- **Check:** `SHOW default_transaction_read_only` prints `on`.
-  `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND usename = 'ctxpipe_app'` prints `0`.
-- **Dry run:** the two check queries (expected now: `off`, and a count above 0). Also
+- **Check:** the database setting holds the value, and no application session is open:
+
+  ```sh
+  psql "$NEON_OWNER_URL" -tAc "SELECT array_to_string(setconfig, ',') FROM pg_db_role_setting s JOIN pg_database d ON d.oid = s.setdatabase WHERE d.datname = current_database() AND s.setrole = 0"
+  psql "$NEON_OWNER_URL" -tAc "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND usename = 'ctxpipe_app'"
+  ```
+
+  Expected: `default_transaction_read_only=on`, then `0`. Do not use `SHOW default_transaction_read_only` as the check:
+  a console or SQL client can set the value for its own session, and then `SHOW` prints `off` although each new
+  application session gets `on` (in the window, `pg_settings.source` was `session`).
+- **Dry run:** the two check queries (expected now: no `default_transaction_read_only` value, and a count above 0).
+  Also
   `PGOPTIONS='-c default_transaction_read_only=off' psql "$NEON_OWNER_URL" -tAc "SHOW transaction_read_only"` prints
   `off`: this is the session that the rollback uses.
 - **Rollback:** a new session is read-only now, so open a read-write session to undo the setting:
@@ -275,11 +287,22 @@ line gives its expected output. The dry run of the copy is its preflight against
 - **Do:**
   1. Person: start `backend` and `ui` (desired count 1). The worker stays at 0.
   2. Person: merge edge pull request (b): `app.ctxpipe.ai` to the tunnel, behind the temporary Access app.
-  3. Agent: `validateTarget https://app.ctxpipe.ai` with the Access service token of the agent and the test API key.
+  3. Agent: wait until the tunnel serves the host. cloudflared reads its remotely managed configuration within about
+     a minute after the edge deploy. Until then, a request that passes Access gets a 404 from Cloudflare (an empty
+     body, `server: cloudflare`), and every check of `validateTarget` fails. Poll
+     `curl -sS -o /dev/null -w '%{http_code}' https://app.ctxpipe.ai/.status` with the Access headers until it prints
+     `200`. In the window, the 404 lasted about 2 minutes.
+  4. Agent: `validateTarget https://app.ctxpipe.ai` with the Access service token of the agent and the test API key.
      Then the task `cutover-validate-secrets`.
-  4. Agent: sign in with the test account. Read a graph and run a search on the test repository. Open the connectors
-     page of the test organization: each connector shows as connected. Use only the test organization, and print no
-     secret value and no id.
+  5. Person (the agent's browser cannot pass Access): sign in with the test account. Read a graph and run a search on
+     the test repository. Open the connectors page of the test organization: each connector shows as connected. Use
+     only the test organization, and print no secret value and no id.
+  6. Person, for information only (not a G4 item): the chat smoke. Make a conversation, let it prepare, send one
+     message, and get an answer. The observability agent watches for the prepare response 200, the sandbox create,
+     the model call and the completed turn. A chat turn runs in the backend (`POST /{conversationId}/prepare` in
+     `apps/backend/src/routes/v1/conversations.ts`, the turn in `src/domain/workspaces/tanstack-workspace-chat.ts`).
+     Only its side jobs (the sandbox base build and the idle stop) wait for the worker. If prepare fails because no
+     base build is there, do the smoke again after T+75.
 - **Expected:** every `validateTarget` check has `"ok": true`. The task log shows `connection secrets decrypt` and
   `github installation token` with `"ok": true`.
 - **Dry run:** the `pulumi preview` of pull request (b). Before T-1 step 2, also
@@ -291,7 +314,7 @@ line gives its expected output. The dry run of the copy is its preflight against
 
 - **Who:** the CTO decides; the agent reads the checklist out.
 - **Check (each is a yes):** the G4 checklist of [CTX-1217]: the copy report, the graph and shard counts, migrate,
-  the smoke check, HyperDX without errors, Neon still read-only, Railway still at 0, and the rollback ready.
+  the smoke check, HyperDX without errors, Neon still read-only, the Railway deployments still removed, and the rollback ready.
 - **Go:** the person sets the factory repository variable `CUTOVER_G4_PASSED` to `true`. After that, no copy task, no
   import and no reset of the database can run.
 - **No-go:** the full rollback.
@@ -327,7 +350,8 @@ line gives its expected output. The dry run of the copy is its preflight against
 Do the steps that apply, in this order. Skip a step whose change was not made yet.
 
 1. Neon: the rollback of G3 (read-write again).
-2. Railway: set the replicas of `backend` and `openworkflow` back to their values before T+0.
+2. Railway: deploy `backend` and `openworkflow` again from the deployment IDs that T+0 wrote down (the dashboard:
+   the service, Deployments, the removed deployment, Redeploy).
 3. AWS: stop `backend` and `ui`. Agent: run the scale action `cutover-scale-down`, then the task
    `cutover-reset-database`, so that Aurora keeps no copy of the production data.
 4. If T+40 started: agent, run the task `cutover-reset-indexes`. It empties both volumes and deletes the shards that
