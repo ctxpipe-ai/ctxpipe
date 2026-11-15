@@ -185,10 +185,12 @@ export function buildPrompt(
 }
 
 /**
- * Build the prompt of a member of the judge panel of the bake-off
- * (evals/critic/panel.ts) for one change: the panel rules, the rubric and
- * `schema`, the JSON Schema of the reply, then the same story part as the
- * critic prompt. Each member gets the same prompt.
+ * Build the prompt of a member of the judge panel of the visual evals
+ * (`factory eval visual:panel`) for one change: the panel rules, the rubric
+ * and `schema`, the JSON Schema of the reply, then the same story part as the
+ * critic prompt. Each member gets the same prompt. The eval harness of the
+ * factory imports it, so no module of this repo does.
+ * @public
  */
 export function buildPanelPrompt(
   input: StoryInput,
@@ -220,11 +222,13 @@ ${JSON.stringify(schema)}`
 
 /**
  * Build the prompt of a member of the judge panel for one screenshot with no
- * base image: the unseen calibration set (evals/critic/label-unseen.ts). The
+ * base image: the unseen calibration set (`factory eval visual:label-unseen`,
+ * which imports it, so no module of this repo does). The
  * panel rules, the rubric and `schema`, then the same story part as the
  * critic prompt of a new screenshot. The prompt does not have the
  * `judgingRule`: that rule comes from the feedback of the owner, and the
  * unseen set must not repeat it.
+ * @public
  */
 export function buildNewPanelPrompt(
   input: NewStoryInput,

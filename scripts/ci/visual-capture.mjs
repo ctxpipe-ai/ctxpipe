@@ -251,8 +251,7 @@ let prepared
 // script that exits non-zero keeps its partial results in `out`. `files`
 // maps a path in the container to a host file that is copied there before
 // the start (an input that can be larger than the size limit of one
-// argument). The bake-off builder (packages/visual-review/evals/critic/build.ts)
-// uses it too.
+// argument).
 export async function runInContainer(script, args, out, files = {}) {
   prepared ??= prepare(["visual-container"])
   const failed = (await prepared).get("visual-container")
