@@ -44,7 +44,7 @@ const tokenStep = `      - name: Railway
         env:
           RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
         run: |
-          source "\${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
+          node "\${GITHUB_WORKSPACE}/scripts/ci/nightly.mjs"
 `
 const headCheckout = `      - uses: useblacksmith/checkout@v1
         with:
@@ -115,9 +115,9 @@ test("rejects a reviewed script that runs a package manager", () => {
   rejects(
     {
       ...workflow(deployJob(tokenStep)),
-      "scripts/railway-graphql.sh": "pnpm exec tsx x.ts\n",
+      "scripts/ci/nightly.mjs": "pnpm exec tsx x.ts\n",
     },
-    /scripts\/railway-graphql\.sh:1: a reviewed script runs a package manager/,
+    /scripts\/ci\/nightly\.mjs:1: a reviewed script runs a package manager/,
   )
 })
 
@@ -223,7 +223,7 @@ test("accepts a trusted job that hands a value to a branch-code job through the 
       - uses: actions/checkout@v6
       - env:
           NEON_API_KEY: \${{ secrets.NEON_API_KEY }}
-        run: source "\${GITHUB_WORKSPACE}/scripts/preview-neon-branch.sh"
+        run: node "\${GITHUB_WORKSPACE}/scripts/ci/nightly.mjs"
       - uses: actions/cache/save@v4
         with:
           key: handoff
@@ -372,7 +372,7 @@ test("keeps the preview sandbox cleanup in Preview", () => {
     secretJob(
       "VERCEL_ACCESS_TOKEN",
       environment,
-      "pr-deploy.yaml",
+      "pr-preview-teardown.yaml",
       "cleanup_pr_sandboxes",
     )
   const result = check(cleanup("    environment: Preview\n"))

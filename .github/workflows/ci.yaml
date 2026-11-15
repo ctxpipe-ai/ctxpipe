@@ -626,8 +626,8 @@ jobs:
         run: |
           set -o pipefail
           if [ "$MODE" != gate ]; then
-            # A check with cacheable false reads outside state (Terraform, Docker, a
-            # PR deploy) that this job lacks, and its time is not the job's purpose.
+            # A check with cacheable false reads outside state (Terraform,
+            # Docker) that this job lacks, and its time is not the job's purpose.
             pnpm -s checks:list |
               jq -r '.checks[] | select((.family == "typecheck" or .family == "lint" or .family == "policy") and .cacheable != false) | .id' \
               > "$RUNNER_TEMP/project-checks.txt"
@@ -2256,7 +2256,6 @@ jobs:
     outputs:
       artifact-id: ${{ steps.preserve.outputs.artifact-id }}
       mode: ${{ steps.plan.outputs.mode }}
-      deploy: ${{ steps.plan.outputs.deploy }}
       lint: ${{ steps.plan.outputs.lint }}
       typecheck: ${{ steps.plan.outputs.typecheck }}
       test-shards: ${{ steps.plan.outputs.test-shards }}
@@ -2338,7 +2337,6 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           NEEDS: ${{ toJSON(needs) }}
-          FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
           if [ "$EVENT" != pull_request ]; then
             node "$RUNNER_TEMP/gate/scripts/checks/gate.mjs" nightly --config "$RUNNER_TEMP/gate/.github/merge-gate.json" \
@@ -2349,7 +2347,7 @@ jobs:
           printf '%s' "$NEEDS" > "$RUNNER_TEMP/needs.json"
           node "$RUNNER_TEMP/gate/scripts/checks/gate.mjs" plan --config "$RUNNER_TEMP/gate/.github/merge-gate.json" \
             --inputs "$RUNNER_TEMP/inputs" --needs "$RUNNER_TEMP/needs.json" \
-            --store .merge-gate-store/store.json --fork "$FORK" \
+            --store .merge-gate-store/store.json \
             --out "$RUNNER_TEMP/plan" --github-output "$GITHUB_OUTPUT"
       - name: Preserve the plan
         id: preserve
@@ -2359,77 +2357,6 @@ jobs:
           name: merge-gate-plan
           path: ${{ runner.temp }}/plan/plan.json
           if-no-files-found: ignore
-
-  # In gate mode PR Deploy does not start on a push: this job starts it when
-  # the plan selects a deploy check, or when the run is full. A failed plan
-  # job gives no `mode`: that run is full, so this job starts PR Deploy too. A person can
-  # start it with Run workflow on the PR branch. It runs no repository code.
-  merge-gate-deploy:
-    timeout-minutes: 5
-    name: Merge gate starts PR Deploy
-    needs: merge-gate-plan
-    if: |
-      !cancelled() &&
-      (needs.merge-gate-plan.outputs.deploy == 'true' ||
-      needs.merge-gate-plan.outputs.mode == '') &&
-      github.event.pull_request.head.repo.full_name == github.repository
-    # github-hosted: a short job without Docker (ADR-065)
-    runs-on: ubuntu-24.04-arm
-    permissions:
-      actions: write
-    steps:
-      - name: Start PR Deploy on the PR branch
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          BRANCH: ${{ github.head_ref }}
-          PR: ${{ github.event.pull_request.number }}
-        run: |
-          # gh_retry runs `gh "$@"`. On a GitHub API rate limit, it waits until the
-          # reset time that GitHub gives (one minute for a secondary limit), at most 5
-          # minutes, and runs the call again one time. Exit code 2: the limit stays.
-          # Each step that calls the API holds this same text (a test checks it).
-          gh_retry() {
-            local err="$RUNNER_TEMP/gh-retry.err" out wait try
-            for try in 1 2; do
-              if out=$(gh "$@" 2> "$err"); then
-                [ -z "$out" ] || printf '%s\n' "$out"
-                return 0
-              fi
-              grep -qi 'rate limit' "$err" || { cat "$err" >&2; return 1; }
-              [ "$try" = 1 ] || break
-              wait=$(gh api rate_limit --jq '.resources.core |
-                if .remaining > 0 then 60 else .reset - now + 1 | floor end') || break
-              [ "$wait" -le 300 ] || break
-              wait=$((wait > 1 ? wait : 1))
-              echo "::notice::GitHub API rate limit: the call runs again in ${wait}s" >&2
-              sleep "$wait"
-            done
-            cat "$err" >&2
-            return 2
-          }
-          # The PR can merge and lose its branch while this run goes on.
-          # Skip only on a definite answer; any other failure fails the step.
-          # Without the deploy the gate cannot pass, so a rate limit that
-          # stays after the wait fails the step too.
-          state=$(gh_retry api "repos/$REPO/pulls/$PR" --jq .state)
-          if [ "$state" != open ]; then
-            echo "::notice::PR is closed or its branch is gone; no preview deploy"
-            exit 0
-          fi
-          # A branch name can hold a slash: encode it for the path.
-          encoded=$(jq -rn --arg branch "$BRANCH" '$branch | @uri')
-          if ! out=$(gh_retry api "repos/$REPO/branches/$encoded" --silent 2>&1); then
-            case "$out" in
-              *"HTTP 404"*)
-                echo "::notice::PR is closed or its branch is gone; no preview deploy"
-                exit 0
-                ;;
-            esac
-            echo "$out" >&2
-            exit 1
-          fi
-          gh_retry workflow run pr-deploy.yaml --repo "$REPO" --ref "$BRANCH" -f pr_number="$PR"
 
   # Calls terraform-plan-pr.yaml when the critics job found a change under
   # infra/ (see that job). A call keeps the PR author as the actor, so
@@ -2576,10 +2503,8 @@ jobs:
           REPO: ${{ github.repository }}
           RUN: ${{ github.run_id }}
           ATTEMPT: ${{ github.run_attempt }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         # The jobs of the earlier attempts show the flakes: a job that failed
-        # in an earlier attempt and passed in this one. The jobs of the newest
-        # PR Deploy run of the PR head give the deploy checks their results.
+        # in an earlier attempt and passed in this one.
         run: |
           # gh_retry runs `gh "$@"`. On a GitHub API rate limit, it waits until the
           # reset time that GitHub gives (one minute for a secondary limit), at most 5
@@ -2610,22 +2535,6 @@ jobs:
             gh_retry api "repos/$REPO/actions/runs/$RUN/attempts/$attempt/jobs?per_page=100" --paginate \
               --jq '.jobs[]'
           done | jq -s '{jobs: .}' > "$RUNNER_TEMP/earlier.json"
-          # The newest PR Deploy run of the head whose deploy job did not
-          # skip. A run that a newer push cancelled early has no deploy job.
-          gh_retry api "repos/$REPO/actions/workflows/pr-deploy.yaml/runs?head_sha=$HEAD_SHA&per_page=20" \
-            --jq '.workflow_runs[] | [.id, .status] | @tsv' > "$RUNNER_TEMP/deploy-runs.tsv"
-          echo '{"jobs": []}' > "$RUNNER_TEMP/deploy.json"
-          while read -r id status; do
-            gh_retry api "repos/$REPO/actions/runs/$id/jobs?per_page=100" --paginate \
-              --jq '.jobs[]' | jq -s --arg status "$status" '{status: $status, jobs: .}' > "$RUNNER_TEMP/candidate.json"
-            if [[ -z "$(jq -r '.jobs[] | select(.name == "Deploy PR environment (Railway + Neon)" and .conclusion != "skipped") | .name' "$RUNNER_TEMP/candidate.json")" ]]; then
-              # Keep the first run as the answer if no run has a deploy job.
-              [[ "$(jq '.jobs | length' "$RUNNER_TEMP/deploy.json")" == 0 ]] && cp "$RUNNER_TEMP/candidate.json" "$RUNNER_TEMP/deploy.json"
-              continue
-            fi
-            cp "$RUNNER_TEMP/candidate.json" "$RUNNER_TEMP/deploy.json"
-            break
-          done < "$RUNNER_TEMP/deploy-runs.tsv"
       - name: Restore the PR store
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
@@ -2644,7 +2553,7 @@ jobs:
           node "$RUNNER_TEMP/gate/scripts/checks/gate.mjs" decide --config "$RUNNER_TEMP/gate/.github/merge-gate.json" \
             --inputs "$RUNNER_TEMP/inputs" --results "$RUNNER_TEMP/results" \
             --needs "$RUNNER_TEMP/needs.json" --jobs "$RUNNER_TEMP/jobs.json" \
-            --earlier "$RUNNER_TEMP/earlier.json" --deploy "$RUNNER_TEMP/deploy.json" \
+            --earlier "$RUNNER_TEMP/earlier.json" \
             --store .merge-gate-store/store.json --out "$RUNNER_TEMP/decision" || code=$?
           # A gate.mjs that did not run its command (for example an older
           # base without the path check) writes no decision: that fails.
