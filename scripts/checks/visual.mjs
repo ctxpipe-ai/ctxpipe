@@ -37,6 +37,7 @@ const inputs = [
   "scripts/ci/visual-unstable-stories.json",
   "packages/visual-review/package.json",
   "packages/visual-review/src/story.ts",
+  "packages/visual-review/src/story-tags.ts",
   "packages/visual-review/src/compare/**",
 ]
 

@@ -37,7 +37,31 @@ Every route that renders a page has a page story. Tag it `page` and name its rou
 - A story that shows only a part of a page (a dialog, a card, a page without its shell) is not a page story. Do not tag it. A page story renders the whole page as the route does: with the org shell for a route under `/$orgSlug` (`orgPageDecorators`).
 - A route that does not render a page (a layout, a redirect relay, an API route) needs an entry with a reason in [`scripts/ci/page-story-exemptions.json`](../../../scripts/ci/page-story-exemptions.json). A page that is too costly to story gets the reason `backfill: <why>`. Do not exempt a real page to save work.
 - **Guard:** `node scripts/ci/check-page-stories.mjs` runs in CI (the lint job, as the policy check `page-stories`). It fails when a route has no page story and no exemption, a page story has no route or names a route that does not exist, or an exemption has no reason, names an unknown route, or names a route that has a page story.
-- To tell a page from a part, the visual review reads the `page` tag. Do not tag a part.
+- The `page` tag says that the story renders a route: route coverage, and a mobile screenshot. The visual critic does not read it. It reads the kind (see Review annotations).
+
+## Review annotations
+
+Each story says what it shows, so that the visual critic knows what it looks at. Put `parameters.review` in each story:
+
+```ts
+export const LinkedToAnotherUser: Story = {
+  parameters: {
+    review: {
+      kind: "component",
+      purpose:
+        "Popup step of the GitHub account link: the account is already linked to another ctxpipe user.",
+    },
+  },
+}
+```
+
+- `kind` is `"page"` or `"component"`. A `page` is a whole screen that a user lands on: a page with its shell, or a full popup or onboarding screen. A component, a dialog, a step of a flow, or a part of a page is a `component`. Put `kind` in the `meta` when it is the same for all stories of the file; a story's own `kind` wins.
+- Most stories with the `page` tag have the kind `page`. A page story that shows only one small step of its route (a popup step with a title and a paragraph) has the kind `component`. A story with the kind `page` needs no `page` tag (for example, a full screen that no route renders alone).
+- `purpose` is one sentence in the story itself, at most 200 characters: what the UI is for, and the state that the story shows. For example: "Org home page of a member with no Workspaces yet." Do not start with "Shows".
+- Both values are string literals: the check and the critic read the story file with the CSF parser, and the build does not run.
+- The critic gets the Storybook name (`<title> / <name>`), the kind and the purpose with each screenshot. The kind gives the scope: the page-only qualities apply only to a `page`. The purpose goes into the prompt as data in a `<data>` block. It tells the critic what it looks at. It does not explain a change: that is the job of the brief.
+- `visual:review` reads the story file at the merge base (`--images`, the factory critic), or the manifest of `pnpm visual:check`. A new story that is not at the merge base has no kind or purpose there: its scope is `component`, and the verdict says so.
+- **Guard:** `node scripts/ci/check-story-review.mjs` runs in CI (the policy check `story-review`). It fails for each story with no valid `kind` or no `purpose` of its own.
 
 ## Colocation and naming
 

@@ -21,8 +21,12 @@ const storySchema = z.object({
   title: z.string(),
   /** The story file, from the repository root. */
   componentFile: z.string(),
-  /** `page` for a story with the `page` tag; else a part of the UI. */
+  /** The kind of the story (`parameters.review.kind`); else `component`. */
   scope: z.enum(["page", "component"]),
+  /** The Storybook name of the story (`<title> / <name>`). */
+  name: z.string().optional(),
+  /** `parameters.review.purpose` of the story: PR text, data. */
+  purpose: z.string().optional(),
   viewport,
   /** The named snapshot, or null for the screenshot after the play. */
   snapshot: z.string().nullable(),
@@ -180,6 +184,8 @@ export function toStoryInput(
   return storyInput({
     storyId: story.id,
     scope: story.scope,
+    name: story.name,
+    purpose: story.purpose,
     viewport: manifest.run.viewports[story.viewport],
     size: story.size ?? manifest.run.viewports[story.viewport],
     regions: story.regions,
@@ -202,6 +208,8 @@ export function toStoryInput(
 export function storyInput({
   storyId,
   scope,
+  name,
+  purpose,
   viewport,
   size: { width, height },
   regions,
@@ -213,6 +221,8 @@ export function storyInput({
   sourceDiff,
   rubric,
 }: Pick<StoryInput, "storyId" | "scope" | "viewport" | "rubric"> & {
+  name?: string | undefined
+  purpose?: string | undefined
   size: { width: number; height: number }
   regions: readonly Pick<
     ManifestStory["regions"][number],
@@ -233,6 +243,8 @@ export function storyInput({
   return {
     storyId,
     scope,
+    ...(name ? { name } : {}),
+    ...(purpose ? { purpose } : {}),
     viewport,
     regions: regions.map(({ box, changeType, position, confidence }) => ({
       box: {
