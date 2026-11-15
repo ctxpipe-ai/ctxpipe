@@ -23,17 +23,6 @@
       ]
     },
     {
-      "id": "spacing",
-      "name": "Spacing and alignment",
-      "definition": "Space and alignment follow the Gestalt proximity and continuity. Space comes from the Tailwind scale. Text does not touch the edge of its button, card, pill or page. Long copy is left-aligned, never justified, and numbers are right-aligned with tabular figures.",
-      "sources": [
-        {
-          "file": "apps/ui/DESIGN.md",
-          "section": "Space and alignment"
-        }
-      ]
-    },
-    {
       "id": "contrast",
       "name": "Contrast",
       "definition": "Text is readable on its surface: about 4.5:1 for body text and 3:1 for large text and icons. On a teal, red or amber slab, secondary text is a lighter stop of the same hue at full opacity, not white at reduced opacity. The text of an item that the user can click (a file tree, a nav list) is never so dim that it reads as disabled.",
@@ -124,6 +113,17 @@
           "section": "State and feedback"
         }
       ]
+    },
+    {
+      "id": "spacing",
+      "name": "Spacing and alignment",
+      "definition": "Space and alignment follow the Gestalt principles of proximity and continuity. Space comes from the Tailwind scale. Text does not touch the edge of its button, card, pill or page. Long copy is left-aligned, never justified, and numbers are right-aligned with tabular figures.",
+      "sources": [
+        {
+          "file": "apps/ui/DESIGN.md",
+          "section": "Alignment and spacing"
+        }
+      ]
     }
   ],
   "qualities": [
@@ -166,7 +166,7 @@
     {
       "id": "hierarchy",
       "name": "Hierarchy",
-      "definition": "One element leads: the title is the loudest ink, and the rest steps down. Hierarchy comes from weight and muted color, not from a size jump; neighbors and decorative icons are muted first. Each screen has a small budget of strong signals (a filled button, a bright color, a badge, a colored edge, an icon in a tile), and each one marks something that matters.",
+      "definition": "One element leads: the title is the loudest ink, and the rest steps down. Hierarchy comes from weight and muted color, not from a size jump; neighbors and decorative icons are muted first. Each screen has a small budget of strong signals (a filled button, a bright color, a badge, a colored edge, an icon in a tile), and each one marks something that matters. Secondary chrome (legends, hints, help) is smaller and dimmer than the content and does not cover it.",
       "sources": [
         {
           "file": "apps/ui/DESIGN.md",

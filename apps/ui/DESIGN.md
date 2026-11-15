@@ -76,12 +76,6 @@ Color comes from the house tokens: a zinc floor, a white primary, a teal accent.
 
 Leftover shadcn indigo (`sidebar-primary` / `chart-1` hue 264) is not brand.
 
-### Space and alignment
-
-<!-- rubric: spacing -->
-Space and alignment follow the Gestalt proximity and continuity. Space comes from the Tailwind scale. Text does not touch the edge of its button, card, pill or page. Long copy is left-aligned, never justified, and numbers are right-aligned with tabular figures.
-<!-- /rubric -->
-
 ### Elevation
 
 Dark UI lifts with **surface lightness** (`bg-card` vs `bg-background`, `bg-zinc-900` vs `bg-zinc-950`), not photo-real chrome. Use existing ring/border recipes (`ring-zinc-800`, `border-border`). Do not add `shadow-lg` black slabs or skeuomorphic inset buttons.
@@ -165,7 +159,7 @@ Copy is plain and specific US English in every visible word, also a legend and a
 ### Hierarchy and grouping
 
 <!-- rubric: hierarchy -->
-One element leads: the title is the loudest ink, and the rest steps down. Hierarchy comes from weight and muted color, not from a size jump; neighbors and decorative icons are muted first. Each screen has a small budget of strong signals (a filled button, a bright color, a badge, a colored edge, an icon in a tile), and each one marks something that matters.
+One element leads: the title is the loudest ink, and the rest steps down. Hierarchy comes from weight and muted color, not from a size jump; neighbors and decorative icons are muted first. Each screen has a small budget of strong signals (a filled button, a bright color, a badge, a colored edge, an icon in a tile), and each one marks something that matters. Secondary chrome (legends, hints, help) is smaller and dimmer than the content and does not cover it.
 <!-- /rubric -->
 
 A first-run help tour can cover content until the user dismisses it. A dismissed hint or tour stays dismissed.
@@ -228,7 +222,9 @@ Build with `src/components/ui/*` (React Aria). Do not invent a new Button, Input
 
 ### Alignment and spacing
 
-Edges, axes and space follow the **Gestalt lens** and **Space and alignment**.
+<!-- rubric: spacing -->
+Space and alignment follow the Gestalt principles of proximity and continuity. Space comes from the Tailwind scale. Text does not touch the edge of its button, card, pill or page. Long copy is left-aligned, never justified, and numbers are right-aligned with tabular figures.
+<!-- /rubric -->
 
 <!-- rubric: density -->
 Operate density, as in chat, connectors and settings: tight, not landing-page air. Forms and prose keep a maximum width; data surfaces are full width.
