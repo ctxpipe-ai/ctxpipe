@@ -215,18 +215,41 @@ export function flushWorkflowLog(): void {
  * @throws if neither context has a logger
  */
 export function getLogger(): RequestLogger {
-  const fromStorage = loggerStorage.getStore()?.logger
-  if (fromStorage) return fromStorage
-  try {
-    const ctx = getContext<AppEnv>()
-    const log = ctx?.var?.log
-    if (log) return log
-  } catch {
-    // Not in Hono context
-  }
+  const logger = currentLogger()
+  if (logger) return logger
   throw new Error(
     "getLogger: no logger in context. Ensure you are in a Hono request or within withLogger().",
   )
+}
+
+function currentLogger(): RequestLogger | undefined {
+  const fromStorage = loggerStorage.getStore()?.logger
+  if (fromStorage) return fromStorage
+  try {
+    return getContext<AppEnv>()?.var?.log
+  } catch {
+    // Not in Hono context
+    return undefined
+  }
+}
+
+/**
+ * The error log of work that a request or a job starts and does not wait
+ * for. evlog emits the request event with the response, and drops a field
+ * that comes later. Thus each error here is an event of its own, with the
+ * step and the request id when there is one.
+ */
+export function detachedErrorLog(step: string): {
+  error: (err: Error) => void
+} {
+  const requestId = currentLogger()?.getContext().requestId
+  return {
+    error: (err) => {
+      const logger = createLogger({ step, requestId })
+      logger.error(err)
+      logger.emit()
+    },
+  }
 }
 
 export { createLogger, log }
