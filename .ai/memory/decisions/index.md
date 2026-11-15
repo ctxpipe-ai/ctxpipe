@@ -22,7 +22,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-010](ADR-010-opencypher-graph-db-falkordb-default.md) | OpenCypher Graph DB and FalkorDB as Default | Accepted |
 | [ADR-011](ADR-011-backend-observability-otel.md) | Backend Observability via OpenTelemetry and evlog | Accepted |
 | [ADR-012](ADR-012-postgres-17-neon-compatibility.md) | PostgreSQL 17 for Neon Compatibility | Accepted |
-| [ADR-013](ADR-013-switch-infra-from-pulumi-to-terraform.md) | Terraform as our IAC | Accepted |
+| [ADR-013](ADR-013-switch-infra-from-pulumi-to-terraform.md) | Terraform as our IAC | Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) for hosted infrastructure |
 | [ADR-014](ADR-014-parallel-worktree-local-development.md) | Parallel worktree local development | Accepted |
 | [ADR-015](ADR-015-docker-compose-profiles-and-small-scale-deploy.md) | Docker Compose profiles and small-scale container deploy | Accepted |
 | [ADR-016](ADR-016-code-ingestion-react-agent-limits.md) | Code ingestion ReAct agents — recursion limits and context middleware | Superseded by [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) |
@@ -38,15 +38,15 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-026](ADR-026-claude-plugin-mcp-distribution.md) | Claude plugin for hosted MCP distribution | Accepted (amended by ADR-051: org set per grant, `ctxpipe-context` skill, `?orgSlug=` ignored) |
 | [ADR-027](ADR-027-codesearch-openworkflow-concurrency.md) | Size-based OpenWorkflow concurrency for single-instance codesearch | Accepted |
 | [ADR-028](ADR-028-git-native-connector-assets.md) | Git-native connector assets | Accepted |
-| [ADR-029](ADR-029-railway-us-east-next-to-neon.md) | Railway compute in US East next to Neon | Accepted |
+| [ADR-029](ADR-029-railway-us-east-next-to-neon.md) | Railway compute in US East next to Neon | Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) |
 | [ADR-030](ADR-030-organization-owned-mcp-api-keys.md) | Organization-owned MCP API keys | Accepted (amended 2026-09-27: OpenCode HOME hashing; amended by ADR-051: `org` argument, personal-key org sets) |
 | [ADR-031](ADR-031-github-pr-scoped-mirror.md) | GitHub pull-request scoped mirror (revised: follows linked repositories; issues too) | Accepted (revised 2026-10-03, 2026-10-13, 2026-10-25); sync repository superseded by ADR-050 |
 | [ADR-032](ADR-032-path-located-graph-edges.md) | Path-located graph edges | Accepted (amended by ADR-033) |
 | [ADR-033](ADR-033-graph-ontology-v2.md) | Graph ontology v2: relation families, shared identity, deterministic connector extraction | Accepted (amended by ADR-037) |
 | [ADR-034](ADR-034-pagerduty-connector-git-native-mirror.md) | PagerDuty connector Git-native mirror | Accepted; sync repository superseded by ADR-050; source incidents under `pagerduty/services/<serviceId>/` |
 | [ADR-037](ADR-037-committed-memory-reaches-the-graph.md) | Committed memory reaches the graph | Accepted (amended by ADR-051: `ctx_advisor` removed) |
-| [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md) | Self-hosted ClickStack + Langfuse (ops observability) | Accepted (amended 2026-09-29; item 11 superseded by ADR-054; Railway, Langfuse and the public collector superseded by ADR-061 decision 25) |
-| [ADR-039](ADR-039-production-image-deploys-one-environment.md) | Production image deploys stay on one Railway environment | Accepted |
+| [ADR-038](ADR-038-self-hosted-clickstack-langfuse.md) | Self-hosted ClickStack + Langfuse (ops observability) | Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) |
+| [ADR-039](ADR-039-production-image-deploys-one-environment.md) | Production image deploys stay on one Railway environment | Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) |
 | [ADR-040](ADR-040-pierre-files-pane-chrome.md) | Pierre trees/diffs as Workspace Files explorer chrome | Accepted |
 | [ADR-041](ADR-041-short-org-sql-unique-sandbox-rows.md) | Short org SQL transactions, no held connections | Accepted |
 | [ADR-042](ADR-042-postgres-rls-app-role.md) | Postgres RLS with a non-owner app role | Accepted (revised 2026-10-17: one migrate entry point, role modes, SQL-made hosted role, owner URL kept for rollback, directory reconcile; revised 2026-11-10: hosted AWS app role from Secrets Manager, cutover copy without roles) |
@@ -61,7 +61,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-051](ADR-051-mcp-read-surface.md) | MCP read surface: small read tools, slugs, scopes, and an org set per grant | Accepted (clarified: capped hubs, parallel chat claims, answers-first ranking with strong query hits, and shared fallback budgets; amended by ADR-050: `provenance` intent) 
 | [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) | Ingestion as sandbox skills that write patches | Accepted (amended by ADR-050: `sources` holds source paths; revised 2026-10-16: publish gate at format 3, re-ingestion in the upgrade; revised 2026-10-17: no rollback to the old pipeline; revised 2026-10-18: plain git sources; revised 2026-10-29: a publish withholds a failed merged file; existing root files in the root-to-file map, step counts, `dependencies` scan gate; revised 2026-10-30: claims keep the host field `valid_from`; revised 2026-10-31: a host job adds no claim to a v2-owned file; revised 2026-11-01: a re-ingestion version names the re-ingestion) |
 | [ADR-053](ADR-053-minor-upgrades-expand-only-sql-workspace-format.md) | Minor upgrades: expand-only SQL and Workspace format versions in git | Accepted (revised 2026-11-01: the re-ingestion key uses a re-ingestion version) |
-| [ADR-054](ADR-054-secrets-sync-from-github-to-railway.md) | Secrets go from GitHub Environments straight to Railway, not through Terraform | Accepted |
+| [ADR-054](ADR-054-secrets-sync-from-github-to-railway.md) | Secrets go from GitHub Environments straight to Railway, not through Terraform | Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) |
 | [ADR-055](ADR-055-harness-agnostic-agent-setup.md) | Harness-agnostic agent setup: shared `.agents/`, one `AGENTS.md`, thin harness adapters, MCP parity in CI | Accepted |
 | [ADR-056](ADR-056-oxlint-and-oxfmt-replace-biome.md) | Oxlint and Oxfmt replace Biome: one Oxc parser ecosystem, lint and format checked in CI, recorded rule gaps | Accepted |
 | [ADR-057](ADR-057-buildkite-connector-sources-only.md) | Buildkite connector, Workspace sources only | Accepted |
