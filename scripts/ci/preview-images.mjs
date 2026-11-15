@@ -3,11 +3,13 @@ import { appendFileSync } from "node:fs"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import {
+  changedPaths,
   covers,
   github,
   images,
   inputsOf,
   lastDeploy,
+  matrixEntry,
   noticeDigests,
   uncoveredSources,
 } from "./deploy-images.mjs"
@@ -17,11 +19,14 @@ import {
 //
 // An image builds only when one of its inputs (deploy-images.mjs) changed
 // since an image that exists already. Each other image keeps that image:
-// - first the image of the newest earlier successful run of the workflow for
-//   the same PR (`pr`, in the ECR repository ctxpipe-pr/<image>), when the
-//   workflow file at that run's commit is the file at the PR head;
+// - first the image of the newest earlier successful re-run of the workflow
+//   for the same PR (`pr`, in the ECR repository ctxpipe-pr/<image>), when the
+//   workflow file at that run's commit is the file at the PR head, and no
+//   local action (.github/actions) changed since: the build job runs one, so
+//   a PR could change it, build, and change it back;
 // - else the image of the last successful Deploy run on main (`main`, the
-//   multi-platform image on GHCR), when deploy.yaml did not change since.
+//   multi-platform image on GHCR, of which the push job copies the
+//   linux/arm64 image), when deploy.yaml did not change since.
 // The digest of a base is the one notice that its push or publish job
 // reported (noticeDigests). The push job of the workflow copies a kept image
 // by that digest, under the tag of the run, and reports the digest again.
@@ -40,9 +45,6 @@ const previewImages = images.filter(({ image }) =>
 const names = previewImages.map(({ image }) => image)
 const workflow = ".github/workflows/pr-preview-images.yaml"
 
-// The matrix entry of an image: the image without its inputs.
-const matrixEntry = ({ inputs, ...matrix }) => matrix
-
 const git = (root, ...args) =>
   execFileSync("git", args, {
     cwd: root,
@@ -51,16 +53,11 @@ const git = (root, ...args) =>
     maxBuffer: 256 * 1024 * 1024,
   })
 
-// Each path that differs between two commits, also a deleted one.
-const changedPaths = (root, from, to) =>
-  git(root, "diff", "--name-only", "--no-renames", from, to)
-    .split("\n")
-    .filter(Boolean)
-
-// The newest earlier successful run of the workflow for PR `pr` whose push
+// The newest earlier successful re-run of the workflow for PR `pr` whose push
 // jobs reported digests, with the same workflow file as the PR head: a run of
-// another version of the file could have reported any digest.
-async function lastPreview({ root, repo, token, pr, head, branch, run }) {
+// another version of the file could have reported any digest. A first attempt
+// builds nothing. A run in progress, this one too, is not in the list.
+async function lastPreview({ root, repo, token, pr, head, branch }) {
   const fileAt = (sha) => git(root, "rev-parse", `${sha}:${workflow}`).trim()
   const current = fileAt(head)
   const { workflow_runs: runs } = await github(
@@ -69,7 +66,7 @@ async function lastPreview({ root, repo, token, pr, head, branch, run }) {
   )
   for (const candidate of runs) {
     if (
-      String(candidate.id) === String(run) ||
+      candidate.run_attempt === 1 ||
       !/^[0-9a-f]{40}$/.test(candidate.head_sha) ||
       candidate.pull_requests?.length !== 1 ||
       String(candidate.pull_requests[0].number) !== String(pr)
@@ -116,7 +113,6 @@ export async function planPreviewImages({
   pr,
   head,
   branch,
-  run,
 }) {
   const everything = (reason) => ({
     build: previewImages.map(matrixEntry),
@@ -132,14 +128,15 @@ export async function planPreviewImages({
       pr,
       head,
       branch,
-      run,
     })
-    if (preview)
+    const sincePreview =
+      preview && changedPaths(root, preview.run.head_sha, head)
+    if (sincePreview?.every((path) => !path.startsWith(".github/actions/")))
       bases.push({
         from: "pr",
         sha: preview.run.head_sha,
         digests: preview.digests,
-        changed: changedPaths(root, preview.run.head_sha, head),
+        changed: sincePreview,
       })
     const deploy = await lastDeploy({ repo, token })
     if (deploy && /^[0-9a-f]{40}$/.test(deploy.run.head_sha)) {
@@ -197,7 +194,6 @@ if (
     pr: env.PR,
     head: env.HEAD_SHA,
     branch: env.BRANCH,
-    run: env.GITHUB_RUN_ID,
   })
   const lines = [
     `build=${JSON.stringify(result.build)}`,

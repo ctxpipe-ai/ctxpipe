@@ -479,17 +479,27 @@ test("the plan is not called when the branch is gone, and the step fails on anot
   assert.deepEqual(broken.outputs, ["plan=false"])
 })
 
+// The runs of the preview image workflow at the PR head, as the step asks for them.
+const previewRuns = `repos/${repo}/actions/workflows/pr-preview-images.yaml/runs?head_sha=${head}&event=pull_request&per_page=1`
+
 test("both dispatch steps look up a branch with a slash by its encoded name", () => {
   const branch = "jakub/ctx-1-topic"
   const encoded = `repos/${repo}/branches/jakub%2Fctx-1-topic`
   const terraform = start(infraChange, {}, branch)
   assert.equal(terraform.status, 0, terraform.stderr)
   assert.equal(terraform.outputs.at(-1), "plan=true")
-  const deploy = run("start-pr-deploy", setup({ api: { [encoded]: {} } }), {
-    REPO: repo,
-    PR: "7",
-    BRANCH: branch,
-  })
+  const deploy = run(
+    "start-pr-deploy",
+    setup({
+      api: {
+        [encoded]: {},
+        [previewRuns]: {
+          workflow_runs: [{ id: 31, status: "completed", run_attempt: 2 }],
+        },
+      },
+    }),
+    { REPO: repo, PR: "7", BRANCH: branch, HEAD: head },
+  )
   assert.equal(deploy.status, 0, deploy.stderr)
   assert.deepEqual(deploy.calls, [
     `workflow run pr-deploy.yaml --repo ${repo} --ref ${branch} -f pr_number=7`,
@@ -505,12 +515,13 @@ test("both dispatch steps look up a branch with a slash by its encoded name", ()
 })
 
 test("the start of PR Deploy re-runs the first attempt of the preview image run, and only that", () => {
-  const runs = `repos/${repo}/actions/workflows/pr-preview-images.yaml/runs?head_sha=${head}&event=pull_request&per_page=1`
   const branch = `repos/${repo}/branches/feature`
   const deploy = (runList) =>
     run(
       "start-pr-deploy",
-      setup({ api: { [branch]: {}, [runs]: { workflow_runs: runList } } }),
+      setup({
+        api: { [branch]: {}, [previewRuns]: { workflow_runs: runList } },
+      }),
       { REPO: repo, PR: "7", BRANCH: "feature", HEAD: head },
     )
   const started = `workflow run pr-deploy.yaml --repo ${repo} --ref feature -f pr_number=7`
@@ -524,15 +535,18 @@ test("the start of PR Deploy re-runs the first attempt of the preview image run,
   const later = deploy([{ id: 31, status: "completed", run_attempt: 2 }])
   assert.equal(later.status, 0, later.stderr)
   assert.deepEqual(later.calls, [started])
-  // A run that does not complete is not re-run; PR Deploy still starts.
-  const busy = deploy([{ id: 31, status: "in_progress", run_attempt: 1 }])
-  assert.equal(busy.status, 0, busy.stderr)
-  assert.deepEqual(busy.calls, [started])
-  assert.equal(busy.sleeps.length, 5)
-  assert.match(busy.stdout, /did not complete/)
-  const none = deploy([])
-  assert.equal(none.status, 0, none.stderr)
-  assert.deepEqual(none.calls, [started])
+  // A run that does not complete, or that GitHub has not started, fails the
+  // job after 4 minutes; PR Deploy has started.
+  for (const runList of [
+    [{ id: 31, status: "in_progress", run_attempt: 1 }],
+    [],
+  ]) {
+    const waited = deploy(runList)
+    assert.equal(waited.status, 1)
+    assert.deepEqual(waited.calls, [started])
+    assert.deepEqual(waited.sleeps, Array(11).fill("20"))
+    assert.match(waited.stdout, /missing or did not complete/)
+  }
 })
 
 const remind = ({ change, labels }) => {

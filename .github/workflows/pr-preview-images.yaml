@@ -4,9 +4,10 @@
 # The factory preview workflow (`factory preview up <N>`) takes them by the digests that a successful run of this
 # workflow reported for the PR's head commit (factory machines/previews/pr, `images`).
 #
-# - Only when the PR gets a preview. The first attempt of the run of each push builds nothing. The job "Merge gate
-#   starts PR Deploy" of CI re-runs this run when it starts PR Deploy (scripts/checks/README.md, Merge gate). A
-#   person can start the build with "Re-run all jobs".
+# - Only when the PR gets a preview. The first attempt of the run of each push builds nothing, and pushes no image:
+#   the factory finds no push job in it and gives no preview. The job "Merge gate starts PR Deploy" of CI re-runs
+#   this run when it starts PR Deploy (scripts/checks/README.md, Merge gate). A person can start the build with
+#   "Re-run all jobs".
 # - Only the images whose inputs changed. The plan (scripts/ci/preview-images.mjs) keeps each other image of the
 #   PR's last preview run or of main by its digest. The push job copies a kept image under the tag of this run.
 # - Only pull requests from this repo (the role trusts no fork) into main.
@@ -66,8 +67,8 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .node-version
-      # The plan of the PR base decides: the plan of the PR could keep any digest. When the base has no plan, every
-      # image builds.
+      # The plan of the PR base decides: the plan of the PR could keep any digest. A base without the plan fails
+      # the run.
       - id: plan
         if: github.run_attempt != '1'
         env:
@@ -79,13 +80,8 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/plan"
-          if git archive "$BASE_SHA" scripts/ci/deploy-images.mjs scripts/ci/preview-images.mjs |
-            tar -x -C "$RUNNER_TEMP/plan"; then
-            node "$RUNNER_TEMP/plan/scripts/ci/preview-images.mjs" "$PWD"
-          else
-            echo 'build=[{"image":"backend","dockerfile":"apps/backend/Dockerfile"},{"image":"worker","dockerfile":"apps/backend/Dockerfile.worker"},{"image":"ui","dockerfile":"apps/ui/Dockerfile"},{"image":"codesearch","dockerfile":"apps/codesearch/Dockerfile"}]' >> "$GITHUB_OUTPUT"
-            echo 'reuse={}' >> "$GITHUB_OUTPUT"
-          fi
+          git archive "$BASE_SHA" scripts/ci/deploy-images.mjs scripts/ci/preview-images.mjs | tar -x -C "$RUNNER_TEMP/plan"
+          node "$RUNNER_TEMP/plan/scripts/ci/preview-images.mjs" "$PWD"
 
   build:
     name: Build preview image (${{ matrix.image }})
@@ -185,8 +181,11 @@ jobs:
                 ;;
               *) echo "::error::Unknown source of a kept image: $KEEP"; exit 1 ;;
             esac
-            # A copy with the same digest, under this run's tag. crane reads the logins of docker.
-            "$RUNNER_TEMP/crane" copy "$source" "$target"
+            # A copy under this run's tag: of a PR image with the same digest, and of main's multi-platform image
+            # only the linux/arm64 image, as a build gives. crane reads the logins of docker.
+            platform=()
+            [ "$from" = pr ] || platform=(--platform linux/arm64)
+            "$RUNNER_TEMP/crane" copy "${platform[@]}" "$source" "$target"
           fi
           # The digest the factory takes: one notice on this job's check run (factory previews/pr, runDigests).
           # From ECR, under this run's own tag: the image that the push above made.

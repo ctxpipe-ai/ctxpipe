@@ -401,7 +401,23 @@ export async function lastDeploy({ repo, token }) {
 }
 
 // The matrix entry of an image: the image without its inputs.
-const matrixEntry = ({ inputs, ...matrix }) => matrix
+export const matrixEntry = ({ inputs, ...matrix }) => matrix
+
+/**
+ * Each path that differs between the commits `from` and `to`, also a deleted
+ * one. NUL-separated: git quotes a path with a tab, a newline or a non-ASCII
+ * character in the plain list, and a quoted path does not start with its
+ * input.
+ */
+export const changedPaths = (root, from, to) =>
+  execFileSync("git", ["diff", "--name-only", "--no-renames", "-z", from, to], {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+    maxBuffer: 256 * 1024 * 1024,
+  })
+    .split("\0")
+    .filter(Boolean)
 
 /**
  * Which images this run builds, and the digest of the base run for each
@@ -435,14 +451,7 @@ export async function planImages({ root, event, repo, token }) {
         `the base commit ${base.head_sha} is not in the history of HEAD`,
       )
     }
-    // Each path that changed since the base, also a deleted one.
-    changed = execFileSync(
-      "git",
-      ["diff", "--name-only", "--no-renames", base.head_sha, "HEAD"],
-      { cwd: root, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 },
-    )
-      .split("\n")
-      .filter(Boolean)
+    changed = changedPaths(root, base.head_sha, "HEAD")
   } catch (error) {
     return everything(`no base: ${error.message}`)
   }

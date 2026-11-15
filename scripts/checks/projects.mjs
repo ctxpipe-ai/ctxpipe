@@ -303,6 +303,13 @@ const definitions = () => [
               "apps/ui/Dockerfile",
               "apps/codesearch/Dockerfile",
             ],
+            "ci-preview-images": [
+              ".dockerignore",
+              "apps/backend/Dockerfile",
+              "apps/backend/Dockerfile.worker",
+              "apps/ui/Dockerfile",
+              "apps/codesearch/Dockerfile",
+            ],
             "ci-test-shards": ["apps/backend/**"],
             "ci-visual-container": ["apps/ui/package.json"],
           }[stem] ?? []),

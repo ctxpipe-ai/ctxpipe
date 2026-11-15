@@ -69,15 +69,15 @@ function repository({ previous = {}, head = {} } = {}) {
     copyFileSync(join(root, path), join(dir, path))
   }
   const main = commit({ "README.md": "main\n" }, "main")
-  const before = commit(previous, "previous")
-  const after = commit(head, "head")
-  return { dir, main, previous: before, head: after }
+  const previousSha = commit(previous, "previous")
+  const headSha = commit(head, "head")
+  return { dir, main, previous: previousSha, head: headSha }
 }
 
 // The GitHub API: the successful preview runs of the PR branch with the push
 // jobs and their `preview-image` notices, and the last Deploy run on main
 // with its publish jobs and their `deploy-image` notices.
-function github({ main, previous, previewRuns, deployRuns, noPushJobs }) {
+function githubApi({ main, previous, previewRuns, deployRuns, noPushJobs }) {
   const jobsOf = (prefix, offset) =>
     names.map((name, index) => ({
       name: `${prefix} (${name})`,
@@ -98,6 +98,7 @@ function github({ main, previous, previewRuns, deployRuns, noPushJobs }) {
           workflow_runs: previewRuns ?? [
             {
               id: 41,
+              run_attempt: 2,
               head_sha: previous,
               pull_requests: [{ number: 7 }],
             },
@@ -152,13 +153,12 @@ const plan = ({ dir, head }) =>
     pr: "7",
     head,
     branch: "feature/x",
-    run: "50",
   })
 const built = (result) => result.build.map(({ image }) => image).sort()
 
 test("a push that changes no image input since the PR's last preview builds nothing and keeps each image of that preview", async () => {
   const commits = repository({ head: { "README.md": "docs\n" } })
-  server.use(...github(commits))
+  server.use(...githubApi(commits))
   const result = await plan(commits)
   assert.deepEqual(built(result), [])
   assert.deepEqual(
@@ -171,7 +171,7 @@ test("a push that changes no image input since the PR's last preview builds noth
 
 test("a change to the UI builds only ui, and the other images keep the PR's last preview", async () => {
   const commits = repository({ head: { "apps/ui/src/a.ts": "x\n" } })
-  server.use(...github(commits))
+  server.use(...githubApi(commits))
   const result = await plan(commits)
   assert.deepEqual(built(result), ["ui"])
   assert.equal(result.reuse.codesearch, `pr ${digestOf("pr", "codesearch")}`)
@@ -184,7 +184,7 @@ test("an image whose input changed since the last preview but not since main kee
     previous: { "apps/ui/src/a.ts": "x\n" },
     head: { "apps/ui/src/a.ts": null },
   })
-  server.use(...github(commits))
+  server.use(...githubApi(commits))
   const result = await plan(commits)
   assert.deepEqual(built(result), [])
   assert.equal(result.reuse.ui, `main ${digestOf("main", "ui")}`)
@@ -195,7 +195,7 @@ test("the first preview of a PR keeps each image of main whose inputs did not ch
   const commits = repository({
     previous: { "apps/backend/src/a.ts": "x\n" },
   })
-  server.use(...github({ ...commits, previewRuns: [] }))
+  server.use(...githubApi({ ...commits, previewRuns: [] }))
   const result = await plan(commits)
   assert.deepEqual(built(result), ["backend", "ui", "worker"])
   assert.equal(
@@ -206,27 +206,57 @@ test("the first preview of a PR keeps each image of main whose inputs did not ch
 
 test("a lockfile change builds every image", async () => {
   const commits = repository({ head: { "pnpm-lock.yaml": "x\n" } })
-  server.use(...github(commits))
+  server.use(...githubApi(commits))
   assert.deepEqual(built(await plan(commits)), [...names].sort())
 })
 
-test("a preview run with another workflow file, of another PR, or without push jobs is no base", async () => {
+test("a changed path that git quotes still builds its image", async () => {
+  const commits = repository({ head: { "apps/ui/src/café\tx.ts": "x\n" } })
+  server.use(...githubApi(commits))
+  assert.deepEqual(built(await plan(commits)), ["ui"])
+})
+
+test("a change to a local action since the PR's last preview makes that preview no base", async () => {
+  // The build job runs .github/actions/setup-buildx: a PR could change it,
+  // build, and change it back.
+  const commits = repository({
+    previous: { ".github/actions/setup-buildx/action.yml": "x\n" },
+    head: { ".github/actions/setup-buildx/action.yml": null },
+  })
+  server.use(...githubApi(commits))
+  const result = await plan(commits)
+  assert.deepEqual(built(result), [])
+  assert.ok(Object.values(result.reuse).every((ref) => ref.startsWith("main ")))
+})
+
+test("a preview run with another workflow file, of another PR, a first attempt, or without push jobs is no base", async () => {
   const other = repository({
     previous: { [workflowPath]: "changed\n" },
     head: { [workflowPath]: readFileSync(join(root, workflowPath), "utf8") },
   })
-  server.use(...github(other))
+  server.use(...githubApi(other))
   const result = await plan(other)
   // The earlier run had its own workflow file: only main is a base.
   assert.ok(Object.values(result.reuse).every((ref) => ref.startsWith("main ")))
 
   const commits = repository()
   server.use(
-    ...github({
+    ...githubApi({
       ...commits,
       previewRuns: [
-        { id: 42, head_sha: commits.previous, pull_requests: [{ number: 8 }] },
-        { id: 50, head_sha: commits.head, pull_requests: [{ number: 7 }] },
+        {
+          id: 42,
+          run_attempt: 2,
+          head_sha: commits.previous,
+          pull_requests: [{ number: 8 }],
+        },
+        // A first attempt builds nothing.
+        {
+          id: 43,
+          run_attempt: 1,
+          head_sha: commits.previous,
+          pull_requests: [{ number: 7 }],
+        },
       ],
     }),
   )
@@ -235,7 +265,7 @@ test("a preview run with another workflow file, of another PR, or without push j
       ref.startsWith("main "),
     ),
   )
-  server.use(...github({ ...commits, noPushJobs: true }))
+  server.use(...githubApi({ ...commits, noPushJobs: true }))
   assert.ok(
     Object.values((await plan(commits)).reuse).every((ref) =>
       ref.startsWith("main "),
@@ -247,13 +277,13 @@ test("a change to deploy.yaml since main makes main no base", async () => {
   const commits = repository({
     previous: { ".github/workflows/deploy.yaml": "x\n" },
   })
-  server.use(...github({ ...commits, previewRuns: [] }))
+  server.use(...githubApi({ ...commits, previewRuns: [] }))
   assert.deepEqual(built(await plan(commits)), [...names].sort())
 })
 
 test("without a base, or when the GitHub API fails, every image builds", async () => {
   const commits = repository()
-  server.use(...github({ ...commits, previewRuns: [], deployRuns: [] }))
+  server.use(...githubApi({ ...commits, previewRuns: [], deployRuns: [] }))
   const none = await plan(commits)
   assert.deepEqual(built(none), [...names].sort())
   assert.equal(none.reasons.ui, "no earlier image")
