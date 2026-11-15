@@ -172,3 +172,34 @@ test("a missing image stops the publish before an upload", async () => {
   expect(code).toBe(2)
   expect(commands).toEqual([])
 })
+
+test("with --calibration, uploads the images and the before images of a calibration set", async () => {
+  const { gh, commands } = fakeGh([`${fresh}.png`])
+  const calibration = join(folder, "unseen.json")
+  writeFileSync(
+    calibration,
+    JSON.stringify({
+      screenshots: [
+        { image: after, before: { image: before, brief: "Change the bar." } },
+        { image: fresh },
+      ],
+    }),
+  )
+  const printed: string[] = []
+
+  const code = await publish(
+    ["--images", imagesWith(), "--calibration", calibration],
+    (text) => printed.push(text),
+    gh,
+  )
+
+  expect(code).toBe(0)
+  const uploads = commands.filter((args) => args[1] === "upload")
+  expect(
+    uploads[0]
+      ?.slice(5)
+      .map((path) => basename(path))
+      .sort(),
+  ).toEqual([`${before}.png`, `${after}.png`].sort())
+  expect(printed.join("\n")).toContain("2 images uploaded, 1 already in")
+})

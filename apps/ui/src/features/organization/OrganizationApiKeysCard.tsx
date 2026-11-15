@@ -13,7 +13,7 @@
  * `organizationRoles` config (apps/backend/src/auth/config.ts) which only
  * grants `apiKey` actions to owner/admin — this card surfaces that 403.
  */
-import { IconCopy, IconKey, IconTrash } from "@tabler/icons-react"
+import { IconKey, IconTrash } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { useState } from "react"
@@ -28,6 +28,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/Card"
+import { CopyableBlock } from "@/components/ui/CopyableBlock"
 import {
   Dialog,
   DialogDescription,
@@ -54,7 +55,6 @@ import {
 import {
   API_KEY_MUTATION_KEYS,
   type ApiKey,
-  copyToClipboard,
   createOrganizationApiKey,
   createPersonalApiKey,
   deleteOrganizationApiKey,
@@ -699,36 +699,32 @@ function CreatedSecretDialog(props: {
   onDone: () => void
 }) {
   const { secret, onCopied, onCopyFailed, onDone } = props
-  const [copied, setCopied] = useState(false)
 
   return (
     <Dialog>
       <DialogHeader>
         <DialogTitle>API key created</DialogTitle>
         <DialogDescription>
-          Copy this secret now. Store it in{" "}
-          <code className="font-mono text-xs">CTXPIPE_API_KEY</code> and never
-          commit it; it will not be shown again.
+          Copy the key now. ctxpipe shows it only one time.
         </DialogDescription>
       </DialogHeader>
-      <p className="mt-4 break-all rounded-md border border-border bg-zinc-900 px-3 py-3 font-mono text-sm text-zinc-100">
-        {secret}
+      <div className="mt-4">
+        <CopyableBlock
+          value={secret}
+          copyAriaLabel="Copy API key"
+          copiedAriaLabel="API key copied"
+          copyErrorMessage="Could not copy. Select the key and copy it."
+          onCopied={onCopied}
+          onCopyFailed={onCopyFailed}
+        />
+      </div>
+      <p className="mt-3 text-sm text-zinc-400">
+        Keep it in a secret manager, or set it as{" "}
+        <code className="font-mono text-xs text-zinc-300">CTXPIPE_API_KEY</code>{" "}
+        in your environment. Do not commit it to Git.
       </p>
-      <div className="mt-5 flex justify-end gap-2">
-        <Button
-          variant="outline"
-          className="rounded-md"
-          onPress={() => {
-            void copyToClipboard(secret).then(() => {
-              setCopied(true)
-              onCopied()
-            }, onCopyFailed)
-          }}
-        >
-          <IconCopy className="size-4" aria-hidden />
-          {copied ? "Copied" : "Copy"}
-        </Button>
-        <Button variant="primary" className="rounded-md" onPress={onDone}>
+      <div className="mt-6 flex justify-end">
+        <Button variant="primary" onPress={onDone}>
           Done
         </Button>
       </div>

@@ -1,0 +1,661 @@
+{
+  "selected": "2026-11-15",
+  "screenshots": [
+    {
+      "id": "organization-settings-desktop",
+      "source": "pr-717",
+      "path": "apps/ui/src/routes/screenshots/-organization.Settings.desktop.screenshot.png",
+      "commit": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+      "image": "c752de3d79ce78e6625727ab0c715fff7be45036469990691ee30e222327fa24",
+      "scope": "page",
+      "viewport": "desktop",
+      "before": {
+        "image": "b51ac31f74dd06bedddd4282b5f15b808ea6f6e8713b60d03fb563f4bc681f0c",
+        "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n"
+      }
+    },
+    {
+      "id": "onboardinghowitworksslide-rowsfadeininorder-desktop",
+      "source": "pr-717",
+      "path": "apps/ui/src/components/onboarding/screenshots/OnboardingHowItWorksSlide.RowsFadeInInOrder.desktop.screenshot.png",
+      "commit": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+      "image": "a6bafb982f6af3f829c4b39d54b03a4b2c7e0fbb718896580ec22bcfe068b95c",
+      "scope": "component",
+      "viewport": "desktop",
+      "before": {
+        "image": "072d8f441d4f4e68cd4441936590f9255cfdbbea1e1ec918131dd84fbd314fd8",
+        "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n"
+      }
+    },
+    {
+      "id": "onboarding-joinerfinishstayswhensessionisstale-mobile",
+      "source": "pr-717",
+      "path": "apps/ui/src/routes/screenshots/-onboarding.JoinerFinishStaysWhenSessionIsStale.mobile.screenshot.png",
+      "commit": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+      "image": "cb7c1045bf8ad25b58094326b3eae85223235fe9bcbcce496d7df13f7f07a25c",
+      "scope": "page",
+      "viewport": "mobile",
+      "before": {
+        "image": "90e528a7422057ba19611de8288cf5b7b2b8398894ddecf2bd8c534c9c1eeefa",
+        "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n"
+      }
+    },
+    {
+      "id": "account-settings-mobile",
+      "source": "pr-717",
+      "path": "apps/ui/src/routes/screenshots/-account.Settings.mobile.screenshot.png",
+      "commit": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+      "image": "eeaef491730af09351f96c644b1d19c907f004c8fa3ccc96d9d91c9e1a16b2a3",
+      "scope": "page",
+      "viewport": "mobile",
+      "before": {
+        "image": "586c7a2debaf561df74c5eeb561066af6e906e10d771a0ec4d2b0f215f760de6",
+        "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n"
+      }
+    },
+    {
+      "id": "onboardingpageshell-withwelcomeslide-desktop",
+      "source": "pr-717",
+      "path": "apps/ui/src/components/onboarding/screenshots/OnboardingPageShell.WithWelcomeSlide.desktop.screenshot.png",
+      "commit": "95f15312d866f8c09cf75a6a8c921218611ea44c",
+      "image": "47f8a5a8e70b53303b1dcb0160b0337d13f5d2a52971b41731858e19a733b44f",
+      "scope": "component",
+      "viewport": "desktop",
+      "before": {
+        "image": "2107f593798d85ffd773c1092cbb8ba6bb55a062a577077775f585ce33a4382b",
+        "brief": "Remove AI-look patterns from the product UI (CTX-1259)\n\nThe product owner decided to change six patterns in `apps/ui` that look AI-generated.\n\nIntended visual changes:\n\n1. Quiet-button teal hover glow: remove it. On hover, use a subtle background or border change from the existing tokens. Add no new color.\n2. Pulsing status dot: pulse only for live states (running, syncing, indexing, hydrating, any state in progress). A static state (ready, failed, connected) gets a still dot and the word. Keep the dot and the word everywhere.\n3. Minimum text size 12 px (`text-xs`): raise `.ctx-label-muted`, menu group headers, the workspace nav group headers, inline code and all other text below 12 px. Use Tailwind named sizes, no arbitrary px.\n4. Empty states: no icon tile above the heading. Use a plain sentence, and the one action when there is one.\n5. `.ctx-label`: use it only for section labels in dense panels. Do not use it as an eyebrow above page titles or above each card heading. Remove the eyebrows above page titles (\"GitHub\", \"Connectors\", \"Workspace\", \"Access\", \"OAuth connection\"); the organization settings and user account titles become normal text-lg text.\n6. Card corner crosses: only on hero or summary cards. The default `Card` has no crosses.\n\nKeep: monospace for ids, paths, hashes and counts; the hairline border with a wide shadow on modals, popovers and toasts; one font and one palette.\n"
+      }
+    },
+    {
+      "id": "connectors-needsformatupgradenorowyet-desktop",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/routes/screenshots/-connectors.NeedsFormatUpgradeNoRowYet.desktop.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "44c7dcf672600bbd4a93b70ca4ab0997cff94fa24ee9352251d7f456cbbf2a51",
+      "scope": "page",
+      "viewport": "desktop",
+      "before": {
+        "image": "4d9a8444d878aba6168c6a3a50d096970a4c99945fda894e809b2afea0e53305",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "workspacesurface-conversationworkspacemovedwithchanges-desktop",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.ConversationWorkspaceMovedWithChanges.desktop.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "b2b333d0a1e0e291cca9aa94faa97274fde2356637bbf5328681869075879b10",
+      "scope": "page",
+      "viewport": "desktop",
+      "before": {
+        "image": "01102fe75e859c692fd8799cf822859ff943485db352cdf4d0446ed514ef2603",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "buildkitescopeeditor-selectpipelines-desktop",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/features/workspace-sources/providers/screenshots/BuildkiteScopeEditor.SelectPipelines.desktop.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "3b7152eb750ff19ec43cd551129260a9b15faa1e81a9de6f285466f4daa80c62",
+      "scope": "component",
+      "viewport": "desktop",
+      "before": {
+        "image": "908760fcb83b5c32d4b79e8d54cc221f61df1ac3ee61f2e7f96b66e36d1c7d48",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "buildkiteconnectioncard-connected-desktop",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/features/connectors/components/screenshots/BuildkiteConnectionCard.Connected.desktop.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "5521ca518ea591bdfa631fdef251e97ac8fa4560edf019611691fb38457b6ab6",
+      "scope": "component",
+      "viewport": "desktop",
+      "before": {
+        "image": "766eeb44df3acc2a5c89c631e093598cd94c3f5f89b65468a3763717f7ead814",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "notionsetupdialog-registernotionoauth-desktop",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/features/connectors/components/screenshots/NotionSetupDialog.RegisterNotionOauth.desktop.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "4c21c5f6dad6c3e2db5d35e82ac281428709a035fe8cf12af2e459b7efa1b8de",
+      "scope": "component",
+      "viewport": "desktop",
+      "before": {
+        "image": "a7aec6f36e06701a7dbdf18205b89eaf020e07c19fd27bf5f2455056cd4f6038",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "plainsetupdialog-connectwithkey-desktop",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/features/connectors/components/screenshots/PlainSetupDialog.ConnectWithKey.desktop.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "7f05a5bee4a995a2bce650f246eb20d4b515d80d452e91e1a8ae18affbcf48e1",
+      "scope": "component",
+      "viewport": "desktop",
+      "before": {
+        "image": "2db8a8f23c024fa4c2a24bbb262c84c767137aee86a16a389c2a386144767bac",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "notionconnectioncard-checking-desktop",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/features/connectors/components/screenshots/NotionConnectionCard.Checking.desktop.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "50f4df7f62e3160f8df47b7c586e089c3c2f7b36c567a6e7a4dd219af5ecd28d",
+      "scope": "component",
+      "viewport": "desktop",
+      "before": {
+        "image": "f718477ecc3e8d803dc7ee3ced1506d6978e9dc3614de1e920f1b840f331522b",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "connectorlistitem-expanded-desktop",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/features/connectors/components/screenshots/ConnectorListItem.Expanded.desktop.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "0c2e05038a4a7b0f404285c6276fadaf4d973fffd33e56f4eeaf2399e454deb5",
+      "scope": "component",
+      "viewport": "desktop",
+      "before": {
+        "image": "accb2a4617c6d07d90cef6afbe918c455d9d50dd3ea69625c2e202f48ec8c3fd",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "workspaceupgradeprogress-checkingformattimesoutadmin-desktop",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/features/workspace-upgrades/screenshots/WorkspaceUpgradeProgress.CheckingFormatTimesOutAdmin.desktop.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "caf2dcf0ec0de949c57fd6206fa1555376c3a45640d62f41ddf9177a0e4091dc",
+      "scope": "component",
+      "viewport": "desktop",
+      "before": {
+        "image": "eab58e504fb00e46bace0eff28c6ca57fbe92f1a324094df1a5261c4bbf19027",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "home-setup-guide-guiderepositoriesreadonlyshowsreason-desktop",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideRepositoriesReadOnlyShowsReason.desktop.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "075550fc3423751040cacdaf9f11c76d40778939aa638b35d3ba9ebb27e4a94f",
+      "scope": "page",
+      "viewport": "desktop",
+      "before": {
+        "image": "5ba0b300b6057c9187839d056cf7ad218991ad5c5c9f9d7661b32843b11db48a",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "chooseworkspacesstep-singleworkspace-desktop",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/features/workspace-sources/screenshots/ChooseWorkspacesStep.SingleWorkspace.desktop.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "575ef2ccea3ac08c1451564c4bfe145b196e2325c20b230ea578527e7bd0c6ea",
+      "scope": "component",
+      "viewport": "desktop",
+      "before": {
+        "image": "b24ab08a84194cf724cc63b76cf9beab410b4b3c0cb1b11e6fef5e27f9ced4f9",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "workspacebinaryfile-fileoverdownloadlimit-desktop",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceBinaryFile.FileOverDownloadLimit.desktop.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "f5c56c4502b60f1bcf72b4d95b8d13d5f9a80d12446f9b0c75c0e6fdfb9a1111",
+      "scope": "component",
+      "viewport": "desktop",
+      "before": {
+        "image": "ea22b4973078b1196b0880ffa0d897ff8a9b2c9b3dd1b760934281d9acaa3cc7",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "plainconnectioncard-remove-desktop",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/features/connectors/components/screenshots/PlainConnectionCard.Remove.desktop.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "0461f80894a2af6388fdf78bfe032613f75f87cc1c7c8ae020eebe79ce5f1bad",
+      "scope": "component",
+      "viewport": "desktop",
+      "before": {
+        "image": "1b0557c3537bd04f109accf8464651c34eb8a3948b9b27c764a4da3e46206212",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "linearsetupwizard-registeroauthapp-desktop",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/features/connectors/components/linear-setup/screenshots/LinearSetupWizard.RegisterOauthApp.desktop.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "2c719866c4bb441efc8635db78cbeb07a14cf5738be5580f5a4b7dc5264eaa49",
+      "scope": "component",
+      "viewport": "desktop",
+      "before": {
+        "image": "da1060bb49fc39d016212204cbbea411db842a2e8af3b66ec5c13a6c7e6e43d7",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "pagerdutyconnectioncard-couldntload-desktop",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/features/connectors/components/screenshots/PagerdutyConnectionCard.CouldntLoad.desktop.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "bbd61c55d1a5400e6daf67c961d2dd2da6f8004ef83166aec6c2417d3e427f72",
+      "scope": "component",
+      "viewport": "desktop",
+      "before": {
+        "image": "f7aa35dd8bd0091c88915b0511f690b969ec350269d4f07d110c1341dde77a18",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "workspaceupgrades-blockedwithoutreason-desktop",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/features/workspace-upgrades/screenshots/WorkspaceUpgrades.BlockedWithoutReason.desktop.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "3127307cb66660933f5d77a1126863360879b635f793019769f233af54f73d61",
+      "scope": "component",
+      "viewport": "desktop",
+      "before": {
+        "image": "79da52c796846cf5633873850cfb193680999efb7ae1601024f81956a05b9660",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "confluencesetupwizard-closecancelsthesetup-desktop",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/features/connectors/components/confluence-setup/screenshots/ConfluenceSetupWizard.CloseCancelsTheSetup.desktop.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "040b23ec5647f014afec55ead27d3011923542ab01de473d8a091bc1b5b2d203",
+      "scope": "component",
+      "viewport": "desktop",
+      "before": {
+        "image": "9557f409a02c81967390256f0304402e4b940213712acde4343a2978f978440e",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "linearconnectioncard-connected-desktop",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/features/connectors/components/screenshots/LinearConnectionCard.Connected.desktop.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "b09587192fa618ac118a24f62d669ef240343846bba75dbed45f3ac5129cbf94",
+      "scope": "component",
+      "viewport": "desktop",
+      "before": {
+        "image": "d261b273d39bdaa458c8adbd08da69dafab4e825bf55053aaa322b1541455d81",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "buildkitesetupdialog-savewebhooktoken-desktop",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/features/connectors/components/screenshots/BuildkiteSetupDialog.SaveWebhookToken.desktop.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "c0f2284ec4608f938787a8b19018a781682b1a46063e751fc10fad060c90804d",
+      "scope": "component",
+      "viewport": "desktop",
+      "before": {
+        "image": "370f9991b093d18c7f577e254b383e72d4bd13c73045d8d4b9daf8f801687479",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "slacksetupdialog-captureworkspace-desktop",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/features/connectors/components/screenshots/SlackSetupDialog.CaptureWorkspace.desktop.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "fa5bd306867c8e3b7a2938d04382c9c2aeb12f49e97e659a9f5cbe4e3a08aef4",
+      "scope": "component",
+      "viewport": "desktop",
+      "before": {
+        "image": "8984222808c8d5eee15915dcc463afa14cf5ac467d811851918d01f927db31dc",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "connectors-buildkitefromcatalog-mobile",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/routes/screenshots/-connectors.BuildkiteFromCatalog.mobile.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "57ed334ecc15849b3fe7b2a6f3069d777768162711fc920115b65429ffff0ffd",
+      "scope": "page",
+      "viewport": "mobile",
+      "before": {
+        "image": "9a6611fef0a3fd92becd1c3d3288c50e2dec1bddbef48d621690d913a3e7aac6",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "workspaces-new-steptwoformatnotvalid-mobile",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/routes/screenshots/-workspaces.new.StepTwoFormatNotValid.mobile.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "7c80c23af77e1066f4ec1e183c94f03a6870e13924b2c22af7ab6729fbe5003e",
+      "scope": "page",
+      "viewport": "mobile",
+      "before": {
+        "image": "b9b1b6ace68c20fad76d1c95aae536f8268b34ae81cf454b815489ed966b139b",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "workspacesurface-writecheckfailedstopspolling-mobile",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.WriteCheckFailedStopsPolling.mobile.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "5f09276d14abf6b57c48213addb043ef0a1987eef88701931f97fb156e27f108",
+      "scope": "page",
+      "viewport": "mobile",
+      "before": {
+        "image": "0031bb01cf1e406ef9259e58da3b76b7f767a0add115b0f8c7558183f5f7b448",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "home-setup-guide-guiderepositoriesneedupgradefirst-mobile",
+      "source": "pr-722-round-3",
+      "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideRepositoriesNeedUpgradeFirst.mobile.screenshot.png",
+      "commit": "8eda68fe60fd3668feb1cc55160761e3e8afaae7",
+      "image": "225f0f3dfd53d2163cf67c37ad9f9058e6fa311de9c4aa3815aec7cbe21595fc",
+      "scope": "page",
+      "viewport": "mobile",
+      "before": {
+        "image": "288f4a33769affffdc1cc26f609f8ef814e74da3357070af8ba34703b3e8d80e",
+        "brief": "Owner review round 3: one vertical axis for the leading markers of a stack, one warning look, and wrapped text."
+      }
+    },
+    {
+      "id": "workspacesurface-filespane-desktop",
+      "source": "main",
+      "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.FilesPane.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "46738a92ba0e831cc7e12422eb1acb59d686a1511cf913d5649da70c9562a933",
+      "scope": "page",
+      "viewport": "desktop"
+    },
+    {
+      "id": "onboarding-doubleclickmovesoneslide-desktop",
+      "source": "main",
+      "path": "apps/ui/src/routes/screenshots/-onboarding.DoubleClickMovesOneSlide.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "b54bbbf726c0fd789f04e4a0c29153b70e648e65616002caf28874cd1ea5444d",
+      "scope": "page",
+      "viewport": "desktop"
+    },
+    {
+      "id": "home-setup-guide-guidememberview-desktop",
+      "source": "main",
+      "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideMemberView.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "5d13f9143bc293b114ed0a31cafda11a72ae296fec21013bf4beff83a206f217",
+      "scope": "page",
+      "viewport": "desktop"
+    },
+    {
+      "id": "home-notices-alwaysupdate-desktop",
+      "source": "main",
+      "path": "apps/ui/src/routes/screenshots/-home-notices.AlwaysUpdate.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "1d6f45a8a421989b716687ad21cf92af9d93f9a70da8d50389d780db11d880fd",
+      "scope": "page",
+      "viewport": "desktop"
+    },
+    {
+      "id": "home-loading-desktop",
+      "source": "main",
+      "path": "apps/ui/src/routes/screenshots/-home.Loading.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "0e810a8505a15d8958641ec13ce7d43c2e0bd9ff7cab6998fb2a6a851f88e0da",
+      "scope": "page",
+      "viewport": "desktop"
+    },
+    {
+      "id": "account-apikeyseditorganizations-desktop",
+      "source": "main",
+      "path": "apps/ui/src/routes/screenshots/-account.ApiKeysEditOrganizations.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "097309c25212e26de0e39efd96c5fb4adbc6ebadd3567b4e87c3383249b17518",
+      "scope": "page",
+      "viewport": "desktop"
+    },
+    {
+      "id": "workspaces-new-unknownworkspaceinurl-desktop",
+      "source": "main",
+      "path": "apps/ui/src/routes/screenshots/-workspaces.new.UnknownWorkspaceInUrl.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "cddb798dbfd04b22347396220412052f5c967a41b0a218e76a6c4f550ec2fbd5",
+      "scope": "page",
+      "viewport": "desktop"
+    },
+    {
+      "id": "github-link-linkedtoanotheruser-desktop",
+      "source": "main",
+      "path": "apps/ui/src/routes/screenshots/-github.link.LinkedToAnotherUser.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "57d205cf11704067b74fb49bcd523d4fc80c62e630d3f0c1a64dd5d141683576",
+      "scope": "page",
+      "viewport": "desktop"
+    },
+    {
+      "id": "auth-deviceloading-desktop",
+      "source": "main",
+      "path": "apps/ui/src/routes/screenshots/-auth.DeviceLoading.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "7869fc24738b4507114e12d7b0333ce7c8f3a18cc02726b180e89d40207a45ed",
+      "scope": "page",
+      "viewport": "desktop"
+    },
+    {
+      "id": "connectors-empty-desktop",
+      "source": "main",
+      "path": "apps/ui/src/routes/screenshots/-connectors.Empty.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "8d30045b13ff718431ed14dd3bb00450f447d4cf9fb4df1f9c294df55656d114",
+      "scope": "page",
+      "viewport": "desktop"
+    },
+    {
+      "id": "org-github-setup-chooseworkspace-desktop",
+      "source": "main",
+      "path": "apps/ui/src/routes/screenshots/-org-github-setup.ChooseWorkspace.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "7eab24e4c315919a7711660858f8fea98c8f1f5dd670d6749cc4089c1a56bdba",
+      "scope": "page",
+      "viewport": "desktop"
+    },
+    {
+      "id": "consent-consentsendstickedorgs-desktop",
+      "source": "main",
+      "path": "apps/ui/src/routes/screenshots/-consent.ConsentSendsTickedOrgs.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "dd1431f9a4772e59bfc11d3762b31fe091e65304565d2784e2e084e23ad3d3d5",
+      "scope": "page",
+      "viewport": "desktop"
+    },
+    {
+      "id": "organization-subpageskeeponeposition-desktop",
+      "source": "main",
+      "path": "apps/ui/src/routes/screenshots/-organization.SubPagesKeepOnePosition.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "5624a8083399559d348d06a748309d93ef75f95ed476483c5a65e283685e6101",
+      "scope": "page",
+      "viewport": "desktop"
+    },
+    {
+      "id": "workspacesurface-conversationloading-mobile",
+      "source": "main",
+      "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceSurface.ConversationLoading.mobile.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "1d165506cf0524bead4865f9a44e5779137ea1fce37db9c709570cd3e03e0453",
+      "scope": "page",
+      "viewport": "mobile"
+    },
+    {
+      "id": "home-setup-guide-guidestaysafterfirstworkspace-mobile",
+      "source": "main",
+      "path": "apps/ui/src/routes/screenshots/-home-setup-guide.GuideStaysAfterFirstWorkspace.mobile.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "0a24b7f729aef10a8354adeded27e0523f57b432974d21f5b49d3205e902381d",
+      "scope": "page",
+      "viewport": "mobile"
+    },
+    {
+      "id": "connectors-fixfromcatalog-mobile",
+      "source": "main",
+      "path": "apps/ui/src/routes/screenshots/-connectors.FixFromCatalog.mobile.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "32fa7932aaf48a48d38dd679c881a5dd061138ddb8790dad9a0028533d1c6c8c",
+      "scope": "page",
+      "viewport": "mobile"
+    },
+    {
+      "id": "home-activityandrecentkeeptheirgap-mobile",
+      "source": "main",
+      "path": "apps/ui/src/routes/screenshots/-home.ActivityAndRecentKeepTheirGap.mobile.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "a0f21f887f520370b32515fe79021fc9eb645862c199bcd1b8b1e5ce1581217c",
+      "scope": "page",
+      "viewport": "mobile"
+    },
+    {
+      "id": "github-setup-notlinkedshowslinkerror-mobile",
+      "source": "main",
+      "path": "apps/ui/src/routes/screenshots/-github.setup.NotLinkedShowsLinkError.mobile.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "bb6b89390f6f1f64d7d782f23a7dd325e5737afce0379d9f655257c499c45094",
+      "scope": "page",
+      "viewport": "mobile"
+    },
+    {
+      "id": "onboarding-loading-mobile",
+      "source": "main",
+      "path": "apps/ui/src/routes/screenshots/-onboarding.Loading.mobile.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "5a7c8f1013c6c7d1e05b87faf6e741a3fc27334577fbba85cf462d04fd9504b0",
+      "scope": "page",
+      "viewport": "mobile"
+    },
+    {
+      "id": "connectorsoautherrorbanner-emaildoesnotmatch-desktop",
+      "source": "main",
+      "path": "apps/ui/src/features/connectors/components/screenshots/ConnectorsOAuthErrorBanner.EmailDoesNotMatch.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "60537bbda6712990109dd20162ee49b7b85acb1b6561394101c4c1add8b6036d",
+      "scope": "component",
+      "viewport": "desktop"
+    },
+    {
+      "id": "githubprerequisitestep-slack-desktop",
+      "source": "main",
+      "path": "apps/ui/src/features/connectors/components/screenshots/GitHubPrerequisiteStep.Slack.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "095be7ca9c02f84a04ead0584877e21d5fc5fcb94afdbf16ee77c2ad9d9d6f0a",
+      "scope": "component",
+      "viewport": "desktop"
+    },
+    {
+      "id": "notionconnectioncard-couldntload-desktop",
+      "source": "main",
+      "path": "apps/ui/src/features/connectors/components/screenshots/NotionConnectionCard.CouldntLoad.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "ed6af0b59b16a1199551fc2204cfb1acc1a4562f7e5bd6ca34c59e7fa7683542",
+      "scope": "component",
+      "viewport": "desktop"
+    },
+    {
+      "id": "connectorlistitem-connected-desktop",
+      "source": "main",
+      "path": "apps/ui/src/features/connectors/components/screenshots/ConnectorListItem.Connected.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "04ee79ba7410fe9b64a29bbd2f79705b44e807e014d798d12daea4cc039e0777",
+      "scope": "component",
+      "viewport": "desktop"
+    },
+    {
+      "id": "workspacechatchrome-syncctawithsubtleshowpr-desktop",
+      "source": "main",
+      "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceChatChrome.SyncCtaWithSubtleShowPr.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "566d20fe18aaa504cadd9b62853cb375f2ee1dafe3ff9a13f586eb36b20f2c87",
+      "scope": "component",
+      "viewport": "desktop"
+    },
+    {
+      "id": "workspaceupgrades-failed-desktop",
+      "source": "main",
+      "path": "apps/ui/src/features/workspace-upgrades/screenshots/WorkspaceUpgrades.Failed.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "e5e154cc8d1aae0cf537ec12b9b76b52915e0bcec78fc6f6eb2780b9bd5dfe86",
+      "scope": "component",
+      "viewport": "desktop"
+    },
+    {
+      "id": "slacksetupdialog-manageremovesanuncheckedworkspace-desktop",
+      "source": "main",
+      "path": "apps/ui/src/features/connectors/components/screenshots/SlackSetupDialog.ManageRemovesAnUncheckedWorkspace.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "3fb1c28b7d1d48bf8196168744897664927d58ceea442fe9b865de0a5e43bb0d",
+      "scope": "component",
+      "viewport": "desktop"
+    },
+    {
+      "id": "confluencesetupwizard-linkatlassianglobalenv-desktop",
+      "source": "main",
+      "path": "apps/ui/src/features/connectors/components/confluence-setup/screenshots/ConfluenceSetupWizard.LinkAtlassianGlobalEnv.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "fd4fbf1419b589bccd1048b393ebede4bd7e0665574cbbabfff8e9ff06460550",
+      "scope": "component",
+      "viewport": "desktop"
+    },
+    {
+      "id": "workspacepane-filesempty-desktop",
+      "source": "main",
+      "path": "apps/ui/src/features/workspaces/screenshots/WorkspacePane.FilesEmpty.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "8de336f385f63c59b05b3be397e28dac510733253585ad6512a19d746443d692",
+      "scope": "component",
+      "viewport": "desktop"
+    },
+    {
+      "id": "workspacesources-scrollstosourceanchor-desktop",
+      "source": "main",
+      "path": "apps/ui/src/features/workspace-sources/screenshots/WorkspaceSources.ScrollsToSourceAnchor.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "20dacfedf0068d1e6b0388770606398a4c8befa64349d10cb47069f3341b9021",
+      "scope": "component",
+      "viewport": "desktop"
+    },
+    {
+      "id": "workspaceconversationdiff-diffpaneempty-desktop",
+      "source": "main",
+      "path": "apps/ui/src/features/workspaces/screenshots/WorkspaceConversationDiff.DiffPaneEmpty.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "26caabf9a7b65e142d6a44a2f6c57d3b33ac80a76c24893cf13891089dc29984",
+      "scope": "component",
+      "viewport": "desktop"
+    },
+    {
+      "id": "knowledgegraphcosmographcanvas-panenarrow-desktop",
+      "source": "main",
+      "path": "apps/ui/src/features/knowledge-graph/screenshots/KnowledgeGraphCosmographCanvas.PaneNarrow.desktop.screenshot.png",
+      "commit": "b3237ce7b2c0d39c61066b8fe5d759e6c8efb403",
+      "image": "b0e70f9465991c7f8adb0d569700392b32b1a0a6809cfd14152518be0c0decb5",
+      "scope": "component",
+      "viewport": "desktop"
+    }
+  ]
+}

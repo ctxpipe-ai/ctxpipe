@@ -17,6 +17,7 @@ import type { Env } from "../config/env.js"
 import {
   decryptConnectionSecret,
   encryptConnectionSecret,
+  isConnectionSecretCiphertext,
 } from "../lib/connection-secrets.js"
 
 const from = {
@@ -30,7 +31,7 @@ const to = {
 } as Env
 
 function reencrypt(value: unknown): unknown {
-  if (typeof value === "string" && value.startsWith("ctxv1:")) {
+  if (isConnectionSecretCiphertext(value)) {
     if (!to.CONNECTION_SECRETS_ENCRYPTION_KEY) {
       throw new Error(
         "Connection secrets exist and NEW_CONNECTION_SECRETS_ENCRYPTION_KEY is not set. Export it (the current key when only AUTH_SECRET changes). Nothing changed.",

@@ -13,7 +13,7 @@ Do not install marketing `frontend-design` on this surface. Do not invent a pale
 
 Open [`apps/ui/DESIGN.md`](../../../apps/ui/DESIGN.md). Apply it on **new or touched** UI.
 
-**Done when:** you can name the radius (`rounded-md`), primary (white/light), accent (teal), title scale (`text-lg` / `text-xl` on product screens), and which brand signatures you will reuse (status dot + word, monospace for ids). Crosses only on a hero or summary card; `.ctx-label` only in a dense panel.
+**Done when:** you can name the radius (`rounded-md`), primary (white/light), accent (teal), title scale (`text-lg` / `text-xl` on product screens), the brand signatures you will reuse (status dot + word, monospace for ids), the **House decisions** that apply, and the **Priority order** that settles a conflict between two rules.
 
 ## 2. Feature, not shell
 
@@ -21,7 +21,7 @@ Design the **feature content** first. Smallest useful version: the fields, rows,
 
 Leave `AppShell`, SideNav, and page-wide atmosphere alone unless the user asked to change them. Product chrome stays undecorated (no grid, no teal/blue glow).
 
-When polishing a **named region** of existing chrome or a dense control list: change only that region — do not push experiments into shared class helpers that restyle siblings. After visual polish, **Tab** the surface once — focus rings, clipping, and non-outline affordances (resize line + arrows) are part of done. Use [`focus-styles.ts`](../../../apps/ui/src/lib/focus-styles.ts); see [DESIGN.md](../../../apps/ui/DESIGN.md) **Focus / keyboard** and [visual-craft.md](references/visual-craft.md) Finishing.
+When polishing a **named region** of existing chrome or a dense control list: change only that region — do not push experiments into shared class helpers that restyle siblings. After visual polish, **Tab** the surface once — focus rings, clipping, and non-outline affordances (resize line + arrows) are part of done. Use [`focus-styles.ts`](../../../apps/ui/src/lib/focus-styles.ts); see [DESIGN.md](../../../apps/ui/DESIGN.md) **Focus / keyboard**.
 
 **Done when:** the planned surface is the feature; the shell is unchanged; every control has a backend or an explicit out-of-scope note.
 
@@ -39,15 +39,14 @@ User words are jobs, not HTML tags. For each chunk of UI, name:
 
 ## 4. Hierarchy + layout pass
 
-After the pattern, before code, name:
+After the pattern, before code, name these against DESIGN.md **Hierarchy and grouping** and **Alignment and spacing**:
 
 - **Primary / secondary / tertiary** on this surface (one primary action)
-- **How hierarchy is made** — weight + muted color, not a size jump. Mute neighbors before painting the hero louder.
-- **Grouping** — more space *around* a group than *within* it
+- **How hierarchy is made**, and the strong signals that the screen spends
+- **Groups and containment** — what holds each group, and the treatment of each level
 - **Width** — `max-w-*` for forms/prose, or full-bleed data surface?
-- **Separators** — gap or background shift first; one hairline if grouping is still ambiguous
 
-**Done when:** those five are written, there is one primary action, and the plan does not use `text-3xl` on a product title, stretch a form to the nav, or box every row.
+**Done when:** those four are written, there is one primary action, and the plan does not use `text-3xl` on a product title, stretch a form to the nav, or box every row.
 
 ## 5. Observe a nearby screen
 
@@ -59,7 +58,7 @@ Open a shipped screen in the same feature (or the closest `components/ui` primit
 
 For this feature only: empty, loading, error, and dense data.
 
-Empty: short title + one sentence + **one primary** control. Hide tabs, filters, and search until there is content. Center only if copy is ≤2 lines; otherwise left-align.
+Empty, error and the edge states (long names, zero, one or many items): DESIGN.md **State and feedback**.
 
 Loading: pick the **kind** first. Do not mix them.
 
@@ -72,25 +71,19 @@ Loading: pick the **kind** first. Do not mix them.
 
 **Interaction responsiveness:** selected chrome (tabs, pane switchers, SideNav rows, org switcher) updates **on the click**; the skeleton stays inside the region that needs data. The **page body** stays too — sibling columns, `AppShell`, and in-page state must not remount while one region fetches. Home / Connectors / Workspace share the org `AppShell`; a client page click must not remount the nav or wait on a loader before the main column swaps. A click that leaves chrome or the rest of the page unchanged until the next route paints is not done. SSR still includes the landing region in the first HTML (see [react](../react/SKILL.md) **Feel fast**).
 
-Error: [`InlineAlert`](../../../apps/ui/src/components/ui/InlineAlert.tsx) + a next step. Dark slab, same-hue muted secondary, no `text-white/50`.
-
 **Done when:** each state has a pattern; empty chrome is hidden; the empty CTA is `variant="primary"`; selected chrome moves on press; the region that needs data skeletons and everything else stays; first HTML still has the landing region; a region wait is a skeleton, not `"Loading…"` or a centered spinner.
 
 ## 7. Build
 
 - Primitives from `src/components/ui/*` (React Aria). Do not invent a new Button or checkbox.
 - **React Aria first:** tabs, dialogs, menus, lists, links, and similar controls start from [React Aria Components](https://react-spectrum.adobe.com/react-aria/components.html). Use the house wrapper in `src/components/ui/*` when the visual matches; otherwise compose RAC primitives (`Tabs` / `TabList` / `Tab`, `Button`, `Link`, …) and style them. Hand-rolled `<button>` tablists are not a substitute for `Tabs`.
-- New chrome: `rounded-md` (0.2rem, from the `--radius-*` tokens in `apps/ui/src/styles.css`). Do not add `rounded-none`.
-- Icons: `@tabler/icons-react` at ~16–20px, `text-muted-foreground`, `aria-hidden`. Lucide only if Tabler has no equivalent. Enclose in `.ctx-node` if the hit area must be large.
-- Destructive on the page: `outline` or `quiet`. Filled red only on [`AlertDialog`](../../../apps/ui/src/components/ui/AlertDialog.tsx).
-- Copy: US English. Follow ASD-STE100 at about 80% strength. Keep the copy plain and specific. Semantic `h1` at `text-lg` / `text-xl` on product screens.
-- **Named Tailwind:** use the scale (`tracking-tighter`, `p-2`, `text-sm`, `gap-3`). Arbitrary values (`tracking-[-0.5px]`, `text-[15px]`, `p-[13px]`) only when no named token is close.
+- Radius, type, color, space, icons and named Tailwind utilities: DESIGN.md **Personality** and **Tokens we keep**.
 - **Feel fast:** interaction responsiveness is UX. Selected chrome (nav, tabs, panes, switchers) must move on the click — set it in the handler, do not wait for `useSearch()` / `useMatchRoute` / `loaderDeps`. Do not remount the shell or sibling panes for in-page identity. Client loaders do not `await` in-page detail. Route loaders warm **enter** (SSR still includes the landing region). Local `Suspense` for the region that is loading. See [react](../react/SKILL.md) **Feel fast**.
 - **Responsive — CSS-first:** Express breakpoints with Tailwind (`sm:`, `md:`, `lg:`, `max-md:`, …) — visibility, padding, borders, column layout, overlay vs rail. Reach for JS (`matchMedia`, `useMediaQuery`, resize Effects) **only when CSS cannot do the job** (interactive state like an open drawer; a one-shot `matchMedia` inside a click handler is fine). Do not drive layout chrome from reactive media-query state when a responsive class would suffice.
 
 Then follow the [react](../react/SKILL.md) skill for data flow.
 
-**Done when:** the markup matches the named pattern, uses existing primitives, the title/radius/icon rules above hold, responsive behaviour is CSS-first, and selected chrome moves on the click.
+**Done when:** the markup matches the named pattern, uses existing primitives and the house tokens, responsive behaviour is CSS-first, and selected chrome moves on the click.
 
 ## 8. Scan
 
@@ -98,11 +91,11 @@ Run all three. Fix before considering the UI done.
 
 **Noun test** — did I implement the HTML word or the job? Feature/capability copy is icon + title + one-line rows, not `list-disc`.
 
-**Craft** — apply every yes/no in [references/visual-craft.md](references/visual-craft.md) to this output.
+**Rules** — apply each section of DESIGN.md **Rules, in priority order** to this output, from the top. **Polish** is the tell-scan. When two rules conflict, the higher section wins.
 
-**Tell-scan** — apply [references/ai-tells.md](references/ai-tells.md). A status dot + its word and monospace ids are brand, not tells. A `.ctx-label` eyebrow above a title, crosses on a normal card, a pulse on a static state, and a hover glow are tells.
+**Craft** — apply every yes/no in [references/visual-craft.md](references/visual-craft.md): the build craft that DESIGN.md does not hold.
 
-**Done when:** every craft rule is a yes (or an explicit N/A), no tell remains, and the noun test passes for every collection.
+**Done when:** every rule and every craft check is a yes (or an explicit N/A), and the noun test passes for every collection.
 
 ## 9. Story
 
