@@ -832,7 +832,7 @@ describe("hosted ingest shard", { timeout: 240_000 }, () => {
       )(
         "du -xk /ctxpipe /etc /tmp /home /root 2>/dev/null | sort -rn | head -25",
       )
-      expect.fail(
+      throw new Error(
         `The archive of the sandbox is larger than the command output limit. Largest folders (KiB):\n${largest.stdout}`,
       )
     }
