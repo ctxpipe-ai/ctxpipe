@@ -423,7 +423,7 @@ test("rejects a restore-keys prefix that a branch-code job writes", () => {
 
 test("accepts a production sticky disk and a PR sticky disk with a longer key", () => {
   const result = check({
-    ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    if: \${{ !cancelled() && (github.event_name == 'push' || inputs.deploy && github.ref == 'refs/heads/main') }}\n    steps:\n${pinnedSticky(`\${{ github.repository }}-pnpm-store`)}      - env:\n          T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: echo\n`,
+    ".github/workflows/deploy.yaml": `on: push\njobs:\n  forge_deploy:\n    if: \${{ !cancelled() && (github.event_name == 'push' || inputs.deploy && github.ref == 'refs/heads/main') }}\n    steps:\n${pinnedSticky(`\${{ github.repository }}-pnpm-store`)}      - env:\n          T: \${{ secrets.FORGE_API_TOKEN }}\n        run: echo\n`,
     ".github/workflows/w.yaml": `on: pull_request\njobs:\n  migrate:\n    steps:\n${sticky(`\${{ github.repository }}-pnpm-store-pr`)}${install}`,
   })
   assert.equal(result.stderr, "")
@@ -496,9 +496,9 @@ test("rejects a production job whose if: does not limit it to a push to main or 
   ])
     rejects(
       {
-        ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n${condition}    steps:\n${install}      - env:\n          T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: echo\n`,
+        ".github/workflows/deploy.yaml": `on: push\njobs:\n  forge_deploy:\n${condition}    steps:\n${install}      - env:\n          T: \${{ secrets.FORGE_API_TOKEN }}\n        run: echo\n`,
       },
-      /job terraform is a production job, but its if: does not limit it to a push to main or a deploy dispatch from main/,
+      /job forge_deploy is a production job, but its if: does not limit it to a push to main or a deploy dispatch from main/,
     )
 })
 
