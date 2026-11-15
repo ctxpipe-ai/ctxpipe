@@ -151,7 +151,8 @@ export const readUnstable = () =>
 // of the meta, key by key. The Storybook CSF parser reads them, so each value
 // must be a literal and the build does not run:
 // - `skip`: a reason (a string). The story has no screenshot.
-// - `fullPage`: true takes the full scroll height, not only the viewport.
+// - `fullPage`: false takes only the viewport (default true: the full page,
+//   also the content of a pane that scrolls inside).
 // - `maxDiffPixels`: the count of pixels that may differ (default 10).
 // - `viewports`: the viewports, from "desktop" and "mobile" (default
 //   desktop, and mobile too for a story with the `page` tag).
