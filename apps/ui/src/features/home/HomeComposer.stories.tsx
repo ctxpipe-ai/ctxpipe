@@ -15,6 +15,7 @@ const meta = {
   component: HomeComposer,
   decorators: entryPageInnerDecorators,
   parameters: {
+    review: { kind: "component" },
     layout: "padded",
     storyRoute: {
       pattern: "orgIndex",
@@ -34,6 +35,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const WithWorkspaces: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Org home composer, where a member asks a question in a Workspace: the Workspace menu is open with two Workspaces.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(canvas.getByLabelText("Select workspace"))
@@ -45,6 +52,12 @@ export const WithWorkspaces: Story = {
 }
 
 export const NoWorkspaces: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Org home composer, where a member asks a question in a Workspace: the org has no Workspaces yet.",
+    },
+  },
   args: {
     workspaces: [],
     selected: null,

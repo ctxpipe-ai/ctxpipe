@@ -43,6 +43,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "centered",
     storyRoute: {
       pattern: "orgWorkspace",
@@ -64,6 +65,10 @@ type Story = StoryObj<typeof meta>
 
 export const MultipleWorkspaces: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Workspace list in the side nav, where a member opens a Workspace or its chats: two Workspaces, and the current one shows its chats.",
+    },
     msw: {
       handlers: {
         page: [
@@ -78,6 +83,10 @@ export const MultipleWorkspaces: Story = {
 
 export const SingleWorkspace: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Workspace list in the side nav, where a member opens a Workspace or its chats: the org has one Workspace with its chats.",
+    },
     msw: {
       handlers: {
         page: [
@@ -92,6 +101,10 @@ export const SingleWorkspace: Story = {
 
 export const Empty: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Workspace list in the side nav, where a member opens a Workspace or its chats: the org has no Workspaces yet.",
+    },
     msw: {
       handlers: {
         page: [workspaceListHandler([]), githubInstallationReposHandler()],
@@ -103,6 +116,10 @@ export const Empty: Story = {
 export const Loading: Story = {
   args: { expanded: false },
   parameters: {
+    review: {
+      purpose:
+        "Workspace list in the collapsed side nav rail, where a member opens a Workspace: the Workspace list still loads.",
+    },
     msw: {
       handlers: {
         page: [
@@ -152,7 +169,13 @@ export const LoadFails: Story = {
   beforeEach: () => {
     listReadFails = true
   },
-  parameters: loadFailsParameters,
+  parameters: {
+    ...loadFailsParameters,
+    review: {
+      purpose:
+        "Workspace list in the side nav, where a member opens a Workspace or its chats: the first load failed, and Retry loaded the Workspace.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Could not load Workspaces.")
@@ -170,7 +193,13 @@ export const LoadFailsCollapsed: Story = {
   beforeEach: () => {
     listReadFails = true
   },
-  parameters: loadFailsParameters,
+  parameters: {
+    ...loadFailsParameters,
+    review: {
+      purpose:
+        "Workspace list in the collapsed side nav rail, where a member opens a Workspace: the first load failed, and Retry loaded the Workspace.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const retry = await canvas.findByRole("button", {
@@ -192,6 +221,10 @@ export const LoadFailsCollapsed: Story = {
 
 export const AddWorkspace: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Workspace list in the side nav, where a member opens a Workspace or its chats: the Add Workspace dialog is open.",
+    },
     msw: {
       handlers: {
         page: [
@@ -220,6 +253,10 @@ export const AddWorkspace: Story = {
 
 export const AddWorkspaceThenRepositories: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Workspace list in the side nav: an owner created a Workspace in the Add Workspace dialog and opened it, so the dialog closed.",
+    },
     msw: {
       handlers: {
         page: [

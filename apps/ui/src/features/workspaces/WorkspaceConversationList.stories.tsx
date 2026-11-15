@@ -30,6 +30,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "centered",
     storyRoute: {
       pattern: "orgIndex",
@@ -51,6 +52,10 @@ type Story = StoryObj<typeof meta>
 
 export const WithConversations: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the side nav, where a member opens a chat: a few chats, and the open chat is selected.",
+    },
     msw: {
       handlers: {
         page: [conversationsListHandler(docsConversations)],
@@ -61,6 +66,10 @@ export const WithConversations: Story = {
 
 export const SwitchFromOpenFile: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the side nav: a file is open, so the chat links go to the files pane and not to that file.",
+    },
     storyRoute: {
       pattern: "orgIndex",
       orgSlug: "acme",
@@ -87,6 +96,10 @@ export const SwitchFromOpenFile: Story = {
 
 export const Empty: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the side nav, where a member opens a chat: the Workspace has no chats yet.",
+    },
     msw: {
       handlers: {
         page: [conversationsListHandler([])],
@@ -97,6 +110,10 @@ export const Empty: Story = {
 
 export const Loading: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the side nav, where a member opens a chat: the chats still load, so skeleton rows show.",
+    },
     msw: {
       handlers: {
         page: [conversationsListLoadingHandler()],
@@ -107,6 +124,10 @@ export const Loading: Story = {
 
 export const LoadMore: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the side nav, where a member opens a chat: more chats are on the server, so a load more control shows.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -128,6 +149,10 @@ export const Collapsed: Story = {
     navExpanded: false,
   },
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the collapsed side nav rail: each chat shows as initials with no name.",
+    },
     msw: {
       handlers: {
         page: [conversationsListHandler(docsConversations)],
@@ -154,6 +179,10 @@ const threeConversations = [0, 1, 2].map((row) => ({
 export const ConversationListSkeletonMatches: Story = {
   tags: ["required"],
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the side nav: three loaded chats that take the same box as the skeleton rows before them.",
+    },
     intent:
       "Catches a conversation list skeleton whose box differs from the loaded list. This causes layout shift when the data arrives. Not for conversation titles or order.",
     msw: {
@@ -249,6 +278,10 @@ export const ActionsMenuByKeyboard: Story = {
     requests.length = 0
   },
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the side nav: keyboard focus shows the Actions button of a chat, and its menu with Rename and Delete is open.",
+    },
     msw: {
       handlers: {
         page: conversationRequestHandlers({
@@ -289,6 +322,10 @@ export const RenameFromMenu: Story = {
     requests.length = 0
   },
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the side nav: a chat was renamed in its row, and the new name shows.",
+    },
     msw: {
       handlers: {
         page: conversationRequestHandlers({
@@ -323,6 +360,10 @@ export const RenameCancelWithEscape: Story = {
     requests.length = 0
   },
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the side nav: Escape canceled a rename, and the chat keeps its old name.",
+    },
     msw: {
       handlers: {
         page: conversationRequestHandlers({
@@ -349,6 +390,10 @@ export const DeleteCancel: Story = {
     requests.length = 0
   },
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the side nav: the member canceled the delete dialog, and the chat stays in the list.",
+    },
     msw: {
       handlers: {
         page: conversationRequestHandlers({
@@ -375,6 +420,10 @@ export const DeleteConfirm: Story = {
     requests.length = 0
   },
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the side nav: the member confirmed a delete, and the chat is gone from the list.",
+    },
     msw: {
       handlers: {
         page: conversationRequestHandlers({
@@ -408,6 +457,10 @@ export const DeleteFirstFocusesNext: Story = {
   },
   args: { currentConversationId: "conv_2" },
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the side nav: the member deleted a chat, and focus moved to the next chat.",
+    },
     msw: {
       handlers: {
         page: conversationRequestHandlers({
@@ -439,6 +492,10 @@ export const DeleteOpenChatNavigatesAway: Story = {
   },
   args: { currentConversationId: "conv_2" },
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the side nav: the member deleted the open chat, and the app went to the Workspace start page.",
+    },
     msw: {
       handlers: {
         page: conversationRequestHandlers({
@@ -468,6 +525,10 @@ export const DeleteError: Story = {
     requests.length = 0
   },
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the side nav: the delete request failed, so the chat stays and a message gives the cause and a next step.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -504,6 +565,10 @@ export const DeleteRefusedWhileTurnRuns: Story = {
     requests.length = 0
   },
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the side nav: the delete failed because a turn runs, and the message says how to stop it.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -546,6 +611,10 @@ export const DeleteWhileChatStarts: Story = {
     startingDeletes = 0
   },
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the side nav: the delete failed because the chat still starts, and the message offers Try again.",
+    },
     msw: {
       handlers: {
         page: conversationRequestHandlers({
@@ -626,6 +695,10 @@ export const StatusDots: Story = {
   args: { currentConversationId: undefined },
   beforeEach: () => seedSeen({ conv_1: 100, conv_2: 100, conv_4: 100 }),
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the side nav: each chat has a status dot for idle, unread, working, or needs attention, with a text label.",
+    },
     msw: {
       handlers: {
         page: [
@@ -682,6 +755,10 @@ export const StatusDots: Story = {
 export const StaleRunningChat: Story = {
   args: { currentConversationId: undefined },
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the side nav: a chat runs past the turn limit, so its dot is orange with no spinner.",
+    },
     msw: {
       handlers: {
         page: [
@@ -717,6 +794,10 @@ export const StatusDotsCollapsed: Story = {
   args: { navExpanded: false, currentConversationId: undefined },
   beforeEach: () => seedSeen({ conv_1: 100 }),
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the collapsed side nav rail: each status dot is a badge on the chat initials.",
+    },
     msw: {
       handlers: {
         page: [
@@ -774,6 +855,10 @@ export const WorkingThenUnreadThenRead: Story = {
   args: { currentConversationId: undefined },
   render: (args) => <OpensChats {...args} />,
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the side nav: a working chat finished and became unread, and the member opened it, so it is read.",
+    },
     // Selecting a chat goes to its route. The list stays, as in the Workspace layout.
     storyRoute: {
       pattern: "orgWorkspace",
@@ -834,6 +919,10 @@ export const WorkingThenNeedsAttention: Story = {
   args: { currentConversationId: undefined },
   render: (args) => <OpensChats {...args} />,
   parameters: {
+    review: {
+      purpose:
+        "Conversation list of a Workspace in the side nav: a working chat failed, so its dot is orange and stays orange after the member opens it.",
+    },
     // Selecting a chat goes to its route. The list stays, as in the Workspace layout.
     storyRoute: {
       pattern: "orgWorkspace",

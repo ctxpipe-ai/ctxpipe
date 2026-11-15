@@ -7,6 +7,7 @@ const meta = {
   component: InviteWrongAccountNotice,
   parameters: {
     layout: "centered",
+    review: { kind: "component" },
   },
 } satisfies Meta<typeof InviteWrongAccountNotice>
 
@@ -15,6 +16,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const WrongAccount: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Notice on the join organization card: the user is signed in with an email other than the invited one.",
+    },
+  },
   args: {
     sessionEmail: "other@example.com",
     invitationEmail: "member@example.com",

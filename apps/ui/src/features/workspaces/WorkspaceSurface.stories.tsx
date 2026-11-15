@@ -60,6 +60,7 @@ const meta = {
   parameters: {
     layout: "fullscreen",
     route: "/$orgSlug/ws/$workspaceSlug",
+    review: { kind: "page" },
   },
   args: {
     orgSlug,
@@ -93,6 +94,10 @@ export const Loading: Story = {
       handlers: {
         page: [workspaceDetailLoadingHandler(), ...workspaceShellHandlers()],
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, where a member chats with the agent and opens the tools pane: the Workspace detail is still loading.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -150,6 +155,10 @@ export const SurfaceSkeletonMatches: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with the Files pane open: the loading skeleton has the same chat and pane columns as the loaded page.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -179,6 +188,10 @@ export const NotFound: Story = {
         page: workspaceShellHandlers({ detail: null }),
       },
     },
+    review: {
+      purpose:
+        "Workspace page in the org shell, where a member chats with the agent: the Workspace does not exist, so a not found state shows.",
+    },
   },
 }
 
@@ -206,6 +219,10 @@ export const FailedTouchIsCaught: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Workspace page in the org shell, where a member chats with the agent: the last-used request fails with 404 after a slug rename, and the page stays.",
+    },
   },
   beforeEach: () => {
     failedTouch.count = 0
@@ -231,6 +248,10 @@ export const LoadError: Story = {
         page: [workspaceDetailErrorHandler(), ...workspaceShellHandlers()],
       },
     },
+    review: {
+      purpose:
+        "Workspace page in the org shell, where a member chats with the agent: the Workspace detail did not load, so an error state shows.",
+    },
   },
 }
 
@@ -250,6 +271,10 @@ export const Hydrating: Story = {
         }),
       },
     },
+    review: {
+      purpose:
+        "Workspace page in the org shell, where a member chats with the agent: ctxpipe still reads the repository into this Workspace for the first time.",
+    },
   },
 }
 
@@ -268,6 +293,10 @@ export const WaitingForTip: Story = {
           detail: waitingForTipWorkspaceDetail,
         }),
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, where a member chats with the agent: the Workspace waits for the newest commit of its branch.",
     },
   },
 }
@@ -303,6 +332,10 @@ export const PrepareFailed: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Workspace page in the org shell, where a member chats with the agent: ctxpipe could not read the repository into this Workspace.",
+    },
   },
 }
 
@@ -315,6 +348,10 @@ export const Compose: Story = {
       handlers: {
         page: workspaceShellHandlers(),
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, where a member chats with the agent: no conversation is open, so the composer for a new conversation shows.",
     },
   },
 }
@@ -337,6 +374,10 @@ export const ComposeNeedsFormatUpgrade: Story = {
           ...workspaceShellHandlers(),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with the new conversation composer: the Workspace needs the format upgrade, so a banner offers to start it.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -368,6 +409,10 @@ export const ConversationNeedsFormatUpgrade: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with an open conversation: the Workspace needs the format upgrade, and the banner tells a member to ask an admin.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -388,6 +433,10 @@ export const Conversation: Story = {
       handlers: {
         page: workspaceShellHandlers(),
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, where a member chats with the agent: a stored conversation is open with its messages.",
     },
   },
 }
@@ -426,6 +475,10 @@ export const ConversationWorkspaceMovedNoChanges: Story = {
         page: [workspaceMovedStatus(false), ...workspaceShellHandlers()],
       },
     },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with an open conversation: the Workspace has new commits, but the conversation has no changes, so no notice shows.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -451,6 +504,10 @@ export const ConversationWorkspaceMovedWithChanges: Story = {
       handlers: {
         page: [workspaceMovedStatus(true), ...workspaceShellHandlers()],
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with an open conversation: the Workspace has new commits under the conversation changes, so a notice says to send a message first.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -479,6 +536,10 @@ export const ConversationLoading: Story = {
       handlers: {
         page: [conversationDetailLoadingHandler(), ...workspaceShellHandlers()],
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, where a member chats with the agent: the conversation is still loading, and its title link shows.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -514,6 +575,10 @@ export const ConversationNavIsChatOnly: Story = {
       handlers: {
         page: workspaceShellHandlers(),
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, where a member chats with the agent: the user opens a conversation from the nav, and the tools pane stays closed.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -554,6 +619,10 @@ export const ConversationKeepsExplicitPaneSearch: Story = {
         page: workspaceShellHandlers(),
       },
     },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with the Files pane open: the user opens a conversation, and the Files pane stays open.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -586,6 +655,10 @@ export const ConversationMissing: Story = {
       handlers: {
         page: workspaceShellHandlers({ conversation: null }),
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, where a member chats with the agent: the conversation does not exist, so a not found state shows.",
     },
   },
 }
@@ -662,6 +735,10 @@ export const PublishErrorsToast: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with a conversation and the Files pane open: the Sync push failed, and a toast says why.",
+    },
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
@@ -723,6 +800,10 @@ export const PublishPrErrorToast: Story = {
           ...noPrHandlers(),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with a conversation and the Files pane open: Create PR failed for a missing GitHub App permission, and a toast says why.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -811,6 +892,10 @@ export const SyncAddsThreadEntry: Story = {
         })(),
       },
     },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with an open conversation: the Sync push succeeded, and a push entry with a branch link shows after the last turn.",
+    },
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
@@ -895,6 +980,10 @@ export const SharedPublishPending: Story = {
           ...workspaceShellHandlers(),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with a conversation and the Files pane open: a Sync push runs, and each Sync button shows the same pending state.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -993,6 +1082,10 @@ export const SingleCreatePr: Story = {
         page: [cleanAheadStatus(), ...noPrHandlers()],
       },
     },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with a conversation and the Files pane open: only the conversation header shows Create PR, with its pull request icon.",
+    },
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
@@ -1056,6 +1149,10 @@ export const SingleCreatePrPaneClosed: Story = {
         page: [cleanAheadStatus(), ...noPrHandlers()],
       },
     },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with an open conversation and the tools pane closed: Create PR shows one time, in the conversation header.",
+    },
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
@@ -1094,6 +1191,10 @@ export const CreatePrMatchesPaneTriggers: Story = {
       handlers: {
         page: [cleanAheadStatus(), ...noPrHandlers()],
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with the tools pane closed: Create PR and the pane triggers sit in one header row and look the same.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1143,6 +1244,10 @@ export const DiffTriggerPaneClosed: Story = {
       handlers: {
         page: [...workspaceShellHandlers(), conversationGitDiffHandler()],
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with the tools pane closed: the branch changed, so a Diff trigger shows beside Files, Graph, and Settings.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1196,6 +1301,10 @@ export const DiffTriggerNoChanges: Story = {
         page: [...workspaceShellHandlers(), conversationGitDiffHandler([])],
       },
     },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with a conversation and the Files pane open: the branch has no changes, so the Diff pane shows an empty state.",
+    },
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
@@ -1228,6 +1337,10 @@ export const PaneTabsStayInPlace: Story = {
       handlers: {
         page: [...workspaceShellHandlers(), conversationGitDiffHandler()],
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with a conversation and the tools pane open: the user switches pane tabs, and no tab moves.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1288,6 +1401,10 @@ export const DiffTabRoundedCorner: Story = {
       handlers: {
         page: [...workspaceShellHandlers(), conversationGitDiffHandler()],
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with a conversation and the Diff pane open: the pane card has a round top-left corner next to the active Diff tab.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1356,6 +1473,10 @@ export const MaximizedPaneMatchesHeader: Story = {
           ...noPrHandlers(),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with a conversation and the Files pane maximized: the pane header shows the same Create PR action as the conversation header.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1500,6 +1621,10 @@ export const StableRequestBudget: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with a conversation and the Files pane open: the page is idle, and its request count stays fixed.",
+    },
   },
   play: async ({ canvasElement }) => {
     idleBudget.conversation = 0
@@ -1560,6 +1685,10 @@ export const FilesPane: Story = {
         page: workspaceShellHandlers(),
       },
     },
+    review: {
+      purpose:
+        "Workspace page in the org shell, where a member chats with the agent: the Files pane is open next to the new conversation composer.",
+    },
   },
 }
 
@@ -1576,6 +1705,10 @@ export const GraphPane: Story = {
       handlers: {
         page: workspaceShellHandlers(),
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, where a member chats with the agent: the Graph pane is open and shows the knowledge graph.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1603,6 +1736,10 @@ export const SettingsPane: Story = {
         }),
       },
     },
+    review: {
+      purpose:
+        "Workspace page in the org shell, where a member chats with the agent: the Settings pane is open.",
+    },
   },
 }
 
@@ -1621,6 +1758,10 @@ export const SettingsPaneLandsOnUpgrades: Story = {
           ...workspaceShellHandlers(),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with the Settings pane open: a link from Home lands on the upgrades in the Status group, and only the pane scroll area moves.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1661,6 +1802,10 @@ export const FixUsingAgentOpensChat: Story = {
       handlers: {
         page: workspaceShellHandlers({ detail: skippedFilesWorkspaceDetail }),
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with the Settings pane open: the user clicks Fix using agent for a skipped file, and the composer fills with a fix request.",
     },
   },
   beforeEach: () => {
@@ -1762,6 +1907,10 @@ export const WriteCheckFailedStopsPolling: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with the Settings pane open: the GitHub write access check failed, so polling stops and a Check again alert shows.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1842,6 +1991,10 @@ export const WriteCheckStallStopsPolling: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Workspace page in the org shell, with the Settings pane open: the GitHub write access check stalls, so polling stops at the cap with a Check again button.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1896,6 +2049,10 @@ export const ReadOnly: Story = {
           detail: { ...readOnlyWorkspace, linkedRepositories: [] },
         }),
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, where a member chats with the agent: the GitHub App cannot write to the repository, so the Workspace is read-only.",
     },
   },
 }
@@ -2021,6 +2178,11 @@ export const DeleteWorkspaceShowsNoError: Story = {
       alsoAt: [`/${orgSlug}`],
     } satisfies StoryRouteParams,
     msw: { handlers: { page: deleteFlowHandlers([readOnlyWorkspace]) } },
+    review: {
+      kind: "component",
+      purpose:
+        "Test stage of the Workspace delete flow from Settings: the user deleted the open Workspace, and the stage goes Home with a toast and no error page.",
+    },
   },
   play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
 }
@@ -2035,6 +2197,11 @@ export const DeleteLastWorkspaceShowsNoError: Story = {
       "Catches a delete of the last workspace that flashes an error screen. The page leaves with no error. Not for other workspaces.",
     ...DeleteWorkspaceShowsNoError.parameters,
     msw: { handlers: { page: deleteFlowHandlers([]) } },
+    review: {
+      kind: "component",
+      purpose:
+        "Test stage of the Workspace delete flow from Settings: the user deleted the last Workspace of the org, and the stage goes Home with no error page.",
+    },
   },
 }
 
@@ -2053,6 +2220,11 @@ export const DeleteFromConversationShowsNoError: Story = {
       path: `/${orgSlug}/ws/${workspaceSlug}/conv_1`,
       alsoAt: [`/${orgSlug}`],
     } satisfies StoryRouteParams,
+    review: {
+      kind: "component",
+      purpose:
+        "Test stage of the Workspace delete flow from Settings: the user deleted the Workspace from a conversation URL, and the stage goes Home with no error page.",
+    },
   },
 }
 
@@ -2140,6 +2312,10 @@ export const IngestingDemo: Story = {
           ingestionDemoState((Date.now() - demoStart) / 1000),
         ),
       },
+    },
+    review: {
+      purpose:
+        "Workspace page in the org shell, made for a demo video: the sidebar shows the ingesting dot, and the work list empties after about 30 seconds.",
     },
   },
 }

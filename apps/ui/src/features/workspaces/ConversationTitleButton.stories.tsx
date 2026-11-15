@@ -62,6 +62,7 @@ const meta = {
         ],
       },
     },
+    review: { kind: "component" },
   },
 } satisfies Meta<typeof Harness>
 
@@ -77,6 +78,10 @@ export const UneditedSaveKeepsAutomaticTitle: Story = {
   parameters: {
     intent:
       "Catches a rename save with no edit that stores a title. The automatic title must stay, send no request, and return focus to the title button. Not for real renames.",
+    review: {
+      purpose:
+        "Title button of a conversation, which lets the user rename it: the automatic title arrives while the rename field is open, and Enter saves nothing.",
+    },
   },
   tags: ["required"],
   play: async ({ canvasElement }) => {
@@ -108,6 +113,10 @@ export const EscapeReturnsFocus: Story = {
   parameters: {
     intent:
       "Catches an Escape in the rename field that saves or loses focus. Escape cancels, sends no request, and returns focus to the title button. Not for saving a name.",
+    review: {
+      purpose:
+        "Title button of a conversation, which lets the user rename it: Escape cancels the rename and focus goes back to the title button.",
+    },
   },
   tags: ["required"],
   play: async ({ canvasElement }) => {
@@ -167,10 +176,22 @@ export const RenameSavesNewName: Story = {
     renameTo(canvasElement, "Quarterly plan", () =>
       userEvent.keyboard("{Enter}"),
     ),
+  parameters: {
+    review: {
+      purpose:
+        "Title button of a conversation, which lets the user rename it: Enter saves the typed name, and the new title shows.",
+    },
+  },
 }
 
 /** A blur saves the typed name once, the same way. */
 export const RenameSavesOnBlur: Story = {
   play: ({ canvasElement }) =>
     renameTo(canvasElement, "Quarterly plan", () => userEvent.tab()),
+  parameters: {
+    review: {
+      purpose:
+        "Title button of a conversation, which lets the user rename it: the field loses focus and saves the typed name one time.",
+    },
+  },
 }

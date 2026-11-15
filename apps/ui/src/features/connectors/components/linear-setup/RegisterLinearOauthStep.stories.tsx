@@ -15,6 +15,7 @@ const meta = {
   args: { orgSlug, connectionId },
   parameters: {
     layout: "padded",
+    review: { kind: "component" },
     storyRoute: {
       pattern: "orgConnectors",
       orgSlug,
@@ -28,6 +29,10 @@ type Story = StoryObj<typeof meta>
 
 export const Unsaved: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Linear setup step where the admin registers a private Linear OAuth app: no OAuth app is saved yet.",
+    },
     msw: {
       handlers: {
         page: [
@@ -52,6 +57,10 @@ export const Unsaved: Story = {
 
 export const Saved: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Linear setup step where the admin registers a private Linear OAuth app: the OAuth app is already saved.",
+    },
     msw: {
       handlers: {
         page: [

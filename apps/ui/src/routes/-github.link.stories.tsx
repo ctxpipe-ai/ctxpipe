@@ -19,6 +19,7 @@ const meta = {
       pattern: "flat",
       path: "/.github/link",
     } satisfies StoryRouteParams,
+    review: { kind: "component" },
   },
 } satisfies Meta
 
@@ -46,6 +47,12 @@ function startFlow() {
  * and it leaves the error, with the flow nonce, for the opener.
  */
 export const LinkedToAnotherUser: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Popup step of the GitHub account link: the account is already linked to another ctxpipe user.",
+    },
+  },
   render: () => (
     <GithubLinkStep
       next={install}
@@ -82,6 +89,12 @@ export const LinkedToAnotherUser: Story = {
 
 /** `next` is a GitHub page that is not an App install: the page goes nowhere. */
 export const RefusesOtherAddress: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Popup step of the GitHub account link: the next address is not a GitHub App install, so the step says the link is not valid.",
+    },
+  },
   render: () => (
     <GithubLinkStep
       next="https://github.com/login/oauth/authorize?client_id=other&state=story-flow"
@@ -122,6 +135,10 @@ export const RefusesWithoutConnectFlow: Story = {
     localStorage.removeItem(GITHUB_SETUP_RESULT_KEY)
   },
   parameters: {
+    review: {
+      purpose:
+        "Popup step of the GitHub account link: no connect flow started in this app, so the step links nothing and says the link is not valid.",
+    },
     msw: {
       handlers: {
         page: [
@@ -161,6 +178,10 @@ export const LinksWhenNoGithubAccount: Story = {
     return startFlow()
   },
   parameters: {
+    review: {
+      purpose:
+        "Popup step of the GitHub account link: the user has no GitHub account yet, so the step starts the link and shows a spinner.",
+    },
     msw: {
       handlers: {
         page: [
@@ -205,6 +226,10 @@ export const ChecksAccountsBeforeLinking: Story = {
     return startFlow()
   },
   parameters: {
+    review: {
+      purpose:
+        "Popup step of the GitHub account link: the account list request is still open, so the step waits with a spinner.",
+    },
     msw: {
       handlers: {
         page: [

@@ -276,6 +276,7 @@ const meta = {
       workspaceSlug: "docs",
       pane: "files",
     } satisfies StoryRouteParams,
+    review: { kind: "component" },
   },
   beforeEach: () => {
     clearAllConversationGitTreeSnapshots()
@@ -356,6 +357,12 @@ export const Triggers: Story = {
       "border-transparent",
     )
   },
+  parameters: {
+    review: {
+      purpose:
+        "Pane triggers in the chat header of a Workspace, which open the Files, Graph, or Settings pane: the pane is collapsed, so only the trigger buttons show.",
+    },
+  },
 }
 
 /** Hide, show, and maximize: the pane and the chat column change state at once. Only the small control that reverses the action fades in. */
@@ -366,6 +373,10 @@ export const HideShowMaximize: Story = {
       handlers: {
         page: gitFilesHandlers,
       },
+    },
+    review: {
+      purpose:
+        "Side pane of a Workspace next to the chat: the user maximizes, hides, and shows the pane again, and only the control that reverses the action fades in.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -403,6 +414,10 @@ export const Files: Story = {
         page: gitFilesHandlers,
       },
     },
+    review: {
+      purpose:
+        "Files pane of a Workspace, which browses and edits its files: the file tree of the default branch loaded.",
+    },
   },
 }
 
@@ -412,6 +427,10 @@ export const FilesLoading: Story = {
       handlers: {
         page: [workspaceGitTreeLoadingHandler()],
       },
+    },
+    review: {
+      purpose:
+        "Files pane of a Workspace, which browses and edits its files: the file tree is still loading.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -427,6 +446,10 @@ export const FilesEmpty: Story = {
       handlers: {
         page: [workspaceGitTreeHandler({ sha: "abc123def456", paths: [] })],
       },
+    },
+    review: {
+      purpose:
+        "Files pane of a Workspace, which browses and edits its files: the branch has no files, so the tree is empty.",
     },
   },
 }
@@ -449,6 +472,10 @@ export const FilePreview: Story = {
       handlers: {
         page: gitFilesHandlers,
       },
+    },
+    review: {
+      purpose:
+        "Files pane of a Workspace, which browses and edits its files: the ledger file is open in a preview tab next to the tree.",
     },
   },
 }
@@ -476,6 +503,10 @@ export const FilePreviewLoading: Story = {
           workspaceFileJobHandler(),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Files pane of a Workspace, which browses and edits its files: a file tab is open, but the file content is still loading.",
     },
   },
 }
@@ -507,6 +538,10 @@ export const FilePreviewLong: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Files pane of a Workspace, which browses and edits its files: a long AGENTS.md file of more than 80 lines is open and scrolls.",
+    },
   },
 }
 
@@ -528,6 +563,10 @@ export const FileDiff: Story = {
       handlers: {
         page: gitFilesHandlers,
       },
+    },
+    review: {
+      purpose:
+        "Files pane of a Workspace, which browses and edits its files: the open ledger file has uncommitted sandbox changes, so its changes show.",
     },
   },
 }
@@ -551,6 +590,10 @@ export const ReadOnly: Story = {
       handlers: {
         page: gitFilesHandlers,
       },
+    },
+    review: {
+      purpose:
+        "Files pane of a read-only Workspace, which browses its files: AGENTS.md is open, and the GitHub App cannot write, so no edit is possible.",
     },
   },
 }
@@ -634,6 +677,10 @@ export const LegacyKnowledgeReadOnly: Story = {
   parameters: {
     ...conversationFileStory(legacyPath).parameters,
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    review: {
+      purpose:
+        "Files pane in a conversation, which browses and edits its files: a legacy knowledge file is open, so the reason shows and no editor.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -650,6 +697,10 @@ export const GitFileEditable: Story = {
   parameters: {
     ...conversationFileStory(ledgerPath).parameters,
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    review: {
+      purpose:
+        "Files pane in a conversation, which browses and edits its files: a git file is open in the editor and the user can edit it.",
+    },
   },
   play: async ({ canvasElement }) => {
     await expectFileEditable(canvasElement, "Billing ledger", true)
@@ -691,6 +742,10 @@ export const FileWhileChatStarts: Story = {
           ...legacyConversationHandlers(),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Files pane in a conversation, which browses and edits its files: the chat sandbox starts, the pane says so, and then shows the open file.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -755,6 +810,10 @@ export const SelectedTabInView: Story = {
         page: gitFilesHandlers,
       },
     },
+    review: {
+      purpose:
+        "File tab strip of the Files pane, with many open files: the selected tab is at the end of the strip and scrolls into view.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -784,6 +843,10 @@ export const TextTabsKeepPadding: Story = {
     ...SelectedTabInView.parameters,
     intent:
       "Catches file tabs with the wrong padding or a missing fade-in, or an icon tab that is not square. Text tabs keep 12px side padding. Not for tab selection.",
+    review: {
+      purpose:
+        "File tab strip of the Files pane, with text tabs and icon tabs: text tabs keep 12px side padding, and icon tabs are square.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -817,6 +880,10 @@ export const TabChangeKeepsPosition: Story = {
   parameters: {
     ...SelectedTabInView.parameters,
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    review: {
+      purpose:
+        "File tab strip of the Files pane, with many open files: the user changes the tab, and no tab moves or changes its width.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -865,6 +932,10 @@ export const TreeCollapsed: Story = {
         page: gitFilesHandlers,
       },
     },
+    review: {
+      purpose:
+        "Files pane of a Workspace, which browses and edits its files: the file tree is collapsed, and a Show tree button fades in.",
+    },
   },
 }
 
@@ -885,6 +956,10 @@ export const Graph: Story = {
       handlers: {
         page: [workspaceGraphHandler()],
       },
+    },
+    review: {
+      purpose:
+        "Graph pane of a Workspace, which shows its knowledge graph: the graph loaded, with a Play layout control.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -913,6 +988,10 @@ export const GraphLoading: Story = {
       handlers: {
         page: [workspaceGraphLoadingHandler()],
       },
+    },
+    review: {
+      purpose:
+        "Graph pane of a Workspace, which shows its knowledge graph: the graph is still loading.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -969,6 +1048,10 @@ export const GraphPhasePending: Story = {
           ),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Graph pane of a Workspace, which shows its knowledge graph: the graph still builds, so the pane waits and says the graph opens later.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1035,6 +1118,10 @@ export const GraphPhaseFailed: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Graph pane of a Workspace, which shows its knowledge graph: the graph build failed, so plain error copy and a Try again button show.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1093,6 +1180,10 @@ export const GraphLostRebuilds: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Graph pane of a Workspace, which shows its knowledge graph: the store lost a ready graph, so the pane shows the building state until the graph is back.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1150,6 +1241,10 @@ export const GraphPhaseReadyStoreUnavailable: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Graph pane of a Workspace, which shows its knowledge graph: the graph is ready, but the graph request fails, so the error shows.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1167,6 +1262,10 @@ export const TriggersGraphBuilding: Story = {
   parameters: {
     intent:
       "Catches a collapsed pane whose Graph trigger shows no busy dot while the graph builds, or shows it on other triggers. Click opens the graph. Not for the open pane.",
+    review: {
+      purpose:
+        "Pane triggers in the chat header of a Workspace, with the pane collapsed: the graph builds, so the Graph trigger shows a busy dot.",
+    },
   },
   tags: ["required"],
   args: {
@@ -1214,6 +1313,10 @@ export const Settings: Story = {
         page: [workspaceListHandler([docsWorkspace])],
       },
     },
+    review: {
+      purpose:
+        "Settings pane of a Workspace, which shows its setup and status: the Workspace has no skipped files.",
+    },
   },
 }
 
@@ -1231,6 +1334,10 @@ export const SettingsSkippedFileOpensInFiles: Story = {
       handlers: {
         page: [workspaceListHandler([docsWorkspace]), ...gitFilesHandlers],
       },
+    },
+    review: {
+      purpose:
+        "Settings pane of a Workspace, which lists skipped files: the user opens a skipped file, and it opens in a Files tab.",
     },
   },
   play: async ({ args, canvasElement }) => {
@@ -1279,6 +1386,10 @@ export const Maximized: Story = {
         page: gitFilesHandlers,
       },
     },
+    review: {
+      purpose:
+        "Files pane of a Workspace, maximized over the chat: a Show conversation button and the conversation title fade in.",
+    },
   },
 }
 
@@ -1312,6 +1423,10 @@ export const ConversationWritable: Story = {
       handlers: {
         page: conversationFileHandlers,
       },
+    },
+    review: {
+      purpose:
+        "Files pane in a conversation on a writable Workspace: the ledger file is open in the editor from the conversation sandbox.",
     },
   },
 }
@@ -1349,6 +1464,10 @@ export const ConversationSandboxFiles: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Files pane in a conversation, which shows the sandbox branch: the tree lists the sandbox files, not the default branch files.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1377,6 +1496,10 @@ export const ConversationMaximizedSync: Story = {
     ...ConversationSandboxFiles.parameters,
     intent:
       "Catches a maximized pane with a dirty branch that lacks Sync or shows Create PR. Sync must be the only call to action. Not for a clean branch.",
+    review: {
+      purpose:
+        "Files pane in a conversation, maximized over the chat: the branch has unpushed changes, so the pane header shows only the Sync button.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1430,6 +1553,10 @@ export const ConversationCleanNoPublish: Story = {
           }),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Files pane in a conversation, which shows the sandbox branch: the branch has no changes, so no Sync or Create PR button shows.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1490,6 +1617,10 @@ export const ConversationCommittedCreatePr: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Files pane in a conversation, maximized over the chat: all commits are on GitHub, so Create PR is the main button in the pane header.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1525,6 +1656,10 @@ export const ConversationReadOnly: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Files pane in a conversation on a read-only Workspace: the sandbox files show, and no Sync or Create PR button shows.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1556,6 +1691,10 @@ export const DiffTab: Story = {
         page: conversationFileHandlers,
       },
     },
+    review: {
+      purpose:
+        "Diff pane in a conversation, which lists the changes of the sandbox branch: the conversation has changed files.",
+    },
   },
 }
 
@@ -1580,6 +1719,10 @@ export const SandboxLoading: Story = {
           workspaceGitTreeHandler({ sha: "", paths: [] }),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Files pane in a conversation, which shows the sandbox branch: the sandbox tree is not ready and no default branch exists, so a loading message shows.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1628,6 +1771,10 @@ export const CachedSandboxWhile409: Story = {
           }),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Files pane in a conversation, which shows the sandbox branch: the cached tree shows while the sandbox starts, then the live tree replaces it.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1741,6 +1888,10 @@ export const DefaultBranchUntilSandboxReady: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Files pane in a new conversation: the default branch tree shows until the sandbox is ready, then the sandbox tree keeps the open folders and file.",
+    },
   },
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
@@ -1837,6 +1988,10 @@ export const StableFilesRequestBudget: Story = {
           }),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Files pane in a conversation, which shows the sandbox branch: the tree painted and the count of tree requests stays stable.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -2034,6 +2189,10 @@ export const EditThenNavigate: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Files pane in a test harness with a leave button: the user edits a file and leaves, and the pane saves the edit.",
+    },
   },
   play: async ({ canvasElement }) => {
     editThenNavigatePuts.count = 0
@@ -2193,6 +2352,10 @@ export const NewFileKeepsTypedText: Story = {
           ...gitFilesHandlers,
         ],
       },
+    },
+    review: {
+      purpose:
+        "Files pane in a conversation, which edits files: the user types a new file, and the editor keeps focus and all typed text.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -2396,6 +2559,10 @@ export const OutOfOrderSaves: Story = {
           ...gitFilesHandlers,
         ],
       },
+    },
+    review: {
+      purpose:
+        "Files pane in a conversation, which edits files: two saves finish out of order, and each file tab shows its latest typed text.",
     },
   },
   play: async ({ canvasElement }) => {

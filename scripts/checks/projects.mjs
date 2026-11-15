@@ -222,6 +222,15 @@ const definitions = () => [
       "Catches a route with no page story and no exemption, or a page story that names a route that does not exist. Run it when a route or a story under apps/ui/src changes; never for a change outside it.",
     ],
     [
+      "story-review",
+      [
+        "apps/ui/src/**",
+        "apps/ui/.storybook/check-modules.mjs",
+        "packages/visual-review/src/story-tags.ts",
+      ],
+      "Catches a story with no review kind (page or component) or no purpose sentence for the visual critic. Run it when a story under apps/ui/src changes; never for a change outside it.",
+    ],
+    [
       "claude-plugin",
       ["plugins/**", ".claude-plugin/**", "scripts/ci/claude-cli/**"],
     ],
