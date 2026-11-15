@@ -42,6 +42,11 @@ output.
 - Validate a target (agent, from `apps/backend`): `bun run src/scripts/validateTarget.ts <origin>`. Load
   `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` and `VALIDATE_API_KEY` into the environment from the secret store
   of the host. Do not type or print their values.
+- Check the secrets of the target (agent): the task `cutover-validate-secrets` (backend image, with the backend's
+  environment and secrets) runs `bun run src/scripts/validateTarget.ts --secrets`. It decrypts each stored connection
+  secret with the target's key, and it mints and revokes one GitHub installation token with the target's App ID and
+  key. The HTTP checks of `validateTarget` pass with a wrong value of either secret. Only the connector jobs fail.
+  In a rehearsal, `connection secrets decrypt` fails by design, because the rehearsal key is new.
 
 ## Prerequisites (all must be true before T-1)
 
@@ -79,13 +84,21 @@ line gives its expected output. The dry run of the copy is its preflight against
 
 ### 1. Production app secrets
 
-- **Who:** person. **Do:** step C1 of [CTX-1217], production form. It copies 17 `hosted/app/*` values from Railway,
-  and the sha256 check prints `same` for each key. `DATABASE_APP_PASSWORD` keeps its new value: migrate sets it.
-  Then force a new deployment of the backend and the worker.
+- **Who:** person, in a production SSO admin session, with the Railway CLI logged in. **Do:**
+  `ops/aws-cutover/copy-app-secrets.sh`. It copies the 17 `hosted/app/*` values of `APP_SECRETS` (factory
+  `machines/hosted/src/app-secrets.ts`) from the Railway `backend` service, production environment. Then it compares
+  the SHA-256 of both sides, and it restarts the backend. It prints no value. `DATABASE_APP_PASSWORD` keeps its new
+  value: migrate sets it.
+- **Expected:** `<NAME> copied` and `<NAME> match` for each of the 17 names, then
+  `backend restarted with the copied secrets`. A name with no Railway value shows `<NAME> skipped`, except the five
+  that must have one: `AUTH_SECRET`, `CONNECTION_SECRETS_ENCRYPTION_KEY` and the three `GITHUB_*` keys. On `FAILED` or
+  `MISMATCH`, the script stops with exit code 1. Run it again.
 - **Copy, do not generate:** `AUTH_SECRET` (so that sessions stay valid) and `CONNECTION_SECRETS_ENCRYPTION_KEY` (so
   that the stored connector tokens decrypt) must have the production values. The rehearsals use new values for both;
   this step writes over them (ADR-061 decision 12).
-- **Dry run:** the sha256 check only (no `put-secret-value`).
+- **Dry run:** `ops/aws-cutover/copy-app-secrets.sh --verify` compares only. Before the copy, it prints `MISMATCH`
+  for the values that the rehearsal form made new (`AUTH_SECRET`, `CONNECTION_SECRETS_ENCRYPTION_KEY` and the three
+  `GITHUB_*` keys) and exits with code 1. Each other name prints `match` or `skipped`.
 - **Rollback:** write the rehearsal form again. Make its new values in the form that the app requires, or the backend
   and the worker stop at start:
   - `CONNECTION_SECRETS_ENCRYPTION_KEY`: exactly 64 hex characters, `openssl rand -hex 32 | tr -d '\n'`.
@@ -263,10 +276,12 @@ line gives its expected output. The dry run of the copy is its preflight against
   1. Person: start `backend` and `ui` (desired count 1). The worker stays at 0.
   2. Person: merge edge pull request (b): `app.ctxpipe.ai` to the tunnel, behind the temporary Access app.
   3. Agent: `validateTarget https://app.ctxpipe.ai` with the Access service token of the agent and the test API key.
+     Then the task `cutover-validate-secrets`.
   4. Agent: sign in with the test account. Read a graph and run a search on the test repository. Open the connectors
      page of the test organization: each connector shows as connected. Use only the test organization, and print no
      secret value and no id.
-- **Expected:** every `validateTarget` check has `"ok": true`.
+- **Expected:** every `validateTarget` check has `"ok": true`. The task log shows `connection secrets decrypt` and
+  `github installation token` with `"ok": true`.
 - **Dry run:** the `pulumi preview` of pull request (b). Before T-1 step 2, also
   `validateTarget https://cutover.ctxpipe.dev --no-mcp-read`: all checks pass. After that step, the OAuth metadata and
   the MCP challenge name `https://app.ctxpipe.ai`, as they must for T+55.

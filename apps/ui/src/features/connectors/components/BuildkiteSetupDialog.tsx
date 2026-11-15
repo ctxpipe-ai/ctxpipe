@@ -10,7 +10,6 @@ import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Modal } from "@/components/ui/Modal"
 import { TextField } from "@/components/ui/TextField"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
-import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import { retryQuery } from "@/lib/api-result"
 
@@ -27,6 +26,7 @@ import {
 } from "../queries/buildkite-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import { BuildkiteMark } from "./BuildkiteMark"
+import { ConnectorSetupFrame } from "./ConnectorSetupFrame"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { CopyableUrl } from "./notion-setup/CopyableUrl"
 
@@ -142,18 +142,8 @@ export function BuildkiteSetupDialog({
         />
       )
     }
-    return (
-      <div className="space-y-4">
-        <PullRequestsToMerge orgSlug={orgSlug} pullRequests={pullRequests} />
-        <Button
-          variant="secondary"
-          className="rounded-md"
-          onPress={() => onOpenChange(false)}
-        >
-          Close
-        </Button>
-      </div>
-    )
+    // The merge step is the last item of the setup steps.
+    return null
   })()
 
   return (
@@ -161,39 +151,21 @@ export function BuildkiteSetupDialog({
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       isDismissable
-      className="max-w-[min(92vw,720px)]"
+      className="flex max-w-[min(92vw,720px)] flex-col"
     >
-      <div className="p-6">
-        <div className="mb-5 flex items-start justify-between gap-3">
-          <div className="flex min-w-0 gap-3">
-            <span className="ctx-node h-9 w-9">
-              <BuildkiteMark className="size-5 text-foreground" />
-            </span>
-            <div>
-              <h2 className="text-lg font-medium tracking-tight text-foreground">
-                Set up Buildkite connector
-              </h2>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Connect Buildkite, then select the pipelines for each Workspace.
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="secondary"
-            className="rounded-md"
-            onPress={() => onOpenChange(false)}
-          >
-            Close
-          </Button>
-        </div>
-        <div className="mb-6">
-          <ConnectorSetupStepper
-            steps={BUILDKITE_SETUP_STEPS}
-            currentIndex={stepIndex}
-          />
-        </div>
+      <ConnectorSetupFrame
+        icon={<BuildkiteMark className="size-5 text-foreground" />}
+        title="Set up Buildkite connector"
+        description="Connect Buildkite, then select the pipelines for each Workspace."
+        onClose={() => onOpenChange(false)}
+      >
+        <ConnectorSetupStepper
+          steps={BUILDKITE_SETUP_STEPS}
+          currentIndex={stepIndex}
+          mergeStep={workspacesDone ? { orgSlug, pullRequests } : undefined}
+        />
         {body}
-      </div>
+      </ConnectorSetupFrame>
     </Modal>
   )
 }

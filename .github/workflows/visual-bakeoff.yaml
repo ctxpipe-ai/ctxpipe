@@ -3,10 +3,12 @@ name: Visual critic bake-off
 # The bake-off of the visual critic (CTX-1202): each arm (a judge with its
 # settings) judges each case of packages/visual-review/evals/critic/cases.json,
 # and the job writes the report (packages/visual-review/evals/critic/README.md).
-# With `panel`, the job runs the judge panel (CTX-1249) instead: it labels the
-# cases, and the artifact holds the new cases.json to commit. With
-# `calibration`, the arms judge the owner calibration set (CTX-1269) instead,
-# and the report counts the owner issues that each arm flags. A model call
+# `mode` selects another job: `panel` runs the judge panel (CTX-1249): it
+# labels the cases, and the artifact holds the new cases.json to commit.
+# `calibration` makes the arms judge the calibration sets: the unseen set
+# (CTX-1289) and the owner examples (CTX-1269), side by side. `unseen_panel`
+# makes the judge panel label the unseen set, and the artifact holds the new
+# unseen-calibration.json to commit. A model call
 # costs money, so the workflow runs only by hand. Two limits keep the spend
 # below the budget of $100: the runner starts no paid call when the known
 # cost reaches max_cost, and the model key of the workbench environment has
@@ -14,16 +16,12 @@ name: Visual critic bake-off
 on:
   workflow_dispatch:
     inputs:
-      panel:
-        description: "Run the judge panel, not the bake-off. The panel uses panel_models only, and its own spend cap of $40."
+      mode:
+        description: "bakeoff: the arms judge the cases. panel: the judge panel labels the cases (panel_models only, spend cap $40). unseen_panel: the judge panel labels unseen-calibration.json (panel_models only, spend cap $15). calibration: the arms judge unseen-calibration.json and owner-calibration.json (arms that judge a new screenshot, for example jev and llm:<model>)."
         required: false
-        type: boolean
-        default: false
-      calibration:
-        description: "Judge the owner calibration set (owner-calibration.json) with the arms, not the bake-off cases. The arms must judge a new screenshot, for example jev and llm:<model>."
-        required: false
-        type: boolean
-        default: false
+        type: choice
+        options: [bakeoff, panel, unseen_panel, calibration]
+        default: bakeoff
       panel_models:
         description: "The judge panel, comma-separated. Empty: the default panel of panel.ts (see the README)."
         required: false
@@ -100,7 +98,7 @@ jobs:
       # packages and the model weights), so it is not a dependency of the
       # repository. It goes into its own folder.
       - name: Install the local judge of BlazeDiff
-        if: ${{ !inputs.panel && !inputs.calibration && contains(inputs.arms, 'blazediff-local') }}
+        if: ${{ inputs.mode == 'bakeoff' && contains(inputs.arms, 'blazediff-local') }}
         run: |
           npm install --prefix "$RUNNER_TEMP/blazediff-agent" --no-audit --no-fund \
             @blazediff/agent@0.13.2 @huggingface/transformers@4.3.2
@@ -109,7 +107,7 @@ jobs:
       # the SHA-256 of the manifest. The panel writes its votes into
       # cases.json. The artifact holds it, to commit in a pull request.
       - name: Run the judge panel
-        if: ${{ inputs.panel }}
+        if: ${{ inputs.mode == 'panel' }}
         env:
           MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
           PANEL_MODELS: ${{ inputs.panel_models }}
@@ -127,8 +125,30 @@ jobs:
           # The votes so far, also after an image error.
           cp packages/visual-review/evals/critic/cases.json "$out/"
           exit "$status"
-      - name: Run the owner calibration
-        if: ${{ !inputs.panel && inputs.calibration }}
+      # The panel of the unseen set writes its votes into
+      # unseen-calibration.json. The artifact holds it, to commit in a pull
+      # request.
+      - name: Label the unseen calibration set
+        if: ${{ inputs.mode == 'unseen_panel' }}
+        env:
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+          PANEL_MODELS: ${{ inputs.panel_models }}
+        run: |
+          out="$RUNNER_TEMP/visual-bakeoff-report"
+          mkdir -p "$out"
+          models=()
+          if [[ -n "$PANEL_MODELS" ]]; then models+=(--models "$PANEL_MODELS"); fi
+          status=0
+          node packages/visual-review/evals/critic/label-unseen.ts \
+            "${models[@]}" \
+            --images "$RUNNER_TEMP/visual-bakeoff-images" \
+            > "$out/report.md" || status=$?
+          cat "$out/report.md"
+          # The votes so far, also after an image error.
+          cp packages/visual-review/evals/critic/unseen-calibration.json "$out/"
+          exit "$status"
+      - name: Run the calibration
+        if: ${{ inputs.mode == 'calibration' }}
         env:
           MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
           ARMS: ${{ inputs.arms }}
@@ -140,7 +160,7 @@ jobs:
             --images "$RUNNER_TEMP/visual-bakeoff-images" \
             --out "$RUNNER_TEMP/visual-bakeoff-report"
       - name: Run the bake-off
-        if: ${{ !inputs.panel && !inputs.calibration }}
+        if: ${{ inputs.mode == 'bakeoff' }}
         env:
           MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
           ARMS: ${{ inputs.arms }}

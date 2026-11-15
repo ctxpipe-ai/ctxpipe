@@ -17,7 +17,11 @@ import {
   applyAttribution,
   contextWithForkedAttributionBag,
 } from "../observability/attribution.js"
-import { getLogger } from "../observability/logger.js"
+import {
+  createLogger,
+  getLogger,
+  loggerStorage,
+} from "../observability/logger.js"
 import { MCP_TOOL_ERROR_CODES } from "./framework/tool-errors.js"
 import { TOOL_ERROR_META_KEY } from "./framework/tool-result.js"
 
@@ -403,7 +407,6 @@ async function runMcpCall<R>(
       _meta: { ...mcpResult._meta, "ai.ctxpipe/callId": callId },
     } as R
     // The size of what the client gets, and why a tool call failed.
-    // In a batch, the wide event holds the value of the last call.
     const bytes = Buffer.byteLength(JSON.stringify(final))
     trace.getActiveSpan()?.setAttribute("ctxpipe.mcp.result.bytes", bytes)
     getLogger().set({ "ctxpipe.mcp.result.bytes": bytes })
@@ -415,13 +418,20 @@ async function runMcpCall<R>(
     return final
   }
 
-  return trace
-    .getTracer("ctxpipe-backend")
-    .startActiveSpan(
-      bridge ? `bridge.tool ${name}` : `mcp.${input.kind} ${name}`,
-      { links },
-      callContext,
-      async (span) => {
+  return trace.getTracer("ctxpipe-backend").startActiveSpan(
+    bridge ? `bridge.tool ${name}` : `mcp.${input.kind} ${name}`,
+    { links },
+    callContext,
+    // The call has its own wide event. An MCP call over SSE ends after
+    // the request event was emitted, and a bridge call ends while the chat
+    // streams, so the request logger is sealed then. The drain adds the
+    // request id, the trace id and the facts from the attribution bag.
+    // `withLogger` is not used: on a preview it waits for an OTel flush.
+    async (span) => {
+      // `operation` names the call event. A handler can set its own `step`.
+      const base = { operation: bridge ? "bridge.tool" : "mcp.call" }
+      const holder = { logger: createLogger({ ...base }), base }
+      return loggerStorage.run(holder, async () => {
         applyAttribution(attributes)
         try {
           return withMeta(await fn({ callId, connectionKey, correlation }))
@@ -464,8 +474,10 @@ async function runMcpCall<R>(
           if (!input.toResult) throw error
           return withMeta(input.toResult(exception))
         } finally {
+          holder.logger.emit()
           span.end()
         }
-      },
-    )
+      })
+    },
+  )
 }

@@ -1,5 +1,7 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite"
-import { expect, waitFor, within } from "storybook/test"
+import { expect, userEvent, waitFor, within } from "storybook/test"
+
+import { knowledgeGraphIntroStorageKey } from "@/features/knowledge-graph/knowledgeGraphIntroStorage"
 
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -108,5 +110,77 @@ export const NodesWithoutRelationships: Story = {
     await waitFor(() =>
       expect(canvas.getByText(/has 28 nodes but no edges yet/)).toBeVisible(),
     )
+  },
+}
+
+/**
+ * Close the tips, or hide them on the tool rail: the browser keeps the
+ * choice for the org, so the tips do not open again on the next visit.
+ */
+export const ClosingTipsIsRemembered: Story = {
+  args: {
+    pending: false,
+    graph: docsWorkspaceGraph,
+  },
+  parameters: {
+    visual: {
+      skip: "The end state is the graph without the tips panel, as in TipsClosedEarlier.",
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // The graph controls and the tips show when the layout has settled.
+    const tips = await canvas.findByRole(
+      "dialog",
+      { name: "Knowledge graph tips" },
+      { timeout: 15_000 },
+    )
+    await userEvent.click(
+      within(tips).getByRole("button", { name: "Close tips" }),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("dialog", { name: "Knowledge graph tips" }),
+      ).toBeNull(),
+    )
+    await expect(
+      window.localStorage.getItem(knowledgeGraphIntroStorageKey("acme")),
+    ).toBe("1")
+    // Hide tips on the tool rail is also a dismissal.
+    window.localStorage.removeItem(knowledgeGraphIntroStorageKey("acme"))
+    await userEvent.click(canvas.getByRole("button", { name: "Show tips" }))
+    await canvas.findByRole("dialog", { name: "Knowledge graph tips" })
+    await userEvent.click(canvas.getByRole("button", { name: "Hide tips" }))
+    await expect(
+      window.localStorage.getItem(knowledgeGraphIntroStorageKey("acme")),
+    ).toBe("1")
+  },
+}
+
+/** The user closed the tips on an earlier visit: the graph opens without them. */
+export const TipsClosedEarlier: Story = {
+  args: {
+    pending: false,
+    graph: docsWorkspaceGraph,
+  },
+  parameters: {
+    visual: {
+      skip: "Without the tips panel, the graph labels still move when the play ends. The play checks the behavior.",
+    },
+  },
+  beforeEach: () => {
+    window.localStorage.setItem(knowledgeGraphIntroStorageKey("acme"), "1")
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // The graph controls show when the layout has settled.
+    await canvas.findByRole(
+      "button",
+      { name: "Show tips" },
+      { timeout: 15_000 },
+    )
+    await expect(
+      canvas.queryByRole("dialog", { name: "Knowledge graph tips" }),
+    ).toBeNull()
   },
 }
