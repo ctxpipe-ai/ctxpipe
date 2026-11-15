@@ -9,7 +9,13 @@ Use when the user states a lasting preference, correction, or convention that sh
 still apply months later (cross-session). Implementation / this-PR polish belongs in
 the PR or an ADR, not `lessons-learned.md`.
 
-1. Append a short entry to `.ai/memory/lessons-learned.md` (Rule / Category / Date / Source).
+`lessons-learned.md` holds only general lessons: a rule that applies across the
+repo or across many components. A rule for one component or one feature is not a
+lesson. Put it in the README of that component's folder or in a doc comment on the
+component (product owner rule, 2026-11-14). If a correction has a general part,
+write only the general part as the lesson.
+
+1. Check that the rule is general (see above). Then append a short entry to `.ai/memory/lessons-learned.md` (Rule / Category / Date / Source).
 2. Prefer lessons over duplicating the same rule in multiple files.
 3. Update root `.ai/memory/index.md` only if the lessons store itself changes role.
 

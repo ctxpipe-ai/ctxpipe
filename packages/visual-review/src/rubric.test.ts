@@ -19,34 +19,109 @@ const at = <T>(list: readonly T[], index: number) => {
 }
 const { areas, qualities } = packagedRubric
 
+const design = "apps/ui/DESIGN.md"
+
+/**
+ * The rubric with the definitions and the sources of `design` (ADR-063 rule
+ * 15). The text between `<!-- rubric: <id> -->` and `<!-- /rubric -->` is
+ * the definition of the entry `id`, as one line with no Markdown. An entry
+ * with more than one block joins them in the order of the file, and each
+ * heading above a block is a source. The entries are in the order of their
+ * first block, so the qualities follow the priority order of the file. The
+ * ids, the names and `pageOnly` stay the ones of `rubric`.
+ */
+function rubricFromDesign(rubric: Rubric): Rubric {
+  const text = readFileSync(`${root}${design}`, "utf8")
+  const headings = [...text.matchAll(/^#{2,4} (.+)$/gm)]
+  const blocks = new Map<
+    string,
+    { at: number; parts: string[]; sections: string[] }
+  >()
+  for (const match of text.matchAll(
+    /^<!-- rubric: ([a-z][a-z0-9-]*) -->\n([^]*?)\n<!-- \/rubric -->$/gm,
+  )) {
+    const [, id = "", body = ""] = match
+    const section = headings
+      .filter((heading) => heading.index < match.index)
+      .at(-1)?.[1]
+    if (!section) throw new Error(`The rubric block ${id} has no heading.`)
+    const block = blocks.get(id) ?? { at: match.index, parts: [], sections: [] }
+    block.parts.push(
+      body
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+        .replace(/\*\*|`/g, "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    )
+    if (!block.sections.includes(section)) block.sections.push(section)
+    blocks.set(id, block)
+  }
+  const ids = [...rubric.areas, ...rubric.qualities].map(({ id }) => id)
+  const unknown = [...blocks.keys()].filter((id) => !ids.includes(id))
+  if (unknown.length)
+    throw new Error(`${design} has rubric blocks of no entry: ${unknown}.`)
+  const fill = <T extends Rubric["areas"][number]>(entries: T[]) =>
+    entries
+      .map((entry) => {
+        const block = blocks.get(entry.id)
+        if (!block)
+          throw new Error(`${design} has no rubric block ${entry.id}.`)
+        const [first, ...rest] = block.sections.map((section) => ({
+          file: design,
+          section,
+        }))
+        if (!first) throw new Error(`The rubric block ${entry.id} is empty.`)
+        return {
+          entry: {
+            ...entry,
+            definition: block.parts.join(" "),
+            sources: [first, ...rest] as Rubric["areas"][number]["sources"],
+          },
+          at: block.at,
+        }
+      })
+      .sort((a, b) => a.at - b.at)
+      .map(({ entry }) => entry)
+  return { areas: fill(rubric.areas), qualities: fill(rubric.qualities) }
+}
+
 describe("rubric", () => {
-  test("has the twelve concrete areas and the eleven design qualities", () => {
-    expect(areas.map(({ name }) => name)).toEqual([
-      "Spacing",
-      "Color tokens",
-      "Typography",
-      "Overflow and truncation",
-      "Contrast",
-      "Alignment",
-      "Missing elements",
-      "Broken content",
-      "Status",
-      "Actions and affordance",
-      "Dialog structure",
-      "Copy",
+  // DESIGN.md is the one source of the rubric. To write rubric.json after a
+  // change of a rubric block, run `pnpm --filter @ctxpipe/visual-review
+  // rubric`.
+  test("rubric.json is the rubric of the blocks of DESIGN.md", async () => {
+    await expect(
+      `${JSON.stringify(rubricFromDesign(packagedRubric), null, 2)}\n`,
+    ).toMatchFileSnapshot("../rubric.json")
+  })
+
+  test("has the twelve concrete areas and the eleven design qualities, the qualities in priority order", () => {
+    expect(areas.map(({ id }) => id).sort()).toEqual([
+      "actions",
+      "alignment",
+      "broken-content",
+      "color-tokens",
+      "contrast",
+      "copy",
+      "dialog",
+      "missing-elements",
+      "overflow",
+      "spacing",
+      "status",
+      "typography",
     ])
     expect(qualities.map(({ name }) => name)).toEqual([
-      "Clarity",
-      "Hierarchy",
-      "Focus",
-      "Consistency",
-      "Grouping and rhythm",
-      "Density",
-      "Feedback and state",
       "Accessibility",
-      "Restraint",
+      "Clarity",
+      "Focus",
+      "Hierarchy",
+      "Grouping and rhythm",
+      "Feedback and state",
+      "Consistency",
       "Brand fit",
       "Visual balance",
+      "Density",
+      "Restraint",
     ])
     expect(
       qualities.filter(({ pageOnly }) => pageOnly).map(({ id }) => id),

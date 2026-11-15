@@ -11,8 +11,20 @@ type InlineAlertVariant = "error" | "warning" | "success"
 
 const variantClass: Record<InlineAlertVariant, string> = {
   error: "border-red-500/40 bg-red-950/35 text-red-50",
-  warning: "border-amber-500/45 bg-amber-950/30 text-amber-50",
+  // A dark surface with a yellow border and a yellow icon (product owner,
+  // 2026-11-14). A banner and an inline warning use this one look.
+  warning: "border-amber-300 bg-zinc-900 text-zinc-50",
   success: "border-teal-500/40 bg-teal-950/25 text-teal-50",
+}
+
+/**
+ * The icon color of an alert without a frame: the one color of the alert. A
+ * framed warning uses the same yellow.
+ */
+const plainIconClass: Record<InlineAlertVariant, string> = {
+  error: "text-red-400",
+  warning: "text-amber-300",
+  success: "text-teal-300",
 }
 
 export function InlineAlert({
@@ -20,32 +32,83 @@ export function InlineAlert({
   title,
   children,
   actions,
+  actionsPlacement = "below",
+  framed = true,
 }: {
   variant: InlineAlertVariant
   title?: string
   children: ReactNode
   actions?: ReactNode
+  /**
+   * `end`: the actions sit on the right of the slab, beside the text, and
+   * wrap below it only when the slab is narrow. The default is below.
+   */
+  actionsPlacement?: "below" | "end"
+  /**
+   * `false`: no frame and no surface, only the colored icon, the text and the
+   * actions. Use it inside a block that already shows the problem (a settings
+   * card with the amber edge), so that the block has one warning signal.
+   */
+  framed?: boolean
 }) {
   const Icon =
     variant === "error"
       ? AlertCircleIcon
-      : variant === "warning"
-        ? AlertTriangleIcon
-        : CheckCircle2Icon
+      : variant === "success"
+        ? CheckCircle2Icon
+        : AlertTriangleIcon
+
+  const text = (
+    <>
+      {title ? <p className="text-sm font-medium">{title}</p> : null}
+      <div
+        className={`text-sm leading-snug ${
+          framed ? "opacity-95" : title ? "text-muted-foreground" : ""
+        }`}
+      >
+        {children}
+      </div>
+    </>
+  )
 
   return (
     <div
       role="alert"
-      className={`flex gap-3 rounded-md border p-3 ${variantClass[variant]}`}
+      // A long URL or id wraps inside the slab.
+      className={`flex gap-3 wrap-anywhere ${
+        framed
+          ? `rounded-md border p-3 ${variantClass[variant]}`
+          : "text-foreground"
+      }`}
     >
-      <Icon className="mt-0.5 size-4 shrink-0 opacity-90" aria-hidden />
-      <div className="min-w-0 flex-1 space-y-2">
-        {title ? <p className="text-sm font-medium">{title}</p> : null}
-        <div className="text-sm leading-snug opacity-95">{children}</div>
-        {actions ? (
-          <div className="flex flex-wrap gap-2 pt-0.5">{actions}</div>
-        ) : null}
-      </div>
+      <Icon
+        className={`mt-0.5 size-4 shrink-0 ${
+          framed && variant !== "warning"
+            ? "opacity-90"
+            : plainIconClass[variant]
+        }`}
+        aria-hidden
+      />
+      {actionsPlacement === "end" ? (
+        // Without a frame, the text starts on the line of the icon.
+        <div
+          className={`flex min-w-0 flex-1 flex-wrap gap-x-6 gap-y-3 ${
+            framed ? "items-center" : "items-start"
+          }`}
+        >
+          <div className="min-w-0 flex-1 basis-64 space-y-2">{text}</div>
+          {actions ? (
+            <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="min-w-0 flex-1 space-y-2">
+          {text}
+          {actions ? (
+            <div className="flex flex-wrap gap-2 pt-0.5">{actions}</div>
+          ) : null}
+        </div>
+      )}
     </div>
   )
 }

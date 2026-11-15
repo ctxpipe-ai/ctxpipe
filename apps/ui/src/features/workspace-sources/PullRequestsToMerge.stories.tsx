@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, waitFor, within } from "storybook/test"
 
+import { ConnectorSetupStepper } from "@/features/connectors/components/ConnectorSetupStepper"
 import {
   workspaceSourceFixture,
   workspaceSourceList,
@@ -9,14 +10,34 @@ import {
 
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { PullRequestsToMerge } from "./PullRequestsToMerge"
+import type { OpenedPullRequest } from "./useAddToWorkspaces"
+
+/**
+ * The merge step as a setup shows it: the last item of the setup steps, a
+ * card with its marker. `ConnectorSetupStepper` frames `PullRequestsToMerge`.
+ */
+function MergeStepInSetup(props: {
+  orgSlug: string
+  pullRequests: OpenedPullRequest[]
+}) {
+  return (
+    <ConnectorSetupStepper
+      steps={[
+        { id: "connect", label: "Connect Slack" },
+        { id: "workspaces", label: "Add to Workspaces" },
+      ]}
+      currentIndex={2}
+      mergeStep={{ orgSlug: props.orgSlug, pullRequests: props.pullRequests }}
+    />
+  )
+}
 
 const meta = {
   title: "Components/WorkspaceSources/PullRequestsToMerge",
-  component: PullRequestsToMerge,
+  component: MergeStepInSetup,
   decorators: [
     (Story) => (
-      <div className="max-w-xl bg-zinc-950 p-4">
+      <div className="max-w-xl bg-zinc-950 p-6">
         <Story />
       </div>
     ),
@@ -46,7 +67,7 @@ const meta = {
       },
     ],
   },
-} satisfies Meta<typeof PullRequestsToMerge>
+} satisfies Meta<typeof MergeStepInSetup>
 
 export default meta
 

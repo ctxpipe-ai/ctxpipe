@@ -26,8 +26,14 @@ export function FormatUpgradeNotice(props: {
   workspaceSlug: string
   context: FormatUpgradeContext
   items: readonly WorkspaceUpgradeItem[]
+  /**
+   * `banner`: one row with the actions on the right, for the top of the
+   * Workspace page. The default is an inline alert.
+   */
+  appearance?: "alert" | "banner"
 }) {
   const { orgSlug, workspaceSlug, context, items } = props
+  const banner = props.appearance === "banner"
   const isAdmin = useIsOrgAdmin(orgSlug)
   const item = pendingFormatUpgrade(items)
   const start = useStartWorkspaceUpgrade(
@@ -41,45 +47,49 @@ export function FormatUpgradeNotice(props: {
   const cause = item?.failure
     ? upgradeFailureCopy(item.failure).reason
     : (item?.failureReason ?? "ctxpipe gives no reason.")
+  const size = banner ? "default" : "sm"
+  const actions = (
+    <>
+      {isAdmin === true && canStart ? (
+        <Button
+          variant="primary"
+          size={size}
+          isPending={start.isPending}
+          onPress={() => start.mutate()}
+        >
+          Start the upgrade
+        </Button>
+      ) : null}
+      {item?.status === "pr_open" && item.pullRequest ? (
+        <Button
+          variant={banner ? "primary" : "secondary"}
+          size={size}
+          href={item.pullRequest.url}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Open pull request
+        </Button>
+      ) : null}
+      <Button
+        variant="secondary"
+        size={size}
+        href={workspaceUpgradesHref(orgSlug, workspaceSlug)}
+      >
+        Review upgrade
+      </Button>
+      {isAdmin === false && (canStart || failed) ? (
+        <span className="self-center text-xs">{MEMBER_ASK_ADMIN}</span>
+      ) : null}
+    </>
+  )
+
   return (
     <InlineAlert
       variant={failed ? "error" : "warning"}
       title={failed ? "The format upgrade failed" : copy.title}
-      actions={
-        <>
-          {isAdmin === true && canStart ? (
-            <Button
-              variant="primary"
-              size="sm"
-              isPending={start.isPending}
-              onPress={() => start.mutate()}
-            >
-              Start the upgrade
-            </Button>
-          ) : null}
-          {item?.status === "pr_open" && item.pullRequest ? (
-            <Button
-              variant="secondary"
-              size="sm"
-              href={item.pullRequest.url}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open pull request
-            </Button>
-          ) : null}
-          <Button
-            variant="secondary"
-            size="sm"
-            href={workspaceUpgradesHref(orgSlug, workspaceSlug)}
-          >
-            Review upgrade
-          </Button>
-          {isAdmin === false && (canStart || failed) ? (
-            <span className="self-center text-xs">{MEMBER_ASK_ADMIN}</span>
-          ) : null}
-        </>
-      }
+      actions={actions}
+      actionsPlacement={banner ? "end" : "below"}
     >
       {failed ? (
         <p>

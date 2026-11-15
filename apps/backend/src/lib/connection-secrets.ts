@@ -25,6 +25,11 @@ function decodeKeyMaterial(env: Env): Buffer {
   return scryptSync(env.AUTH_SECRET, "ctxpipe-connection-secrets", KEY_LENGTH)
 }
 
+/** Whether `value` is a value of `encryptConnectionSecret`. */
+export function isConnectionSecretCiphertext(value: unknown): value is string {
+  return typeof value === "string" && value.startsWith(PREFIX)
+}
+
 /** Encrypt a UTF-8 string for storage in `connections.config`. */
 export function encryptConnectionSecret(plaintext: string, env: Env): string {
   const key = decodeKeyMaterial(env)
