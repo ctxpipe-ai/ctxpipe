@@ -200,10 +200,10 @@ const pinnedSticky = (key) =>
 test("rejects a sticky disk that a production job and a PR job share", () => {
   rejects(
     {
-      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    env:\n      TOKEN: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n    steps:\n${sticky("store")}${install}`,
+      ".github/workflows/deploy.yaml": `on: push\njobs:\n  forge_deploy:\n    env:\n      TOKEN: \${{ secrets.FORGE_API_TOKEN }}\n    steps:\n${sticky("store")}${install}`,
       ".github/workflows/w.yaml": `on: pull_request\njobs:\n  migrate:\n    steps:\n${sticky("store")}${install}`,
     },
-    /cache key store is read by a job with a secret \(.*deploy\.yaml:9 \(job terraform\)\), and a job that runs untrusted code writes store \(.*w\.yaml:7 \(job migrate\)\)/,
+    /cache key store is read by a job with a secret \(.*deploy\.yaml:9 \(job forge_deploy\)\), and a job that runs untrusted code writes store \(.*w\.yaml:7 \(job migrate\)\)/,
   )
 })
 
@@ -472,9 +472,9 @@ ${tokenStep}  build:
 test("rejects an unpinned third-party action in a production job", () => {
   rejects(
     {
-      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    if: \${{ !cancelled() && (github.event_name == 'push' || inputs.deploy && github.ref == 'refs/heads/main') }}\n    steps:\n      - uses: hashicorp/setup-terraform@v3\n      - env:\n          T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: echo\n`,
+      ".github/workflows/deploy.yaml": `on: push\njobs:\n  forge_deploy:\n    if: \${{ !cancelled() && (github.event_name == 'push' || inputs.deploy && github.ref == 'refs/heads/main') }}\n    steps:\n      - uses: hashicorp/setup-terraform@v3\n      - env:\n          T: \${{ secrets.FORGE_API_TOKEN }}\n        run: echo\n`,
     },
-    /deploy\.yaml:6: job terraform holds a secret or an OIDC token and uses hashicorp\/setup-terraform@v3/,
+    /deploy\.yaml:6: job forge_deploy holds a secret or an OIDC token and uses hashicorp\/setup-terraform@v3/,
   )
 })
 
