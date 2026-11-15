@@ -439,7 +439,8 @@ jobs:
       - copy_images_to_ecr
     runs-on: blacksmith-2vcpu-ubuntu-2404-arm
     environment: factory-dispatch
-    permissions: {}
+    permissions:
+      contents: read
     steps:
       - id: token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
@@ -449,12 +450,21 @@ jobs:
           owner: ctxpipe-ai
           repositories: factory
           permission-actions: write
+      # A rerun of an older run must not send an older build, since factory
+      # deploys the newest dispatch: as in copy_images_to_ecr, only the run
+      # of the commit at main's head dispatches.
       - name: Dispatch hosted.yml
         env:
+          REPO_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ steps.token.outputs.token }}
           DIGESTS: ${{ needs.ecr_digests.outputs.digests }}
         run: |
           set -euo pipefail
+          main="$(GH_TOKEN="$REPO_TOKEN" gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          if [ "$main" != "$GITHUB_SHA" ]; then
+            echo "::notice::main is at $main, not at $GITHUB_SHA: the run of that commit dispatches its build"
+            exit 0
+          fi
           gh workflow run hosted.yml --repo ctxpipe-ai/factory --ref main \
             -f source_sha="$GITHUB_SHA" -f images="$DIGESTS"
           echo "Dispatched the hosted release $GITHUB_SHA to factory hosted.yml" | tee -a "$GITHUB_STEP_SUMMARY"
