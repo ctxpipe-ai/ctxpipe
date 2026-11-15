@@ -103,7 +103,7 @@ describe("buildPrompt", () => {
 
     expect(prefix).toContain("Overflow and truncation")
     expect(prefix).toContain(
-      "- Focus (page only) [focus]: The page has one primary action",
+      "- Focus (page only) [focus]: The page has at most one primary action",
     )
     expect(prefix).toContain("apps/ui/DESIGN.md › Task clarity")
     expect(prefix).toContain(
