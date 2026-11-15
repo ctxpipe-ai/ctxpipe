@@ -23,6 +23,7 @@ const meta = {
       path: "/.auth/consent",
       search: "?client_id=client_story&scope=ctxpipe%3Aread",
     } satisfies StoryRouteParams,
+    review: { kind: "page" },
     msw: {
       handlers: {
         defaults: [
@@ -70,6 +71,10 @@ type Story = StoryObj<typeof meta>
 
 export const ConsentSendsTickedOrgs: Story = {
   parameters: {
+    review: {
+      purpose:
+        "OAuth consent screen, where a user lets an app read ctxpipe for some organizations: the user ticks a second organization and allows.",
+    },
     intent:
       "Catches a consent route that sends the wrong organizations or scope. The consent request carries the ticked organizations and the read scope. Not for the consent screen layout.",
   },

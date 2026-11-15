@@ -25,6 +25,7 @@ const meta = {
   decorators: orgPageDecorators,
   parameters: {
     layout: "fullscreen",
+    review: { kind: "page" },
     route: "/$orgSlug/",
   },
 } satisfies Meta
@@ -58,6 +59,10 @@ export const Loading: Story = {
     ).not.toBeInTheDocument()
   },
   parameters: {
+    review: {
+      purpose:
+        "Org home page, where a member asks the agent and opens a Workspace: the session is still loading.",
+    },
     intent:
       "Catches an org home that shows content or a Create button while the session loads. The shell shows the selector and the activity loading text. Not for loaded data.",
     storyRoute: homeRoute,
@@ -101,6 +106,10 @@ export const WorkspacesLoading: Story = {
     ).not.toBeInTheDocument()
   },
   parameters: {
+    review: {
+      purpose:
+        "Org home page, where a member asks the agent and opens a Workspace: the Workspace list is still loading, and the composer and activity skeleton hold their place.",
+    },
     intent:
       "Catches an org home that shows a Create button while workspaces load. It shows the selector and the activity loading text. Not for loaded workspaces or errors.",
     storyRoute: homeRoute,
@@ -163,6 +172,10 @@ export const Empty: Story = {
     )
   },
   parameters: {
+    review: {
+      purpose:
+        "Org home page, where a member asks the agent and opens a Workspace: the org has no Workspace and the guide is dismissed, so Create Workspace shows with the empty activity.",
+    },
     intent:
       "Catches an org home with no workspace that shows no way to start. It shows Create Workspace and the empty activity. Not for populated homes or the guide.",
     storyRoute: homeRoute,
@@ -214,6 +227,10 @@ export const WorkspacesLoadFails: Story = {
     expect(canvas.queryByText("Could not load Workspaces.")).toBeNull()
   },
   parameters: {
+    review: {
+      purpose:
+        "Org home page, where a member asks the agent and opens a Workspace: the Workspace list failed to load, so an alert with Retry shows.",
+    },
     intent:
       "Catches a failed workspace list that shows the guide or a Create button. It shows an alert with Retry, and Retry loads the home again. Not for loaded lists.",
     storyRoute: homeRoute,
@@ -264,6 +281,10 @@ export const EmptyRecentWhileActivityLoads: Story = {
     )
   },
   parameters: {
+    review: {
+      purpose:
+        "Org home page, where a member asks the agent and opens a Workspace: no Workspace, so Recent shows its empty text while the activity still loads.",
+    },
     intent:
       "Catches a recent commits area that shows a loading state when the workspace list is empty. The empty text shows while activity still loads. Not for populated homes.",
     storyRoute: homeRoute,
@@ -309,6 +330,10 @@ export const Populated: Story = {
     )
   },
   parameters: {
+    review: {
+      purpose:
+        "Org home page, where a member asks the agent and opens a Workspace: the org has Workspaces with activity and recent commits.",
+    },
     intent:
       "Catches an org home that shows wrong headings or no commits. It shows the selector, Activity and Recent headings in the plain style, and recent commits. Not for loading states.",
     storyRoute: homeRoute,
@@ -340,6 +365,10 @@ export const ActivityAndRecentKeepTheirGap: Story = {
     expect(gap).toBeGreaterThanOrEqual(39.5)
   },
   parameters: {
+    review: {
+      purpose:
+        "Org home page, where a member asks the agent and opens a Workspace: Activity and Recent keep the same gap as the other blocks.",
+    },
     storyRoute: homeRoute,
     msw: {
       handlers: {
@@ -367,6 +396,10 @@ export const ActivityLoading: Story = {
     expect(canvas.queryByText("Loading…")).not.toBeInTheDocument()
   },
   parameters: {
+    review: {
+      purpose:
+        "Org home page, where a member asks the agent and opens a Workspace: the activity is still loading while the selector shows.",
+    },
     intent:
       "Catches an activity area that shows a bare Loading text. It shows the activity loading text while the selector is already visible. Not for loaded activity.",
     storyRoute: homeRoute,
@@ -383,6 +416,10 @@ export const FirstMessageOpensConversation: Story = {
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   parameters: {
+    review: {
+      purpose:
+        "Org home page, where a member asks the agent and opens a Workspace: the user sends a first message, and the new conversation opens.",
+    },
     intent:
       "Catches a first message in the home composer that does not open a new conversation. Sending opens the conversation with the message. Not for the composer layout.",
     storyRoute: homeRoute,
@@ -449,6 +486,10 @@ export const NoHistory: Story = {
     )
   },
   parameters: {
+    review: {
+      purpose:
+        "Org home page, where a member asks the agent and opens a Workspace: the Workspace has no commit history, so the empty commits text shows at once.",
+    },
     intent:
       "Catches an org home with no commit history that waits on a hanging list read. The empty commits text shows at once. Not for populated commits.",
     storyRoute: homeRoute,

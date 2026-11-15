@@ -123,6 +123,11 @@ export const OverflowFound: Story = {
         overflow: "A fixture that breaks the rule; its play proves the check.",
       },
     },
+    review: {
+      kind: "component",
+      purpose:
+        "Test fixture that proves the overflow layout check: an alert URL and a card label run out of their boxes.",
+    },
   },
   play: async ({ canvasElement }) => {
     const problems = await problemsIn(canvasElement)
@@ -146,6 +151,13 @@ export const OverflowFound: Story = {
 }
 
 export const OverflowFixed: Story = {
+  parameters: {
+    review: {
+      kind: "component",
+      purpose:
+        "Test fixture that proves the overflow layout check: the alert URL wraps and the card label stays in its card.",
+    },
+  },
   render: () => <Overflow fixed />,
   play: async ({ canvasElement }) => {
     // The ellipsis line and the scroll box overflow on purpose.
@@ -160,6 +172,11 @@ export const AxesFound: Story = {
       allow: {
         axes: "A fixture that breaks the rule; its play proves the check.",
       },
+    },
+    review: {
+      kind: "component",
+      purpose:
+        "Test fixture that proves the axes layout check: the checklist boxes sit 2 px off the axis of the header icon.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -176,6 +193,13 @@ export const AxesFound: Story = {
 }
 
 export const AxesFixed: Story = {
+  parameters: {
+    review: {
+      kind: "component",
+      purpose:
+        "Test fixture that proves the axes layout check: the checklist boxes sit on the same axis as the header icon.",
+    },
+  },
   render: () => <Checklist box="size-4" />,
   play: async ({ canvasElement }) => {
     await expect(await problemsIn(canvasElement)).toEqual([])
@@ -190,6 +214,11 @@ export const ContrastFound: Story = {
         contrast: "A fixture that breaks the rule; its play proves the check.",
       },
     },
+    review: {
+      kind: "component",
+      purpose:
+        "Test fixture that proves the contrast layout check: a line of text has too little contrast.",
+    },
   },
   play: async ({ canvasElement }) => {
     const problems = await problemsIn(canvasElement)
@@ -202,6 +231,13 @@ export const ContrastFound: Story = {
 }
 
 export const ContrastFixed: Story = {
+  parameters: {
+    review: {
+      kind: "component",
+      purpose:
+        "Test fixture that proves the contrast layout check: the same line of text has enough contrast.",
+    },
+  },
   render: () => <Text className="text-zinc-300" />,
   play: async ({ canvasElement }) => {
     await expect(await problemsIn(canvasElement)).toEqual([])

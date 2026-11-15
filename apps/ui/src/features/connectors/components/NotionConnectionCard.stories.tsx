@@ -54,6 +54,7 @@ const meta = {
   args: { orgSlug, connectionId, onOpenSetup: () => {} },
   decorators: entryPageInnerDecorators,
   parameters: {
+    review: { kind: "component" },
     msw: {
       handlers: {
         usage: [
@@ -95,6 +96,10 @@ function card() {
 export const Connected: Story = {
   render: () => shell(card()),
   parameters: {
+    review: {
+      purpose:
+        "Notion connection card on the Connectors page: the Notion workspace is connected and syncs to a context repository.",
+    },
     msw: { handlers: { page: [notionStatus(statusComplete)] } },
   },
 }
@@ -102,6 +107,10 @@ export const Connected: Story = {
 export const Checking: Story = {
   render: () => shell(card()),
   parameters: {
+    review: {
+      purpose:
+        "Notion connection card on the Connectors page: the status request is still loading.",
+    },
     msw: {
       handlers: {
         page: [
@@ -124,6 +133,10 @@ export const Checking: Story = {
 export const CouldntLoad: Story = {
   render: () => shell(card()),
   parameters: {
+    review: {
+      purpose:
+        "Notion connection card on the Connectors page: the status request failed, so the card cannot show the connection.",
+    },
     msw: {
       handlers: {
         page: [
@@ -146,6 +159,10 @@ const deleted = fn()
 export const PendingSetup: Story = {
   render: () => shell(card()),
   parameters: {
+    review: {
+      purpose:
+        "Notion connection card on the Connectors page: the setup is not complete, so the card offers to continue or delete the draft.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -192,6 +209,10 @@ export const ConnectedWithoutSyncRepository: Story = {
   name: "Connected, scope set in each Workspace",
   render: () => shell(card()),
   parameters: {
+    review: {
+      purpose:
+        "Notion connection card on the Connectors page: auth is done and each Workspace sets its own scope, so the card shows no scope.",
+    },
     msw: {
       handlers: {
         page: [
@@ -224,6 +245,10 @@ export const RevokedNeedsReconnect: Story = {
   name: "Revoked, needs reconnect",
   render: () => shell(card()),
   parameters: {
+    review: {
+      purpose:
+        "Notion connection card on the Connectors page: Notion revoked the access, so the card asks the admin to reconnect.",
+    },
     msw: {
       handlers: {
         page: [

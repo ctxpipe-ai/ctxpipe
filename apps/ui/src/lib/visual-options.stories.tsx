@@ -72,6 +72,7 @@ const meta = {
   component: Card,
   parameters: {
     visual: { masks: ["[data-testid='noise']"] },
+    review: { kind: "component" },
   },
 } satisfies Meta<typeof Card>
 
@@ -79,6 +80,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const NamedSnapshots: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Test fixture that proves the screenshot masks and named snapshots: the menu opened and the user pressed Save.",
+    },
+  },
   play: async ({ canvas, userEvent }) => {
     await snapshot("closed")
     await userEvent.click(canvas.getByRole("button", { name: "Open menu" }))

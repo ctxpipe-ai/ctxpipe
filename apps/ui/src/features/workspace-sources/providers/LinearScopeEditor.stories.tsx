@@ -40,6 +40,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -63,6 +64,12 @@ const scopeText = (canvasElement: HTMLElement) =>
   within(canvasElement).getByRole("status", { name: "Scope" }).textContent
 
 export const PicksTeamsAndProjects: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Linear scope editor, where the user picks the teams and projects of a Workspace source: the user picks a team and a project and turns off customer requests.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -85,6 +92,12 @@ export const PicksTeamsAndProjects: Story = {
 }
 
 export const EmptySelectionIsNotReady: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Linear scope editor, where the user picks the teams and projects of a Workspace source: the user clears the last team, so the scope is not ready and a hint asks for one.",
+    },
+  },
   args: { initialScope: { teams: ["ENG"] } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -99,6 +112,12 @@ export const EmptySelectionIsNotReady: Story = {
 }
 
 export const EditsAnExistingScope: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Linear scope editor, where the user picks the teams and projects of a Workspace source: a saved scope has a team that Linear no longer has, marked as not found.",
+    },
+  },
   args: {
     initialScope: { teams: ["ops", "OLD"], customerRequests: "exclude" },
   },
@@ -125,6 +144,10 @@ export const EditsAnExistingScope: Story = {
 
 export const LoadError: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Linear scope editor, where the user picks the teams and projects of a Workspace source: the teams and projects did not load, so an error with Retry shows.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: { handlers: { page: [linearAvailableScopesHandler("error")] } },
   },

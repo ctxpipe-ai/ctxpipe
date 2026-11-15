@@ -21,6 +21,7 @@ const meta = {
   parameters: {
     layout: "fullscreen",
     storyRoute: { pattern: "flat", path: "/onboarding" },
+    review: { kind: "component" },
   },
   args: {
     sceneReady: true,
@@ -35,6 +36,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Onboarding page frame with the background scene and the Sign out link, around a placeholder slide: the scene loaded.",
+    },
+  },
   args: {
     sceneFailed: false,
   },
@@ -46,6 +53,12 @@ export const Default: Story = {
 }
 
 export const SceneFailed: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Onboarding page frame with the background scene and the Sign out link, around a placeholder slide: the scene failed to load.",
+    },
+  },
   args: {
     sceneFailed: true,
   },
@@ -53,6 +66,13 @@ export const SceneFailed: Story = {
 
 /** The welcome slide on the page, as a new user sees it. */
 export const WithWelcomeSlide: Story = {
+  parameters: {
+    review: {
+      kind: "page",
+      purpose:
+        "Onboarding page as a new user first sees it: the frame with the welcome slide that explains how ctxpipe works.",
+    },
+  },
   args: {
     sceneFailed: false,
     children: <OnboardingHowItWorksSlide actionLabel="Next" onNext={fn()} />,

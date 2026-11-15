@@ -60,6 +60,7 @@ const meta = {
     onOpenChange: () => {},
   },
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -74,6 +75,10 @@ type Story = StoryObj<typeof meta>
 
 export const Loading: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Slack setup dialog, which connects Slack and adds its channels to Workspaces: the status request is still loading.",
+    },
     msw: {
       handlers: {
         page: [
@@ -95,6 +100,10 @@ export const Loading: Story = {
 
 export const AuthorizeSlack: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Slack setup dialog, which connects Slack and adds its channels to Workspaces: the first step, where the admin authorizes Slack.",
+    },
     msw: {
       handlers: {
         page: [
@@ -115,6 +124,10 @@ export const AuthorizeSlack: Story = {
 
 export const ConnectGitHub: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Slack setup dialog, which connects Slack and adds its channels to Workspaces: Slack is authorized and the admin must connect GitHub next.",
+    },
     msw: {
       handlers: {
         page: [
@@ -140,6 +153,10 @@ const onOpenChange = fn()
 export const ChooseWorkspaces: Story = {
   args: { onOpenChange },
   parameters: {
+    review: {
+      purpose:
+        "Slack setup dialog at the Workspaces step: the admin adds a channel to a Workspace, and the dialog moves to the merge step.",
+    },
     msw: {
       handlers: {
         page: [
@@ -205,6 +222,10 @@ export const ChooseWorkspaces: Story = {
 /** The Workspaces step explains capture and offers no repository picker (ADR-050). */
 export const CaptureWorkspace: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Slack setup dialog at the Workspaces step: the step explains how an @mention captures a thread and offers no repository picker.",
+    },
     msw: {
       handlers: {
         page: [
@@ -273,7 +294,13 @@ const manageCalls: typeof addCalls = []
 
 /** Manage starts from the current Workspaces and channels, and saves a change. */
 export const ManageKeepsTheCurrentScope: Story = {
-  parameters: { msw: { handlers: { page: manageHandlers(manageCalls) } } },
+  parameters: {
+    review: {
+      purpose:
+        "Slack setup dialog opened from Manage: it starts with the current Workspace and channel checked, and the admin saves one more channel.",
+    },
+    msw: { handlers: { page: manageHandlers(manageCalls) } },
+  },
   beforeEach: () => {
     manageCalls.length = 0
   },
@@ -314,7 +341,13 @@ export const ManageKeepsTheCurrentScope: Story = {
 
 /** Unchecking a Workspace on Manage removes its Slack source. */
 export const ManageRemovesAnUncheckedWorkspace: Story = {
-  parameters: { msw: { handlers: { page: manageHandlers(manageCalls) } } },
+  parameters: {
+    review: {
+      purpose:
+        "Slack setup dialog opened from Manage: the admin unchecks a Workspace and saves, which removes its Slack source.",
+    },
+    msw: { handlers: { page: manageHandlers(manageCalls) } },
+  },
   beforeEach: () => {
     manageCalls.length = 0
   },
@@ -335,6 +368,10 @@ export const ManageRemovesAnUncheckedWorkspace: Story = {
 
 export const StatusError: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Slack setup dialog, which connects Slack and adds its channels to Workspaces: the status request failed with a server error.",
+    },
     msw: {
       handlers: {
         page: [
@@ -381,6 +418,10 @@ export const ManageAgainShowsTheNewScope: Story = {
   tags: ["reduced-motion"],
   render: (args) => <ManageButton {...args} />,
   parameters: {
+    review: {
+      purpose:
+        "Slack setup dialog opened from Manage a second time: it shows the channels after a merge, not the channels of the first open.",
+    },
     msw: {
       handlers: {
         page: [

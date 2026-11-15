@@ -23,6 +23,7 @@ const meta = {
       pattern: "flat",
       path: "/onboarding",
     } satisfies StoryRouteParams,
+    review: { kind: "component" },
   },
   args: {
     actionLabel: "Next",
@@ -54,6 +55,12 @@ function slideRows(canvasElement: HTMLElement) {
 }
 
 export const NewOrganization: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Welcome slide of onboarding that explains how ctxpipe works in three steps: a new organization, with the Next action.",
+    },
+  },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -79,6 +86,12 @@ export const NewOrganization: Story = {
  * most.
  */
 export const RowsFadeInInOrder: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Welcome slide of onboarding that explains how ctxpipe works in three steps: the rows faded in one after another.",
+    },
+  },
   play: async ({ canvasElement }) => {
     await within(canvasElement).findByRole("heading", {
       name: WELCOME_TITLE,
@@ -104,6 +117,12 @@ export const RowsFadeInInOrder: Story = {
  * Each row shows when its short delay ends, and it does not move.
  */
 export const RowsWithReducedMotion: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Welcome slide of onboarding that explains how ctxpipe works in three steps: the user prefers reduced motion, so the rows do not move.",
+    },
+  },
   tags: ["reduced-motion"],
   play: async ({ canvasElement }) => {
     await within(canvasElement).findByRole("heading", {
@@ -120,5 +139,11 @@ export const RowsWithReducedMotion: Story = {
 
 /** A joiner finishes onboarding from this slide. */
 export const Joiner: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Welcome slide of onboarding that explains how ctxpipe works in three steps: a user who joins an org, with the Get started action.",
+    },
+  },
   args: { actionLabel: "Get started" },
 }
