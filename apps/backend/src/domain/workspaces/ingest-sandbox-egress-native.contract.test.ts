@@ -57,7 +57,11 @@ import {
   ingestOpenCodeConfig,
 } from "../ingestion/ingest-opencode.js"
 import { prepareIngestSandbox } from "../ingestion/ingest-prepare.js"
-import { dockerRootExec } from "../ingestion/ingest-root.js"
+import {
+  agentCoreRootExec,
+  dockerRootExec,
+  type RootExec,
+} from "../ingestion/ingest-root.js"
 import {
   ingestAgentEnv,
   probeIngestModelProxy,
@@ -482,6 +486,179 @@ echo`,
   expect(log.revoked).toEqual([fixture.gitToken])
 }
 
+/** A sandbox of one provider for {@link modelStepScenario}. */
+type ModelStepSandbox = {
+  provider: SandboxProvider
+  root: (id: string) => RootExec
+  close?: () => void
+}
+
+/**
+ * An ingest model step through Agent Vault and the backend model proxy: the
+ * probe, then the model command as the agent with the step's environment
+ * (`runIngestShardStep`), with the real OpenCode of the sandbox image.
+ */
+async function modelStepScenario(
+  makeSandbox: (
+    fixture: Parameters<Parameters<typeof withAgentVault>[1]>[0],
+    shard: {
+      orgId: string
+      runId: string
+      shard: number
+      access: AgentVaultAccess
+      egress: IngestEgress
+    },
+  ) => Promise<ModelStepSandbox>,
+): Promise<void> {
+  const upstreamCalls: string[] = []
+  github.use(
+    http.post(`${MODEL_PROVIDER_URL}/chat/completions`, ({ request }) => {
+      upstreamCalls.push(request.headers.get("authorization") ?? "")
+      return streamedAnswer()
+    }),
+  )
+  const backend = await serveBackend()
+  const workflows = await BackendPostgres.connect(
+    process.env.DATABASE_URL ?? "",
+    { runMigrations: false, namespaceId: openWorkflowNamespaceId() },
+  )
+  const run = await workflows.createWorkflowRun({
+    workflowName: INGESTION_V2_WORKFLOW_NAME,
+    version: null,
+    idempotencyKey: null,
+    config: {},
+    context: null,
+    input: { orgId, shadow: true } satisfies IngestionV2RunInput,
+    parentStepAttemptNamespaceId: null,
+    parentStepAttemptId: null,
+    // Never due: no worker claims it.
+    availableAt: new Date(Date.now() + 365 * 24 * 60 * 60_000),
+    deadlineAt: null,
+  })
+  const lockKey = ingestSandboxThreadId(run.id, 0)
+  const lockOwner = randomUUID()
+  try {
+    // The step holds the shard lock, as `withShardLock` does.
+    await withOrgDbContext(orgId, (db) =>
+      db.insert(sandboxLocks).values({
+        orgId,
+        key: lockKey,
+        owner: lockOwner,
+        expiresAt: new Date(Date.now() + 10 * 60_000),
+      }),
+    )
+    await withAgentVault(
+      { image, closed: true, backendPort: backend.port },
+      async (fixture) => {
+        // The origin of the backend as the sandbox sees it (Compose:
+        // `http://backend.sandbox.ctxpipe.internal:3000`).
+        const origin = `http://${fixture.upstream}:3000`
+        const modelProxyUrl = `${origin}${workspaceChatCompletionsPath(orgId)}`
+        const sandbox = await makeSandbox(fixture, {
+          orgId,
+          runId: run.id,
+          shard: 0,
+          access: fixture.access,
+          egress: {
+            repositories: [],
+            modelProxyUrl,
+            capability: await mintWorkspaceIngestRunCapability({
+              authSecret: parseEnv(process.env).AUTH_SECRET,
+              orgId,
+              orgSlug: orgId,
+              runId: run.id,
+              shard: 0,
+              step: "skill:repository:decisions",
+              lockOwner,
+            }),
+            bridge: {
+              url: `${origin}${INGEST_TOOL_BRIDGE_PATH}`,
+              token: "ctxpipe-no-tools",
+            },
+          },
+        })
+        const { provider } = sandbox
+        try {
+          const handle = await provider.create({})
+          try {
+            const root = sandbox.root(handle.id)
+            const agentEnv = await ingestAgentEnv(root, { modelProxyUrl })
+            await prepareIngestSandbox(handle, root, {
+              bundle: {
+                name: "ingest-test",
+                version: "ingest-test",
+                skills: [],
+                files: [],
+              },
+              opencodeConfig: ingestOpenCodeConfig({
+                modelBase: "test/model-medium",
+                models: ["test/model-fast"],
+                skills: [],
+                proxyAddsCredentials: true,
+                toolBridgeUrl: `${origin}${INGEST_TOOL_BRIDGE_PATH}`,
+              }),
+            })
+            // The probe that prepare logs before the first model step.
+            const probe = await probeIngestModelProxy(root, agentEnv)
+            // The model command of a step, as the agent, with the step's
+            // environment (`runIngestShardStep`). A model path that does
+            // not answer ends here, not at the 10-minute step limit.
+            const result = await root(
+              ingestAgentCommand({
+                env: agentEnv,
+                command: ingestModelRunCommand({
+                  prompt: "Say done.",
+                  model: "ctxpipe/test/model-fast",
+                }),
+              }),
+              { signal: AbortSignal.timeout(240_000) },
+            ).catch((error: unknown) => ({
+              exitCode: -2,
+              stdout: "",
+              stderr: String(error),
+            }))
+            const diagnosis =
+              result.exitCode === 0
+                ? ""
+                : (
+                    await root(
+                      `echo "probe ${probe}; exit ${result.exitCode}: ${result.stderr.slice(-400).replace(/["$`\\]/g, "")}"
+echo "== curl models as the agent"
+${ingestAgentCommand({ env: agentEnv, command: `curl -sS -m 20 -w " %{http_code}" "$CTXPIPE_MODEL_PROXY_URL/models" 2>&1` })}
+echo "== opencode log"
+tail -c 6000 /ctxpipe/home/data/opencode/log/*.log 2>&1`,
+                    )
+                  ).stdout
+            expect(probe, diagnosis).toBe("200")
+            expect(result.exitCode, diagnosis).toBe(0)
+            expect(parseOpenCodeUsage(result.stdout), diagnosis).toEqual({
+              inputTokens: 100,
+              outputTokens: 10,
+            })
+            // The backend added the provider key; the sandbox never had it.
+            expect(upstreamCalls, diagnosis).toEqual(["Bearer sk-upstream"])
+          } finally {
+            await provider.destroy({ id: handle.id }).catch(() => undefined)
+          }
+        } finally {
+          sandbox.close?.()
+        }
+      },
+    )
+  } finally {
+    github.resetHandlers()
+    await withOrgDbContext(orgId, (db) =>
+      db
+        .delete(sandboxLocks)
+        .where(
+          and(eq(sandboxLocks.orgId, orgId), eq(sandboxLocks.key, lockKey)),
+        ),
+    )
+    await workflows.stop()
+    await backend.close()
+  }
+}
+
 describe("the Docker ingest sandbox has closed egress", () => {
   it(
     "reaches only the model proxy, the tool bridge and Git fetch; destroy deletes the vault and always revokes the token",
@@ -510,152 +687,15 @@ describe("the Docker ingest sandbox has closed egress", () => {
   it(
     "an ingest model step reaches the model through Agent Vault and the backend model proxy",
     { timeout: 480_000 },
-    async () => {
-      const upstreamCalls: string[] = []
-      github.use(
-        http.post(`${MODEL_PROVIDER_URL}/chat/completions`, ({ request }) => {
-          upstreamCalls.push(request.headers.get("authorization") ?? "")
-          return streamedAnswer()
+    () =>
+      modelStepScenario(async (fixture, shard) => ({
+        provider: dockerIngestSandboxProvider({
+          ...shard,
+          image,
+          network: fixture.sandboxNetwork,
         }),
-      )
-      const backend = await serveBackend()
-      const workflows = await BackendPostgres.connect(
-        process.env.DATABASE_URL ?? "",
-        { runMigrations: false, namespaceId: openWorkflowNamespaceId() },
-      )
-      const run = await workflows.createWorkflowRun({
-        workflowName: INGESTION_V2_WORKFLOW_NAME,
-        version: null,
-        idempotencyKey: null,
-        config: {},
-        context: null,
-        input: { orgId, shadow: true } satisfies IngestionV2RunInput,
-        parentStepAttemptNamespaceId: null,
-        parentStepAttemptId: null,
-        // Never due: no worker claims it.
-        availableAt: new Date(Date.now() + 365 * 24 * 60 * 60_000),
-        deadlineAt: null,
-      })
-      const lockKey = ingestSandboxThreadId(run.id, 0)
-      const lockOwner = randomUUID()
-      try {
-        // The step holds the shard lock, as `withShardLock` does.
-        await withOrgDbContext(orgId, (db) =>
-          db.insert(sandboxLocks).values({
-            orgId,
-            key: lockKey,
-            owner: lockOwner,
-            expiresAt: new Date(Date.now() + 10 * 60_000),
-          }),
-        )
-        await withAgentVault(
-          { image, closed: true, backendPort: backend.port },
-          async (fixture) => {
-            // The origin of the backend as the sandbox sees it (Compose:
-            // `http://backend.sandbox.ctxpipe.internal:3000`).
-            const origin = `http://${fixture.upstream}:3000`
-            const modelProxyUrl = `${origin}${workspaceChatCompletionsPath(orgId)}`
-            const provider = dockerIngestSandboxProvider({
-              orgId,
-              runId: run.id,
-              shard: 0,
-              image,
-              access: fixture.access,
-              network: fixture.sandboxNetwork,
-              egress: {
-                repositories: [],
-                modelProxyUrl,
-                capability: await mintWorkspaceIngestRunCapability({
-                  authSecret: parseEnv(process.env).AUTH_SECRET,
-                  orgId,
-                  orgSlug: orgId,
-                  runId: run.id,
-                  shard: 0,
-                  step: "skill:repository:decisions",
-                  lockOwner,
-                }),
-                bridge: {
-                  url: `${origin}${INGEST_TOOL_BRIDGE_PATH}`,
-                  token: "ctxpipe-no-tools",
-                },
-              },
-            })
-            const handle = await provider.create({})
-            try {
-              const root = dockerRootExec(handle.id)
-              const agentEnv = await ingestAgentEnv(root, { modelProxyUrl })
-              await prepareIngestSandbox(handle, root, {
-                bundle: {
-                  name: "ingest-test",
-                  version: "ingest-test",
-                  skills: [],
-                  files: [],
-                },
-                opencodeConfig: ingestOpenCodeConfig({
-                  modelBase: "test/model-medium",
-                  models: ["test/model-fast"],
-                  skills: [],
-                  proxyAddsCredentials: true,
-                  toolBridgeUrl: `${origin}${INGEST_TOOL_BRIDGE_PATH}`,
-                }),
-              })
-              // The probe that prepare logs before the first model step.
-              const probe = await probeIngestModelProxy(root, agentEnv)
-              // The model command of a step, as the agent, with the step's
-              // environment (`runIngestShardStep`). A model path that does
-              // not answer ends here, not at the 10-minute step limit.
-              const result = await root(
-                ingestAgentCommand({
-                  env: agentEnv,
-                  command: ingestModelRunCommand({
-                    prompt: "Say done.",
-                    model: "ctxpipe/test/model-fast",
-                  }),
-                }),
-                { signal: AbortSignal.timeout(240_000) },
-              ).catch((error: unknown) => ({
-                exitCode: -2,
-                stdout: "",
-                stderr: String(error),
-              }))
-              const diagnosis =
-                result.exitCode === 0
-                  ? ""
-                  : (
-                      await root(
-                        `echo "probe ${probe}; exit ${result.exitCode}: ${result.stderr.slice(-400).replace(/["$`\\]/g, "")}"
-echo "== curl models as the agent"
-${ingestAgentCommand({ env: agentEnv, command: `curl -sS -m 20 -w " %{http_code}" "$CTXPIPE_MODEL_PROXY_URL/models" 2>&1` })}
-echo "== opencode log"
-tail -c 6000 /ctxpipe/home/data/opencode/log/*.log 2>&1`,
-                      )
-                    ).stdout
-              expect(probe, diagnosis).toBe("200")
-              expect(result.exitCode, diagnosis).toBe(0)
-              expect(parseOpenCodeUsage(result.stdout), diagnosis).toEqual({
-                inputTokens: 100,
-                outputTokens: 10,
-              })
-              // The backend added the provider key; the sandbox never had it.
-              expect(upstreamCalls, diagnosis).toEqual(["Bearer sk-upstream"])
-            } finally {
-              await provider.destroy({ id: handle.id }).catch(() => undefined)
-            }
-          },
-        )
-      } finally {
-        github.resetHandlers()
-        await withOrgDbContext(orgId, (db) =>
-          db
-            .delete(sandboxLocks)
-            .where(
-              and(eq(sandboxLocks.orgId, orgId), eq(sandboxLocks.key, lockKey)),
-            ),
-        )
-        await workflows.stop()
-        await backend.close()
-      }
-    },
+        root: (id) => dockerRootExec(id),
+      })),
   )
 
   it(
@@ -799,6 +839,28 @@ git push ${source} HEAD:refs/heads/plain-push 2>&1 && echo PUSHED || echo REFUSE
 })
 
 describe("the AgentCore ingest sandbox has closed egress", () => {
+  it(
+    "an ingest model step reaches the model through Agent Vault and the backend model proxy",
+    { timeout: 480_000 },
+    () =>
+      modelStepScenario(async (fixture, shard) => {
+        const microVm = await startContainerAgentCore(image, {
+          network: fixture.sandboxNetwork,
+        })
+        return {
+          provider: agentCoreIngestSandboxProvider({
+            ...shard,
+            sessions: agentCoreSandboxProvider({
+              runtime: microVm.runtime,
+              user: "node",
+            }),
+          }),
+          root: (id) => agentCoreRootExec(microVm.runtime, id),
+          close: () => microVm.close(),
+        }
+      }),
+  )
+
   it(
     "reaches only the model proxy, the tool bridge and Git fetch; destroy deletes the vault and always revokes the token",
     { timeout: 300_000 },
