@@ -71,7 +71,8 @@ jobs:
         with:
           node-version-file: .node-version
       # The plan of the PR base decides: the plan of the PR could keep any digest. A base without the plan fails
-      # the run.
+      # the run. A change to this file builds no image again: a PR whose copy differs from main's gets no preview
+      # (Provenance above).
       - id: plan
         if: github.run_attempt != '1'
         env:
