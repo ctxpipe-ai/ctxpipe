@@ -198,19 +198,55 @@ describe("judgeWithJev questions", () => {
     )
     // The rules of the former literal questions are in the definitions. The
     // Gestalt lens holds the ones that a principle covers.
-    expect(instructions("quality.gestalt")).toContain(
-      "Proximity: less space inside a group than around it",
+    expect(instructions("quality.proximity")).toMatch(
+      /^Quality: Proximity\. The space inside a group is smaller than the space around it\./,
     )
     expect(instructions("area.dialog")).toContain(
       "A dialog has one close control.",
     )
     expect(instructions("area.copy")).toContain("(color, not colour)")
+    // The teal rule moved from focus to color-tokens (CTX-1310).
+    expect(instructions("area.color-tokens")).toContain(
+      "Teal marks only the one real action in a dense list.",
+    )
+  })
+
+  test("asks one question for each Gestalt principle of a still screen, with its own definition", async () => {
+    const seen = serve(() => fine)
+    await judgeWithJev(await story())
+    const gestalt = Object.entries(seen.body.questions).filter(([name]) =>
+      [
+        "proximity",
+        "similarity",
+        "common-region",
+        "figure-ground",
+        "continuity",
+        "pragnanz",
+      ].includes(name.replace(/^quality\./, "")),
+    )
+    expect(gestalt.map(([name]) => name)).toEqual([
+      "quality.proximity",
+      "quality.similarity",
+      "quality.common-region",
+      "quality.figure-ground",
+      "quality.continuity",
+      "quality.pragnanz",
+    ])
+    expect(gestalt.every(([, { type }]) => type === "choice")).toBe(true)
+    // Each question holds one principle, not the six of the old bundle.
+    expect(
+      new Set(gestalt.map(([, { instructions }]) => instructions)).size,
+    ).toBe(6)
+    expect(Object.keys(seen.body.questions)).not.toContain("quality.gestalt")
   })
 
   test("asks the page-only qualities for a page", async () => {
     const seen = serve(() => fine)
     await judgeWithJev(await story({ scope: "page" }))
     expect(Object.keys(seen.body.questions)).toContain("quality.focus")
+    expect(
+      String(defined(seen.body.questions["quality.focus"]).instructions),
+    ).toContain("A page that needs no action")
   })
 
   test("sends the images as data URLs, with the key and the images header", async () => {
@@ -482,6 +518,35 @@ describe("judgeWithJev verdict", () => {
     expect(verdict.severity).toBe("minor")
     expect(verdict.findings).toEqual([])
     expect(verdict.summary).toContain("restraint")
+  })
+
+  test("a worse focus is a regression only from 0.65; the other qualities stay at 0.5 (CTX-1310)", async () => {
+    const judge = async (focus: number, hierarchy: number) => {
+      serve((name) => {
+        if (name === "quality.focus") return choice(0, 1 - focus, focus)
+        if (name === "quality.hierarchy")
+          return choice(0, 1 - hierarchy, hierarchy)
+        if (name === "defect") return defect(0.03)
+        if (name === "defect-box") return box(0.2, 0.5, 0.1, 0.4)
+        return fine
+      })
+      return judgeWithJev(
+        await story({ scope: "page", brief: "Rename the button." }),
+      )
+    }
+
+    const calm = await judge(0.6, 0.01)
+    expect(calm.verdict).toBe("unsure")
+    expect(calm.summary).not.toContain("focus 0.60")
+
+    const focus = await judge(0.7, 0.01)
+    expect(focus.verdict).toBe("regression")
+    expect(focus.summary).toContain("focus 0.70")
+
+    const hierarchy = await judge(0.6, 0.6)
+    expect(hierarchy.verdict).toBe("regression")
+    expect(hierarchy.summary).toContain("hierarchy 0.60")
+    expect(hierarchy.summary).not.toContain("focus")
   })
 
   test("a worse area with no usable box is unsure, not a guessed region", async () => {
@@ -773,6 +838,37 @@ describe("judgeNewWithJev", () => {
       delta: "fails",
       confidence: 0.85,
     })
+  })
+
+  test("focus fails a new page only from 0.65; the other qualities fail from 0.5 (CTX-1310)", async () => {
+    const judge = async (focus: number) => {
+      serve((name) => {
+        if (name === "quality.focus") return noul(focus)
+        if (name === "quality.hierarchy") return noul(0.55)
+        return noul(0.02)
+      })
+      return judgeNewWithJev({ ...(await newStory()), scope: "page" })
+    }
+    const rating = (verdict: Awaited<ReturnType<typeof judge>>, id: string) =>
+      verdict.qualities.find(({ name }) => name === id)
+
+    const calm = await judge(0.6)
+    expect(rating(calm, "focus")).toEqual({
+      name: "focus",
+      delta: "weak",
+      confidence: 0.4,
+    })
+    expect(rating(calm, "hierarchy")?.delta).toBe("fails")
+    expect(calm.summary).toContain("hierarchy 0.55")
+    expect(calm.summary).not.toContain("focus")
+
+    const fails = await judge(0.7)
+    expect(rating(fails, "focus")).toEqual({
+      name: "focus",
+      delta: "fails",
+      confidence: 0.7,
+    })
+    expect(fails.summary).toContain("focus 0.70")
   })
 
   test("a flag under 0.8 is unsure: it keeps its finding, and the summary gives the reason (CTX-1267)", async () => {
