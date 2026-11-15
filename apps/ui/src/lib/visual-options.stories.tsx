@@ -13,6 +13,11 @@ import { snapshot } from "./visual-snapshot"
 // attribute, and `parameters.visual.masks` finds the canvas. Thus the capture
 // hides both, and two runs give the same pixels. Without the masks, each
 // shot differs and the story is `unstable`.
+//
+// The story PaneScrollsInside proves the full-page screenshot: its layout has
+// the height of the viewport, and a pane scrolls inside. Its baseline shows
+// all 60 rows of the pane, and the short list (`max-h-40`) keeps its own
+// scroll with no empty space below the pane.
 
 function Clock() {
   const [now, setNow] = useState(() => performance.now())
@@ -94,5 +99,37 @@ export const NamedSnapshots: Story = {
     // The end state, after the play, is the saved state.
     await userEvent.click(canvas.getByRole("button", { name: "Save" }))
     await expect(canvas.getByText("Saved")).toBeVisible()
+  },
+}
+
+function PaneLayout() {
+  return (
+    <div className="flex h-svh gap-4 p-4">
+      <ol
+        aria-label="Pane"
+        className="flex-1 overflow-y-auto rounded-md border border-border p-2"
+      >
+        {Array.from({ length: 60 }, (_, row) => (
+          <li key={row} className="py-1">
+            Pane row {row + 1}
+          </li>
+        ))}
+      </ol>
+      <ol
+        aria-label="Short list"
+        className="max-h-40 w-60 overflow-y-auto rounded-md border border-border p-2"
+      >
+        {Array.from({ length: 20 }, (_, row) => (
+          <li key={row}>List row {row + 1}</li>
+        ))}
+      </ol>
+    </div>
+  )
+}
+
+export const PaneScrollsInside: Story = {
+  render: () => <PaneLayout />,
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("Pane row 60")).toBeInTheDocument()
   },
 }

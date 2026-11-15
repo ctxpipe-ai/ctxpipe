@@ -20,6 +20,7 @@ import {
   staticDir,
   waitFor,
 } from "./storybook-play.mjs"
+import { growToContent, maxHeight } from "./visual-full-page.mjs"
 import pin from "./visual-container.json" with { type: "json" }
 
 // Takes a screenshot of each named story, in the pinned Playwright image
@@ -29,13 +30,16 @@ import pin from "./visual-container.json" with { type: "json" }
 // It runs the play runner (storybook-play.mjs) against the static Storybook
 // build (apps/ui/storybook-static). The runner pins the page (origin, clock,
 // Math.random) and settles it after the play (no animation or caret, the web
-// fonts loaded). The screenshot is the viewport (`desktop` 1440x900 or
-// `mobile` 390x844) at a pixel ratio of 1, taken after the play ends (or, for
-// a story without a play function, after Storybook completes the render).
-// The options of the story (`parameters.visual`) can change this: `fullPage`
-// takes the full scroll height, and `masks` covers more elements than those
-// with the `data-visual-mask` attribute. Each `snapshot("<name>")` call of
-// the play takes one more screenshot at that point of the play.
+// fonts loaded). The screenshot is the full page at the width of the
+// viewport (`desktop` 1440x900 or `mobile` 390x844) and a pixel ratio of 1,
+// taken after the play ends (or, for a story without a play function, after
+// Storybook completes the render). For the shot, the viewport grows to the
+// height of the content, also of a pane that scrolls inside
+// (visual-full-page.mjs). The `masks` option of the story
+// (`parameters.visual`) covers more elements than those with the
+// `data-visual-mask` attribute. Each
+// `snapshot("<name>")` call of the play takes one more screenshot at that
+// point of the play.
 // Each one is written as <out>/<story id>.png (<out>/<story id>@<name>.png
 // for a named snapshot), with <out>/capture.json (the status of each shot:
 // captured, unstable, play-failed or capture-failed). The shot of the end
@@ -83,14 +87,26 @@ export const shotKey = (id, snapshot) => (snapshot ? `${id}@${snapshot}` : id)
 // shows the background. A box of Playwright's `mask` option is drawn over
 // all content, so it also hides a control that is drawn over a masked canvas.
 // Returns the status of the shot: captured, unstable or capture-failed.
-async function takeShot(page, { fullPage = false, masks = [] }, out, key) {
+async function takeShot(page, { masks = [] }, out, key) {
   try {
+    // The viewport grows to the height of the content for the shot, and gets
+    // its size and scroll positions again before the play or the layout
+    // checks continue.
+    const restore = await growToContent(page)
     const style = maskStyle(masks)
     const { steady, png } = await shootUntilSteady(
       () =>
         page.screenshot({
           type: "png",
-          fullPage,
+          fullPage: true,
+          // The full page keeps the width of the viewport: content that runs
+          // out at the side stays out of the shot, as in the viewport.
+          clip: {
+            x: 0,
+            y: 0,
+            width: page.viewportSize().width,
+            height: maxHeight,
+          },
           style,
           // Ends a finite Web Animation and resets an infinite one, which
           // the style sheet of the runner does not stop. Before a named
@@ -99,6 +115,7 @@ async function takeShot(page, { fullPage = false, masks = [] }, out, key) {
         }),
       () => page.waitForTimeout(250),
     )
+    await restore()
     writeFileSync(join(out, `${key}.png`), png)
     return { status: steady ? "captured" : "unstable" }
   } catch (shotError) {
@@ -141,7 +158,7 @@ async function checkLayout(page, { allow = {}, masks = [] }) {
 
 // Runs inside the container: /work is the repo, /out the folder of the PNGs.
 // `plan` holds the screenshot options of each story
-// (`{ id, fullPage, masks, snapshots, allow }`).
+// (`{ id, masks, snapshots, allow }`).
 async function captureHere(plan, out, viewport) {
   mkdirSync(out, { recursive: true })
   const server = await serveStatic(staticDir, 0)
@@ -334,7 +351,7 @@ export const splitPlan = (plan, workers) =>
     plan.filter((_, position) => position % workers === part),
   )
 
-// Captures the stories of `plan` (`{ id, fullPage, masks, snapshots }` for
+// Captures the stories of `plan` (`{ id, masks, snapshots }` for
 // each story) in the pinned container, and copies the PNGs and capture.json
 // into `out` (the old PNGs and capture.json of it are removed first).
 // Returns one entry for each shot (the end state of each story, and each

@@ -54,8 +54,7 @@ export type VisualOptions = {
   viewports?: Viewport[]
   /** The names of the named snapshots of the play. */
   snapshots?: string[]
-  /** The capture applies these; the compare does not read them. */
-  fullPage?: boolean
+  /** The capture applies it; the compare does not read it. */
   masks?: string[]
   /** The layout rules that the story accepts, each with its reason. */
   allow?: Partial<Record<Exclude<LayoutProblem["rule"], "error">, string>>
