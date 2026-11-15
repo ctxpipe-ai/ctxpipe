@@ -368,10 +368,9 @@ Do the steps that apply, in this order. Skip a step whose change was not made ye
 - **Who:** person.
 - **When:** at T+90, or at the end of a full rollback.
 - **Do:**
-  1. Neon: the CTO owns the Neon project and its logins after the cutover (CTO decision, 2026-11-15). This runbook
-     has no Neon step after G4.
-  2. Put `retired` into the two `hosted/cutover/*` secrets. Secrets Manager keeps the old value as the version
-     `AWSPREVIOUS`.
+  1. Reset the password of the Neon owner role in the Neon console. If a Railway variable uses this login (for
+     example the migrate URL), put the new password into it before the next Railway deploy.
+  2. Put `retired` into the two `hosted/cutover/*` secrets.
   3. Delete the Access service token of the agent. Revoke the API key of the test organization.
   4. Delete the transfer copies of every run, the rehearsals too. They hold the graphs and the source code of each
      organization, outside the deletion path of ctxpipe:
