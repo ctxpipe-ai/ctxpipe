@@ -5,10 +5,14 @@ import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
+import { OpenAPIHono } from "@hono/zod-openapi"
 import { config } from "dotenv"
 import { eq, sql } from "drizzle-orm"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { initLogger } from "evlog"
+import { evlog } from "evlog/hono"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
+import type { AppEnv } from "../../app/env.js"
 import {
   closeDb,
   getSystemDb,
@@ -17,6 +21,7 @@ import {
 } from "../../db/client.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
+import { applyLogContract } from "../../observability/logContract.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import { workspaceRoutes } from "./workspaces.js"
 
@@ -107,10 +112,22 @@ function retry(slug: string) {
   return app().request(`/workspaces/${slug}/retry-prepare`, { method: "POST" })
 }
 
+// The wide events, as the production drain sees them.
+const events: Record<string, unknown>[] = []
+
 describe("Retry of a Workspace prepare (Postgres)", () => {
   beforeAll(() => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
     initDb(process.env.DATABASE_URL)
+    initLogger({
+      env: { service: "ctxpipe-backend-test" },
+      pretty: false,
+      silent: true,
+      drain: (ctx) => {
+        applyLogContract(ctx.event)
+        events.push(ctx.event as Record<string, unknown>)
+      },
+    })
   })
 
   afterAll(async () => {
@@ -125,6 +142,7 @@ describe("Retry of a Workspace prepare (Postgres)", () => {
       await import("../../openworkflow/client.js")
     await closeOpenWorkflowClient()
     await closeDb()
+    initLogger({ enabled: false, env: { service: "ctxpipe-backend-test" } })
   })
 
   // The guard keeps a ready Workspace ready: a retry must not set it back
@@ -253,5 +271,43 @@ describe("Retry of a Workspace prepare (Postgres)", () => {
     expect(first.status).toBe(200)
     expect(second.status).toBe(409)
     await expect.poll(() => hydrateRunCount(id), { timeout: 5_000 }).toBe(1)
+  })
+
+  // The real evlog middleware emits the request event when the response
+  // goes out. The run is queued after that.
+  it("logs a failed queue of the run as an event of its own, with the request id", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    await seedWorkspace("unreachable", {
+      hydrateStatus: "failed",
+      hydrateError: "clone failed",
+      desiredSha: null,
+      url: join(tmpdir(), `ctxpipe-retry-prepare-missing-${suffix}`),
+    })
+    const logged = new OpenAPIHono<AppEnv>()
+    logged.use("*", evlog())
+    logged.route("/", app())
+
+    const response = await logged.request(
+      "/workspaces/unreachable/retry-prepare",
+      { method: "POST", headers: { "x-request-id": `req_retry_${suffix}` } },
+    )
+
+    expect(response.status).toBe(200)
+    await expect
+      .poll(
+        () =>
+          events.find(
+            (event) =>
+              event["request.id"] === `req_retry_${suffix}` &&
+              event.level === "error",
+          ),
+        { timeout: 5_000 },
+      )
+      .toMatchObject({
+        step: "workspace.retry_prepare",
+        error: { message: expect.any(String) },
+      })
+    expect(warn.mock.calls.flat().join("\n")).not.toContain("[evlog]")
+    warn.mockRestore()
   })
 })

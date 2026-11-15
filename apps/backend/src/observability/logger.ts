@@ -229,4 +229,23 @@ export function getLogger(): RequestLogger {
   )
 }
 
+/**
+ * The error log of work that a request starts and does not wait for. evlog
+ * emits the request event with the response, and drops a field that comes
+ * later. Thus each error here is an event of its own, with the step and the
+ * request id. Call it in the request.
+ */
+export function detachedErrorLog(step: string): {
+  error: (err: Error) => void
+} {
+  const { requestId } = getLogger().getContext()
+  return {
+    error: (err) => {
+      const logger = createLogger({ step, requestId })
+      logger.error(err)
+      logger.emit()
+    },
+  }
+}
+
 export { createLogger, log }
