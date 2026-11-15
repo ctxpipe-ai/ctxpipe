@@ -71,7 +71,7 @@ Dark product floor: zinc-950 / `--background` / `--card`. Ink: `--foreground`. S
 | `--border` / `border-white/10` | Hairlines |
 
 <!-- rubric: color-tokens -->
-Color comes from the house tokens: a zinc floor, a white primary, a teal accent. Red marks an error and the filled danger button of a confirm dialog. The dark UI has no large bright or saturated area: bright color is a small accent, such as a border, an icon or a dot, and a block has at most one teal edge or wash. A warning is a dark surface with a yellow or amber border and icon; a yellow fill with dark text is only for a small element, and only when it passes AA. An embedded editor, diff viewer or preview uses the dark theme. No indigo, no purple gradient, no second accent.
+Color comes from the house tokens: a zinc floor, a white primary, a teal accent. Red marks an error and the filled danger button of a confirm dialog. The dark UI has no large bright or saturated area: bright color is a small accent, such as a border, an icon or a dot, and a block has at most one teal edge or wash. A warning is a dark surface with a yellow or amber border and icon; a yellow fill with dark text is only for a small element, and only when it passes AA. An embedded editor, diff viewer or preview uses the dark theme. No indigo, no purple gradient, no second accent. Teal marks only the one real action in a dense list.
 <!-- /rubric -->
 
 Leftover shadcn indigo (`sidebar-primary` / `chart-1` hue 264) is not brand.
@@ -139,7 +139,7 @@ The user can tell what the screen is for, what each element is and does, and wha
 <!-- /rubric -->
 
 <!-- rubric: focus -->
-The page has one primary action: one filled white button. Other actions are outline, quiet or a link. Teal marks only the one real action in a dense list.
+The page has at most one primary action: one filled white button. Other actions are outline, quiet or a link. Two equal choices at one rank can have the same style. A page that needs no action, such as an error page, a read-only view or a step of a popup, meets this quality.
 <!-- /rubric -->
 
 <!-- rubric: actions -->
@@ -170,18 +170,33 @@ An addition or deletion region adds or removes an element. A label, an icon, a s
 
 #### Gestalt lens
 
-<!-- rubric: gestalt -->
-Read each screen through the Gestalt principles. A screen that breaks one is a smell, also when no other rule names it.
+Read each screen through the Gestalt principles of a still screen. A screen that breaks one is a smell, also when no other rule names it. Each principle below is one quality of the visual critic.
 
-- **Proximity:** less space inside a group than around it; an action sits at the thing it acts on.
-- **Similarity:** the same meaning has the same look; peer actions share one weight.
-- **Common region:** a surface, a frame or an inset holds each group; a card holds groups, not a second card.
-- **Figure–ground:** a card, a tile or a row stands off the page by its surface or a clear border, not a dim hairline.
-- **Continuity:** siblings share one edge and one marker axis; a child group steps in; a different edge marks a different role.
-- **Prägnanz:** each block reads in its simplest form: one state signal, quiet items inside, space before a hairline.
+<!-- rubric: proximity -->
+The space inside a group is smaller than the space around it. An action sits next to the thing that it acts on.
 <!-- /rubric -->
 
-**Common fate** applies to motion only (see **Motion**).
+<!-- rubric: similarity -->
+The same meaning has the same look on the screen. Peer actions have the same weight.
+<!-- /rubric -->
+
+<!-- rubric: common-region -->
+A surface, a frame or an inset holds each group. A card holds groups, not a second card.
+<!-- /rubric -->
+
+<!-- rubric: figure-ground -->
+A card, a tile or a row stands off the page by its surface or by a clear border, not by a dim hairline.
+<!-- /rubric -->
+
+<!-- rubric: continuity -->
+Siblings share one edge and one marker axis. A child group steps in, and a different edge marks a different role.
+<!-- /rubric -->
+
+<!-- rubric: pragnanz -->
+Each block reads in its simplest form: one state signal, quiet items inside, and space before a hairline.
+<!-- /rubric -->
+
+**Common fate** applies to motion only (see **Motion**). It is not a quality of the visual critic, because a screenshot does not move.
 
 ### State and feedback
 

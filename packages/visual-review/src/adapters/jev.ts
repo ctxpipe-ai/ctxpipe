@@ -27,6 +27,14 @@ type Question =
 const clamp = (value: number) => Math.min(1, Math.max(0, value))
 
 /**
+ * The probability from which a worse or broken quality is flagged, for each
+ * quality that does not use 0.5. `focus` is 0.65: at 0.5 it failed 60 of 150
+ * pages in the sweep of 2026-11-15 (CTX-1310).
+ */
+const failAt: Record<string, number> = { focus: 0.65 }
+const failsFrom = (id: string) => failAt[id] ?? 0.5
+
+/**
  * Read one PNG for Jev. Jev takes each side from 280 to 1568 px, which also
  * keeps the total pixels within its limits, so `prepareImage` scales or pads
  * the image to fit. Returns the data URL and the part of the sent image that
@@ -63,10 +71,10 @@ const choiceQuestion = (instructions: string): Question => ({
  * Decisions API (`model`). The key comes from `MODEL_PROVIDER_API_KEY` and
  * the OpenRouter API base from `MODEL_PROVIDER_URL`. The verdict says
  * `regression` when an area or a quality other than density is worse with a
- * probability of 0.5 or more. It says `unsure` when the defect or a worse
- * probability (density too) is from 0.2 up, or when a question has no
- * answer. The bake-off of CTX-1262 kept the 0.2
- * floor: a higher floor turned real regressions into `intended` (ADR-063).
+ * probability of 0.5 or more (0.65 for `focus`, see `failAt`). It says
+ * `unsure` when the defect or a worse probability (density too) is from 0.2
+ * up, or when a question has no answer. The bake-off of CTX-1262 kept the 0.2
+ * floor:a higher floor turned real regressions into `intended` (ADR-063).
  * If nothing got worse, the verdict is `intended` when a brief or a
  * source diff explains the change, and `unsure` when none does (the rule of
  * `parseVerdict`). The state gives Jev `judgingRule`, with the priority order
@@ -211,8 +219,15 @@ export async function judgeWithJev(
 
   // Each worse area is a finding. A worse quality is a regression with no
   // finding, since a finding names an area.
-  const isWorse = ({ delta, worse }: { delta: string; worse: number }) =>
-    delta === "worse" && worse >= 0.5
+  const isWorse = ({
+    delta,
+    worse,
+    id = "",
+  }: {
+    delta: string
+    worse: number
+    id?: string
+  }) => delta === "worse" && worse >= failsFrom(id)
   const density = qualityResults.find(({ id }) => id === "density")
   // `parseVerdict` checks the judgment and applies the rules of the prompt.
   return parseVerdict(
@@ -376,13 +391,13 @@ async function decide(
  * screenshot breaks a rule of an area or a quality of the rubric, with a
  * probability (a `noul` question). The state gives Jev `judgingRule`, what
  * not to report. The verdict says `regression` when an area or a quality
- * breaks a rule with a probability of 0.5 or more, and the highest
- * probability is 0.8 or more. It says `unsure` when such a flag has a
- * highest probability under 0.8 (CTX-1267: with the findings, and the reason
- * in the summary), when a probability is from 0.2 up to 0.5, when a question
- * has no answer, or when a defect has no area. Else it is `intended` (with a
- * brief; see `parseNewVerdict`). A quality is `fails` from 0.5, `weak` from
- * 0.2, and else `meets`. Only Jev 1.14 takes the box question, on the first
+ * breaks a rule with a probability of 0.5 or more (0.65 for `focus`), and
+ * the highest probability is 0.8 or more. It says `unsure` when such a flag
+ * has a highest probability under 0.8 (CTX-1267: with the findings, and the
+ * reason in the summary), when a probability is from 0.2 up to 0.5, when a
+ * question has no answer, or when a defect has no area. Else it is
+ * `intended` (with a brief; see `parseNewVerdict`). A quality is `fails`
+ * from 0.5 (0.65 for `focus`), `weak` from 0.2, and else `meets`. Only Jev 1.14 takes the box question, on the first
  * image. For another model, the region of a finding is the whole first
  * image. `onAnswers` gets the raw answers of Jev, for the bake-off of the
  * factory (`factory eval visual:bakeoff`, CTX-1243). The visual critic of the
@@ -473,8 +488,13 @@ export async function judgeNewWithJev(
     ? { x: 0, y: 0, width: 1, height: 1 }
     : drawnBox(answers, prepared[0]?.content)
 
-  const breaks = ({ probability }: { probability: number }) =>
-    probability >= 0.5
+  const breaks = ({
+    probability,
+    id = "",
+  }: {
+    probability: number
+    id?: string
+  }) => probability >= failsFrom(id)
   return parseNewVerdict(
     JSON.stringify({
       ...decision({
@@ -493,11 +513,16 @@ export async function judgeNewWithJev(
         // (CTX-1267). A flag under 0.8 is `unsure`, a nit with no images.
         floor: 0.8,
       }),
-      qualities: qualityResults.map(({ id, probability }) => ({
-        name: id,
-        rating:
-          probability >= 0.5 ? "fails" : probability >= 0.2 ? "weak" : "meets",
-        confidence: probability >= 0.5 ? probability : 1 - probability,
+      qualities: qualityResults.map((result) => ({
+        name: result.id,
+        rating: breaks(result)
+          ? "fails"
+          : result.probability >= 0.2
+            ? "weak"
+            : "meets",
+        confidence: breaks(result)
+          ? result.probability
+          : 1 - result.probability,
       })),
     }),
     story,
@@ -508,9 +533,9 @@ export async function judgeNewWithJev(
 /**
  * The parts of a Jev verdict that both judges share. `flaggedAreas` and
  * `flaggedQualities` hold the areas and qualities that are worse (a change)
- * or broken (a new screenshot) with a probability of 0.5 or more. Each such
- * area is a finding in `region`; with no region, it is not placed, and the
- * verdict stays `unsure`. A flagged quality is a regression with no finding,
+ * or broken (a new screenshot) with a probability of 0.5 or more (see
+ * `failAt`). Each such area is a finding in `region`; with no region, it is
+ * not placed, and the verdict stays `unsure`. A flagged quality is a regression with no finding,
  * since a finding names an area. A flag whose highest probability is under
  * `floor` is `unsure`. Else a probability from 0.2 up, or a question with no
  * answer, is `unsure`, and the rest is `intended`. A regression has severity

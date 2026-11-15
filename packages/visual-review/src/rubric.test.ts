@@ -96,7 +96,7 @@ describe("rubric", () => {
     ).toMatchFileSnapshot("../rubric.json")
   })
 
-  test("has the eleven concrete areas and the ten design qualities, the qualities in priority order", () => {
+  test("has the eleven concrete areas and the fifteen design qualities, the qualities in priority order", () => {
     expect(areas.map(({ id }) => id).sort()).toEqual([
       "actions",
       "broken-content",
@@ -115,7 +115,13 @@ describe("rubric", () => {
       "Clarity",
       "Focus",
       "Hierarchy",
-      "Gestalt",
+      // One quality for each Gestalt principle of a still screen (CTX-1310).
+      "Proximity",
+      "Similarity",
+      "Common region",
+      "Figure–ground",
+      "Continuity",
+      "Prägnanz",
       "Feedback and state",
       "Consistency",
       "Brand fit",
