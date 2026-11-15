@@ -2392,7 +2392,9 @@ jobs:
   # In gate mode PR Deploy does not start on a push: this job starts it when
   # the plan selects a deploy check, or when the run is full. A failed plan
   # job gives no `mode`: that run is full, so this job starts PR Deploy too. A person can
-  # start it with Run workflow on the PR branch. It runs no repository code.
+  # start it with Run workflow on the PR branch. It runs no repository code. It also
+  # re-runs the PR preview images run of the head commit, which builds the AWS preview
+  # images, and fails when that run does not complete in 4 minutes.
   merge-gate-deploy:
     timeout-minutes: 10
     name: Merge gate starts PR Deploy
@@ -2461,22 +2463,26 @@ jobs:
           fi
           gh_retry workflow run pr-deploy.yaml --repo "$REPO" --ref "$BRANCH" -f pr_number="$PR"
           # The AWS preview images (pr-preview-images.yaml) follow PR Deploy: the first attempt of their run of
-          # the head commit builds nothing, and a re-run of it builds the images whose inputs changed. Only
-          # the first attempt is re-run: a later attempt built the images already, or a person started it.
-          # GitHub can start that run after this job, so a missing or running run gets 4 minutes. After
-          # that, the job fails: PR Deploy has started, and a re-run of this job starts the preview images.
-          runs="repos/$REPO/actions/workflows/pr-preview-images.yaml/runs?head_sha=$HEAD&event=pull_request&per_page=1"
+          # the head commit builds nothing, and a re-run of it builds the images whose inputs differ from main.
+          # The run is the one of this PR from this repo: a fork PR at the same commit has its own run. A later
+          # attempt that succeeded built the images already, so only a first or an unsuccessful attempt runs
+          # again. GitHub can start that run after this job, so a missing or running run gets 4 minutes.
+          # After that, the job fails: PR Deploy has started, and a re-run of this job starts the images.
+          runs="repos/$REPO/actions/workflows/pr-preview-images.yaml/runs?branch=$encoded&head_sha=$HEAD&event=pull_request&per_page=20"
+          pick='[.workflow_runs[] | select(.head_repository.full_name == $ENV.REPO and
+            any(.pull_requests[]; (.number | tostring) == $ENV.PR))][0] // empty |
+            "\(.id) \(.status) \(.run_attempt) \(.conclusion)"'
           for try in $(seq 12); do
-            run=$(gh_retry api "$runs" --jq '.workflow_runs[0] // empty | "\(.id) \(.status) \(.run_attempt)"')
-            read -r id status attempt <<< "$run"
+            run=$(gh_retry api "$runs" --jq "$pick")
+            read -r id status attempt conclusion <<< "$run"
             [ "$status" != completed ] || break
             [ "$try" = 12 ] || sleep 20
           done
           if [ "$status" != completed ]; then
             echo "::error::The preview image run of $HEAD is missing or did not complete: re-run this job"
             exit 1
-          elif [ "$attempt" != 1 ]; then
-            echo "::notice::The preview image run $id is at attempt $attempt already"
+          elif [ "$attempt" != 1 ] && [ "$conclusion" = success ]; then
+            echo "::notice::The preview image run $id built the images at attempt $attempt"
           else
             gh_retry api --method POST "repos/$REPO/actions/runs/$id/rerun" --silent
           fi

@@ -292,7 +292,7 @@ export function uncoveredSources(root, image) {
   return [...new Set([...uncovered, ...unreadable])]
 }
 
-export async function github(path, token) {
+async function github(path, token) {
   const response = await fetch(`https://api.github.com${path}`, {
     headers: {
       accept: "application/vnd.github+json",
@@ -313,14 +313,7 @@ export async function github(path, token) {
 // also a forged one, makes the image build: never take the first or the last
 // notice. A tag is no proof either: PR builds (pr-deploy.yaml) push tags to
 // the same GHCR packages, and each same-repo PR can push to ctxpipe-pr/*.
-export async function noticeDigests({
-  repo,
-  jobs,
-  token,
-  names,
-  jobName,
-  title,
-}) {
+async function noticeDigests({ repo, jobs, token, names, jobName, title }) {
   const digests = {}
   for (const image of names) {
     const job = jobs.find(

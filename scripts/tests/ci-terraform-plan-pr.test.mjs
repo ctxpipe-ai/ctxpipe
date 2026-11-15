@@ -479,8 +479,19 @@ test("the plan is not called when the branch is gone, and the step fails on anot
   assert.deepEqual(broken.outputs, ["plan=false"])
 })
 
-// The runs of the preview image workflow at the PR head, as the step asks for them.
-const previewRuns = `repos/${repo}/actions/workflows/pr-preview-images.yaml/runs?head_sha=${head}&event=pull_request&per_page=1`
+// The runs of the preview image workflow of the branch at the PR head, as
+// the step asks for them, and a run of PR 7 from this repo.
+const previewRuns = (encoded) =>
+  `repos/${repo}/actions/workflows/pr-preview-images.yaml/runs?branch=${encoded}&head_sha=${head}&event=pull_request&per_page=20`
+const previewRun = (patch) => ({
+  id: 31,
+  status: "completed",
+  run_attempt: 1,
+  conclusion: "success",
+  head_repository: { full_name: repo },
+  pull_requests: [{ number: 7 }],
+  ...patch,
+})
 
 test("both dispatch steps look up a branch with a slash by its encoded name", () => {
   const branch = "jakub/ctx-1-topic"
@@ -493,8 +504,8 @@ test("both dispatch steps look up a branch with a slash by its encoded name", ()
     setup({
       api: {
         [encoded]: {},
-        [previewRuns]: {
-          workflow_runs: [{ id: 31, status: "completed", run_attempt: 2 }],
+        [previewRuns("jakub%2Fctx-1-topic")]: {
+          workflow_runs: [previewRun({ run_attempt: 2 })],
         },
       },
     }),
@@ -514,33 +525,44 @@ test("both dispatch steps look up a branch with a slash by its encoded name", ()
   assert.deepEqual(gone.calls, [])
 })
 
-test("the start of PR Deploy re-runs the first attempt of the preview image run, and only that", () => {
+test("the start of PR Deploy re-runs the first or an unsuccessful attempt of the PR's preview image run", () => {
   const branch = `repos/${repo}/branches/feature`
   const deploy = (runList) =>
     run(
       "start-pr-deploy",
       setup({
-        api: { [branch]: {}, [previewRuns]: { workflow_runs: runList } },
+        api: {
+          [branch]: {},
+          [previewRuns("feature")]: { workflow_runs: runList },
+        },
       }),
       { REPO: repo, PR: "7", BRANCH: "feature", HEAD: head },
     )
   const started = `workflow run pr-deploy.yaml --repo ${repo} --ref feature -f pr_number=7`
-  const first = deploy([{ id: 31, status: "completed", run_attempt: 1 }])
+  const rerun = (id) =>
+    `api --method POST repos/${repo}/actions/runs/${id}/rerun --silent`
+  const first = deploy([previewRun()])
   assert.equal(first.status, 0, first.stderr)
-  assert.deepEqual(first.calls, [
-    started,
-    `api --method POST repos/${repo}/actions/runs/31/rerun --silent`,
-  ])
-  // A later attempt built the images already, or a person started it.
-  const later = deploy([{ id: 31, status: "completed", run_attempt: 2 }])
+  assert.deepEqual(first.calls, [started, rerun(31)])
+  // A later attempt that succeeded built the images already.
+  const later = deploy([previewRun({ run_attempt: 2 })])
   assert.equal(later.status, 0, later.stderr)
   assert.deepEqual(later.calls, [started])
+  // A later attempt that failed runs again.
+  const failed = deploy([previewRun({ run_attempt: 2, conclusion: "failure" })])
+  assert.equal(failed.status, 0, failed.stderr)
+  assert.deepEqual(failed.calls, [started, rerun(31)])
+  // The run of a fork PR at the same commit is not this PR's run.
+  const fork = deploy([
+    previewRun({ id: 32, head_repository: { full_name: "someone/fork" } }),
+    previewRun({ id: 33, pull_requests: [{ number: 8 }] }),
+    previewRun(),
+  ])
+  assert.equal(fork.status, 0, fork.stderr)
+  assert.deepEqual(fork.calls, [started, rerun(31)])
   // A run that does not complete, or that GitHub has not started, fails the
   // job after 4 minutes; PR Deploy has started.
-  for (const runList of [
-    [{ id: 31, status: "in_progress", run_attempt: 1 }],
-    [],
-  ]) {
+  for (const runList of [[previewRun({ status: "in_progress" })], []]) {
     const waited = deploy(runList)
     assert.equal(waited.status, 1)
     assert.deepEqual(waited.calls, [started])

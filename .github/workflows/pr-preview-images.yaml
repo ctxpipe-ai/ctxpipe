@@ -7,9 +7,12 @@
 # - Only when the PR gets a preview. The first attempt of the run of each push builds nothing, and pushes no image:
 #   the factory finds no push job in it and gives no preview. The job "Merge gate starts PR Deploy" of CI re-runs
 #   this run when it starts PR Deploy (scripts/checks/README.md, Merge gate). A person can start the build with
-#   "Re-run all jobs".
-# - Only the images whose inputs changed. The plan (scripts/ci/preview-images.mjs) keeps each other image of the
-#   PR's last preview run or of main by its digest. The push job copies a kept image under the tag of this run.
+#   "Re-run all jobs". The merge gate re-runs this run and does not dispatch a new one: the factory takes only a run
+#   with the event `pull_request` and that PR in its `pull_requests` (factory machines/previews/pr, `imageRun`), and
+#   a `workflow_dispatch` run has neither.
+# - Only the images whose inputs differ from main. The plan (scripts/ci/preview-images.mjs) keeps each other image of
+#   the last Deploy run on main by its digest. The push job copies the linux/arm64 image of it under the tag of this
+#   run. An earlier preview of the PR is no base: its build ran PR code that the head may not have.
 # - Only pull requests from this repo (the role trusts no fork) into main.
 # - Three jobs. `plan` runs the plan of the PR base, not of the PR, and reads the PR's files only as data. `build`
 #   runs the PR's code (the Dockerfile steps) and holds no credential and no OIDC token: it hands the image on as an
@@ -22,8 +25,7 @@
 #   one notice `preview-image` on its own check run, and the factory takes only those digests: of a run that
 #   succeeded, of this workflow, at the PR's head commit, whose only pull request is that PR into main. A PR's run
 #   runs the PR's own version of this file, so the factory gives no preview to a PR whose copy differs from main's.
-#   The plan keeps only a digest that one such notice reported, in a run of the same PR with the same version of
-#   this file, or that one `deploy-image` notice of a Deploy run on main reported.
+#   The plan keeps only a digest that one `deploy-image` notice of a Deploy run on main reported.
 #   The tag names this run and attempt and is immutable, so a tag that is there already fails the push and the run.
 name: PR preview images
 
@@ -73,10 +75,8 @@ jobs:
         if: github.run_attempt != '1'
         env:
           GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          BRANCH: ${{ github.head_ref }}
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/plan"
@@ -137,7 +137,7 @@ jobs:
     env:
       REGISTRY: 573018602187.dkr.ecr.us-west-2.amazonaws.com
       TAG: pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-      # "<pr|main> <digest>" of a kept image, else empty.
+      # The digest on main of a kept image, else empty.
       KEEP: ${{ fromJSON(needs.plan.outputs.reuse)[matrix.image] }}
     steps:
       - if: env.KEEP == ''
@@ -145,7 +145,7 @@ jobs:
         with:
           name: preview-image-${{ matrix.image }}
           path: ${{ runner.temp }}/image
-      # The pinned release of deploy.yaml: it copies a kept image by its digest.
+      # The pinned release of deploy.yaml: it copies a kept image of main.
       - name: Install crane
         if: env.KEEP != ''
         run: |
@@ -171,21 +171,11 @@ jobs:
             docker tag "preview/$IMAGE:local" "$target"
             docker push "$target"
           else
-            read -r from kept <<< "$KEEP"
-            [[ $kept =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::Not a digest: $KEEP"; exit 1; }
-            case "$from" in
-              pr) source="$REGISTRY/ctxpipe-pr/$IMAGE@$kept" ;;
-              main)
-                source="ghcr.io/ctxpipe-ai/$IMAGE@$kept"
-                echo "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-                ;;
-              *) echo "::error::Unknown source of a kept image: $KEEP"; exit 1 ;;
-            esac
-            # A copy under this run's tag: of a PR image with the same digest, and of main's multi-platform image
-            # only the linux/arm64 image, as a build gives. crane reads the logins of docker.
-            platform=()
-            [ "$from" = pr ] || platform=(--platform linux/arm64)
-            "$RUNNER_TEMP/crane" copy "${platform[@]}" "$source" "$target"
+            [[ $KEEP =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::Not a digest: $KEEP"; exit 1; }
+            echo "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+            # Of main's multi-platform image, only the linux/arm64 image, as a build gives. crane reads the logins
+            # of docker.
+            "$RUNNER_TEMP/crane" copy --platform linux/arm64 "ghcr.io/ctxpipe-ai/$IMAGE@$KEEP" "$target"
           fi
           # The digest the factory takes: one notice on this job's check run (factory previews/pr, runDigests).
           # From ECR, under this run's own tag: the image that the push above made.
