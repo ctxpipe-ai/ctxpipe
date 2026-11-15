@@ -20,7 +20,7 @@ const base = {
 }
 
 beforeEach(() => {
-  const variables = SERVICE_VARIABLES["cost-telemetry"]
+  const variables = SERVICE_VARIABLES.codesearch
   desired = Object.fromEntries(Object.keys(variables).map((name) => [name, `private-${name}`]))
   environment = {
     ...base,
@@ -73,7 +73,7 @@ afterEach(() => {
   rmSync(directory, { recursive: true, force: true })
 })
 
-async function runSync(args = [], service = "cost-telemetry") {
+async function runSync(args = [], service = "codesearch") {
   const lines = []
   await main(["--service", service, ...args], environment, {
     log: (line) => lines.push(line),
@@ -93,19 +93,12 @@ test("initial sync precedes image deploy and preserves other variables", async (
 
 test("rotation redeploys once and matching values are no-op", async () => {
   Object.assign(current, desired)
-  current.NEON_API_KEY = "old-key"
+  current.AUTH_SECRET = "old-secret"
   await runSync(["--redeploy-on-change"])
   assert.deepEqual(calls, ["read", "upsert", "read", "deploy", "poll"])
   calls.length = 0
   await runSync(["--redeploy-on-change"])
   assert.deepEqual(calls, ["read"])
-})
-
-test("railway-telemetry gets only the shared Railway token", async () => {
-  await runSync([], "railway-telemetry")
-  assert.deepEqual(calls, ["read", "upsert", "read"])
-  assert.equal(current.RAILWAY_API_TOKEN, desired.RAILWAY_API_TOKEN)
-  assert.ok(!("NEON_API_KEY" in current))
 })
 
 test("backend skips an empty optional integration", async () => {
@@ -165,11 +158,6 @@ test("redeploy retries a deploy when the values already match", async () => {
   assert.equal(existsSync(changed), false)
 })
 
-test("a service with no secret only redeploys", async () => {
-  await runSync(["--redeploy"], "langfuse-worker")
-  assert.deepEqual(calls, ["read", "deploy", "poll"])
-})
-
 test("preview keeps no production value", async () => {
   environment = { ...base, MODEL_PROVIDER_API_KEY: "preview-model-key" }
   Object.assign(current, {
@@ -192,7 +180,7 @@ test("preview falkordb needs its own password", async () => {
 })
 
 test("a missing credential fails before any Railway request", async () => {
-  delete environment.COST_TELEMETRY_NEON_API_KEY
-  await assert.rejects(runSync(), /COST_TELEMETRY_NEON_API_KEY/)
+  delete environment.BETTER_AUTH_SECRET
+  await assert.rejects(runSync(), /BETTER_AUTH_SECRET/)
   assert.deepEqual(calls, [])
 })

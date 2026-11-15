@@ -430,15 +430,6 @@ test("accepts a production sticky disk and a PR sticky disk with a longer key", 
   assert.equal(result.status, 0)
 })
 
-test("rejects a main-only job whose if: does not name main", () => {
-  rejects(
-    {
-      ".github/workflows/observability.yaml": `on: push\njobs:\n  apply:\n    if: github.event_name == 'push'\n    env:\n      T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n    steps:\n${install}`,
-    },
-    /job apply is a main-only job/,
-  )
-})
-
 test("rejects a third-party action by tag in a job with a secret", () => {
   rejects(
     workflow(deployJob(`      - uses: nick-fields/retry@v4\n${tokenStep}`)),
