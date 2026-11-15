@@ -107,8 +107,7 @@ function githubApi({ main, deployRuns }) {
   ]
 }
 
-const plan = ({ dir, head }) =>
-  planPreviewImages({ root: dir, repo, token: "t", head })
+const plan = ({ dir }) => planPreviewImages({ root: dir, repo, token: "t" })
 const built = (result) => result.build.map(({ image }) => image).sort()
 
 test("a PR that changes no image input builds nothing and keeps each image of main", async () => {

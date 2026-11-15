@@ -75,7 +75,6 @@ jobs:
         if: github.run_attempt != '1'
         env:
           GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           set -o pipefail
@@ -129,7 +128,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-      packages: read
     strategy:
       fail-fast: false
       matrix:
@@ -160,7 +158,6 @@ jobs:
       - name: Push to the preview account
         env:
           IMAGE: ${{ matrix.image }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           target="$REGISTRY/ctxpipe-pr/$IMAGE:$TAG"
@@ -172,9 +169,9 @@ jobs:
             docker push "$target"
           else
             [[ $KEEP =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::Not a digest: $KEEP"; exit 1; }
-            echo "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-            # Of main's multi-platform image, only the linux/arm64 image, as a build gives. crane reads the logins
-            # of docker.
+            # Of main's multi-platform image, only the linux/arm64 image, as a build gives. The images of main on
+            # ghcr.io are public (the self-host defaults), so the pull needs no login. crane reads the ECR login of
+            # docker.
             "$RUNNER_TEMP/crane" copy --platform linux/arm64 "ghcr.io/ctxpipe-ai/$IMAGE@$KEEP" "$target"
           fi
           # The digest the factory takes: one notice on this job's check run (factory previews/pr, runDigests).

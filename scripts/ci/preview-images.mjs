@@ -1,12 +1,6 @@
 import { pathToFileURL } from "node:url"
 
-import {
-  buildAll,
-  images,
-  lastDeploy,
-  planFrom,
-  writePlan,
-} from "./deploy-images.mjs"
+import { images, planFrom, writePlan } from "./deploy-images.mjs"
 
 // The images of a pull request for its AWS preview
 // (.github/workflows/pr-preview-images.yaml), and which of them a run builds.
@@ -22,8 +16,9 @@ import {
 // Thus an earlier preview image can hold code that the PR head does not have.
 //
 // Every image builds when the GitHub API or git fails, when no base is found,
-// or when deploy.yaml or deploy-images.mjs changed since the base. The PR head need not contain
-// the base commit: the plan compares the files of the two commits.
+// or when deploy.yaml or deploy-images.mjs changed since the base. The PR
+// head does not have to contain the base commit: the plan compares the files
+// of the two commits.
 //
 // Usage (pr-preview-images.yaml, job plan, with the version of this file on
 // the PR base): node preview-images.mjs <checkout of the PR head>
@@ -35,31 +30,11 @@ const previewImages = images.filter(({ image }) =>
 )
 
 /**
- * Which preview images this run builds, and the digest on main of each other
- * image (planFrom).
+ * Which preview images the run builds at HEAD of `root`, and the digest on
+ * main of each other image (planFrom).
  */
-export async function planPreviewImages({ root, repo, token, head }) {
-  const everything = (reason) => buildAll(previewImages, reason)
-  try {
-    const base = await lastDeploy({ repo, token })
-    if (!base) return everything("no successful Deploy run on main")
-    if (!/^[0-9a-f]{40}$/.test(base.run.head_sha))
-      return everything("the base run has no commit")
-    return planFrom({
-      root,
-      list: previewImages,
-      base,
-      head,
-      // The input rules of the PR can differ from the rules of this plan.
-      everyImage: [
-        ".github/workflows/deploy.yaml",
-        "scripts/ci/deploy-images.mjs",
-      ],
-    })
-  } catch (error) {
-    return everything(`no base: ${error.message}`)
-  }
-}
+export const planPreviewImages = ({ root, repo, token }) =>
+  planFrom({ root, list: previewImages, repo, token })
 
 if (
   process.argv[1] &&
@@ -71,7 +46,6 @@ if (
     root: process.argv[2],
     repo: process.env.GITHUB_REPOSITORY,
     token: process.env.GH_TOKEN,
-    head: process.env.HEAD_SHA,
   })
   writePlan(result, previewImages)
 }

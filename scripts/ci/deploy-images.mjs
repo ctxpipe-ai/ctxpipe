@@ -359,7 +359,7 @@ async function baseDigests({ repo, jobs, token }) {
  * without `deploy` (the prerelease) has no Publish job. A run in progress is
  * not in the list.
  */
-export async function lastDeploy({ repo, token }) {
+async function lastDeploy({ repo, token }) {
   const { workflow_runs: runs } = await github(
     `/repos/${repo}/actions/workflows/deploy.yaml/runs?branch=main&status=success&per_page=20`,
     token,
@@ -385,64 +385,90 @@ export async function lastDeploy({ repo, token }) {
 // The matrix entry of an image: the image without its inputs.
 const matrixEntry = ({ inputs, ...matrix }) => matrix
 
-/** The plan that builds each image of `list`, for `reason`. */
-export const buildAll = (list, reason) => ({
+// The plan that builds each image of `list`, for `reason`.
+const buildAll = (list, reason) => ({
   build: list.map(matrixEntry),
   reuse: {},
   reasons: Object.fromEntries(list.map(({ image }) => [image, reason])),
 })
 
 /**
- * Each path that differs between the commits `from` and `to`, also a deleted
- * one. NUL-separated: git quotes a path with a tab, a newline or a non-ASCII
- * character in the plain list, and a quoted path does not start with its
- * input.
- */
-const changedPaths = (root, from, to) =>
-  execFileSync("git", ["diff", "--name-only", "--no-renames", "-z", from, to], {
-    cwd: root,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"],
-    maxBuffer: 256 * 1024 * 1024,
-  })
-    .split("\0")
-    .filter(Boolean)
-
-/**
- * The plan of the images of `list` at the commit `head` against the base
- * run `base` (`{ run, digests }`, from lastDeploy): `{ build: [matrix entry],
+ * The plan of the images of `list` at HEAD of `root` against the last
+ * successful Deploy run on main (the base): `{ build: [matrix entry],
  * reuse: { image: digest }, reasons: { image: text } }`. An image builds when
- * one of its inputs differs between the base commit and `head`, when its
+ * one of its inputs differs between the base commit and HEAD, when its
  * Dockerfile reads a path that its inputs do not cover, or when the base has
- * no valid digest of it. Every image builds when a path of `everyImage`
- * differs. It throws when git cannot compare the commits.
+ * no valid digest of it. Every image builds when no base is found, when the
+ * GitHub API or git fails, when deploy.yaml or this file differs, or, with
+ * `baseInHistory`, when the base commit is not in the history of HEAD.
  */
-export function planFrom({ root, list, base, head, everyImage }) {
-  const changed = changedPaths(root, base.run.head_sha, head)
-  // A change to one of these files can change how every image builds.
-  const everyImageChange = changed.find((path) => everyImage.includes(path))
-  if (everyImageChange) return buildAll(list, `${everyImageChange} changed`)
-  const result = { build: [], reuse: {}, reasons: {} }
-  const short = base.run.head_sha.slice(0, 7)
-  for (const image of list) {
-    const uncovered = uncoveredSources(root, image)
-    const touched = changed.find((path) => covers(inputsOf(image), path))
-    const { digest, reason } = base.digests[image.image]
-    const why = uncovered.length
-      ? `its Dockerfile reads paths that its inputs do not cover: ${uncovered.join(", ")}`
-      : touched
-        ? `${touched} changed since ${short}`
-        : reason
-    if (why) {
-      result.build.push(matrixEntry(image))
-      result.reasons[image.image] = why
-    } else {
-      result.reuse[image.image] = digest
-      result.reasons[image.image] =
-        `no input changed since ${short}: reuses ${digest}`
+export async function planFrom({ root, list, repo, token, baseInHistory }) {
+  const everything = (reason) => buildAll(list, reason)
+  try {
+    const base = await lastDeploy({ repo, token })
+    if (!base) return everything("no successful Deploy run on main")
+    const sha = base.run.head_sha
+    if (!/^[0-9a-f]{40}$/.test(sha))
+      return everything("the base run has no commit")
+    if (baseInHistory) {
+      try {
+        execFileSync("git", ["merge-base", "--is-ancestor", sha, "HEAD"], {
+          cwd: root,
+          stdio: "ignore",
+        })
+      } catch {
+        return everything(
+          `the base commit ${sha} is not in the history of HEAD`,
+        )
+      }
     }
+    // Each path that differs, also a deleted one. NUL-separated: git quotes a
+    // path with a tab, a newline or a non-ASCII character in the plain list,
+    // and a quoted path does not start with its input.
+    const changed = execFileSync(
+      "git",
+      ["diff", "--name-only", "--no-renames", "-z", sha, "HEAD"],
+      {
+        cwd: root,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        maxBuffer: 256 * 1024 * 1024,
+      },
+    )
+      .split("\0")
+      .filter(Boolean)
+    // A change to one of these files can change how every image builds.
+    const everyImageChange = changed.find((path) =>
+      [
+        ".github/workflows/deploy.yaml",
+        "scripts/ci/deploy-images.mjs",
+      ].includes(path),
+    )
+    if (everyImageChange) return everything(`${everyImageChange} changed`)
+    const result = { build: [], reuse: {}, reasons: {} }
+    const short = sha.slice(0, 7)
+    for (const image of list) {
+      const uncovered = uncoveredSources(root, image)
+      const touched = changed.find((path) => covers(inputsOf(image), path))
+      const { digest, reason } = base.digests[image.image]
+      const why = uncovered.length
+        ? `its Dockerfile reads paths that its inputs do not cover: ${uncovered.join(", ")}`
+        : touched
+          ? `${touched} changed since ${short}`
+          : reason
+      if (why) {
+        result.build.push(matrixEntry(image))
+        result.reasons[image.image] = why
+      } else {
+        result.reuse[image.image] = digest
+        result.reasons[image.image] =
+          `no input changed since ${short}: reuses ${digest}`
+      }
+    }
+    return result
+  } catch (error) {
+    return everything(`no base: ${error.message}`)
   }
-  return result
 }
 
 /**
@@ -475,38 +501,12 @@ export function writePlan(result, list, extra = []) {
 
 /**
  * Which images this run builds, and the digest of the base run for each
- * other image (planFrom).
+ * other image (planFrom). Only a push to main keeps an image.
  */
 export async function planImages({ root, event, repo, token }) {
-  const everything = (reason) => buildAll(images, reason)
-  if (event !== "push") return everything(`a ${event} run builds every image`)
-  try {
-    const base = await lastDeploy({ repo, token })
-    if (!base) return everything("no successful Deploy run on main")
-    const sha = base.run.head_sha
-    if (!/^[0-9a-f]{40}$/.test(sha))
-      return everything("the base run has no commit")
-    try {
-      execFileSync("git", ["merge-base", "--is-ancestor", sha, "HEAD"], {
-        cwd: root,
-        stdio: "ignore",
-      })
-    } catch {
-      return everything(`the base commit ${sha} is not in the history of HEAD`)
-    }
-    return planFrom({
-      root,
-      list: images,
-      base,
-      head: "HEAD",
-      everyImage: [
-        ".github/workflows/deploy.yaml",
-        "scripts/ci/deploy-images.mjs",
-      ],
-    })
-  } catch (error) {
-    return everything(`no base: ${error.message}`)
-  }
+  if (event !== "push")
+    return buildAll(images, `a ${event} run builds every image`)
+  return planFrom({ root, list: images, repo, token, baseInHistory: true })
 }
 
 if (
