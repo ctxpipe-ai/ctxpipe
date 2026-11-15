@@ -161,10 +161,15 @@ test("a lockfile change builds every image", async () => {
   assert.deepEqual(built(await plan(commits)), [...names].sort())
 })
 
-test("a change to deploy.yaml since main builds every image", async () => {
-  const commits = repository({ ".github/workflows/deploy.yaml": "x\n" })
-  server.use(...githubApi(commits))
-  assert.deepEqual(built(await plan(commits)), [...names].sort())
+test("a change to deploy.yaml or to the image inputs since main builds every image", async () => {
+  for (const path of [
+    ".github/workflows/deploy.yaml",
+    "scripts/ci/deploy-images.mjs",
+  ]) {
+    const commits = repository({ [path]: "x\n" })
+    server.use(...githubApi(commits))
+    assert.deepEqual(built(await plan(commits)), [...names].sort(), path)
+  }
 })
 
 test("without a base, or when the GitHub API fails, every image builds", async () => {

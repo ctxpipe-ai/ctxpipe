@@ -111,7 +111,7 @@ export const images = [
   },
 ]
 
-export const inputsOf = ({ dockerfile, context = ".", inputs }) => [
+const inputsOf = ({ dockerfile, context = ".", inputs }) => [
   dockerfile,
   context === "." ? ".dockerignore" : `${context}/.dockerignore`,
   ...inputs,
@@ -121,8 +121,7 @@ export const inputsOf = ({ dockerfile, context = ".", inputs }) => [
 // builds more, never less: the coverage check and the change check use the
 // same rule. A segment rule would miss a file that a COPY glob reads, for
 // example `pnpm-lock.yaml.orig` for `pnpm-lock.yaml*`.
-export const covers = (inputs, path) =>
-  inputs.some((input) => path.startsWith(input))
+const covers = (inputs, path) => inputs.some((input) => path.startsWith(input))
 
 // The instructions of a Dockerfile, with continuation lines joined and
 // comment lines removed.

@@ -22,7 +22,7 @@ import {
 // Thus an earlier preview image can hold code that the PR head does not have.
 //
 // Every image builds when the GitHub API or git fails, when no base is found,
-// or when deploy.yaml changed since the base. The PR head need not contain
+// or when deploy.yaml or deploy-images.mjs changed since the base. The PR head need not contain
 // the base commit: the plan compares the files of the two commits.
 //
 // Usage (pr-preview-images.yaml, job plan, with the version of this file on
@@ -50,7 +50,11 @@ export async function planPreviewImages({ root, repo, token, head }) {
       list: previewImages,
       base,
       head,
-      everyImage: [".github/workflows/deploy.yaml"],
+      // The input rules of the PR can differ from the rules of this plan.
+      everyImage: [
+        ".github/workflows/deploy.yaml",
+        "scripts/ci/deploy-images.mjs",
+      ],
     })
   } catch (error) {
     return everything(`no base: ${error.message}`)
