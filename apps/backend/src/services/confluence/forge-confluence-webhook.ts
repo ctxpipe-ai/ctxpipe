@@ -2,6 +2,7 @@ import type { Env } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { legacyBindingHandedOver } from "../../domain/workspace-sources/legacy-handover.js"
 import { getConfluenceSyncTargetWithRepoByConnectionId } from "../../models/confluence-sync-target.js"
+import { getLogger } from "../../observability/logger.js"
 import { enqueueWorkflow } from "../../openworkflow/client.js"
 import { confluenceSyncSpace } from "../../openworkflow/workflows/confluence-sync-space.js"
 import { loadConfluenceScopeFromRepo } from "./config-from-repo.js"
@@ -76,6 +77,11 @@ export async function handleForgeConfluenceContentEvent(input: {
     spaceKey: input.spaceKey,
     pageId: input.pageId,
     eventType: input.eventType,
+  }).catch((err: unknown) => {
+    getLogger().error(err instanceof Error ? err : new Error(String(err)), {
+      step: "confluence.webhook.sync-space-enqueue",
+      connectionId: input.connectionId,
+    })
   })
   return "enqueued"
 }

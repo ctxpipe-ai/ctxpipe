@@ -857,6 +857,11 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       orgId,
       orgSlug,
       connectionId: inst.id,
+    }).catch((err: unknown) => {
+      getLogger().error(err instanceof Error ? err : new Error(String(err)), {
+        step: "connectors.atlassian.provision-enqueue",
+        connectionId: inst.id,
+      })
     })
     return c.json(
       { accepted: true as const, workflowName: forgeProvision.spec.name },
