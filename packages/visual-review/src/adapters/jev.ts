@@ -74,7 +74,7 @@ const choiceQuestion = (instructions: string): Question => ({
  * probability of 0.5 or more (0.65 for `focus`, see `failAt`). It says
  * `unsure` when the defect or a worse probability (density too) is from 0.2
  * up, or when a question has no answer. The bake-off of CTX-1262 kept the 0.2
- * floor:a higher floor turned real regressions into `intended` (ADR-063).
+ * floor: a higher floor turned real regressions into `intended` (ADR-063).
  * If nothing got worse, the verdict is `intended` when a brief or a
  * source diff explains the change, and `unsure` when none does (the rule of
  * `parseVerdict`). The state gives Jev `judgingRule`, with the priority order
@@ -219,15 +219,10 @@ export async function judgeWithJev(
 
   // Each worse area is a finding. A worse quality is a regression with no
   // finding, since a finding names an area.
-  const isWorse = ({
-    delta,
-    worse,
-    id = "",
-  }: {
-    delta: string
-    worse: number
-    id?: string
-  }) => delta === "worse" && worse >= failsFrom(id)
+  const isWorse = (
+    { delta, worse }: { delta: string; worse: number },
+    from: number,
+  ) => delta === "worse" && worse >= from
   const density = qualityResults.find(({ id }) => id === "density")
   // `parseVerdict` checks the judgment and applies the rules of the prompt.
   return parseVerdict(
@@ -235,7 +230,7 @@ export async function judgeWithJev(
       ...decision({
         word: "worse",
         flaggedAreas: areaResults
-          .filter(isWorse)
+          .filter((result) => isWorse(result, 0.5))
           .map(({ area, worse }) => ({ area, probability: worse })),
         // A worse density is never a regression: it counts only for
         // `unsure`. In the bake-off of CTX-1262, density never found a
@@ -243,13 +238,16 @@ export async function judgeWithJev(
         // PR #717 it gave 12 of the 14 false flags (an intended removal
         // leaves more space).
         flaggedQualities: qualityResults
-          .filter((result) => isWorse(result) && result.id !== "density")
+          .filter(
+            (result) =>
+              result.id !== "density" && isWorse(result, failsFrom(result.id)),
+          )
           .map(({ id, worse }) => ({ id, probability: worse })),
         region,
         defect: defectProbability,
         unanswered,
         strongest,
-        ...(density && isWorse(density)
+        ...(density && isWorse(density, 0.5)
           ? {
               note: `Jev also finds the density worse (${density.worse.toFixed(2)}). A density change alone is not a regression: look at the images.`,
             }
@@ -397,9 +395,9 @@ async function decide(
  * reason in the summary), when a probability is from 0.2 up to 0.5, when a
  * question has no answer, or when a defect has no area. Else it is
  * `intended` (with a brief; see `parseNewVerdict`). A quality is `fails`
- * from 0.5 (0.65 for `focus`), `weak` from 0.2, and else `meets`. Only Jev 1.14 takes the box question, on the first
- * image. For another model, the region of a finding is the whole first
- * image. `onAnswers` gets the raw answers of Jev, for the bake-off of the
+ * from 0.5 (0.65 for `focus`), `weak` from 0.2, and else `meets`. Only Jev
+ * 1.14 takes the box question, on the first image. For another model, the
+ * region of a finding is the whole first image. `onAnswers` gets the raw answers of Jev, for the bake-off of the
  * factory (`factory eval visual:bakeoff`, CTX-1243). The visual critic of the
  * factory (`visual:review --judge jev`, ADR-063) uses this function too.
  */
@@ -488,21 +486,16 @@ export async function judgeNewWithJev(
     ? { x: 0, y: 0, width: 1, height: 1 }
     : drawnBox(answers, prepared[0]?.content)
 
-  const breaks = ({
-    probability,
-    id = "",
-  }: {
-    probability: number
-    id?: string
-  }) => probability >= failsFrom(id)
+  const fails = ({ id, probability }: { id: string; probability: number }) =>
+    probability >= failsFrom(id)
   return parseNewVerdict(
     JSON.stringify({
       ...decision({
         word: "broken",
         flaggedAreas: areaResults
-          .filter(breaks)
+          .filter(({ probability }) => probability >= 0.5)
           .sort((a, b) => b.probability - a.probability),
-        flaggedQualities: qualityResults.filter(breaks),
+        flaggedQualities: qualityResults.filter(fails),
         region,
         defect: defectProbability ?? 0,
         unanswered,
@@ -515,14 +508,12 @@ export async function judgeNewWithJev(
       }),
       qualities: qualityResults.map((result) => ({
         name: result.id,
-        rating: breaks(result)
+        rating: fails(result)
           ? "fails"
           : result.probability >= 0.2
             ? "weak"
             : "meets",
-        confidence: breaks(result)
-          ? result.probability
-          : 1 - result.probability,
+        confidence: fails(result) ? result.probability : 1 - result.probability,
       })),
     }),
     story,
@@ -535,8 +526,8 @@ export async function judgeNewWithJev(
  * `flaggedQualities` hold the areas and qualities that are worse (a change)
  * or broken (a new screenshot) with a probability of 0.5 or more (see
  * `failAt`). Each such area is a finding in `region`; with no region, it is
- * not placed, and the verdict stays `unsure`. A flagged quality is a regression with no finding,
- * since a finding names an area. A flag whose highest probability is under
+ * not placed, and the verdict stays `unsure`. A flagged quality is a
+ * regression with no finding, since a finding names an area. A flag whose highest probability is under
  * `floor` is `unsure`. Else a probability from 0.2 up, or a question with no
  * answer, is `unsure`, and the rest is `intended`. A regression has severity
  * `minor`: it does not block.
