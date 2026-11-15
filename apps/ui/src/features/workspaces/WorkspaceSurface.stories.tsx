@@ -1119,8 +1119,8 @@ export const CreatePrMatchesPaneTriggers: Story = {
       trigger.top + trigger.height / 2,
       0,
     )
-    // A trigger has the active tab box: 32px wide, 37px tall.
-    expect(trigger.width).toBe(32)
+    // A trigger has the active tab box: 38px wide, 37px tall.
+    expect(trigger.width).toBe(38)
     expect(trigger.height).toBe(37)
     expect(getComputedStyle(createPr).fontSize).toBe("12px")
     expect(getComputedStyle(createPr).fontWeight).toBe("400")
@@ -1845,12 +1845,13 @@ export const WriteCheckStallStopsPolling: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const alert = await waitFor(
+    // A stalled check is a wait: a status row, not a warning.
+    const row = await waitFor(
       () => {
         const found = canvas
-          .getAllByRole("alert")
+          .getAllByRole("status")
           .find((el) => el.textContent?.includes("Still checking write access"))
-        if (!found) throw new Error("The stalled check alert is missing")
+        if (!found) throw new Error("The stalled check row is missing")
         return found
       },
       { timeout: 10_000 },
@@ -1860,7 +1861,7 @@ export const WriteCheckStallStopsPolling: Story = {
     // Check again resets the timer, so polling starts again.
     const reads = writeCheck.detailReads
     await userEvent.click(
-      within(alert).getByRole("button", { name: "Check again" }),
+      within(row).getByRole("button", { name: "Check again" }),
     )
     await waitFor(() => expect(writeCheck.detailReads).toBeGreaterThan(reads), {
       timeout: 10_000,
@@ -1869,7 +1870,7 @@ export const WriteCheckStallStopsPolling: Story = {
       () =>
         expect(
           canvas
-            .getAllByRole("alert")
+            .getAllByRole("status")
             .some((el) =>
               el.textContent?.includes("Still checking write access"),
             ),

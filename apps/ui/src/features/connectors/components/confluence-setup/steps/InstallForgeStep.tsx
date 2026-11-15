@@ -2,11 +2,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { type FormEventHandler, useEffect, useRef, useState } from "react"
 
 import { Button } from "@/components/ui/Button"
+import {
+  Disclosure,
+  DisclosureHeader,
+  DisclosurePanel,
+} from "@/components/ui/Disclosure"
 import { ExternalLink } from "@/components/ui/ExternalLink"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Spinner } from "@/components/ui/spinner"
+import { TechnicalDetail } from "@/components/ui/TechnicalDetail"
 import { TextField } from "@/components/ui/TextField"
 import { pollWhileOk } from "@/lib/api-result"
+import { hideSecrets } from "@/lib/hide-secrets"
 import { useConfluenceForgeRuntime } from "@/providers/ConfluenceForgeRuntimeContext"
 
 import {
@@ -293,7 +300,7 @@ export function InstallForgeStep({
 
       {capabilitiesLoading ? (
         <div className="flex items-center gap-3 rounded-md border border-border px-3 py-3">
-          <Spinner className="shrink-0 text-muted-foreground" />
+          <Spinner className="size-4.5 shrink-0 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
             Loading install options…
           </p>
@@ -311,22 +318,34 @@ export function InstallForgeStep({
 
       <div className="space-y-3">
         {caps.isError ? (
-          <InlineAlert variant="warning" title="Could not load capabilities">
+          <InlineAlert
+            variant="warning"
+            title="Could not load the hosted install link"
+          >
             <p>
-              This step falls back to self-hosted provisioning only. If your
-              deployment normally provides a hosted Forge install link, fix the
-              capabilities request and reopen setup.
+              You can still provision the Forge app yourself below. Reopen setup
+              to try the hosted link again.
             </p>
-            <p className="mt-2 text-xs text-amber-100/80">
-              Bundled default (
-              <code className="text-xs">CONFLUENCE_FORGE_INSTALL_URL</code>) is
-              not used to choose the UI until the server responds; runtime
-              fallback is still{" "}
-              {pickHttps(forgeRuntime.installUrlFallback) ??
-                pickHttps(CONFLUENCE_FORGE_INSTALL_URL) ??
-                "none"}
-              .
-            </p>
+            {/* The technical detail stays small: a capped mono block behind a
+                disclosure, and the install link without its signed query. */}
+            <Disclosure className="mt-1 -mx-2 min-w-0">
+              <DisclosureHeader>
+                <span className="text-xs font-normal text-muted-foreground">
+                  Show details
+                </span>
+              </DisclosureHeader>
+              <DisclosurePanel className="px-2">
+                <TechnicalDetail>
+                  The capabilities request failed. CONFLUENCE_FORGE_INSTALL_URL
+                  is not used until the server responds. Runtime fallback:{" "}
+                  {hideSecrets(
+                    pickHttps(forgeRuntime.installUrlFallback) ??
+                      pickHttps(CONFLUENCE_FORGE_INSTALL_URL) ??
+                      "none",
+                  )}
+                </TechnicalDetail>
+              </DisclosurePanel>
+            </Disclosure>
           </InlineAlert>
         ) : null}
 
@@ -416,7 +435,7 @@ export function InstallForgeStep({
             />
             {isProvisioningBusy ? (
               <div className="mt-6 flex items-start gap-3 rounded-md border border-border p-3">
-                <Spinner className="mt-0.5 shrink-0 text-muted-foreground" />
+                <Spinner className="mt-0.5 size-4.5 shrink-0 text-muted-foreground" />
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-foreground">
                     Provisioning Forge app

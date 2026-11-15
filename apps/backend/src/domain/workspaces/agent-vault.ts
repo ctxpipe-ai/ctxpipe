@@ -10,7 +10,9 @@ import {
 } from "@infisical/agent-vault-sdk"
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
 
+import { isPublicAddress } from "../../../../../shared/plain-git.js"
 import { log } from "../../observability/logger.js"
+import { isOwnCallbackHost } from "./sandbox-callback-host.js"
 import type { SandboxCredentialRule } from "./sandbox-credential-rules.js"
 
 /**
@@ -47,6 +49,13 @@ export type AgentVaultAccess = {
    */
   proxyHost?: string
   ownerPassword: () => Promise<string>
+  /** Hosted AgentCore only; see {@link agentCoreRules}. */
+  agentCore?: {
+    /** True for the backend's own callback name. */
+    isCallbackHost: (hostname: string) => boolean
+    /** Each address of a host name. Tests give their own answers. */
+    lookup: (hostname: string) => Promise<string[]>
+  }
 }
 
 /**
@@ -63,6 +72,17 @@ export function agentVaultAccess(
   const file = env.AGENT_VAULT_OWNER_PASSWORD_FILE?.trim()
   return {
     address: address.replace(/\/$/, ""),
+    ...(env.SANDBOX_PROVIDER?.trim() === "agentcore"
+      ? {
+          agentCore: {
+            isCallbackHost: isOwnCallbackHost(env),
+            lookup: async (hostname: string) =>
+              (await lookup(hostname, { all: true, verbatim: true })).map(
+                (answer) => answer.address,
+              ),
+          },
+        }
+      : {}),
     ownerPassword: async () => {
       if (value) return value
       if (!file)
@@ -289,6 +309,80 @@ function servicesFor(rules: RunVaultRule[]): {
   return { credentials, services }
 }
 
+/** The names of the rules that the backend makes for its own callbacks. */
+const CALLBACK_RULE = /^(model-proxy-(chat|models)|tool-bridge)$/
+
+/** A rule that the run vault of a hosted AgentCore sandbox must not hold. */
+export class RunVaultRuleRefusedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "RunVaultRuleRefusedError"
+  }
+}
+
+/**
+ * The rules as the run vault of a hosted AgentCore sandbox may hold them
+ * (CTX-1287). Other deployments get `rules` as they are.
+ *
+ * On AWS, Agent Vault's network allowlist (`AGENT_VAULT_NETWORK_ALLOWLIST`)
+ * holds the backend's own subnets, so that a sandbox can call back the
+ * backend task that runs its turn: the model proxy on `PORT` and the tool
+ * bridge on a port that the kernel selects. The allowlist is one list for
+ * the whole Agent Vault, so it applies to each rule. A host that a customer
+ * names (a plain git source) can resolve to a backend task. Agent Vault
+ * resolves the host again when it connects, so a check of the addresses
+ * here cannot hold: the DNS answer can change after it (DNS rebinding).
+ *
+ * The control that holds when Agent Vault connects is the port. Agent Vault
+ * forwards a request only when a rule matches its host and its port (a rule
+ * with a port matches only that port), and it connects to the port of the
+ * request. DNS can change the address, but not the port. Thus each rule
+ * except a callback rule gets port 443: a rule with no port gets `:443`,
+ * and a rule with another port (`PORT`, the tool bridge ports, or 80 for
+ * plain HTTP) is refused. The backend does not listen on 443, and the
+ * allowlist must hold no other service that does. A callback rule is a
+ * model proxy or tool bridge rule (by its name) whose host is the backend's
+ * own callback name; a rule needs both.
+ *
+ * As a first layer only, a rule host that resolves to an address that is
+ * not public now is refused. A failed lookup fails closed as
+ * {@link AgentVaultUnavailableError}. The vault must also refuse each
+ * request that no rule matches ({@link openRunVault}).
+ */
+async function agentCoreRules(
+  access: AgentVaultAccess,
+  rules: RunVaultRule[],
+): Promise<RunVaultRule[]> {
+  const agentCore = access.agentCore
+  if (!agentCore) return rules
+  return Promise.all(
+    rules.map(async (rule) => {
+      const [, hostname, port] = /^([^:]+)(?::(\d+))?$/.exec(rule.host) ?? []
+      if (!hostname)
+        throw new RunVaultRuleRefusedError(
+          `The host of the vault rule ${rule.name} is not "<name>" or "<name>:<port>"`,
+        )
+      if (CALLBACK_RULE.test(rule.name) && agentCore.isCallbackHost(hostname))
+        return rule
+      if (port !== undefined && Number(port) !== 443)
+        throw new RunVaultRuleRefusedError(
+          `The vault rule ${rule.name} names port ${port}: on AgentCore, only the backend's callback rules can use a port other than 443`,
+        )
+      const addresses = await agentCore.lookup(hostname).catch((error) => {
+        throw new AgentVaultUnavailableError(
+          `The host ${hostname} of the vault rule ${rule.name} does not resolve`,
+          { cause: error },
+        )
+      })
+      if (!addresses.length || !addresses.every(isPublicAddress))
+        throw new RunVaultRuleRefusedError(
+          `The host ${hostname} of the vault rule ${rule.name} has no public address`,
+        )
+      return { ...rule, host: `${hostname}:443` }
+    }),
+  )
+}
+
 /** The vault name of a run: stable, so a retry and the sweep find it. */
 export function runVaultName(runKey: string): string {
   return `${RUN_VAULT_PREFIX}${createHash("sha256").update(runKey).digest("hex").slice(0, 40)}`
@@ -301,6 +395,21 @@ export function runVaultName(runKey: string): string {
  * the session of the sandbox stays the same.
  */
 export async function setRunVaultRules(
+  access: AgentVaultAccess,
+  runKey: string,
+  rules: RunVaultRule[],
+  options: { replace?: boolean } = {},
+): Promise<void> {
+  await writeRunVaultRules(
+    access,
+    runKey,
+    await agentCoreRules(access, rules),
+    options,
+  )
+}
+
+/** {@link setRunVaultRules} with rules that {@link agentCoreRules} gave. */
+async function writeRunVaultRules(
   access: AgentVaultAccess,
   runKey: string,
   rules: RunVaultRule[],
@@ -323,7 +432,9 @@ export async function setRunVaultRules(
  * `unmatchedHosts` is what the proxy does with a request that no rule
  * matches: `passthrough` (the default) forwards it with no credential, and
  * `deny` refuses it with a 403. A rule with a path matches that exact path
- * only, so `deny` also refuses the other paths of a rule's host.
+ * only, so `deny` also refuses the other paths of a rule's host. On hosted
+ * AgentCore, a vault must use `deny` (see {@link agentCoreRules}), and a
+ * rule that it refuses stops the open before a vault exists.
  */
 export async function openRunVault(input: {
   access: AgentVaultAccess
@@ -333,6 +444,11 @@ export async function openRunVault(input: {
   unmatchedHosts?: "passthrough" | "deny"
 }): Promise<RunVault> {
   const { access } = input
+  if (access.agentCore && input.unmatchedHosts !== "deny")
+    throw new RunVaultRuleRefusedError(
+      "On AgentCore, a run vault must refuse each host that no rule names",
+    )
+  const checked = await agentCoreRules(access, input.rules)
   const name = runVaultName(input.runKey)
   const proxyAt = await proxyHost(access)
   const addRules = (rules: RunVaultRule[]) =>
@@ -357,7 +473,7 @@ export async function openRunVault(input: {
     // The policy and the rules are in place before the session exists.
     if (input.unmatchedHosts)
       await setUnmatchedHostPolicy(access, name, input.unmatchedHosts)
-    await addRules(input.rules)
+    await writeRunVaultRules(access, input.runKey, checked)
     const session = await asOwner(access, async (client) =>
       client.vault(name).sessions?.create({ ttlSeconds: input.ttlSeconds }),
     )

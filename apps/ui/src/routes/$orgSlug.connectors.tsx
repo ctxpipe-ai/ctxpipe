@@ -100,9 +100,9 @@ function ConnectorsPageGate() {
 
   if (sessionPending) {
     return (
-      <main className="mx-auto box-border flex min-h-full w-full max-w-2xl flex-col p-8 text-foreground">
-        <ConnectorsHeader actions={<Skeleton className="size-9" />} />
-        <section className="mt-12 flex min-h-0 flex-col border-t border-white/[0.06]">
+      <main className="mx-auto box-border flex min-h-full w-full max-w-2xl flex-col px-4 py-6 text-foreground sm:p-8">
+        <ConnectorsHeader actions={<Skeleton className="h-9 w-36" />} />
+        <section className="mt-8 flex min-h-0 flex-col">
           <ConnectorListSkeleton />
         </section>
       </main>
@@ -262,7 +262,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   }, [search.error, search.error_description, navigate, orgSlug])
 
   return (
-    <main className="mx-auto box-border flex min-h-full w-full max-w-2xl flex-col p-8 text-foreground">
+    <main className="mx-auto box-border flex min-h-full w-full max-w-2xl flex-col px-4 py-6 text-foreground sm:p-8">
       {errorBanner ? (
         <ConnectorsOAuthErrorBanner
           title={errorBanner.title}
@@ -273,14 +273,12 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
         actions={
           showEmptyState ? null : (
             <Button
-              variant="secondary"
-              size="icon"
-              className="rounded-md"
-              aria-label="Add connection"
+              variant="primary"
               isDisabled={connectBlocked}
               onPress={() => setCatalogOpen(true)}
             >
-              <IconPlus className="size-5" aria-hidden />
+              <IconPlus className="size-4" aria-hidden />
+              Add connection
             </Button>
           )
         }
@@ -296,9 +294,8 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
       ) : null}
 
       <section
-        className={`mt-12 flex min-h-0 flex-col ${
-          showEmptyState ? "" : "border-t border-white/[0.06]"
-        }`}
+        aria-label="Connections"
+        className="mt-8 flex min-h-0 flex-col gap-2"
       >
         {showPageLoading ? (
           <ConnectorListSkeleton />
@@ -595,18 +592,17 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
 function ConnectorsHeader(props: { actions: ReactNode }) {
   return (
     <section>
-      <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-8">
         <div className="min-w-0 flex-1">
-          <h1 className="text-3xl font-medium tracking-tight text-foreground">
+          <h1 className="text-xl font-medium tracking-tight text-foreground">
             Connectors
           </h1>
-          <p className="mt-3 leading-relaxed text-muted-foreground">
-            Connect external tools and choose what content ctxpipe should
-            ingest.
+          <p className="mt-1 text-sm text-muted-foreground">
+            Connect your tools and choose what ctxpipe reads from them.
           </p>
         </div>
         {props.actions ? (
-          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:pt-1">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             {props.actions}
           </div>
         ) : null}
