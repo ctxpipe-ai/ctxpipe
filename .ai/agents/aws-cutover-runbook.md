@@ -372,8 +372,10 @@ Do the steps that apply, in this order. Skip a step whose change was not made ye
      uses this login (for example the migrate URL), put the new password into it before the next Railway deploy.
      After G4, do not reset it: Neon stays read-only for a few days, and then the Neon project is deleted (CTO
      decision, 2026-11-15).
-  2. Put `retired` into the two `hosted/cutover/*` secrets. This removes the stored copy of the Neon owner URL
-     (`hosted/cutover/source-database-url`).
+  2. Put `retired` into the two `hosted/cutover/*` secrets. This does not remove the Neon owner URL: Secrets Manager
+     keeps the old value as the version `AWSPREVIOUS`, and a principal with `secretsmanager:GetSecretValue` on
+     `hosted/cutover/source-database-url` can still read it. That URL stops working only when the owner password is
+     reset or the Neon project is deleted.
   3. Delete the Access service token of the agent. Revoke the API key of the test organization.
   4. Delete the transfer copies of every run, the rehearsals too. They hold the graphs and the source code of each
      organization, outside the deletion path of ctxpipe:
