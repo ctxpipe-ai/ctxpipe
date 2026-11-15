@@ -1,6 +1,6 @@
 # Build from monorepo root: docker build -f apps/backend/Dockerfile .
 FROM node:26.13.1-alpine AS opencode
-RUN npm install -g opencode-ai@1.18.34
+RUN npm install -g opencode-ai@1.19.5
 
 FROM oven/bun:1.4.4-alpine AS deps
 WORKDIR /app
