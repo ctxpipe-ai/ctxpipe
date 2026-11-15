@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   agentCoreSizeCapCommand,
+  VERCEL_INGEST_TOOLS,
   WORKSPACE_CHAT_OPENCODE_PORT,
   WORKSPACE_CHAT_RUNTIME,
   WORKSPACE_CHAT_SANDBOX_SETUP,
@@ -15,6 +16,7 @@ import {
   workspaceChatRuntimeConfig,
 } from "./chat-runtime.js"
 import { CONVERSATION_SANDBOX_GIT_EXCLUDE_LINES } from "./conversation-files.js"
+import { WORKSPACE_CHAT_OPENCODE_CLI } from "./workspace-chat-opencode-contract.js"
 
 describe("workspace chat runtime", () => {
   it("locks TanStack chat + withSandbox + opencodeText", () => {
@@ -31,9 +33,26 @@ describe("workspace chat runtime", () => {
     expect(WORKSPACE_CHAT_SANDBOX_SETUP.join("\n")).toMatch(
       /command -v opencode/,
     )
-    expect(WORKSPACE_CHAT_SANDBOX_SETUP.join("\n")).toMatch(
-      /opencode-ai@1\.18\.34/,
+    expect(WORKSPACE_CHAT_SANDBOX_SETUP.join("\n")).toContain(
+      WORKSPACE_CHAT_OPENCODE_CLI,
     )
+  })
+
+  // The checks run the OpenCode and the ast-grep of the root devDependencies
+  // (pnpm install), so they must be the versions of the sandbox images.
+  it("pins the host tools of the checks at the versions of the sandbox", () => {
+    const root = JSON.parse(
+      readFileSync(
+        join(
+          dirname(fileURLToPath(import.meta.url)),
+          "../../../../../package.json",
+        ),
+        "utf8",
+      ),
+    ) as { devDependencies: Record<string, string> }
+    const pinned = (name: string) => `${name}@${root.devDependencies[name]}`
+    expect(pinned("opencode-ai")).toBe(WORKSPACE_CHAT_OPENCODE_CLI)
+    expect(pinned("@ast-grep/cli")).toBe(VERCEL_INGEST_TOOLS.astGrep)
   })
 
   it("writes OpenCode config under HOME and excludes harness paths from git", () => {
@@ -138,7 +157,7 @@ describe("workspace chat runtime", () => {
       join(dirname(fileURLToPath(import.meta.url)), "../../../Dockerfile"),
       "utf8",
     )
-    expect(dockerfile).toMatch(/opencode-ai@1\.18\.34/)
+    expect(dockerfile).toContain(WORKSPACE_CHAT_OPENCODE_CLI)
     expect(dockerfile).toMatch(/findutils/)
   })
 
