@@ -3,12 +3,15 @@ import { initLogger } from "evlog"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
-import { beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
 import { recordSpans } from "../../test/spans.js"
 import type { AppEnv } from "../app/env.js"
+import { applyAttribution } from "../observability/attribution.js"
 import { backendOtelMiddleware } from "../observability/http.js"
+import { applyLogContract } from "../observability/logContract.js"
+import { runMcpToolCall } from "./correlation.js"
 import { INSTRUCTION_RULES } from "./framework/instructions.js"
 import { registerWorkspaceFileResource } from "./resources/workspace-file.js"
 import {
@@ -183,6 +186,96 @@ function post(app: Hono<AppEnv>, body: unknown) {
     body: JSON.stringify(body),
   })
 }
+
+describe("MCP tool call request log", () => {
+  const callEvents: Record<string, unknown>[] = []
+  // The event of a call goes to the global drain, as in production.
+  beforeAll(() => {
+    initLogger({
+      env: { service: "ctxpipe-backend", environment: "test" },
+      pretty: false,
+      drain: (ctx) => {
+        applyLogContract(ctx.event)
+        callEvents.push(ctx.event as Record<string, unknown>)
+      },
+    })
+  })
+  afterAll(() => {
+    initLogger({
+      env: { service: "ctxpipe-backend", environment: "test" },
+      pretty: false,
+    })
+  })
+
+  it("keeps SSE and puts the facts of the call on a call event, with no late-set warning", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const events: Record<string, unknown>[] = []
+    let release = () => {}
+    const toolMayEnd = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const app = buildApp(
+      (server) =>
+        server.registerTool(
+          "search_knowledge",
+          {
+            annotations: { readOnlyHint: true },
+            inputSchema: z.object({ query: z.string() }),
+          },
+          (_args, extra) =>
+            runMcpToolCall(
+              { toolName: "search_knowledge", extra },
+              async () => {
+                await toolMayEnd
+                // As `withCallOrg` does for the org that the call names.
+                applyAttribution({
+                  "ctxpipe.org.id": "org_acme",
+                  "ctxpipe.org.slug": "acme",
+                })
+                return { content: [{ type: "text" as const, text: "ok" }] }
+              },
+            ),
+        ),
+      {},
+      events,
+    )
+
+    const response = await app.request("http://backend.test/mcp", {
+      method: "POST",
+      headers: {
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+        "x-request-id": "req_mcp_call",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "search_knowledge", arguments: { query: "hello" } },
+      }),
+    })
+    // The response streams, and the request event is out before the tool ends.
+    expect(response.headers.get("content-type")).toContain("text/event-stream")
+    release()
+    expect(await response.text()).toContain("ok")
+
+    const lateSets = warn.mock.calls.filter(([message]) =>
+      String(message).includes("called after the wide event was emitted"),
+    )
+    warn.mockRestore()
+    expect(lateSets).toEqual([])
+    expect(events).toHaveLength(1)
+    expect(callEvents).toHaveLength(1)
+    expect(callEvents[0]).toMatchObject({
+      operation: "mcp.call",
+      "request.id": "req_mcp_call",
+      "ctxpipe.mcp.tool": "search_knowledge",
+      "ctxpipe.mcp.result.bytes": expect.any(Number),
+      "ctxpipe.org.id": "org_acme",
+      "ctxpipe.org.slug": "acme",
+    })
+  })
+})
 
 describe("MCP resource read attribution", () => {
   it("puts the resource name, not the URI, on the POST /mcp span and request log", async () => {

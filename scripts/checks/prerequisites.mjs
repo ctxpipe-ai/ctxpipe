@@ -150,7 +150,7 @@ export const prerequisites = {
       quiet(
         "ast-grep",
         ["--version"],
-        "npm install --global @ast-grep/cli@0.45.0",
+        "Run pnpm install: the root devDependency @ast-grep/cli puts ast-grep in node_modules/.bin, which factory check and pnpm put first on PATH.",
       ),
   },
   zoekt: {
@@ -160,7 +160,7 @@ export const prerequisites = {
           execFileSync(binary, ["-h"], { stdio: "ignore", timeout: 10_000 })
         } catch {
           throw new Error(
-            `${binary} is missing. Install zoekt as the CI step "Required native revision index tools" does.`,
+            `${binary} is missing. Run scripts/zoekt/build.sh: it builds the pinned zoekt into .tools/bin, which factory check puts first on PATH.`,
           )
         }
     },
@@ -174,11 +174,11 @@ export const prerequisites = {
       const found = quiet(
         "opencode",
         ["--version"],
-        `npm install --global opencode-ai@${expected}`,
+        "Run pnpm install: the root devDependency opencode-ai puts opencode in node_modules/.bin, which factory check and pnpm put first on PATH.",
       )
       if (found !== expected)
         throw new Error(
-          `OpenCode must be ${expected}; found ${found}. npm install --global opencode-ai@${expected}`,
+          `OpenCode must be ${expected}; found ${found}. Run pnpm install, and run the check with node_modules/.bin first on PATH (factory check and pnpm do).`,
         )
     },
   },

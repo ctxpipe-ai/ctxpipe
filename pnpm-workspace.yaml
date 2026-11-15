@@ -15,3 +15,7 @@ patchedDependencies:
   # CTX-576: open a tool call when its input is known, not at the empty "pending" state.
   # CTX-1061: resolve a prompt only at the session idle after its reply, because a late message update can show the reply finished before its text.
   '@tanstack/ai-opencode@0.4.14': patches/@tanstack__ai-opencode@0.4.14.patch
+  # The checks run OpenCode from the root devDependency, and pnpm runs no
+  # dependency build script. The launcher runs the binary of the platform
+  # package that the lockfile installed, so the postinstall is not needed.
+  'opencode-ai@1.19.5': patches/opencode-ai@1.19.5.patch

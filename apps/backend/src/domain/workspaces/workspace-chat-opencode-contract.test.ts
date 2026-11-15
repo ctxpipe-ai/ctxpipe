@@ -256,7 +256,7 @@ describe("workspaceChatOpenCodeContract", () => {
   })
 
   it("pins the OpenCode CLI", () => {
-    expect(WORKSPACE_CHAT_OPENCODE_CLI).toBe("opencode-ai@1.18.34")
+    expect(WORKSPACE_CHAT_OPENCODE_CLI).toBe("opencode-ai@1.19.5")
   })
 
   it("isolates OpenCode HOME away from the host config dir", () => {
