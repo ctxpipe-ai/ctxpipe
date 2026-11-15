@@ -3,7 +3,7 @@
 // named <sha256>.png. An asset that is in the release already does not go up
 // again. See README.md beside this file.
 //
-// Usage: pnpm visual:bakeoff:publish [--images <dir>] [--cases <path>]
+// Usage: pnpm visual:bakeoff:publish [--images <dir>] [--cases <path> | --calibration <path>]
 //
 // It needs the GitHub CLI, signed in with the right to write releases.
 
@@ -12,18 +12,22 @@ import { readFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { parseArgs, promisify } from "node:util"
 
+import { z } from "zod"
+
 import { readManifest } from "./cases.ts"
 import { imageFile, imageRelease, sha256Of } from "./images.ts"
 
 /** Runs the GitHub CLI with `args` and gives its standard output. */
 type Gh = (args: readonly string[]) => Promise<string>
 
-const usage = `Usage: pnpm visual:bakeoff:publish [--images <dir>] [--cases <path>]
+const usage = `Usage: pnpm visual:bakeoff:publish [--images <dir>] [--cases <path> | --calibration <path>]
 
-  --images  The folder of the case images, as <sha256>.png (the images
-            folder of pnpm visual:bakeoff:build).
-            Default: .ci-results/visual-bakeoff/images
-  --cases   The case manifest. Default: cases.json beside this file.`
+  --images       The folder of the case images, as <sha256>.png (the images
+                 folder of pnpm visual:bakeoff:build).
+                 Default: .ci-results/visual-bakeoff/images
+  --cases        The case manifest. Default: cases.json beside this file.
+  --calibration  A calibration set in place of the manifest, for example
+                 unseen-calibration.json: its images and before images.`
 
 /**
  * Upload each image of the manifest that the release does not have. Creates
@@ -47,15 +51,32 @@ export async function publish(
           default: ".ci-results/visual-bakeoff/images",
         },
         cases: { type: "string" },
+        calibration: { type: "string" },
       },
     }))
   } catch (error) {
     print(`${(error as Error).message}\n\n${usage}`)
     return 2
   }
-  const manifest = await readManifest(options.cases)
   const hashes = new Set(
-    manifest.cases.flatMap(({ images }) => Object.values(images)),
+    options.calibration
+      ? // A calibration set (calibration.ts): the owner or the unseen set.
+        z
+          .object({
+            screenshots: z.array(
+              z.object({
+                image: z.string(),
+                before: z.object({ image: z.string() }).optional(),
+              }),
+            ),
+          })
+          .parse(JSON.parse(await readFile(options.calibration, "utf8")))
+          .screenshots.flatMap(({ image, before }) =>
+            before ? [image, before.image] : [image],
+          )
+      : (await readManifest(options.cases)).cases.flatMap(({ images }) =>
+          Object.values(images),
+        ),
   )
   const paths = new Map<string, string>()
   for (const sha256 of hashes) {

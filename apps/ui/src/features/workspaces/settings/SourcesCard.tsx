@@ -144,8 +144,12 @@ export function SourcesCard(props: {
         </p>
       ) : activity.status === "error" ? (
         <div className="mb-4">
+          {/* A settings card shows a problem as one line: the icon, the
+              text and the fix, without a second frame. */}
           <InlineAlert
             variant="warning"
+            framed={false}
+            actionsPlacement="end"
             actions={
               <Button variant="secondary" onPress={activity.retry}>
                 Try again

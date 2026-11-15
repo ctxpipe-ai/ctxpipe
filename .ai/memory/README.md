@@ -17,7 +17,8 @@ gitignored [`events/`](./events/) and are promoted by agents using capture skill
 
 | Change | Where |
 |--------|--------|
-| Confirmed convention / correction | `lessons-learned.md` (+ root `index.md` if store role changes) |
+| Confirmed general convention / correction | `lessons-learned.md` (+ root `index.md` if store role changes) |
+| Rule for one component or feature | The README of that component's folder, or a doc comment on the component. Not `lessons-learned.md` |
 | Architecture decision | `decisions/ADR-NNN-*.md` + `decisions/index.md` |
 | Term | `glossary.md` |
 | Product/PRD fact | `PRDs/` + `PRDs/index.md` or `product-context.md` |

@@ -87,7 +87,7 @@ describe("withOpencodeServeRetry", () => {
     expect(err).toContain("EADDRINUSE")
   })
 
-  it("starts again when OpenCode 1.18.34 says only ServeError for a taken port", async () => {
+  it("starts again when OpenCode 1.19.5 says only ServeError for a taken port", async () => {
     const { provider, commands } = standIn([
       {
         stdout: [

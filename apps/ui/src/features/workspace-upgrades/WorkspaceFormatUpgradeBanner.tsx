@@ -18,12 +18,13 @@ export function WorkspaceFormatUpgradeBanner(props: {
   const { data } = useQuery(workspaceUpgradesOptions(orgSlug, workspaceSlug))
   if (!data || !workspaceNeedsFormatUpgrade(data)) return null
   return (
-    <div className="shrink-0 border-b border-white/[0.06] p-3">
+    <div className="shrink-0 px-3 pt-3">
       <FormatUpgradeNotice
         orgSlug={orgSlug}
         workspaceSlug={workspaceSlug}
         context="workspace"
         items={data.items}
+        appearance="banner"
       />
     </div>
   )
