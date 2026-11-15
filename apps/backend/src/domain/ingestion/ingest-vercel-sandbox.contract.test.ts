@@ -824,6 +824,18 @@ describe("hosted ingest shard", { timeout: 240_000 }, () => {
       // The tool installs and caches of the snapshot build are left out.
       "cat /proc/[0-9]*/environ 2>/dev/null | base64 -w0; echo; tar -czf - --ignore-failed-read --exclude=/home/vercel-sandbox/.local --exclude=/home/vercel-sandbox/.npm --exclude=/root/.npm --exclude=/root/.cache /ctxpipe /etc /tmp /home /root 2>/dev/null | base64 -w0",
     )
+    // A cut archive cannot be searched. Name the largest folders, so that a
+    // new leftover of a tool is easy to find and to leave out above.
+    if (tree.stdoutTruncated) {
+      const largest = await (
+        await shardRoot()
+      )(
+        "du -xk /ctxpipe /etc /tmp /home /root 2>/dev/null | sort -rn | head -25",
+      )
+      expect.fail(
+        `The archive of the sandbox is larger than the command output limit. Largest folders (KiB):\n${largest.stdout}`,
+      )
+    }
     const [environ = "", archive = ""] = tree.stdout.split("\n")
     expect(Buffer.from(environ, "base64").includes(githubToken)).toBe(false)
     expect(
