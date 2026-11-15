@@ -65,7 +65,7 @@ A workflow other than `ci.yaml` does not start on its own for a pull request, un
 | `terraform-plan-pr.yaml` | none; the merge gate calls it as a reusable workflow (`workflow_call`) | `policy:terraform-plan:infra/main.tf` | The job `merge-gate-terraform-plan` of `ci.yaml` calls it when the PR changes a file under `infra/`. |
 | `mcp-evals.yaml` | the label `mcp-evals` (kept on purpose) | the `eval:mcp` cases | A person adds the label. Each run calls paid models. The merge gate comment tells the author when the PR changes a file under `apps/backend/src/mcp/` and has no label. |
 | `changeset-guard.yaml` | every pull request (kept on purpose) | none | It reads the diff against the base branch, not an input of a check. A changeset that a PR lacks cannot show in a selection. |
-| `observability.yaml` | `ops/observability/**` and the Railway scripts (not yet in the manifest) | none | Its jobs are not checks yet. A path filter still decides. |
+| `observability.yaml` | `ops/observability/**` and the workflow file (not yet in the manifest) | none | Its jobs are not checks yet. A path filter still decides. |
 | `ingestion-v2-proof.yaml` | none (a push to `proof/ingestion-v2-*`, or by hand) | none | Only the CTO starts it by hand. |
 
 - The `claude-plugin` check runs in the Lint and format job of `ci.yaml`. It needs the network: `npx` downloads the pinned Claude Code.
