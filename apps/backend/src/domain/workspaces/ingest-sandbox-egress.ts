@@ -200,7 +200,9 @@ export function revokeIngestGitTokens(input: {
  * the host name again when it connects. The backend checks the host before it makes the rule (`shardRepositories`):
  * on self-host too, it refuses a host that resolves to a cloud metadata or
  * link-local address. A DNS answer that changes after that check is not
- * covered here.
+ * covered here. On hosted AgentCore, the vault writer gives each rule
+ * except the callback rules port 443, so a changed answer cannot reach the
+ * backend's callback ports (`agentCoreRules` in `agent-vault.ts`).
  */
 export function ingestCredentialRules(
   egress: IngestEgress,

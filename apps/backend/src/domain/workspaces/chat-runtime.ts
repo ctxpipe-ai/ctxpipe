@@ -21,7 +21,7 @@ export const WORKSPACE_CHAT_OPENCODE_PORT = 4096
 export function workspaceChatDockerImage(): string {
   return (
     process.env.SANDBOX_CHAT_IMAGE?.trim() ||
-    "ctxpipe-chat-sandbox:opencode-1.18.34-r4"
+    "ctxpipe-chat-sandbox:opencode-1.19.5-r1"
   )
 }
 

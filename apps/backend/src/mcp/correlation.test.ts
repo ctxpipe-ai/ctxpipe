@@ -56,8 +56,17 @@ beforeAll(() => {
   initLogger({
     env: { service: "ctxpipe-backend", environment: "test" },
     pretty: false,
+    // The event of each call goes to the global drain.
+    drain: (ctx) => {
+      events.push(ctx.event as Record<string, unknown>)
+    },
   })
 })
+
+/** The wide event of the call (not the event of the POST /mcp request). */
+function callEvent(operation = "mcp.call") {
+  return events.find((event) => event.operation === operation)
+}
 
 function buildApp(
   principal: Principal = { userId: "user_1" },
@@ -438,7 +447,7 @@ describe("MCP tool result facts", () => {
 
     expect(result.isError).toBe(true)
     expect(span.attributes["ctxpipe.mcp.error.code"]).toBe("org_not_found")
-    expect(events.at(-1)?.["ctxpipe.mcp.error.code"]).toBe("org_not_found")
+    expect(callEvent()?.["ctxpipe.mcp.error.code"]).toBe("org_not_found")
     // A bad call is not a server fault: the span stays out of ERROR.
     expect(span.status.code).not.toBe(SpanStatusCode.ERROR)
   })
@@ -449,7 +458,7 @@ describe("MCP tool result facts", () => {
     )
 
     expect(span.attributes["ctxpipe.mcp.error.code"]).toBeUndefined()
-    expect(events.at(-1)?.["ctxpipe.mcp.error.code"]).toBeUndefined()
+    expect(callEvent()?.["ctxpipe.mcp.error.code"]).toBeUndefined()
   })
 
   it("records the size of the result in bytes on the tool span and the wide event", async () => {
@@ -464,7 +473,7 @@ describe("MCP tool result facts", () => {
     expect(bytes as number).toBeGreaterThan(2000)
     // The size is the size of the result that the client gets, call id included.
     expect(bytes).toBe(Buffer.byteLength(JSON.stringify(result)))
-    expect(events.at(-1)?.["ctxpipe.mcp.result.bytes"]).toBe(bytes)
+    expect(callEvent()?.["ctxpipe.mcp.result.bytes"]).toBe(bytes)
   })
 })
 
@@ -484,10 +493,15 @@ describe("bridge tool call facts", () => {
     expect(span()?.status.code).not.toBe(SpanStatusCode.ERROR)
   })
 
-  it("puts the code of an error result on the span, and leaves the span out of ERROR", async () => {
+  it("puts the code of an error result on the span and the call event, and leaves the span out of ERROR", async () => {
     await runBridgeToolCall("get_file", async () =>
       toToon({ error: "checkout_not_in_run", repositoryId: "repo_1" }),
     )
+
+    expect(callEvent("bridge.tool")).toMatchObject({
+      "ctxpipe.mcp.tool": "get_file",
+      "ctxpipe.mcp.error.code": "checkout_not_in_run",
+    })
 
     expect(span()?.attributes["ctxpipe.mcp.error.code"]).toBe(
       "checkout_not_in_run",

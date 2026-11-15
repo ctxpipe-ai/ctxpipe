@@ -39,7 +39,7 @@ import {
  * Contract (Docker): the ingest sandbox layout and the agent's isolation.
  *
  * Each test makes and prepares its own sandbox, so the tests do not depend
- * on their order. The chat image pins OpenCode 1.18.34; the isolation flags
+ * on their order. The chat image pins OpenCode 1.19.5; the isolation flags
  * and the request shape are proven on that version only (see
  * `assertIngestOpenCodeVersion`).
  *
@@ -362,7 +362,7 @@ describe("ingest sandbox layout", () => {
     await withBox(async (box) => {
       await expect(
         assertIngestOpenCodeVersion(box.root, AGENT_ENV),
-      ).resolves.toBe("1.18.34")
+      ).resolves.toBe("1.19.5")
       await box.sh("mkdir -p /tmp/fake-bin")
       await box.handle.fs.write(
         "/tmp/fake-bin/opencode",
@@ -374,7 +374,7 @@ describe("ingest sandbox layout", () => {
           ...AGENT_ENV,
           PATH: `/tmp/fake-bin:${AGENT_ENV.PATH ?? BASE_PATH}`,
         }),
-      ).rejects.toThrow(/OpenCode 9\.9\.9 is not tested.*1\.18\.34/)
+      ).rejects.toThrow(/OpenCode 9\.9\.9 is not tested.*1\.19\.5/)
     })
   }, 300_000)
 })

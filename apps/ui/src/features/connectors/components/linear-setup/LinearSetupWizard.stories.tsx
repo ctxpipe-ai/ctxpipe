@@ -122,7 +122,6 @@ export const ConnectWorkspace: Story = {
 export const RegisterOauthApp: Story = {
   args: { connectionId },
   parameters: {
-    visual: { allow: { overflow: "Fixed by PR #722." } },
     msw: {
       handlers: {
         page: [
@@ -434,7 +433,6 @@ export const ManageAgainShowsTheNewScope: Story = {
   tags: ["reduced-motion"],
   render: (args) => <ManageButton {...args} />,
   parameters: {
-    visual: { allow: { axes: "Fixed by PR #722." } },
     msw: {
       handlers: {
         page: [

@@ -21,7 +21,7 @@ const meta = {
   args: cardProps,
   decorators: [
     (Story) => (
-      <div className="w-full max-w-xl">
+      <div className="w-xl max-w-full">
         <Story />
       </div>
     ),
@@ -108,7 +108,6 @@ export const NotYetConnected: Story = {
   parameters: {
     visual: {
       allow: {
-        overflow: "Fixed by PR #722.",
         contrast: "Text below WCAG AA on main (CTX-1278).",
       },
     },

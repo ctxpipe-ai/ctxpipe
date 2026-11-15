@@ -3,11 +3,13 @@ import { describe, expect, it } from "vitest"
 import { withAgentVault } from "../../test/agent-vault-fixture.js"
 import {
   AgentVaultUnavailableError,
+  agentVaultAccess,
   openRunVault,
   sweepRunVaults,
   writeProxyCaCommand,
 } from "./agent-vault.js"
 import { workspaceChatDockerImage } from "./chat-runtime.js"
+import { ingestCredentialRules } from "./ingest-sandbox-egress.js"
 import {
   bearerUrlRule,
   githubFetchCredentialRules,
@@ -392,6 +394,121 @@ ${fetchStatus("http://example.com/")}
           expect(sections["other-host"], output).toBe("403")
         } finally {
           await vault.close()
+        }
+      })
+    },
+  )
+
+  it(
+    "on AgentCore, a host that a customer names reaches only port 443, also when its DNS points at the backend at connect time; the callback rules still work (CTX-1287)",
+    { timeout: 240_000 },
+    async () => {
+      // The upstream's address is in Agent Vault's network allowlist, as the
+      // backend's subnets are on AWS. It has two names: `backend` is the
+      // backend's callback name, and `upstream` is a plain git host whose
+      // DNS a customer controls. At write time, the customer's DNS answers
+      // with a public address; when Agent Vault connects, the name resolves
+      // to the backend (DNS rebinding). The backend listens on 8080.
+      await withAgentVault({ image, closed: true }, async (fixture) => {
+        const { upstream, backend } = fixture
+        const env = {
+          AGENT_VAULT_ADDR: fixture.access.address,
+          SANDBOX_PROVIDER: "agentcore",
+          SANDBOX_CALLBACK_HOST: backend,
+        }
+        const fromEnv = agentVaultAccess(env)
+        if (!fromEnv?.agentCore) throw new Error("No AgentCore access")
+        const access = {
+          ...fixture.access,
+          agentCore: {
+            ...fromEnv.agentCore,
+            lookup: async () => ["93.184.215.14"],
+          },
+        }
+        const callback = `http://${backend}:8080`
+        const rules = ingestCredentialRules(
+          {
+            repositories: [
+              { kind: "git", host: upstream, path: "/public/repo.git" },
+            ],
+            modelProxyUrl: `${callback}/echo/model/v1`,
+            capability: "model-capability",
+            bridge: { url: `${callback}/echo/bridge`, token: "bridge-token" },
+          },
+          [],
+          { fetchSource: true },
+        )
+        const vault = await openRunVault({
+          access,
+          runKey: `test:${crypto.randomUUID()}`,
+          ttlSeconds: 600,
+          rules,
+          unmatchedHosts: "deny",
+        })
+        // Outside AgentCore, a rule with no port matches each port: the
+        // same host then reaches the backend's port.
+        const unpinned = await openRunVault({
+          access: fixture.access,
+          runKey: `test:${crypto.randomUUID()}`,
+          ttlSeconds: 600,
+          rules: [
+            { name: "unpinned", host: upstream, authorization: "Bearer x" },
+          ],
+          unmatchedHosts: "deny",
+        })
+        try {
+          const code = (url: string) =>
+            `curl -sS -m 20 -o /dev/null -w "%{http_code}" ${url} 2>/dev/null || true`
+          const result = await fixture.sandbox(
+            vault.env,
+            `${writeProxyCaCommand(vault.caPem)}
+echo "== plain-fetch"
+git ls-remote https://${upstream}/public/repo.git refs/heads/main 2>&1 | cut -f2
+echo "== backend-port-http"
+${code(`http://${upstream}:8080/public/repo.git/info/refs?service=git-upload-pack`)}
+echo
+echo "== backend-port-https"
+${code(`https://${upstream}:8080/public/repo.git/info/refs?service=git-upload-pack`)}
+echo
+echo "== backend-port-echo"
+${code(`http://${upstream}:8080/echo/model/v1/chat/completions`)}
+echo
+echo "== model"
+curl -sS -m 20 -X POST ${callback}/echo/model/v1/chat/completions
+echo
+echo "== bridge"
+curl -sS -m 20 ${callback}/echo/bridge
+echo
+`,
+          )
+          const output = `${result.stdout}\n${result.stderr}`
+          expect(result.exitCode, output).toBe(0)
+          const sections = sectionsOf(result.stdout)
+          expect(sections["plain-fetch"], output).toBe("refs/heads/main")
+          for (const name of [
+            "backend-port-http",
+            "backend-port-https",
+            "backend-port-echo",
+          ])
+            expect(sections[name], `${name}\n${output}`).toBe("403")
+          expect(
+            JSON.parse(sections.model ?? "{}").headers?.authorization,
+            output,
+          ).toBe("Bearer model-capability")
+          expect(
+            JSON.parse(sections.bridge ?? "{}").headers?.authorization,
+            output,
+          ).toBe("Bearer bridge-token")
+
+          const gap = await fixture.sandbox(
+            unpinned.env,
+            `${writeProxyCaCommand(unpinned.caPem)}
+${code(`http://${upstream}:8080/echo/model/v1/chat/completions`)}`,
+          )
+          expect(gap.stdout, `${gap.stdout}\n${gap.stderr}`).toBe("200")
+        } finally {
+          await vault.close()
+          await unpinned.close()
         }
       })
     },
