@@ -295,7 +295,8 @@ line gives its expected output. The dry run of the copy is its preflight against
   4. Agent: `validateTarget https://app.ctxpipe.ai` with the Access service token of the agent and the test API key.
      Then the task `cutover-validate-secrets`.
   5. Person (the agent's browser cannot pass Access): sign in with the test account. Read a graph and run a search on
-     the test repository. Use only the test organization, and print no secret value and no id.
+     the test repository. Open the connectors page of the test organization: each connector shows as connected. Use
+     only the test organization, and print no secret value and no id.
   6. Person, for information only (not a G4 item): the chat smoke. Make a conversation, let it prepare, send one
      message, and get an answer. The observability agent watches for the prepare response 200, the sandbox create,
      the model call and the completed turn. A chat turn runs in the backend (`POST /{conversationId}/prepare` in
