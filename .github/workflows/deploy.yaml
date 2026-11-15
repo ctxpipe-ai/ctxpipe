@@ -285,9 +285,8 @@ jobs:
   # (CTX-1215 X2). crane copies the manifest list by digest, so the ECR
   # digest equals the source digest. It writes the per-platform images first
   # and the tagged list last, so the newest tagged image is always complete.
-  # Each production push starts the factory digest workflow through
-  # EventBridge; this repo holds no factory credential. Railway deploys from
-  # GHCR (the terraform job) until the cutover, so no job waits for this one.
+  # When it copied this build to production, dispatch_hosted starts the
+  # hosted deploy.
   copy_images_to_ecr:
     timeout-minutes: 15
     name: Copy images to the ECR
@@ -303,6 +302,8 @@ jobs:
       contents: read
       id-token: write
       packages: read
+    outputs:
+      production: ${{ steps.copy.outputs.production }}
     env:
       PRODUCTION_ECR: 213102790567.dkr.ecr.us-west-2.amazonaws.com
       PREVIEW_ECR: 573018602187.dkr.ecr.us-west-2.amazonaws.com
@@ -343,6 +344,7 @@ jobs:
           aws ecr get-login-password | "$RUNNER_TEMP/crane" auth login "$PREVIEW_ECR" -u AWS --password-stdin
 
       - name: Copy the images by digest
+        id: copy
         env:
           DIGESTS: ${{ needs.ecr_digests.outputs.digests }}
           GH_TOKEN: ${{ github.token }}
@@ -415,6 +417,47 @@ jobs:
           production agent-vault 0.40.2 docker.io/infisical/agent-vault@sha256:d09894c86c9b8df64ea37442ace9907dcdf82dabd2730b78b9e0c4c5e070e79a
           preview nginx 1.31.8-alpine docker.io/library/nginx@sha256:713fc2ebfd92e8217db451477182ee91944b123d2b1ee9fd5a8c6e91ca6c3a11
           PINS
+          # This build is whole in the production ECR: dispatch_hosted may
+          # send it.
+          if [ "$PUSH_PRODUCTION" = true ] && [ "$DIGESTS" != "{}" ]; then
+            echo "production=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Starts the hosted deploy of this build in factory (CTX-1306, ADR-061):
+  # once, after copy_images_to_ecr put each production image of it in the
+  # ECR, with the commit and the digests. factory's hosted.yml checks each
+  # digest against the ECR's tag of this commit and deploys the newest build
+  # that the ECR holds whole. The App ctxpipe-hosted-digest has Actions write
+  # on factory only; its key is only in the environment factory-dispatch,
+  # which admits only main.
+  dispatch_hosted:
+    timeout-minutes: 5
+    name: Deploy hosted (factory)
+    if: ${{ !cancelled() && !failure() && needs.copy_images_to_ecr.outputs.production == 'true' }}
+    needs:
+      - ecr_digests
+      - copy_images_to_ecr
+    runs-on: blacksmith-2vcpu-ubuntu-2404-arm
+    environment: factory-dispatch
+    permissions: {}
+    steps:
+      - id: token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.FACTORY_DISPATCH_APP_ID }}
+          private-key: ${{ secrets.FACTORY_DISPATCH_PRIVATE_KEY }}
+          owner: ctxpipe-ai
+          repositories: factory
+          permission-actions: write
+      - name: Dispatch hosted.yml
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          DIGESTS: ${{ needs.ecr_digests.outputs.digests }}
+        run: |
+          set -euo pipefail
+          gh workflow run hosted.yml --repo ctxpipe-ai/factory --ref main \
+            -f source_sha="$GITHUB_SHA" -f images="$DIGESTS"
+          echo "Dispatched the hosted release $GITHUB_SHA to factory hosted.yml" | tee -a "$GITHUB_STEP_SUMMARY"
 
   release:
     timeout-minutes: 20
