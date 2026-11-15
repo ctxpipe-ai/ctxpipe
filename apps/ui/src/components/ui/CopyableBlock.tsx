@@ -23,7 +23,7 @@ export function CopyableBlock({
   value,
   copiedAriaLabel,
   copyAriaLabel,
-  copyErrorMessage = "Could not copy — copy the URL manually.",
+  copyErrorMessage = "Could not copy. Select the text and copy it.",
   onCopied,
   onCopyFailed,
   variant = "default",
@@ -77,7 +77,7 @@ export function CopyableBlock({
                 <span className="text-muted-foreground">…</span>
               )
             ) : (
-              <code className="whitespace-nowrap font-mono text-sm text-muted-foreground">
+              <code className="whitespace-nowrap font-mono text-sm text-foreground">
                 {value}
               </code>
             )}

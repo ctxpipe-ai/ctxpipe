@@ -72,6 +72,13 @@ describe("buildPrompt", () => {
     expect(prefix).toMatch(
       /must not make another quality worse[^]*also when the brief asks for the change/i,
     )
+    // The priority order of DESIGN.md decides a conflict (ADR-063 rule 15).
+    expect(prefix).toContain(
+      `The design qualities, in priority order: ${packagedRubric.qualities.map(({ name }) => name).join(", ")}. When two rules conflict, the higher quality wins`,
+    )
+    expect(prefix).toContain(
+      "Rubric, layer 2, the design qualities, in priority order.",
+    )
     // Only the measured regions.
     expect(prefix).toMatch(/judge only the measured regions/i)
     expect(prefix).toMatch(
@@ -98,9 +105,9 @@ describe("buildPrompt", () => {
     expect(prefix).toContain(
       "- Focus (page only) [focus]: The page has one primary action",
     )
-    expect(prefix).toContain("apps/ui/DESIGN.md › Personality (copy these)")
+    expect(prefix).toContain("apps/ui/DESIGN.md › Task clarity")
     expect(prefix).toContain(
-      ".agents/skills/product-ui/references/ai-tells.md › Tells to remove",
+      "apps/ui/DESIGN.md › Polish; apps/ui/DESIGN.md › House decisions",
     )
     // The JSON shape, for a judge that has no structured output.
     expect(prefix).toContain('"explainedByBrief"')

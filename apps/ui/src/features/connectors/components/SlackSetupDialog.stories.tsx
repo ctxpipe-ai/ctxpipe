@@ -205,7 +205,6 @@ export const ChooseWorkspaces: Story = {
 /** The Workspaces step explains capture and offers no repository picker (ADR-050). */
 export const CaptureWorkspace: Story = {
   parameters: {
-    visual: { allow: { axes: "Fixed by PR #722." } },
     msw: {
       handlers: {
         page: [
@@ -382,9 +381,6 @@ export const ManageAgainShowsTheNewScope: Story = {
   tags: ["reduced-motion"],
   render: (args) => <ManageButton {...args} />,
   parameters: {
-    visual: {
-      allow: { overflow: "Fixed by PR #722.", axes: "Fixed by PR #722." },
-    },
     msw: {
       handlers: {
         page: [

@@ -1,0 +1,69 @@
+diff --git a/bin/opencode.exe b/bin/opencode.exe
+index c658ba1bfe33b616a989f52ceea36a6cf44f3e35..152797e2dd62627b441d465496715c6a6ce896e8 100755
+--- a/bin/opencode.exe
++++ b/bin/opencode.exe
+@@ -1,10 +1,54 @@
+-echo "Error: opencode-ai's postinstall script was not run." >&2
+-echo "" >&2
+-echo "This occurs when using --ignore-scripts during installation, or when using a" >&2
+-echo "package manager like pnpm that does not run postinstall scripts by default." >&2
+-echo "" >&2
+-echo "To fix this, run the postinstall script manually:" >&2
+-echo "  cd node_modules/opencode-ai && node postinstall.mjs" >&2
+-echo "" >&2
+-echo "Or reinstall opencode-ai without the --ignore-scripts flag." >&2
+-exit 1
++#!/usr/bin/env node
++// ctxpipe patch (pnpm patchedDependencies): run the OpenCode binary of the
++// platform package that the lockfile installed. No install script runs and
++// nothing is downloaded: the postinstall of opencode-ai, which copies the
++// binary here or installs it from the registry, stays off (pnpm runs no
++// dependency build script).
++const { execFileSync, spawn } = require("node:child_process")
++const { existsSync, readFileSync } = require("node:fs")
++const { dirname, join } = require("node:path")
++
++const platform = { darwin: "darwin", linux: "linux", win32: "windows" }[process.platform] ?? process.platform
++const base = `opencode-${platform}-${process.arch}`
++// An x64 CPU without AVX2 needs the baseline build, as the postinstall of
++// opencode-ai decides.
++const avx2 = () => {
++  try {
++    if (process.platform === "linux") return /(^|\s)avx2(\s|$)/i.test(readFileSync("/proc/cpuinfo", "utf8"))
++    if (process.platform === "darwin")
++      return execFileSync("sysctl", ["-n", "hw.optional.avx2_0"], { encoding: "utf8" }).trim() === "1"
++  } catch {}
++  return false
++}
++const variants = process.arch === "x64" && !avx2() ? [`${base}-baseline`, base] : [base, `${base}-baseline`]
++const musl = existsSync("/etc/alpine-release")
++const names = musl
++  ? [...variants.map((name) => `${name}-musl`), ...variants]
++  : [...variants, ...variants.map((name) => `${name}-musl`)]
++const binary = names
++  .map((name) => {
++    try {
++      const file = join(dirname(require.resolve(`${name}/package.json`)), "bin", platform === "windows" ? "opencode.exe" : "opencode")
++      return existsSync(file) ? file : undefined
++    } catch {
++      return undefined
++    }
++  })
++  .find(Boolean)
++if (!binary) {
++  console.error(`opencode: no installed platform package (${names.join(", ")}). Run pnpm install.`)
++  process.exit(1)
++}
++
++const child = spawn(binary, process.argv.slice(2), { stdio: "inherit" })
++child.on("error", (error) => {
++  console.error(`opencode: ${error.message}`)
++  process.exit(1)
++})
++const signals = ["SIGINT", "SIGTERM", "SIGHUP"]
++for (const signal of signals) process.on(signal, () => child.kill(signal))
++child.on("exit", (code, signal) => {
++  for (const name of signals) process.removeAllListeners(name)
++  if (signal) process.kill(process.pid, signal)
++  else process.exit(code ?? 1)
++})
