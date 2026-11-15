@@ -1,6 +1,8 @@
 # ADR-029: Railway compute in US East next to Neon
 
-**Status:** Accepted | **Date:** 2026-09-13 | **Tags:** infra, railway, neon, latency
+**Status:** Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) | **Date:** 2026-09-13 | **Tags:** infra, railway, neon, latency
+
+> **Superseded (AWS cutover).** Hosted compute and the database run in AWS us-west-2 in one VPC ([ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md), decisions 3 and 8). No Railway region and no Neon pooler remain.
 
 ## Context
 

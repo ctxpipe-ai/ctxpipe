@@ -88,11 +88,6 @@ const production = join(".github", "workflows", "deploy.yaml")
 // production runtime trusts the same dependencies.
 const productionJobs = new Map(
   Object.entries({
-    // `pnpm install`: migrate (tsx src/db/migrate.ts) and the cleanup of
-    // preview sandboxes (Vercel SDK) need the dependencies. The production
-    // Terraform variables, the Railway and Neon keys and the production
-    // database URL are in this job.
-    "deploy.yaml:terraform": "migrate and the sandbox cleanup need packages",
     // `pnpm install`: the Forge CLI deploys the Forge app with the Forge
     // token.
     "deploy.yaml:forge_deploy": "the Forge CLI is a package",
