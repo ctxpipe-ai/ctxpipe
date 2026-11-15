@@ -265,17 +265,20 @@ function streamedAnswer(): Response {
   )
 }
 
+/** The Agent Vault fixture that a scenario runs in. */
+type VaultFixture = Parameters<Parameters<typeof withAgentVault>[1]>[0]
+
+/** The shard of a scenario sandbox. */
+type ShardInput = {
+  orgId: string
+  runId: string
+  shard: number
+  access: AgentVaultAccess
+}
+
 /** How a closed-egress scenario makes, uses and checks one sandbox. */
 type ScenarioSandbox = {
-  provider: (
-    shard: {
-      orgId: string
-      runId: string
-      shard: number
-      access: AgentVaultAccess
-    },
-    egress: IngestEgress,
-  ) => SandboxProvider
+  provider: (shard: ShardInput, egress: IngestEgress) => SandboxProvider
   /** Runs a script in the sandbox; the stdout. */
   exec: (handle: SandboxHandle, script: string) => Promise<string>
   /** Whether the sandbox still exists after a destroy. */
@@ -289,7 +292,7 @@ type ScenarioSandbox = {
  * deletes the vault and always revokes the token.
  */
 async function closedEgressScenario(
-  fixture: Parameters<Parameters<typeof withAgentVault>[1]>[0],
+  fixture: VaultFixture,
   sandbox: ScenarioSandbox,
 ): Promise<void> {
   log.minted.length = 0
@@ -500,14 +503,8 @@ type ModelStepSandbox = {
  */
 async function modelStepScenario(
   makeSandbox: (
-    fixture: Parameters<Parameters<typeof withAgentVault>[1]>[0],
-    shard: {
-      orgId: string
-      runId: string
-      shard: number
-      access: AgentVaultAccess
-      egress: IngestEgress
-    },
+    fixture: VaultFixture,
+    shard: ShardInput & { egress: IngestEgress },
   ) => Promise<ModelStepSandbox>,
 ): Promise<void> {
   const upstreamCalls: string[] = []
