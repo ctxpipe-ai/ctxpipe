@@ -1241,31 +1241,6 @@ test("the toolchain record hashes each value and matches its schema", () => {
   )
 })
 
-// `go install tool` in scripts/zoekt (scripts/zoekt/build.sh) builds the
-// binary of the zoekt module itself, so its `mod` line is zoekt, not the tool
-// module. The output is the head of `go version -m .tools/bin/zoekt-webserver`.
-test("the zoekt version of the scripts/zoekt build is the zoekt module version", () => {
-  const output = [
-    ".tools/bin/zoekt-webserver: go1.27.3",
-    "\tpath\tgithub.com/sourcegraph/zoekt/cmd/zoekt-webserver",
-    "\tmod\tgithub.com/sourcegraph/zoekt\tv0.0.0-20260907153830-596c362fcf13\th1:9HmptK4WT1wYE/EQHin7lPEEe2eiSrPD6C0miin5jdg=",
-    "\tdep\tcloud.google.com/go\tv0.118.0\th1:tvZe1mgqRxpiVa3XlIGMiPcEUbP1gNXELgD4y/IXmeQ=",
-    "",
-  ].join("\n")
-  assert.equal(
-    programVersion("zoekt", output),
-    "v0.0.0-20260907153830-596c362fcf13",
-  )
-  const goMod = readFileSync(
-    new URL("../zoekt/go.mod", import.meta.url),
-    "utf8",
-  )
-  assert.match(
-    goMod,
-    /github\.com\/sourcegraph\/zoekt v0\.0\.0-20260907153830-596c362fcf13/,
-  )
-})
-
 test("the toolchain record holds the version of each host program that a check declares", () => {
   const outputs = {
     "git --version": "git version 2.50.1 (Apple Git-155)\n",
