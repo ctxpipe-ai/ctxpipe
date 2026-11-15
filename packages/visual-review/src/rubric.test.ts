@@ -48,6 +48,7 @@ function rubricFromDesign(rubric: Rubric): Rubric {
     const block = blocks.get(id) ?? { at: match.index, parts: [], sections: [] }
     block.parts.push(
       body
+        .replace(/^- /gm, "")
         .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
         .replace(/\*\*|`/g, "")
         .replace(/\s+/g, " ")
@@ -95,10 +96,9 @@ describe("rubric", () => {
     ).toMatchFileSnapshot("../rubric.json")
   })
 
-  test("has the twelve concrete areas and the eleven design qualities, the qualities in priority order", () => {
+  test("has the eleven concrete areas and the ten design qualities, the qualities in priority order", () => {
     expect(areas.map(({ id }) => id).sort()).toEqual([
       "actions",
-      "alignment",
       "broken-content",
       "color-tokens",
       "contrast",
@@ -115,11 +115,10 @@ describe("rubric", () => {
       "Clarity",
       "Focus",
       "Hierarchy",
-      "Grouping and rhythm",
+      "Gestalt",
       "Feedback and state",
       "Consistency",
       "Brand fit",
-      "Visual balance",
       "Density",
       "Restraint",
     ])

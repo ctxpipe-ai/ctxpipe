@@ -30,16 +30,12 @@ A `ul` used as a **layout** (catalog rows, icon rows, GridList) is fine — the 
 
 ## Forms
 
-- Label sits next to its control; the gap inside a field is smaller than the gap between field groups.
-- Group related fields under a section heading. Space *above* the heading is larger than space below it.
+- Group related fields under a section heading, not one unlabeled column.
 - Narrow form: `max-w-*` on the fields. Optional **second column** for help — do not widen the inputs to fill the nav.
-- Complex forms: sections + proximity, not one unlabeled column.
 
 ## Tables
 
 - Combine related cells (name + supporting line in one cell) instead of one field per column.
-- Right-align + `tabular-nums` on number columns.
-- One protagonist metric if this is a dashboard; do not lead with four equal KPI tiles.
 
 ## Choices (radios, dropdowns, cards)
 
