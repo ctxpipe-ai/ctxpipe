@@ -304,31 +304,29 @@ async function github(path, token) {
   return response.json()
 }
 
-// The digest that a run reported for each image in `names`: the one notice
-// `title` (`<image> sha256:…`) on the check run of its successful job
-// `jobName(image)`. A digest that is missing or not valid is a reason to build.
+// The digest that the base run published for each image: the one
+// `deploy-image` notice on the check run of its successful Publish job. A
+// digest that is missing or not valid is a reason to build.
 //
-// Only that job writes the notice, but any job with `checks: write` can add
-// annotations to a check run, and no job can delete one. So a second notice,
-// also a forged one, makes the image build: never take the first or the last
-// notice. A tag is no proof either: PR builds (pr-deploy.yaml) push tags to
-// the same GHCR packages, and each same-repo PR can push to ctxpipe-pr/*.
-async function noticeDigests({ repo, jobs, token, names, jobName, title }) {
+// Only a Publish job of a main run writes that notice, but any job with
+// `checks: write` can add annotations to a check run, and no job can delete
+// one. So a second notice, also a forged one, makes the image build: never
+// take the first or the last notice. A GHCR tag is no proof either: PR
+// builds (pr-deploy.yaml) push tags to the same packages.
+async function baseDigests({ repo, jobs, token }) {
   const digests = {}
-  for (const image of names) {
+  for (const { image } of images) {
     const job = jobs.find(
       ({ name, conclusion }) =>
-        name === jobName(image) && conclusion === "success",
+        name === `Publish image (${image})` && conclusion === "success",
     )
     const checkRun = /\/check-runs\/(\d+)$/.exec(job?.check_run_url ?? "")?.[1]
     if (!checkRun) {
-      digests[image] = {
-        reason: `the base run has no successful ${jobName(image)} job`,
-      }
+      digests[image] = { reason: "the base run has no successful Publish job" }
       continue
     }
     // Every page: a notice on a later page counts too. More than 10 pages
-    // is not a job of ours, so the image builds.
+    // is not a Publish job of ours, so the image builds.
     const annotations = []
     for (let page = 1; page <= 11; page += 1) {
       const batch = await github(
@@ -339,8 +337,8 @@ async function noticeDigests({ repo, jobs, token, names, jobName, title }) {
       if (batch.length < 100) break
     }
     const notices = annotations.filter(
-      ({ annotation_level, title: noticeTitle }) =>
-        annotation_level === "notice" && noticeTitle === title,
+      ({ annotation_level, title }) =>
+        annotation_level === "notice" && title === "deploy-image",
     )
     const match =
       annotations.length <= 1000 &&
@@ -349,7 +347,7 @@ async function noticeDigests({ repo, jobs, token, names, jobName, title }) {
     digests[image] = match
       ? { digest: match[1] }
       : {
-          reason: `the base job ${jobName(image)} has ${notices.length} ${title} notices, not one valid notice`,
+          reason: `the base Publish job has ${notices.length} deploy-image notices, not one valid notice`,
         }
   }
   return digests
@@ -379,22 +377,21 @@ export async function lastDeploy({ repo, token }) {
           name.startsWith("Publish image (") && conclusion === "success",
       )
     ) {
-      const digests = await noticeDigests({
-        repo,
-        jobs,
-        token,
-        names: images.map(({ image }) => image),
-        jobName: (image) => `Publish image (${image})`,
-        title: "deploy-image",
-      })
-      return { run, digests }
+      return { run, digests: await baseDigests({ repo, jobs, token }) }
     }
   }
   return undefined
 }
 
 // The matrix entry of an image: the image without its inputs.
-export const matrixEntry = ({ inputs, ...matrix }) => matrix
+const matrixEntry = ({ inputs, ...matrix }) => matrix
+
+/** The plan that builds each image of `list`, for `reason`. */
+export const buildAll = (list, reason) => ({
+  build: list.map(matrixEntry),
+  reuse: {},
+  reasons: Object.fromEntries(list.map(({ image }) => [image, reason])),
+})
 
 /**
  * Each path that differs between the commits `from` and `to`, also a deleted
@@ -402,7 +399,7 @@ export const matrixEntry = ({ inputs, ...matrix }) => matrix
  * character in the plain list, and a quoted path does not start with its
  * input.
  */
-export const changedPaths = (root, from, to) =>
+const changedPaths = (root, from, to) =>
   execFileSync("git", ["diff", "--name-only", "--no-renames", "-z", from, to], {
     cwd: root,
     encoding: "utf8",
@@ -413,54 +410,25 @@ export const changedPaths = (root, from, to) =>
     .filter(Boolean)
 
 /**
- * Which images this run builds, and the digest of the base run for each
- * other image: `{ build: [matrix entry], reuse: { image: digest },
- * reasons: { image: text } }`.
+ * The plan of the images of `list` at the commit `head` against the base
+ * run `base` (`{ run, digests }`, from lastDeploy): `{ build: [matrix entry],
+ * reuse: { image: digest }, reasons: { image: text } }`. An image builds when
+ * one of its inputs differs between the base commit and `head`, when its
+ * Dockerfile reads a path that its inputs do not cover, or when the base has
+ * no valid digest of it. Every image builds when a path of `everyImage`
+ * differs. It throws when git cannot compare the commits.
  */
-export async function planImages({ root, event, repo, token }) {
-  const everything = (reason) => ({
-    build: images.map(matrixEntry),
-    reuse: {},
-    reasons: Object.fromEntries(images.map(({ image }) => [image, reason])),
-  })
-  if (event !== "push") return everything(`a ${event} run builds every image`)
-  let base
-  let changed
-  let digests
-  try {
-    const last = await lastDeploy({ repo, token })
-    if (!last) return everything("no successful Deploy run on main")
-    ;({ run: base, digests } = last)
-    if (!/^[0-9a-f]{40}$/.test(base.head_sha))
-      return everything("the base run has no commit")
-    try {
-      execFileSync(
-        "git",
-        ["merge-base", "--is-ancestor", base.head_sha, "HEAD"],
-        { cwd: root, stdio: "ignore" },
-      )
-    } catch {
-      return everything(
-        `the base commit ${base.head_sha} is not in the history of HEAD`,
-      )
-    }
-    changed = changedPaths(root, base.head_sha, "HEAD")
-  } catch (error) {
-    return everything(`no base: ${error.message}`)
-  }
+export function planFrom({ root, list, base, head, everyImage }) {
+  const changed = changedPaths(root, base.run.head_sha, head)
   // A change to one of these files can change how every image builds.
-  const everyImageChange = changed.find((path) =>
-    [".github/workflows/deploy.yaml", "scripts/ci/deploy-images.mjs"].includes(
-      path,
-    ),
-  )
-  if (everyImageChange) return everything(`${everyImageChange} changed`)
+  const everyImageChange = changed.find((path) => everyImage.includes(path))
+  if (everyImageChange) return buildAll(list, `${everyImageChange} changed`)
   const result = { build: [], reuse: {}, reasons: {} }
-  const short = base.head_sha.slice(0, 7)
-  for (const image of images) {
+  const short = base.run.head_sha.slice(0, 7)
+  for (const image of list) {
     const uncovered = uncoveredSources(root, image)
     const touched = changed.find((path) => covers(inputsOf(image), path))
-    const { digest, reason } = digests[image.image]
+    const { digest, reason } = base.digests[image.image]
     const why = uncovered.length
       ? `its Dockerfile reads paths that its inputs do not cover: ${uncovered.join(", ")}`
       : touched
@@ -478,6 +446,70 @@ export async function planImages({ root, event, repo, token }) {
   return result
 }
 
+/**
+ * Write the plan of `list`: `build` and `reuse`, and each line of `extra`, to
+ * $GITHUB_OUTPUT (else stdout), and a table of the plan to stdout and to
+ * $GITHUB_STEP_SUMMARY.
+ */
+export function writePlan(result, list, extra = []) {
+  const env = process.env
+  const lines = [
+    `build=${JSON.stringify(result.build)}`,
+    `reuse=${JSON.stringify(result.reuse)}`,
+    ...extra,
+  ]
+  const summary = [
+    "| Image | Plan |",
+    "| --- | --- |",
+    ...list.map(
+      ({ image }) =>
+        `| ${image} | ${image in result.reuse ? "reuse" : "build"}: ${result.reasons[image]} |`,
+    ),
+  ]
+  console.log(summary.join("\n"))
+  if (env.GITHUB_OUTPUT)
+    appendFileSync(env.GITHUB_OUTPUT, `${lines.join("\n")}\n`)
+  else console.log(lines.join("\n"))
+  if (env.GITHUB_STEP_SUMMARY)
+    appendFileSync(env.GITHUB_STEP_SUMMARY, `${summary.join("\n")}\n`)
+}
+
+/**
+ * Which images this run builds, and the digest of the base run for each
+ * other image (planFrom).
+ */
+export async function planImages({ root, event, repo, token }) {
+  const everything = (reason) => buildAll(images, reason)
+  if (event !== "push") return everything(`a ${event} run builds every image`)
+  try {
+    const base = await lastDeploy({ repo, token })
+    if (!base) return everything("no successful Deploy run on main")
+    const sha = base.run.head_sha
+    if (!/^[0-9a-f]{40}$/.test(sha))
+      return everything("the base run has no commit")
+    try {
+      execFileSync("git", ["merge-base", "--is-ancestor", sha, "HEAD"], {
+        cwd: root,
+        stdio: "ignore",
+      })
+    } catch {
+      return everything(`the base commit ${sha} is not in the history of HEAD`)
+    }
+    return planFrom({
+      root,
+      list: images,
+      base,
+      head: "HEAD",
+      everyImage: [
+        ".github/workflows/deploy.yaml",
+        "scripts/ci/deploy-images.mjs",
+      ],
+    })
+  } catch (error) {
+    return everything(`no base: ${error.message}`)
+  }
+}
+
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
@@ -489,23 +521,7 @@ if (
     repo: env.GITHUB_REPOSITORY,
     token: env.GH_TOKEN,
   })
-  const lines = [
-    `build=${JSON.stringify(result.build)}`,
-    `reuse=${JSON.stringify(result.reuse)}`,
+  writePlan(result, images, [
     `images=${JSON.stringify(images.map(matrixEntry))}`,
-  ]
-  const summary = [
-    "| Image | Plan |",
-    "| --- | --- |",
-    ...images.map(
-      ({ image }) =>
-        `| ${image} | ${image in result.reuse ? "reuse" : "build"}: ${result.reasons[image]} |`,
-    ),
-  ]
-  console.log(summary.join("\n"))
-  if (env.GITHUB_OUTPUT)
-    appendFileSync(env.GITHUB_OUTPUT, `${lines.join("\n")}\n`)
-  else console.log(lines.join("\n"))
-  if (env.GITHUB_STEP_SUMMARY)
-    appendFileSync(env.GITHUB_STEP_SUMMARY, `${summary.join("\n")}\n`)
+  ])
 }

@@ -128,7 +128,7 @@ test("a change to the UI builds only ui", async () => {
   const result = await plan(commits)
   assert.deepEqual(built(result), ["ui"])
   assert.equal(result.reuse.codesearch, digestOf("codesearch"))
-  assert.match(result.reasons.ui, /apps\/ui\/src\/a\.ts differs/)
+  assert.match(result.reasons.ui, /apps\/ui\/src\/a\.ts changed since/)
 })
 
 test("a change to the backend source builds each image that copies it, and keeps codesearch", async () => {

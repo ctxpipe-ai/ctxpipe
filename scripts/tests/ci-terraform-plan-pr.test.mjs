@@ -548,6 +548,13 @@ test("the start of PR Deploy re-runs the first or an unsuccessful attempt of the
   const later = deploy([previewRun({ run_attempt: 2 })])
   assert.equal(later.status, 0, later.stderr)
   assert.deepEqual(later.calls, [started])
+  // A later attempt that runs builds the images now.
+  const building = deploy([
+    previewRun({ run_attempt: 2, status: "in_progress", conclusion: null }),
+  ])
+  assert.equal(building.status, 0, building.stderr)
+  assert.deepEqual(building.calls, [started])
+  assert.deepEqual(building.sleeps, [])
   // A later attempt that failed runs again.
   const failed = deploy([previewRun({ run_attempt: 2, conclusion: "failure" })])
   assert.equal(failed.status, 0, failed.stderr)

@@ -2466,7 +2466,8 @@ jobs:
           # the head commit builds nothing, and a re-run of it builds the images whose inputs differ from main.
           # The run is the one of this PR from this repo: a fork PR at the same commit has its own run. A later
           # attempt that succeeded built the images already, so only a first or an unsuccessful attempt runs
-          # again. GitHub can start that run after this job, so a missing or running run gets 4 minutes.
+          # again. GitHub can start that run after this job, so a missing run or a running first attempt gets 4
+          # minutes.
           # After that, the job fails: PR Deploy has started, and a re-run of this job starts the images.
           runs="repos/$REPO/actions/workflows/pr-preview-images.yaml/runs?branch=$encoded&head_sha=$HEAD&event=pull_request&per_page=20"
           pick='[.workflow_runs[] | select(.head_repository.full_name == $ENV.REPO and
@@ -2475,10 +2476,13 @@ jobs:
           for try in $(seq 12); do
             run=$(gh_retry api "$runs" --jq "$pick")
             read -r id status attempt conclusion <<< "$run"
-            [ "$status" != completed ] || break
+            # A later attempt that runs builds the images now.
+            [ "$status" != completed ] && [ "${attempt:-1}" = 1 ] || break
             [ "$try" = 12 ] || sleep 20
           done
-          if [ "$status" != completed ]; then
+          if [ "$status" != completed ] && [ "${attempt:-1}" != 1 ]; then
+            echo "::notice::The preview image run $id builds the images at attempt $attempt"
+          elif [ "$status" != completed ]; then
             echo "::error::The preview image run of $HEAD is missing or did not complete: re-run this job"
             exit 1
           elif [ "$attempt" != 1 ] && [ "$conclusion" = success ]; then
