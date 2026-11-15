@@ -17,17 +17,17 @@
 // `fullPage` takes the rest. When only fixed containers have hidden content,
 // the viewport gets its first height again.
 //
-// The viewport only grows after the probe. A modal of React Aria sets its
-// overlay to the height of the page (`--page-height`), so the document stays
-// high when the viewport gets smaller.
-//
 // It does at most 8 steps (content that a higher pane renders, for example
-// more rows of a virtual list, can need one more step), and makes the
-// viewport at most `maxHeight` pixels high. The width does not change.
+// more rows of a virtual list, can need one more step). The width does not
+// change.
+
+// The highest viewport, and the highest screenshot, in pixels.
+export const maxHeight = 10_000
+
 // Returns a function that gives the page its viewport and its scroll
 // positions again (a dialog that the play scrolled into view stays in view);
 // the caller calls it after the shot.
-export async function growToContent(page, maxHeight = 10_000) {
+export async function growToContent(page) {
   const before = page.viewportSize()
   // The scroll position of each element that has one.
   const scrolled = await page.evaluateHandle(() =>
@@ -42,31 +42,29 @@ export async function growToContent(page, maxHeight = 10_000) {
         element.scrollTo({ top, left, behavior: "instant" })
     })
   }
-  const fixed = new Set()
-  let last
+  const fixedScrollers = new Set()
+  let previousSizes
   let height = before.height
   for (let step = 0; step < 8; step++) {
     const sizes = await page.evaluate(measureScrollers)
-    let need = 0
-    for (const [id, clientHeight, hidden] of sizes) {
-      if (fixed.has(id)) continue
-      const previous = last?.get(id)
+    let largestHidden = 0
+    for (const { id, clientHeight, hidden } of sizes) {
+      if (fixedScrollers.has(id)) continue
+      const previous = previousSizes?.get(id)
       if (
         previous &&
         (previous.clientHeight === clientHeight || previous.hidden <= hidden)
       )
-        fixed.add(id)
-      else need = Math.max(need, hidden)
+        fixedScrollers.add(id)
+      else largestHidden = Math.max(largestHidden, hidden)
     }
-    if (need <= 0 || height >= maxHeight) {
+    if (largestHidden <= 0 || height >= maxHeight) {
       // Only the probe changed the viewport.
       if (step === 1) await resize(page, before)
       break
     }
-    height = Math.min(height + (last ? need : 8), maxHeight)
-    last = new Map(
-      sizes.map(([id, clientHeight, hidden]) => [id, { clientHeight, hidden }]),
-    )
+    height = Math.min(height + (previousSizes ? largestHidden : 8), maxHeight)
+    previousSizes = new Map(sizes.map((size) => [size.id, size]))
     await resize(page, { width: before.width, height })
   }
   return restore
@@ -75,7 +73,17 @@ export async function growToContent(page, maxHeight = 10_000) {
 // Sets the viewport, and waits two frames: the page reacts to the resize
 // event in a later task (React Aria sets `--visual-viewport-height`, the
 // height of a modal).
+//
+// The overlay of a React Aria modal has the scroll height of the document
+// (`--page-height`), which it measures when the viewport changes. That
+// height includes the overlay itself, so the document would stay high after
+// the viewport gets smaller. Thus the overlay has no height, and clips its
+// content, while the page measures it.
 async function resize(page, size) {
+  const flat = await page.addStyleTag({
+    content:
+      '[style*="--page-height"] { height: 0 !important; overflow: hidden !important; }',
+  })
   await page.setViewportSize(size)
   await page.evaluate(
     () =>
@@ -83,16 +91,21 @@ async function resize(page, size) {
         requestAnimationFrame(() => requestAnimationFrame(frame)),
       ),
   )
+  await flat.evaluate((style) => style.remove())
 }
 
-// Runs in the page. Returns `[id, height, hidden height]` of the document
-// (id 0) and of each visible scroll container with hidden content. The id of
-// an element stays the same between calls.
+// Runs in the page. Returns the id, the height and the hidden height of the
+// document (id 0) and of each visible scroll container with hidden content.
+// The id of an element stays the same between calls.
 function measureScrollers() {
   const known = (window.__ctxpipeScrollers ??= { ids: new WeakMap(), count: 0 })
   const page = document.scrollingElement
   const sizes = [
-    [0, window.innerHeight, page.scrollHeight - window.innerHeight],
+    {
+      id: 0,
+      clientHeight: window.innerHeight,
+      hidden: page.scrollHeight - window.innerHeight,
+    },
   ]
   for (const element of document.body.querySelectorAll("*")) {
     const style = getComputedStyle(element)
@@ -108,7 +121,11 @@ function measureScrollers() {
     const box = element.getBoundingClientRect()
     if (box.right <= 0 || box.left >= window.innerWidth) continue
     if (!known.ids.has(element)) known.ids.set(element, (known.count += 1))
-    sizes.push([known.ids.get(element), element.clientHeight, hidden])
+    sizes.push({
+      id: known.ids.get(element),
+      clientHeight: element.clientHeight,
+      hidden,
+    })
   }
   return sizes
 }

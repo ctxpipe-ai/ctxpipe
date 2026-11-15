@@ -100,7 +100,7 @@ function PaneLayout() {
     <div className="flex h-svh gap-4 p-4">
       <ol
         aria-label="Pane"
-        className="flex-1 overflow-y-auto rounded border border-border p-2"
+        className="flex-1 overflow-y-auto rounded-md border border-border p-2"
       >
         {Array.from({ length: 60 }, (_, row) => (
           <li key={row} className="py-1">
@@ -110,7 +110,7 @@ function PaneLayout() {
       </ol>
       <ol
         aria-label="Short list"
-        className="max-h-40 w-60 overflow-y-auto rounded border border-border p-2"
+        className="max-h-40 w-60 overflow-y-auto rounded-md border border-border p-2"
       >
         {Array.from({ length: 20 }, (_, row) => (
           <li key={row}>List row {row + 1}</li>

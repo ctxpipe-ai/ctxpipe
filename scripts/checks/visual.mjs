@@ -33,6 +33,7 @@ const inputs = [
   "scripts/ci/storybook-play.mjs",
   "scripts/ci/visual.mjs",
   "scripts/ci/visual-capture.mjs",
+  "scripts/ci/visual-full-page.mjs",
   "scripts/ci/visual-container.json",
   "scripts/ci/visual-unstable-stories.json",
   "packages/visual-review/package.json",
@@ -151,8 +152,6 @@ export const readUnstable = () =>
 // of the meta, key by key. The Storybook CSF parser reads them, so each value
 // must be a literal and the build does not run:
 // - `skip`: a reason (a string). The story has no screenshot.
-// - `fullPage`: false takes only the viewport (default true: the full page,
-//   also the content of a pane that scrolls inside).
 // - `maxDiffPixels`: the count of pixels that may differ (default 10).
 // - `viewports`: the viewports, from "desktop" and "mobile" (default
 //   desktop, and mobile too for a story with the `page` tag).
@@ -225,10 +224,6 @@ function parameterOptions(file, name, annotations) {
       if (value.type !== "StringLiteral" || !value.value.trim())
         fail(".skip needs a reason (a string literal).")
       options.skip = value.value
-    } else if (key === "fullPage") {
-      if (value.type !== "BooleanLiteral")
-        fail(".fullPage must be true or false.")
-      options.fullPage = value.value
     } else if (key === "maxDiffPixels") {
       if (value.type !== "NumericLiteral" || !Number.isInteger(value.value))
         fail(".maxDiffPixels must be a whole number literal.")
@@ -267,7 +262,7 @@ function parameterOptions(file, name, annotations) {
       }
     } else
       fail(
-        ` has no option ${JSON.stringify(key)}. The options are skip, fullPage, maxDiffPixels, viewports, masks and allow.`,
+        ` has no option ${JSON.stringify(key)}. The options are skip, maxDiffPixels, viewports, masks and allow.`,
       )
   }
   return options
