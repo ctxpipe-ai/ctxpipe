@@ -12,6 +12,7 @@ import {
 } from "../../test/agentcore-fake.js"
 import {
   AGENTCORE_DISK_FULL,
+  agentCoreImageUserCommand,
   agentCoreRuntime,
   agentCoreSandboxProvider,
 } from "./agentcore-sandbox-provider.js"
@@ -135,6 +136,39 @@ describe("agentCoreSandboxProvider", () => {
     expect(left.stdout.trim()).toBe("gone")
     await provider.destroy({ id: handle.id })
   })
+
+  it("gives each command an empty stdin, as a Docker exec has, so a program that reads stdin does not wait for it (CTX-1219)", async () => {
+    // The fake keeps the stdin of a command open and sends nothing, as
+    // AgentCore did in production. `opencode run` reads stdin to its end
+    // before its first request, so each ingest model step waited until its
+    // time limit.
+    const handle = await provider.create({})
+    const asImageUser = async (script: string) => {
+      let stdout = ""
+      const exitCode = await agentCoreImageUserCommand(
+        fake.runtime,
+        handle.id,
+        script,
+        (stream, text) => {
+          if (stream === "stdout") stdout += text
+        },
+        { layout: fake.paths, sessionEnv: true },
+      )
+      return { stdout, exitCode }
+    }
+    const readStdin = "cat; echo end of stdin"
+    expect(await handle.process.exec(readStdin)).toMatchObject({
+      stdout: "end of stdin\n",
+      exitCode: 0,
+    })
+    const background = await handle.process.spawn(readStdin)
+    expect(await background.wait()).toBe(0)
+    expect(await asImageUser(readStdin)).toEqual({
+      stdout: "end of stdin\n",
+      exitCode: 0,
+    })
+    await provider.destroy({ id: handle.id })
+  }, 20_000)
 
   it("stops a command when its signal aborts", async () => {
     const handle = await provider.create({})
