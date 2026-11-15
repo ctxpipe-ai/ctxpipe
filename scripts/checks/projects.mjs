@@ -27,10 +27,10 @@ const pnpm = (...args) => ["pnpm", ...args]
 
 const code = ["apps/**", "packages/**"]
 
-// The Dockerfiles of the deploy and preview images: the tests
-// ci-deploy-images and ci-preview-images check them against their inputs
-// (scripts/ci/deploy-images.mjs).
-const imageDockerfiles = [
+// The Dockerfiles and the .dockerignore of the deploy and preview images:
+// the tests ci-deploy-images and ci-preview-images check them against their
+// inputs (scripts/ci/deploy-images.mjs).
+const imageBuildFiles = [
   ".dockerignore",
   "apps/backend/Dockerfile",
   "apps/backend/Dockerfile.worker",
@@ -305,8 +305,8 @@ const definitions = () => [
             ],
             "ci-codesearch-releases": ["apps/codesearch/scripts/**"],
             "ci-codesearch-selection": ["apps/codesearch/**"],
-            "ci-deploy-images": imageDockerfiles,
-            "ci-preview-images": imageDockerfiles,
+            "ci-deploy-images": imageBuildFiles,
+            "ci-preview-images": imageBuildFiles,
             "ci-test-shards": ["apps/backend/**"],
             "ci-visual-container": ["apps/ui/package.json"],
           }[stem] ?? []),

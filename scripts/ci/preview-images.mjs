@@ -22,8 +22,9 @@ import { images, planFrom, writePlan } from "./deploy-images.mjs"
 //
 // Usage (pr-preview-images.yaml, job plan, with the version of this file on
 // the PR base): node preview-images.mjs <checkout of the PR head>
-// It writes `build` (the matrix of the build jobs) and `reuse` (image to the
-// digest on main) to $GITHUB_OUTPUT.
+// It writes `build` (the matrix of the build jobs), `reuse` (image to the
+// digest on main) and `images` (the matrix of the push jobs) to
+// $GITHUB_OUTPUT.
 
 const previewImages = images.filter(({ image }) =>
   ["backend", "worker", "ui", "codesearch"].includes(image),
@@ -47,5 +48,7 @@ if (
     repo: process.env.GITHUB_REPOSITORY,
     token: process.env.GH_TOKEN,
   })
-  writePlan(result, previewImages)
+  writePlan(result, previewImages, [
+    `images=${JSON.stringify(previewImages.map(({ image }) => image))}`,
+  ])
 }

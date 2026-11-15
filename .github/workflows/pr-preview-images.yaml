@@ -55,6 +55,7 @@ jobs:
     outputs:
       build: ${{ steps.plan.outputs.build }}
       reuse: ${{ steps.plan.outputs.reuse }}
+      images: ${{ steps.plan.outputs.images }}
     steps:
       - if: github.run_attempt == '1'
         run: echo "::notice::A push builds no preview image. The merge gate re-runs this run when it starts PR Deploy."
@@ -131,7 +132,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [backend, worker, ui, codesearch]
+        # The preview images of the plan (scripts/ci/preview-images.mjs).
+        image: ${{ fromJSON(needs.plan.outputs.images) }}
     env:
       REGISTRY: 573018602187.dkr.ecr.us-west-2.amazonaws.com
       TAG: pr-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}-${{ github.run_id }}-${{ github.run_attempt }}

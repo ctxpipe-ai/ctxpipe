@@ -188,9 +188,10 @@ test("without a base, or when the GitHub API fails, every image builds", async (
   assert.match(failed.reasons.ui, /HTTP 502/)
 })
 
-// The workflow: the first attempt of a run builds nothing, and each push job
-// copies a kept image or pushes the built image, and runs no code of the PR.
-test("the first attempt of a preview run plans and builds nothing", () => {
+// The workflow: the plan job runs the plan only from the second attempt, the
+// build and push jobs need a plan, the push jobs take the images of the plan,
+// and each push job runs no code of the PR.
+test("the workflow skips the plan, build and push jobs on the first attempt, and the push jobs run no PR code", () => {
   const { jobs } = parse(
     readFileSync(
       join(root, ".github/workflows/pr-preview-images.yaml"),
@@ -204,7 +205,10 @@ test("the first attempt of a preview run plans and builds nothing", () => {
   assert.match(jobs.build.if, /needs\.plan\.outputs\.build != '\[\]'/)
   assert.match(jobs.build.if, /needs\.plan\.outputs\.build != ''/)
   assert.match(jobs.push.if, /needs\.plan\.outputs\.build != ''/)
-  assert.deepEqual(jobs.push.strategy.matrix.image, names)
+  assert.equal(
+    jobs.push.strategy.matrix.image,
+    "${{ fromJSON(needs.plan.outputs.images) }}",
+  )
   for (const step of jobs.push.steps) {
     assert.doesNotMatch(String(step.uses ?? ""), /checkout|^\.\//)
   }
