@@ -767,8 +767,7 @@ test("a run that skips the hold-out set judges only the other cases, and keeps t
   const { results } = JSON.parse(
     readFileSync(join(out, "results.json"), "utf8"),
   ) as { results: { case: string; verdict: { answers?: object } }[] }
-  // The judge of a new screenshot keeps the answers too (CTX-1267): it has
-  // its own rule questions.
+  // The judge of a new screenshot keeps the answers too (CTX-1267).
   const isNew = new Set(
     cases.filter(({ kind }) => kind === "new").map(({ id }) => id),
   )
@@ -777,10 +776,8 @@ test("a run that skips the hold-out set judges only the other cases, and keeps t
   )
   expect(judged.some(({ case: id }) => isNew.has(id))).toBe(true)
   expect(judged.some(({ case: id }) => !isNew.has(id))).toBe(true)
-  for (const { case: id, verdict } of judged)
-    expect(verdict.answers).toHaveProperty(
-      isNew.has(id) ? "rule.uk-spelling" : "run-together",
-    )
+  for (const { verdict } of judged)
+    expect(verdict.answers).toHaveProperty("defect")
 })
 
 test("the jev-explain arm keeps each Jev verdict, and the explainer adds its text and cost only to a regression", async () => {

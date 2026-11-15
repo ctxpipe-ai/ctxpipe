@@ -123,6 +123,8 @@ type AgentVaultFixture = {
   sandboxNetwork: string
   /** The upstream's name on the test network (rules take names, not IPs). */
   upstream: string
+  /** Another name of the upstream, for the backend's callback name. */
+  backend: string
   gitToken: string
   /** Agent Vault's container name, which the test network resolves. */
   agentVaultName: string
@@ -232,6 +234,9 @@ export async function withAgentVault<T>(
         network,
         "--network-alias",
         "upstream.ctxpipe.test",
+        // A second name of the same address: the backend's callback name.
+        "--network-alias",
+        "backend.ctxpipe.test",
         "--user",
         "0:0",
         "-e",
@@ -384,6 +389,7 @@ net.createServer((client) => {
       network,
       sandboxNetwork,
       upstream: "upstream.ctxpipe.test",
+      backend: "backend.ctxpipe.test",
       gitToken,
       agentVaultName: vaultName,
       sandbox: async (env, script) => {

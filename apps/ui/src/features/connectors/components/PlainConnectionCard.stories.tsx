@@ -70,7 +70,7 @@ export const Connected: Story = {
     // As on the other connector cards, Manage opens the setup at the
     // Workspaces step, not at the key.
     onOpenSetup.mockClear()
-    await userEvent.click(canvas.getByRole("button", { name: "Expand Plain" }))
+    await userEvent.click(canvas.getByRole("button", { name: "Plain" }))
     await userEvent.click(await canvas.findByRole("button", { name: "Manage" }))
     await expect(onOpenSetup).toHaveBeenCalledWith()
   },
@@ -92,7 +92,7 @@ export const WebhookMissing: Story = {
     const canvas = within(canvasElement.ownerDocument.body)
     await expect(await canvas.findByText("Connected")).toBeInTheDocument()
     onOpenSetup.mockClear()
-    await userEvent.click(canvas.getByRole("button", { name: "Expand Plain" }))
+    await userEvent.click(canvas.getByRole("button", { name: "Plain" }))
     await waitFor(() =>
       expect(
         canvas.getByText(/Threads sync once a day: Plain did not accept/),
@@ -121,7 +121,7 @@ export const RevokedOpensReconnect: Story = {
     const canvas = within(canvasElement.ownerDocument.body)
     await expect(await canvas.findByText("Needs reconnect")).toBeInTheDocument()
     onOpenSetup.mockClear()
-    await userEvent.click(canvas.getByRole("button", { name: "Expand Plain" }))
+    await userEvent.click(canvas.getByRole("button", { name: "Plain" }))
     await expect(
       canvas.getByText(/Plain does not accept the saved key/),
     ).toBeVisible()

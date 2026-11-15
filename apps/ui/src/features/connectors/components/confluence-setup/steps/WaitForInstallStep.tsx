@@ -14,7 +14,7 @@ export function WaitForInstallStep() {
         </p>
       </div>
       <div className="flex items-center gap-3">
-        <Spinner className="text-muted-foreground" />
+        <Spinner className="size-4.5 text-muted-foreground" />
         <span className="text-sm text-muted-foreground">
           Waiting for confirmation from Atlassian...
         </span>

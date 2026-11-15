@@ -29,7 +29,7 @@ export function LinearScopeChecklist(props: {
       value={value}
       onChange={onChange}
       aria-label={props["aria-label"]}
-      className="max-h-[min(48vh,28rem)] gap-0 overflow-y-auto border border-border"
+      className="max-h-[min(48vh,28rem)] gap-0 overflow-y-auto rounded-md border border-border"
     >
       {groups.map(({ type, label }) => {
         const group = items.filter((item) => item.type === type)

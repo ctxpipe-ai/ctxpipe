@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/Button"
 import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Modal } from "@/components/ui/Modal"
 import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
-import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import {
   consumePagerdutySetupPopupResult,
@@ -25,6 +24,7 @@ import {
   fetchPagerdutyConnectorStatus,
   pagerdutyConnectorKeys,
 } from "../queries/pagerduty-connector"
+import { ConnectorSetupFrame } from "./ConnectorSetupFrame"
 import { ConnectorSetupStepper } from "./ConnectorSetupStepper"
 import { PagerdutyConnectStep } from "./PagerdutyConnectStep"
 import { PagerdutyMark } from "./PagerdutyMark"
@@ -189,18 +189,8 @@ export function PagerdutySetupDialog({
         />
       )
     }
-    return (
-      <div className="space-y-4">
-        <PullRequestsToMerge orgSlug={orgSlug} pullRequests={pullRequests} />
-        <Button
-          variant="secondary"
-          className="rounded-md"
-          onPress={() => onOpenChange(false)}
-        >
-          Close
-        </Button>
-      </div>
-    )
+    // The merge step is the last item of the setup steps.
+    return null
   })()
 
   return (
@@ -208,41 +198,23 @@ export function PagerdutySetupDialog({
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       isDismissable
-      className="max-w-[min(92vw,720px)]"
+      className="flex max-w-[min(92vw,720px)] flex-col"
     >
-      <div className="p-6">
-        <div className="mb-5 flex items-start justify-between gap-3">
-          <div className="flex min-w-0 gap-3">
-            <span className="ctx-node h-9 w-9">
-              <PagerdutyMark className="size-5 text-foreground" />
-            </span>
-            <div>
-              <h2 className="text-lg font-medium tracking-tight text-foreground">
-                Set up PagerDuty connector
-              </h2>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Connect PagerDuty, then select the services for each Workspace.
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="secondary"
-            className="rounded-md"
-            onPress={() => onOpenChange(false)}
-          >
-            Close
-          </Button>
-        </div>
+      <ConnectorSetupFrame
+        icon={<PagerdutyMark className="size-5 text-foreground" />}
+        title="Set up PagerDuty connector"
+        description="Connect PagerDuty, then select the services for each Workspace."
+        onClose={() => onOpenChange(false)}
+      >
         {status || !connectionId ? (
-          <div className="mb-6">
-            <ConnectorSetupStepper
-              steps={setupSteps}
-              currentIndex={setupStepIndex}
-            />
-          </div>
+          <ConnectorSetupStepper
+            steps={setupSteps}
+            currentIndex={setupStepIndex}
+            mergeStep={workspacesDone ? { orgSlug, pullRequests } : undefined}
+          />
         ) : null}
         {body}
-      </div>
+      </ConnectorSetupFrame>
     </Modal>
   )
 }

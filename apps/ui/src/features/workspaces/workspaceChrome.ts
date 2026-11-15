@@ -16,19 +16,20 @@ export const workspaceChromeOuterClassName =
  * Active tab: 37px tall including the 1px hairline. Its 1px side borders are
  * in the width, so the idle tab has transparent side borders of the same
  * size: a tab switch does not move the tabs beside it. Text tabs add `px-3`;
- * the icon tab is square (7px + 1px border + 16px icon).
+ * the icon tab is about square: 38px wide (10px + 1px border + 16px icon
+ * + 1px border + 10px), so the icons in a row have room between them.
  * Idle tab: the same 37px box, with a transparent border, so the selected and
  * idle tabs share one top edge and one baseline.
  */
 export const workspaceChromeTabClassName = [
-  "relative z-10 box-border inline-flex h-[37px] shrink-0 items-center justify-center px-[7px]",
+  "relative z-10 box-border inline-flex h-[37px] shrink-0 items-center justify-center px-2.5",
   "rounded-t-md border border-b-0 border-white/[0.06] bg-card",
   "text-sm font-medium leading-none text-foreground",
 ].join(" ")
 
 /** Idle tab. It takes the same box as the active tab. */
 export const workspaceChromeTabIdleClassName = [
-  "box-border inline-flex h-[37px] shrink-0 cursor-pointer items-center justify-center px-[7px]",
+  "box-border inline-flex h-[37px] shrink-0 cursor-pointer items-center justify-center px-2.5",
   "rounded-t-md border border-b-0 border-transparent bg-transparent",
   "text-sm font-medium leading-none text-zinc-400",
   "transition-[color,background-color] hover:bg-teal-900/30 hover:text-zinc-50",

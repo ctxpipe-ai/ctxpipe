@@ -13,7 +13,7 @@
     ".": {
       "entry": ["scripts/**/*.{mjs,js,ts}"],
       "project": ["scripts/**/*.{mjs,js,ts}"],
-      "ignoreDependencies": ["vitest"]
+      "ignoreDependencies": ["vitest", "@ast-grep/cli", "opencode-ai"]
     },
     "apps/backend": {
       "entry": [
@@ -82,6 +82,7 @@
         "evals/**/*.test.ts",
         "evals/critic/calibration.ts",
         "evals/critic/capture.ts",
+        "evals/critic/label-unseen.ts",
         "evals/critic/panel.ts"
       ],
       "project": ["src/**/*.ts", "evals/**/*.ts"]
