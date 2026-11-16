@@ -240,6 +240,9 @@ export const UsedInManyWorkspaces: Story = {
 export const UsedInLinksToSourceSection: Story = {
   tags: ["required"],
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as UsedInOneWorkspace.",
+    },
     review: {
       purpose:
         "Used in section of a connector, which lists the Workspaces that use the connection: one Workspace uses the GitHub connection, and its link opens the source section of its settings.",

@@ -248,6 +248,9 @@ export const SaveWebhookToken: Story = {
 export const ReplaceWebhookToken: Story = {
   args: { connectionId, replaceWebhook: true },
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as ConnectWithToken.",
+    },
     review: {
       purpose:
         "Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the webhook step opens with an empty field to replace the saved token.",

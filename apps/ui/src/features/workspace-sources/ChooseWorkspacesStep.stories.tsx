@@ -305,6 +305,9 @@ export const AllWorkspacesNeedUpgrade: Story = {
  */
 export const BelowFormatWithNoUpgradeRowYet: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as OneWorkspaceNeedsUpgrade.",
+    },
     review: {
       purpose:
         "Choose Workspaces step of a connector setup, where the user adds a source to Workspaces: one Workspace is below the newest format with no upgrade item yet, so its row is off.",
@@ -350,6 +353,7 @@ export const BelowFormatWithNoUpgradeRowYet: Story = {
  */
 export const NoRowsWhileFormatCheckLoads: Story = {
   parameters: {
+    visual: { skip: "Behavior test: it ends in the same state as Loading." },
     review: {
       purpose:
         "Choose Workspaces step of a connector setup, where the user adds a source to Workspaces: the format check still loads, so a skeleton shows and no rows.",

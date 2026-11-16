@@ -134,7 +134,7 @@ export const SurfaceSkeletonMatches: Story = {
   tags: ["required"],
   args: { paneParam: "files" },
   parameters: {
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: { skip: "Behavior test: it ends in the same state as FilesPane." },
     intent:
       "Catches a workspace loading skeleton whose chat and pane columns differ from the loaded layout. This causes layout shift. Not for workspace data.",
     storyRoute: workspaceRoute({ pane: "files" }),
@@ -204,7 +204,7 @@ const failedTouch = { count: 0, rejections: [] as unknown[] }
 export const FailedTouchIsCaught: Story = {
   tags: ["required"],
   parameters: {
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: { skip: "Behavior test: it ends in the same state as Compose." },
     intent:
       "Catches a failed workspace touch request that raises an unhandled promise rejection. The page must catch the 404. Not for visible errors or touch success.",
     storyRoute: workspaceRoute(),
@@ -569,7 +569,11 @@ export const ConversationLoading: Story = {
 
 export const ConversationNavIsChatOnly: Story = {
   parameters: {
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: {
+      allow: { contrast: "Text below WCAG AA on main (CTX-1278)." },
+      // At the mobile width the screenshot is the same as Compose.
+      viewports: ["desktop"],
+    },
     storyRoute: workspaceRoute(),
     msw: {
       handlers: {
@@ -1183,6 +1187,9 @@ export const CreatePrMatchesPaneTriggers: Story = {
   tags: ["required"],
   args: { conversationId: "conv_1" },
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as SingleCreatePrPaneClosed.",
+    },
     intent:
       "Catches a Create PR button that sits in another row from the pane triggers, or has the wrong size. It shares the header row and is smaller. Not for PR creation.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
@@ -1392,7 +1399,9 @@ export const DiffTabRoundedCorner: Story = {
   tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "diff" },
   parameters: {
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: {
+      skip: "Behavior test: it ends in the same state as PaneTabsStayInPlace.",
+    },
     intent:
       "Catches a wrong joined corner on the pane card. The Diff and Graph tabs give the same rounded corner, and the first tab, Files, keeps it square. Not for tab content.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
@@ -1451,7 +1460,9 @@ export const MaximizedPaneMatchesHeader: Story = {
   tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
   parameters: {
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: {
+      skip: "Behavior test: it ends in the same state as SingleCreatePr.",
+    },
     intent:
       "Catches a maximized pane whose header differs from the conversation header. The Create PR call to action shows in the pane header with the same layout. Not for PR creation.",
     route: "/$orgSlug/ws/$workspaceSlug/$conversationId",
@@ -1857,7 +1868,11 @@ export const WriteCheckFailedStopsPolling: Story = {
     writeCheck.readsWhileChecking = 0
   },
   parameters: {
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: {
+      allow: { contrast: "Text below WCAG AA on main (CTX-1278)." },
+      // At the mobile width the screenshot is the same as SettingsPane.
+      viewports: ["desktop"],
+    },
     intent:
       "Catches a failed write access check that polls the workspace forever. Polling stops and the failure reason shows. Not for a stalled check.",
     storyRoute: workspaceRoute({ pane: "settings" }),
@@ -2170,6 +2185,9 @@ export const DeleteWorkspaceShowsNoError: Story = {
   render: (args) => <DeleteFlowStage {...args} />,
   decorators: deleteFlowDecorators,
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends on a test stage, which the product does not render.",
+    },
     intent:
       "Catches a workspace delete that flashes an error screen. After delete, the page leaves the deleted workspace with no error. Not for the last workspace or conversation URLs.",
     storyRoute: {
@@ -2193,6 +2211,9 @@ export const DeleteLastWorkspaceShowsNoError: Story = {
   tags: ["required", "!page"],
   play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends on a test stage, which the product does not render.",
+    },
     intent:
       "Catches a delete of the last workspace that flashes an error screen. The page leaves with no error. Not for other workspaces.",
     ...DeleteWorkspaceShowsNoError.parameters,
@@ -2212,6 +2233,9 @@ export const DeleteFromConversationShowsNoError: Story = {
   play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
   args: { paneParam: "settings", conversationId: "conv_1" },
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends on a test stage, which the product does not render.",
+    },
     intent:
       "Catches a workspace delete from a conversation URL that flashes an error screen. The page leaves with no error. Not for workspace-level URLs.",
     ...DeleteWorkspaceShowsNoError.parameters,
@@ -2296,7 +2320,11 @@ export const IngestingDemo: Story = {
     demoStart = Date.now()
   },
   parameters: {
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: {
+      allow: { contrast: "Text below WCAG AA on main (CTX-1278)." },
+      // At the mobile width the screenshot is the same as Compose.
+      viewports: ["desktop"],
+    },
     storyRoute: workspaceRoute(),
     msw: {
       handlers: {

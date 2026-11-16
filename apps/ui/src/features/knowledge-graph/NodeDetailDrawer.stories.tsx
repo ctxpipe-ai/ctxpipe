@@ -141,15 +141,3 @@ export const Isolated: Story = {
     peerDegrees: [1],
   },
 }
-
-export const Closed: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Node detail drawer of the knowledge graph, which tells a user about one node and its links: the drawer is closed.",
-    },
-  },
-  args: {
-    open: false,
-  },
-}
