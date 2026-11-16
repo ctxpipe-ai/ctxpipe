@@ -57,10 +57,9 @@ export function retiresVercelRow(row: { provider?: string | null }): boolean {
  * example `generated_by` front matter), no retry can push them. With
  * `RETIRED_SANDBOX_BUCKET`, the commits that no remote has go there as a Git
  * bundle, at `retired-sandboxes/<orgId>/<conversationId>/<row id>.bundle`,
- * and then the sandbox
- * goes. Such a row stays until its bundle is saved, also after its
- * retention, so that no commit is lost. Without the setting (a self-hosted
- * deployment), it stays.
+ * and then the sandbox goes. Such a row stays until its bundle is saved,
+ * also after its retention, so that no commit is lost. Without the setting
+ * (a self-hosted deployment), it stays.
  *
  * Returns the number of rows that stay, so that the sweep runs again soon.
  * The worker keeps `VERCEL_TOKEN` for this. The later change that removes
@@ -71,6 +70,9 @@ export async function retireVercelSandboxes(
   orgId: string,
   now: Date,
 ): Promise<{ left: number }> {
+  const bucket = parseEnv(
+    process.env as Record<string, string | undefined>,
+  ).RETIRED_SANDBOX_BUCKET
   const rows = (
     await withOrgDbContext(orgId, () => listSandboxInstances({}))
   ).filter(retiresVercelRow)
@@ -89,7 +91,7 @@ export async function retireVercelSandboxes(
       const outcome =
         row.kind === "base" && workspaceBaseHeldUntil(row, stayed) !== null
           ? "kept"
-          : await retire(row, now)
+          : await retire(row, now, bucket)
       if (outcome === "kept") {
         kept += 1
         if (row.kind !== "base") stayed.push(row)
@@ -125,15 +127,14 @@ export async function retireVercelSandboxes(
 async function retire(
   row: SandboxInstanceRecord,
   now: Date,
+  /** `RETIRED_SANDBOX_BUCKET`. */
+  bucket: string | undefined,
 ): Promise<"retired" | "bundled" | "kept"> {
   const { conversationId } = row
   if (row.kind !== "chat" || !conversationId) {
     await deleteRow(row)
     return "retired"
   }
-  const bucket = parseEnv(
-    process.env as Record<string, string | undefined>,
-  ).RETIRED_SANDBOX_BUCKET
   // Set only when the push refused the commits: the row stays until they
   // are saved.
   let refused: "saved" | "unsaved" | undefined
@@ -180,9 +181,9 @@ async function retire(
 
 /**
  * Save the sandbox's commits that no remote has as a Git bundle in the
- * bucket, at `key`. The bucket is private and encrypts each object. False: nothing was saved; the log line holds the
- * HTTP status only. The success line holds a hash of the key, not the key,
- * because the key holds ids.
+ * bucket, at `key`. The bucket is private and encrypts each object. False:
+ * nothing was saved; the log line holds the HTTP status only. The success
+ * line holds a hash of the key, not the key, because the key holds ids.
  */
 async function saveBundle(
   handle: JobSandboxHandle,

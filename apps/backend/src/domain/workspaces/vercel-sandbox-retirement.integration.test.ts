@@ -779,10 +779,13 @@ describe("the sweep retires Vercel sandboxes (Postgres)", () => {
     expect(result.nextSweepAt?.getTime()).toBeLessThanOrEqual(
       Date.now() + 5 * 60_000,
     )
-    expect(events.at(-2)).toMatchObject({
-      message: "Saving the refused commits of a Vercel sandbox failed",
-      status: 403,
-    })
+    expect(
+      events.find(
+        (event) =>
+          event.message ===
+          "Saving the refused commits of a Vercel sandbox failed",
+      ),
+    ).toMatchObject({ status: 403 })
 
     // Without the setting, a refused sandbox stays, also past its retention.
     vi.stubEnv("RETIRED_SANDBOX_BUCKET", undefined)
