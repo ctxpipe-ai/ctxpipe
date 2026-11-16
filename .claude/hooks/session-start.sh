@@ -50,9 +50,6 @@ if [ ! -x "$GOBIN_DIR/zoekt-webserver" ] || [ ! -x "$GOBIN_DIR/zoekt-index" ]; t
     github.com/sourcegraph/zoekt/cmd/zoekt-webserver@latest
 fi
 
-# Warm the npx cache for the railway MCP server (.mcp.json).
-npx -y @railway/cli@5.63.1 --version >/dev/null
-
 ########################################################
 # 3. Backend env + database
 ########################################################
