@@ -24,6 +24,12 @@ type WithTransientHttpRetryOptions = {
   baseDelayMs?: number
   /** Cap on exponential backoff delay (default unbounded aside from jitter). */
   maxDelayMs?: number
+  /**
+   * Retry a restart of the upstream (connection refused, name not found) until
+   * `signal` aborts, beyond `retries`: a short budget then rides over a
+   * redeploy, while every other failure keeps the short budget. Needs `signal`.
+   */
+  retryRestartsUntilAborted?: boolean
 }
 
 function errnoCode(error: unknown): string | undefined {
@@ -52,6 +58,12 @@ function isRetryableFetchFailure(error: unknown): boolean {
     code === "ENOTFOUND" ||
     code === "ECONNREFUSED"
   )
+}
+
+/** The upstream is restarting: nothing listens yet, or its name is gone. */
+function isRestart(error: unknown): boolean {
+  const code = errnoCode(error)
+  return code === "ECONNREFUSED" || code === "ENOTFOUND"
 }
 
 function isGatewayStatus(status: number): boolean {
@@ -92,9 +104,10 @@ export async function withTransientHttpRetry<T>(
   const baseDelayMs = opts?.baseDelayMs ?? 200
   const maxDelayMs = opts?.maxDelayMs
   const maxAttempts = retries + 1
-  let last: unknown
 
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+  // A restart retry (retryRestartsUntilAborted) may go past maxAttempts: the
+  // signal ends it.
+  for (let attempt = 0; ; attempt += 1) {
     try {
       opts?.signal?.throwIfAborted()
       const result = await run()
@@ -110,10 +123,16 @@ export async function withTransientHttpRetry<T>(
       }
       return result
     } catch (e) {
-      last = e
-      if (isRetryableFetchFailure(e) && attempt < maxAttempts - 1) {
+      const restart =
+        opts?.retryRestartsUntilAborted === true &&
+        opts.signal !== undefined &&
+        isRestart(e)
+      if (
+        isRetryableFetchFailure(e) &&
+        (attempt < maxAttempts - 1 || restart)
+      ) {
         const jitter = Math.floor(Math.random() * 80)
-        const rawDelay = baseDelayMs * 2 ** attempt + jitter
+        const rawDelay = baseDelayMs * 2 ** Math.min(attempt, 30) + jitter
         const delayMs =
           maxDelayMs == null ? rawDelay : Math.min(maxDelayMs, rawDelay)
         log.info({
@@ -130,6 +149,4 @@ export async function withTransientHttpRetry<T>(
       throw e
     }
   }
-
-  throw last
 }

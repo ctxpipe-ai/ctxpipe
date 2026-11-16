@@ -43,7 +43,11 @@ export const SCIP_PROCESS_LIMIT = 20
 /** Default time for all codesearch requests of one call, retries included. */
 const CALL_DEADLINE_MS = 20_000
 
-/** A short retry budget: an MCP call must not wait minutes on an outage. */
+/**
+ * A short retry budget: an MCP call must not wait minutes on an outage. A
+ * codesearch restart (a redeploy: connection refused, name not found) retries
+ * until the call's deadline, so a call rides over a short one.
+ */
 const MCP_RETRY = { retries: 3, baseDelayMs: 200, maxDelayMs: 2_000 }
 
 /** A linked repository that codesearch can search, and the revision it serves. */
@@ -90,9 +94,10 @@ type Budget = {
 }
 
 function transportFor(budget: Budget): Required<CodesearchHttpOptions> {
+  const signal = AbortSignal.timeout(budget.deadlineMs ?? CALL_DEADLINE_MS)
   return {
-    signal: AbortSignal.timeout(budget.deadlineMs ?? CALL_DEADLINE_MS),
-    retry: MCP_RETRY,
+    signal,
+    retry: { ...MCP_RETRY, signal, retryRestartsUntilAborted: true },
   }
 }
 
