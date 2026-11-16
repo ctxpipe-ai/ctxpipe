@@ -126,6 +126,13 @@ const pendingTag: StatusTag = {
   dotClassName: "size-1.5 rounded-full bg-zinc-500",
 }
 
+/** The amber tag of a repository that needs attention. */
+const attentionTagStyle = {
+  className:
+    "inline-flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-200",
+  dotClassName: "size-1.5 rounded-full bg-amber-300",
+}
+
 function linkedStatus(item: WorkspaceLinkedRepository): StatusTag {
   // The note under the row gives the cause and the fix.
   if (item.indexingStatus === "failed") {
@@ -133,9 +140,7 @@ function linkedStatus(item: WorkspaceLinkedRepository): StatusTag {
       label: "Not indexed",
       hint: "ctxpipe could not index the latest commit of this repository.",
       tone: "attention",
-      className:
-        "inline-flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-200",
-      dotClassName: "size-1.5 rounded-full bg-amber-300",
+      ...attentionTagStyle,
     }
   }
   const indexed =
@@ -146,9 +151,7 @@ function linkedStatus(item: WorkspaceLinkedRepository): StatusTag {
       label: "Indexed with issues",
       hint: "ctxpipe indexed the latest commit that it knows, but some parts of the index are incomplete.",
       tone: "attention",
-      className:
-        "inline-flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-200",
-      dotClassName: "size-1.5 rounded-full bg-amber-300",
+      ...attentionTagStyle,
     }
   }
   if (indexed) {

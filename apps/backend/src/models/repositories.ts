@@ -485,6 +485,7 @@ export async function markRepositoryLostAccess(input: {
       })
       .where(
         and(
+          eq(repositories.orgId, input.orgId),
           eq(repositories.id, input.repositoryId),
           or(
             isNull(repositories.indexingStatus),
@@ -516,6 +517,7 @@ export async function clearRepositoryLostAccess(input: {
       })
       .where(
         and(
+          eq(repositories.orgId, input.orgId),
           eq(repositories.id, input.repositoryId),
           repositoryLostAccessCondition(),
         ),
@@ -541,6 +543,7 @@ export async function listLostAccessRepositories(input: {
       .from(repositories)
       .where(
         and(
+          eq(repositories.orgId, input.orgId),
           input.githubConnectionId
             ? eq(repositories.githubConnectionId, input.githubConnectionId)
             : undefined,

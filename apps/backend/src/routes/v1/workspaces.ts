@@ -534,16 +534,11 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       .filter(isRepositoryLostAccess)
       .flatMap((row) => githubRepoFullNameFromWorkspaceUrl(row.gitUrl) ?? [])
     if (orgId && lostAccess.length > 0)
-      await startLostAccessRebuilds({
+      void startLostAccessRebuilds({
         orgId,
         repoFullNames: lostAccess,
         cause: `refresh:${Math.floor(Date.now() / 60_000)}`,
-      }).catch((error: unknown) =>
-        getLogger().error(
-          error instanceof Error ? error : new Error(String(error)),
-          { step: "workspace.lost_access_rebuild.enqueue" },
-        ),
-      )
+      }).catch(detachedErrorLog("workspace.lost_access_rebuild.enqueue").error)
     return c.json(
       {
         ...serializeWorkspace(workspace),
