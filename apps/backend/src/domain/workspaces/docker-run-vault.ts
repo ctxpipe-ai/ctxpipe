@@ -111,6 +111,8 @@ export async function openDockerRunVault(input: {
    * sandbox's egress to the rules (hosted AgentCore, ADR-049 amendment).
    */
   unmatchedHosts?: "passthrough" | "deny"
+  /** Read only the Workspace repository, not the linked ones (a pool fill). */
+  workspaceRepositoryOnly?: boolean
 }): Promise<RunVault> {
   const access = input.access ?? agentVaultAccess()
   if (!access)
@@ -125,7 +127,9 @@ export async function openDockerRunVault(input: {
     })
   try {
     const connectionId = input.revision.remote.connectionId
-    const names = await workspaceGithubReadScope(input.orgId, input.revision)
+    const names = input.workspaceRepositoryOnly
+      ? [workspaceChatGithubRepository(input.revision.remote.url) ?? []].flat()
+      : await workspaceGithubReadScope(input.orgId, input.revision)
     const token =
       connectionId && names.length > 0
         ? await recordedRunGitToken({

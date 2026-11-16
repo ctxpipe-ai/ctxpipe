@@ -1437,6 +1437,7 @@ async function buildWorkspaceChatSandbox(
                     label: "pool",
                     revision: revision.data,
                     unmatchedHosts: "deny",
+                    workspaceRepositoryOnly: true,
                   }),
               }),
           }

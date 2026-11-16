@@ -501,6 +501,47 @@ describe("the warm pool of AgentCore chat sessions (Postgres)", () => {
     })
   }, 60_000)
 
+  it("keeps the row of a failed fill whose session did not stop, until the sweep stops it", async () => {
+    await withOrg(1, async ({ orgId, workspaceIds: [workspaceId = ""] }) => {
+      // The clone fails, and so does the first stop of the session.
+      const failing = () => {
+        const inner = provider()
+        return {
+          ...inner,
+          create: async (input: Parameters<typeof inner.create>[0]) => {
+            const handle = await inner.create(input)
+            return {
+              ...handle,
+              git: {
+                ...handle.git,
+                clone: () => Promise.reject(new Error("The clone failed")),
+              },
+              destroy: () => Promise.reject(new Error("The stop failed")),
+            }
+          },
+        }
+      }
+      await expect(
+        fillChatSandboxPool({
+          orgId,
+          workspaceId,
+          revision: revisionOf(workspaceId),
+          provider: failing,
+          openVault: fakeVault(orgId).open,
+        }),
+      ).rejects.toThrow("The clone failed")
+      const [left] = await poolRows(orgId)
+      expect(left?.state).toBe("destroy_failed")
+      const session = left?.providerSandboxId ?? ""
+      expect(fake.running.has(session)).toBe(true)
+      // It still counts, so the Workspace gets no second session.
+      expect(await fill(orgId, workspaceId)).toBe("full")
+      expect((await sweepConversationSandboxes(orgId)).deleted).toBe(1)
+      expect(fake.running.has(session)).toBe(false)
+      expect(await poolRows(orgId)).toEqual([])
+    })
+  }, 60_000)
+
   it("the sweep stops a ready session at the end of its wait", async () => {
     await withOrg(1, async ({ orgId, workspaceIds: [workspaceId = ""] }) => {
       expect(await fill(orgId, workspaceId)).toBe("filled")

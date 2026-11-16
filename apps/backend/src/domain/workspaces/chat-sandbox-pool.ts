@@ -64,9 +64,18 @@ export function withPoolClaim(
       if (sessionId) {
         try {
           handle = await provider.resume({ id: sessionId })
-        } catch {
-          // The claim deleted the row: nothing else stops this session.
-          await provider.destroy({ id: sessionId }).catch(() => undefined)
+        } catch (error) {
+          // The claim deleted the row: nothing else stops this session
+          // before AgentCore's idle stop.
+          await provider
+            .destroy({ id: sessionId })
+            .catch((stopError: unknown) =>
+              log.warn({
+                step: "chat-sandbox-pool",
+                message: `Could not stop a claimed pool session whose check failed (${String(error)}): ${String(stopError)}`,
+                sessionId,
+              }),
+            )
         }
       }
       markSandboxLifecycle("pool-claim", {
@@ -192,14 +201,21 @@ export async function fillChatSandboxPool(input: {
           )
           return "filled" as const
         } catch (error) {
-          await handle?.destroy().catch((stopError: unknown) =>
+          try {
+            await handle?.destroy()
+            await deleteSandboxInstance(id, orgId, ownershipOf(row))
+          } catch (stopError) {
+            // The row stays, so the session still counts and the sweep stops it.
             log.warn({
               step: "chat-sandbox-pool",
               message: `Could not stop the session of a failed pool fill: ${String(stopError)}`,
               sandboxId: id,
-            }),
-          )
-          await deleteSandboxInstance(id, orgId, ownershipOf(row))
+            })
+            await persistSandboxInstance(
+              { ...row, state: "destroy_failed" },
+              ownershipOf(row),
+            )
+          }
           throw error
         }
       },
