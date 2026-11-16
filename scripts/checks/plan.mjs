@@ -231,7 +231,7 @@ const external = {
 }
 export function placeOf(id) {
   const [family, lane] = id.split(":")
-  const workflow = external[`${family}:${lane}`] ?? external[family]
+  const workflow = external[family]
   if (workflow) return { workflow }
   if (family === "storybook" && lane !== "visual")
     return { job: "storybook-plays" }
