@@ -1,7 +1,6 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import {
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -57,6 +56,13 @@ const pinned = {
 // text of each module: each reference of `references` (below), and a script
 // that a `json("x")` call spawns.
 function closureOf(starts) {
+  // Only a tracked file can change in a pull request. A generated file that
+  // git ignores (such as the stamped aws-cdk image tag) is not a definition.
+  const tracked = new Set(
+    spawnSync("git", ["ls-files"], { cwd: root, encoding: "utf8" })
+      .stdout.split("\n")
+      .filter(Boolean),
+  )
   const seen = new Set()
   const visit = (file) => {
     if (seen.has(file)) return
@@ -71,7 +77,7 @@ function closureOf(starts) {
     ]
     for (const path of found)
       for (const candidate of [path, `${path}.ts`, `${path}.mjs`])
-        if (existsSync(join(root, candidate))) {
+        if (tracked.has(candidate)) {
           visit(candidate)
           break
         }
@@ -1516,7 +1522,11 @@ test("a gated run packs its checks into the fewest shards that hold the target, 
   // A screenshot check counts 2 seconds, not the play time that the trace
   // holds for it.
   assert.equal(
-    estimate("storybook:visual:a#x", new Map([["storybook:visual:a#x", 0.2]]), {}),
+    estimate(
+      "storybook:visual:a#x",
+      new Map([["storybook:visual:a#x", 0.2]]),
+      {},
+    ),
     2,
   )
   // Two short screenshot checks fit in one shard; the shards need the
@@ -1539,8 +1549,9 @@ test("a gated run packs its checks into the fewest shards that hold the target, 
   )
   assert.equal(
     shardMinutes({ visual: [{ ids: [], seconds: 60 }] }),
-    Math.round((profiles.visual.setupMinutes + 1 + storybookBuildMinutes) * 10) /
-      10,
+    Math.round(
+      (profiles.visual.setupMinutes + 1 + storybookBuildMinutes) * 10,
+    ) / 10,
   )
   assert.equal(
     estimate("vitest:backend:apps/backend/src/x.test.ts", new Map(), {
@@ -2057,7 +2068,8 @@ test("each dismissed finding shows its reason, writer and commit; none is silent
         {
           critic: "critic:spec",
           status: "carried",
-          reason: "2 passes (2 held findings dismissed by a person with a reason)",
+          reason:
+            "2 passes (2 held findings dismissed by a person with a reason)",
           dismissals: [
             {
               finding: "f:0123abcd",
