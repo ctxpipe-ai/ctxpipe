@@ -55,9 +55,9 @@ export function retiresVercelRow(row: { provider?: string | null }): boolean {
  *
  * When the push refuses the commits because of what they change (for
  * example `generated_by` front matter), no retry can push them. With
- * `RETIRED_SANDBOX_STORE` (`s3://bucket/prefix`), the commits that no remote
- * has go there as a Git bundle, at
- * `<prefix>/<orgId>/<conversationId>/<row id>.bundle`, and then the sandbox
+ * `RETIRED_SANDBOX_BUCKET`, the commits that no remote has go there as a Git
+ * bundle, at `retired-sandboxes/<orgId>/<conversationId>/<row id>.bundle`,
+ * and then the sandbox
  * goes. Such a row stays until its bundle is saved, also after its
  * retention, so that no commit is lost. Without the setting (a self-hosted
  * deployment), it stays.
@@ -131,9 +131,9 @@ async function retire(
     await deleteRow(row)
     return "retired"
   }
-  const store = parseEnv(
+  const bucket = parseEnv(
     process.env as Record<string, string | undefined>,
-  ).RETIRED_SANDBOX_STORE
+  ).RETIRED_SANDBOX_BUCKET
   // Set only when the push refused the commits: the row stays until they
   // are saved.
   let refused: "saved" | "unsaved" | undefined
@@ -152,11 +152,11 @@ async function retire(
               baseSha: row.revision.sha,
               saveRefused: async (handle) => {
                 const saved =
-                  store !== undefined &&
+                  bucket !== undefined &&
                   (await saveBundle(
                     handle,
-                    store,
-                    `${row.orgId}/${conversationId}/${row.id}.bundle`,
+                    bucket,
+                    `retired-sandboxes/${row.orgId}/${conversationId}/${row.id}.bundle`,
                   ))
                 refused = saved ? "saved" : "unsaved"
                 return saved
@@ -180,15 +180,14 @@ async function retire(
 
 /**
  * Save the sandbox's commits that no remote has as a Git bundle in the
- * store (`s3://bucket/prefix`), at `<prefix>/<name>`. The bucket is private
- * and encrypts each object. False: nothing was saved; the log line holds the
+ * bucket, at `key`. The bucket is private and encrypts each object. False: nothing was saved; the log line holds the
  * HTTP status only. The success line holds a hash of the key, not the key,
  * because the key holds ids.
  */
 async function saveBundle(
   handle: JobSandboxHandle,
-  store: { bucket: string; prefix: string },
-  name: string,
+  bucket: string,
+  key: string,
 ): Promise<boolean> {
   try {
     const path = ".git/ctxpipe-retired.bundle"
@@ -204,10 +203,9 @@ async function saveBundle(
       await sandboxFileSize(handle.exec, path),
     ))
       chunks.push(chunk)
-    const key = `${store.prefix}/${name}`
     await new S3Client({}).send(
       new PutObjectCommand({
-        Bucket: store.bucket,
+        Bucket: bucket,
         Key: key,
         Body: Buffer.concat(chunks),
       }),

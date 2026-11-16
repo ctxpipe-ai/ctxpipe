@@ -417,7 +417,7 @@ beforeEach(() => {
   vi.stubEnv("VERCEL_TOKEN", TOKEN)
   vi.stubEnv("VERCEL_TEAM_ID", "team_test")
   vi.stubEnv("VERCEL_PROJECT_ID", "prj_test")
-  vi.stubEnv("RETIRED_SANDBOX_STORE", `s3://${BUCKET}/retired-sandboxes`)
+  vi.stubEnv("RETIRED_SANDBOX_BUCKET", BUCKET)
   vi.stubEnv("AWS_REGION", "us-west-2")
   vi.stubEnv("AWS_ACCESS_KEY_ID", "fixture-only-access-key")
   vi.stubEnv("AWS_SECRET_ACCESS_KEY", "fixture-only-secret-key")
@@ -785,7 +785,7 @@ describe("the sweep retires Vercel sandboxes (Postgres)", () => {
     })
 
     // Without the setting, a refused sandbox stays, also past its retention.
-    vi.stubEnv("RETIRED_SANDBOX_STORE", undefined)
+    vi.stubEnv("RETIRED_SANDBOX_BUCKET", undefined)
     const unset = { ...chat, id: generateObjectId("sbx") }
     await withOrgDbContext(orgId, (db) =>
       db
@@ -799,7 +799,7 @@ describe("the sweep retires Vercel sandboxes (Postgres)", () => {
     )
 
     // The upload works again: the next sweep drains both.
-    vi.stubEnv("RETIRED_SANDBOX_STORE", `s3://${BUCKET}/retired-sandboxes`)
+    vi.stubEnv("RETIRED_SANDBOX_BUCKET", BUCKET)
     s3.bucket.refuse = false
     await sweepConversationSandboxes(orgId, new Date())
     expect(await vercelRows()).toEqual([])
