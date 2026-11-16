@@ -2086,6 +2086,81 @@ export const GithubThreeRepositories: Story = {
   },
 }
 
+/**
+ * The GitHub installation lost one repository: its row says that it is not
+ * indexed and gives the fix. The other repository is indexed.
+ */
+export const GithubRepositoryLostAccess: Story = {
+  args: {
+    linkedRepositories: [
+      {
+        id: "lnk_lost_1",
+        workspaceId: "ws_story1",
+        gitUrl: "https://github.com/acme/api",
+        desiredRef: null,
+        desiredSha: "abc",
+        indexedSha: "abc",
+        createdAt: "2026-10-01T10:00:00.000Z",
+        indexingStatus: "failed",
+        indexingError:
+          "ctxpipe has no access to this repository. Add the repository to the GitHub App installation, then refresh.",
+      },
+      {
+        id: "lnk_lost_2",
+        workspaceId: "ws_story1",
+        gitUrl: "https://github.com/acme/web",
+        desiredRef: null,
+        desiredSha: "def",
+        indexedSha: "def",
+        createdAt: "2026-10-01T10:00:00.000Z",
+      },
+    ],
+  },
+  parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the GitHub App installation lost one of two repositories, so that row needs attention, says it is not indexed, and tells the user how to give access back.",
+    },
+    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                {
+                  ...githubSource,
+                  scope: { repositories: ["acme/api", "acme/web"] },
+                  scopeSummary: "2 repositories",
+                },
+              ],
+            }),
+          ),
+          connected,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const list = within(
+      await canvas.findByRole("list", { name: "GitHub repositories" }),
+    )
+    const rows = list.getAllByRole("listitem")
+    await expect(rows).toHaveLength(2)
+    // The row that needs attention comes first.
+    const lost = within(rows[0] as HTMLElement)
+    await expect(lost.getByText("acme/api")).toBeVisible()
+    await expect(lost.getByText("Not indexed")).toBeVisible()
+    await expect(
+      lost.getByText(/Add the repository to the GitHub App installation/),
+    ).toBeVisible()
+    await expect(
+      within(rows[1] as HTMLElement).getByText("Indexed"),
+    ).toBeVisible()
+  },
+}
+
 const manyLinkedRepositories = Array.from({ length: 312 }, (_, index) => {
   const name = `acme/service-${String(index + 1).padStart(3, "0")}`
   const withIssues = (index + 1) % 75 === 0

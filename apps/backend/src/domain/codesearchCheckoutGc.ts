@@ -1,4 +1,4 @@
-import { and, eq, not, type SQL, sql } from "drizzle-orm"
+import { and, eq, lt, not, or, type SQL, sql } from "drizzle-orm"
 import { z } from "zod"
 
 import { repositoryRevisionCheckoutKey } from "../../../../shared/workspace-checkout.js"
@@ -400,8 +400,9 @@ export type PublishedRebuild = {
 
 /**
  * The published revision of a repository, when it is not in `liveShas` (no
- * unfinished run indexes it now) and the Git host did not refuse ctxpipe
- * access to it (an index cannot read it until the access comes back).
+ * unfinished run indexes it now). A repository whose Git host refused
+ * ctxpipe access gets one try each week only: a webhook or a refresh of its
+ * Workspace tries it again when the access comes back (CTX-1297).
  */
 async function publishedShaToRebuild(
   orgId: string,
@@ -415,7 +416,10 @@ async function publishedShaToRebuild(
       .where(
         and(
           eq(repositories.id, repositoryId),
-          not(repositoryLostAccessCondition()),
+          or(
+            not(repositoryLostAccessCondition()),
+            lt(repositories.indexingFailedAt, sql`now() - interval '7 days'`),
+          ),
         ),
       )
       .limit(1),

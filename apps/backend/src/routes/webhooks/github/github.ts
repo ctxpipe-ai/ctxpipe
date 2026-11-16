@@ -18,9 +18,9 @@ import {
   registerInstallationOnConnection,
 } from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
+import { startLostAccessRebuilds } from "../../../openworkflow/enqueue-codesearch-rebuild.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
 import { enqueueWorkspaceTipCheck } from "../../../openworkflow/enqueue-workspace-tip-check.js"
-import { startLostAccessRebuilds } from "../../../openworkflow/workflows/codesearch-checkout-gc.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 import {
@@ -98,7 +98,7 @@ async function registerInstallationFromConnectionWebhook(
   connectionId: string,
   installationId: number,
   ctx: GithubWebhookContext,
-  access?: { repoFullNames?: string[]; deliveryId?: string },
+  access: { repoFullNames?: string[]; deliveryId: string | undefined },
 ) {
   const row = await getGithubConnectionRowByConnectionId(connectionId)
   if (!row) {
@@ -133,10 +133,12 @@ async function registerInstallationFromConnectionWebhook(
     env: ctx.env,
     log: ctx.log,
   })
+  // A repository that lost access indexes again now that it can be back.
   await startLostAccessRebuilds({
     orgId: row.orgId,
     githubConnectionId: connectionId,
-    ...access,
+    repoFullNames: access.repoFullNames,
+    cause: access.deliveryId ?? new Date().toISOString(),
   })
 }
 
@@ -373,11 +375,11 @@ async function processInstallationRepositoriesEvent(
     .safeParse(payload)
   if (!parsed.success) return
   if (parsed.data.action !== "added") return
+  const repoFullNames = (parsed.data.repositories_added ?? []).map(
+    (repository) => repository.full_name,
+  )
 
   if (!connectionId) {
-    const repoFullNames = (parsed.data.repositories_added ?? []).map(
-      (repository) => repository.full_name,
-    )
     if (repoFullNames.length === 0) return
     // The deployment's App names the installation and the added repositories.
     // A user who gives it access to a repository after a Paste expects that
@@ -401,7 +403,7 @@ async function processInstallationRepositoriesEvent(
         orgId: installation.orgId,
         githubConnectionId: installation.id,
         repoFullNames,
-        deliveryId,
+        cause: deliveryId ?? new Date().toISOString(),
       })
     }
     return
@@ -411,12 +413,7 @@ async function processInstallationRepositoriesEvent(
     connectionId,
     parsed.data.installation.id,
     ctx,
-    {
-      repoFullNames: (parsed.data.repositories_added ?? []).map(
-        (repository) => repository.full_name,
-      ),
-      deliveryId,
-    },
+    { repoFullNames, deliveryId },
   )
 }
 

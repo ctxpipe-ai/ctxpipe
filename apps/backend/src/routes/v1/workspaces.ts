@@ -21,7 +21,11 @@ import {
   renameWorkspaceLifecycle,
 } from "../../domain/workspaces/workspace-lifecycle.js"
 import { withDestroyedWorkspaceSandboxes } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
-import { WORKSPACE_WRITE_STATUSES } from "../../domain/workspaces/write-status.js"
+import {
+  githubRepoFullNameFromWorkspaceUrl,
+  WORKSPACE_WRITE_STATUSES,
+} from "../../domain/workspaces/write-status.js"
+import { isRepositoryLostAccess } from "../../models/repositories.js"
 import { listWorkspaceUpgradeRows } from "../../models/workspace-upgrades.js"
 import {
   deleteWorkspace,
@@ -35,6 +39,7 @@ import {
   touchLastUsedWorkspace,
 } from "../../models/workspaces.js"
 import { detachedErrorLog, getLogger } from "../../observability/logger.js"
+import { startLostAccessRebuilds } from "../../openworkflow/enqueue-codesearch-rebuild.js"
 import {
   enqueueWorkspaceGraphRebuild,
   enqueueWorkspaceHydrate,
@@ -523,6 +528,22 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       )
     }
     const linked = await listLinkedRepositories(workspace.id)
+    // A linked repository that lost access says "then refresh": the refresh
+    // tries its index again, at most once per minute (CTX-1297).
+    const lostAccess = linked
+      .filter(isRepositoryLostAccess)
+      .flatMap((row) => githubRepoFullNameFromWorkspaceUrl(row.gitUrl) ?? [])
+    if (orgId && lostAccess.length > 0)
+      await startLostAccessRebuilds({
+        orgId,
+        repoFullNames: lostAccess,
+        cause: `refresh:${Math.floor(Date.now() / 60_000)}`,
+      }).catch((error: unknown) =>
+        getLogger().error(
+          error instanceof Error ? error : new Error(String(error)),
+          { step: "workspace.lost_access_rebuild.enqueue" },
+        ),
+      )
     return c.json(
       {
         ...serializeWorkspace(workspace),

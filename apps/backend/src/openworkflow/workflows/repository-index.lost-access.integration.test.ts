@@ -47,6 +47,7 @@ describeWithDatabase("repository-index after a lost GitHub access", () => {
   // What GitHub answers for an installation token of the repository.
   let github: "refused" | "unavailable" | "granted" = "refused"
   let connectionId = ""
+  let cloneFails = false
   const server = setupServer(
     http.post(
       `https://api.github.com/app/installations/${installationId}/access_tokens`,
@@ -81,6 +82,11 @@ describeWithDatabase("repository-index after a lost GitHub access", () => {
     http.post(
       `${CODESEARCH}/:repositoryId/index/clone-checkout`,
       async ({ request }) => {
+        if (cloneFails)
+          return HttpResponse.json(
+            { error: "codesearch unavailable" },
+            { status: 500 },
+          )
         const body = (await request.json()) as { targetHash: string }
         return HttpResponse.json({
           ok: true,
@@ -219,7 +225,7 @@ describeWithDatabase("repository-index after a lost GitHub access", () => {
 
   it(
     "stops the hourly rebuild after GitHub refuses the repository, and indexes it again when the installation gets it back",
-    { timeout: 60_000 },
+    { timeout: 120_000 },
     async () => {
       // Codesearch lost the published checkout: the sweep rebuilds it.
       expect(
@@ -251,7 +257,22 @@ describeWithDatabase("repository-index after a lost GitHub access", () => {
         indexingError: GIT_REMOTE_ACCESS_MESSAGES.denied,
         lastIngestedHash: SHA,
       })
-      // The sweep does not queue the run again.
+      // The sweep does not queue the run again, until a week passed.
+      expect(
+        (await sweepRepositoryDisk(orgId, repositoryId, [])).rebuild,
+      ).toBeUndefined()
+      await withOrgDbContext(orgId, (db) =>
+        db
+          .update(repositories)
+          .set({ indexingFailedAt: new Date(Date.now() - 8 * 86_400_000) })
+          .where(eq(repositories.id, repositoryId)),
+      )
+      expect(
+        (await sweepRepositoryDisk(orgId, repositoryId, [])).rebuild,
+      ).toEqual({ orgId, repositoryId, sha: SHA })
+      await expect(
+        (await rebuild()).result({ timeoutMs: 15_000 }),
+      ).rejects.toThrow(GIT_REMOTE_ACCESS_MESSAGES.denied)
       expect(
         (await sweepRepositoryDisk(orgId, repositoryId, [])).rebuild,
       ).toBeUndefined()
@@ -290,6 +311,20 @@ describeWithDatabase("repository-index after a lost GitHub access", () => {
           rebuild: true,
         },
       ])
+      // GitHub gives the token, but the clone fails for a moment: the access
+      // is back, so the sweep tries the run again.
+      cloneFails = true
+      await expect(
+        (await rebuild()).result({ timeoutMs: 30_000 }),
+      ).rejects.toThrow()
+      expect(await repositoryState()).toMatchObject({
+        indexingStatus: "ready",
+        indexingError: null,
+      })
+      expect(
+        (await sweepRepositoryDisk(orgId, repositoryId, [])).rebuild,
+      ).toEqual({ orgId, repositoryId, sha: SHA })
+      cloneFails = false
       await expect(
         (await rebuild()).result({ timeoutMs: 15_000 }),
       ).resolves.toMatchObject({ targetHash: SHA, searchIndexOk: true })

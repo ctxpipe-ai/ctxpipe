@@ -297,28 +297,36 @@ export const repositoryIndex = defineWorkflow(
     }
 
     const env = parseEnv(process.env as Record<string, string | undefined>)
-    const githubToken = await wls("resolve-github-token", () =>
-      resolveRepositoryReadCredential({
-        orgId: input.orgId,
-        env,
-        remote: {
-          url: repository.gitUrl,
-          connectionId:
-            input.githubConnectionId ?? repository.githubConnectionId,
-        },
-      }),
-    ).catch(async (error: unknown) => {
-      // A rebuild owns no request, so no ingestion records the failure. The
-      // refusal is permanent until the installation gets the repository
-      // back: record it, so that the hourly sweep stops the rebuilds and
-      // the UI tells the user what to fix (CTX-1297).
-      if (input.rebuild && error instanceof GitRemoteAccessError)
-        await markRepositoryLostAccess({
+    const githubToken = await wls("resolve-github-token", async () => {
+      try {
+        const token = await resolveRepositoryReadCredential({
+          orgId: input.orgId,
+          env,
+          remote: {
+            url: repository.gitUrl,
+            connectionId:
+              input.githubConnectionId ?? repository.githubConnectionId,
+          },
+        })
+        // The Git host gave a credential: a lost access is back (CTX-1297).
+        await clearRepositoryLostAccess({
           orgId: input.orgId,
           repositoryId: input.repositoryId,
-          error,
         })
-      throw error
+        return token
+      } catch (error) {
+        // A run with a request leaves the failure to its ingestion. A run
+        // with no request records a refusal, which stays until the
+        // installation gets the repository back: the hourly sweep then
+        // stops its rebuilds, and the UI tells the user what to fix.
+        if (!requestId && error instanceof GitRemoteAccessError)
+          await markRepositoryLostAccess({
+            orgId: input.orgId,
+            repositoryId: input.repositoryId,
+            error,
+          })
+        throw error
+      }
     })
 
     const checkout = await runIndexPhaseWithAdmissionRetry(
@@ -346,11 +354,6 @@ export const repositoryIndex = defineWorkflow(
       targetHash: checkout.targetHash,
       ingestMode: checkout.ingestMode,
     })
-    if (input.rebuild)
-      await clearRepositoryLostAccess({
-        orgId: input.orgId,
-        repositoryId: input.repositoryId,
-      })
 
     const zoektResult = optionalIndexStepResult(
       await runIndexPhaseWithAdmissionRetry(

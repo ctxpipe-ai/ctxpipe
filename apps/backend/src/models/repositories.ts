@@ -449,6 +449,19 @@ export function repositoryLostAccessCondition(): SQL {
   )}, false)`
 }
 
+/** The row form of `repositoryLostAccessCondition`. */
+export function isRepositoryLostAccess(row: {
+  indexingStatus: string | null
+  indexingError: string | null
+}): boolean {
+  return (
+    row.indexingStatus === "failed" &&
+    Object.values<string | null>(GIT_REMOTE_ACCESS_MESSAGES).includes(
+      row.indexingError,
+    )
+  )
+}
+
 /**
  * Records a lost access on an idle repository. It keeps the published
  * revision and `index_ready`: the graph of that revision stays readable.
@@ -511,12 +524,12 @@ export async function clearRepositoryLostAccess(input: {
 }
 
 /**
- * The published repositories of a GitHub connection in the lost-access state,
- * with their Git URL.
+ * The published repositories of an org in the lost-access state, with their
+ * Git URL: all of them, or those of one GitHub connection.
  */
 export async function listLostAccessRepositories(input: {
   orgId: string
-  githubConnectionId: string
+  githubConnectionId?: string
 }): Promise<Array<{ id: string; gitUrl: string; sha: string }>> {
   const rows = await withOrgDbContext(input.orgId, (db) =>
     db
@@ -528,7 +541,9 @@ export async function listLostAccessRepositories(input: {
       .from(repositories)
       .where(
         and(
-          eq(repositories.githubConnectionId, input.githubConnectionId),
+          input.githubConnectionId
+            ? eq(repositories.githubConnectionId, input.githubConnectionId)
+            : undefined,
           isNotNull(repositories.lastIngestedHash),
           repositoryLostAccessCondition(),
         ),
