@@ -32,7 +32,10 @@ describe("UI server render route to the backend", () => {
         Match.objectLike({
           Name: "ui",
           Environment: Match.arrayWith([
-            { Name: "AUTH_BASE_URL", Value: "http://backend.ctxpipe.local:3000" },
+            {
+              Name: "AUTH_BASE_URL",
+              Value: "http://backend.ctxpipe.local:3000",
+            },
             { Name: "AUTH_ALLOWED_ORIGINS", Value: "https://app.example.com" },
           ]),
         }),

@@ -337,7 +337,7 @@ cluster.engineVersion = "16.15"; // the EngineVersion that `aws rds describe-db-
 
 ### Customer-supplied (required)
 
-- `AUTH_BASE_URL` (derived from `customDomain.domainName`)
+- `AUTH_BASE_URL` (derived from `customDomain.domainName`; the UI task instead calls the backend on `http://backend.ctxpipe.local:3000` and gets the app URL in `AUTH_ALLOWED_ORIGINS`)
 - Model provider settings from `modelProvider`:
   - **openai-like**: `MODEL_PROVIDER_URL`, `MODEL_PROVIDER_API_KEY`, and tier names (`MODEL_FAST_NAME`, etc.)
   - **bedrock**: `MODEL_PROVIDER=bedrock`, tier names, and `MODEL_BEDROCK_AWS_REGION` — no `MODEL_PROVIDER_URL` or `MODEL_PROVIDER_API_KEY`
