@@ -315,7 +315,6 @@ export function gatedVerdict({
     "production-builds",
     "packages",
     "migrate",
-    "terraform-validate",
   ].filter((job) => ["failure", "cancelled"].includes(needs[job]?.result))
   const failedChecks = ran.some(
     (item) =>
@@ -416,7 +415,7 @@ export function cost({ ranIds, seconds, jobs }) {
     matching(match).reduce((total, value) => total + value, 0)
   const shadowJob = (name) => /^Merge gate/.test(name)
   const alwaysRunJob = (name) =>
-    /^(Production build|Runnable packages|Migrations|Terraform)/.test(name)
+    /^(Production build|Runnable packages|Migrations)/.test(name)
   const manifest = minutes.get("Merge gate manifest") ?? 0
   const select = minutes.get("Merge gate selection") ?? 0
   const shards = shard(ranIds, seconds)
@@ -585,7 +584,7 @@ export function criticsText(checked, repoUrl) {
     if (checked?.required)
       lines.push(
         "",
-        "A same-repo PR needs the critics record, so the gate fails in gate mode. Fix: use **Re-run all jobs**, so that the job `Merge gate critics` runs again. On a PR that changes `infra/`, the run waits for the Terraform plan approval and offers no re-run until then: push again, or approve or reject the plan. When the cause stays, look at the log of that job.",
+        "A same-repo PR needs the critics record, so the gate fails in gate mode. Fix: use **Re-run all jobs**, so that the job `Merge gate critics` runs again. When the cause stays, look at the log of that job.",
       )
     return `${lines.join("\n")}\n`
   }
@@ -696,7 +695,7 @@ export function criticsText(checked, repoUrl) {
   if (checked.missing.length > 0)
     lines.push(
       "",
-      `Critics with no stored verdict for this diff: ${checked.missing.length}. Fix: run \`factory check\` on the PR head (it runs the critics and stores their verdicts), and fix what it reports. Then push again, or use **Re-run all jobs** (a PR that changes \`infra/\` offers it only after the Terraform plan is approved or rejected): the job \`Merge gate critics\` must look up the verdicts again.`,
+      `Critics with no stored verdict for this diff: ${checked.missing.length}. Fix: run \`factory check\` on the PR head (it runs the critics and stores their verdicts), and fix what it reports. Then push again, or use **Re-run all jobs**: the job \`Merge gate critics\` must look up the verdicts again.`,
     )
   lines.push("", attested)
   return `${lines.join("\n")}\n`
@@ -916,10 +915,9 @@ export function shadow({
 
 // The decision of a PR run in gate mode: the gated run gates. Each check of
 // the plan ran in its job of this run, and each other selected check has an
-// accepted hit. A check that another workflow runs (the MCP evals, the
-// Terraform plan) has the status of that workflow and is not
-// part of this verdict. `reruns` are the records of the one rerun of each
-// failed check whose key has a stored pass.
+// accepted hit. A check that another workflow runs (the MCP evals) has the
+// status of that workflow and is not part of this verdict. `reruns` are the
+// records of the one rerun of each failed check whose key has a stored pass.
 export function gateDecision({
   config,
   planned,
@@ -952,7 +950,7 @@ export function gateDecision({
       })
   }
   // The jobs that run on each gated run.
-  const failedAlwaysRun = ["terraform-validate", "migrate"].filter((job) =>
+  const failedAlwaysRun = ["migrate"].filter((job) =>
     ["failure", "cancelled"].includes(needs[job]?.result),
   )
   const bad = (status) =>
@@ -1037,7 +1035,7 @@ export function gateDecision({
         fullRunMinutesEstimate: round(
           shardMinutes(shard(all, seconds)) +
             [...measured]
-              .filter(([name]) => /^(Migrations|Terraform)/.test(name))
+              .filter(([name]) => /^Migrations/.test(name))
               .reduce((sum, [, value]) => sum + value, 0),
         ),
       },

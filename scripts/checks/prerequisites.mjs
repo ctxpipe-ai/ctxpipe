@@ -405,18 +405,6 @@ export const prerequisites = {
         )
     },
   },
-  // The environment of terraform-plan-pr.yaml: the Terraform CLI and the
-  // keys of the remote state.
-  "terraform-plan": {
-    prepare: () => {
-      quiet("terraform", ["version"], "Install Terraform 1.14.7.")
-      for (const name of ["R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"])
-        required(
-          name,
-          "Set the state keys of the terraform-plan environment (GitHub Environment terraform-plan).",
-        )
-    },
-  },
   "codesearch-server": {
     prepare: () =>
       answers(
