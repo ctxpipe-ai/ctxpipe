@@ -196,3 +196,16 @@ export function connectionUsageItem(
     ...overrides,
   }
 }
+
+/**
+ * The add to a Workspace that has no source yet: the empty sources read and
+ * the change handlers, which record each request in `calls`.
+ */
+export function workspaceSourceAddHandlers(
+  calls: Parameters<typeof workspaceSourceChangeHandlers>[0],
+) {
+  return [
+    workspaceSourcesHandler(workspaceSourceList()),
+    ...workspaceSourceChangeHandlers(calls),
+  ]
+}

@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
 
-import { atlassianOauthHandler } from "@/mocks/atlassian-handlers"
+import {
+  atlassianOauthHandler,
+  atlassianOauthSaveHandler,
+} from "@/mocks/atlassian-handlers"
 
 import { entryPageInnerDecorators } from "../../../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../../../.storybook/decorators/with-story-route"
@@ -34,17 +36,6 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-const orgOauthPut = http.put(
-  ({ request }) => {
-    const u = new URL(request.url)
-    return (
-      u.pathname === `/${orgSlug}/api/v1/org/atlassian-oauth` &&
-      u.searchParams.get("connectionId") === atlassianConnectionId
-    )
-  },
-  () => new HttpResponse(null, { status: 204 }),
-)
-
 const step = () => (
   <RegisterAtlassianOauthStep
     orgSlug={orgSlug}
@@ -68,7 +59,7 @@ export const RegisterOAuth: Story = {
             { oauthAppSaved: false },
             atlassianConnectionId,
           ),
-          orgOauthPut,
+          atlassianOauthSaveHandler(atlassianConnectionId),
         ],
       },
     },

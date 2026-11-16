@@ -408,7 +408,7 @@ export const Full: Story = {
     ...pageHandlers([
       connectorsListHandler(),
       atlassianStatusHandler(atlassianStatusComplete),
-      atlassianOauthHandler({ oauthAppSaved: true }),
+      atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
       notionStatusHandler(notionStatusComplete),
       githubInstallationHandler(githubInstallationComplete),
       linearStatusHandler(linearStatusComplete),
@@ -453,7 +453,7 @@ export const NeedsFormatUpgrade: Story = {
       [
         connectorsListHandler(),
         atlassianStatusHandler(atlassianStatusComplete),
-        atlassianOauthHandler({ oauthAppSaved: true }),
+        atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
         notionStatusHandler(notionStatusComplete),
         githubInstallationHandler(githubInstallationComplete),
         linearStatusHandler(linearStatusComplete),
@@ -496,7 +496,7 @@ export const NeedsFormatUpgradeNoRowYet: Story = {
       [
         connectorsListHandler(),
         atlassianStatusHandler(atlassianStatusComplete),
-        atlassianOauthHandler({ oauthAppSaved: true }),
+        atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
         notionStatusHandler(notionStatusComplete),
         githubInstallationHandler(githubInstallationComplete),
         linearStatusHandler(linearStatusComplete),
@@ -561,7 +561,7 @@ export const InProgress: Story = {
     ...pageHandlers([
       connectorsListHandler(),
       githubInstallationHandler(null),
-      atlassianOauthHandler({ oauthAppSaved: true }),
+      atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
       atlassianStatusHandler({
         isLinked: true,
         isInstalled: true,
@@ -623,7 +623,7 @@ export const MixedHealth: Story = {
     ...pageHandlers([
       connectorsListHandler(),
       githubInstallationHandler(githubInstallationComplete),
-      atlassianOauthHandler({ oauthAppSaved: true }),
+      atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
       atlassianStatusHandler({
         isLinked: false,
         isInstalled: false,
@@ -660,7 +660,7 @@ export const CouldntLoad: Story = {
   parameters: {
     ...pageHandlers([
       connectorsListHandler(),
-      atlassianOauthHandler({ oauthAppSaved: true }),
+      atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
       statusFailed("/api/v1/github/installation", githubId),
       statusFailed("/api/v1/connectors/atlassian/status", forgeId),
       statusFailed("/api/v1/connectors/linear/status", linearId),
@@ -728,8 +728,8 @@ export const ReopensConfluenceWizardAfterAccountLink: Story = {
             () => HttpResponse.json({ items: [] }),
           ),
           // The OAuth app is saved, and the install link fails to load.
-          atlassianOauthHandler({ oauthAppSaved: true }),
-          atlassianCapabilitiesHandler("error"),
+          atlassianOauthHandler({ oauthAppSaved: true }, "con_forge_story"),
+          atlassianCapabilitiesHandler("error", "con_forge_story"),
           http.get(
             ({ request }) =>
               new URL(request.url).pathname.endsWith(

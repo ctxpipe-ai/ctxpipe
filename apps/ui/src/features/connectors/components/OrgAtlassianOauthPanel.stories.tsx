@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
 
-import { atlassianOauthHandler } from "@/mocks/atlassian-handlers"
+import {
+  atlassianOauthHandler,
+  atlassianOauthSaveHandler,
+} from "@/mocks/atlassian-handlers"
 
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
@@ -35,20 +37,9 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-const putOrgOauth = http.put(
-  ({ request }) => {
-    const u = new URL(request.url)
-    return (
-      u.pathname === `/${orgSlug}/api/v1/org/atlassian-oauth` &&
-      u.searchParams.get("connectionId") === connectionId
-    )
-  },
-  () => new HttpResponse(null, { status: 204 }),
-)
-
 const baseHandlers = [
   atlassianOauthHandler({ oauthAppSaved: false }, connectionId),
-  putOrgOauth,
+  atlassianOauthSaveHandler(connectionId),
 ]
 
 const panel = () => (
@@ -81,7 +72,7 @@ export const OauthAppSaved: Story = {
       handlers: {
         page: [
           atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
-          putOrgOauth,
+          atlassianOauthSaveHandler(connectionId),
         ],
       },
     },
@@ -128,7 +119,7 @@ export const EmbeddedOauthConfigured: Story = {
       handlers: {
         page: [
           atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
-          putOrgOauth,
+          atlassianOauthSaveHandler(connectionId),
         ],
       },
     },

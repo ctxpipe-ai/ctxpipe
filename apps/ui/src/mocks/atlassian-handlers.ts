@@ -58,3 +58,15 @@ export function atlassianOauthHandler(
       ),
   )
 }
+
+/**
+ * `PUT …/org/atlassian-oauth`: the server saves the Atlassian OAuth app of a
+ * connection. With `connectionId`, it answers only that connection.
+ */
+export function atlassianOauthSaveHandler(connectionId?: string) {
+  return http.put(
+    ({ request }) =>
+      matches(request, "/api/v1/org/atlassian-oauth", connectionId),
+    () => new HttpResponse(null, { status: 204 }),
+  )
+}

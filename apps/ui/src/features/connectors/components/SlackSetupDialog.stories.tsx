@@ -14,6 +14,7 @@ import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
   connectionUsageHandler,
   connectionUsageItem,
+  workspaceSourceAddHandlers,
   workspaceSourceChangeHandlers,
   workspaceSourceFixture,
   workspaceSourceList,
@@ -170,9 +171,7 @@ export const ChooseWorkspaces: Story = {
           workspaceListHandler([docsWorkspace]),
           connectionUsageHandler([]),
           slackChannelsHandler(),
-          // The Workspace has no source before the add.
-          workspaceSourcesHandler(workspaceSourceList()),
-          ...workspaceSourceChangeHandlers(addCalls),
+          ...workspaceSourceAddHandlers(addCalls),
         ],
       },
     },

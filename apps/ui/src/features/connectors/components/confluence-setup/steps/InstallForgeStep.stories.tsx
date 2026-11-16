@@ -93,7 +93,7 @@ export const CapabilitiesLoading: Story = {
     msw: {
       handlers: {
         page: [
-          atlassianCapabilitiesHandler("loading"),
+          atlassianCapabilitiesHandler("loading", atlassianConnectionId),
           statusHandler(),
           http.post(
             ({ request }) =>
@@ -129,7 +129,7 @@ export const ProvisionFailed: Story = {
     msw: {
       handlers: {
         page: [
-          atlassianCapabilitiesHandler(null),
+          atlassianCapabilitiesHandler(null, atlassianConnectionId),
           provisionStatusHandler({
             connectionId: atlassianConnectionId,
             provisionStatus: "failed",
@@ -172,7 +172,10 @@ export const HostedInstallIntentError: Story = {
     msw: {
       handlers: {
         page: [
-          atlassianCapabilitiesHandler("https://example.com/marketplace/forge"),
+          atlassianCapabilitiesHandler(
+            "https://example.com/marketplace/forge",
+            atlassianConnectionId,
+          ),
           http.post(
             ({ request }) =>
               new URL(request.url).pathname.endsWith(
@@ -218,7 +221,10 @@ export const InstallForge: Story = {
     msw: {
       handlers: {
         page: [
-          atlassianCapabilitiesHandler("https://example.com/marketplace/forge"),
+          atlassianCapabilitiesHandler(
+            "https://example.com/marketplace/forge",
+            atlassianConnectionId,
+          ),
           http.post(
             ({ request }) =>
               new URL(request.url).pathname.endsWith(
@@ -250,7 +256,7 @@ export const ProvisionSelfHosted: Story = {
     msw: {
       handlers: {
         page: [
-          atlassianCapabilitiesHandler(null),
+          atlassianCapabilitiesHandler(null, atlassianConnectionId),
           provisionStatusHandler({
             connectionId: atlassianConnectionId,
             provisionStatus: "idle",
@@ -292,7 +298,7 @@ export const ProvisionRunning: Story = {
     msw: {
       handlers: {
         page: [
-          atlassianCapabilitiesHandler(null),
+          atlassianCapabilitiesHandler(null, atlassianConnectionId),
           provisionStatusHandler({
             connectionId: atlassianConnectionId,
             provisionStatus: "running",
@@ -322,7 +328,10 @@ export const MarketplaceInstallPending: Story = {
     msw: {
       handlers: {
         page: [
-          atlassianCapabilitiesHandler("https://example.com/marketplace/forge"),
+          atlassianCapabilitiesHandler(
+            "https://example.com/marketplace/forge",
+            atlassianConnectionId,
+          ),
           http.post(
             ({ request }) =>
               new URL(request.url).pathname.endsWith(
