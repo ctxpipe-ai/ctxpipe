@@ -113,6 +113,56 @@ export function shellSingleQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`
 }
 
+type SandboxRun = (
+  command: string,
+) => Promise<{ stdout: string; exitCode: number }>
+
+/**
+ * The size of a file in the sandbox, as the sandbox reports it. The copy
+ * reads that many bytes into this process, so a file larger than 100 MB is
+ * refused before any copy.
+ */
+export async function sandboxFileSize(
+  run: SandboxRun,
+  path: string,
+): Promise<number> {
+  const size = await run(`wc -c < ${shellSingleQuote(path)}`)
+  const bytes = Number(size.stdout.trim())
+  if (size.exitCode !== 0 || !Number.isSafeInteger(bytes) || bytes <= 0)
+    throw new Error("Invalid sandbox file size")
+  if (bytes > 100 * 1024 * 1024)
+    throw new Error("The sandbox file is larger than 100 MB")
+  return bytes
+}
+
+/**
+ * Copy a file of the sandbox into this process, in chunks of 256 KiB as
+ * base64 on the command output. `bytes` is the size from
+ * `sandboxFileSize`; a chunk that is not base64 or has another size stops
+ * the copy.
+ */
+export async function* sandboxFileChunks(
+  run: SandboxRun,
+  path: string,
+  bytes: number,
+): AsyncGenerator<Buffer> {
+  const chunkBytes = 256 * 1024
+  for (let offset = 0; offset < bytes; offset += chunkBytes) {
+    const chunk = await run(
+      `dd if=${shellSingleQuote(path)} bs=${chunkBytes} skip=${offset / chunkBytes} count=1 2>/dev/null | base64`,
+    )
+    const encoded = chunk.stdout.replace(/\s/g, "")
+    const data = Buffer.from(encoded, "base64")
+    if (
+      chunk.exitCode !== 0 ||
+      !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) ||
+      data.length !== Math.min(chunkBytes, bytes - offset)
+    )
+      throw new Error("The sandbox file transfer was truncated or changed")
+    yield data
+  }
+}
+
 /** Why nothing was published (nothing reached GitHub). */
 export type SessionPublishSkip =
   | ChatPublishBlock
@@ -525,18 +575,7 @@ async function brokerPush(input: {
     if (changed.exitCode !== 0)
       throw new Error("Cannot count the conversation's changed files")
     const files = changed.stdout.split("\0").filter(Boolean).length
-    const size = await run(`wc -c < ${shellSingleQuote(agentPack)}`)
-    const packBytes = Number(size.stdout.trim())
-    if (
-      size.exitCode !== 0 ||
-      !Number.isSafeInteger(packBytes) ||
-      packBytes <= 0
-    )
-      throw new Error("Invalid conversation Git pack size")
-    // The sandbox reports the size. The copy below reads that many bytes into
-    // this process, so a larger pack is refused before any copy.
-    if (packBytes > 100 * 1024 * 1024)
-      throw new Error("The conversation Git pack is larger than 100 MB")
+    const packBytes = await sandboxFileSize(run, agentPack)
     writeToken = await getRepoWriteCloneToken(target.orgId, input.env, {
       githubConnectionId: target.connectionId,
       repoFullName: target.repositoryName,
@@ -557,23 +596,12 @@ async function brokerPush(input: {
         const localPack = join(directory, ".git", "conversation.pack")
         const output = await open(localPack, "wx")
         try {
-          const chunkBytes = 256 * 1024
-          for (let offset = 0; offset < packBytes; offset += chunkBytes) {
-            const chunk = await run(
-              `dd if=${shellSingleQuote(agentPack)} bs=${chunkBytes} skip=${offset / chunkBytes} count=1 2>/dev/null | base64`,
-            )
-            const encoded = chunk.stdout.replace(/\s/g, "")
-            const bytes = Buffer.from(encoded, "base64")
-            if (
-              chunk.exitCode !== 0 ||
-              !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) ||
-              bytes.length !== Math.min(chunkBytes, packBytes - offset)
-            )
-              throw new Error(
-                "Conversation Git transfer was truncated or changed",
-              )
+          for await (const bytes of sandboxFileChunks(
+            run,
+            agentPack,
+            packBytes,
+          ))
             await output.writeFile(bytes)
-          }
         } finally {
           await output.close()
         }
