@@ -16,6 +16,7 @@ permissions:
   contents: read
 
 jobs:
+  # outside-gate: a paths filter decides until its jobs are checks (CTX-1152)
   test:
     name: Test cost-telemetry
     if: github.event_name == 'pull_request' && github.repository == 'ctxpipe-ai/ctxpipe'

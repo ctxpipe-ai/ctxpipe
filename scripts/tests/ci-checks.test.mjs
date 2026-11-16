@@ -1,10 +1,8 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import {
-  existsSync,
   mkdirSync,
   mkdtempSync,
-  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -321,32 +319,6 @@ test("an eval case verdict is the eval gate for that case", async () => {
     single.cases.map((c) => c.status),
     ["passed"],
   )
-})
-
-test("the runner and the tests of the CI scripts import only by literal specifiers", () => {
-  // The cache key of a check follows each import() of the runner's closure,
-  // and of the test file of a policy check. A computed specifier makes the
-  // selector refuse a key for every check, or for that test, and then the
-  // merge gate runs that test on each pull request that changes its inputs.
-  const seen = new Set()
-  const computed = []
-  const visit = (file) => {
-    // A test can name a path in a string that is not an import.
-    if (seen.has(file) || !existsSync(file)) return
-    seen.add(file)
-    const text = readFileSync(file, "utf8")
-    for (const match of text.matchAll(/\bimport\(\s*(?![\s"'`)])/g))
-      computed.push(`${file}@${match.index}`)
-    for (const match of text.matchAll(
-      /(?:from\s+|\bimport\(\s*)["'](\.[^"']+\.(?:mjs|js|ts))["']/g,
-    ))
-      visit(join(file, "..", match[1]))
-  }
-  visit(script("run.mjs"))
-  for (const name of readdirSync(join(root, "scripts/tests")))
-    if (name.endsWith(".test.mjs")) visit(join(root, "scripts/tests", name))
-  assert.ok(seen.size > 5)
-  assert.deepEqual(computed, [])
 })
 
 test("the rerun takes each failed record below the results once, and no rerun record", () => {

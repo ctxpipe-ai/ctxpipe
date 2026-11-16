@@ -21,7 +21,7 @@ import { markPortable } from "../checks/families.mjs"
 import { fullRunResults, stepResults } from "../checks/gate.mjs"
 import { jobPlans, placeOf } from "../checks/plan.mjs"
 import { prerequisites, withNeeds } from "../checks/prerequisites.mjs"
-import { uiBundledImports } from "../checks/projects.mjs"
+import { listProjects, uiBundledImports } from "../checks/projects.mjs"
 import { runsInOf } from "../checks/shard.mjs"
 import { vitestCommand } from "../ci/vitest-launch.mjs"
 
@@ -433,7 +433,9 @@ test("the manifest marks exactly the platform-independent checks portable", () =
     new Set(['["container-platform"]']),
   )
   // A check that the denylist names is never portable.
-  const denied = JSON.parse(readFileSync(script("non-portable.json"), "utf8"))
+  const denied = Object.keys(
+    JSON.parse(readFileSync(script("non-portable.json"), "utf8")),
+  )
   for (const check of checks.filter(({ id }) => denied.includes(id)))
     assert.equal(check.portable, undefined, check.id)
   const listed = { id: "vitest:ui:a.test.ts", portable: true }
@@ -836,6 +838,19 @@ test("the browser trace maps page coverage to source lines through the build's s
   }
 })
 
+test("the inputs of each project check hold its file", () => {
+  // Else a change to the file selects no check.
+  for (const { id, file, inputs } of listProjects())
+    assert.ok(
+      inputs.some(
+        (input) =>
+          input === file ||
+          (input.endsWith("/**") && file.startsWith(input.slice(0, -2))),
+      ),
+      id,
+    )
+})
+
 test("every check has the root toolchain files among its inputs, and a Storybook check has the UI package file instead of the root package.json", () => {
   const result = node([script("list.mjs")])
   assert.equal(result.status, 0, result.stderr)
@@ -1089,7 +1104,9 @@ test("the project check times job selects the typecheck, lint and policy checks 
   // that the filter leaves such a check out.
   const uncacheable = spawnSync("jq", ["-r", filter[1]], {
     input: JSON.stringify({
-      checks: [{ id: "policy:remote:x.mjs", family: "policy", cacheable: false }],
+      checks: [
+        { id: "policy:remote:x.mjs", family: "policy", cacheable: false },
+      ],
     }),
     encoding: "utf8",
   })

@@ -177,6 +177,7 @@ const definitions = () => [
     ["secret-jobs", [".github/**", "scripts/**"]],
     ["runners", [".github/**"]],
     ["workflow-inputs", [".github/**"]],
+    ["ci-jobs", [".github/workflows/**", "scripts/**"]],
     ["ui-motion", ["apps/ui/src/**"]],
     ["story-play-timing", ["apps/ui/src/**"]],
     [
@@ -357,7 +358,8 @@ const definitions = () => [
           : []),
         ...reads,
       ],
-      cacheable: false,
+      uncached:
+        "a build pulls base images by tag, and packages from the network without a lock",
       prerequisites: ["docker"],
       intent: `Catches a ${name} production image that does not build. Run it when its Dockerfile, the lockfile or the source that it copies changes; never for a change only to tests or docs of another app.`,
       commands: [
@@ -416,10 +418,20 @@ export function listProjects() {
   const portable = ({ family, lane }) =>
     ["typecheck", "lint", "policy"].includes(family) ||
     (family === "build" && lane.startsWith("package-"))
+  // A check has no cache only with its reason (`uncached`): a definition
+  // cannot set `cacheable` itself.
   return definitions().map(
-    ({ commands: _commands, prerequisites, runtime, ...check }) => ({
+    ({
+      commands: _commands,
+      cacheable: _cacheable,
+      uncached,
+      prerequisites,
+      runtime,
+      ...check
+    }) => ({
       id: `${check.family}:${check.lane}:${check.file}`,
       ...check,
+      ...(uncached && { cacheable: false }),
       runtime: runtime ?? "node",
       ...(prerequisites && { prerequisites }),
       ...(portable(check) && { portable: true }),
