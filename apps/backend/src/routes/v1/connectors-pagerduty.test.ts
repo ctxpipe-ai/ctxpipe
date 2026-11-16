@@ -73,7 +73,7 @@ vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
   enqueueRepositoryIngestionWorkflow: vi.fn(),
 }))
 vi.mock("../../openworkflow/client.js", () => ({
-  runWorkflowWithWorkerWake: mocks.runWorkflow,
+  enqueueWorkflow: mocks.runWorkflow,
 }))
 vi.mock("../../openworkflow/workflows/pagerduty-sync-config.js", () => ({
   pagerdutySyncConfig: { spec: { name: "pagerduty-sync-config" } },

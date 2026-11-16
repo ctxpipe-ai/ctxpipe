@@ -32,7 +32,7 @@ import {
   upsertNotionConnectionFromOAuth,
 } from "../../models/notion-connector.js"
 import { getLogger } from "../../observability/logger.js"
-import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
+import { enqueueWorkflow } from "../../openworkflow/client.js"
 import { enqueueConnectorConfigSync } from "../../openworkflow/enqueue-connector-config-sync.js"
 import { enqueueConnectorContentSync } from "../../openworkflow/enqueue-connector-content-sync.js"
 import { notionSyncConfig } from "../../openworkflow/workflows/notion-sync-config.js"
@@ -1306,7 +1306,7 @@ export const notionConnectorRoutes = notionOAuthStartRoutes
       const orgSlug = c.get("orgSlug") ?? c.req.param("orgSlug")
       if (!orgSlug) return c.json({ error: "Unauthorized" }, 401)
       try {
-        await runWorkflowWithWorkerWake(notionSyncContent.spec, {
+        await enqueueWorkflow(notionSyncContent.spec, {
           orgId,
           orgSlug,
           connectionId: installed.connection.id,

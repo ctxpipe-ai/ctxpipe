@@ -3,7 +3,7 @@ import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
 import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
 import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
 import { persistHydrateFailure } from "../models/workspaces.js"
-import { runWorkflowWithWorkerWake } from "./client.js"
+import { enqueueWorkflow } from "./client.js"
 import { workspaceHydrate } from "./workflows/workspace-hydrate.js"
 
 export async function enqueueWorkspaceHydrate(
@@ -28,7 +28,7 @@ export async function enqueueWorkspaceHydrate(
     })
     if (!resolved) return
     revision = resolved.revision
-    await runWorkflowWithWorkerWake(
+    await enqueueWorkflow(
       workspaceHydrate.spec,
       {
         orgId: input.orgId,
@@ -69,7 +69,7 @@ export async function enqueueWorkspaceGraphRebuild(input: {
   revisionKey: string
   trigger: string
 }): Promise<boolean> {
-  const handle = await runWorkflowWithWorkerWake(
+  const handle = await enqueueWorkflow(
     workspaceHydrate.spec,
     {
       orgId: input.orgId,

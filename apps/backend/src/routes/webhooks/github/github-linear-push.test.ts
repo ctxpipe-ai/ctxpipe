@@ -40,7 +40,7 @@ vi.mock("../../../models/linear-connector.js", () => ({
   transitionLinearBindingState: mocks.transitionState,
 }))
 vi.mock("../../../openworkflow/client.js", () => ({
-  runWorkflowWithWorkerWake: mocks.runWorkflow,
+  enqueueWorkflow: mocks.runWorkflow,
 }))
 vi.mock("../../../openworkflow/workflows/linear-sync-content.js", () => ({
   linearSyncContent: { spec: { name: "linear-sync-content" } },

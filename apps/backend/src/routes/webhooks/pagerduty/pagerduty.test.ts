@@ -25,7 +25,7 @@ vi.mock("../../../services/pagerduty/config-from-repo.js", () => ({
   loadPagerdutyScopeFromRepo: mocks.loadConfig,
 }))
 vi.mock("../../../openworkflow/client.js", () => ({
-  runWorkflowWithWorkerWake: mocks.runWorkflow,
+  enqueueWorkflow: mocks.runWorkflow,
 }))
 vi.mock("../../../openworkflow/workflows/pagerduty-sync-entity.js", () => ({
   pagerdutySyncEntity: { spec: { name: "pagerduty-sync-entity" } },

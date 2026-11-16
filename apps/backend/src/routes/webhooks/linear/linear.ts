@@ -14,7 +14,7 @@ import {
 } from "../../../models/linear-connector.js"
 import { listConnectionSourceRows } from "../../../models/workspace-sources.js"
 import { getLogger } from "../../../observability/logger.js"
-import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
+import { enqueueWorkflow } from "../../../openworkflow/client.js"
 import { linearSyncEntity } from "../../../openworkflow/workflows/linear-sync-entity.js"
 import { linearLegacyRetiredBy } from "../../../services/linear/legacy-retired.js"
 import { linearSourceEventFromPayload } from "../../../services/linear/source-event.js"
@@ -300,7 +300,7 @@ async function processVerifiedLinearWebhook(input: {
     ) {
       continue
     }
-    await runWorkflowWithWorkerWake(linearSyncEntity.spec, {
+    await enqueueWorkflow(linearSyncEntity.spec, {
       orgId: connection.orgId,
       connectionId: connection.id,
       ...target,

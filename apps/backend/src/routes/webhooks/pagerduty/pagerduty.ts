@@ -9,7 +9,7 @@ import {
   listPagerdutyConnectionsByWebhookSubscriptionId,
 } from "../../../models/pagerduty-connector.js"
 import { getLogger } from "../../../observability/logger.js"
-import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
+import { enqueueWorkflow } from "../../../openworkflow/client.js"
 import { pagerdutySyncEntity } from "../../../openworkflow/workflows/pagerduty-sync-entity.js"
 import { loadPagerdutyScopeFromRepo } from "../../../services/pagerduty/config-from-repo.js"
 import {
@@ -164,7 +164,7 @@ async function handlePagerdutyWebhook(c: Context<AppEnv>) {
     ) {
       return c.body(null, 200)
     }
-    await runWorkflowWithWorkerWake(
+    await enqueueWorkflow(
       pagerdutySyncEntity.spec,
       {
         orgId: connection.orgId,

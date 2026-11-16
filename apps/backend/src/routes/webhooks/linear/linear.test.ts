@@ -48,7 +48,7 @@ vi.mock("../../../models/linear-connector.js", () => ({
   recordLinearOAuthRevocation: mocks.recordRevocation,
 }))
 vi.mock("../../../openworkflow/client.js", () => ({
-  runWorkflowWithWorkerWake: mocks.runWorkflow,
+  enqueueWorkflow: mocks.runWorkflow,
 }))
 vi.mock("../../../openworkflow/workflows/linear-sync-entity.js", () => ({
   linearSyncEntity: { spec: { name: "linear-sync-entity" } },

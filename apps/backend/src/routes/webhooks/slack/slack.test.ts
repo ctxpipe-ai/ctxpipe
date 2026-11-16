@@ -16,7 +16,7 @@ vi.mock("../../../models/slack-connector.js", () => ({
   revokeSlackConnectionByTeamId: revokeMock,
 }))
 vi.mock("../../../openworkflow/client.js", () => ({
-  runWorkflowWithWorkerWake: runWorkflowMock,
+  enqueueWorkflow: runWorkflowMock,
 }))
 vi.mock("../../../openworkflow/workflows/slack-mention-agent.js", () => ({
   slackMentionAgent: { spec: { name: "slack-mention-agent" } },

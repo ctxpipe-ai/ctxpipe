@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const runWorkflowWithWorkerWakeMock = vi.hoisted(() => vi.fn())
+const enqueueWorkflowMock = vi.hoisted(() => vi.fn())
 const withOrgDbContextMock = vi.hoisted(() =>
   vi.fn((_orgId: string, fn: () => unknown) => Promise.resolve(fn())),
 )
@@ -23,7 +23,7 @@ vi.mock("../models/repositories.js", () => ({
 }))
 
 vi.mock("./client.js", () => ({
-  runWorkflowWithWorkerWake: runWorkflowWithWorkerWakeMock,
+  enqueueWorkflow: enqueueWorkflowMock,
 }))
 
 vi.mock("./workflows/repository-deletion.js", () => ({
@@ -46,7 +46,7 @@ describe("enqueueRepositoryDeletionWorkflow", () => {
     withOrgDbContextMock.mockImplementation(
       (_orgId: string, fn: () => unknown) => Promise.resolve(fn()),
     )
-    runWorkflowWithWorkerWakeMock.mockResolvedValue({
+    enqueueWorkflowMock.mockResolvedValue({
       workflowRun: { id: "run_abc" },
     })
   })
@@ -65,7 +65,7 @@ describe("enqueueRepositoryDeletionWorkflow", () => {
 
     expect(result).toEqual({ jobId: "run_abc", status: "queued" })
     expect(markUnindexingMock).toHaveBeenCalledWith({ repositoryId: "repo_1" })
-    expect(runWorkflowWithWorkerWakeMock).toHaveBeenCalledWith(
+    expect(enqueueWorkflowMock).toHaveBeenCalledWith(
       { name: "repository-deletion" },
       {
         repositoryId: "repo_1",
@@ -95,6 +95,6 @@ describe("enqueueRepositoryDeletionWorkflow", () => {
       ),
     ).resolves.toBeNull()
 
-    expect(runWorkflowWithWorkerWakeMock).not.toHaveBeenCalled()
+    expect(enqueueWorkflowMock).not.toHaveBeenCalled()
   })
 })

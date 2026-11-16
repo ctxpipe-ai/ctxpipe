@@ -5,7 +5,7 @@ import {
   reserveWorkspaceBaseBuild,
   runWorkspaceBaseBuild,
 } from "../../domain/workspaces/workspace-sandbox-base.js"
-import { runWorkflowWithWorkerWake } from "../client.js"
+import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 
 /**
@@ -52,7 +52,7 @@ export async function requestWorkspaceSandboxBase(
   now: Date = new Date(),
 ): Promise<void> {
   const window = Math.floor(now.getTime() / (10 * 60_000))
-  await runWorkflowWithWorkerWake(
+  await enqueueWorkflow(
     workspaceSandboxBase.spec,
     { orgId, workspaceId },
     { idempotencyKey: `workspace-sandbox-base:${workspaceId}:${window}` },

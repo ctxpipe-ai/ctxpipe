@@ -7,14 +7,13 @@
  * (codesearch full mode) and, once extraction succeeds, sweeps evidence the run
  * did not re-observe — the same path as the "Reindex" button in the UI.
  *
- * Usage (apps/backend; DATABASE_URL and the OpenWorkflow / Railway wake variables
- * come from the environment, e.g. `railway run --environment <env> --service backend -- …`):
+ * Usage (apps/backend; DATABASE_URL and the OpenWorkflow variables come from
+ * the environment):
  *   bun run src/scripts/reindexRepositories.ts --org-id <org> --all [--reason "graph ontology v2"]
  *   bun run src/scripts/reindexRepositories.ts --org-id <org> --repository-id <id> [--repository-id <id> …]
  *   add --dry-run to list what would be enqueued.
  */
 import { resolve } from "node:path"
-import { setTimeout } from "node:timers/promises"
 import { fileURLToPath } from "node:url"
 
 import { config } from "dotenv"
@@ -104,10 +103,8 @@ async function main(argv: string[]): Promise<void> {
 }
 
 main(process.argv.slice(2))
-  .then(async () => {
-    // The worker wake after the last enqueue is fire-and-forget; give it a
-    // moment, then exit — the workflow client otherwise keeps the process alive.
-    await setTimeout(2_000)
+  .then(() => {
+    // The workflow client otherwise keeps the process alive.
     process.exit(process.exitCode ?? 0)
   })
   .catch((error) => {

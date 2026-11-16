@@ -2,7 +2,8 @@ import type { Env } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { legacyBindingHandedOver } from "../../domain/workspace-sources/legacy-handover.js"
 import { getConfluenceSyncTargetWithRepoByConnectionId } from "../../models/confluence-sync-target.js"
-import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
+import { log } from "../../observability/logger.js"
+import { enqueueWorkflow } from "../../openworkflow/client.js"
 import { confluenceSyncSpace } from "../../openworkflow/workflows/confluence-sync-space.js"
 import { loadConfluenceScopeFromRepo } from "./config-from-repo.js"
 import { resetConfluenceConnectorAfterMissingConfig } from "./confluence-setup-reset.js"
@@ -70,12 +71,19 @@ export async function handleForgeConfluenceContentEvent(input: {
     return "skipped"
   }
 
-  void runWorkflowWithWorkerWake(confluenceSyncSpace.spec, {
+  void enqueueWorkflow(confluenceSyncSpace.spec, {
     orgId: input.orgId,
     connectionId: input.connectionId,
     spaceKey: input.spaceKey,
     pageId: input.pageId,
     eventType: input.eventType,
+  }).catch((err: unknown) => {
+    // The webhook has responded, so the request logger is sealed: use the module log.
+    log.error({
+      step: "confluence.webhook.sync-space-enqueue",
+      connectionId: input.connectionId,
+      error: err instanceof Error ? err.message : String(err),
+    })
   })
   return "enqueued"
 }

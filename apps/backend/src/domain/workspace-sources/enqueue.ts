@@ -18,7 +18,7 @@ import {
   type WorkspaceSourceRow,
 } from "../../models/workspace-sources.js"
 import { log } from "../../observability/logger.js"
-import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
+import { enqueueWorkflow } from "../../openworkflow/client.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceSourcesSync } from "../../openworkflow/workflows/workspace-sources-sync.js"
@@ -51,7 +51,7 @@ export async function enqueueConnectionSourcesSync(input: {
 }): Promise<void> {
   assertNotInOrgDbContext()
   const { dedupeKey, availableAt, ...workflowInput } = input
-  await runWorkflowWithWorkerWake(
+  await enqueueWorkflow(
     workspaceSourcesSync.spec,
     { kind: "connection", ...workflowInput },
     dedupeKey || availableAt
@@ -247,7 +247,7 @@ export async function enqueueSourceProjectionFollowUps(input: {
     left: leftSources,
   })
   if (removed.length)
-    await runWorkflowWithWorkerWake(workspaceSourcesSync.spec, {
+    await enqueueWorkflow(workspaceSourcesSync.spec, {
       kind: "cleanup",
       orgId: input.orgId,
       workspaceId: input.workspaceId,

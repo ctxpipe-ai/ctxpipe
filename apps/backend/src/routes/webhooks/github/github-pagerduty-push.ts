@@ -9,7 +9,7 @@ import {
   transitionPagerdutyBindingState,
 } from "../../../models/pagerduty-connector.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
-import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
+import { enqueueWorkflow } from "../../../openworkflow/client.js"
 import { pagerdutySyncContent } from "../../../openworkflow/workflows/pagerduty-sync-content.js"
 import { connectorConfigPush } from "../../../services/confluence/github-push-config-sync.js"
 import {
@@ -145,7 +145,7 @@ export async function maybeActivatePagerdutySyncOnConfigPush(input: {
         continue
       }
       try {
-        await runWorkflowWithWorkerWake(pagerdutySyncContent.spec, {
+        await enqueueWorkflow(pagerdutySyncContent.spec, {
           orgId: target.orgId,
           connectionId: target.connectionId,
         })

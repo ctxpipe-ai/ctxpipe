@@ -50,10 +50,6 @@ vi.mock("../../services/notion/config-from-repo.js", () => ({
   NOTION_CONFIG_PATH: "notion/config.yaml",
 }))
 
-vi.mock("../../openworkflow/client.js", () => ({
-  runWorkflowWithWorkerWake: vi.fn(),
-}))
-
 vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
   enqueueRepositoryIngestionWorkflow: vi.fn(),
 }))

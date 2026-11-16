@@ -1,7 +1,7 @@
 import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
 import { formatUnknownError } from "../db/transientDbRetry.js"
 import { markRepositoryUnindexing } from "../models/repositories.js"
-import { runWorkflowWithWorkerWake } from "./client.js"
+import { enqueueWorkflow } from "./client.js"
 import { repositoryDeletion } from "./workflows/repository-deletion.js"
 
 type RepositoryDeletionEnqueueInput = {
@@ -53,7 +53,7 @@ export async function enqueueRepositoryDeletionWorkflow(
   const attemptId = marked.updatedAt.toISOString()
 
   try {
-    const handle = await runWorkflowWithWorkerWake(
+    const handle = await enqueueWorkflow(
       repositoryDeletion.spec,
       {
         repositoryId: input.repositoryId,

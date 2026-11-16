@@ -13,9 +13,8 @@ import {
   type RepositoryIngestionIntent,
 } from "../models/repository-ingestion-requests.js"
 import { createLogger, withLogger } from "../observability/logger.js"
-import { runWorkflowWithWorkerWake } from "./client.js"
+import { enqueueWorkflow } from "./client.js"
 import { isWorkflowControlSignal } from "./isSleepSignal.js"
-import { scheduleEnsureWorkerRunning } from "./railway-wake.js"
 import { repositoryIngestionOrchestrator } from "./workflows/repository-ingestion-orchestrator.js"
 
 type RepositoryIngestionEnqueueInput = RepositoryIngestionIntent & {
@@ -67,7 +66,7 @@ export async function enqueueRepositoryIngestionWorkflow(
   }
   let workflowRunId: string
   try {
-    const handle = await runWorkflowWithWorkerWake(
+    const handle = await enqueueWorkflow(
       repositoryIngestionOrchestrator.spec,
       captured,
       { idempotencyKey: intent.requestId },
@@ -80,7 +79,6 @@ export async function enqueueRepositoryIngestionWorkflow(
       throw error
     }
     workflowRunId = recovered
-    scheduleEnsureWorkerRunning()
   }
   await activateRepositoryIngestionRequest(captured, workflowRunId)
   return { workflowRunId }

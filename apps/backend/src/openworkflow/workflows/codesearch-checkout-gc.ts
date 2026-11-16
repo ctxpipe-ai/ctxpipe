@@ -4,7 +4,7 @@ import {
   collectAllCheckouts,
   type PublishedRebuild,
 } from "../../domain/codesearchCheckoutGc.js"
-import { runWorkflowWithWorkerWake } from "../client.js"
+import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { repositoryIndex } from "./repository-index.js"
 
@@ -49,7 +49,7 @@ export async function startPublishedRebuilds(
   hour: string,
 ): Promise<void> {
   for (const { orgId, repositoryId, sha } of rebuilds)
-    await runWorkflowWithWorkerWake(
+    await enqueueWorkflow(
       repositoryIndex.spec,
       {
         orgId,
@@ -67,7 +67,7 @@ export async function startPublishedRebuilds(
 /** Queue the run of the UTC hour of `at`, to start at `at`. */
 export async function scheduleCodesearchCheckoutGc(at: Date): Promise<void> {
   const hour = at.toISOString().slice(0, 13)
-  await runWorkflowWithWorkerWake(
+  await enqueueWorkflow(
     codesearchCheckoutGc.spec,
     { hour },
     { availableAt: at, idempotencyKey: `codesearch-checkout-gc:${hour}` },

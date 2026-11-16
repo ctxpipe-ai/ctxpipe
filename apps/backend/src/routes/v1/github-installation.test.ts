@@ -15,7 +15,7 @@ const runWorkflowMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 
 vi.mock("../../openworkflow/client.js", () => ({
   ow: { runWorkflow: runWorkflowMock },
-  runWorkflowWithWorkerWake: (...args: unknown[]) => runWorkflowMock(...args),
+  enqueueWorkflow: (...args: unknown[]) => runWorkflowMock(...args),
 }))
 
 const countRepositoriesForGithubConnectionMock = vi.hoisted(() =>

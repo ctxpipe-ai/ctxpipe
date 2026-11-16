@@ -8,7 +8,7 @@ import {
   captureGithubIssuePage,
   GITHUB_ISSUE_BACKFILL_MAX,
 } from "../../services/github/issue-mirror/sync.js"
-import { runWorkflowWithWorkerWake } from "../client.js"
+import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import {
   captureGithubMirrorTarget,
@@ -120,7 +120,7 @@ export async function enqueueGithubIssueBackfills(input: {
   deliveryId?: string
 }): Promise<void> {
   for (const gitUrl of input.gitUrls)
-    await runWorkflowWithWorkerWake(
+    await enqueueWorkflow(
       githubSyncIssue.spec,
       {
         orgId: input.orgId,

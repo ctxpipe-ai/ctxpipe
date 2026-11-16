@@ -3,7 +3,7 @@ import { createHash } from "node:crypto"
 import { z } from "zod"
 
 import { log } from "../../observability/logger.js"
-import { runWorkflowWithWorkerWake } from "../client.js"
+import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueWorkspaceTipCheck } from "../enqueue-workspace-tip-check.js"
 import { listOrgIdsWithWorkspaces } from "../orgs-with-workspaces.js"
@@ -69,7 +69,7 @@ export const workspaceTipCheckSchedule = defineWorkflow(
 /** Queue the schedule run of the UTC hour of `at`, to start at `at`. */
 export async function scheduleWorkspaceTipChecks(at: Date): Promise<void> {
   const hour = at.toISOString().slice(0, 13)
-  await runWorkflowWithWorkerWake(
+  await enqueueWorkflow(
     workspaceTipCheckSchedule.spec,
     { hour },
     { availableAt: at, idempotencyKey: `workspace-tip-check-schedule:${hour}` },

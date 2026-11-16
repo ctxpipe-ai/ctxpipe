@@ -43,7 +43,7 @@ vi.mock("../../models/github-installation.js", () => ({
 }))
 
 vi.mock("../../openworkflow/client.js", () => ({
-  runWorkflowWithWorkerWake: (...args: unknown[]) => runWorkflowMock(...args),
+  enqueueWorkflow: (...args: unknown[]) => runWorkflowMock(...args),
 }))
 
 vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({

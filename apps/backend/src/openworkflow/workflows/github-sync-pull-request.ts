@@ -12,7 +12,7 @@ import {
   captureGithubPullRequests,
   GITHUB_PR_BACKFILL_MAX,
 } from "../../services/github/pull-request-mirror/sync.js"
-import { runWorkflowWithWorkerWake } from "../client.js"
+import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import {
   captureGithubMirrorTarget,
@@ -156,7 +156,7 @@ export async function enqueueGithubPrBackfills(input: {
   gitUrls: readonly string[]
 }): Promise<void> {
   for (const gitUrl of input.gitUrls)
-    await runWorkflowWithWorkerWake(
+    await enqueueWorkflow(
       githubSyncPullRequest.spec,
       { orgId: input.orgId, workspaceId: input.workspaceId, gitUrl },
       { idempotencyKey: `github-pr-backfill:${input.workspaceId}:${gitUrl}` },

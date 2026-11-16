@@ -74,7 +74,7 @@ vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
   enqueueRepositoryIngestionWorkflow: vi.fn(),
 }))
 vi.mock("../../openworkflow/client.js", () => ({
-  runWorkflowWithWorkerWake: mocks.runWorkflow,
+  enqueueWorkflow: mocks.runWorkflow,
 }))
 vi.mock("../../openworkflow/workflows/linear-sync-config.js", () => ({
   linearSyncConfig: { spec: { name: "linear-sync-config" } },

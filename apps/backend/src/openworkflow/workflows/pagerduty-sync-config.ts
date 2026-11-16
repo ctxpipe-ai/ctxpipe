@@ -7,7 +7,7 @@ import {
   transitionPagerdutyBindingState,
 } from "../../models/pagerduty-connector.js"
 import { syncPagerdutyConfigYaml } from "../../services/pagerduty/sync.js"
-import { runWorkflowWithWorkerWake } from "../client.js"
+import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { pagerdutySyncContent } from "./pagerduty-sync-content.js"
 
@@ -93,7 +93,7 @@ export const pagerdutySyncConfig = defineWorkflow(
         expectedPhase = "initial_sync"
         expectedPendingConfigPrCreating = false
         await step.run({ name: "enqueue-initial-content-sync" }, () =>
-          runWorkflowWithWorkerWake(pagerdutySyncContent.spec, {
+          enqueueWorkflow(pagerdutySyncContent.spec, {
             orgId: input.orgId,
             connectionId: input.connectionId,
           }),

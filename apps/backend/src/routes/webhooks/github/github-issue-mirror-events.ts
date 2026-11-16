@@ -4,7 +4,7 @@ import { parseEnv } from "../../../config/env.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../../domain/workspaces/write-status.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
 import { listGithubMirrorLinks } from "../../../models/github-pr-mirror.js"
-import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
+import { enqueueWorkflow } from "../../../openworkflow/client.js"
 import {
   enqueueGithubIssueBackfills,
   githubSyncIssue,
@@ -72,7 +72,7 @@ export async function maybeEnqueueGithubIssueMirror(input: {
   await enqueueForLinkingWorkspaces(
     { ...request, githubConnectionId: input.githubConnectionId },
     (target) =>
-      runWorkflowWithWorkerWake(
+      enqueueWorkflow(
         githubSyncIssue.spec,
         { ...target, number: request.number },
         {
