@@ -198,8 +198,8 @@ export function parseNewVerdict(
 /**
  * Read the text of a model reply as JSON that matches `schema`. A reply in a
  * Markdown code fence is read without the fence. Returns the data, or the
- * cause when the reply is not usable. The judge panel of the bake-off
- * (evals/critic/panel.ts) reads its replies with it too.
+ * cause when the reply is not usable. The judge panel of the visual evals
+ * (`factory eval visual:panel`) reads its replies with it too.
  */
 export function parseJsonReply<T>(
   text: string,

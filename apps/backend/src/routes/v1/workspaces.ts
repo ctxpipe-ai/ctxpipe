@@ -34,7 +34,7 @@ import {
   projectionFromWorkspace,
   touchLastUsedWorkspace,
 } from "../../models/workspaces.js"
-import { getLogger } from "../../observability/logger.js"
+import { detachedErrorLog, getLogger } from "../../observability/logger.js"
 import {
   enqueueWorkspaceGraphRebuild,
   enqueueWorkspaceHydrate,
@@ -514,9 +514,13 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       // An open upgrade pull request needs a probe too. A lost webhook leaves
       // a merged upgrade open. The probe finds the new tip and starts the
       // hydrate, and the next scan completes the row.
-      void enqueueWorkspaceTipCheck(orgId, c.get("log"), {
-        idempotencyKey: `tip-check-on-demand:${orgId}:${Math.floor(Date.now() / 60_000)}`,
-      })
+      void enqueueWorkspaceTipCheck(
+        orgId,
+        detachedErrorLog("workspace.tip_check.enqueue"),
+        {
+          idempotencyKey: `tip-check-on-demand:${orgId}:${Math.floor(Date.now() / 60_000)}`,
+        },
+      )
     }
     const linked = await listLinkedRepositories(workspace.id)
     return c.json(
@@ -676,7 +680,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       )
     void enqueueWorkspaceHydrate(
       { orgId: retried.orgId, workspaceId: retried.id },
-      c.get("log"),
+      detachedErrorLog("workspace.hydrate.enqueue"),
     )
     return c.json(serializeWorkspace(retried), 200)
   })

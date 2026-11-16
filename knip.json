@@ -79,14 +79,9 @@
     "packages/visual-review": {
       "entry": [
         "src/**/*.test.ts",
-        "src/command.ts",
-        "evals/**/*.test.ts",
-        "evals/critic/calibration.ts",
-        "evals/critic/capture.ts",
-        "evals/critic/label-unseen.ts",
-        "evals/critic/panel.ts"
+        "src/command.ts"
       ],
-      "project": ["src/**/*.ts", "evals/**/*.ts"]
+      "project": ["src/**/*.ts"]
     },
     "packages/aws-cdk": {
       "entry": ["scripts/*.mjs", "src/**/*.test.ts"],
@@ -96,15 +91,8 @@
       "entry": ["bin/app.ts", "scripts/*.ts"],
       "project": ["**/*.ts"]
     },
-    "ops/observability/railway-telemetry": {
-      "entry": ["src/**/*.test.ts"],
-      "project": ["**/*.ts"]
-    },
     "ops/observability/cost-telemetry": {
       "entry": ["src/**/*.test.ts"],
-      "project": ["**/*.ts"]
-    },
-    "ops/observability/hyperdx": {
       "project": ["**/*.ts"]
     }
   }

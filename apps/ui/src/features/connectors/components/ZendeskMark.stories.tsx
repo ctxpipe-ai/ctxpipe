@@ -5,7 +5,7 @@ import { ZendeskMark } from "./ZendeskMark"
 const meta = {
   title: "Components/Connections/Zendesk/Mark",
   component: ZendeskMark,
-  parameters: { layout: "centered" },
+  parameters: { layout: "centered", review: { kind: "component" } },
   args: { className: "size-10 text-foreground" },
 } satisfies Meta<typeof ZendeskMark>
 
@@ -13,4 +13,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const ProductMark: Story = {}
+export const ProductMark: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Zendesk product mark, the logo that names the provider on connector cards and dialogs: the mark alone at a large size.",
+    },
+  },
+}

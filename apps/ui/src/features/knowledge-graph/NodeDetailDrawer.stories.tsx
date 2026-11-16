@@ -61,7 +61,7 @@ const meta = {
       </div>
     ),
   ],
-  parameters: { layout: "fullscreen" },
+  parameters: { layout: "fullscreen", review: { kind: "component" } },
   args: {
     node: linear,
     facts: linearFacts,
@@ -84,6 +84,12 @@ type Story = StoryObj<typeof meta>
 /** Section labels use the mono label style. A faint hairline separates each
  * section from the one above it; the first section has no line. */
 export const Populated: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Node detail drawer of the knowledge graph, which tells a user about one node and its links: an integration node with one link and all sections.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const headings = within(canvasElement).getAllByRole("heading", {
       level: 3,
@@ -104,6 +110,12 @@ export const Populated: Story = {
 
 /** The node id is a `kn_` id; the Path row shows the file and links to it. */
 export const SourceLink: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Node detail drawer of the knowledge graph, which tells a user about one node and its links: the user pressed Go to definition on the file path.",
+    },
+  },
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
     await expect(
@@ -119,12 +131,24 @@ export const SourceLink: Story = {
 }
 
 export const Isolated: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Node detail drawer of the knowledge graph, which tells a user about one node and its links: the node has few peers to compare its degree with.",
+    },
+  },
   args: {
     peerDegrees: [1],
   },
 }
 
 export const Closed: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Node detail drawer of the knowledge graph, which tells a user about one node and its links: the drawer is closed.",
+    },
+  },
   args: {
     open: false,
   },

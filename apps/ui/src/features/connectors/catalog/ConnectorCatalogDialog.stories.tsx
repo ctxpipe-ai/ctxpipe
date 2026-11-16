@@ -42,6 +42,7 @@ const meta = {
   parameters: {
     layout: "fullscreen",
     storyRoute: { pattern: "orgIndex", orgSlug } satisfies StoryRouteParams,
+    review: { kind: "component" },
     msw: {
       handlers: {
         // The GitHub row reads the org's installation and the deployment's App.
@@ -78,6 +79,12 @@ type Story = StoryObj<typeof meta>
 
 /** The org connected GitHub during onboarding and nothing else. */
 export const NewOrg: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Add connection dialog, where the user picks a connector to set up: a new org with only GitHub connected.",
+    },
+  },
   args: {
     connections: [connection("con_gh", "github", "connected")],
   },
@@ -113,6 +120,12 @@ export const NewOrg: Story = {
  * setup. The row shows the worst state and offers Fix next to Add another.
  */
 export const BusyOrg: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Add connection dialog, where the user picks a connector to set up: the Connected tab of an org with many connections, some that need a fix.",
+    },
+  },
   args: {
     connections: [
       connection("con_gh_1", "github", "connected"),
@@ -161,6 +174,12 @@ export const BusyOrg: Story = {
 
 /** The planned connectors, each with "Ask for it". */
 export const ComingSoon: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Add connection dialog, where the user picks a connector to set up: the Coming soon tab, with an Ask for it button on each planned connector.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const dialog = within(
       await within(canvasElement.ownerDocument.body).findByRole("dialog", {
@@ -187,6 +206,12 @@ export const ComingSoon: Story = {
 
 /** A search looks in every group, and says when nothing matches. */
 export const SearchNoMatch: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Add connection dialog, where the user picks a connector to set up: a search that matches no connector.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const dialog = within(
       await within(canvasElement.ownerDocument.body).findByRole("dialog", {
@@ -222,6 +247,12 @@ export const SearchNoMatch: Story = {
 
 /** "Ask for it" records the request and thanks the user in a toast. */
 export const AskForIt: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Add connection dialog, where the user picks a connector to set up: the user asked for a planned connector and a thank-you toast shows.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
     const dialog = within(

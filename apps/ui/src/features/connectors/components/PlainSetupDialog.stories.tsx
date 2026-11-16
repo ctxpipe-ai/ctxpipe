@@ -42,6 +42,7 @@ const meta = {
   component: Dialog,
   decorators: entryPageInnerDecorators,
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: { pattern: "orgIndex", orgSlug } satisfies StoryRouteParams,
   },
@@ -78,6 +79,10 @@ const workspacesHandlers = [
 
 export const ConnectWithKey: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Plain setup dialog, where the admin connects Plain with an API key: the key is accepted and the dialog moves to the Workspaces step.",
+    },
     msw: {
       handlers: {
         page: [
@@ -114,6 +119,10 @@ export const ConnectWithKey: Story = {
 
 export const KeyRefused: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Plain setup dialog, where the admin connects Plain with an API key: Plain refuses the key because a permission is missing.",
+    },
     msw: {
       handlers: {
         page: [
@@ -156,6 +165,10 @@ export const AddToWorkspaces: Story = {
   name: "Add Plain to Workspaces",
   args: { connectionId },
   parameters: {
+    review: {
+      purpose:
+        "Plain setup dialog for a connected Plain workspace: the admin adds a label to a Workspace, and the dialog moves to the merge step.",
+    },
     msw: {
       handlers: {
         page: [
@@ -203,6 +216,10 @@ export const AddToWorkspaces: Story = {
 export const Reconnect: Story = {
   args: { connectionId },
   parameters: {
+    review: {
+      purpose:
+        "Plain setup dialog for a revoked connection: Plain no longer accepts the saved key, and the admin enters a new key.",
+    },
     msw: {
       handlers: {
         page: [
@@ -227,6 +244,10 @@ export const Reconnect: Story = {
 export const ReconnectForTheWebhook: Story = {
   args: { connectionId, reconnect: true },
   parameters: {
+    review: {
+      purpose:
+        "Plain setup dialog opened to reconnect a working connection: the dialog asks for the key again so that ctxpipe can add the webhook.",
+    },
     msw: {
       handlers: {
         page: [

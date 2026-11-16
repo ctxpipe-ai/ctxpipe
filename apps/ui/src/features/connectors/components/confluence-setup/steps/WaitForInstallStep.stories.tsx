@@ -22,5 +22,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const WaitForInstall: Story = {
+  parameters: {
+    review: {
+      kind: "component",
+      purpose:
+        "Step of the Confluence setup wizard that waits for the Forge app install: the wizard waits for the install to finish.",
+    },
+  },
   render: () => <WaitForInstallStep />,
 }

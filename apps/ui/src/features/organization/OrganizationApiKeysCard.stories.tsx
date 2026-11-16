@@ -31,6 +31,7 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
+    review: { kind: "component" },
   },
   args: {
     organizationId: "org_storybook",
@@ -48,6 +49,10 @@ export const Empty: Story = {
         page: [orgApiKeysListEmptyHandler],
       },
     },
+    review: {
+      purpose:
+        "Organization API keys card, where an admin makes keys for CI and shared agents: the org has no keys yet.",
+    },
   },
 }
 
@@ -63,6 +68,10 @@ export const Populated: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Organization API keys card, where an admin makes keys for CI and shared agents: the org has keys in the list.",
+    },
   },
 }
 
@@ -72,6 +81,10 @@ export const Forbidden: Story = {
       handlers: {
         page: [orgApiKeysListForbiddenHandler],
       },
+    },
+    review: {
+      purpose:
+        "Organization API keys card, where an admin makes keys for CI and shared agents: the user is not an admin or owner.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -98,6 +111,10 @@ export const CreateNamedKey: Story = {
           orgApiKeysUpdateHandler(),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Organization API keys card, where an admin makes keys for CI and shared agents: a new key was made, and its secret shows once.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -144,6 +161,10 @@ export const RevokeKey: Story = {
       handlers: {
         page: [orgApiKeysListPopulatedHandler, orgApiKeysDeleteHandler()],
       },
+    },
+    review: {
+      purpose:
+        "Organization API keys card, where an admin makes keys for CI and shared agents: the admin revoked a key from the list.",
     },
   },
   play: async ({ canvasElement }) => {

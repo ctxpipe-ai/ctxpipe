@@ -70,6 +70,7 @@ test("each story with a screenshot is one visual check that owns its baselines",
   for (const input of [
     "scripts/ci/visual-container.json",
     "scripts/ci/visual-capture.mjs",
+    "scripts/ci/visual-full-page.mjs",
     "scripts/ci/visual-unstable-stories.json",
     "packages/visual-review/src/compare/**",
   ])
@@ -323,7 +324,7 @@ export default {
 export const Plain = {}
 export const Menu = {
   parameters: {
-    visual: { fullPage: true, maxDiffPixels: 0, viewports: ["desktop", "mobile"] },
+    visual: { maxDiffPixels: 0, viewports: ["desktop", "mobile"] },
   },
   play: async ({ canvas }) => {
     await snapshot("menu-open")
@@ -340,7 +341,6 @@ export const Menu = {
   assert.deepEqual(options.get("features-x--menu"), {
     masks: ["canvas"],
     maxDiffPixels: 0,
-    fullPage: true,
     viewports: ["desktop", "mobile"],
     snapshots: ["menu-open", "saved"],
   })
@@ -351,7 +351,8 @@ test("an option that is not valid stops the list and names the story", () => {
 export const Menu = { parameters: { visual: ${visual} }${play} }
 `
   for (const [visual, message] of [
-    ["{ fullPage: 1 }", /fullPage must be true or false/],
+    // Each screenshot is the full page; no option changes that.
+    ["{ fullPage: false }", /has no option "fullPage"/],
     ["{ maxDiffPixels: 1.5 }", /maxDiffPixels must be a whole number/],
     ["{ maxDiffPixels: -1 }", /maxDiffPixels must be a whole number/],
     ['{ viewports: ["tablet"] }', /viewports must be a list/],

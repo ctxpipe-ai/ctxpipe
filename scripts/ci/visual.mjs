@@ -6,6 +6,7 @@ import { parseArgs } from "node:util"
 
 import { runVisual } from "../../packages/visual-review/src/compare/baselines.ts"
 import { threshold } from "../../packages/visual-review/src/compare/diff.ts"
+import { storiesOf } from "../../packages/visual-review/src/story-tags.ts"
 import { csfTools } from "../../apps/ui/.storybook/check-modules.mjs"
 import {
   readUnstable,
@@ -87,7 +88,24 @@ const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
 const stories = Object.values(index.entries).filter(
   (entry) => entry.type === "story",
 )
-const options = visualOptions(stories, (await csfTools()).loadCsf)
+const { loadCsf } = await csfTools()
+const options = visualOptions(stories, loadCsf)
+// The name, kind and purpose of each story (parameters.review), for the
+// critic: `visual:review` reads them from the manifest.
+const reviews = new Map()
+for (const importPath of new Set(stories.map((story) => story.importPath))) {
+  const file = join("apps/ui", importPath)
+  for (const story of storiesOf(
+    loadCsf,
+    file,
+    readFileSync(join(root, file), "utf8"),
+  ))
+    reviews.set(`${importPath}#${story.name}`, {
+      name: story.storybookName,
+      kind: story.kind,
+      purpose: story.purpose,
+    })
+}
 for (const [id, { skip }] of options)
   if (skip)
     process.stdout.write(`skipped: ${id} (parameters.visual.skip: ${skip})\n`)
@@ -99,7 +117,11 @@ const result = await runVisual({
   out: join(root, ".ci-results/visual"),
   stories: stories
     .filter((story) => !options.get(story.id).skip)
-    .map((story) => ({ ...story, visual: options.get(story.id) })),
+    .map((story) => ({
+      ...story,
+      visual: options.get(story.id),
+      review: reviews.get(`${story.importPath}#${story.exportName}`),
+    })),
   unstable: readUnstable(),
   capture: async (viewport, group) => {
     const dir = join(root, ".ci-results/visual-capture", viewport)

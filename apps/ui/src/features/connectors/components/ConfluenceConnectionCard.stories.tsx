@@ -113,6 +113,7 @@ const meta = {
       pattern: "orgIndex",
       orgSlug,
     } satisfies StoryRouteParams,
+    review: { kind: "component" },
   },
 } satisfies Meta<typeof ConfluenceConnectionCard>
 
@@ -123,6 +124,10 @@ type Story = StoryObj<typeof meta>
 export const Connected: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
+    review: {
+      purpose:
+        "Confluence connection card on the Connectors page: setup is complete and the connection is live.",
+    },
     msw: {
       handlers: {
         page: [atlassianStatus(statusComplete), orgAtlassianOauthHandler],
@@ -158,6 +163,10 @@ async function expectLiveRowNotPending(canvasElement: HTMLElement) {
 export const LiveViewerWithoutAtlassianLink: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
+    review: {
+      purpose:
+        "Confluence connection card on the Connectors page: the connection is live, and the viewing member has no Atlassian link of their own.",
+    },
     msw: {
       handlers: {
         page: [
@@ -182,6 +191,10 @@ export const LiveViewerWithoutAtlassianLink: Story = {
 export const LiveForgeUninstalled: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
+    review: {
+      purpose:
+        "Confluence connection card on the Connectors page: a live connection whose Forge app was uninstalled, so it needs a reconnect.",
+    },
     msw: {
       handlers: {
         page: [
@@ -201,6 +214,10 @@ export const LiveForgeUninstalled: Story = {
 export const Checking: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
+    review: {
+      purpose:
+        "Confluence connection card on the Connectors page: the status request has not returned, so the card is still checking.",
+    },
     msw: {
       handlers: {
         page: [
@@ -226,6 +243,10 @@ export const Checking: Story = {
 export const CouldntLoad: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
+    review: {
+      purpose:
+        "Confluence connection card on the Connectors page: the status request failed, so the card could not load.",
+    },
     msw: {
       handlers: {
         page: [
@@ -253,6 +274,10 @@ export const PendingSetup: Story = {
     <ConfluenceConnectionCard {...cardProps} onOpenWizard={onOpenWizard} />
   ),
   parameters: {
+    review: {
+      purpose:
+        "Confluence connection card on the Connectors page: setup is not finished, the card is open with a Link Atlassian account action.",
+    },
     visual: {
       allow: {
         contrast: "Text below WCAG AA on main (CTX-1278).",
@@ -289,6 +314,10 @@ export const PendingSetup: Story = {
 export const RemovePendingSetup: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
+    review: {
+      purpose:
+        "Confluence connection card on the Connectors page: the user removes an unfinished setup through a confirm dialog.",
+    },
     visual: {
       allow: {
         contrast: "Text below WCAG AA on main (CTX-1278).",
@@ -338,6 +367,10 @@ export const RemovePendingSetup: Story = {
 export const InstalledNotInWorkspaces: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
+    review: {
+      purpose:
+        "Confluence connection card on the Connectors page: connected but in no Workspace yet, the card is open with an Add to a Workspace action.",
+    },
     msw: {
       handlers: {
         usage: [connectionUsageHandler([])],
