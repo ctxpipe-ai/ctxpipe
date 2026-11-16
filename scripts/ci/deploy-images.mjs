@@ -123,13 +123,14 @@ export const images = [
     ],
   },
   // The hourly cost job of the observability stack (ops/observability). Its
-  // install reads only its package.json (bun, no workspace lockfile).
+  // install reads its own bun.lock, not the workspace lockfile.
   {
     image: "cost-telemetry",
     dockerfile: "ops/observability/cost-telemetry/Dockerfile",
     context: "ops/observability/cost-telemetry",
     inputs: [
       "ops/observability/cost-telemetry/package.json",
+      "ops/observability/cost-telemetry/bun.lock",
       "ops/observability/cost-telemetry/src",
     ],
   },

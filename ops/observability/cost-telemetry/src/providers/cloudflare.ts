@@ -1,4 +1,4 @@
-import { getJson, isRecord, requiredEnv } from "../http"
+import { getJson, isRecord, requiredEnv, throwGraphqlErrors } from "../http"
 import { sumRows, type CostRow } from "../rows"
 
 const classA = new Set([
@@ -51,7 +51,8 @@ const QUERY = `query R2Cost($accountTag: string!, $start: Date!, $end: Date!) {
  * - Cost: the account billing history (GET /accounts/{account_id}/billing/history,
  *   https://developers.cloudflare.com/api/resources/billing/subresources/history/methods/list).
  *   It has no date filter, so the run reads every page (page, result_info) and keeps the
- *   items of type `charge` whose occurred_at falls on a window day: one row per charge,
+ *   items of type `charge` whose occurred_at falls on a window day (the API documents no
+ *   other type, so a refund or a credit is not counted): one row per charge,
  *   sku = description, scope = the billing item id, source `reported`. A charge in another
  *   currency than USD throws.
  * - R2: usage only (cost 0), from the GraphQL analytics, so the R2 part of a charge is not
@@ -102,13 +103,13 @@ async function chargeRows(accountId: string, headers: Record<string, string>, wa
       })
     }
     const info = body.result_info
-    const end =
+    const lastPage =
       body.result.length === 0 ||
       (isRecord(info) &&
         typeof info.per_page === "number" &&
         typeof info.total_count === "number" &&
         page * info.per_page >= info.total_count)
-    if (end) return mapped
+    if (lastPage) return mapped
   }
 }
 
@@ -129,10 +130,7 @@ async function r2Rows(
     "Cloudflare R2",
   )
   if (!isRecord(body)) throw new Error("Cloudflare R2 response was missing data")
-  if (Array.isArray(body.errors) && body.errors.length > 0) {
-    const messages = body.errors.flatMap((error) => (isRecord(error) && typeof error.message === "string" ? [error.message] : []))
-    throw new Error(messages.join("; ") || "Cloudflare R2 response had errors")
-  }
+  throwGraphqlErrors(body, "Cloudflare R2")
   if (!isRecord(body.data)) throw new Error("Cloudflare R2 response was missing data")
   const accounts = isRecord(body.data.viewer) && Array.isArray(body.data.viewer.accounts) ? body.data.viewer.accounts : undefined
   if (!accounts) throw new Error("Cloudflare R2 response was missing accounts")

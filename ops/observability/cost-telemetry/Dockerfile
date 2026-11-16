@@ -17,8 +17,9 @@ ENV BLACKSMITH_DISABLE_AUTO_UPDATE=1
 
 WORKDIR /app
 
-COPY package.json ./
-RUN bun install --production
+# bun.lock pins every package of the image: a build installs only reviewed versions.
+COPY package.json bun.lock ./
+RUN bun install --production --frozen-lockfile
 COPY src ./src
 
 USER bun

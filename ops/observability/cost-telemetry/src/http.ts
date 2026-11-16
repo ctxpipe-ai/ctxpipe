@@ -19,3 +19,10 @@ export async function getJson(url: string, init: RequestInit, label: string): Pr
     throw new Error(`${label} HTTP ${response.status}: ${text.slice(0, 500)}`)
   }
 }
+
+/** Throws the messages of a GraphQL `errors` array, if the body has one. */
+export function throwGraphqlErrors(body: Record<string, unknown>, label: string): void {
+  if (!Array.isArray(body.errors) || body.errors.length === 0) return
+  const messages = body.errors.flatMap((error) => (isRecord(error) && typeof error.message === "string" ? [error.message] : []))
+  throw new Error(messages.join("; ") || `${label} response had errors`)
+}

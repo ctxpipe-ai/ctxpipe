@@ -22,9 +22,9 @@ export async function planRows(days: string[]): Promise<CostRow[]> {
   if (typeof plan.name !== "string" || typeof plan.seats !== "number" || !Number.isFinite(plan.seats)) {
     throw new Error("GitHub organization plan was missing name or seats")
   }
+  if (plan.name === "free") return []
   const price = githubUsdPerSeatMonth[plan.name]
   if (price === undefined) throw new Error(`no committed seat price for GitHub plan ${plan.name} (src/rates.ts)`)
-  if (price === 0) return []
   return seatRows(days, { provider: "github", sku: `plan/${plan.name}`, scope: "org" }, plan.seats, price)
 }
 

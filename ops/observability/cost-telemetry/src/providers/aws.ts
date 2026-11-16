@@ -29,8 +29,9 @@ const FETCH_HOUR_UTC = 12
  * - source is always `reported`. Cost Explorer sets Estimated=true for the current
  *   month until the bill finalizes; that is still the provider figure.
  * - Negative Amounts (credits, refunds) are emitted as-is so they reduce the daily total.
- * - A group with no finite cost (neither metric) throws. Missing/invalid UsageQuantity
- *   becomes usage=0 so a real cost row is not dropped. Unit "N/A" or empty is not meaningful.
+ * - A group with no finite cost (neither metric) throws.
+ * - usage is 0 and unit is empty: a service sums usage types of different units (hours,
+ *   GB-months, requests), so its UsageQuantity is no quantity. UsageQuantity is not requested.
  * - Auth: the SDK default credential chain (the ECS task role) assumes ctxpipe-cost-explorer-read
  *   (a read-only ce:GetCostAndUsage role in the management account) through STS. The STS client
  *   takes the region and the HTTP handler of the Cost Explorer client. This package does not
@@ -76,7 +77,7 @@ export async function rows(days: string[]): Promise<CostRow[]> {
         new GetCostAndUsageCommand({
           TimePeriod: { Start: start, End: end },
           Granularity: "DAILY",
-          Metrics: ["NetUnblendedCost", "UnblendedCost", "UsageQuantity"],
+          Metrics: ["NetUnblendedCost", "UnblendedCost"],
           GroupBy: [
             { Type: "DIMENSION", Key: "LINKED_ACCOUNT" },
             { Type: "DIMENSION", Key: "SERVICE" },
@@ -97,15 +98,13 @@ export async function rows(days: string[]): Promise<CostRow[]> {
           if (costUsd === undefined) {
             throw new Error(`Cost Explorer group ${account}/${service} on ${day} was missing NetUnblendedCost and UnblendedCost`)
           }
-          const usageMetric = group.Metrics?.UsageQuantity
-          const usage = metricAmount({ UsageQuantity: usageMetric }, "UsageQuantity") ?? 0
           mapped.push({
             day,
             provider: "aws",
             sku: service,
             scope: `${account}/${service}`,
-            usage,
-            unit: meaningfulUnit(usageMetric?.Unit),
+            usage: 0,
+            unit: "",
             costUsd,
             source: "reported",
             account: ACCOUNT_NAMES[account] ?? account,
@@ -126,19 +125,9 @@ function exclusiveEnd(lastDay: string): string {
   return new Date(startMs + 86_400_000).toISOString().slice(0, 10)
 }
 
-function metricAmount(
-  metrics: Record<string, { Amount?: string } | undefined> | undefined,
-  name: string,
-): number | undefined {
+function metricAmount(metrics: Record<string, { Amount?: string } | undefined> | undefined, name: string): number | undefined {
   const amount = metrics?.[name]?.Amount
   if (typeof amount !== "string" || amount.trim() === "") return undefined
   const value = Number(amount)
   return Number.isFinite(value) ? value : undefined
-}
-
-function meaningfulUnit(unit: string | undefined): string {
-  if (typeof unit !== "string") return ""
-  const trimmed = unit.trim()
-  if (!trimmed || trimmed.toUpperCase() === "N/A") return ""
-  return trimmed
 }

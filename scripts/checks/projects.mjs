@@ -332,18 +332,18 @@ const definitions = () => [
       "chat-sandbox",
       "scripts/chat-sandbox/Dockerfile",
       ["scripts/chat-sandbox/**"],
+      [],
+      "scripts/chat-sandbox",
     ],
     // The hourly cost job of ops/observability (deploy.yaml publishes it).
     [
       "cost-telemetry",
       "ops/observability/cost-telemetry/Dockerfile",
       ["ops/observability/cost-telemetry/**"],
+      [],
+      "ops/observability/cost-telemetry",
     ],
-  ].map(([name, file, reads, flags = []]) => {
-    // The two images with their own build context: the folder of the Dockerfile.
-    const context = ["chat-sandbox", "cost-telemetry"].includes(name)
-      ? file.replace(/\/Dockerfile$/, "")
-      : "."
+  ].map(([name, file, reads, flags = [], context = "."]) => {
     return {
       family: "build",
       lane: `image-${name}`,

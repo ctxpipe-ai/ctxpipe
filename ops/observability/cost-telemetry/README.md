@@ -19,14 +19,16 @@ The shared window is the last 3 UTC days, today included. OpenRouter lags by one
 - `derived`: no cost API exists, so the figure is the plan's seats × the committed list price per seat per month in `src/rates.ts`, spread evenly over the days of the month (Linear, the GitHub plan). Each window day takes today's seat count. Update a price when its pricing page changes (each has a checked date and its URL).
 - `estimated`: no longer sent. Older Cloudflare R2 rows have it: R2 usage × list prices, before the job read the Cloudflare billing history. A newer row of the same day, sku and scope replaces such a row.
 
+Before this version, the job sent AWS rows of the management account only, with sku = usage type. No newer row replaces them, so on the days that both versions sent (the cutover window, and while the old job still runs) the AWS spend of that account counts twice. To see the cutover days correctly, keep only the AWS rows whose sku is a service name.
+
 ## Providers
 
 | Provider | Rows | Source |
 | --- | --- | --- |
-| AWS | Cost Explorer of the management account (the payer view of all accounts), grouped by `LINKED_ACCOUNT` and `SERVICE`. sku = service, scope = `<account id>/<service>`, `billing.account` = the account's name (`ACCOUNT_NAMES` in `src/providers/aws.ts`; an unknown account keeps its id). | `reported` |
-| Cloudflare | One row per charge of the account billing history (sku = description, scope = billing item id, day = date of the charge). R2 rows (`r2_storage`, `r2_class_a`, `r2_class_b` per bucket) are usage only, with cost 0: the R2 charge is in the billing history. | `reported` |
+| AWS | Cost Explorer of the management account (the payer view of all accounts), grouped by `LINKED_ACCOUNT` and `SERVICE`. sku = service, scope = `<account id>/<service>`, `billing.account` = the account's name (`ACCOUNT_NAMES` in `src/providers/aws.ts`; an unknown account keeps its id). No usage: a service sums usage types of different units, so `billing.usage` is 0. | `reported` |
+| Cloudflare | One row per item of type `charge` in the account billing history (sku = description, scope = billing item id, day = date of the charge). The API documents no other type, so a refund or a credit is not counted. R2 rows (`r2_storage`, `r2_class_a`, `r2_class_b` per bucket) are usage only, with cost 0: the R2 charge is in the billing history. | `reported` |
 | GitHub | Billing usage of the organization: metered products, `netAmount` is the spend. The plan's paid seats (`GET /orgs/{org}`, `plan.seats`) × the seat price, sku `plan/<name>`. The plan rows are a separate entry of the run, so a token that cannot see the plan fails only them. | `reported`; plan `derived` |
-| Linear | The workspace's paid subscription (`organization { subscription { type seats seatsMinimum seatsMaximum } }`): the billed seats × the seat price of the subscription type. A type without a price in `src/rates.ts` fails the provider. | `derived` |
+| Linear | The workspace's paid subscription (`organization { subscription { type seats seatsMinimum seatsMaximum } }`): the billed seats × the seat price of the plan (the type without its `_monthly` or `_yearly` suffix), sku = the type. A plan without a price in `src/rates.ts` fails the provider. | `derived` |
 | OpenRouter | Activity per model and provider. | `reported` |
 | Blacksmith | The CLI's `daily` rows: Actions cost at organization scope. Its workflow and runner breakdowns cannot be joined to a day. | `reported` |
 
@@ -41,11 +43,11 @@ The task definition sets these. A missing provider input fails only that provide
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Required. The collector (`http://collector.observability.internal:4318` in the VPC). |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Optional, `key=value` pairs. The in-VPC collector takes none; a collector behind Cloudflare Access takes its token headers here. |
 | `OPENROUTER_MANAGEMENT_KEY` | OpenRouter management key (the activity endpoint returns 403 for a normal key). |
-| `GITHUB_BILLING_TOKEN` | Organization Administration: Read for billing usage. The plan (`plan` of `GET /orgs/{org}`) shows only to a token of an organization owner. |
+| `GITHUB_BILLING_TOKEN` | A fine-grained token with only organization Administration: Read (billing usage). GitHub shows the plan (`plan` of `GET /orgs/{org}`) only when the token's owner is an organization owner. Do not use a classic token with `admin:org`: it can also write to the organization. |
 | `BLACKSMITH_TOKEN` | Blacksmith organization token. |
 | `CLOUDFLARE_API_TOKEN` | Account Analytics: Read (R2) and Billing: Read (billing history). |
 | `CLOUDFLARE_ACCOUNT_ID` | The Cloudflare account id. |
-| `LINEAR_API_KEY` | Linear API key; it must see the workspace's subscription. |
+| `LINEAR_API_KEY` | A Linear API key with read permission only; it must see the workspace's subscription. |
 
 OpenRouter management keys and Blacksmith organization tokens also permit management actions. Neither provider has a read-only token for these APIs.
 
@@ -54,6 +56,8 @@ AWS has no keys: the SDK default credential chain gives the ECS task role, which
 ## Image
 
 `deploy.yaml` builds the image (`Dockerfile`, linux/amd64 and linux/arm64) on each main build that changes this package, publishes `ghcr.io/ctxpipe-ai/cost-telemetry:<sha>`, and copies it by digest to `213102790567.dkr.ecr.us-west-2.amazonaws.com/ctxpipe/cost-telemetry:<sha>` (the copy keeps the digest). The digest of a build is in the `deploy-image` notice of its job Publish image (cost-telemetry), and in the summary of its job Copy images to the ECR. A main build that does not change this package reuses the digest of the build before it.
+
+`bun.lock` pins every package that the image installs (`bun install --frozen-lockfile`); the workspace's `pnpm-lock.yaml` pins the packages of the tests. After a dependency change, run `bun install --lockfile-only` in this folder and commit both lockfiles.
 
 ## Tests
 

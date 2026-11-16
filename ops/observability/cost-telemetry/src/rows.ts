@@ -25,7 +25,7 @@ export type OtlpMetricsRequest = {
 export function sumRows(rows: CostRow[]): CostRow[] {
   const byKey = new Map<string, CostRow>()
   for (const row of rows) {
-    const key = `${row.day}\0${row.provider}\0${row.sku}\0${row.scope}\0${row.source}\0${row.unit}\0${row.account ?? ""}`
+    const key = `${row.day}\0${row.provider}\0${row.sku}\0${row.scope}\0${row.source}\0${row.unit}`
     const existing = byKey.get(key)
     if (!existing) {
       byKey.set(key, { ...row })

@@ -62,11 +62,11 @@ describe("aws rows", () => {
         return ceJson({
           ResultsByTime: [
             result("2026-09-24", [
-              group("213102790567", "Amazon Elastic Container Service", "1.25", "24", "Hrs"),
-              group("134416647419", "AWS Lambda", "-0.25", "0", "N/A"),
-              group("999999999999", "Amazon Simple Storage Service", "0.02", "12.5", "GB-Month"),
+              group("213102790567", "Amazon Elastic Container Service", "1.25"),
+              group("134416647419", "AWS Lambda", "-0.25"),
+              group("999999999999", "Amazon Simple Storage Service", "0.02"),
             ]),
-            result("2026-09-25", [group("007664619564", "AWS Cost Explorer", "0.01", "1", "Requests")]),
+            result("2026-09-25", [group("007664619564", "AWS Cost Explorer", "0.01")]),
           ],
         })
       }),
@@ -77,8 +77,8 @@ describe("aws rows", () => {
         provider: "aws",
         sku: "Amazon Elastic Container Service",
         scope: "213102790567/Amazon Elastic Container Service",
-        usage: 24,
-        unit: "Hrs",
+        usage: 0,
+        unit: "",
         costUsd: 1.25,
         source: "reported",
         account: "production",
@@ -99,8 +99,8 @@ describe("aws rows", () => {
         provider: "aws",
         sku: "Amazon Simple Storage Service",
         scope: "999999999999/Amazon Simple Storage Service",
-        usage: 12.5,
-        unit: "GB-Month",
+        usage: 0,
+        unit: "",
         costUsd: 0.02,
         source: "reported",
         account: "999999999999",
@@ -110,8 +110,8 @@ describe("aws rows", () => {
         provider: "aws",
         sku: "AWS Cost Explorer",
         scope: "007664619564/AWS Cost Explorer",
-        usage: 1,
-        unit: "Requests",
+        usage: 0,
+        unit: "",
         costUsd: 0.01,
         source: "reported",
         account: "management",
@@ -121,7 +121,7 @@ describe("aws rows", () => {
       {
         TimePeriod: { Start: "2026-09-24", End: "2026-09-27" },
         Granularity: "DAILY",
-        Metrics: ["NetUnblendedCost", "UnblendedCost", "UsageQuantity"],
+        Metrics: ["NetUnblendedCost", "UnblendedCost"],
         GroupBy: [
           { Type: "DIMENSION", Key: "LINKED_ACCOUNT" },
           { Type: "DIMENSION", Key: "SERVICE" },
@@ -154,17 +154,14 @@ describe("aws rows", () => {
               result("2026-09-26", [
                 {
                   Keys: ["573018602187", "AmazonCloudWatch"],
-                  Metrics: {
-                    UnblendedCost: { Amount: "0.12", Unit: "USD" },
-                    UsageQuantity: { Amount: "1000", Unit: "Requests" },
-                  },
+                  Metrics: { UnblendedCost: { Amount: "0.12", Unit: "USD" } },
                 },
               ]),
             ],
           })
         }
         return ceJson({
-          ResultsByTime: [result("2026-09-26", [group("787752212265", "AWS Glue", "1.5", "3", "DPU-Hour")])],
+          ResultsByTime: [result("2026-09-26", [group("787752212265", "AWS Glue", "1.5")])],
         })
       }),
     )
@@ -174,8 +171,8 @@ describe("aws rows", () => {
         provider: "aws",
         sku: "AmazonCloudWatch",
         scope: "573018602187/AmazonCloudWatch",
-        usage: 1000,
-        unit: "Requests",
+        usage: 0,
+        unit: "",
         costUsd: 0.12,
         source: "reported",
         account: "preview",
@@ -185,8 +182,8 @@ describe("aws rows", () => {
         provider: "aws",
         sku: "AWS Glue",
         scope: "787752212265/AWS Glue",
-        usage: 3,
-        unit: "DPU-Hour",
+        usage: 0,
+        unit: "",
         costUsd: 1.5,
         source: "reported",
         account: "selfhost-sandbox",
@@ -229,7 +226,7 @@ describe("aws rows", () => {
             result("2026-09-24", [
               {
                 Keys: ["213102790567", "Amazon Simple Storage Service"],
-                Metrics: { UsageQuantity: { Amount: "9", Unit: "Requests" } },
+                Metrics: { BlendedCost: { Amount: "9", Unit: "USD" } },
               },
             ]),
           ],
@@ -258,14 +255,8 @@ function assumeRoleXml() {
 </AssumeRoleResponse>`)
 }
 
-function group(account: string, service: string, cost: string, usage: string, unit: string) {
-  return {
-    Keys: [account, service],
-    Metrics: {
-      NetUnblendedCost: { Amount: cost, Unit: "USD" },
-      UsageQuantity: { Amount: usage, Unit: unit },
-    },
-  }
+function group(account: string, service: string, cost: string) {
+  return { Keys: [account, service], Metrics: { NetUnblendedCost: { Amount: cost, Unit: "USD" } } }
 }
 
 function result(start: string, groups: unknown[]) {
