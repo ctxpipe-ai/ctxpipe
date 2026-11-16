@@ -43,6 +43,7 @@ import {
   withSandboxLockIfFree,
 } from "./sandbox-lock-store.js"
 import { stopDetachedProviderSandbox } from "./sandbox-provider.js"
+import { retireVercelSandboxes } from "./vercel-sandbox-retirement.js"
 import {
   currentSandboxAgent,
   type SandboxAgent,
@@ -408,7 +409,8 @@ export async function orgsWithSandboxes(): Promise<string[]> {
  *   expire (29 days after its last use), when its conversation is gone, or
  *   when an earlier delete failed; committed work is pushed first;
  * - delete an ingest sandbox whose run finished or that is older than the
- *   shard limit (60 minutes).
+ *   shard limit (60 minutes);
+ * - first, retire the org's `vercel` sandbox rows (`retireVercelSandboxes`).
  * Returns when the next sweep is due (an idle stop, a deletion, a retry), or
  * null when no sandbox is left. Workspace bases always schedule the next
  * sweep (see below).
@@ -417,6 +419,7 @@ export async function sweepConversationSandboxes(
   orgId: string,
   now: Date = new Date(),
 ): Promise<{ stopped: number; deleted: number; nextSweepAt: Date | null }> {
+  const vercel = await retireVercelSandboxes(orgId)
   const { rows, bases, conversations } = await withOrgDbContext(
     orgId,
     async () => ({
@@ -435,6 +438,7 @@ export async function sweepConversationSandboxes(
   }
   const retryAt =
     Math.floor(now.getTime() / RETRY_GRID_MS) * RETRY_GRID_MS + RETRY_GRID_MS
+  if (vercel.failed) dueAt(retryAt)
   // Run tokens a turn end could not revoke (or a prepare left) go now.
   if (await revokeIdleRunGitTokens({ orgId }).catch(() => true)) dueAt(retryAt)
   if (await revokeFinishedIngestGitTokens({ orgId }).catch(() => true))
