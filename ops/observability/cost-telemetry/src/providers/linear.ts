@@ -1,4 +1,4 @@
-import { getJson, isRecord, requiredEnv, throwGraphqlErrors } from "../http"
+import { getJson, isRecord, ProviderError, requiredEnv, throwGraphqlErrors } from "../http"
 import { linearUsdPerSeatMonth } from "../rates"
 import { seatRows, type CostRow } from "../rows"
 
@@ -20,20 +20,20 @@ export async function rows(days: string[]): Promise<CostRow[]> {
     },
     "Linear",
   )
-  if (!isRecord(body)) throw new Error("Linear response was missing data")
+  if (!isRecord(body)) throw new ProviderError("parse", "Linear response was missing data")
   throwGraphqlErrors(body, "Linear")
   const organization = isRecord(body.data) && isRecord(body.data.organization) ? body.data.organization : undefined
-  if (!organization) throw new Error("Linear response was missing organization")
+  if (!organization) throw new ProviderError("parse", "Linear response was missing organization")
   const subscription = organization.subscription
   if (subscription === null) return []
-  if (!isRecord(subscription) || typeof subscription.type !== "string") throw new Error("Linear response was missing subscription.type")
+  if (!isRecord(subscription) || typeof subscription.type !== "string") throw new ProviderError("parse", "Linear response was missing subscription.type")
   if (typeof subscription.seats !== "number" || !Number.isFinite(subscription.seats)) {
-    throw new Error("Linear response was missing subscription.seats")
+    throw new ProviderError("parse", "Linear response was missing subscription.seats")
   }
   // A price suffix (`basic_monthly_12`) goes. An older schema names only the plan (`basic`): it takes the yearly rate.
   const variant = subscription.type.replace(/_\d+$/, "")
   const price = linearUsdPerSeatMonth[variant] ?? linearUsdPerSeatMonth[`${variant}_yearly`]
-  if (price === undefined) throw new Error(`no committed seat price for Linear subscription type ${subscription.type} (src/rates.ts)`)
+  if (price === undefined) throw new ProviderError("no_price", `no committed seat price for Linear subscription type ${subscription.type} (src/rates.ts)`)
   let seats = subscription.seats
   if (typeof subscription.seatsMinimum === "number") seats = Math.max(seats, subscription.seatsMinimum)
   if (typeof subscription.seatsMaximum === "number") seats = Math.min(seats, subscription.seatsMaximum)

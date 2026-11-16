@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, setSystemTime, test }
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { useEnv } from "../test-env"
-import { rows } from "./aws"
+import { due, rows } from "./aws"
 
 const DAYS = ["2026-09-24", "2026-09-25", "2026-09-26"]
 const FETCH_AT = new Date("2026-09-26T12:17:00.000Z")
@@ -130,13 +130,10 @@ describe("aws rows", () => {
     ])
   })
 
-  test("returns no rows outside the 12:17 UTC Cost Explorer slot", async () => {
-    setSystemTime(new Date("2026-09-26T13:17:00.000Z"))
-    server.use(
-      http.post(STS, () => HttpResponse.text("should not assume the role", { status: 500 })),
-      http.post(CE, () => HttpResponse.text("should not call Cost Explorer", { status: 500 })),
-    )
-    await expect(rows(DAYS)).resolves.toEqual([])
+  test("is due only in the 12:17 UTC Cost Explorer slot", () => {
+    expect(due(FETCH_AT)).toBe(true)
+    expect(due(new Date("2026-09-26T13:17:00.000Z"))).toBe(false)
+    expect(due(new Date("2026-09-26T11:17:00.000Z"))).toBe(false)
   })
 
   test("pages through NextPageToken and falls back to UnblendedCost", async () => {

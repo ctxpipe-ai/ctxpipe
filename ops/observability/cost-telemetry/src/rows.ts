@@ -13,6 +13,8 @@ export type CostRow = {
 }
 
 type FxSample = { rate: number; timeUnixNano: string }
+/** The result of one provider entry of a run: `error` is the class of its failure, absent on success. */
+export type ProviderStatus = { provider: string; error?: string }
 
 type OtlpAttribute = { key: string; value: { stringValue: string } }
 type OtlpDataPoint = { asDouble: number; timeUnixNano: string; attributes: OtlpAttribute[] }
@@ -66,7 +68,7 @@ export function utcDays(nowMs: number, count: number): string[] {
   return days
 }
 
-export function mapRowsToOtlp(rows: CostRow[], fx?: FxSample): OtlpMetricsRequest {
+export function mapRowsToOtlp(rows: CostRow[], fx?: FxSample, statuses: ProviderStatus[] = []): OtlpMetricsRequest {
   const observedAtUnixMs = String(Date.now())
   const metrics: OtlpMetric[] = []
   if (rows.length > 0) {
@@ -87,6 +89,24 @@ export function mapRowsToOtlp(rows: CostRow[], fx?: FxSample): OtlpMetricsReques
       unit: "1",
       gauge: {
         dataPoints: [{ asDouble: fx.rate, timeUnixNano: fx.timeUnixNano, attributes: [attr("billing.pair", "USD/AUD")] }],
+      },
+    })
+  }
+  if (statuses.length > 0) {
+    const timeUnixNano = (BigInt(observedAtUnixMs) * 1_000_000n).toString()
+    metrics.push({
+      name: "billing.provider_status",
+      unit: "1",
+      gauge: {
+        dataPoints: statuses.map((status) => ({
+          asDouble: status.error === undefined ? 1 : 0,
+          timeUnixNano,
+          attributes: [
+            attr("billing.provider", status.provider),
+            attr("billing.observed_at_unix_ms", observedAtUnixMs),
+            ...(status.error === undefined ? [] : [attr("billing.error", status.error)]),
+          ],
+        })),
       },
     })
   }

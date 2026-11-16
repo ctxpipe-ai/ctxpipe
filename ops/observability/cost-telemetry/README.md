@@ -1,6 +1,10 @@
 # cost-telemetry
 
-An hourly job at :17 UTC: a scheduled ECS Fargate task (linux/arm64) of the observability stack in the production AWS account (factory `machines/observability`). One run reads the billing APIs of each provider and posts OTLP/JSON gauges to the collector. A failed run exits 1, and that slot gets one attempt.
+An hourly job at :17 UTC: a scheduled ECS Fargate task (linux/arm64) of the observability stack in the production AWS account (factory `machines/observability`). One run reads the billing APIs of each provider and posts OTLP/JSON gauges to the collector. Each slot gets one attempt.
+
+## Failures and the exit code
+
+Each provider entry fails on its own: the other entries still send their rows, and each entry sends its result as a `billing.provider_status` point. The run exits 0 when its OTLP export succeeds, also when providers failed. It exits 1 only when the export fails or cannot start (no `OTEL_EXPORTER_OTLP_ENDPOINT`); then nothing arrives, and the no-data alert of the observability stack covers it. The log line of the run names each failed entry with its error class only (`failures=github-plan:http_403`), never a message or a response body.
 
 ## Window and dedupe
 
@@ -10,6 +14,7 @@ The shared window is the last 3 UTC days, today included. OpenRouter lags by one
 
 - `billing.cost` (USD) and `billing.usage` (unit `1`; the unit of the row is `billing.unit`): one point per row at 00:00 UTC of its day. Attributes: `billing.provider`, `billing.sku`, `billing.scope`, `billing.source`, `billing.unit`, `billing.observed_at_unix_ms`, and `billing.account` on AWS rows.
 - `billing.fx_rate` (unit `1`, `billing.pair=USD/AUD`): one point on each run with a successful FX fetch from Frankfurter v2 (`https://api.frankfurter.dev/v2/rates`, `providers=ecb`). An alert of the observability stack expects it every hour.
+- `billing.provider_status` (unit `1`): one point for each provider entry of the run, at the time of the run: 1 when the entry succeeded, 0 when it failed. Attributes: `billing.provider` (the entry: `openrouter`, `github`, `github-plan`, `blacksmith`, `cloudflare`, `aws`, `linear`, `fx`), `billing.observed_at_unix_ms` (the run time), and on a failure `billing.error`, a short class: `missing_env`, `http_<status>` (`http_401`, `http_403`, `http_429`, …), `http_5xx`, `timeout`, `parse` (an unexpected response), `graphql` (a GraphQL `errors` array), `cli` (the Blacksmith CLI failed), `no_plan` (the token cannot see the GitHub plan), `no_price` (no committed seat price), `currency` (a Cloudflare charge not in USD), or `error` (any other failure). AWS sends no status point outside its 12:17 UTC slot, because the run does not call it then.
 
 ## Sources
 
@@ -27,7 +32,7 @@ Before this version, the job sent AWS rows of the management account only, with 
 | --- | --- | --- |
 | AWS | Cost Explorer of the management account (the payer view of all accounts), grouped by `LINKED_ACCOUNT` and `SERVICE`. sku = service, scope = `<account id>/<service>`, `billing.account` = the account's name (`ACCOUNT_NAMES` in `src/providers/aws.ts`; an unknown account keeps its id). No usage: a service sums usage types of different units, so `billing.usage` is 0. | `reported` |
 | Cloudflare | One row per item of type `charge` in the account billing history (sku = description, scope = billing item id, day = date of the charge). The API documents no other type, so a refund or a credit is not counted. R2 rows (`r2_storage`, `r2_class_a`, `r2_class_b` per bucket) are usage only, with cost 0: the R2 charge is in the billing history. | `reported` |
-| GitHub | Billing usage of the organization: metered products, `netAmount` is the spend. The plan's paid seats (`GET /orgs/{org}`, `plan.seats`) × the seat price, sku `plan/<name>`. The plan rows are a separate entry of the run, so a token that cannot see the plan fails only them. | `reported`; plan `derived` |
+| GitHub | Billing usage of the organization: metered products, `netAmount` is the spend. The plan's paid seats (`GET /orgs/{org}`, `plan.seats`) × the seat price, sku `plan/<name>`. The plan rows are a separate entry (`github-plan`), so a token that cannot see the plan fails only them (`billing.error=no_plan`). | `reported`; plan `derived` |
 | Linear | The workspace's paid subscription (`organization { subscription { type seats seatsMinimum seatsMaximum } }`): the billed seats × the seat price of the subscription type (yearly or monthly billing), sku = the type. A type without a price in `src/rates.ts` fails the provider. | `derived` |
 | OpenRouter | Activity per model and provider. | `reported` |
 | Blacksmith | The CLI's `daily` rows: Actions cost at organization scope. Its workflow and runner breakdowns cannot be joined to a day. | `reported` |

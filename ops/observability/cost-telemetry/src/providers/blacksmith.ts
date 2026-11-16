@@ -1,4 +1,4 @@
-import { isRecord, requiredEnv } from "../http"
+import { isRecord, ProviderError, requiredEnv } from "../http"
 import { sumRows, type CostRow } from "../rows"
 
 const ORG = "ctxpipe-ai"
@@ -39,7 +39,7 @@ export async function rows(days: string[]): Promise<CostRow[]> {
   try {
     parsed = JSON.parse(stdout) as unknown
   } catch {
-    throw new Error(`blacksmith usage stdout was not JSON: ${stdout.slice(0, 500)}`)
+    throw new ProviderError("parse", `blacksmith usage stdout was not JSON: ${stdout.slice(0, 500)}`)
   }
   return sumRows(mapUsage(parsed, wanted))
 }
@@ -58,7 +58,7 @@ async function run(argv: string[], stdin?: string): Promise<string> {
       new Response(subprocess.stderr).text(),
       subprocess.exited,
     ])
-    if (exitCode !== 0) throw new Error(`blacksmith ${argv[1]} failed: ${stderr.slice(0, 500)}`)
+    if (exitCode !== 0) throw new ProviderError("cli", `blacksmith ${argv[1]} failed: ${stderr.slice(0, 500)}`)
     return stdout
   } finally {
     clearTimeout(timer)
@@ -66,9 +66,9 @@ async function run(argv: string[], stdin?: string): Promise<string> {
 }
 
 function mapUsage(body: unknown, wanted: Set<string>): CostRow[] {
-  if (!isRecord(body)) throw new Error("blacksmith usage response was not an object")
+  if (!isRecord(body)) throw new ProviderError("parse", "blacksmith usage response was not an object")
   const items = body.daily
-  if (!Array.isArray(items)) throw new Error("blacksmith usage response was missing daily")
+  if (!Array.isArray(items)) throw new ProviderError("parse", "blacksmith usage response was missing daily")
   const mapped: CostRow[] = []
   let mappable = 0
   for (const item of items) {
@@ -78,7 +78,7 @@ function mapUsage(body: unknown, wanted: Set<string>): CostRow[] {
     if (!wanted.has(row.day)) continue
     mapped.push(row)
   }
-  if (items.length > 0 && mappable === 0) throw new Error("blacksmith usage daily had no mappable rows")
+  if (items.length > 0 && mappable === 0) throw new ProviderError("parse", "blacksmith usage daily had no mappable rows")
   return mapped
 }
 

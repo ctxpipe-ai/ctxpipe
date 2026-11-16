@@ -1,4 +1,4 @@
-import { getJson, isRecord, requiredEnv } from "../http"
+import { getJson, isRecord, ProviderError, requiredEnv } from "../http"
 import { sumRows, utcDays, type CostRow } from "../rows"
 
 export async function rows(days: string[]): Promise<CostRow[]> {
@@ -17,7 +17,7 @@ async function fetchDay(day: string, key: string): Promise<CostRow[]> {
     { headers: { Authorization: `Bearer ${key}` } },
     "OpenRouter activity",
   )
-  if (!isRecord(body) || !Array.isArray(body.data)) throw new Error("OpenRouter activity response was missing data")
+  if (!isRecord(body) || !Array.isArray(body.data)) throw new ProviderError("parse", "OpenRouter activity response was missing data")
   const mapped: CostRow[] = []
   for (const item of body.data) {
     if (!isRecord(item)) continue

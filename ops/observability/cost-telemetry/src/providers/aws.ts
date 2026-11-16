@@ -1,6 +1,7 @@
 import { CostExplorerClient, GetCostAndUsageCommand } from "@aws-sdk/client-cost-explorer"
 import { fromTemporaryCredentials } from "@aws-sdk/credential-providers"
 import { FetchHttpHandler } from "@smithy/fetch-http-handler"
+import { ProviderError } from "../http"
 import { sumRows, type CostRow } from "../rows"
 
 /** The name of each account of the organization (billing.account). An account that is not here keeps its id as its name. */
@@ -12,8 +13,6 @@ const ACCOUNT_NAMES: Record<string, string> = {
   "573018602187": "preview",
   "007664619564": "management",
 }
-/** Cost Explorer is billed per paginated request and updates at least daily; the hourly cron only calls at 12:17 UTC. */
-const FETCH_HOUR_UTC = 12
 
 /**
  * AWS Cost Explorer of the management account: the payer view of every account of the organization.
@@ -36,14 +35,13 @@ const FETCH_HOUR_UTC = 12
  *   (a read-only ce:GetCostAndUsage role in the management account) through STS. The STS client
  *   takes the region and the HTTP handler of the Cost Explorer client. This package does not
  *   create credentials or IAM.
- * - Cost Explorer API: $0.01 per paginated request (AWS Cost Explorer pricing).
+ * - Cost Explorer API: $0.01 per paginated request (AWS Cost Explorer pricing). The run calls it only when `due`.
  * - HTTP uses official FetchHttpHandler (not Node HTTPS) so Bun and MSW see the
  *   call. customFetch buffers the body first: an MSW/Bun ReadableStream is empty
  *   by the time the SDK streamCollector runs. maxAttempts is 1 so retries do not
  *   multiply the $0.01-per-page charge.
  */
 export async function rows(days: string[]): Promise<CostRow[]> {
-  if (new Date().getUTCHours() !== FETCH_HOUR_UTC) return []
   const first = days[0]
   const last = days[days.length - 1]
   if (!first || !last) return []
@@ -85,18 +83,18 @@ export async function rows(days: string[]): Promise<CostRow[]> {
           NextPageToken: nextPageToken,
         }),
       )
-      if (!Array.isArray(response.ResultsByTime)) throw new Error("Cost Explorer response was missing ResultsByTime")
+      if (!Array.isArray(response.ResultsByTime)) throw new ProviderError("parse", "Cost Explorer response was missing ResultsByTime")
       for (const result of response.ResultsByTime) {
         const day = result.TimePeriod?.Start
-        if (!day) throw new Error("Cost Explorer result was missing TimePeriod.Start")
+        if (!day) throw new ProviderError("parse", "Cost Explorer result was missing TimePeriod.Start")
         if (!wanted.has(day)) continue
         for (const group of result.Groups ?? []) {
           const account = group.Keys?.[0]
           const service = group.Keys?.[1]
-          if (!account || !service) throw new Error("Cost Explorer group was missing LINKED_ACCOUNT or SERVICE")
+          if (!account || !service) throw new ProviderError("parse", "Cost Explorer group was missing LINKED_ACCOUNT or SERVICE")
           const costUsd = metricAmount(group.Metrics, "NetUnblendedCost") ?? metricAmount(group.Metrics, "UnblendedCost")
           if (costUsd === undefined) {
-            throw new Error(`Cost Explorer group ${account}/${service} on ${day} was missing NetUnblendedCost and UnblendedCost`)
+            throw new ProviderError("parse", `Cost Explorer group ${account}/${service} on ${day} was missing NetUnblendedCost and UnblendedCost`)
           }
           mapped.push({
             day,
@@ -130,4 +128,9 @@ function metricAmount(metrics: Record<string, { Amount?: string } | undefined> |
   if (typeof amount !== "string" || amount.trim() === "") return undefined
   const value = Number(amount)
   return Number.isFinite(value) ? value : undefined
+}
+
+/** Cost Explorer is billed per paginated request and updates at least daily, so the hourly run calls it only at 12:17 UTC. */
+export function due(now: Date): boolean {
+  return now.getUTCHours() === 12
 }

@@ -1,4 +1,4 @@
-import { getJson, isRecord, requiredEnv, throwGraphqlErrors } from "../http"
+import { getJson, isRecord, ProviderError, requiredEnv, throwGraphqlErrors } from "../http"
 import { sumRows, type CostRow } from "../rows"
 
 const classA = new Set([
@@ -76,20 +76,20 @@ export async function rows(days: string[]): Promise<CostRow[]> {
 async function chargeRows(accountId: string, headers: Record<string, string>, wanted: Set<string>): Promise<CostRow[]> {
   const mapped: CostRow[] = []
   for (let page = 1; ; page += 1) {
-    if (page > 100) throw new Error("Cloudflare billing history has more than 100 pages")
+    if (page > 100) throw new ProviderError("parse", "Cloudflare billing history has more than 100 pages")
     const body = await getJson(
       `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/billing/history?page=${page}`,
       { headers },
       "Cloudflare billing history",
     )
-    if (!isRecord(body) || !Array.isArray(body.result)) throw new Error("Cloudflare billing history response was missing result")
+    if (!isRecord(body) || !Array.isArray(body.result)) throw new ProviderError("parse", "Cloudflare billing history response was missing result")
     for (const item of body.result) {
       if (!isRecord(item) || item.type !== "charge") continue
       if (typeof item.id !== "string" || typeof item.occurred_at !== "string") continue
       if (typeof item.amount !== "number" || !Number.isFinite(item.amount)) continue
       const day = item.occurred_at.slice(0, 10)
       if (!wanted.has(day)) continue
-      if (item.currency !== "USD") throw new Error(`Cloudflare charge ${item.id} is in ${String(item.currency)}, not USD`)
+      if (item.currency !== "USD") throw new ProviderError("currency", `Cloudflare charge ${item.id} is in ${String(item.currency)}, not USD`)
       const label = [item.description, item.action].find((value) => typeof value === "string" && value)
       mapped.push({
         day,
@@ -129,11 +129,11 @@ async function r2Rows(
     },
     "Cloudflare R2",
   )
-  if (!isRecord(body)) throw new Error("Cloudflare R2 response was missing data")
+  if (!isRecord(body)) throw new ProviderError("parse", "Cloudflare R2 response was missing data")
   throwGraphqlErrors(body, "Cloudflare R2")
-  if (!isRecord(body.data)) throw new Error("Cloudflare R2 response was missing data")
+  if (!isRecord(body.data)) throw new ProviderError("parse", "Cloudflare R2 response was missing data")
   const accounts = isRecord(body.data.viewer) && Array.isArray(body.data.viewer.accounts) ? body.data.viewer.accounts : undefined
-  if (!accounts) throw new Error("Cloudflare R2 response was missing accounts")
+  if (!accounts) throw new ProviderError("parse", "Cloudflare R2 response was missing accounts")
   const account = accounts[0]
   if (!isRecord(account)) return []
   return sumRows(
@@ -145,7 +145,7 @@ async function r2Rows(
 
 function storageUsage(groups: unknown): CostRow[] {
   if (groups === undefined) return []
-  if (!Array.isArray(groups)) throw new Error("Cloudflare R2 response was missing r2StorageAdaptiveGroups")
+  if (!Array.isArray(groups)) throw new ProviderError("parse", "Cloudflare R2 response was missing r2StorageAdaptiveGroups")
   const mapped: CostRow[] = []
   for (const item of groups) {
     if (!isRecord(item) || !isRecord(item.max) || !isRecord(item.dimensions)) continue
@@ -161,7 +161,7 @@ function storageUsage(groups: unknown): CostRow[] {
 
 function operationUsage(groups: unknown): CostRow[] {
   if (groups === undefined) return []
-  if (!Array.isArray(groups)) throw new Error("Cloudflare R2 response was missing r2OperationsAdaptiveGroups")
+  if (!Array.isArray(groups)) throw new ProviderError("parse", "Cloudflare R2 response was missing r2OperationsAdaptiveGroups")
   const mapped: CostRow[] = []
   for (const item of groups) {
     if (!isRecord(item) || !isRecord(item.sum) || !isRecord(item.dimensions)) continue
@@ -170,7 +170,7 @@ function operationUsage(groups: unknown): CostRow[] {
     const actionType = item.dimensions.actionType
     if (freeOperations.has(actionType)) continue
     const sku = classA.has(actionType) ? "r2_class_a" : classB.has(actionType) ? "r2_class_b" : undefined
-    if (!sku) throw new Error(`unknown Cloudflare R2 actionType: ${actionType}`)
+    if (!sku) throw new ProviderError("parse", `unknown Cloudflare R2 actionType: ${actionType}`)
     mapped.push(usageRow(item.dimensions.date, item.dimensions.bucketName, sku, item.sum.requests, "requests"))
   }
   return mapped
