@@ -32,6 +32,8 @@ export async function invokeCommitSubjectModel(
     name: "workspace.commit-subject",
   })
   const cancellation = new AbortController()
+  // A whole-response deadline (the call does not stream). Normal answers take
+  // up to about 5 s; 15 s keeps them and still ends a hung call.
   const deadline = setTimeout(
     () =>
       cancellation.abort(
@@ -40,7 +42,7 @@ export async function invokeCommitSubjectModel(
           "TimeoutError",
         ),
       ),
-    5_000,
+    15_000,
   )
   try {
     return await chat({
