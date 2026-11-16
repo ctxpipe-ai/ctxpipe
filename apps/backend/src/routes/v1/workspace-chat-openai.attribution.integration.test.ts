@@ -33,8 +33,7 @@ import {
 import { mintWorkspaceChatRunCapability } from "../../domain/workspaces/workspace-chat-run-capability.js"
 import { generateObjectId } from "../../lib/id.js"
 import { backendOtelMiddleware } from "../../observability/http.js"
-import { LangfuseContextSpanProcessor } from "../../observability/langfuseContextProcessor.js"
-import { otelDeploymentEnvironment } from "../../observability/otel.js"
+import { AttributionUrlSpanProcessor } from "../../observability/otel.js"
 import {
   contextStorage,
   withTestRequestLogger,
@@ -43,15 +42,11 @@ import { workspaceChatOpenaiRoutes } from "./workspace-chat-openai.js"
 
 const AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
 const MODEL_PROVIDER_URL = "http://model-provider.test/v1"
-const environment = otelDeploymentEnvironment()
 const exporter = new InMemorySpanExporter()
 const provider = new NodeTracerProvider({
-  resource: resourceFromAttributes({
-    "service.name": "ctxpipe-test",
-    "deployment.environment": environment,
-  }),
+  resource: resourceFromAttributes({ "service.name": "ctxpipe-test" }),
   spanProcessors: [
-    new LangfuseContextSpanProcessor(),
+    new AttributionUrlSpanProcessor(),
     new SimpleSpanProcessor(exporter),
   ],
 })
@@ -264,14 +259,14 @@ describeWithDatabase("workspace-chat capability attribution", () => {
     })
     expect(upstreamBody.reasoning_effort).toBe("high")
     expect(
-      JSON.parse(String(generation?.attributes["langfuse.observation.input"])),
+      JSON.parse(String(generation?.attributes["gen_ai.input.messages"])),
     ).toEqual([
       { role: "user", content: "Say hello" },
       { role: "tool", content: "token [masked]" },
     ])
     expect(
-      JSON.parse(String(generation?.attributes["langfuse.observation.output"])),
-    ).toEqual({ role: "assistant", content: "Hello" })
+      JSON.parse(String(generation?.attributes["gen_ai.output.messages"])),
+    ).toEqual([{ role: "assistant", content: "Hello" }])
   })
 
   it("attributes completions from the verified run capability, not the URL slug or baggage", async () => {
@@ -328,11 +323,10 @@ describeWithDatabase("workspace-chat capability attribution", () => {
     const generation = exporter
       .getFinishedSpans()
       .find((item) => item.name.startsWith("generation"))
-    expect(generation?.attributes["langfuse.trace.tags"]).toEqual(
-      expect.arrayContaining([`org:${orgSlug}`, `env:${environment}`]),
-    )
-    expect(generation?.attributes["langfuse.trace.metadata.orgSlug"]).toBe(
-      orgSlug,
-    )
+    expect(generation?.attributes).toMatchObject({
+      "ctxpipe.org.id": orgId,
+      "ctxpipe.org.slug": orgSlug,
+      "ctxpipe.conversation.id": conversationId,
+    })
   })
 })

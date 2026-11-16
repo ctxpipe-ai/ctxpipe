@@ -31,7 +31,7 @@ export type ProviderCallOpts = {
   temperature?: number
   /** Legacy transport setting. Host calls always use a single response. */
   streaming?: boolean
-  /** Langfuse generation name of the call. */
+  /** The generation span name of the call. */
   name?: string
   /** Name of the forced structured output tool. */
   outputName?: string

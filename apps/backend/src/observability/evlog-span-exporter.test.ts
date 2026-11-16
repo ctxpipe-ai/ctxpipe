@@ -40,8 +40,8 @@ it("logs a generation span without its prompt and output", async () => {
       attributes: {
         "gen_ai.request.model": "openai/gpt-5.6-terra",
         "gen_ai.usage.input_tokens": 12,
-        "langfuse.observation.input": "SECRET_PROMPT",
-        "langfuse.observation.output": "SECRET_OUTPUT",
+        "gen_ai.input.messages": "SECRET_PROMPT",
+        "gen_ai.output.messages": "SECRET_OUTPUT",
         "gen_ai.prompt.0.content": "SECRET_PROMPT",
         "gen_ai.completion.0.content": "SECRET_OUTPUT",
       },

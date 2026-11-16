@@ -1,4 +1,3 @@
-import { propagateAttributes } from "@langfuse/tracing"
 import {
   type Attributes,
   type Span,
@@ -6,7 +5,6 @@ import {
   trace,
 } from "@opentelemetry/api"
 
-import { langfusePropagation } from "../../observability/langfuse.js"
 import { log } from "../../observability/logger.js"
 import { isWorkflowControlSignal } from "../../openworkflow/isSleepSignal.js"
 import type { WorkspaceChatCompletionUsage } from "../workspaces/workspace-chat-model-proxy.js"
@@ -102,17 +100,10 @@ export function logIngestEvent(
 }
 
 /**
- * The Langfuse session of a run: one session groups the model calls of every
- * shard and step. The id differs from a conversation id.
- */
-function ingestLangfuseSession(runId: string): string {
-  return `ingest:${runId}`
-}
-
-/**
  * The model call of one ingest step, at the model proxy. It is a generation
- * span with the usage, in the Langfuse session of the run. It holds no
- * prompt or answer (the checkout is customer source).
+ * span with the usage. `ctxpipe.ingest.run.id` groups the model calls of
+ * every shard and step of a run. It holds no prompt or answer (the checkout
+ * is customer source).
  */
 export function startIngestModelCall(
   ingest: { runId: string; shard: number; step: string },
@@ -126,26 +117,15 @@ export function startIngestModelCall(
     usage?: WorkspaceChatCompletionUsage | null
   }) => void
 } {
-  const span = propagateAttributes(
-    {
-      ...langfusePropagation({
-        sessionId: ingestLangfuseSession(ingest.runId),
-        tags: ["ingestion"],
-        traceMetadata: { ingestShard: String(ingest.shard) },
-      }),
-      traceName: "ingestion",
+  const span = tracer().startSpan("ingestion.model_call", {
+    attributes: {
+      "gen_ai.operation.name": "chat",
+      "gen_ai.request.model": model,
+      "ctxpipe.ingest.run.id": ingest.runId,
+      "ctxpipe.ingest.shard": String(ingest.shard),
+      "ctxpipe.ingest.step": ingest.step,
     },
-    () =>
-      tracer().startSpan("ingestion.model_call", {
-        attributes: {
-          "gen_ai.operation.name": "chat",
-          "gen_ai.request.model": model,
-          "ctxpipe.ingest.run.id": ingest.runId,
-          "ctxpipe.ingest.shard": String(ingest.shard),
-          "ctxpipe.ingest.step": ingest.step,
-        },
-      }),
-  )
+  })
   let ended = false
   return {
     finish(result) {

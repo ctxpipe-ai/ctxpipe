@@ -30,7 +30,7 @@ afterAll(async () => {
   await closeDb()
 })
 
-it("adds the org slug to a job that has only the org id, so Langfuse gets the org tag", async () => {
+it("adds the org slug to the attribution of a job that has only the org id", async () => {
   const workflow = defineWorkflow(
     { name: "slug-lookup", schema: z.object({ orgId: z.string() }) },
     async ({ input }) => ({ input, attribution: readAttribution() }),

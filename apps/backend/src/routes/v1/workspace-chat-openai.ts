@@ -207,7 +207,7 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
     const markTtfb = () => {
       if (ttfbMs == null) ttfbMs = Date.now() - startedAt
     }
-    // An ingest step has a model call in the Langfuse session of its run.
+    // An ingest step has a model call span, attributed to its run.
     const ingestCall = token.ingest
       ? startIngestModelCall(token.ingest, contract.modelBase)
       : undefined

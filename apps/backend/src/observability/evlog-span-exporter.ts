@@ -2,14 +2,11 @@ import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace-base"
 
 import { log } from "./logger.js"
 
-/**
- * Prompt and output keys. The spans keep them (HyperDX); the evlog stdout
- * lines never carry them.
- */
+/** Prompt and output keys. Spans keep them (ADR-061); logs never carry them. */
 const LLM_CONTENT_KEY =
-  /^(langfuse\.observation\.(input|output)$|gen_ai\.(prompt|completion|input\.messages|output\.messages))/
+  /^gen_ai\.(prompt|completion|input\.messages|output\.messages)/
 
-/** Compact evlog dump of workspace-chat spans when OTLP is off or alongside it. */
+/** Compact evlog dump of workspace-chat spans, with or without OTLP export. */
 export class EvlogSpanExporter implements SpanExporter {
   export(
     spans: ReadableSpan[],

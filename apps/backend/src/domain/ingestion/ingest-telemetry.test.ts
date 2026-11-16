@@ -5,7 +5,6 @@ import {
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 
-import { LangfuseContextSpanProcessor } from "../../observability/langfuseContextProcessor.js"
 import {
   capIngestText,
   INGEST_TELEMETRY_TEXT_MAX,
@@ -17,10 +16,7 @@ import {
 
 const exporter = new InMemorySpanExporter()
 const provider = new NodeTracerProvider({
-  spanProcessors: [
-    new LangfuseContextSpanProcessor(),
-    new SimpleSpanProcessor(exporter),
-  ],
+  spanProcessors: [new SimpleSpanProcessor(exporter)],
 })
 
 beforeAll(() => {
@@ -36,7 +32,7 @@ afterAll(async () => {
 })
 
 describe("ingest model call telemetry", () => {
-  it("records one generation in the Langfuse session of the run, with usage and the step", () => {
+  it("records one generation span of the run, with usage and the step", () => {
     const call = startIngestModelCall(
       { runId: "run_1", shard: 3, step: "skill:repository:apis:ws_1" },
       "openai/gpt-5.6-terra",
@@ -62,7 +58,6 @@ describe("ingest model call telemetry", () => {
       "ctxpipe.ingest.run.id": "run_1",
       "ctxpipe.ingest.shard": "3",
       "ctxpipe.ingest.step": "skill:repository:apis:ws_1",
-      "session.id": "ingest:run_1",
     })
     expect(spans[0]?.status.code).not.toBe(2)
   })
@@ -75,7 +70,10 @@ describe("ingest model call telemetry", () => {
     call.finish({ status: 502, durationMs: 5 })
     const span = exporter.getFinishedSpans()[0]
     expect(Object.keys(span?.attributes ?? {})).not.toEqual(
-      expect.arrayContaining(["langfuse.observation.input"]),
+      expect.arrayContaining(["gen_ai.input.messages"]),
+    )
+    expect(Object.keys(span?.attributes ?? {})).not.toEqual(
+      expect.arrayContaining(["gen_ai.output.messages"]),
     )
     expect(
       Object.keys(span?.attributes ?? {}).filter((key) =>

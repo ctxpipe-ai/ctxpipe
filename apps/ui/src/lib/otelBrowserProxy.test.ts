@@ -184,7 +184,7 @@ describe("POST /.otel/v1/$signal", () => {
               },
               scopeSpans: [
                 {
-                  scope: { name: "Langfuse SDK" },
+                  scope: { name: "llm-sdk" },
                   spans: [
                     {
                       name: "GET /.auth/reset-password/sekret?next=1",
@@ -269,9 +269,7 @@ describe("POST /.otel/v1/$signal", () => {
       }>
     }
     const span = body.resourceSpans[0]?.scopeSpans[0]?.spans[0]
-    expect(body.resourceSpans[0]?.scopeSpans[0]?.scope?.name).toBe(
-      "Langfuse SDK",
-    )
+    expect(body.resourceSpans[0]?.scopeSpans[0]?.scope?.name).toBe("llm-sdk")
     expect(span?.name).toBe("GET /.auth/reset-password/{token}")
     expect(span?.attributes.map((attribute) => attribute.key)).toEqual([
       "gen_ai.request.model",

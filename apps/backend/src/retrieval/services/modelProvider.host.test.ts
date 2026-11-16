@@ -1,3 +1,4 @@
+import { SpanStatusCode } from "@opentelemetry/api"
 import { resourceFromAttributes } from "@opentelemetry/resources"
 import {
   InMemorySpanExporter,
@@ -10,7 +11,6 @@ import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest"
 
 import { useMswServer } from "../../../test/msw.js"
 import { abortAfter } from "../../lib/abortAfter.js"
-import { LangfuseContextSpanProcessor } from "../../observability/langfuseContextProcessor.js"
 import { getModel } from "./modelProvider.js"
 
 const server = useMswServer()
@@ -225,10 +225,7 @@ it.each(["openrouter", "azure", "bedrock"] as const)(
 const exporter = new InMemorySpanExporter()
 const tracerProvider = new NodeTracerProvider({
   resource: resourceFromAttributes({}),
-  spanProcessors: [
-    new LangfuseContextSpanProcessor(),
-    new SimpleSpanProcessor(exporter),
-  ],
+  spanProcessors: [new SimpleSpanProcessor(exporter)],
 })
 beforeAll(() => tracerProvider.register())
 afterAll(() => tracerProvider.shutdown())
@@ -240,7 +237,7 @@ function stubOpenAiLike() {
   vi.stubEnv("MODEL_FAST_NAME", "fast")
 }
 
-it("records each host call as one named Langfuse generation with usage", async () => {
+it("records each host call as one named generation span with usage", async () => {
   exporter.reset()
   stubOpenAiLike()
   server.use(
@@ -266,23 +263,21 @@ it("records each host call as one named Langfuse generation with usage", async (
   })
   const generations = exporter
     .getFinishedSpans()
-    .filter(
-      (span) => span.attributes["langfuse.observation.type"] === "generation",
-    )
+    .filter((span) => span.attributes["gen_ai.operation.name"] === "chat")
   expect(generations).toHaveLength(1)
   expect(generations[0]?.name).toBe("workspace.commit-subject")
-  expect(generations[0]?.attributes["langfuse.observation.model.name"]).toBe(
-    "fast",
-  )
-  expect(generations[0]?.attributes["langfuse.observation.input"]).toContain(
+  expect(generations[0]?.attributes).toMatchObject({
+    "gen_ai.request.model": "fast",
+    "gen_ai.provider.name": "openai-like",
+    "gen_ai.usage.input_tokens": 7,
+    "gen_ai.usage.output_tokens": 3,
+  })
+  expect(generations[0]?.attributes["gen_ai.input.messages"]).toContain(
     "Write a subject",
   )
-  expect(generations[0]?.attributes["langfuse.observation.output"]).toContain(
+  expect(generations[0]?.attributes["gen_ai.output.messages"]).toContain(
     "A subject",
   )
-  expect(
-    generations[0]?.attributes["langfuse.observation.usage_details"],
-  ).toContain("10")
 })
 
 it("marks the generation as an error when the provider rejects the request", async () => {
@@ -302,8 +297,13 @@ it("marks the generation as an error when the provider rejects the request", asy
   ).rejects.toThrow(/400/)
   const failed = exporter
     .getFinishedSpans()
-    .filter((span) => span.attributes["langfuse.observation.level"] === "ERROR")
+    .filter(
+      (span) =>
+        span.attributes["gen_ai.operation.name"] === "chat" &&
+        span.status.code === SpanStatusCode.ERROR,
+    )
   expect(failed).toHaveLength(1)
+  expect(failed[0]?.status.message).toMatch(/400/)
 })
 
 it.each(["openai-like", "bedrock"] as const)(

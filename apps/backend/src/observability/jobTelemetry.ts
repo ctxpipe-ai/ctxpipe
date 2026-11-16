@@ -127,10 +127,10 @@ function telemetryFromInput(input: unknown): JobTelemetry {
 const orgSlugs = new Map<string, string>()
 
 /**
- * The slug of an org, for the Langfuse `org:<slug>` tag of a job whose input
- * has only the org id. A slug is read once per process and org, so a resumed
- * run does not read it again. A failed read leaves the tag out and never
- * fails the job.
+ * The slug of an org, for the `ctxpipe.org.slug` attribution of a job whose
+ * input has only the org id. A slug is read once per process and org, so a
+ * resumed run does not read it again. A failed read leaves the slug out and
+ * never fails the job.
  */
 async function orgSlugForJob(orgId: string): Promise<string | undefined> {
   const known = orgSlugs.get(orgId)

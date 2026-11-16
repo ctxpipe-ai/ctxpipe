@@ -8,7 +8,7 @@ import {
 import type { StructuredOutputOptions } from "@tanstack/ai/adapters"
 import { BaseTextAdapter } from "@tanstack/ai/adapters"
 
-import { withLangfuseGeneration } from "../../../observability/langfuse.js"
+import { withLlmGeneration } from "../../../observability/llm-spans.js"
 import type { ProviderCallOpts } from "./providerTypes.js"
 
 /** Name of the forced tool that carries a structured reply. */
@@ -57,12 +57,14 @@ export class HostTextAdapter extends BaseTextAdapter<
     super({}, opts.models[0] ?? "")
   }
 
-  /** One request, recorded as one Langfuse generation. */
+  /** One request, recorded as one generation span. */
   private call(options: TextOptions, schema?: JSONSchema) {
-    return withLangfuseGeneration(
+    return withLlmGeneration(
       {
         name: this.generationName,
+        operation: "chat",
         model: this.model,
+        provider: this.name,
         input: {
           systemPrompts: options.systemPrompts,
           messages: options.messages.map((message) => ({
@@ -71,14 +73,12 @@ export class HostTextAdapter extends BaseTextAdapter<
           })),
           ...(schema ? { structured: true } : {}),
         },
-        metadata: { provider: this.name },
         summarizeOutput: (result) => ({ text: result.text }),
         usageFromResult: (result) =>
           result.usage
             ? {
                 input: result.usage.promptTokens,
                 output: result.usage.completionTokens,
-                total: result.usage.totalTokens,
                 cost: result.usage.cost,
               }
             : undefined,
