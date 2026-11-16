@@ -1,6 +1,6 @@
 {
   "backend": {
-    "src/domain/workspaces/confluence-mirror-native.contract.test.ts": 12,
+    "src/domain/workspaces/confluence-mirror-native.contract.test.ts": 13,
     "src/domain/workspaces/connector-finalization-native.contract.test.ts": 52,
     "src/domain/workspaces/conversation-publish-native.contract.test.ts": 6,
     "src/domain/workspaces/hydrate-planner-native.contract.test.ts": 17,
