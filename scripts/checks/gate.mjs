@@ -302,7 +302,12 @@ export function fullVerdict(needs) {
 // What a gated run would decide on the same results. Each selected check needs
 // one accepted result: an accepted hit, or its result in the full run (the
 // gated run would run it).
-export function gatedVerdict({ selection, config, result, needs }) {
+export function gatedVerdict({
+  selection,
+  config,
+  result,
+  needs,
+}) {
   const hits = new Map(
     (selection.cache?.hits ?? []).map((hit) => [hit.id, hit]),
   )
@@ -327,9 +332,11 @@ export function gatedVerdict({ selection, config, result, needs }) {
       })
   }
   // The jobs that run whatever the selection is.
-  const failedAlwaysRun = ["production-builds", "packages", "migrate"].filter(
-    (job) => ["failure", "cancelled"].includes(needs[job]?.result),
-  )
+  const failedAlwaysRun = [
+    "production-builds",
+    "packages",
+    "migrate",
+  ].filter((job) => ["failure", "cancelled"].includes(needs[job]?.result))
   const failedChecks = ran.some(
     (item) =>
       ["failed", "error"].includes(item.result) ||
@@ -807,7 +814,15 @@ export function flakyJobs(jobs, earlier) {
   ].sort()
 }
 
-export function shadow({ config, inputs, records, needs, jobs, earlier, run }) {
+export function shadow({
+  config,
+  inputs,
+  records,
+  needs,
+  jobs,
+  earlier,
+  run,
+}) {
   const full = fullVerdict(needs)
   const steps = stepResults(jobs)
   const result = fullRunResults(records, needs, steps)

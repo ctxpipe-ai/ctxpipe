@@ -1349,11 +1349,7 @@ test("a gated run packs its checks into the fewest shards that hold the target, 
   // A screenshot check counts 2 seconds, not the play time that the trace
   // holds for it.
   assert.equal(
-    estimate(
-      "storybook:visual:a#x",
-      new Map([["storybook:visual:a#x", 0.2]]),
-      {},
-    ),
+    estimate("storybook:visual:a#x", new Map([["storybook:visual:a#x", 0.2]]), {}),
     2,
   )
   // Two short screenshot checks fit in one shard; the shards need the
@@ -1376,9 +1372,8 @@ test("a gated run packs its checks into the fewest shards that hold the target, 
   )
   assert.equal(
     shardMinutes({ visual: [{ ids: [], seconds: 60 }] }),
-    Math.round(
-      (profiles.visual.setupMinutes + 1 + storybookBuildMinutes) * 10,
-    ) / 10,
+    Math.round((profiles.visual.setupMinutes + 1 + storybookBuildMinutes) * 10) /
+      10,
   )
   assert.equal(
     estimate("vitest:backend:apps/backend/src/x.test.ts", new Map(), {
@@ -1895,8 +1890,7 @@ test("each dismissed finding shows its reason, writer and commit; none is silent
         {
           critic: "critic:spec",
           status: "carried",
-          reason:
-            "2 passes (2 held findings dismissed by a person with a reason)",
+          reason: "2 passes (2 held findings dismissed by a person with a reason)",
           dismissals: [
             {
               finding: "f:0123abcd",
