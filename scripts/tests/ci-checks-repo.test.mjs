@@ -836,19 +836,26 @@ test("the browser trace maps page coverage to source lines through the build's s
   }
 })
 
-test("every check has the root toolchain files among its inputs", () => {
+test("every check has the root toolchain files among its inputs, and a Storybook check has the UI package file instead of the root package.json", () => {
   const result = node([script("list.mjs")])
   assert.equal(result.status, 0, result.stderr)
   const { checks } = JSON.parse(result.stdout)
-  assert.ok(checks.length > 0)
-  for (const { id, inputs } of checks)
+  assert.ok(checks.some(({ lane }) => lane === "visual"))
+  assert.ok(checks.some(({ lane }) => lane === "plays"))
+  for (const { id, family, inputs } of checks) {
     for (const file of [
-      "package.json",
       "pnpm-lock.yaml",
       "pnpm-workspace.yaml",
       ".node-version",
+      family === "storybook" ? "apps/ui/package.json" : "package.json",
     ])
       assert.ok(inputs.includes(file), `${id} lacks input ${file}`)
+    if (family === "storybook")
+      assert.ok(
+        !inputs.includes("package.json"),
+        `${id} has input package.json`,
+      )
+  }
 })
 
 test("the manifest lists a check for each job of the other pull request workflows", () => {
