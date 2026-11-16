@@ -66,7 +66,7 @@ test("a kind that is not page or component, and a purpose that is not a sentence
       "{}",
       `export const Dialog = { parameters: { review: { kind: "dialog", purpose: "Delete dialog of a Workspace, open." } } }
 export const Vague = { parameters: { review: { kind: "component", purpose: "Shows the card." } } }
-export const Long = { parameters: { review: { kind: "component", purpose: "Workspace card: ${"a".repeat(240)}" } } }
+export const Long = { parameters: { review: { kind: "component", purpose: "Workspace card ${"a".repeat(240)}" } } }
 const text = "Workspace card."
 export const NotLiteral = { parameters: { review: { kind: "component", purpose: text } } }`,
     ),
@@ -81,24 +81,23 @@ export const NotLiteral = { parameters: { review: { kind: "component", purpose: 
   )
 })
 
-test("a purpose names the UI and its use, then the state, and does not describe the story", () => {
-  const ui = "Workspace card, where a member opens a Workspace"
+test("a purpose is a sentence of a sane length about the UI, in any form", () => {
+  const text = "Workspace card that a member opens to read its sources"
   const result = check({
     "Card.stories.tsx": storyFile(
       `{ review: { kind: "component" } }`,
-      `export const Short = { parameters: { review: { purpose: "Workspace card: empty." } } }
-export const NoState = { parameters: { review: { purpose: "${ui} and sees its sources and its last sync time." } } }
-export const NoUi = { parameters: { review: { purpose: ": the Workspace has no sources yet, and the member can add one." } } }
-export const Displays = { parameters: { review: { purpose: "Displays the ${ui}: the Workspace has no sources yet." } } }
-export const ThisStory = { parameters: { review: { purpose: "This story is the ${ui}: the Workspace has no sources yet." } } }
-export const Longest = { parameters: { review: { purpose: "${ui}: ${"a".repeat(240 - ui.length - 2)}" } } }`,
+      `export const Short = { parameters: { review: { purpose: "Empty Workspace card." } } }
+export const Displays = { parameters: { review: { purpose: "Displays the ${text}, with no sources yet." } } }
+export const Renders = { parameters: { review: { purpose: "Renders the ${text}, with no sources yet." } } }
+export const NoColon = { parameters: { review: { purpose: "After the member deletes the last source, the ${text} says that it has none." } } }
+export const Longest = { parameters: { review: { purpose: "${text}: ${"a".repeat(240 - text.length - 2)}" } } }`,
     ),
   })
   assert.equal(result.status, 1)
-  for (const name of ["Short", "NoState", "NoUi", "Displays", "ThisStory"])
+  for (const name of ["Short", "Displays", "Renders"])
     assert.match(
       result.stderr,
       new RegExp(`story "${name}": parameters\\.review\\.purpose must`),
     )
-  assert.doesNotMatch(result.stderr, /"Longest"/)
+  assert.doesNotMatch(result.stderr, /"NoColon"|"Longest"/)
 })

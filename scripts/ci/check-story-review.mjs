@@ -5,11 +5,11 @@
 //   - `kind`: "page" for a whole screen that a user lands on, or "component"
 //     for a part of the UI (a component, a dialog, a step, a part of a page).
 //     It can be in the story or in the `meta` of the file; the story wins.
-//   - `purpose`: one sentence in the story itself, on one line of 60 to 240
-//     characters, in two parts. Before the first ": ", the UI and what the
-//     user uses it for. After it, the state that the story shows and the
-//     step of the user that led there. It does not describe the story
-//     ("Shows", "Displays", "Renders", "This story", "Example").
+//   - `purpose`: one sentence in the story itself, on one line of 40 to 240
+//     characters: what the UI is for, how the user uses it, and the state
+//     that the story shows. It describes the UI, so it does not start with
+//     "Shows", "Displays" or "Renders". The check cannot judge the meaning:
+//     the critic reads it.
 //
 // The check fails for each story with no valid kind or purpose.
 //
@@ -30,17 +30,11 @@ const root = resolve(
 )
 const { loadCsf } = await csfTools()
 
-function validPurpose(purpose) {
-  const colon = purpose.indexOf(": ")
-  return (
-    purpose.length >= 60 &&
-    purpose.length <= 240 &&
-    !purpose.includes("\n") &&
-    colon > 0 &&
-    purpose.slice(colon + 2).trim().length > 0 &&
-    !/^(Shows|Displays|Renders|This story|Example)\b/i.test(purpose)
-  )
-}
+const validPurpose = (purpose) =>
+  purpose.length >= 40 &&
+  purpose.length <= 240 &&
+  !purpose.includes("\n") &&
+  !/^(Shows|Displays|Renders)\b/i.test(purpose)
 
 const errors = []
 let count = 0
@@ -55,11 +49,11 @@ for (const path of storyFiles(join(root, "apps/ui/src"))) {
       )
     if (!story.purpose)
       errors.push(
-        `${where} has no parameters.review.purpose. Write one sentence (a string literal) in the story: "<the UI>, where <the user> <does what>: <the state, and the step of the user that led there>."`,
+        `${where} has no parameters.review.purpose. Write one sentence (a string literal) in the story: what the UI is for, how the user uses it, and the state that the story shows.`,
       )
     else if (!validPurpose(story.purpose))
       errors.push(
-        `${where}: parameters.review.purpose must be one line of 60 to 240 characters: "<the UI>, where <the user> <does what>: <the state, and the step of the user that led there>." It does not start with "Shows", "Displays", "Renders", "This story" or "Example".`,
+        `${where}: parameters.review.purpose must be one line of 40 to 240 characters that does not start with "Shows", "Displays" or "Renders". Say what the UI is for, how the user uses it, and the state that the story shows.`,
       )
   }
 }

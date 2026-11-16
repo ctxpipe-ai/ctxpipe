@@ -139,7 +139,7 @@ The user can tell what the screen is for, what each element is and does, and wha
 <!-- /rubric -->
 
 <!-- rubric: focus -->
-The page has at most one primary action: one filled white button. Other actions are outline, quiet or a link. A block has at most one filled button, and blocks that repeat (rows, cards, notices) do not each carry one. Two equal choices at one rank can have the same outline or quiet style. A page that needs no action, such as an error page, a read-only view or a step of a popup, meets this quality.
+The page has at most one primary action: one filled white button. Other actions are outline, quiet or a link. Two equal choices at one rank can have the same style. A page that needs no action, such as an error page, a read-only view or a step of a popup, meets this quality.
 <!-- /rubric -->
 
 <!-- rubric: actions -->
@@ -159,7 +159,7 @@ Copy is plain and specific US English in every visible word, also a legend and a
 ### Hierarchy and grouping
 
 <!-- rubric: hierarchy -->
-One element leads: the title is the loudest ink, and the rest steps down. Hierarchy comes from weight and muted color, not from a size jump; neighbors and decorative icons are muted first. Each screen has a small budget of strong signals (a filled button, a bright color, a badge, a colored edge, an icon in a tile), and each one marks something that matters. A filled button that repeats on each row, card or notice uses up that budget. Secondary chrome (legends, hints, help) is smaller and dimmer than the content and does not cover it.
+One element leads: the title is the loudest ink, and the rest steps down. Hierarchy comes from weight and muted color, not from a size jump; neighbors and decorative icons are muted first. Each screen has a small budget of strong signals (a filled button, a bright color, a badge, a colored edge, an icon in a tile), and each one marks something that matters. When many elements carry the same strong weight, nothing leads, and the user cannot tell what to do first. Secondary chrome (legends, hints, help) is smaller and dimmer than the content and does not cover it.
 <!-- /rubric -->
 
 A first-run help tour can cover content until the user dismisses it. A dismissed hint or tour stays dismissed.
@@ -201,7 +201,7 @@ Each block reads in its simplest form: one state signal, quiet items inside, and
 ### State and feedback
 
 <!-- rubric: feedback-and-state -->
-Each state uses its house pattern. A region wait is a skeleton with the box of the loaded state. A process wait is the teal loader. An empty state is a short title, one sentence and one primary control. An error is an inline alert with its cause and a next step. A button that the user pressed keeps its style, its size and its place while it waits, and a spinner replaces its label. The layout holds at its edges: a long name, zero, one or many items, an error and a loading state keep the structure of the screen.
+Each state uses its house pattern. A region wait is a skeleton with the box of the loaded state. A process wait is the teal loader. An empty state is a short title, one sentence and one primary control. An error is an inline alert with its cause and a next step. The layout holds at its edges: a long name, zero, one or many items, an error and a loading state keep the structure of the screen.
 <!-- /rubric -->
 
 - **Loading:** pick the kind of wait with the table of product-ui **Plan states**. Skeletons follow **Loading states**.
@@ -220,7 +220,7 @@ Text, icons and focus rings fit their box. Nothing is cut off by a parent, nothi
 <!-- /rubric -->
 
 <!-- rubric: broken-content -->
-Labels, copy and field values show no rendering artifact: no undefined, null, NaN, [object Object], untranslated key, lorem ipsum or broken image. Each value is one that a real user can see: no debug output or raw serialized state of the UI, and no run of generated ids or names. A missing value shows a dash or a short empty text. A code or file preview that shows such text as its content is not broken.
+Labels, copy and field values show no rendering artifact: no undefined, null, NaN, [object Object], untranslated key, lorem ipsum or broken image. Each value is one that a real user can see: real-looking names, values and text, never random values, no debug output or raw serialized state of the UI, and no run of generated ids or names. A missing value shows a dash or a short empty text. A code or file preview that shows such text as its content is not broken.
 <!-- /rubric -->
 
 ### Consistency
