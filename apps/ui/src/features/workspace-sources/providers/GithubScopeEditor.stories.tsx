@@ -51,6 +51,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -72,6 +73,10 @@ type Story = StoryObj<typeof meta>
 
 export const Loading: Story = {
   parameters: {
+    review: {
+      purpose:
+        "GitHub scope editor, where the user picks the repositories of a Workspace source: the repository list still loads.",
+    },
     msw: {
       handlers: {
         page: [
@@ -91,6 +96,12 @@ export const Loading: Story = {
 }
 
 export const SelectTwoRepositories: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "GitHub scope editor, where the user picks the repositories of a Workspace source: the user picks two repositories.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -107,6 +118,12 @@ export const SelectTwoRepositories: Story = {
 }
 
 export const InitialScopeSelected: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "GitHub scope editor, where the user picks the repositories of a Workspace source: a saved scope is selected, with one repository that the connection can no longer see.",
+    },
+  },
   args: { initialScope: { repositories: ["acme/web", "acme/gone"] } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -130,6 +147,12 @@ export const InitialScopeSelected: Story = {
 }
 
 export const EmptyGivesNull: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "GitHub scope editor, where the user picks the repositories of a Workspace source: the user clears the last repository, so the scope is empty and a hint asks for one.",
+    },
+  },
   args: { initialScope: { repositories: ["acme/api"] } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -146,6 +169,12 @@ export const EmptyGivesNull: Story = {
 }
 
 export const SearchFilters: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "GitHub scope editor, where the user picks the repositories of a Workspace source: a search narrows the list to the matching repository.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.type(

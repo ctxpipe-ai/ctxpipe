@@ -45,6 +45,7 @@ const meta = {
   component: Skeleton,
   parameters: {
     layout: "centered",
+    review: { kind: "component" },
   },
 } satisfies Meta<typeof Skeleton>
 
@@ -53,12 +54,24 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Bone: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Skeleton placeholder that holds the place of content while it loads: one plain bone.",
+    },
+  },
   args: {
     className: "h-4 w-40",
   },
 }
 
 export const Row: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Skeleton placeholder that holds the place of content while it loads: one row of a list.",
+    },
+  },
   render: () => (
     <div className="w-64 bg-zinc-950 py-2">
       <SkeletonRow />
@@ -67,6 +80,12 @@ export const Row: Story = {
 }
 
 export const NavList: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Skeleton placeholder that holds the place of content while it loads: four rows of the Workspace list in the nav.",
+    },
+  },
   render: () => (
     <div className="w-64 space-y-0.5 bg-zinc-950 py-2" aria-busy>
       <span className="sr-only">Loading workspaces</span>
@@ -79,6 +98,12 @@ export const NavList: Story = {
 }
 
 export const Catalog: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Skeleton placeholder that holds the place of content while it loads: three tall rows of the connector catalog.",
+    },
+  },
   render: () => (
     <div className="w-md divide-y divide-white/[0.06] bg-zinc-950" aria-busy>
       <span className="sr-only">Loading connectors</span>
@@ -90,6 +115,12 @@ export const Catalog: Story = {
 }
 
 export const PageBody: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Skeleton placeholder that holds the place of content while it loads: the body of a page.",
+    },
+  },
   render: () => (
     <div className="w-md bg-zinc-950 p-8">
       <PageBodySkeleton label="Loading page" />
@@ -98,6 +129,12 @@ export const PageBody: Story = {
 }
 
 export const Lines: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Skeleton placeholder that holds the place of content while it loads: three text lines of less and less width.",
+    },
+  },
   render: () => (
     <div className="flex w-80 flex-col gap-2">
       <SkeletonLine className="h-4 w-full" />
@@ -132,6 +169,10 @@ export const WaitsForDelay: Story = {
   parameters: {
     intent:
       "Catches a skeleton that shows before its delay ends, or that shifts the row height. Bones stay hidden until the delay ends. Not for hold time or content.",
+    review: {
+      purpose:
+        "Skeleton row that holds the place of content while it loads: the delay just ended and the bones show at the same row height.",
+    },
   },
   tags: ["required"],
   render: () => (
@@ -196,6 +237,10 @@ export const FastLoadSkipsSkeleton: Story = {
   parameters: {
     intent:
       "Catches a fast load that still holds a skeleton. Data that arrives before the skeleton shows must appear at once. Not for slow loads or skeleton layout.",
+    review: {
+      purpose:
+        "Test panel for the skeleton hold, with load buttons: the load ended before the delay, so the content shows at once.",
+    },
   },
   tags: ["required"],
   render: () => <HoldDemo />,
@@ -226,6 +271,10 @@ export const VisibleSkeletonHoldsMinimum: Story = {
   parameters: {
     intent:
       "Catches a visible skeleton that goes away too early. It stays for the minimum time after it showed, not after the data arrived. Not for fast loads.",
+    review: {
+      purpose:
+        "Test panel for the skeleton hold, with load buttons: the skeleton stayed for its minimum time, and then the content shows.",
+    },
   },
   tags: ["required"],
   render: () => <HoldDemo />,
@@ -255,6 +304,10 @@ export const NoSecondHoldAfterMinimum: Story = {
   parameters: {
     intent:
       "Catches a second hold after the minimum time is over. Data that arrives later must show at once. Not for the first hold or skeleton layout.",
+    review: {
+      purpose:
+        "Test panel for the skeleton hold, with load buttons: the load ended after the hold, so the content shows at once.",
+    },
   },
   tags: ["required"],
   render: () => <HoldDemo />,
@@ -305,6 +358,10 @@ export const SuspenseHoldsMinimum: Story = {
   parameters: {
     intent:
       "Catches a Suspense fallback that goes away before the minimum time. Ready content waits until the hold ends. Not for the data hook hold or fallback layout.",
+    review: {
+      purpose:
+        "Test panel for the Suspense skeleton fallback: the fallback stayed for its minimum time, and then the loaded content shows.",
+    },
   },
   tags: ["required"],
   render: () => <SuspenseDemo />,
@@ -340,6 +397,10 @@ export const DelayStartsAtFirstPaint: Story = {
   parameters: {
     intent:
       "Catches a skeleton delay that starts at hydration. CSS must start the wait at the first paint of the server HTML. Not for hold time or hand-over.",
+    review: {
+      purpose:
+        "Skeleton row that holds the place of content while it loads: the bones are still hidden at first paint while the delay runs.",
+    },
   },
   tags: ["required"],
   render: () => (
@@ -431,6 +492,10 @@ export const HandOverStaysVisible: Story = {
   parameters: {
     intent:
       "Catches a hand-over between two skeletons that flashes hidden. The second skeleton stays visible at every frame. Not for timing values or loaded content.",
+    review: {
+      purpose:
+        "Test panel for the hand-over from one skeleton to the next: the second skeleton took over and stays visible.",
+    },
   },
   tags: ["required"],
   render: () => <HandOverDemo />,
@@ -461,6 +526,10 @@ export const HandOverKeepsDelayStart: Story = {
   parameters: {
     intent:
       "Catches a hand-over that restarts the delay. A second skeleton before the delay ends waits only for the rest of the first delay. Not for hold time.",
+    review: {
+      purpose:
+        "Test panel for the hand-over from one skeleton to the next: the second skeleton took over before the delay ended.",
+    },
   },
   tags: ["required"],
   render: () => <HandOverDemo idle />,
@@ -488,6 +557,10 @@ export const UnrelatedLoadKeepsItsDelay: Story = {
   parameters: {
     intent:
       "Catches a fast load in another chain that inherits an earlier start and shows its skeleton at once. It keeps its own delay. Not for hand-over in one chain.",
+    review: {
+      purpose:
+        "Test panel for the hand-over from one skeleton to the next: a fast load in another chain started and stopped again.",
+    },
   },
   tags: ["required"],
   render: () => <HandOverDemo />,
@@ -510,6 +583,10 @@ export const HandOverHoldsMinimum: Story = {
   parameters: {
     intent:
       "Catches a query skeleton that takes over a visible one and holds from the wrong time. The hold counts from when the first skeleton showed. Not for the delay.",
+    review: {
+      purpose:
+        "Test panel for the hand-over from one skeleton to the next: a query skeleton took over, held, and then the content shows.",
+    },
   },
   tags: ["required"],
   render: () => <HandOverDemo idle />,
@@ -547,6 +624,10 @@ export const HandOverUsesPaintStart: Story = {
   parameters: {
     intent:
       "Catches a hand-over that uses the React mount time as the chain start. It must use the CSS animation start of the first bone. Not for hold time.",
+    review: {
+      purpose:
+        "Test panel for the hand-over from one skeleton to the next: the first bone started before the mount, and the second took over.",
+    },
   },
   tags: ["required"],
   render: () => <HandOverDemo idle firstStyle={{ animationDelay: "-600ms" }} />,

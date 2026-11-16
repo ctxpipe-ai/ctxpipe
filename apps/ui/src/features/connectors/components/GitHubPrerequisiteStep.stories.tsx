@@ -16,6 +16,7 @@ const meta = {
       pattern: "orgIndex",
       orgSlug,
     } satisfies StoryRouteParams,
+    review: { kind: "component" },
   },
 } satisfies Meta<typeof GitHubPrerequisiteStep>
 
@@ -24,6 +25,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Slack: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Setup step that asks the user to connect GitHub before a source connector: the user sets up Slack.",
+    },
+  },
   args: {
     orgSlug,
     sourceName: "Slack",
@@ -36,6 +43,12 @@ export const Slack: Story = {
 }
 
 export const Notion: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Setup step that asks the user to connect GitHub before a source connector: the user sets up Notion.",
+    },
+  },
   args: {
     orgSlug,
     sourceName: "Notion",
@@ -48,6 +61,12 @@ export const Notion: Story = {
 }
 
 export const Confluence: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Setup step that asks the user to connect GitHub before a source connector: the user sets up Confluence.",
+    },
+  },
   args: {
     orgSlug,
     sourceName: "Confluence",
@@ -60,6 +79,12 @@ export const Confluence: Story = {
 }
 
 export const Linear: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Setup step that asks the user to connect GitHub before a source connector: the user sets up Linear.",
+    },
+  },
   args: {
     orgSlug,
     sourceName: "Linear",

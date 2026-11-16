@@ -44,7 +44,7 @@ const tokenStep = `      - name: Railway
         env:
           RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}
         run: |
-          source "\${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
+          node "\${GITHUB_WORKSPACE}/scripts/ci/nightly.mjs"
 `
 const headCheckout = `      - uses: useblacksmith/checkout@v1
         with:
@@ -115,9 +115,9 @@ test("rejects a reviewed script that runs a package manager", () => {
   rejects(
     {
       ...workflow(deployJob(tokenStep)),
-      "scripts/railway-graphql.sh": "pnpm exec tsx x.ts\n",
+      "scripts/ci/nightly.mjs": "pnpm exec tsx x.ts\n",
     },
-    /scripts\/railway-graphql\.sh:1: a reviewed script runs a package manager/,
+    /scripts\/ci\/nightly\.mjs:1: a reviewed script runs a package manager/,
   )
 })
 
@@ -200,10 +200,10 @@ const pinnedSticky = (key) =>
 test("rejects a sticky disk that a production job and a PR job share", () => {
   rejects(
     {
-      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    env:\n      TOKEN: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n    steps:\n${sticky("store")}${install}`,
+      ".github/workflows/deploy.yaml": `on: push\njobs:\n  forge_deploy:\n    env:\n      TOKEN: \${{ secrets.FORGE_API_TOKEN }}\n    steps:\n${sticky("store")}${install}`,
       ".github/workflows/w.yaml": `on: pull_request\njobs:\n  migrate:\n    steps:\n${sticky("store")}${install}`,
     },
-    /cache key store is read by a job with a secret \(.*deploy\.yaml:9 \(job terraform\)\), and a job that runs untrusted code writes store \(.*w\.yaml:7 \(job migrate\)\)/,
+    /cache key store is read by a job with a secret \(.*deploy\.yaml:9 \(job forge_deploy\)\), and a job that runs untrusted code writes store \(.*w\.yaml:7 \(job migrate\)\)/,
   )
 })
 
@@ -223,7 +223,7 @@ test("accepts a trusted job that hands a value to a branch-code job through the 
       - uses: actions/checkout@v6
       - env:
           NEON_API_KEY: \${{ secrets.NEON_API_KEY }}
-        run: source "\${GITHUB_WORKSPACE}/scripts/preview-neon-branch.sh"
+        run: node "\${GITHUB_WORKSPACE}/scripts/ci/nightly.mjs"
       - uses: actions/cache/save@v4
         with:
           key: handoff
@@ -372,7 +372,7 @@ test("keeps the preview sandbox cleanup in Preview", () => {
     secretJob(
       "VERCEL_ACCESS_TOKEN",
       environment,
-      "pr-deploy.yaml",
+      "pr-preview-teardown.yaml",
       "cleanup_pr_sandboxes",
     )
   const result = check(cleanup("    environment: Preview\n"))
@@ -423,7 +423,7 @@ test("rejects a restore-keys prefix that a branch-code job writes", () => {
 
 test("accepts a production sticky disk and a PR sticky disk with a longer key", () => {
   const result = check({
-    ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    if: \${{ !cancelled() && (github.event_name == 'push' || inputs.deploy && github.ref == 'refs/heads/main') }}\n    steps:\n${pinnedSticky(`\${{ github.repository }}-pnpm-store`)}      - env:\n          T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: echo\n`,
+    ".github/workflows/deploy.yaml": `on: push\njobs:\n  forge_deploy:\n    if: \${{ !cancelled() && (github.event_name == 'push' || inputs.deploy && github.ref == 'refs/heads/main') }}\n    steps:\n${pinnedSticky(`\${{ github.repository }}-pnpm-store`)}      - env:\n          T: \${{ secrets.FORGE_API_TOKEN }}\n        run: echo\n`,
     ".github/workflows/w.yaml": `on: pull_request\njobs:\n  migrate:\n    steps:\n${sticky(`\${{ github.repository }}-pnpm-store-pr`)}${install}`,
   })
   assert.equal(result.stderr, "")
@@ -463,9 +463,9 @@ ${tokenStep}  build:
 test("rejects an unpinned third-party action in a production job", () => {
   rejects(
     {
-      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    if: \${{ !cancelled() && (github.event_name == 'push' || inputs.deploy && github.ref == 'refs/heads/main') }}\n    steps:\n      - uses: hashicorp/setup-terraform@v3\n      - env:\n          T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: echo\n`,
+      ".github/workflows/deploy.yaml": `on: push\njobs:\n  forge_deploy:\n    if: \${{ !cancelled() && (github.event_name == 'push' || inputs.deploy && github.ref == 'refs/heads/main') }}\n    steps:\n      - uses: hashicorp/setup-terraform@v3\n      - env:\n          T: \${{ secrets.FORGE_API_TOKEN }}\n        run: echo\n`,
     },
-    /deploy\.yaml:6: job terraform holds a secret or an OIDC token and uses hashicorp\/setup-terraform@v3/,
+    /deploy\.yaml:6: job forge_deploy holds a secret or an OIDC token and uses hashicorp\/setup-terraform@v3/,
   )
 })
 
@@ -487,9 +487,9 @@ test("rejects a production job whose if: does not limit it to a push to main or 
   ])
     rejects(
       {
-        ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n${condition}    steps:\n${install}      - env:\n          T: \${{ secrets.RAILWAY_WORKSPACE_TOKEN }}\n        run: echo\n`,
+        ".github/workflows/deploy.yaml": `on: push\njobs:\n  forge_deploy:\n${condition}    steps:\n${install}      - env:\n          T: \${{ secrets.FORGE_API_TOKEN }}\n        run: echo\n`,
       },
-      /job terraform is a production job, but its if: does not limit it to a push to main or a deploy dispatch from main/,
+      /job forge_deploy is a production job, but its if: does not limit it to a push to main or a deploy dispatch from main/,
     )
 })
 

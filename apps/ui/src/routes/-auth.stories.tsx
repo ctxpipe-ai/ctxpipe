@@ -24,6 +24,7 @@ const meta = {
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "fullscreen",
+    review: { kind: "page" },
   },
 } satisfies Meta
 
@@ -35,6 +36,10 @@ export const DeviceLoading: Story = {
   tags: ["page"],
   render: () => <DeviceAuthorizationPage />,
   parameters: {
+    review: {
+      purpose:
+        "Device sign-in screen, where a user confirms the code of a CLI or agent: the session and the device code are still loading.",
+    },
     route: "/.auth/device",
     storyRoute: {
       pattern: "flat",
@@ -62,6 +67,10 @@ export const SignIn: Story = {
   name: "Sign-in",
   render: () => <SignInRoutePage />,
   parameters: {
+    review: {
+      purpose:
+        "Sign-in screen, where a user signs in with email and password: the user is signed out and the form is empty.",
+    },
     route: "/.auth/sign-in",
     storyRoute: {
       pattern: "flat",
@@ -92,6 +101,10 @@ export const SignInUnverifiedEmail: Story = {
     ),
   ],
   parameters: {
+    review: {
+      purpose:
+        "Sign-in screen, where a user signs in with email and password: the email is not verified, so a notice toast says a new link was sent.",
+    },
     route: "/.auth/sign-in",
     storyRoute: {
       pattern: "flat",
@@ -148,6 +161,11 @@ export const InviteAcceptAccountExists: Story = {
     </div>
   ),
   parameters: {
+    review: {
+      kind: "component",
+      purpose:
+        "Sign-up form of an organization invitation: the email already has an account, so the form tells the user to sign in.",
+    },
     storyRoute: {
       pattern: "flat",
       path: "/.auth/accept-invitation",
@@ -219,6 +237,10 @@ export const ResetPassword: Story = {
     return <ResetPasswordPage />
   },
   parameters: {
+    review: {
+      purpose:
+        "Reset password screen, which a reset email opens: the token is in the address and the form asks for a new password.",
+    },
     route: "/.auth/reset-password",
     storyRoute: {
       pattern: "flat",
@@ -249,6 +271,10 @@ export const SelectOrganization: Story = {
   name: "Select organization",
   render: () => <OAuthOrganizationSelectionRoutePage />,
   parameters: {
+    review: {
+      purpose:
+        "OAuth screen, where a signed-in user picks the organization for an app connection: the user has two organizations to choose from.",
+    },
     route: "/.auth/select-organization",
     storyRoute: {
       pattern: "flat",

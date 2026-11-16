@@ -13,4 +13,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const ProductMark: Story = {}
+export const ProductMark: Story = {
+  parameters: {
+    review: {
+      kind: "component",
+      purpose:
+        "Buildkite logo mark that labels the Buildkite connector: the mark alone at icon size.",
+    },
+  },
+}

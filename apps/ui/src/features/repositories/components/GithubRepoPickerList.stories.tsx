@@ -13,6 +13,7 @@ const meta = {
   component: GithubRepoPickerList,
   parameters: {
     layout: "padded",
+    review: { kind: "component" },
   },
   args: {
     repos: eligibleGithubRepos,
@@ -27,6 +28,12 @@ type Story = StoryObj<typeof meta>
 
 /** Linked repositories: pick any number. */
 export const Multiple: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "List where a user picks GitHub repositories: linked repositories with checkboxes, and the user ticked the first.",
+    },
+  },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     const [firstBox] = await canvas.findAllByRole("checkbox")
@@ -38,6 +45,12 @@ export const Multiple: Story = {
 
 /** The Workspace repository: exactly one. */
 export const Single: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "List where a user picks GitHub repositories: the Workspace repository with radio buttons, so only one is picked.",
+    },
+  },
   args: {
     selectionMode: "single",
     selectedIds: new Set([secondRepo.id]),

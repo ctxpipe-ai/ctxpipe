@@ -2,7 +2,7 @@
 
 **Status:** Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) for hosted infrastructure | **Date:** 2026-03-17 | **Tags:** infra, pulumi, terraform, railway, neon
 
-> **Superseded (AWS cutover).** Hosted ctxpipe runs on AWS, and Pulumi in the factory repo manages it ([ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md), decision 5). The Railway and Neon Terraform in `infra/` is deleted. Self-host uses `@ctxpipe/aws-cdk` (CDK), not the Terraform of this ADR.
+> **Superseded (AWS cutover).** Hosted ctxpipe runs on AWS, and Pulumi in the factory repo manages it ([ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md), decision 5). CTX-1220 deletes the Railway and Neon Terraform in `infra/` together with the Railway production deploy. Self-host uses `@ctxpipe/aws-cdk` (CDK), not the Terraform of this ADR.
 
 ## Context
 

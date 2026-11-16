@@ -80,14 +80,9 @@
     "packages/visual-review": {
       "entry": [
         "src/**/*.test.ts",
-        "src/command.ts",
-        "evals/**/*.test.ts",
-        "evals/critic/calibration.ts",
-        "evals/critic/capture.ts",
-        "evals/critic/label-unseen.ts",
-        "evals/critic/panel.ts"
+        "src/command.ts"
       ],
-      "project": ["src/**/*.ts", "evals/**/*.ts"]
+      "project": ["src/**/*.ts"]
     },
     "packages/aws-cdk": {
       "entry": ["scripts/*.mjs", "src/**/*.test.ts"],

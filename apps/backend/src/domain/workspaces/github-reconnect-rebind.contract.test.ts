@@ -135,9 +135,8 @@ it(
             await withOrgIdContext(f.org, () => getWorkspaceById(outsideId)),
           ).toMatchObject({ githubConnectionId: null, desiredGeneration: 1 })
           // The relink starts the tip check, the hydrate, and the bootstrap
-          // without await, and they use the same log. The hydrate run is above.
-          // Wait until the tip check starts a run and the bootstrap starts a
-          // run or logs an error.
+          // without await, each with a log of its own. The hydrate run is
+          // above. Wait until the tip check and the bootstrap start a run.
           await expect
             .poll(
               async () => {
@@ -146,7 +145,7 @@ it(
                   (runs.get(name) ?? 0) > (runsBefore.get(name) ?? 0)
                 return (
                   started("workspace-tip-check") &&
-                  (started("workspace-write-bootstrap") || errors.length > 0)
+                  started("workspace-write-bootstrap")
                 )
               },
               { timeout: 10_000 },

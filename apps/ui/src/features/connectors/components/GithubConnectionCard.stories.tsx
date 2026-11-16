@@ -45,6 +45,7 @@ const meta = {
       pattern: "orgIndex",
       orgSlug,
     } satisfies StoryRouteParams,
+    review: { kind: "component" },
   },
 } satisfies Meta<typeof GithubConnectionCard>
 
@@ -55,6 +56,10 @@ type Story = StoryObj<typeof meta>
 export const Connected: Story = {
   render: () => <GithubConnectionCard {...cardProps} />,
   parameters: {
+    review: {
+      purpose:
+        "GitHub connection card on the Connectors page: the GitHub App is installed on an account with 12 repositories.",
+    },
     msw: {
       handlers: {
         page: [
@@ -82,6 +87,10 @@ export const Connected: Story = {
 export const Checking: Story = {
   render: () => <GithubConnectionCard {...cardProps} />,
   parameters: {
+    review: {
+      purpose:
+        "GitHub connection card on the Connectors page: the installation request has not returned, so the card is still checking.",
+    },
     msw: {
       handlers: {
         page: [
@@ -106,6 +115,10 @@ export const Checking: Story = {
 export const NotYetConnected: Story = {
   render: () => <GithubConnectionCard {...cardProps} />,
   parameters: {
+    review: {
+      purpose:
+        "GitHub connection card on the Connectors page: the GitHub App is not installed yet, so setup is not finished.",
+    },
     visual: {
       allow: {
         contrast: "Text below WCAG AA on main (CTX-1278).",
@@ -132,6 +145,10 @@ export const NotYetConnected: Story = {
 export const CouldntLoad: Story = {
   render: () => <GithubConnectionCard {...cardProps} />,
   parameters: {
+    review: {
+      purpose:
+        "GitHub connection card on the Connectors page: the installation request failed, so the card could not load.",
+    },
     msw: {
       handlers: {
         page: [

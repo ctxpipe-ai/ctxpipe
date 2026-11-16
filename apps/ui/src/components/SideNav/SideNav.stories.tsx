@@ -34,6 +34,7 @@ const meta = {
   ],
   parameters: {
     layout: "fullscreen",
+    review: { kind: "component" },
   },
 } satisfies Meta<typeof SideNav>
 
@@ -43,6 +44,10 @@ type Story = StoryObj<typeof meta>
 
 export const SingleWorkspace: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Main navigation of an org, beside a placeholder page body: the org has one Workspace and the Workspace page is current.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
@@ -63,6 +68,10 @@ export const SingleWorkspace: Story = {
 
 export const MultipleWorkspaces: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Main navigation of an org, beside a placeholder page body: the org has two Workspaces, one of them read-only.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
@@ -83,6 +92,10 @@ export const MultipleWorkspaces: Story = {
 
 export const Collapsed: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Main navigation of an org, beside a placeholder page body: the user collapsed the nav to the narrow icon rail.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
@@ -115,6 +128,10 @@ export const ExpandedAfterCollapsedStory: Story = {
   parameters: {
     ...Collapsed.parameters,
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    review: {
+      purpose:
+        "Main navigation of an org, beside a placeholder page body: the nav starts expanded after the story before it collapsed it.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -137,6 +154,10 @@ export const PlainLinkMovesCurrentNav: Story = {
     </AppShell>
   ),
   parameters: {
+    review: {
+      purpose:
+        "App shell with the main navigation and a placeholder body link: the user clicked the link and Connectors became the current nav item.",
+    },
     intent:
       "Catches a plain link in the page that does not move the current item in the main navigation. Not for nav styling or workspace list data.",
     storyRoute: {
@@ -180,6 +201,10 @@ export const DocsLinkOpensProductDocs: Story = {
     ...SingleWorkspace.parameters,
     intent:
       "Catches a Docs link that is missing from the Help list of the main navigation. Also catches a Docs link that does not open the product docs in a new tab, or that has no name in the collapsed rail. Not for the other footer items.",
+    review: {
+      purpose:
+        "Main navigation of an org, beside a placeholder page body: the nav is collapsed to the icon rail after a check of the Docs link.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -207,6 +232,10 @@ export const UserMenuLinksConnectedApps: Story = {
     ...SingleWorkspace.parameters,
     intent:
       "Catches a user menu whose Connected apps item does not link to the connected apps page in the auth area. Not for other menu items or account data.",
+    review: {
+      purpose:
+        "Main navigation of an org, beside a placeholder page body: the user menu is open with the focus on its first item.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

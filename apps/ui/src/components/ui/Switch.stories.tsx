@@ -9,6 +9,7 @@ const meta = {
   component: Switch,
   parameters: {
     layout: "centered",
+    review: { kind: "component" },
   },
 } satisfies Meta<typeof Switch>
 
@@ -34,6 +35,12 @@ function Controlled(props: {
 
 /** A press and the Space key change the setting. */
 export const Toggles: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Switch that turns a setting on or off: the user turned it on and then off again with the Space key.",
+    },
+  },
   render: () => <Controlled />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -48,6 +55,12 @@ export const Toggles: Story = {
 
 /** A disabled switch shows its setting and does not change. */
 export const Disabled: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Switch that turns a setting on or off: the switch is on and disabled, so a press does not change it.",
+    },
+  },
   render: () => <Controlled defaultSelected isDisabled />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

@@ -20,6 +20,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "centered",
     storyRoute: {
       pattern: "orgConnectors",
@@ -77,6 +78,10 @@ const panel = () => (
 export const OAuthPanel: Story = {
   render: panel,
   parameters: {
+    review: {
+      purpose:
+        "Atlassian OAuth panel, where the admin registers a private Atlassian OAuth app for the org: the standalone panel with no OAuth app saved.",
+    },
     msw: {
       handlers: {
         page: baseHandlers,
@@ -88,6 +93,10 @@ export const OAuthPanel: Story = {
 export const OauthAppSaved: Story = {
   render: panel,
   parameters: {
+    review: {
+      purpose:
+        "Atlassian OAuth panel, where the admin registers a private Atlassian OAuth app for the org: the standalone panel with an OAuth app already saved.",
+    },
     msw: {
       handlers: {
         page: [getOrgOauth(true, false), putOrgOauth],
@@ -106,6 +115,10 @@ export const Embedded: Story = {
     />
   ),
   parameters: {
+    review: {
+      purpose:
+        "Atlassian OAuth panel inside the Atlassian setup wizard, where the admin registers a private OAuth app: no OAuth app is saved yet.",
+    },
     msw: {
       handlers: {
         page: baseHandlers,
@@ -124,6 +137,10 @@ export const EmbeddedOauthConfigured: Story = {
     />
   ),
   parameters: {
+    review: {
+      purpose:
+        "Atlassian OAuth panel inside the Atlassian setup wizard, where the admin registers a private OAuth app: an OAuth app is already saved.",
+    },
     msw: {
       handlers: {
         page: [getOrgOauth(true, false), putOrgOauth],

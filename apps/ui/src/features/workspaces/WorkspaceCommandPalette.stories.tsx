@@ -59,6 +59,7 @@ const meta = {
   decorators: entryPageInnerDecorators,
   render: (args) => <PaletteHarness {...args} />,
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgWorkspace",
@@ -103,12 +104,20 @@ const visibility = (element: Element) => getComputedStyle(element).visibility
 
 export const Open: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Command palette, where a member searches Workspaces and pages to open one: the palette is open with the full list.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
 }
 
 export const PaletteShortcutTogglesAndRestoresFocus: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Command palette, where a member searches Workspaces and pages: the shortcut opened and closed it, and focus is back on the trigger.",
+    },
     intent:
       "Catches a command palette that does not toggle with the keyboard shortcut or lose focus on close. Focus returns to the trigger. Not for search or results.",
   },
@@ -134,6 +143,10 @@ export const PaletteShortcutTogglesAndRestoresFocus: Story = {
 
 export const PaletteFiltersAtOnce: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Command palette, where a member searches Workspaces and pages: a search matches one Workspace by its slug, and that match is active.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a palette search that does not filter at once or miss a slug match. It reports the result count and makes the first match active. Not for navigation keys.",
@@ -162,6 +175,10 @@ export const PaletteFiltersAtOnce: Story = {
 
 export const PaletteArrowKeysAndEnterKeepPane: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Command palette, where a member searches Workspaces and pages: arrow keys and Enter opened a Workspace and kept the current pane.",
+    },
     intent:
       "Catches Enter in the palette that opens the wrong workspace, or drops the current pane. Arrow keys move the active item and Enter opens it. Not for search.",
   },
@@ -194,6 +211,10 @@ export const PaletteArrowKeysAndEnterKeepPane: Story = {
 
 export const PaletteEscapeClearsThenCloses: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Command palette, where a member searches Workspaces and pages: Escape cleared the search, and a second Escape closed the palette.",
+    },
     intent:
       "Catches an Escape in the palette that closes it while text is in the field. The first Escape clears the text and the second closes the dialog. Not for search results.",
   },
@@ -220,6 +241,10 @@ export const PaletteEscapeClearsThenCloses: Story = {
 
 export const PaletteNoResults: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Command palette, where a member searches Workspaces and pages: the search has no match, so a no results message shows.",
+    },
     intent:
       "Catches a palette search with no match that shows an empty list with no message. It shows and announces a no results text. Not for matches.",
   },
@@ -244,6 +269,10 @@ export const PaletteNoResults: Story = {
 export const PaletteLoadingKeepsPages: Story = {
   tags: ["required"],
   parameters: {
+    review: {
+      purpose:
+        "Command palette, where a member searches Workspaces and pages: the Workspace list still loads as a skeleton, and the pages stay usable.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a palette that shows a lone header or a flash while workspaces load. The header and skeleton wait for the same delay. Not for loaded results.",
@@ -305,6 +334,10 @@ export const PaletteLoadingKeepsPages: Story = {
 export const PaletteSkeletonHandsOverOnce: Story = {
   tags: ["required"],
   parameters: {
+    review: {
+      purpose:
+        "Command palette, where a member searches Workspaces and pages: the Workspace list loaded and replaced the skeleton under one header.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a palette that shows two Workspaces headers when loading ends. The list replaces the skeleton in one step. Not for the loading delay.",
@@ -384,6 +417,10 @@ const pressAndExpect = async (key: string, name: RegExp) => {
 export const PaletteArrowKeysWalkEveryItem: Story = {
   tags: ["required"],
   parameters: {
+    review: {
+      purpose:
+        "Command palette, where a member searches Workspaces and pages: a long list of 20 Workspaces where arrow keys move through each item.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches arrow keys in a long palette that skip an item, stop at a section, or fail to wrap. Home, End, and page keys keep an item active. Not for search.",
@@ -432,6 +469,10 @@ export const PaletteArrowKeysWalkEveryItem: Story = {
 
 export const PaletteHoverAndKeysShareOneHighlight: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Command palette, where a member searches Workspaces and pages: the pointer is on one item and the keys moved to another, and only one has a fill.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a palette that shows two highlighted items, one from the pointer and one from the keys. Only the active item has a fill. Not for item content.",
@@ -462,6 +503,10 @@ export const PaletteHoverAndKeysShareOneHighlight: Story = {
 
 export const PaletteEnterAfterDeleteRunsFirstMatch: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Command palette, where a member searches Workspaces and pages: Enter after a Backspace opened the first match.",
+    },
     intent:
       "Catches Enter after Backspace in the palette that does nothing. With no active item, Enter must open the first match. Not for arrow key use.",
   },
@@ -485,6 +530,10 @@ export const PaletteEnterAfterDeleteRunsFirstMatch: Story = {
 
 export const PaletteShortcutClosesAfterSyncRender: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Command palette, where a member searches Workspaces and pages: the shortcut closed the palette for good, and focus is back on the trigger.",
+    },
     intent:
       "Catches a shortcut listener that opens the palette again right after it closes it. The shortcut must close the palette for good. Not for the first open.",
   },

@@ -47,6 +47,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -120,6 +121,10 @@ const linearSource = workspaceSourceFixture({
 
 export const Loading: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the source list still loads.",
+    },
     msw: {
       handlers: { page: [workspaceSourcesHandler("loading"), connected] },
     },
@@ -133,6 +138,10 @@ export const Loading: Story = {
 
 export const Empty: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Workspace has no sources and the org has no connections, so a link goes to Connectors.",
+    },
     msw: {
       handlers: {
         page: [
@@ -158,6 +167,10 @@ export const Empty: Story = {
 
 export const ConnectedWithoutSources: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the org has GitHub, Confluence and Linear connections, but the Workspace has no sources yet.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -185,6 +198,10 @@ export const ConnectedWithoutSources: Story = {
 export const SeveralProviders: Story = {
   tags: ["required"],
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: four sources from GitHub, Confluence and Linear, with paths, descriptions and the connector count.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a source list that drops a provider or misstates the totals. It must show every source with its path and description and the connector count. Not for edits or empty states.",
@@ -239,6 +256,10 @@ export const SeveralProviders: Story = {
 
 export const OneProviderSeveralSources: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: three Linear sources from two Linear connections in one group.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -305,6 +326,10 @@ const goneLinearSources = ["old-issues", "old-projects"].map((name) =>
  */
 export const SharedReasonShowsOnce: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: two Linear sources have the same missing connection, so the group header gives the reason once.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -347,6 +372,10 @@ export const NarrowPaneFoldsTable: Story = {
     ),
   ],
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: a narrow pane folds the table, so each row puts its connection under the title.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -372,6 +401,10 @@ export const NarrowPaneFoldsTable: Story = {
 
 export const NeedsAttention: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: one Linear source has a missing connection, so the summary and its group say it needs attention.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -414,6 +447,10 @@ export const NeedsAttention: Story = {
 
 export const PendingAdd: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: no sources yet, and a new Confluence source waits for its pull request to merge.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -461,6 +498,10 @@ export const PendingAdd: Story = {
 
 export const EachStatus: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: sources in each status: OK, not valid, connection missing, out of access, and OK with a warning.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -522,6 +563,10 @@ export const EachStatus: Story = {
 
 export const AwaitingMerge: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: an edit, a removal and an add each wait for a pull request to merge, with links to them.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -589,6 +634,10 @@ export const ScrollsToSourceAnchor: Story = {
     return () => window.history.replaceState(null, "", "#")
   },
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the URL names the Confluence section, so the list scrolls to it.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a source list that ignores the URL hash. The page must scroll the matching provider section into view. Not for the list content or edits.",
@@ -638,6 +687,10 @@ export const ScrollsToSourceAnchor: Story = {
 export const EditSendsChange: Story = {
   tags: ["required"],
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the edit dialog of a Linear source is open, and the user adds a team and opens a pull request.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a source edit that sends the wrong change. The edit dialog must start from the saved scope and send a PUT with the new scope. Not for adding sources.",
@@ -694,6 +747,10 @@ export const EditSendsChange: Story = {
 
 export const UnlinkSendsChange: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the user unlinks a GitHub repository, which opens a pull request that deletes its source file.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -734,6 +791,10 @@ export const UnlinkSendsChange: Story = {
  */
 export const LegacyYamlRowNotRemovable: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: rows from the legacy sources.yaml file have a note and no unlink, remove, edit or rename buttons.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -805,6 +866,10 @@ export const UnlinkDeletesTheSourceFile: Story = {
     ],
   },
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the user unlinks a linked repository that has a source file, and only the file delete goes out.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -877,6 +942,10 @@ export const LinkedRepositoryWithoutSourceShows: Story = {
     ],
   },
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: a linked repository with no source file is in the GitHub list next to a repository with a file.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -903,6 +972,10 @@ export const LinkedRepositoryWithoutSourceShows: Story = {
 
 export const AddSendsChange: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add repositories dialog is open, and the user picks one repository and opens a pull request.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -963,6 +1036,10 @@ export const AddSendsChange: Story = {
 export const AddSeveralSendsOneBatch: Story = {
   tags: ["required"],
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add repositories dialog is open, and the user picks two repositories for one pull request.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches an add of several repositories that sends one request per repository. It must send one batch request, so one pull request. Not for the repository list.",
@@ -1026,6 +1103,10 @@ export const AddSeveralSendsOneBatch: Story = {
  */
 export const AddByUrlSendsGitSource: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Paste URL tab of the Add repositories dialog refuses an ssh URL, then adds an https URL.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -1087,6 +1168,10 @@ export const AddByUrlSendsGitSource: Story = {
 /** A URL that the backend refuses shows the backend's reason under the field. */
 export const AddByUrlShowsRefusal: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Paste URL tab of the Add repositories dialog gives the server refusal of a URL under the field.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -1132,6 +1217,10 @@ export const AddByUrlShowsRefusal: Story = {
 
 export const RemoveSendsChange: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the remove dialog of a Confluence source is open, and the user confirms with a pull request.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -1169,6 +1258,10 @@ export const RemoveSendsChange: Story = {
 }
 export const FileNotValid: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the legacy sources file is not valid, so an error names the problem.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -1192,6 +1285,10 @@ export const FileNotValid: Story = {
 
 export const RefusedRepositoryFile: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: a source with an unknown provider and a refused repository file give their errors.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -1247,6 +1344,10 @@ export const RefusedRepositoryFile: Story = {
 
 export const LoadFailed: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the source list did not load, so an error is visible.",
+    },
     msw: {
       handlers: { page: [workspaceSourcesHandler("error"), connected] },
     },
@@ -1264,6 +1365,10 @@ export const LoadFailed: Story = {
  */
 export const UpgradesLoadFailed: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the format upgrade check did not load, so an error with Retry is visible and no Add button.",
+    },
     msw: {
       handlers: {
         upgrades: [workspaceUpgradesHandler("error")],
@@ -1286,6 +1391,10 @@ export const UpgradesLoadFailed: Story = {
 export const ReadOnlyHidesChanges: Story = {
   tags: ["required"],
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the user cannot edit this Workspace, so the list has no add, unlink or remove buttons.",
+    },
     intent:
       "Catches a read-only workspace that shows source actions. Add, unlink, and remove buttons must not appear when the user cannot edit. Not for the source list content.",
     msw: {
@@ -1347,6 +1456,10 @@ const reposPerConnection = http.get(
 export const PickerShowsConnectionNames: Story = {
   tags: ["required"],
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add repositories dialog lists the repositories of two GitHub connections by name.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a repository picker that mixes several GitHub connections. It lists the repositories of each connection and sends each repository with its own connection id. Not for the source list.",
@@ -1410,6 +1523,10 @@ export const PickerShowsConnectionNames: Story = {
  */
 export const GithubNoRepositories: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the GitHub group has no repositories yet, with one Add repositories button and a short note.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -1476,6 +1593,10 @@ async function openAddRepositories(canvasElement: HTMLElement) {
  */
 export const AddRepositoriesExplains: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add repositories dialog tells what ctxpipe does with a repository and links to the app access.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -1516,6 +1637,10 @@ export const AddRepositoriesExplains: Story = {
 /** A search with no match: the hint shows the next step, not a dead end. */
 export const AddRepositoriesEmptySearchHint: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: a search in the Add repositories dialog has no match, so a hint gives the next step.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -1549,6 +1674,10 @@ export const AddRepositoriesEmptySearchHint: Story = {
  */
 export const AddRepositoriesWorkspaceRepositoryDisabled: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add repositories dialog lists the Workspace repository as disabled, with a label.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -1610,6 +1739,10 @@ export const AddRepositoriesRefreshesOnReturn: Story = {
     }
   },
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the user comes back from GitHub, and the dialog list loads again with the new repository first.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -1697,6 +1830,10 @@ const ownerLine =
  */
 export const AddRepositoriesHintLinksEachConnection: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add repositories dialog has an access link for each of two GitHub connections.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -1755,6 +1892,10 @@ export const AddRepositoriesHintLinksEachConnection: Story = {
  */
 export const AddRepositoriesListFailsKeepsHint: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add repositories list did not load, but the hint with a Connectors link stays.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -1791,6 +1932,10 @@ const beforeUpgrade = (
  */
 export const BeforeFormatUpgrade: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Workspace needs the format upgrade, so the section links to the upgrade and has no Add.",
+    },
     msw: {
       handlers: {
         upgrades: [beforeUpgrade()],
@@ -1832,6 +1977,10 @@ export const BeforeFormatUpgrade: Story = {
 /** A member sees "Ask an admin" in place of Start. */
 export const BeforeFormatUpgradeMember: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Workspace needs the format upgrade, and a member sees Ask an admin in place of Start.",
+    },
     msw: {
       handlers: {
         role: [activeMemberRoleHandler("member")],
@@ -1854,6 +2003,10 @@ export const BeforeFormatUpgradeMember: Story = {
 /** Linked repositories still list, but with no Add, no Unlink and no Edit. */
 export const BeforeFormatUpgradeWithSources: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Workspace needs the format upgrade, so its repositories list with no Add, Unlink or Edit.",
+    },
     msw: {
       handlers: {
         upgrades: [beforeUpgrade([upgradeItemFixture({ status: "pr_open" })])],
@@ -1883,6 +2036,10 @@ export const BeforeFormatUpgradeWithSources: Story = {
 /** A few repositories: every row shows, with no filter and no "Show all". */
 export const GithubThreeRepositories: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the GitHub group has three repositories, all visible, with no filter and no Show all.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -1946,6 +2103,10 @@ const manyLinkedRepositories = Array.from({ length: 312 }, (_, index) => {
 export const GithubManyRepositories: Story = {
   args: { linkedRepositories: manyLinkedRepositories },
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the GitHub group has hundreds of repositories, with a count, the first five, Show all and a filter.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -2023,6 +2184,10 @@ export const GithubManyRepositories: Story = {
 /** A file in a known provider folder that does not parse: the row shows why. */
 export const InvalidFile: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: a file in a provider folder does not parse, so its row says why.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -2066,6 +2231,10 @@ export const InvalidFile: Story = {
 /** An open rename pull request shows on the old path. */
 export const PendingRename: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: an open pull request renames a Linear source, and the row with the old path links to it.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -2107,6 +2276,10 @@ const renameCalls: ChangeCall[] = []
 /** The rename dialog sends the new path and keeps the provider folder. */
 export const RenameSendsChange: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the rename dialog of a Linear source is open, and it sends a new name in the same provider folder.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -2159,6 +2332,10 @@ const describeCalls: ChangeCall[] = []
 /** The editor sends the description with the change. */
 export const EditDescriptionSendsChange: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the edit dialog of a Linear source is open, and the user changes the description.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -2211,6 +2388,10 @@ const nameCalls: ChangeCall[] = []
 /** An add can name the file; the server names it otherwise. */
 export const AddWithFileName: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add Linear source dialog is open, and the user picks a team and gives the file a name.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -2273,6 +2454,10 @@ export const StatusExplainsItself: Story = {
     ],
   },
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: each GitHub repository status, such as Indexing or Pending, has a tooltip on hover and on focus.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -2353,6 +2538,10 @@ const recordPickerRead = http.get(
  */
 export const MemberEditAsksAnAdmin: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: a member opens the edit dialog of a Linear source, and a note asks for an admin.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -2392,6 +2581,10 @@ export const MemberEditAsksAnAdmin: Story = {
 /** A member opens Add repositories: a note asks for an admin, and no list request goes out. */
 export const MemberAddRepositoriesAsksAnAdmin: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Sources section of the Workspace settings, which lists the sources of a Workspace: a member opens the Add repositories dialog, and a note asks for an admin.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {

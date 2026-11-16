@@ -45,6 +45,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -61,6 +62,10 @@ type Story = StoryObj<typeof meta>
 
 export const SelectAllPagesOfASpace: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Confluence scope editor, where the user picks the spaces and pages of a Workspace source: no space is picked at first, then the user picks a space with all its pages.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a Confluence scope that stays not ready after the user picks a space. Picking a space must select all its pages in the scope. Not for saved page lists.",
@@ -83,6 +88,10 @@ export const SelectAllPagesOfASpace: Story = {
 
 export const EditsASavedPageList: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Confluence scope editor, where the user picks the spaces and pages of a Workspace source: a saved scope has some pages of a space, so the space is partly selected until the user picks all.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a saved page list that shows its space as fully or not selected. A partial list shows as partly selected, and a click selects all pages. Not for a new scope.",

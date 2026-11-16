@@ -30,6 +30,7 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
+    review: { kind: "page" },
   },
   args: {
     variant: "page",
@@ -49,12 +50,24 @@ export const Empty: Story = {
     status: "ready",
     workspaces: [],
   },
+  parameters: {
+    review: {
+      purpose:
+        "GitHub destination page in the app shell, where a member picks or creates a Workspace: the org has no Workspaces yet.",
+    },
+  },
 }
 
 export const Loading: Story = {
   args: {
     status: "loading",
     workspaces: [],
+  },
+  parameters: {
+    review: {
+      purpose:
+        "GitHub destination page in the app shell, where a member picks or creates a Workspace: the Workspace list is loading.",
+    },
   },
 }
 
@@ -63,12 +76,24 @@ export const LoadError: Story = {
     status: "error",
     workspaces: [],
   },
+  parameters: {
+    review: {
+      purpose:
+        "GitHub destination page in the app shell, where a member picks or creates a Workspace: the Workspace list did not load.",
+    },
+  },
 }
 
 export const Populated: Story = {
   args: {
     status: "ready",
     workspaces: [docsWorkspace, readOnlyWorkspace],
+  },
+  parameters: {
+    review: {
+      purpose:
+        "GitHub destination page in the app shell, where a member picks or creates a Workspace: the org has two Workspaces, and one is read-only.",
+    },
   },
 }
 
@@ -77,6 +102,12 @@ export const OnboardingEmpty: Story = {
     variant: "onboarding",
     status: "ready",
     workspaces: [],
+  },
+  parameters: {
+    review: {
+      purpose:
+        "GitHub destination in the onboarding layout, where a new member creates a first Workspace: the org has no Workspaces yet.",
+    },
   },
 }
 
@@ -89,6 +120,11 @@ export const LoadingSkeletonMatches: Story = {
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a workspace destination skeleton whose size differs from the loaded list. This causes layout shift. Not for workspace data or selection.",
+    review: {
+      kind: "component",
+      purpose:
+        "Loading skeleton of the GitHub destination next to its loaded list of three Workspaces: the two boxes must have the same size.",
+    },
   },
   tags: ["required"],
   args: {

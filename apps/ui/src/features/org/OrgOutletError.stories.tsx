@@ -29,6 +29,13 @@ type Story = StoryObj<typeof meta>
  * title again with the fallback message of the query.
  */
 export const ConnectorsFailed: Story = {
+  parameters: {
+    review: {
+      kind: "component",
+      purpose:
+        "Error alert in the body of an org page: the connectors read failed with a server error 503 and a request id.",
+    },
+  },
   args: {
     title: "Could not load connectors",
     error: new ApiError("Failed to load connections", 503, {
@@ -53,6 +60,13 @@ export const ConnectorsFailed: Story = {
  * not blame the network connection, and the fetch error stays visible.
  */
 export const RequestTimedOut: Story = {
+  parameters: {
+    review: {
+      kind: "component",
+      purpose:
+        "Error alert in the body of an org page: the request hit its own timeout, and the fetch error shows.",
+    },
+  },
   args: {
     title: "Could not load connectors",
     error: new ApiError("signal timed out", 0, {
@@ -74,6 +88,13 @@ export const RequestTimedOut: Story = {
 
 /** The org gate timed out during the server render. */
 export const OrgGateFailed: Story = {
+  parameters: {
+    review: {
+      kind: "component",
+      purpose:
+        "Error alert in the body of an org page: the org check timed out during the server render.",
+    },
+  },
   args: {
     title: "Something went wrong",
     error: new Error("The operation timed out."),
@@ -86,6 +107,11 @@ export const OrgGateTryAgainLoads: Story = {
   parameters: {
     intent:
       "Catches an organization error screen whose Try again button does not load the page again. After a failed session check, a retry must show the organization page. Not for error text.",
+    review: {
+      kind: "component",
+      purpose:
+        "Error screen of the org check in a test router: the first load failed, the user pressed Try again, and the org page text shows.",
+    },
   },
   tags: ["required"],
   args: OrgGateFailed.args,

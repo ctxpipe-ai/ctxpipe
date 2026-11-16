@@ -61,7 +61,7 @@ const meta = {
       </div>
     ),
   ],
-  parameters: { layout: "fullscreen" },
+  parameters: { review: { kind: "component" }, layout: "fullscreen" },
   args: { orgSlug: "acme", conversationId: "conv_diff" },
 } satisfies Meta<typeof WorkspaceConversationDiffPane>
 
@@ -73,6 +73,10 @@ export const DiffPaneEmpty: Story = {
   tags: ["required"],
   args: { conversationId: "conv_diff_empty" },
   parameters: {
+    review: {
+      purpose:
+        "Diff pane of a conversation, which lists the file changes against main: the branch has no changes, so a message says so.",
+    },
     intent:
       "Catches a diff pane with no changes that shows an empty toolbar or no message. It says there are no changes against main. Not for diffs with files.",
     msw: { handlers: { page: [conversationGitDiffHandler([])] } },
@@ -95,6 +99,10 @@ export const DiffPaneManyFiles: Story = {
   tags: ["required"],
   args: { conversationId: "conv_diff_many" },
   parameters: {
+    review: {
+      purpose:
+        "Diff pane of a conversation, which lists the file changes against main: 24 added, deleted, and changed files, all collapsed.",
+    },
     intent:
       "Catches a diff pane that drops files or sends extra requests. It lists every changed file with its status from one request. Not for one expanded file.",
     msw: {
@@ -156,6 +164,10 @@ export const DiffPaneExpandedFile: Story = {
     focusPath: "knowledge/decisions/ADR-021-decision.md",
   },
   parameters: {
+    review: {
+      purpose:
+        "Diff pane of a conversation, which lists the file changes against main: the pane opened on one chosen file, highlighted and in view.",
+    },
     intent:
       "Catches a diff pane that does not open on the chosen file. The file row expands, stays highlighted, and scrolls into view. Not for the file list.",
     msw: { handlers: { page: [conversationGitDiffHandler(manyFiles)] } },
@@ -205,6 +217,10 @@ export const DiffPaneLongPaths: Story = {
   tags: ["required"],
   args: { conversationId: "conv_diff_long" },
   parameters: {
+    review: {
+      purpose:
+        "Diff pane of a conversation, which lists the file changes against main: a very long file path is cut at the start, and the path was copied.",
+    },
     intent:
       "Catches a long file path that breaks the diff pane layout. The path must truncate and not push other rows out. Not for diff content.",
     msw: {
@@ -263,6 +279,10 @@ export const DiffPaneRenamedAndOmitted: Story = {
   tags: ["required"],
   args: { conversationId: "conv_diff_omitted" },
   parameters: {
+    review: {
+      purpose:
+        "Diff pane of a conversation, which lists the file changes against main: a renamed file, a binary file, and a file too large to show.",
+    },
     intent:
       "Catches a diff row for a renamed, binary, or huge file that shows a broken diff. It shows the rename and an omitted note. Not for normal text diffs.",
     msw: {
@@ -332,6 +352,10 @@ export const DiffPaneTurnGone: Story = {
   tags: ["required"],
   args: { conversationId: "conv_diff_gone", turn: "run_gone" },
   parameters: {
+    review: {
+      purpose:
+        "Diff pane of a conversation, which lists the file changes against main: the snapshot of the turn is gone, so the diff is not available.",
+    },
     intent:
       "Catches a diff of a turn whose snapshot is gone that shows an error screen or toolbar. It shows that the diff is no longer available. Not for current turns.",
     msw: {
