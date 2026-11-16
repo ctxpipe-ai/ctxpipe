@@ -62,7 +62,8 @@ export const conversationSandboxSweep = defineWorkflow(
  * Runs are keyed by org and by the minute boundary at or after `at`. Every
  * caller derives `at` from the same state (a sandbox's last use plus 5
  * minutes, or the shared retry boundary), so runs that want the same sweep
- * share one run and the org keeps a single chain.
+ * share one run and the org keeps a single chain. The tip check gives the
+ * start of its hour, so it restarts a lost chain at most once an hour.
  */
 export async function scheduleConversationSandboxSweep(
   orgId: string,

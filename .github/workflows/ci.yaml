@@ -690,7 +690,9 @@ jobs:
           {"name": "codesearch", "dockerfile": "apps/codesearch/Dockerfile"},
           {"name": "docs", "dockerfile": "apps/docs/Dockerfile"},
           {"name": "chat-sandbox", "dockerfile": "scripts/chat-sandbox/Dockerfile",
-          "context": "scripts/chat-sandbox"}
+          "context": "scripts/chat-sandbox"},
+          {"name": "cost-telemetry", "dockerfile": "ops/observability/cost-telemetry/Dockerfile",
+          "context": "ops/observability/cost-telemetry"}
           ]') }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

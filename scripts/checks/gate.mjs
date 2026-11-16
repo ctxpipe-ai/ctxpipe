@@ -17,6 +17,7 @@ import {
   placeOf,
   plan,
   readStore,
+  storedMiss,
   withJobChecks,
 } from "./plan.mjs"
 import {
@@ -968,6 +969,14 @@ export function gateDecision({
       confirmed: ["failed", "error"].includes(item.rerun),
     }))
   const next = nextStore({ store, selection, ran, contradictions, run, now })
+  // The selected checks with a key and no stored pass in any store, by
+  // family (the first part of the id).
+  const noStoredPass = {}
+  for (const miss of selection.cache?.misses ?? [])
+    if (!storedMiss(miss)) {
+      const family = miss.id.split(":")[0]
+      noStoredPass[family] = (noStoredPass[family] ?? 0) + 1
+    }
   const all = [...selection.selected, ...selection.omitted].map(({ id }) => id)
   const measured = jobMinutes(jobs)
   const round = (value) => Math.round(value * 10) / 10
@@ -1005,6 +1014,7 @@ export function gateDecision({
         llm: selection.llm ?? null,
       },
       ran,
+      noStoredPass,
       hits: planned.hits.map((hit) => ({
         id: hit.id,
         class: hit.source,
@@ -1109,6 +1119,21 @@ export function gateText(
     // The cache hits of each class: the store of the nightly CI run, the PR
     // store, and the passes that an agent stored (factory check).
     `**Cache hits:** ${["ci", "pr", "agent"].map((k) => `${k} ${classes[k] ?? 0}`).join(", ")} of ${s.counts.selected} selected checks.`,
+  )
+  // A CI miss must be visible: a selected check with a key and no stored pass.
+  const noPass = Object.entries(decision.noStoredPass).sort(([a], [b]) =>
+    a.localeCompare(b),
+  )
+  if (noPass.length)
+    lines.push(
+      "",
+      `**No stored pass:** ${noPass.map(([family, count]) => `${family} ${count}`).join(", ")}. ${
+        s.shared
+          ? "The author's `factory check` did not store a pass with the key of CI for these selected checks with a cache key, so CI ran them."
+          : "The shared result store did not answer, so CI ran these selected checks with a cache key."
+      }`,
+    )
+  lines.push(
     "",
     `**Runner minutes:** this run ${decision.cost.gatedRunMinutes}; a full run about ${decision.cost.fullRunMinutesEstimate} (estimate of the tests and their setup, without builds).`,
   )

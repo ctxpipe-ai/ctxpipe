@@ -1,45 +1,4 @@
-/**
- * Browser OTLP must not leave this server with a query string, fragment,
- * reset-password or invitation path segment, or email. The JSON reviver
- * visits every string, so span names, attribute values, and log bodies
- * share one pass.
- */
-const EMAIL = /[^\s@]+@[^\s@]+\.[^\s@]+/g
-const EMBEDDED_URL = /https?:\/\/[^\s<>"']+|\/[^\s<>"']+/g
-
-function redactSecretPath(value: string): string {
-  return value
-    .replace(/\/reset-password\/[^/?#]+/g, "/reset-password/{token}")
-    .replace(
-      /\/public\/invitations\/[^/?#]+/g,
-      "/public/invitations/{invitation}",
-    )
-}
-
-/** Drop query, fragment, and userinfo, then redact credential path segments. */
-function scrubTelemetryUrl(value: string): string {
-  if (value.startsWith("http://") || value.startsWith("https://")) {
-    try {
-      const url = new URL(value)
-      url.search = ""
-      url.hash = ""
-      url.username = ""
-      url.password = ""
-      const path = redactSecretPath(url.pathname || "/")
-      return `${url.origin}${path}`
-    } catch {
-      // Fall through to the path trimmer.
-    }
-  }
-  const cut = value.split(/[?#]/, 1)[0] ?? value
-  return redactSecretPath(cut)
-}
-
-function scrubTelemetryString(value: string): string {
-  return value
-    .replace(EMBEDDED_URL, (part) => scrubTelemetryUrl(part))
-    .replace(EMAIL, "{email}")
-}
+import { scrubTelemetryString } from "@/lib/otelScrub"
 
 type JsonRecord = Record<string, unknown>
 

@@ -81,7 +81,9 @@ export const TriggerNearBottomHigher: Story = {
       purpose:
         "Date range menu that filters recent commits: the trigger is a bit higher but still lacks room below, so the menu is above it.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: {
+      skip: "The screenshot crops a component story to the menu, so it equals TriggerNearBottom. The play checks that the whole menu is in view.",
+    },
   },
   render: () => <AtHeight fromBottom={225} />,
   play: ({ canvasElement }) => expectWholeMenuInView(canvasElement),
@@ -94,7 +96,9 @@ export const TriggerWellInsideBottom: Story = {
       purpose:
         "Date range menu that filters recent commits: the trigger is very near the bottom, so the menu is above it in full.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: {
+      skip: "The screenshot crops a component story to the menu, so it equals TriggerNearBottom. The play checks that the whole menu is in view.",
+    },
   },
   render: () => <AtHeight fromBottom={150} />,
   play: ({ canvasElement }) => expectWholeMenuInView(canvasElement),

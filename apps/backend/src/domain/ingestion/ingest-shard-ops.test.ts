@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { RootExec } from "./ingest-root.js"
-import { runIngestShardStep } from "./ingest-shard-ops.js"
+import {
+  INGEST_STEP_LIMIT_MS,
+  ingestStepCheckpoint,
+  ingestStepSignal,
+  runIngestShardStep,
+} from "./ingest-shard-ops.js"
 
 /*
  * The scan gate of a model step (CTX-1083). The host runs the `dependencies`
@@ -78,5 +83,24 @@ describe("the scan gate of the dependencies step", () => {
     await runIngestShardStep(s.root, input("apis"))
     expect(s.ran("scan.mjs")).toBe(false)
     expect(s.ran("opencode")).toBe(true)
+  })
+})
+
+describe("ingestStepCheckpoint", () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("fires one minute before the step limit, so a stopped model step can still finish (CTX-1312)", () => {
+    vi.useFakeTimers()
+    const checkpoint = ingestStepCheckpoint()
+    const limit = ingestStepSignal()
+    vi.advanceTimersByTime(INGEST_STEP_LIMIT_MS - 60_001)
+    expect(checkpoint.aborted).toBe(false)
+    vi.advanceTimersByTime(1)
+    expect(checkpoint.aborted).toBe(true)
+    expect(limit.aborted).toBe(false)
+    vi.advanceTimersByTime(60_000)
+    expect(limit.aborted).toBe(true)
   })
 })

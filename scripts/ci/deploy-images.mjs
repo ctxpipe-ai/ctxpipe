@@ -122,6 +122,18 @@ export const images = [
       "scripts/chat-sandbox/agentcore-shim.mjs",
     ],
   },
+  // The hourly cost job of the observability stack (ops/observability). Its
+  // install reads its own bun.lock, not the workspace lockfile.
+  {
+    image: "cost-telemetry",
+    dockerfile: "ops/observability/cost-telemetry/Dockerfile",
+    context: "ops/observability/cost-telemetry",
+    inputs: [
+      "ops/observability/cost-telemetry/package.json",
+      "ops/observability/cost-telemetry/bun.lock",
+      "ops/observability/cost-telemetry/src",
+    ],
+  },
 ]
 
 // The lockfile is an input of each image that installs packages, but most of a
