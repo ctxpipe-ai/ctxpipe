@@ -45,19 +45,6 @@ const shared = {
   onAction: () => {},
 }
 
-export const Connected: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Connector row on the Connectors page, with health and actions for one connection: a connected GitHub row, collapsed.",
-    },
-  },
-  args: {
-    ...shared,
-    health: "connected",
-  },
-}
-
 export const Expanded: Story = {
   parameters: {
     review: {
@@ -217,22 +204,6 @@ export const ConfigPrFailed: Story = {
         Configuration pull request failed. Open setup to retry.
       </p>
     ),
-  },
-}
-
-export const Checking: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Connector row on the Connectors page, with health and actions for one connection: the health check is still running, with no action.",
-    },
-  },
-  args: {
-    ...shared,
-    health: "checking",
-    workspace: "—",
-    actionLabel: undefined,
-    onAction: undefined,
   },
 }
 

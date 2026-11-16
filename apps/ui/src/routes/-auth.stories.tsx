@@ -43,16 +43,21 @@ export const DeviceLoading: Story = {
     route: "/.auth/device",
     storyRoute: {
       pattern: "flat",
-      path: "/.auth/device?user_code=ABCD-1234",
+      path: "/.auth/device",
+      search: "?user_code=ABCD-1234",
     } satisfies StoryRouteParams,
     msw: {
+      // The preview defaults answer the session first, so this story
+      // replaces them.
       handlers: {
-        page: [
+        defaults: [
+          authConfigHandler,
           http.get("*/.auth/api/v1/auth/get-session", async () => {
             await delay("infinite")
             return HttpResponse.json(null)
           }),
-          http.get("*/.auth/api/v1/device-authorization/*", async () => {
+          // The device code request of the device plugin (`authClient.device`).
+          http.get("*/.auth/api/v1/auth/device", async () => {
             await delay("infinite")
             return HttpResponse.json({})
           }),

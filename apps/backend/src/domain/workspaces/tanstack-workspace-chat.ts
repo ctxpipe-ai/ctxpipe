@@ -87,7 +87,10 @@ import {
   timeSandboxLifecycle,
   wrapSandboxSetupCommand,
 } from "./sandbox-lifecycle-timing.js"
-import { postgresSandboxLocks } from "./sandbox-lock-store.js"
+import {
+  postgresSandboxLocks,
+  workspaceLockUntilCreated,
+} from "./sandbox-lock-store.js"
 import {
   stopEarlierTurnProcesses,
   withOpencodeServeRetry,
@@ -530,11 +533,7 @@ function sandboxEnsureContext(
     threadId: input.conversationId,
     runId: input.runId ?? `prepare-${input.conversationId}`,
     store: built.instances,
-    locks: postgresSandboxLocks(
-      input.orgId,
-      abortController,
-      `workspace-sandboxes:${input.workspaceId}`,
-    ),
+    locks: built.workspaceLock.locks(abortController),
     signal: abortController.signal,
     // Match the optional fields emitted by native withSandbox's tenantFrom.
     tenant: { userId: undefined, orgId: input.orgId },
@@ -936,11 +935,7 @@ async function startWorkspaceChat(
         }),
         withSandbox(definition, {
           instances: built.instances,
-          locks: postgresSandboxLocks(
-            input.orgId,
-            abortController,
-            `workspace-sandboxes:${input.workspaceId}`,
-          ),
+          locks: built.workspaceLock.locks(abortController),
         }),
         defineChatMiddleware({
           name: "workspace-chat-revision",
@@ -1359,6 +1354,11 @@ async function buildWorkspaceChatSandbox(
     modelBase: contract.modelBase,
     proxyEnv: vault?.env,
   })
+  // One start: the Workspace lock ends when its sandbox is created.
+  const workspaceLock = workspaceLockUntilCreated(
+    input.orgId,
+    input.workspaceId,
+  )
   const provider = conversationSandboxProvider(
     selectedProvider,
     agentPassword,
@@ -1382,8 +1382,9 @@ async function buildWorkspaceChatSandbox(
           prefixes: [`${cloneLabel}:`],
         })
     },
+    workspaceLock,
     definition: conversationSandboxDefinition({
-      provider:
+      provider: workspaceLock.provider(
         selectedProvider === "unsandboxed"
           ? provider
           : withConversationSandboxSlots(provider, {
@@ -1394,6 +1395,7 @@ async function buildWorkspaceChatSandbox(
               image,
               revision: revision.data,
             }),
+      ),
       workspace,
       image,
       revision: revision.data,
@@ -1415,7 +1417,8 @@ async function buildWorkspaceChatSandbox(
   }
 }
 
-function conversationSandboxWorkspace(input: {
+/** Exported for the AgentCore contract test, which runs this setup in the chat image. */
+export function conversationSandboxWorkspace(input: {
   isolation: SandboxProviderName
   input: TanstackWorkspaceChatInput
   cloneToken: string
@@ -1468,6 +1471,9 @@ function conversationSandboxWorkspace(input: {
     "setup-opencode-json",
     "setup-size-cap",
   ]
+  const steps = setup.map((command, index) =>
+    wrapSandboxSetupCommand(setupNames[index] ?? `setup-${index}`, command),
+  )
   return defineWorkspace({
     source: gitSource({
       url: originUrlWithoutCredentials(input.desiredUrl),
@@ -1476,9 +1482,15 @@ function conversationSandboxWorkspace(input: {
       // token, and stock clone only authenticates when the token is non-empty.
       auth: { token: cloneToken },
     }),
-    setup: setup.map((command, index) =>
-      wrapSandboxSetupCommand(setupNames[index] ?? `setup-${index}`, command),
-    ),
+    // AgentCore: each command is a round trip of 150-800 ms. The setup steps
+    // run as one command. A chat installs no packages, so a fixed package
+    // manager stops the four lock-file probes.
+    ...(input.isolation === "agentcore"
+      ? {
+          packageManager: "npm" as const,
+          setup: [steps.map((step) => `{\n${step}\n}`).join(" &&\n")],
+        }
+      : { setup: steps }),
     secrets,
   })
 }

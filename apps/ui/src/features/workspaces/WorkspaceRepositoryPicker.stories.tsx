@@ -137,6 +137,7 @@ export const SelectGitHubEmpty: Story = {
  */
 export const NoGithubConnection: Story = {
   parameters: {
+    visual: { skip: "Behavior test: it ends in the same state as PasteUrl." },
     review: {
       purpose:
         "Repository picker, where an owner chooses the Workspace repository: the org has no GitHub connection, and the owner opened the Paste URL tab.",
@@ -421,6 +422,7 @@ const memberRepoReads: string[] = []
  */
 export const MemberAsksAnAdmin: Story = {
   parameters: {
+    visual: { skip: "Behavior test: it ends in the same state as PasteUrl." },
     review: {
       purpose:
         "Repository picker, where a user chooses the Workspace repository: a member cannot list the repositories, so it asks for an admin, and Paste URL is open.",

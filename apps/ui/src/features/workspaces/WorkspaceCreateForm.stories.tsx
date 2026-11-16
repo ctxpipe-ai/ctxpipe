@@ -94,6 +94,9 @@ async function createFromGithub(canvasElement: HTMLElement) {
 
 export const ZeroWorkspaces: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as SelectGitHub.",
+    },
     review: {
       purpose:
         "Create form for a Workspace, where an owner picks the Workspace repository: the org has no Workspaces, and step 1 is current.",
@@ -222,6 +225,9 @@ export const AddSourcesAfterCreate: Story = {
 
 export const WaitsForWriteAccessCheck: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as AddSourcesAfterCreate.",
+    },
     review: {
       purpose:
         "Create form for a Workspace: the Workspace was created, and the write access check finished, so the owner can add repositories.",

@@ -154,6 +154,9 @@ export const readUnstable = () =>
 // of the meta, key by key. The Storybook CSF parser reads them, so each value
 // must be a literal and the build does not run:
 // - `skip`: a reason (a string). The story has no screenshot.
+// - `duplicate`: a reason (a string). The screenshot of the story may be the
+//   same as the screenshot of another story
+//   (scripts/ci/check-duplicate-screenshots.mjs).
 // - `maxDiffPixels`: the count of pixels that may differ (default 10).
 // - `viewports`: the viewports, from "desktop" and "mobile" (default
 //   desktop, and mobile too for a story with the `page` tag).
@@ -222,10 +225,10 @@ function parameterOptions(file, name, annotations) {
     const key = item.key?.name ?? item.key?.value
     const value = item.value
     if (item.type !== "ObjectProperty") fail(" must have literal keys.")
-    if (key === "skip") {
+    if (key === "skip" || key === "duplicate") {
       if (value.type !== "StringLiteral" || !value.value.trim())
-        fail(".skip needs a reason (a string literal).")
-      options.skip = value.value
+        fail(`.${key} needs a reason (a string literal).`)
+      options[key] = value.value
     } else if (key === "maxDiffPixels") {
       if (value.type !== "NumericLiteral" || !Number.isInteger(value.value))
         fail(".maxDiffPixels must be a whole number literal.")
@@ -264,7 +267,7 @@ function parameterOptions(file, name, annotations) {
       }
     } else
       fail(
-        ` has no option ${JSON.stringify(key)}. The options are skip, maxDiffPixels, viewports, masks and allow.`,
+        ` has no option ${JSON.stringify(key)}. The options are skip, duplicate, maxDiffPixels, viewports, masks and allow.`,
       )
   }
   return options

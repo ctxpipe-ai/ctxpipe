@@ -368,7 +368,7 @@ export const Triggers: Story = {
 /** Hide, show, and maximize: the pane and the chat column change state at once. Only the small control that reverses the action fades in. */
 export const HideShowMaximize: Story = {
   parameters: {
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: { skip: "Behavior test: it ends in the same state as Files." },
     msw: {
       handlers: {
         page: gitFilesHandlers,
@@ -545,32 +545,6 @@ export const FilePreviewLong: Story = {
   },
 }
 
-export const FileDiff: Story = {
-  args: {
-    pane: { kind: "file", path: ledgerPath },
-    fileTabs: [ledgerPath],
-    previewPath: ledgerPath,
-  },
-  parameters: {
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
-    storyRoute: {
-      pattern: "orgWorkspace",
-      orgSlug: "acme",
-      workspaceSlug: "docs",
-      pane: serializePane({ kind: "file", path: ledgerPath }),
-    } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: gitFilesHandlers,
-      },
-    },
-    review: {
-      purpose:
-        "Files pane of a Workspace, which browses and edits its files: the open ledger file has uncommitted sandbox changes, so its changes show.",
-    },
-  },
-}
-
 export const ReadOnly: Story = {
   args: {
     workspace: readOnlyWorkspaceDetail,
@@ -696,7 +670,9 @@ export const GitFileEditable: Story = {
   ...conversationFileStory(ledgerPath),
   parameters: {
     ...conversationFileStory(ledgerPath).parameters,
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: {
+      skip: "Behavior test: it ends in the same state as ConversationWritable.",
+    },
     review: {
       purpose:
         "Files pane in a conversation, which browses and edits its files: a git file is open in the editor and the user can edit it.",
@@ -723,8 +699,10 @@ export const FileWhileChatStarts: Story = {
     startingBlobHits = 0
   },
   parameters: {
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     ...conversationFileStory(ledgerPath).parameters,
+    visual: {
+      skip: "Behavior test: it ends in the same state as ConversationWritable.",
+    },
     msw: {
       handlers: {
         page: [
@@ -2111,6 +2089,9 @@ export const EditThenNavigate: Story = {
   },
   render: (args) => <EditThenNavigateHarness {...args} />,
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends on a test page after the pane unmounts.",
+    },
     intent:
       "Catches an edited file that is lost when the user leaves the pane. The pane saves on leave with the expected worktree version. Not for typing or tab changes.",
     storyRoute: {

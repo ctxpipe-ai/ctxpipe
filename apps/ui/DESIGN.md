@@ -135,7 +135,7 @@ Quiet text uses `text-muted-foreground` or brighter.
 ### Task clarity
 
 <!-- rubric: clarity -->
-The user can tell what the screen is for, what each element is and does, and what to do next. The current or next step of a task stands out from the steps around it. A button names its result with a verb and an object ("Save token", not "Submit"). Each form field has a visible label; a placeholder is only an example value. The screen shows what the task needs now; details, advanced options and machine text wait behind a disclosure.
+The user can tell what the screen is for, what each element is and does, and what to do next. The user can tell what a click on each area does: an area that reacts to a click looks pressable, and an area that looks pressable reacts. The current or next step of a task stands out from the steps around it. A button names its result with a verb and an object ("Save token", not "Submit"). Each form field has a visible label; a placeholder is only an example value. The screen shows what the task needs now; details, advanced options and the machine text that the user needs wait behind a disclosure.
 <!-- /rubric -->
 
 <!-- rubric: focus -->
@@ -143,7 +143,7 @@ The page has at most one primary action: one filled white button. Other actions 
 <!-- /rubric -->
 
 <!-- rubric: actions -->
-Each control shows what it does: an icon tells its action, a chevron sits only on a row that opens or expands, and the main action of a page has a label, not a lone + icon.
+Each control shows what it does: an icon tells its action, and the main action of a page has a label, not a lone + icon. A row that opens or expands is one pressable target across the full row, with a visible indicator such as a chevron; a chevron sits only on such a row. A row that does not open has no such indicator, and the controls in it look like controls.
 <!-- /rubric -->
 
 Destructive actions are outline or quiet on the page; filled red is only on the confirm dialog ([`AlertDialog`](src/components/ui/AlertDialog.tsx)).
@@ -159,7 +159,7 @@ Copy is plain and specific US English in every visible word, also a legend and a
 ### Hierarchy and grouping
 
 <!-- rubric: hierarchy -->
-One element leads: the title is the loudest ink, and the rest steps down. Hierarchy comes from weight and muted color, not from a size jump; neighbors and decorative icons are muted first. Each screen has a small budget of strong signals (a filled button, a bright color, a badge, a colored edge, an icon in a tile), and each one marks something that matters. Secondary chrome (legends, hints, help) is smaller and dimmer than the content and does not cover it.
+One element leads: the title is the loudest ink, and the rest steps down. Hierarchy comes from weight and muted color, not from a size jump; neighbors and decorative icons are muted first. Each screen has a small budget of strong signals (a filled button, a bright color, a badge, a colored edge, an icon in a tile), and each one marks something that matters. When many elements carry the same strong weight, nothing leads, and the user cannot tell what to do first. Secondary chrome (legends, hints, help) is smaller and dimmer than the content and does not cover it.
 <!-- /rubric -->
 
 A first-run help tour can cover content until the user dismisses it. A dismissed hint or tour stays dismissed.
@@ -181,15 +181,15 @@ The same meaning has the same look on the screen. Peer actions have the same wei
 <!-- /rubric -->
 
 <!-- rubric: common-region -->
-A surface, a frame or an inset holds each group. A card holds groups, not a second card.
+A surface, a frame or an inset holds each group. A card holds groups, not a second card. A local navigation (tabs, or a side list of sections) and the content that it switches read as one region: the navigation sits at the top or the leading edge of that content, not apart from it in empty space.
 <!-- /rubric -->
 
 <!-- rubric: figure-ground -->
-A card, a tile or a row stands off the page by its surface or by a clear border, not by a dim hairline.
+A card, a tile or a row stands off the page by its surface or by a clear border, not by a dim hairline. The content of a page reads as one figure on its ground: no block floats alone in a large empty area, and on a narrow screen the content fills the width, less the page margins.
 <!-- /rubric -->
 
 <!-- rubric: continuity -->
-Siblings share one edge and one marker axis. A child group steps in, and a different edge marks a different role.
+Siblings share one edge and one marker axis. A child group steps in, and a different edge marks a different role. On a page, the title, the local navigation and the content blocks follow one column, and sibling blocks share one width unless their roles differ.
 <!-- /rubric -->
 
 <!-- rubric: pragnanz -->
@@ -220,7 +220,7 @@ Text, icons and focus rings fit their box. Nothing is cut off by a parent, nothi
 <!-- /rubric -->
 
 <!-- rubric: broken-content -->
-Labels, copy and field values show no rendering artifact: no undefined, null, NaN, [object Object], untranslated key, lorem ipsum or broken image. A missing value shows a dash or a short empty text. A code or file preview that shows such text as its content is not broken.
+Labels, copy and field values show no rendering artifact: no undefined, null, NaN, [object Object], untranslated key, lorem ipsum or broken image. Each value is one that a real user can see: real-looking names, values and text, never random values, no debug output or raw serialized state of the UI, and no run of generated ids or names. A missing value shows a dash or a short empty text. A code or file preview that shows such text as its content is not broken.
 <!-- /rubric -->
 
 ### Consistency
@@ -242,7 +242,7 @@ Space and alignment follow the Gestalt principles of proximity and continuity. S
 <!-- /rubric -->
 
 <!-- rubric: density -->
-Operate density, as in chat, connectors and settings: tight, not landing-page air. Forms and prose keep a maximum width; data surfaces are full width.
+Operate density, as in chat, connectors and settings: tight, not landing-page air. Forms and prose keep a maximum width and start at the leading edge of the content column; data surfaces are full width.
 <!-- /rubric -->
 
 Start a little loose, then tighten. Forms and help use `max-w-*` / `max-w-prose` (~45–75ch). Do not stretch a settings form to match the nav.

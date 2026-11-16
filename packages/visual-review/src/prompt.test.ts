@@ -61,9 +61,22 @@ describe("buildPrompt", () => {
     // How to judge: partial UI, the story state and the established
     // patterns are not defects (the owner calibration, CTX-1269).
     expect(prefix).toMatch(
-      /most UI in a screenshot is partial[^]*placeholder story text are not defects/i,
+      /most UI in a screenshot is partial[^]*a missing call to action are not defects/i,
     )
     expect(prefix).toMatch(/do not report the state itself/i)
+    // The purpose comes first: a state that it names is not a defect, and a
+    // screenshot that contradicts it is (the owner review, CTX-1318).
+    expect(prefix).toMatch(
+      /read the purpose of the story first[^]*a state that the purpose names is not a defect[^]*a screenshot that does not match its purpose is a defect/i,
+    )
+    // Fixture content shows a real case; the fix is in the story.
+    expect(prefix).toMatch(
+      /story data must show a case that a real user meets, with real-looking names, values and text[^]*defects of the story/i,
+    )
+    // A finding and its fix name the root cause, not the symptom.
+    expect(prefix).toMatch(
+      /name the root cause, not the symptom[^]*content that must not be on the screen is removed, not restyled/i,
+    )
     expect(prefix).toMatch(
       /an uppercase heading that names a page section is fine/i,
     )

@@ -5,9 +5,11 @@
 //   - `kind`: "page" for a whole screen that a user lands on, or "component"
 //     for a part of the UI (a component, a dialog, a step, a part of a page).
 //     It can be in the story or in the `meta` of the file; the story wins.
-//   - `purpose`: one sentence in the story itself: what the UI is for, and
-//     the state that the story shows. At most 200 characters, on one line.
-//     It does not start with "Shows".
+//   - `purpose`: one sentence in the story itself, on one line of 40 to 240
+//     characters: what the UI is for, how the user uses it, and the state
+//     that the story shows. It describes the UI, so it does not start with
+//     "Shows", "Displays" or "Renders". The check cannot judge the meaning:
+//     the critic reads it.
 //
 // The check fails for each story with no valid kind or purpose.
 //
@@ -41,15 +43,16 @@ for (const path of storyFiles(join(root, "apps/ui/src"))) {
       )
     if (!story.purpose)
       errors.push(
-        `${where} has no parameters.review.purpose. Write one sentence (a string literal) in the story: what the UI is for, and the state that the story shows.`,
+        `${where} has no parameters.review.purpose. Write one sentence (a string literal) in the story: what the UI is for, how the user uses it, and the state that the story shows.`,
       )
     else if (
-      story.purpose.length > 200 ||
+      story.purpose.length < 40 ||
+      story.purpose.length > 240 ||
       story.purpose.includes("\n") ||
-      /^Shows\b/.test(story.purpose)
+      /^(Shows|Displays|Renders)\b/i.test(story.purpose)
     )
       errors.push(
-        `${where}: parameters.review.purpose must be one line of at most 200 characters that does not start with "Shows". Say what the UI is for, and the state that the story shows.`,
+        `${where}: parameters.review.purpose must be one line of 40 to 240 characters that does not start with "Shows", "Displays" or "Renders". Say what the UI is for, how the user uses it, and the state that the story shows.`,
       )
   }
 }

@@ -110,6 +110,8 @@ export const WorkspacesLoading: Story = {
       purpose:
         "Org home page, where a member asks the agent and opens a Workspace: the Workspace list is still loading, and the composer and activity skeleton hold their place.",
     },
+    // At the mobile width the screenshot is the same as Loading.
+    visual: { viewports: ["desktop"] },
     intent:
       "Catches an org home that shows a Create button while workspaces load. It shows the selector and the activity loading text. Not for loaded workspaces or errors.",
     storyRoute: homeRoute,
@@ -227,6 +229,7 @@ export const WorkspacesLoadFails: Story = {
     expect(canvas.queryByText("Could not load Workspaces.")).toBeNull()
   },
   parameters: {
+    visual: { skip: "Behavior test: it ends in the same state as Empty." },
     review: {
       purpose:
         "Org home page, where a member asks the agent and opens a Workspace: the Workspace list failed to load, so an alert with Retry shows.",
@@ -365,6 +368,7 @@ export const ActivityAndRecentKeepTheirGap: Story = {
     expect(gap).toBeGreaterThanOrEqual(39.5)
   },
   parameters: {
+    visual: { skip: "Behavior test: it ends in the same state as Populated." },
     review: {
       purpose:
         "Org home page, where a member asks the agent and opens a Workspace: Activity and Recent keep the same gap as the other blocks.",
@@ -416,6 +420,9 @@ export const FirstMessageOpensConversation: Story = {
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends on a story route with no page, so the screenshot is empty.",
+    },
     review: {
       purpose:
         "Org home page, where a member asks the agent and opens a Workspace: the user sends a first message, and the new conversation opens.",

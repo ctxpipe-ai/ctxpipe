@@ -49,7 +49,7 @@ export const LinkedToAnotherUser: Story = {
     review: {
       kind: "component",
       purpose:
-        "Popup step of the GitHub account link: the account is already linked to another ctxpipe user.",
+        "Popup step of the GitHub account link: the user signed in to GitHub to link it to ctxpipe, but the account is already linked to another ctxpipe user.",
     },
   },
 }
@@ -57,11 +57,48 @@ export const LinkedToAnotherUser: Story = {
 
 - `kind` is `"page"` or `"component"`. A `page` is a whole screen that a user lands on: a page with its shell, or a full popup or onboarding screen. A component, a dialog, a step of a flow, or a part of a page is a `component`. Put `kind` in the `meta` when it is the same for all stories of the file; a story's own `kind` wins.
 - Most stories with the `page` tag have the kind `page`. A page story that shows only one small step of its route (a popup step with a title and a paragraph) has the kind `component`. A story with the kind `page` needs no `page` tag (for example, a full screen that no route renders alone).
-- `purpose` is one sentence in the story itself, at most 200 characters: what the UI is for, and the state that the story shows. For example: "Org home page of a member with no Workspaces yet." Do not start with "Shows".
+- Choose the kind from what the screenshot shows, not from the file. The page-only qualities (for example, one primary action for each page) apply only to a `page`, so a wrong kind gives wrong findings.
+- `purpose` is one sentence in the story itself, on one line of at most 240 characters. The critic reads it first and judges the screenshot against it, so meaning matters more than form. A good purpose tells the critic:
+  - what the UI is for, by the name that the user sees, and its real kind (do not call a page a wizard, or a section a dialog);
+  - how the user uses it;
+  - the state that the story shows, and how the user got there (what they pressed or opened). Name each state that a reviewer can take for a defect, such as a loading, pending, empty or error state.
+- Examples: "After the member presses Publish, the Workspace page waits for the push, so the Publish button shows its spinner." "Connectors page where an admin adds the tools of the org: two connections still wait for the end of their setup." Not "Workspace page with a pending button" (no use, no user step), and not "Shows the pending state" (no UI).
+- Describe the UI, not the story: do not start with "Shows", "Displays" or "Renders".
+- The purpose names a state that the product renders, and the screenshot shows that state (see Plausible stories). Before you write it, find the route or the caller that renders this state with these props. If you cannot find one, do not write the story. If the screenshot does not show the state of the purpose, fix the story, not the purpose.
 - Both values are string literals: the check and the critic read the story file with the CSF parser, and the build does not run.
 - The critic gets the Storybook name (`<title> / <name>`), the kind and the purpose with each screenshot. The kind gives the scope: the page-only qualities apply only to a `page`. The purpose goes into the prompt as data in a `<data>` block. It tells the critic what it looks at. It does not explain a change: that is the job of the brief.
 - `visual:review` reads the story file at the merge base (`--images`, the factory critic), or the manifest of `pnpm visual:check`. A new story that is not at the merge base has no kind or purpose there: its scope is `component`, and the verdict says so.
-- **Guard:** `node scripts/ci/check-story-review.mjs` runs in CI (the policy check `story-review`). It fails for each story with no valid `kind` or no `purpose` of its own.
+- **Guard:** `node scripts/ci/check-story-review.mjs` runs in CI (the policy check `story-review`). It fails for each story with no valid `kind`, with no `purpose` of its own, or with a purpose that is not one line of 40 to 240 characters or that starts with "Shows", "Displays" or "Renders". It cannot check that the purpose is meaningful or true: the critic does that.
+
+### Realistic story data
+
+The visual critic reports story data that no real user sees as a defect of the story. The fix is in the story, not in the style of the UI.
+
+- Mock data is realistic: real-looking names, values and text, never random values or lorem ipsum. Give a fixture the counts and mixes that a real org has. Do not use a run of generated ids (`ITEM001` to `ITEM100`) to reach a limit. Use the smallest real case that shows the state.
+- Do not render debug output, such as the serialized value of a control, in the canvas. A play reads the result through the visible UI, a recorded msw request, or an `fn()` spy on a callback.
+
+## Plausible stories
+
+Each story shows a state that a user can see in the real product. A screenshot of a state that the product never renders wastes the review, and the visual critic judges a UI that does not exist.
+
+- Render a component with the props that a real caller passes. Find the callers (`rg "<MyComponent"`) and the route before you choose the args.
+- Do not write a story for an empty frame: a shell, a layout or a page frame with a placeholder child ("Slide placeholder", "Main content"). Put a real child in it, or write a story for the page that renders it.
+- Do not give a component a context that the product never gives it. For example, the SideNav is always in the shell layout: its story wraps it in `ShellLayoutProvider`, or the nav has no org and no items.
+- The end state of a play is the screenshot. A play that ends on a test harness (a test panel with load buttons, a story route marker such as "Story route: /acme", "Landed on …" or "Home page", an empty page after a navigation) keeps its play and skips its screenshot: `visual: { skip: "Behavior test: it ends on a story route marker, which the product does not render." }`.
+- MSW: the preview `defaults` (the signed-in session, the org list, the auth config) answer before a story's `page` handlers. A story that changes the session or the org list puts its handlers in `defaults`. Else the story shows the default user, or "Not Found" after a redirect.
+- Look at each new or changed screenshot. If it does not show the state of the purpose, the story is wrong.
+
+## One story for each state
+
+Each UI state has one story. Two stories of one state give two screenshots to review and two baselines to update for each change.
+
+- **A page state** (a whole route, with its shell) lives in the page story beside the route (`src/routes/-<route>.stories.tsx`). A component story does not repeat the whole page.
+- **A component state** lives in the story file of the component that owns the state: the component whose props or data make the state. A wrapper does not repeat a state of its child, and a child does not repeat a state that its wrapper owns. For example, the GitHub states of a connector row live in `GithubConnectionCard.stories.tsx`, not also in `ConnectorListItem.stories.tsx`.
+- **A behavior test** (a story for its `play`) that ends in the same state as another story keeps its play and skips its screenshot: `visual: { skip: "Behavior test: it ends in the same state as <Story>." }`. Do not delete a behavior test to remove a duplicate screenshot.
+- **A variant** whose args or fixtures do not change the pixels (the same file content, a prop that only a play reads) is not a new state. Delete it, or give it a play that reaches its own state.
+- When only the mobile screenshot is the same as another story, set `visual: { viewports: ["desktop"] }`.
+- Before you add a story, look at the stories of the component, of its wrapper and of its route. If one shows the state, extend that story.
+- **Guard:** `node scripts/ci/check-duplicate-screenshots.mjs` runs in CI (the policy check `duplicate-screenshots`). It fails when the committed baselines of two different stories have the same pixels. A named snapshot may repeat the end state of its own story. When two stories must look the same (rare), give the second one `visual: { duplicate: "<reason>" }`. Exactly one story of a set of same pixels has no reason: it owns the state.
 
 ## Colocation and naming
 
@@ -182,6 +219,7 @@ A story with the kind `component` (see Review annotations) shows only its compon
 A story controls its screenshots with `parameters: { visual: { ... } }`, in the story or in the meta of its file. The value of the story wins over the meta, key by key. Each value must be a literal: `checks:list` and `pnpm visual:check` read the story file with the Storybook CSF parser. A value that is not valid stops both commands.
 
 - `skip: "<reason>"`: the story has no screenshot. A reason is necessary.
+- `duplicate: "<reason>"`: the screenshot of the story may have the same pixels as the screenshot of one other story (see One story for each state). A reason is necessary.
 - `maxDiffPixels: <n>`: the count of pixels that may differ (default 10). Do not raise it to hide noise.
 - `viewports: ["desktop"]` or `["desktop", "mobile"]`: this list replaces the default viewports (desktop, and mobile for a `page` story). For example, a page story whose play asserts the desktop layout uses `["desktop"]`.
 - `masks: ["<CSS selector>"]`: the capture hides each element that a selector finds. Use it only when you cannot change the source of the element (for example, a library canvas).

@@ -671,6 +671,9 @@ export const LastOrganizationDeleted: Story = {
   decorators: orgPageDecorators,
   beforeEach: lastOrganizationBackend.reset,
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends on a story route marker, which the product does not render.",
+    },
     review: {
       purpose:
         "Redirect after the user deletes the last organization: the app sends the user to onboarding, shown as a plain route marker.",

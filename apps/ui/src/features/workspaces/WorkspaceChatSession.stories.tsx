@@ -92,17 +92,6 @@ function threadArgs(
   }
 }
 
-export const ThreadShort: Story = {
-  args: threadArgs(docsConversationDetail.messages),
-  parameters: {
-    review: {
-      purpose:
-        "Chat session of a Workspace, where a member asks about the code: a short thread with one question and one answer.",
-    },
-    storyRoute: threadRoute,
-  },
-}
-
 export const ThreadLong: Story = {
   args: threadArgs(longThreadMessages),
   parameters: {

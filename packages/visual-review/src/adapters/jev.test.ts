@@ -770,7 +770,7 @@ describe("judgeNewWithJev", () => {
     // What not to report, from the owner calibration.
     expect(state).toContainEqual(
       expect.stringMatching(
-        /^How to judge: \(a\) Most UI in a screenshot is partial/,
+        /^How to judge: \(a\) Read the purpose of the story first/,
       ),
     )
 

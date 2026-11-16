@@ -245,6 +245,7 @@ export const ConnectedWithoutSyncRepository: Story = {
   name: "Connected, scope set in each Workspace",
   render: () => shell(card()),
   parameters: {
+    visual: { skip: "Behavior test: it ends in the same state as Connected." },
     review: {
       purpose:
         "PagerDuty connection card on the Connectors page: auth is done and each Workspace sets its own scope, so the card shows no scope.",

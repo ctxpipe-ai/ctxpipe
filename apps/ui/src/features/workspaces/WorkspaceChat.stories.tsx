@@ -123,6 +123,9 @@ export const ConversationMissing: Story = {
 export const ConversationForeignWorkspace: Story = {
   args: { conversationId: "conv_other" },
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as ConversationMissing.",
+    },
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -1287,6 +1290,9 @@ const preparedConversations: string[] = []
 export const ComposeOpenPreparesSandbox: Story = {
   render: () => <ComposeHarness />,
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as FirstTurnStreamsLive.",
+    },
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",

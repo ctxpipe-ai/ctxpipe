@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { setTimeout as delay } from "node:timers/promises"
 
+import type { SandboxProvider } from "@tanstack/ai-sandbox"
 import { defineLock, type LockStore } from "@tanstack/ai/locks"
 import { and, eq, sql } from "drizzle-orm"
 
@@ -33,6 +34,62 @@ export function postgresSandboxLocks(
     })
   }
   return postgresLocks(orgId, abortController, onAcquired, Infinity)
+}
+
+/**
+ * The Workspace lock for one chat sandbox start, held only until the sandbox
+ * is created. `locks` takes the Workspace lock, then the sandbox's own lock,
+ * as a Workspace-scoped `postgresSandboxLocks` does. `provider`'s create
+ * releases the Workspace lock when it returns: the sandbox row is reserved
+ * and the provider has chosen its start (a Docker base). The clone and the
+ * setup then run under the sandbox's own lock only, so the next sandbox of
+ * the Workspace can start. A cleanup that waits for the Workspace lock then
+ * waits for the sandbox's own lock before it destroys the new sandbox.
+ * Use one value for one sandbox start.
+ */
+export function workspaceLockUntilCreated(orgId: string, workspaceId: string) {
+  /** The Workspace holds of this start that wait for the create. */
+  const holds = new Set<() => void>()
+  return {
+    locks: (abortController?: AbortController): LockStore => {
+      const workspace = postgresSandboxLocks(orgId, abortController)
+      const own = postgresSandboxLocks(orgId, abortController)
+      return defineLock({
+        withLock: async (key, fn) => {
+          let work!: ReturnType<typeof fn>
+          await workspace.withLock(`workspace-sandboxes:${workspaceId}`, () => {
+            let release = () => {}
+            const created = new Promise<void>((resolve) => {
+              release = resolve
+            })
+            holds.add(release)
+            work = own.withLock(key, fn)
+            return Promise.race([
+              created,
+              work.then(
+                () => {},
+                () => {},
+              ),
+            ]).finally(() => holds.delete(release))
+          })
+          return work
+        },
+      })
+    },
+    provider: (provider: SandboxProvider): SandboxProvider =>
+      new Proxy(provider, {
+        get(target, prop, receiver) {
+          if (prop !== "create") return Reflect.get(target, prop, receiver)
+          return async (input: Parameters<SandboxProvider["create"]>[0]) => {
+            try {
+              return await target.create(input)
+            } finally {
+              for (const release of holds) release()
+            }
+          }
+        },
+      }),
+  }
 }
 
 class SandboxLockBusy extends Error {}
