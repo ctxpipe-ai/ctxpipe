@@ -28,8 +28,8 @@ const repo = "acme/widgets"
 // path (slashes become underscores), through jq when --jq is given, or fails
 // with the text in `<name>.error`, or one time with the text in
 // `<name>.error-once`. `gh api --method <verb>` appends its arguments to
-// calls.log. The fake `sleep` appends its argument to
-// sleeps.log and does not wait.
+// calls.log. The fake `sleep` appends its argument to sleeps.log and does not
+// wait.
 const fakeGh = `#!/usr/bin/env bash
 set -euo pipefail
 dir="$FAKE_GH_DIR"
