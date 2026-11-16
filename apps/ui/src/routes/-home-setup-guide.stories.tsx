@@ -1269,10 +1269,7 @@ export const GuideRoleFailureHidesIt: Story = {
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
-        page: homeHandlers(
-          [failed("/organization/get-active-member-role")],
-          [docsWorkspace],
-        ),
+        page: homeHandlers([activeMemberRoleHandler("error")], [docsWorkspace]),
       },
     },
   },

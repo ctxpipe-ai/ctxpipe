@@ -57,6 +57,14 @@ const pinned = {
 // text of each module: each reference of `references` (below), and a script
 // that a `json("x")` call spawns.
 function closureOf(starts) {
+  // Only tracked files: a build output (for example
+  // apps/ui/storybook-static/index.json after a local Storybook build) is not
+  // a definition of checks.
+  const tracked = new Set(
+    spawnSync("git", ["ls-files"], { cwd: root, encoding: "utf8" })
+      .stdout.split("\n")
+      .filter(Boolean),
+  )
   const seen = new Set()
   const visit = (file) => {
     if (seen.has(file)) return
@@ -71,7 +79,7 @@ function closureOf(starts) {
     ]
     for (const path of found)
       for (const candidate of [path, `${path}.ts`, `${path}.mjs`])
-        if (existsSync(join(root, candidate))) {
+        if (tracked.has(candidate)) {
           visit(candidate)
           break
         }

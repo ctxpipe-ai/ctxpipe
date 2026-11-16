@@ -15,7 +15,6 @@ import {
 } from "@/mocks/handlers"
 import {
   githubInstallationReposHandler,
-  orgGithubConnectionsHandler,
   workspaceDetailHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
@@ -58,7 +57,7 @@ const meta = {
         role: [activeMemberRoleHandler("owner")],
         page: [
           workspaceListHandler([]),
-          orgGithubConnectionsHandler(),
+          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
           githubInstallationReposHandler(),
         ],
         github: githubAppInstalledHandlers,

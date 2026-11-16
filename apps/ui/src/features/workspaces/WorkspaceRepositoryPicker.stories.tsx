@@ -9,10 +9,12 @@ import {
 } from "@/mocks/handlers"
 import {
   githubInstallationReposHandler,
-  orgGithubConnectionsHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
-import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
+import {
+  activeMemberRoleHandler,
+  orgConnectionsHandler,
+} from "@/mocks/workspace-sources-handlers"
 
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -43,7 +45,7 @@ const meta = {
         role: [activeMemberRoleHandler("owner")],
         page: [
           workspaceListHandler([docsWorkspace]),
-          orgGithubConnectionsHandler(),
+          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
           githubInstallationReposHandler(),
         ],
         github: githubAppInstalledHandlers,
@@ -71,7 +73,7 @@ export const Loading: Story = {
       handlers: {
         page: [
           workspaceListHandler([docsWorkspace]),
-          orgGithubConnectionsHandler(),
+          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
           http.get(
             ({ request }) =>
               new URL(request.url).pathname.endsWith(
@@ -122,7 +124,7 @@ export const SelectGitHubEmpty: Story = {
       handlers: {
         page: [
           workspaceListHandler([docsWorkspace]),
-          orgGithubConnectionsHandler(),
+          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
           githubInstallationReposHandler([]),
         ],
       },
@@ -150,7 +152,7 @@ export const NoGithubConnection: Story = {
       handlers: {
         page: [
           workspaceListHandler([docsWorkspace]),
-          orgGithubConnectionsHandler([]),
+          orgConnectionsHandler([]),
           ...githubAppMissingHandlers,
         ],
       },
@@ -180,7 +182,7 @@ export const SelectGitHubAllAccess: Story = {
       handlers: {
         page: [
           workspaceListHandler([docsWorkspace]),
-          orgGithubConnectionsHandler(),
+          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
           githubInstallationReposHandler(undefined, {
             repositorySelection: "all",
           }),
@@ -210,7 +212,7 @@ export const CreateOnGitHub: Story = {
       handlers: {
         page: [
           workspaceListHandler([docsWorkspace]),
-          orgGithubConnectionsHandler(),
+          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
           githubInstallationReposHandler(),
           githubInstallationLinkedHandler,
         ],
@@ -257,7 +259,7 @@ export const CreateOnGitHubAllAccess: Story = {
       handlers: {
         page: [
           workspaceListHandler([docsWorkspace]),
-          orgGithubConnectionsHandler(),
+          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
           githubInstallationReposHandler(undefined, {
             repositorySelection: "all",
           }),
@@ -294,7 +296,7 @@ export const CreateOnGitHubNoConnection: Story = {
       handlers: {
         page: [
           workspaceListHandler([docsWorkspace]),
-          orgGithubConnectionsHandler([]),
+          orgConnectionsHandler([]),
           ...githubAppMissingHandlers,
         ],
       },
@@ -428,7 +430,7 @@ export const MemberAsksAnAdmin: Story = {
         role: [activeMemberRoleHandler("member")],
         page: [
           workspaceListHandler([docsWorkspace]),
-          orgGithubConnectionsHandler(),
+          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
           githubInstallationLinkedHandler,
           http.get(
             ({ request }) =>

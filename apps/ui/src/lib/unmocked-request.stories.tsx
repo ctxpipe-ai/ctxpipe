@@ -30,6 +30,9 @@ export const RequestWithNoMockFails: Story = {
       purpose:
         "Test fixture that proves a request with no mock fails: one line of text, and the play sends the requests.",
     },
+    visual: {
+      skip: "Behavior test: it ends on a test fixture, which the product does not render.",
+    },
   },
   play: async () => {
     const record = (window as UnhandledWindow).__ctxpipeUnhandledRequests

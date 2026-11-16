@@ -2,12 +2,12 @@ import { HttpResponse, http } from "msw"
 
 import { type MockState, mockResponse } from "./mock-state"
 
-/** Whether the request goes to `path`, for `connectionId` when it is set. */
-function matches(request: Request, path: string, connectionId?: string) {
+/** Whether the request goes to `path` for `connectionId`. */
+function matches(request: Request, path: string, connectionId: string) {
   const url = new URL(request.url)
   return (
     url.pathname.endsWith(path) &&
-    (!connectionId || url.searchParams.get("connectionId") === connectionId)
+    url.searchParams.get("connectionId") === connectionId
   )
 }
 
@@ -17,7 +17,7 @@ function matches(request: Request, path: string, connectionId?: string) {
  */
 export function atlassianCapabilitiesHandler(
   installUrl: MockState<string | null>,
-  connectionId?: string,
+  connectionId: string,
 ) {
   return http.get(
     ({ request }) => matches(request, "/api/v1/capabilities", connectionId),
@@ -29,15 +29,15 @@ export function atlassianCapabilitiesHandler(
 }
 
 /**
- * `GET …/org/atlassian-oauth`: the Atlassian OAuth app of a connection. With
- * `connectionId`, it answers only that connection.
+ * `GET …/org/atlassian-oauth`: the Atlassian OAuth app of a connection. It
+ * answers only `connectionId`.
  */
 export function atlassianOauthHandler(
   app: MockState<{
     oauthAppSaved: boolean
     globalAtlassianOAuthConfigured?: boolean
   }>,
-  connectionId?: string,
+  connectionId: string,
 ) {
   return http.get(
     ({ request }) =>
@@ -61,9 +61,9 @@ export function atlassianOauthHandler(
 
 /**
  * `PUT …/org/atlassian-oauth`: the server saves the Atlassian OAuth app of a
- * connection. With `connectionId`, it answers only that connection.
+ * connection. It answers only `connectionId`.
  */
-export function atlassianOauthSaveHandler(connectionId?: string) {
+export function atlassianOauthSaveHandler(connectionId: string) {
   return http.put(
     ({ request }) =>
       matches(request, "/api/v1/org/atlassian-oauth", connectionId),

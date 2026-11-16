@@ -550,12 +550,6 @@ export function conversationDetailLoadingHandler() {
   )
 }
 
-export function orgGithubConnectionsHandler(
-  items: Array<{ id: string }> = [{ id: "con_gh" }],
-) {
-  return orgConnectionsHandler(items.map(({ id }) => ({ id, type: "github" })))
-}
-
 export function githubInstallationReposHandler(
   repositories?: {
     name: string
