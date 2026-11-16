@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { ws } from "msw"
 import { expect } from "storybook/test"
 
 // A request that no MSW handler answers fails the story (the storybook
@@ -9,7 +10,8 @@ import { expect } from "storybook/test"
 //
 // This play proves the preview part in the real browser: an API request
 // with no handler is recorded and does not reach the network, and a static
-// asset goes to the network. At the end the play empties the record, so the
+// asset goes to the network. A WebSocket that no handler matches is recorded
+// and closed, also when the story mocks another socket. At the end the play empties the record, so the
 // story itself passes. Storybook reads stories from src only, so this
 // story is in src/lib with the other Testing stories (play-host).
 
@@ -30,6 +32,17 @@ export const RequestWithNoMockFails: Story = {
       purpose:
         "Test fixture that proves a request with no mock fails: one line of text, and the play sends the requests.",
     },
+    msw: {
+      handlers: {
+        // An unrelated socket mock: MSW then gives each socket to the `ws`
+        // handlers and does not call `onUnhandledRequest` for it.
+        socket: [
+          ws
+            .link(/\/api\/v1\/other-socket$/)
+            .addEventListener("connection", () => {}),
+        ],
+      },
+    },
     visual: {
       skip: "Behavior test: it ends on a test fixture, which the product does not render.",
     },
@@ -45,6 +58,13 @@ export const RequestWithNoMockFails: Story = {
     const font = await fetch("/fonts/Geist-Variable.woff2")
     await expect(font.ok).toBe(true)
     await expect(record).toHaveLength(1)
+    // A socket that no handler matches is recorded and closed with an error.
+    const socketUrl = `${window.location.origin.replace(/^http/, "ws")}/acme/api/v1/no-mock-socket`
+    const closed = await new Promise<CloseEvent>((resolve) => {
+      new WebSocket(socketUrl).addEventListener("close", resolve)
+    })
+    await expect(closed.code).toBe(1011)
+    await expect(record).toEqual([`GET ${url}`, `WS ${socketUrl}`])
     record?.splice(0)
   },
 }

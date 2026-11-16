@@ -1,6 +1,6 @@
 import type { Preview } from "@storybook/react-vite"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { HttpResponse, isCommonAssetRequest } from "msw"
+import { HttpResponse, isCommonAssetRequest, WebSocketHandler, ws } from "msw"
 import { getWorker, initialize, mswLoader } from "msw-storybook-addon"
 import { type ReactElement, Suspense, useMemo } from "react"
 
@@ -30,6 +30,26 @@ import "../src/styles.css"
 // under `/$orgSlug` reads them. Any handler of a story, in any key, comes
 // before them.
 const unhandledRequests: string[] = []
+// MSW calls `onUnhandledRequest` for a WebSocket only when no `ws` handler
+// exists. When a story has one, MSW gives each socket to the `ws` handlers,
+// also a socket that no handler matches. So this handler matches each
+// socket. It records a socket that no other `ws` handler matches, and
+// closes it with an error.
+const unhandledSocketHandler = ws
+  .link(/.*/)
+  .addEventListener("connection", ({ client }) => {
+    const handled = getWorker()
+      .listHandlers()
+      .some(
+        (handler) =>
+          handler !== unhandledSocketHandler &&
+          handler instanceof WebSocketHandler &&
+          handler.test(client.url),
+      )
+    if (handled) return
+    unhandledRequests.push(`WS ${client.url.href}`)
+    client.close(1011, "No mock answers this socket.")
+  })
 initialize(
   {
     onUnhandledRequest(request, print) {
@@ -46,7 +66,11 @@ initialize(
       throw HttpResponse.error()
     },
   },
-  [organizationFullWithOrgHandler, activeMemberRoleHandler("admin")],
+  [
+    organizationFullWithOrgHandler,
+    activeMemberRoleHandler("admin"),
+    unhandledSocketHandler,
+  ],
 )
 
 // The check runner (scripts/checks/README.md) records which MSW handlers
