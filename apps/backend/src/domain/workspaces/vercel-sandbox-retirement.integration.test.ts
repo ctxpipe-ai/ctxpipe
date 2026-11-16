@@ -1,5 +1,5 @@
 import { execFile, execFileSync } from "node:child_process"
-import { generateKeyPairSync, randomInt } from "node:crypto"
+import { randomInt } from "node:crypto"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -43,6 +43,11 @@ import {
   type SandboxInstanceRecord,
 } from "../../models/workspace-sandboxes.js"
 import { RUNTIME_ARN } from "../../test/agentcore-fake.js"
+import {
+  githubTokenHandlers,
+  insertGithubConnection,
+  stubGithubApp,
+} from "../../test/ingest-github.js"
 import { sweepConversationSandboxes } from "./conversation-sandbox-lifecycle.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 
@@ -226,26 +231,11 @@ const git = (cwd: string, ...args: string[]) =>
   execFileSync("git", args, { cwd, encoding: "utf8" }).trim()
 const BUCKET = "retired-test-bucket"
 
-/** A GitHub App that grants every token the fixture asks for. */
+/** The GitHub App: it grants every token, and the repository allows a push. */
 const githubApp = [
-  http.post(
-    `https://api.github.com/app/installations/${github.installationId}/access_tokens`,
-    async ({ request }) => {
-      const body = (await request.json().catch(() => ({}))) as {
-        permissions?: { contents?: string }
-      }
-      return HttpResponse.json(
-        {
-          token: "fixture-only-github-token",
-          expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
-          permissions: {
-            contents: body.permissions?.contents ?? "read",
-            metadata: "read",
-          },
-        },
-        { status: 201 },
-      )
-    },
+  ...githubTokenHandlers(
+    { minted: [], revoked: [] },
+    () => "fixture-only-github-token",
   ),
   http.get("https://api.github.com/repos/fixture/:repo", ({ params }) =>
     HttpResponse.json({
@@ -254,10 +244,6 @@ const githubApp = [
       default_branch: "main",
       permissions: { push: true },
     }),
-  ),
-  http.delete(
-    "https://api.github.com/installation/token",
-    () => new HttpResponse(null, { status: 204 }),
   ),
 ]
 
@@ -402,17 +388,13 @@ beforeAll(async () => {
     join(github.directory, "gitconfig"),
     `[url "${remote}"]\n\tinsteadOf = ${github.url}\n`,
   )
+  await insertGithubConnection({
+    orgId,
+    id: github.connectionId,
+    installationId: github.installationId,
+    accountSlug: "fixture",
+  })
   await withOrgDbContext(orgId, async (db) => {
-    await db.insert(connections).values({
-      id: github.connectionId,
-      orgId,
-      type: "github",
-      config: {
-        installationId: github.installationId,
-        ingestAllRepositories: false,
-        includeFutureRepos: false,
-      },
-    })
     await db.insert(workspaces).values({
       id: github.workspaceId,
       orgId,
@@ -441,8 +423,7 @@ beforeEach(() => {
   vi.stubEnv("AWS_SECRET_ACCESS_KEY", "fixture-only-secret-key")
   vi.stubEnv("AWS_PROFILE", undefined)
   vi.stubEnv("GIT_CONFIG_GLOBAL", join(github.directory, "gitconfig"))
-  vi.stubEnv("GITHUB_APP_ID", "12345")
-  vi.stubEnv("GITHUB_PRIVATE_KEY", GITHUB_PRIVATE_KEY)
+  stubGithubApp()
 })
 
 afterEach(async () => {
@@ -468,12 +449,6 @@ afterAll(async () => {
   await closeDb()
   initLogger({ enabled: false, env: { service: "ctxpipe-backend-test" } })
 })
-
-const GITHUB_PRIVATE_KEY = generateKeyPairSync("rsa", {
-  modulusLength: 2048,
-  privateKeyEncoding: { type: "pkcs8", format: "pem" },
-  publicKeyEncoding: { type: "spki", format: "pem" },
-}).privateKey
 
 const vercelRows = async () =>
   (await withOrgDbContext(orgId, () => listSandboxInstances({}))).filter(
@@ -809,22 +784,18 @@ describe("the sweep retires Vercel sandboxes (Postgres)", () => {
       status: 403,
     })
 
-    // Without the setting, a recent refused sandbox stays as before.
+    // Without the setting, a refused sandbox stays, also past its retention.
     vi.stubEnv("RETIRED_SANDBOX_STORE", undefined)
-    const recent = {
-      ...chat,
-      id: generateObjectId("sbx"),
-      lastHeartbeatAt: new Date(),
-    }
+    const unset = { ...chat, id: generateObjectId("sbx") }
     await withOrgDbContext(orgId, (db) =>
       db
         .delete(workspaceSandboxInstances)
         .where(eq(workspaceSandboxInstances.id, chat.id)),
     )
-    await persistSandboxInstance(recent)
+    await persistSandboxInstance(unset)
     await sweepConversationSandboxes(orgId, new Date())
     expect((await vercelRows()).map((item) => item.id).sort()).toEqual(
-      [base.id, recent.id].sort(),
+      [base.id, unset.id].sort(),
     )
 
     // The upload works again: the next sweep drains both.

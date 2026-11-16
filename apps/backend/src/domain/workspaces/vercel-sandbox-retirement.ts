@@ -7,6 +7,7 @@ import {
 } from "@aws-sdk/client-s3"
 import { APIError } from "@vercel/sandbox"
 
+import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
   deleteSandboxInstance,
@@ -17,7 +18,7 @@ import {
 import { log } from "../../observability/logger.js"
 import { CHAT_SANDBOX_RETENTION_MS } from "./chat-lifecycle.js"
 import { pushBeforeSandboxDelete } from "./conversation-branch-push.js"
-import { sandboxFileChunks, sandboxFileSize } from "./conversation-publish.js"
+import { sandboxFileChunks, sandboxFileSize } from "./job-sandbox.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
 import { withSandboxLockIfFree } from "./sandbox-lock-store.js"
 import {
@@ -57,9 +58,9 @@ export function retiresVercelRow(row: { provider?: string | null }): boolean {
  * `RETIRED_SANDBOX_STORE` (`s3://bucket/prefix`), the commits that no remote
  * has go there as a Git bundle, at
  * `<prefix>/<orgId>/<conversationId>/<row id>.bundle`, and then the sandbox
- * goes. Such a row stays while its bundle fails, also after its retention.
- * Without the setting (a self-hosted deployment), the row stays until its
- * retention ends, as for a push that must retry.
+ * goes. Such a row stays until its bundle is saved, also after its
+ * retention, so that no commit is lost. Without the setting (a self-hosted
+ * deployment), it stays.
  *
  * Returns the number of rows that stay, so that the sweep runs again soon.
  * The worker keeps `VERCEL_TOKEN` for this. The later change that removes
@@ -130,10 +131,12 @@ async function retire(
     await deleteRow(row)
     return "retired"
   }
-  const store = process.env.RETIRED_SANDBOX_STORE?.trim()
-  // Set only when the push refused the commits: then they are saved or the
-  // row stays.
-  let bundle: "saved" | "failed" | undefined
+  const store = parseEnv(
+    process.env as Record<string, string | undefined>,
+  ).RETIRED_SANDBOX_STORE
+  // Set only when the push refused the commits: the row stays until they
+  // are saved.
+  let refused: "saved" | "unsaved" | undefined
   const outcome = await withSandboxLockIfFree(
     row.orgId,
     `chat-thread:${conversationId}`,
@@ -147,24 +150,22 @@ async function retire(
               provider: "vercel",
               providerSandboxId: row.providerSandboxId,
               baseSha: row.revision.sha,
-              ...(store
-                ? {
-                    saveRefused: async (handle: JobSandboxHandle) => {
-                      const saved = await saveBundle(
-                        handle,
-                        store,
-                        `${row.orgId}/${conversationId}/${row.id}.bundle`,
-                      )
-                      bundle = saved ? "saved" : "failed"
-                      return saved
-                    },
-                  }
-                : {}),
+              saveRefused: async (handle) => {
+                const saved =
+                  store !== undefined &&
+                  (await saveBundle(
+                    handle,
+                    store,
+                    `${row.orgId}/${conversationId}/${row.id}.bundle`,
+                  ))
+                refused = saved ? "saved" : "unsaved"
+                return saved
+              },
             })
           : "done"
       if (
         pushed === "retry" &&
-        (bundle === "failed" ||
+        (refused === "unsaved" ||
           now.getTime() - row.lastHeartbeatAt.getTime() <
             CHAT_SANDBOX_RETENTION_MS)
       )
@@ -174,7 +175,7 @@ async function retire(
     },
   )
   if (outcome.busy || !outcome.value) return "kept"
-  return bundle === "saved" ? "bundled" : "retired"
+  return refused === "saved" ? "bundled" : "retired"
 }
 
 /**
@@ -186,35 +187,30 @@ async function retire(
  */
 async function saveBundle(
   handle: JobSandboxHandle,
-  store: string,
+  store: { bucket: string; prefix: string },
   name: string,
 ): Promise<boolean> {
   try {
-    const location = /^s3:\/\/([^/]+)\/(.+?)\/?$/.exec(store)
-    if (!location)
-      throw new Error(
-        "RETIRED_SANDBOX_STORE must have the form s3://bucket/prefix",
-      )
-    const [, bucket, prefix] = location
-    const run = (command: string) => handle.exec(command, { env: {} })
     const path = ".git/ctxpipe-retired.bundle"
-    const created = await run(
+    const created = await handle.exec(
       `git bundle create ${path} HEAD --branches --not --remotes`,
+      { env: {} },
     )
     if (created.exitCode !== 0) throw new Error("git bundle create failed")
     const chunks: Buffer[] = []
     for await (const chunk of sandboxFileChunks(
-      run,
+      handle.exec,
       path,
-      await sandboxFileSize(run, path),
+      await sandboxFileSize(handle.exec, path),
     ))
       chunks.push(chunk)
-    const body = Buffer.concat(chunks)
-    if (!/^# v[23] git bundle\n/.test(body.subarray(0, 32).toString("latin1")))
-      throw new Error("The sandbox wrote no Git bundle")
-    const key = `${prefix}/${name}`
+    const key = `${store.prefix}/${name}`
     await new S3Client({}).send(
-      new PutObjectCommand({ Bucket: bucket, Key: key, Body: body }),
+      new PutObjectCommand({
+        Bucket: store.bucket,
+        Key: key,
+        Body: Buffer.concat(chunks),
+      }),
     )
     log.info({
       step: "vercel-sandbox-retirement",

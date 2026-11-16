@@ -17,7 +17,6 @@ import {
   pushConversationSession,
   recordConversationPush,
   resolvePublishTarget,
-  type SessionPublishSkip,
   type SessionPushResult,
 } from "./conversation-publish.js"
 import { adaptTanstackHandle } from "./job-sandbox.js"
@@ -163,19 +162,6 @@ if [ -f "$T" ] && [ "$(sed -n 5p "$T")" != complete ]; then rm -f "$T"; fi
 true`
 
 /**
- * The push refuses these commits because of what they change. Only an agent
- * that rewrites the commits can change that, and a sandbox that the sweep
- * deletes runs no more turns.
- */
-const REFUSED_COMMITS = new Set<SessionPublishSkip>([
-  "host_only_field",
-  "outside_root",
-  "format_file",
-  "upgrade_needed",
-  "legacy_knowledge",
-])
-
-/**
  * Before the sweep deletes a conversation's sandbox, its committed but
  * unpushed work goes to the session branch; uncommitted files do not. A
  * rebase or a Workspace update in progress is stopped first. When the session
@@ -184,7 +170,8 @@ const REFUSED_COMMITS = new Set<SessionPublishSkip>([
  *
  * `retry`: a local branch still has commits that no remote has; keep the
  * sandbox for the next sweep. With `saveRefused`, commits that the push
- * refuses because of what they change go there instead.
+ * refuses because of what they change go there instead; `retry` when they
+ * are not saved.
  */
 export async function pushBeforeSandboxDelete(input: {
   orgId: string
@@ -229,8 +216,16 @@ export async function pushBeforeSandboxDelete(input: {
           baseSha: input.baseSha,
         })
         logPush(input.conversationId, pushed)
+        // The push refuses these commits because of what they change, and
+        // nothing outside the commits changes that. Only an agent that
+        // rewrites them can, and a sandbox that the sweep deletes runs no
+        // more turns. A Workspace upgrade (`upgrade_needed`) or a
+        // re-ingestion (`legacy_knowledge`) can make a later push work.
         refused =
-          pushed.status === "skipped" && REFUSED_COMMITS.has(pushed.reason)
+          pushed.status === "skipped" &&
+          ["host_only_field", "outside_root", "format_file"].includes(
+            pushed.reason,
+          )
       } else
         log.info({
           step: "conversation-branch-push",
