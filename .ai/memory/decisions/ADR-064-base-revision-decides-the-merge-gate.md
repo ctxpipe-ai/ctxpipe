@@ -23,3 +23,13 @@ The threat is a change to the gate that removes a check from the selection of it
 - A gate change that needs its own gate to pass cannot pass in its PR. Its run uses the base gate, or it is full.
 - A new pin is not tried on its own PR. When it fails after the merge, the select job fails, and the runs are full until a fix. The factory repo tests each release.
 - A check of a job-scoped `ci.yaml` change runs again on each push of its PR.
+
+## Revision 2026-11-16: fewer full runs, and no reuse after a definition change
+
+A PR that changed only the baseline of one policy check got a full run on each push. A full run costs about $1 more than a gated run. In 46.5 hours of PR runs, 7 of 23 full runs had only this cause.
+
+- **A data file of one check is a lane input.** A data file in `scripts/ci` is a gate input only when the listing, a runner or a prerequisite reads it. Else only its own check reads it, and the key of that check holds it. The selector then runs that check, and the stored passes of the other checks count. A test keeps each data file in its group.
+- **Some `ci.yaml` steps of jobs without checks do not give a full run.** No pull_request runs the nightly, trace, Results writer and layer cache jobs, so no PR run proves their steps, full or gated. Each PR run runs the steps of Migrations in the same way, so a gated run proves them. A changed line in the `steps` of these jobs is ignored like a comment. A change to another key, such as `if:`, gives the full run. A test evaluates the `if:` of each such job for a pull_request.
+- **`non-portable.json` gives a full run.** It decides which keys hold the platform. A removed id let a pass of another platform count for a check that the selector did not select.
+- **A change to a definition of checks keeps the full run, with no reuse.** The threat is a change to how checks or keys are defined that turns a failure into a stored pass of the old definition. A full run accepts no stored pass. A test walks the imports and reads of `list.mjs`, `run.mjs` and `selected.mjs`, and checks that each such file forces a full run, except the package files and a few files that each check that runs them holds in its key.
+- **Rejected for now: reuse in the families that a change does not define.** The full run of a family does not depend only on the listing of the PR (the inventory of `test-suite.mjs`, each story of the Storybook index, the fixed matrix of the image builds). A gated run of the changed family would run only the checks of the PR listing. Thus it could not prove that the change drops no check. The plan has one mode for each run. To reuse the passes of the other families, the gate needs a mode for each job, or a listing of the base revision from a job that runs no PR code.

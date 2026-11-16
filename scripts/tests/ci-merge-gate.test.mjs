@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
 } from "node:fs"
@@ -23,10 +24,13 @@ import {
   decideMode,
   describe,
   marker,
+  offPullRequestJobs,
+  sameInEachRunJobs,
   shadow,
   summary,
 } from "../checks/gate.mjs"
 import { suiteRecord } from "../checks/lanes.mjs"
+import { plan, readStore } from "../checks/plan.mjs"
 import { schemaErrors } from "../checks/schema.mjs"
 import {
   checkJobs,
@@ -49,10 +53,10 @@ const pinned = {
   acceptAgentResults: true,
 }
 
-// The files that list.mjs runs or imports at list time, from the static
-// import closure of list.mjs: a relative `from "x"` or `import("x")`, a script
-// that a `json("x")` call spawns, and a file that a `readFileSync(join(root, "x"))` read opens.
-function listTimeFiles() {
+// The files that a run of the start files imports, spawns or reads, from the
+// text of each module: each reference of `references` (below), and a script
+// that a `json("x")` call spawns.
+function closureOf(starts) {
   const seen = new Set()
   const visit = (file) => {
     if (seen.has(file)) return
@@ -60,14 +64,10 @@ function listTimeFiles() {
     if (!/\.(?:mjs|ts)$/.test(file)) return
     const text = readFileSync(join(root, file), "utf8")
     const found = [
-      ...[...text.matchAll(/(?:from\s+|import\()\s*["'](\.[^"']+)["']/g)].map(
-        (match) => relative(root, resolve(root, dirname(file), match[1])),
+      ...references(file),
+      ...[...text.matchAll(/json\(\s*["'`]([^"'`$]+)["'`]/g)].map(
+        (match) => match[1],
       ),
-      ...[
-        ...text.matchAll(
-          /(?:json\(|readFileSync\(\s*join\(root,\s*)"([^"]+\.(?:mjs|json))"/g,
-        ),
-      ].map((match) => match[1]),
     ]
     for (const path of found)
       for (const candidate of [path, `${path}.ts`, `${path}.mjs`])
@@ -76,34 +76,130 @@ function listTimeFiles() {
           break
         }
   }
-  visit("scripts/checks/list.mjs")
+  starts.forEach(visit)
   return [...seen]
 }
 
-test("a file that list.mjs runs outside scripts/checks forces a full run", () => {
-  const files = listTimeFiles()
+// The files that the listing or a runner reads and that stay lane inputs:
+// the key of each check that runs one holds it, so a change misses the stored
+// pass of that check.
+const keyedRunFiles = new Map([
+  [
+    "scripts/ci/check-test-report.mjs",
+    "an input of each lane whose runner checks its report with it",
+  ],
+  [
+    "packages/aws-cdk/scripts/stamp-image-tag.mjs",
+    "an input of each aws-cdk check that needs the image tag",
+  ],
+  [
+    "apps/backend/evals/mcp/baseline.json",
+    "the evals are stochastic: the store keeps no pass of them",
+  ],
+])
+
+test("a change to a file that lists, defines or runs checks gives a full run, which reuses no stored pass", () => {
+  const files = closureOf([
+    "scripts/checks/list.mjs",
+    "scripts/checks/run.mjs",
+    "scripts/checks/selected.mjs",
+  ]).filter((file) => /\.(?:mjs|ts|json)$/.test(file))
   // The walk finds the known files, so a broken walk cannot pass.
   for (const known of [
     "scripts/checks/families.mjs",
+    "scripts/checks/lanes.mjs",
+    "scripts/checks/storybook.mjs",
+    "scripts/checks/visual.mjs",
+    "scripts/checks/projects.mjs",
+    "scripts/checks/rerun-failed.mjs",
+    "scripts/checks/non-portable.json",
+    "scripts/ci/vitest-launch.mjs",
+    "scripts/ci/projects.json",
     "apps/backend/evals/mcp/cases.ts",
     "apps/ui/.storybook/check-modules.mjs",
     "apps/codesearch/scripts/run-vitest-contracts.mjs",
-    "scripts/ci/projects.json",
+    ...keyedRunFiles.keys(),
   ])
     assert.ok(files.includes(known), `walk reaches ${known}`)
-  const outside = files.filter((file) => !file.startsWith("scripts/checks/"))
-  for (const file of [...outside, ".npmrc"])
-    if (existsSync(join(root, file)))
-      assert.equal(
-        decideMode({
-          config: pinned,
-          event: "pull_request",
-          fork: false,
-          changed: [file],
-        }).mode,
-        "full",
-        file,
+  // A package file is a lane input of each check of its package
+  // (scripts/checks/README.md, Lanes).
+  for (const file of [
+    ...files.filter(
+      (file) => !keyedRunFiles.has(file) && !file.endsWith("package.json"),
+    ),
+    ".npmrc",
+  ])
+    assert.equal(
+      decideMode({
+        config: pinned,
+        event: "pull_request",
+        fork: false,
+        changed: [file],
+      }).mode,
+      "full",
+      file,
+    )
+  // A full run accepts no stored pass, also when the selector found one. Thus
+  // no pass of the old definition of a check counts.
+  const full = plan({
+    config: { ...pinned, mode: "gate" },
+    inputs: inputs({
+      "mode.json": {
+        mode: "full",
+        reason: "gate inputs changed: scripts/checks/visual.mjs",
+      },
+      "selection.json": selection(),
+    }),
+    needs: needs(),
+    store: readStore(undefined),
+  })
+  assert.equal(full.mode, "full")
+  assert.equal(full.hits, undefined)
+  assert.deepEqual(full.jobs, {})
+})
+
+test("a data file that only its own check reads is a lane input; one that the listing or a runner reads gives a full run", async () => {
+  const mode = (path) =>
+    decideMode({
+      config: pinned,
+      event: "pull_request",
+      fork: false,
+      changed: [path],
+    })
+  // The baseline of one policy check, and the exemptions of another.
+  for (const path of [
+    "scripts/ci/module-scope-values-baseline.json",
+    "scripts/ci/page-story-exemptions.json",
+  ])
+    assert.deepEqual(mode(path), { mode: "select", reason: "shadow" }, path)
+  const gateInput = (path) => {
+    const decided = mode(path)
+    return decided.mode === "full" || !!decided.gateInputs?.includes(path)
+  }
+  const { listProjects } = await import("../checks/projects.mjs")
+  const checks = listProjects()
+  const files = sources()
+  const data = readdirSync(join(root, "scripts/ci"))
+    .filter((name) => name.endsWith(".json"))
+    .map((name) => `scripts/ci/${name}`)
+  assert.ok(data.length >= 8, "the walk finds the data files")
+  for (const path of data) {
+    const readers = files.filter((file) => references(file).includes(path))
+    assert.ok(readers.length, `${path} has a reader`)
+    // A gate input reads it: the listing, a runner or a prerequisite.
+    const gated = readers.filter(gateInput)
+    assert.equal(gateInput(path), gated.length > 0, `${path}: ${gated}`)
+    if (gated.length) continue
+    // Else each check that reads it holds it in its key, so a change
+    // selects that check and misses its stored pass.
+    const own = checks.filter((check) => readers.includes(check.file))
+    assert.ok(own.length, `${path}: a check reads it`)
+    for (const check of own)
+      assert.ok(
+        check.inputs.some((input) => matchesGlob(path, input)),
+        `${check.id} holds ${path} in its key`,
       )
+  }
 })
 
 test("only a same-repo pull_request without gate input changes runs the selector", () => {
@@ -374,27 +470,32 @@ const workflowJob = (workflow, name) => {
   return workflow.slice(start, workflow.indexOf("\n\n  ", start + 1))
 }
 
+// The mode of a PR that changes ci.yaml from the committed text to `head`.
+// The hunks come from git, as in CI: `git diff -U0` of the two sides.
+const ciYaml = ".github/workflows/ci.yaml"
+function ciYamlMode(head, changed = [ciYaml]) {
+  const base = readFileSync(join(root, ciYaml), "utf8")
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-ci-yaml-"))
+  writeFileSync(join(directory, "base"), base)
+  writeFileSync(join(directory, "head"), head)
+  return decideMode({
+    config: pinned,
+    event: "pull_request",
+    fork: false,
+    changed,
+    read: (_, side) => (side === "base" ? base : head),
+    diff: () =>
+      spawnSync("git", ["diff", "--no-index", "-U0", "base", "head"], {
+        cwd: directory,
+        encoding: "utf8",
+      }).stdout,
+  })
+}
+
 test("a ci.yaml change only in the steps of check jobs runs the selector with those jobs", () => {
-  const path = ".github/workflows/ci.yaml"
+  const path = ciYaml
   const base = readFileSync(join(root, path), "utf8")
-  // The hunks come from git, as in CI: `git diff -U0` of the two sides.
-  const mode = (head, changed = [path]) => {
-    const directory = mkdtempSync(join(tmpdir(), "ctxpipe-ci-yaml-"))
-    writeFileSync(join(directory, "base"), base)
-    writeFileSync(join(directory, "head"), head)
-    return decideMode({
-      config: pinned,
-      event: "pull_request",
-      fork: false,
-      changed,
-      read: (_, side) => (side === "base" ? base : head),
-      diff: () =>
-        spawnSync("git", ["diff", "--no-index", "-U0", "base", "head"], {
-          cwd: directory,
-          encoding: "utf8",
-        }).stdout,
-    })
-  }
+  const mode = ciYamlMode
   const lintStep = base.replace(
     "      - name: Lint and policy output\n",
     "      - run: pnpm lint:extra\n      - name: Lint and policy output\n",
@@ -492,6 +593,95 @@ test("a ci.yaml change only in the steps of check jobs runs the selector with th
     mode: "full",
     reason: `gate inputs changed: ${path}, .github/actions/a/action.yml`,
   })
+})
+
+test("a ci.yaml change in the steps of Migrations or of a job that no pull_request runs keeps the selector", () => {
+  const base = readFileSync(join(root, ciYaml), "utf8")
+  // The workflow with one more step at the start of the steps of a job.
+  // A function gives the replacement: the job text holds `$'`.
+  const withStep = (text, job) => {
+    const before = workflowJob(text, job)
+    return text.replace(before, () =>
+      before.replace(/\n {4}steps:\n/, "\n    steps:\n      - run: true\n"),
+    )
+  }
+  for (const job of [
+    "migrate",
+    "results-writer",
+    "nightly-tickets",
+    "trace",
+    "layer-cache",
+  ])
+    assert.deepEqual(
+      ciYamlMode(withStep(base, job)),
+      { mode: "select", reason: "shadow" },
+      job,
+    )
+  // With a step of a check job, the checks of that job run without hits.
+  assert.deepEqual(ciYamlMode(withStep(withStep(base, "results-writer"), "lint")), {
+    mode: "select",
+    reason: "shadow",
+    jobs: ["lint"],
+  })
+  const full = { mode: "full", reason: `gate inputs changed: ${ciYaml}` }
+  // Another key of such a job: its `if:` decides whether a PR runs it.
+  const writer = workflowJob(base, "results-writer")
+  assert.deepEqual(
+    ciYamlMode(
+      base.replace(writer, () =>
+        writer.replace("always() && github.ref", "always() || github.ref"),
+      ),
+    ),
+    full,
+  )
+  // The steps of a gate job decide which checks run and which passes count,
+  // and only a full run runs the job Tests.
+  for (const job of ["merge-gate-manifest", "merge-gate-plan", "test"])
+    assert.deepEqual(ciYamlMode(withStep(base, job)), full, job)
+})
+
+// True when a job with this `if:` can run on a pull_request: the event is
+// pull_request, the ref is the merge ref, the outputs of a job that a
+// pull_request does not run are empty, and the other jobs succeeded.
+function runsOnPullRequest(condition) {
+  if (!condition) return true
+  const expression = condition
+    .replace(/\$\{\{|\}\}/g, "")
+    .replace(/\b(?:always|success)\(\)|!cancelled\(\)/g, "true")
+    .replace(/github\.event_name/g, "'pull_request'")
+    .replace(/github\.ref\b/g, "'refs/pull/1/merge'")
+    .replace(/needs\.([\w-]+)\.outputs\.[\w-]+/g, (_, job) =>
+      offPullRequestJobs.has(job) ? "''" : "'x'",
+    )
+    .replace(/needs\.([\w-]+)\.result/g, (_, job) =>
+      offPullRequestJobs.has(job) ? "'skipped'" : "'success'",
+    )
+    .replace(/([!=])=/g, "$1==")
+  assert.match(expression, /^[\s\w'/().&|!=[\]-]*$/, condition)
+  return Function(`return (${expression})`)()
+}
+
+test("a job whose steps a change may touch without a full run runs no check, and runs on no pull_request or alike in each mode", () => {
+  const workflow = readFileSync(join(root, ciYaml), "utf8")
+  const { jobs } = parseYaml(workflow)
+  // The evaluator reads each form of these conditions.
+  assert.equal(runsOnPullRequest(jobs.lint.if), true)
+  assert.equal(runsOnPullRequest(jobs["merge-gate-plan"].if), true)
+  for (const job of offPullRequestJobs) {
+    assert.ok(jobs[job], job)
+    assert.ok(!checkJobs.has(job), job)
+    assert.equal(runsOnPullRequest(jobs[job].if), false, job)
+  }
+  for (const job of sameInEachRunJobs) {
+    assert.ok(!checkJobs.has(job), job)
+    assert.equal(runsOnPullRequest(jobs[job].if), true, job)
+    // No step or condition depends on the mode or a lane of the gate.
+    assert.doesNotMatch(
+      workflowJob(workflow, job),
+      /merge-gate|matrix\./,
+      job,
+    )
+  }
 })
 
 test("each mode or lane condition of a check job has a form that the full-run rule reads", () => {

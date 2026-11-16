@@ -86,9 +86,29 @@ export function stepResults(jobs) {
   return results
 }
 
+// The jobs of ci.yaml that run no check, and whose `steps` a change can touch
+// without a full run. A pull_request never runs the first ones, so no PR
+// run, full or gated, runs their steps. Each PR run runs the steps of the
+// others in the same way, so a gated run proves the change. A change to any
+// other key of these jobs, such as `if:`, still gives the full run. A test
+// keeps each job in its group.
+export const offPullRequestJobs = new Set([
+  "nightly-change",
+  "trace",
+  "project-checks",
+  "layer-cache",
+  "nightly-plan",
+  "results-writer",
+  "non-portable-checks",
+  "nightly-tickets",
+  "unstable-screenshots",
+])
+export const sameInEachRunJobs = new Set(["migrate"])
+
 // The job of line i of ci.yaml when the line is in the `steps` of a job that
 // a manifest check runs in (or in the Storybook build job, which they need);
-// null for a blank or comment line; else undefined. A step or a job that
+// null for a blank or comment line, or for a line in the `steps` of a job
+// without checks above; else undefined. A step or a job that
 // only a full run uses (its `if:` needs `mode != 'gate'` or a matrix lane
 // other than `selected`) is undefined too: a gated run does not run it, so
 // only a full run can prove its change. It reads the indents of the
@@ -106,13 +126,10 @@ function jobOf(lines, i) {
       job ??= name
       header ??= j
     } else if (indent.length === 0) {
-      if (
-        name !== "jobs" ||
-        !job ||
-        key !== "steps" ||
-        !(checkJobs.has(job) || job === "storybook-build")
-      )
-        return undefined
+      if (name !== "jobs" || !job || key !== "steps") return undefined
+      if (offPullRequestJobs.has(job) || sameInEachRunJobs.has(job))
+        return null
+      if (!(checkJobs.has(job) || job === "storybook-build")) return undefined
       break
     }
   }
@@ -171,6 +188,9 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
   // list complete). Package files and the lockfile are lane inputs that the
   // selector reads, not gate inputs. Other workflows, Markdown files and
   // .node-version are lane inputs too, and the toolchain is part of each key.
+  // A data file in scripts/ci is a gate input only when the listing, a runner
+  // or a prerequisite reads it. Else only its own check reads it, and the key
+  // of that check holds it (a test keeps both true).
   // The run is full, except for the inputs that the base revision decides
   // and a ci.yaml change in the steps of check jobs.
   let inputs = changed.filter((path) =>
@@ -178,9 +198,9 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
       /^\.github\/workflows\/ci\.yaml$/,
       /^\.github\/actions\//,
       /^\.github\/merge-gate\.json$/,
-      /^scripts\/checks\/(?:schema\/[^/]+\.json|[^/]+\.mjs)$/,
+      /^scripts\/checks\/(?:schema\/[^/]+\.json|[^/]+\.(?:mjs|json))$/,
       /^scripts\/ci\/(?:vitest-launch|test-suite|graph-ready|prerequisites|storybook-play)\.mjs$/,
-      /^scripts\/ci\/[^/]+\.json$/,
+      /^scripts\/ci\/(?:contracts|projects|service-pins|test-weights|visual-container|visual-unstable-stories)\.json$/,
       /^\.npmrc$/,
       /^patches\//,
       /^apps\/backend\/evals\/mcp\/(?:cases|gate)\.ts$/,
