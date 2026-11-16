@@ -25,25 +25,29 @@
 // full page.
 
 // The padding around the component, in pixels.
-export const padding = 16
+const padding = 16
 
 // Runs in the page. Returns the box of each part that the story and its
 // overlays paint, in page coordinates (`{ x, y, width, height }`).
 export function storyBoxes() {
   const root = document.getElementById("storybook-root")
   const decorator = root?.firstElementChild
-  const backdrop = decorator
+  const decoratorBackground = decorator
     ? getComputedStyle(decorator).backgroundColor
     : "rgba(0, 0, 0, 0)"
   const transparent = (color) => /^rgba\(.*, 0\)$|^transparent$/.test(color)
   const replaced = /^(IMG|SVG|CANVAS|VIDEO|INPUT|TEXTAREA|SELECT|IFRAME|PROGRESS|METER)$/i
   const boxes = []
-  // Adds the part of `box` (a DOMRect) inside `clip` (null: no clip).
+  // The part of `box` inside `clip` (null: no clip).
+  const intersect = (box, clip) => ({
+    left: Math.max(box.left, clip?.left ?? -Infinity),
+    top: Math.max(box.top, clip?.top ?? -Infinity),
+    right: Math.min(box.right, clip?.right ?? Infinity),
+    bottom: Math.min(box.bottom, clip?.bottom ?? Infinity),
+  })
+  // Adds the part of `box` (a DOMRect) inside `clip`.
   const add = (box, clip) => {
-    const left = Math.max(box.left, clip?.left ?? -Infinity)
-    const top = Math.max(box.top, clip?.top ?? -Infinity)
-    const right = Math.min(box.right, clip?.right ?? Infinity)
-    const bottom = Math.min(box.bottom, clip?.bottom ?? Infinity)
+    const { left, top, right, bottom } = intersect(box, clip)
     if (right - left > 1 && bottom - top > 1)
       boxes.push({
         x: left + window.scrollX,
@@ -55,7 +59,7 @@ export function storyBoxes() {
   const paints = (element, style) =>
     replaced.test(element.tagName) ||
     (!transparent(style.backgroundColor) &&
-      style.backgroundColor !== backdrop) ||
+      style.backgroundColor !== decoratorBackground) ||
     style.backgroundImage !== "none" ||
     style.boxShadow !== "none" ||
     ["Top", "Right", "Bottom", "Left"].some(
@@ -72,21 +76,19 @@ export function storyBoxes() {
     const visible = style.visibility === "visible"
     if (visible && paints(element, style)) add(box, clip)
     if (replaced.test(element.tagName)) return
+    // The clip of the content: an element that clips its content (a
+    // truncated text, a scroll pane) clips its text and its children to its
+    // own box.
+    const inner =
+      style.overflowX === "visible" && style.overflowY === "visible"
+        ? clip
+        : intersect(box, clip)
     for (const node of element.childNodes)
       if (visible && node.nodeType === Node.TEXT_NODE && node.data.trim()) {
         const range = document.createRange()
         range.selectNodeContents(node)
-        add(range.getBoundingClientRect(), clip)
+        add(range.getBoundingClientRect(), inner)
       }
-    const inner =
-      style.overflowX === "visible" && style.overflowY === "visible"
-        ? clip
-        : {
-            left: Math.max(box.left, clip?.left ?? -Infinity),
-            top: Math.max(box.top, clip?.top ?? -Infinity),
-            right: Math.min(box.right, clip?.right ?? Infinity),
-            bottom: Math.min(box.bottom, clip?.bottom ?? Infinity),
-          }
     for (const child of element.children) visit(child, inner)
   }
   for (const child of decorator?.children ?? []) visit(child, null)

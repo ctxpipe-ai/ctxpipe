@@ -67,18 +67,24 @@ export const viewports = {
 }
 
 // Takes shots until two shots in a row are the same, and at most 6 shots.
+// `shoot()` gives `{ png, area }`: the PNG and the area of the page that it
+// shows. Two shots are the same when both the PNG and the area are the same,
+// so a component that moves with no other change is not steady.
 // After a shot that differs, it waits for `pause()`, so that a slow change (a
 // scroll that eases to its end) can end. A page that still changes after the
-// last shot is not steady; its last shot is returned.
+// last shot is not steady; the PNG of its last shot is returned.
 export async function shootUntilSteady(shoot, pause) {
+  const same = (one, other) =>
+    one.png.equals(other.png) &&
+    JSON.stringify(one.area) === JSON.stringify(other.area)
   let previous = await shoot()
   for (let shot = 2; shot <= 6; shot++) {
     if (shot > 2) await pause()
-    const png = await shoot()
-    if (png.equals(previous)) return { steady: true, png }
-    previous = png
+    const next = await shoot()
+    if (same(next, previous)) return { steady: true, png: next.png }
+    previous = next
   }
-  return { steady: false, png: previous }
+  return { steady: false, png: previous.png }
 }
 
 // The key of one screenshot of a story: the story id, and `@<name>` for a
@@ -99,28 +105,29 @@ async function takeShot(page, { masks = [], kind }, out, key) {
     // checks continue.
     const restore = await growToContent(page)
     const style = maskStyle(masks)
-    const { steady, png } = await shootUntilSteady(
-      async () =>
-        page.screenshot({
-          type: "png",
-          fullPage: true,
-          // The full page keeps the width of the viewport: content that runs
-          // out at the side stays out of the shot, as in the viewport. A
-          // component story shows only its component (visual-component-box.mjs).
-          // The area is measured again for each shot, so a layout that still
-          // moves gives a shot that differs.
-          clip: (kind === "component" && (await componentArea(page))) || {
-            x: 0,
-            y: 0,
-            width: page.viewportSize().width,
-            height: maxHeight,
-          },
-          style,
-          // Ends a finite Web Animation and resets an infinite one, which
-          // the style sheet of the runner does not stop. Before a named
-          // snapshot, it also stops the CSS animations and transitions.
-          animations: "disabled",
-        }),
+    const { steady, png } = await shootUntilSteady(async () => {
+      // The full page keeps the width of the viewport: content that runs
+      // out at the side stays out of the shot, as in the viewport. A
+      // component story shows only its component (visual-component-box.mjs).
+      // The area is measured again for each shot.
+      const area = (kind === "component" && (await componentArea(page))) || {
+        x: 0,
+        y: 0,
+        width: page.viewportSize().width,
+        height: maxHeight,
+      }
+      const shot = await page.screenshot({
+        type: "png",
+        fullPage: true,
+        clip: area,
+        style,
+        // Ends a finite Web Animation and resets an infinite one, which
+        // the style sheet of the runner does not stop. Before a named
+        // snapshot, it also stops the CSS animations and transitions.
+        animations: "disabled",
+      })
+      return { png: shot, area }
+    },
       () => page.waitForTimeout(250),
     )
     await restore()
@@ -350,18 +357,41 @@ export async function capturePlan(ids) {
   )
   const { loadCsf } = await csfTools()
   const options = visualOptions(stories, loadCsf)
-  // The kind of each story (parameters.review.kind), by story id.
-  const kinds = new Map()
-  for (const importPath of new Set(stories.map((story) => story.importPath))) {
+  const reviews = storyReviews(stories, loadCsf)
+  return ids.map((id) => ({
+    ...options.get(id),
+    kind: reviews.get(id)?.kind,
+    id,
+  }))
+}
+
+// The review annotations of each story (`parameters.review`, storiesOf in
+// packages/visual-review/src/story-tags.ts), by story id: its Storybook name,
+// its kind and its purpose. The capture crops a component story by its
+// kind, and the critic reads all three from the manifest.
+export function storyReviews(stories, loadCsf) {
+  const reviews = new Map()
+  for (const [importPath, inFile] of Map.groupBy(
+    stories,
+    (story) => story.importPath,
+  )) {
     const file = join("apps/ui", importPath)
-    const tags = storiesOf(loadCsf, file, readFileSync(join(root, file), "utf8"))
-    for (const story of stories.filter((entry) => entry.importPath === importPath))
-      kinds.set(
-        story.id,
-        tags.find((tag) => tag.name === story.exportName)?.kind,
-      )
+    const tags = storiesOf(
+      loadCsf,
+      file,
+      readFileSync(join(root, file), "utf8"),
+    )
+    for (const story of inFile) {
+      const tag = tags.find(({ name }) => name === story.exportName)
+      if (tag)
+        reviews.set(story.id, {
+          name: tag.storybookName,
+          kind: tag.kind,
+          purpose: tag.purpose,
+        })
+    }
   }
-  return ids.map((id) => ({ ...options.get(id), kind: kinds.get(id), id }))
+  return reviews
 }
 
 // The number of capture containers that run at the same time. One container
