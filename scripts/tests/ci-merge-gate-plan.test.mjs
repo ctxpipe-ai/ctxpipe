@@ -936,6 +936,17 @@ test("the PR comment counts by family the selected checks that no store had a pa
     .decision
   assert.deepEqual(none.noStoredPass, {})
   assert.ok(!text(none).includes("No stored pass"), text(none))
+  // Without the shared store, the author's run is not the cause.
+  const offline = {
+    ...decision,
+    selection: { ...decision.selection, shared: false },
+  }
+  assert.ok(
+    text(offline).includes(
+      "**No stored pass:** vitest 2. The shared result store did not answer, so CI ran these selected checks.",
+    ),
+    text(offline),
+  )
 })
 
 test("the verdict line names each failed check and always-run job in full", () => {

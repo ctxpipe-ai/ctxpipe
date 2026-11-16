@@ -969,8 +969,8 @@ export function gateDecision({
     }))
   const next = nextStore({ store, selection, ran, contradictions, run, now })
   // The selected checks with a key and no stored pass in any store, by
-  // family (the first part of the id): the author's `factory check` did not
-  // store them. A check without a key (uncacheable by design) is not a miss.
+  // family (the first part of the id). A `jobs` or `quarantined` miss had a
+  // stored pass that this run did not accept (withJobChecks, withStoreHits).
   const noStoredPass = {}
   for (const miss of selection.cache?.misses ?? [])
     if (!["jobs", "quarantined"].includes(miss.mode)) {
@@ -1121,13 +1121,17 @@ export function gateText(
     `**Cache hits:** ${["ci", "pr", "agent"].map((k) => `${k} ${classes[k] ?? 0}`).join(", ")} of ${s.counts.selected} selected checks.`,
   )
   // A CI miss must be visible: a selected check with a key and no stored pass.
-  const noPass = Object.entries(decision.noStoredPass ?? {}).sort(([a], [b]) =>
+  const noPass = Object.entries(decision.noStoredPass).sort(([a], [b]) =>
     a.localeCompare(b),
   )
   if (noPass.length)
     lines.push(
       "",
-      `**No stored pass:** ${noPass.map(([family, count]) => `${family} ${count}`).join(", ")}. The author's \`factory check\` did not store a pass with the key of CI for these selected checks, so CI ran them.`,
+      `**No stored pass:** ${noPass.map(([family, count]) => `${family} ${count}`).join(", ")}. ${
+        s.shared
+          ? "The author's `factory check` did not store a pass with the key of CI for these selected checks, so CI ran them."
+          : "The shared result store did not answer, so CI ran these selected checks."
+      }`,
     )
   lines.push(
     "",
