@@ -35,8 +35,8 @@ test("stories with a kind (own or of the meta) and their own purpose pass", () =
   const result = check({
     "Card.stories.tsx": storyFile(
       `{ review: { kind: "component" } }`,
-      `export const Empty = { parameters: { review: { purpose: "Workspace card with no sources yet." } } }
-export const Page = { parameters: { review: { kind: "page", purpose: "Org home page of a member with two Workspaces." } } }`,
+      `export const Empty = { parameters: { review: { purpose: "Workspace card, where a member opens a Workspace: the Workspace has no sources yet." } } }
+export const Page = { parameters: { review: { kind: "page", purpose: "Org home page, where a member picks up recent work: the member opened Home and has two Workspaces." } } }`,
     ),
   })
   assert.equal(result.status, 0, result.stderr)
@@ -47,7 +47,7 @@ test("a story with no kind, or with no purpose of its own, fails", () => {
   const result = check({
     "Card.stories.tsx": storyFile(
       `{ review: { purpose: "A purpose of the meta does not count." } }`,
-      `export const Empty = { parameters: { review: { purpose: "Workspace card with no sources yet." } } }
+      `export const Empty = { parameters: { review: { purpose: "Workspace card, where a member opens a Workspace: the Workspace has no sources yet." } } }
 export const Loading = { parameters: { review: { kind: "component" } } }`,
     ),
   })
@@ -66,7 +66,7 @@ test("a kind that is not page or component, and a purpose that is not a sentence
       "{}",
       `export const Dialog = { parameters: { review: { kind: "dialog", purpose: "Delete dialog of a Workspace, open." } } }
 export const Vague = { parameters: { review: { kind: "component", purpose: "Shows the card." } } }
-export const Long = { parameters: { review: { kind: "component", purpose: "${"A".repeat(201)}" } } }
+export const Long = { parameters: { review: { kind: "component", purpose: "Workspace card: ${"a".repeat(240)}" } } }
 const text = "Workspace card."
 export const NotLiteral = { parameters: { review: { kind: "component", purpose: text } } }`,
     ),
@@ -79,4 +79,26 @@ export const NotLiteral = { parameters: { review: { kind: "component", purpose: 
     result.stderr,
     /story "NotLiteral" has no parameters\.review\.purpose/,
   )
+})
+
+test("a purpose names the UI and its use, then the state, and does not describe the story", () => {
+  const ui = "Workspace card, where a member opens a Workspace"
+  const result = check({
+    "Card.stories.tsx": storyFile(
+      `{ review: { kind: "component" } }`,
+      `export const Short = { parameters: { review: { purpose: "Workspace card: empty." } } }
+export const NoState = { parameters: { review: { purpose: "${ui} and sees its sources and its last sync time." } } }
+export const NoUi = { parameters: { review: { purpose: ": the Workspace has no sources yet, and the member can add one." } } }
+export const Displays = { parameters: { review: { purpose: "Displays the ${ui}: the Workspace has no sources yet." } } }
+export const ThisStory = { parameters: { review: { purpose: "This story is the ${ui}: the Workspace has no sources yet." } } }
+export const Longest = { parameters: { review: { purpose: "${ui}: ${"a".repeat(240 - ui.length - 2)}" } } }`,
+    ),
+  })
+  assert.equal(result.status, 1)
+  for (const name of ["Short", "NoState", "NoUi", "Displays", "ThisStory"])
+    assert.match(
+      result.stderr,
+      new RegExp(`story "${name}": parameters\\.review\\.purpose must`),
+    )
+  assert.doesNotMatch(result.stderr, /"Longest"/)
 })
