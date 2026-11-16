@@ -25,6 +25,8 @@ An AWS preview of a pull request (`https://pr-<N>.ctxpipe.dev`) comes from the f
 
 The command starts the factory `preview.yml` run at once. The run makes the task group and the clone of the production database. At the same time, the command builds the images whose inputs changed since main's last deploy (main's `scripts/ci/preview-images.mjs` decides), copies main's images for the others, and pushes them to the preview account. The run waits for the images, then migrates and starts the services. Each output line has the time since the start. `factory preview down <N>` deletes the preview. Details: the factory CLI README, "Previews".
 
+Only a pull request from ctxpipe-ai/ctxpipe itself into `main` gets a preview: `factory preview up` and the preview workflow refuse a PR from a fork before they build, push or clone anything. The [target guard](run-setup.md#target-guard) of this sweep does not admit `pr-<N>.ctxpipe.dev` yet ([CTX-1352](https://linear.app/ctxpipe/issue/CTX-1352)).
+
 ## 1. Collect inputs
 
 | Input | Example |
