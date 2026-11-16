@@ -1,0 +1,79 @@
+# One-time cleanup (CTX-1313). The Railway PR previews pushed images to GHCR
+# with tags `pr-<N>-<sha>`, and their teardown deleted them. The previews are
+# gone (Railway removed; AWS previews push to the preview account's ECR), so
+# nothing deletes the old tags. This workflow deletes them once.
+#
+# - It deletes a version of backend, worker, ui or codesearch only when the
+#   version has tags and each tag matches `^pr-[0-9]+-`. It keeps each version
+#   that has another tag too (`latest`, a commit sha), and each untagged
+#   version.
+# - `dry_run` (default true) deletes nothing. It writes the id and the tags of
+#   each version to delete to the log, and the counts to the summary.
+# - The GITHUB_TOKEN can make about 1,000 API calls per hour. The job waits
+#   for the reset when few calls are left.
+# - Remove this file after the cleanup.
+name: GHCR prune PR preview tags
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: List and count only; delete nothing.
+        type: boolean
+        default: true
+
+permissions: {}
+
+jobs:
+  prune:
+    timeout-minutes: 330
+    permissions:
+      packages: write
+    # github-hosted: only API calls; it waits for the rate limit reset for hours (ADR-065)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Delete the versions whose every tag is a PR preview tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORG: ${{ github.repository_owner }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          pr_tag='^pr-[0-9]+-'
+          wait_for_calls() {
+            local remaining reset
+            read -r remaining reset < <(gh api rate_limit --jq '.resources.core | "\(.remaining) \(.reset)"')
+            if (( remaining < 50 )); then
+              echo "Rate limit: $remaining calls left; waiting until $(date -u -d "@$reset")"
+              sleep $(( reset - $(date +%s) + 5 ))
+            fi
+          }
+          {
+            echo "| Package | Versions | To delete | Kept with a PR tag and another tag | Deleted |"
+            echo "| --- | --- | --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for package in backend worker ui codesearch; do
+            versions="$RUNNER_TEMP/$package.json"
+            wait_for_calls
+            gh api --paginate "/orgs/$ORG/packages/container/$package/versions?per_page=100" \
+              --jq '.[] | {id, tags: .metadata.container.tags}' > "$versions"
+            total=$(jq -s 'length' "$versions")
+            jq -c --arg re "$pr_tag" 'select((.tags | length) > 0 and all(.tags[]; test($re)))' \
+              "$versions" > "$RUNNER_TEMP/$package.matched"
+            matched=$(wc -l < "$RUNNER_TEMP/$package.matched")
+            mixed=$(jq -s --arg re "$pr_tag" '[.[] | select(any(.tags[]; test($re)) and any(.tags[]; test($re) | not))] | length' "$versions")
+            echo "::group::$package: $matched versions to delete"
+            jq -r '"\(.id) \(.tags | join(","))"' "$RUNNER_TEMP/$package.matched"
+            echo "::endgroup::"
+            deleted=0
+            if [[ $DRY_RUN != true ]]; then
+              while read -r id; do
+                if (( deleted % 25 == 0 )); then wait_for_calls; fi
+                gh api --silent -X DELETE "/orgs/$ORG/packages/container/$package/versions/$id"
+                # Stay below the secondary rate limit of GitHub.
+                sleep 1
+                deleted=$(( deleted + 1 ))
+              done < <(jq -r '.id' "$RUNNER_TEMP/$package.matched")
+            fi
+            echo "| $package | $total | $matched | $mixed | $deleted |" >> "$GITHUB_STEP_SUMMARY"
+          done
