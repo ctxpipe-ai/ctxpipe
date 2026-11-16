@@ -20,8 +20,15 @@ export class ProviderError extends Error {
 /** The class of a provider failure: ProviderError's kind, a timeout, the HTTP status of an AWS SDK error, else `error`. */
 export function errorClass(err: unknown): string {
   if (err instanceof ProviderError) return err.kind
-  if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) return "timeout"
-  const status = isRecord(err) && isRecord(err.$metadata) ? err.$metadata.httpStatusCode : undefined
+  if (
+    err instanceof Error &&
+    (err.name === "TimeoutError" || err.name === "AbortError")
+  )
+    return "timeout"
+  const status =
+    isRecord(err) && isRecord(err.$metadata)
+      ? err.$metadata.httpStatusCode
+      : undefined
   if (typeof status === "number") return httpClass(status)
   return "error"
 }
@@ -36,23 +43,45 @@ export function requiredEnv(name: string): string {
   return value
 }
 
-export async function getJson(url: string, init: RequestInit, label: string): Promise<unknown> {
-  const response = await fetch(url, { ...init, signal: init.signal ?? AbortSignal.timeout(30_000) })
+export async function getJson(
+  url: string,
+  init: RequestInit,
+  label: string,
+): Promise<unknown> {
+  const response = await fetch(url, {
+    ...init,
+    signal: init.signal ?? AbortSignal.timeout(30_000),
+  })
   const text = await response.text()
-  if (!response.ok) throw new ProviderError(httpClass(response.status), `${label} HTTP ${response.status}: ${text.slice(0, 500)}`)
+  if (!response.ok)
+    throw new ProviderError(
+      httpClass(response.status),
+      `${label} HTTP ${response.status}: ${text.slice(0, 500)}`,
+    )
   try {
     const body: unknown = JSON.parse(text)
     return body
   } catch {
-    throw new ProviderError("parse", `${label} HTTP ${response.status}: ${text.slice(0, 500)}`)
+    throw new ProviderError(
+      "parse",
+      `${label} HTTP ${response.status}: ${text.slice(0, 500)}`,
+    )
   }
 }
 
 /** Throws the messages of a GraphQL `errors` array, if the body has one. */
-export function throwGraphqlErrors(body: Record<string, unknown>, label: string): void {
+export function throwGraphqlErrors(
+  body: Record<string, unknown>,
+  label: string,
+): void {
   if (!Array.isArray(body.errors) || body.errors.length === 0) return
-  const messages = body.errors.flatMap((error) => (isRecord(error) && typeof error.message === "string" ? [error.message] : []))
-  throw new ProviderError("graphql", messages.join("; ") || `${label} response had errors`)
+  const messages = body.errors.flatMap((error) =>
+    isRecord(error) && typeof error.message === "string" ? [error.message] : [],
+  )
+  throw new ProviderError(
+    "graphql",
+    messages.join("; ") || `${label} response had errors`,
+  )
 }
 
 /**

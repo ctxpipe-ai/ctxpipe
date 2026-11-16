@@ -1,4 +1,8 @@
-import { GetSecretValueCommand, SecretsManagerClient } from "@aws-sdk/client-secrets-manager"
+import {
+  GetSecretValueCommand,
+  SecretsManagerClient,
+} from "@aws-sdk/client-secrets-manager"
+
 import { fetchHandler, ProviderError } from "./http"
 
 // The provider inputs. Each comes from its env var (local runs and tests), else, in the ECS task, from the secret
@@ -23,10 +27,18 @@ let loaded = new Map<string, string | ProviderError>()
 export async function loadProviderInputs(): Promise<string[]> {
   loaded = new Map()
   const names = INPUTS.filter((name) => !process.env[name]?.trim())
-  if (!process.env.ECS_CONTAINER_METADATA_URI_V4 || names.length === 0) return []
-  const client = new SecretsManagerClient({ region: process.env.AWS_REGION?.trim() || "us-west-2", requestHandler: fetchHandler() })
+  if (!process.env.ECS_CONTAINER_METADATA_URI_V4 || names.length === 0)
+    return []
+  const client = new SecretsManagerClient({
+    region: process.env.AWS_REGION?.trim() || "us-west-2",
+    requestHandler: fetchHandler(),
+  })
   try {
-    await Promise.all(names.map(async (name) => loaded.set(name, await read(client, `cost-telemetry/${name}`, name))))
+    await Promise.all(
+      names.map(async (name) =>
+        loaded.set(name, await read(client, `cost-telemetry/${name}`, name)),
+      ),
+    )
   } finally {
     client.destroy()
   }
@@ -36,16 +48,34 @@ export async function loadProviderInputs(): Promise<string[]> {
   })
 }
 
-async function read(client: SecretsManagerClient, secretId: string, name: string): Promise<string | ProviderError> {
+async function read(
+  client: SecretsManagerClient,
+  secretId: string,
+  name: string,
+): Promise<string | ProviderError> {
   try {
-    const value = (await client.send(new GetSecretValueCommand({ SecretId: secretId }))).SecretString?.trim()
-    return value || new ProviderError("missing_env", `${name} has no value in Secrets Manager`)
+    const value = (
+      await client.send(new GetSecretValueCommand({ SecretId: secretId }))
+    ).SecretString?.trim()
+    return (
+      value ||
+      new ProviderError(
+        "missing_env",
+        `${name} has no value in Secrets Manager`,
+      )
+    )
   } catch (err) {
     // A secret that does not exist, or that has no AWSCURRENT version, is missing.
     if (err instanceof Error && err.name === "ResourceNotFoundException") {
-      return new ProviderError("missing_env", `${name} is not in Secrets Manager`)
+      return new ProviderError(
+        "missing_env",
+        `${name} is not in Secrets Manager`,
+      )
     }
-    return new ProviderError("secret_read", `${name} could not be read from Secrets Manager`)
+    return new ProviderError(
+      "secret_read",
+      `${name} could not be read from Secrets Manager`,
+    )
   }
 }
 

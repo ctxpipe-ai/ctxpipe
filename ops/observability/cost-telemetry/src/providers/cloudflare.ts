@@ -1,6 +1,6 @@
 import { getJson, isRecord, ProviderError, throwGraphqlErrors } from "../http"
-import { providerInput } from "../secrets"
 import { sumRows, type CostRow } from "../rows"
+import { providerInput } from "../secrets"
 
 const classA = new Set([
   "ListBuckets",
@@ -29,7 +29,11 @@ const classB = new Set([
   "GetBucketCors",
   "GetBucketLifecycleConfiguration",
 ])
-const freeOperations = new Set(["DeleteObject", "DeleteBucket", "AbortMultipartUpload"])
+const freeOperations = new Set([
+  "DeleteObject",
+  "DeleteBucket",
+  "AbortMultipartUpload",
+])
 
 const QUERY = `query R2Cost($accountTag: string!, $start: Date!, $end: Date!) {
       viewer {
@@ -74,24 +78,44 @@ export async function rows(days: string[]): Promise<CostRow[]> {
   return [...charges, ...usage]
 }
 
-async function chargeRows(accountId: string, headers: Record<string, string>, wanted: Set<string>): Promise<CostRow[]> {
+async function chargeRows(
+  accountId: string,
+  headers: Record<string, string>,
+  wanted: Set<string>,
+): Promise<CostRow[]> {
   const mapped: CostRow[] = []
   for (let page = 1; ; page += 1) {
-    if (page > 100) throw new ProviderError("parse", "Cloudflare billing history has more than 100 pages")
+    if (page > 100)
+      throw new ProviderError(
+        "parse",
+        "Cloudflare billing history has more than 100 pages",
+      )
     const body = await getJson(
       `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/billing/history?page=${page}`,
       { headers },
       "Cloudflare billing history",
     )
-    if (!isRecord(body) || !Array.isArray(body.result)) throw new ProviderError("parse", "Cloudflare billing history response was missing result")
+    if (!isRecord(body) || !Array.isArray(body.result))
+      throw new ProviderError(
+        "parse",
+        "Cloudflare billing history response was missing result",
+      )
     for (const item of body.result) {
       if (!isRecord(item) || item.type !== "charge") continue
-      if (typeof item.id !== "string" || typeof item.occurred_at !== "string") continue
-      if (typeof item.amount !== "number" || !Number.isFinite(item.amount)) continue
+      if (typeof item.id !== "string" || typeof item.occurred_at !== "string")
+        continue
+      if (typeof item.amount !== "number" || !Number.isFinite(item.amount))
+        continue
       const day = item.occurred_at.slice(0, 10)
       if (!wanted.has(day)) continue
-      if (item.currency !== "USD") throw new ProviderError("currency", `Cloudflare charge ${item.id} is in ${String(item.currency)}, not USD`)
-      const label = [item.description, item.action].find((value) => typeof value === "string" && value)
+      if (item.currency !== "USD")
+        throw new ProviderError(
+          "currency",
+          `Cloudflare charge ${item.id} is in ${String(item.currency)}, not USD`,
+        )
+      const label = [item.description, item.action].find(
+        (value) => typeof value === "string" && value,
+      )
       mapped.push({
         day,
         provider: "cloudflare",
@@ -126,63 +150,134 @@ async function r2Rows(
     {
       method: "POST",
       headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ query: QUERY, variables: { accountTag: accountId, start, end } }),
+      body: JSON.stringify({
+        query: QUERY,
+        variables: { accountTag: accountId, start, end },
+      }),
     },
     "Cloudflare R2",
   )
-  if (!isRecord(body)) throw new ProviderError("parse", "Cloudflare R2 response was missing data")
+  if (!isRecord(body))
+    throw new ProviderError("parse", "Cloudflare R2 response was missing data")
   throwGraphqlErrors(body, "Cloudflare R2")
-  if (!isRecord(body.data)) throw new ProviderError("parse", "Cloudflare R2 response was missing data")
-  const accounts = isRecord(body.data.viewer) && Array.isArray(body.data.viewer.accounts) ? body.data.viewer.accounts : undefined
-  if (!accounts) throw new ProviderError("parse", "Cloudflare R2 response was missing accounts")
+  if (!isRecord(body.data))
+    throw new ProviderError("parse", "Cloudflare R2 response was missing data")
+  const accounts =
+    isRecord(body.data.viewer) && Array.isArray(body.data.viewer.accounts)
+      ? body.data.viewer.accounts
+      : undefined
+  if (!accounts)
+    throw new ProviderError(
+      "parse",
+      "Cloudflare R2 response was missing accounts",
+    )
   const account = accounts[0]
   if (!isRecord(account)) return []
   return sumRows(
-    [...storageUsage(account.r2StorageAdaptiveGroups), ...operationUsage(account.r2OperationsAdaptiveGroups)].filter((row) =>
-      wanted.has(row.day),
-    ),
+    [
+      ...storageUsage(account.r2StorageAdaptiveGroups),
+      ...operationUsage(account.r2OperationsAdaptiveGroups),
+    ].filter((row) => wanted.has(row.day)),
   )
 }
 
 function storageUsage(groups: unknown): CostRow[] {
   if (groups === undefined) return []
-  if (!Array.isArray(groups)) throw new ProviderError("parse", "Cloudflare R2 response was missing r2StorageAdaptiveGroups")
+  if (!Array.isArray(groups))
+    throw new ProviderError(
+      "parse",
+      "Cloudflare R2 response was missing r2StorageAdaptiveGroups",
+    )
   const mapped: CostRow[] = []
   for (const item of groups) {
-    if (!isRecord(item) || !isRecord(item.max) || !isRecord(item.dimensions)) continue
+    if (!isRecord(item) || !isRecord(item.max) || !isRecord(item.dimensions))
+      continue
     if (typeof item.dimensions.date !== "string") continue
-    if (typeof item.max.payloadSize !== "number" || !Number.isFinite(item.max.payloadSize)) continue
-    if (typeof item.max.metadataSize !== "number" || !Number.isFinite(item.max.metadataSize)) continue
+    if (
+      typeof item.max.payloadSize !== "number" ||
+      !Number.isFinite(item.max.payloadSize)
+    )
+      continue
+    if (
+      typeof item.max.metadataSize !== "number" ||
+      !Number.isFinite(item.max.metadataSize)
+    )
+      continue
     const bytes = item.max.payloadSize + item.max.metadataSize
     if (!(bytes > 0)) continue
-    mapped.push(usageRow(item.dimensions.date, item.dimensions.bucketName, "r2_storage", bytes / 1_000_000_000 / 30, "gb_month"))
+    mapped.push(
+      usageRow(
+        item.dimensions.date,
+        item.dimensions.bucketName,
+        "r2_storage",
+        bytes / 1_000_000_000 / 30,
+        "gb_month",
+      ),
+    )
   }
   return mapped
 }
 
 function operationUsage(groups: unknown): CostRow[] {
   if (groups === undefined) return []
-  if (!Array.isArray(groups)) throw new ProviderError("parse", "Cloudflare R2 response was missing r2OperationsAdaptiveGroups")
+  if (!Array.isArray(groups))
+    throw new ProviderError(
+      "parse",
+      "Cloudflare R2 response was missing r2OperationsAdaptiveGroups",
+    )
   const mapped: CostRow[] = []
   for (const item of groups) {
-    if (!isRecord(item) || !isRecord(item.sum) || !isRecord(item.dimensions)) continue
-    if (typeof item.dimensions.date !== "string" || typeof item.dimensions.actionType !== "string") continue
-    if (typeof item.sum.requests !== "number" || !Number.isFinite(item.sum.requests) || !(item.sum.requests > 0)) continue
+    if (!isRecord(item) || !isRecord(item.sum) || !isRecord(item.dimensions))
+      continue
+    if (
+      typeof item.dimensions.date !== "string" ||
+      typeof item.dimensions.actionType !== "string"
+    )
+      continue
+    if (
+      typeof item.sum.requests !== "number" ||
+      !Number.isFinite(item.sum.requests) ||
+      !(item.sum.requests > 0)
+    )
+      continue
     const actionType = item.dimensions.actionType
     if (freeOperations.has(actionType)) continue
-    const sku = classA.has(actionType) ? "r2_class_a" : classB.has(actionType) ? "r2_class_b" : undefined
-    if (!sku) throw new ProviderError("parse", `unknown Cloudflare R2 actionType: ${actionType}`)
-    mapped.push(usageRow(item.dimensions.date, item.dimensions.bucketName, sku, item.sum.requests, "requests"))
+    const sku = classA.has(actionType)
+      ? "r2_class_a"
+      : classB.has(actionType)
+        ? "r2_class_b"
+        : undefined
+    if (!sku)
+      throw new ProviderError(
+        "parse",
+        `unknown Cloudflare R2 actionType: ${actionType}`,
+      )
+    mapped.push(
+      usageRow(
+        item.dimensions.date,
+        item.dimensions.bucketName,
+        sku,
+        item.sum.requests,
+        "requests",
+      ),
+    )
   }
   return mapped
 }
 
-function usageRow(date: string, bucketName: unknown, sku: string, usage: number, unit: string): CostRow {
+function usageRow(
+  date: string,
+  bucketName: unknown,
+  sku: string,
+  usage: number,
+  unit: string,
+): CostRow {
   return {
     day: date.slice(0, 10),
     provider: "cloudflare",
     sku,
-    scope: typeof bucketName === "string" && bucketName ? bucketName : "account",
+    scope:
+      typeof bucketName === "string" && bucketName ? bucketName : "account",
     usage,
     unit,
     costUsd: 0,

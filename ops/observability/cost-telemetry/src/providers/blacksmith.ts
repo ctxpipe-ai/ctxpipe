@@ -1,6 +1,6 @@
 import { isRecord, ProviderError } from "../http"
-import { providerInput } from "../secrets"
 import { sumRows, type CostRow } from "../rows"
+import { providerInput } from "../secrets"
 
 const ORG = "ctxpipe-ai"
 
@@ -19,7 +19,16 @@ export async function rows(days: string[]): Promise<CostRow[]> {
   const end = `${last}T23:59:59Z`
   // usage has no token flag; the documented non-interactive auth is auth login --api-token.
   await run(
-    ["blacksmith", "auth", "login", "--api-token", "-", "--non-interactive", "--organization", ORG],
+    [
+      "blacksmith",
+      "auth",
+      "login",
+      "--api-token",
+      "-",
+      "--non-interactive",
+      "--organization",
+      ORG,
+    ],
     token,
   )
   const stdout = await run([
@@ -40,7 +49,10 @@ export async function rows(days: string[]): Promise<CostRow[]> {
   try {
     parsed = JSON.parse(stdout) as unknown
   } catch {
-    throw new ProviderError("parse", `blacksmith usage stdout was not JSON: ${stdout.slice(0, 500)}`)
+    throw new ProviderError(
+      "parse",
+      `blacksmith usage stdout was not JSON: ${stdout.slice(0, 500)}`,
+    )
   }
   return sumRows(mapUsage(parsed, wanted))
 }
@@ -59,7 +71,11 @@ async function run(argv: string[], stdin?: string): Promise<string> {
       new Response(subprocess.stderr).text(),
       subprocess.exited,
     ])
-    if (exitCode !== 0) throw new ProviderError("cli", `blacksmith ${argv[1]} failed: ${stderr.slice(0, 500)}`)
+    if (exitCode !== 0)
+      throw new ProviderError(
+        "cli",
+        `blacksmith ${argv[1]} failed: ${stderr.slice(0, 500)}`,
+      )
     return stdout
   } finally {
     clearTimeout(timer)
@@ -67,9 +83,17 @@ async function run(argv: string[], stdin?: string): Promise<string> {
 }
 
 function mapUsage(body: unknown, wanted: Set<string>): CostRow[] {
-  if (!isRecord(body)) throw new ProviderError("parse", "blacksmith usage response was not an object")
+  if (!isRecord(body))
+    throw new ProviderError(
+      "parse",
+      "blacksmith usage response was not an object",
+    )
   const items = body.daily
-  if (!Array.isArray(items)) throw new ProviderError("parse", "blacksmith usage response was missing daily")
+  if (!Array.isArray(items))
+    throw new ProviderError(
+      "parse",
+      "blacksmith usage response was missing daily",
+    )
   const mapped: CostRow[] = []
   let mappable = 0
   for (const item of items) {
@@ -79,15 +103,24 @@ function mapUsage(body: unknown, wanted: Set<string>): CostRow[] {
     if (!wanted.has(row.day)) continue
     mapped.push(row)
   }
-  if (items.length > 0 && mappable === 0) throw new ProviderError("parse", "blacksmith usage daily had no mappable rows")
+  if (items.length > 0 && mappable === 0)
+    throw new ProviderError(
+      "parse",
+      "blacksmith usage daily had no mappable rows",
+    )
   return mapped
 }
 
 function usageRow(item: unknown): CostRow | undefined {
   if (!isRecord(item)) return undefined
   if (typeof item.date !== "string" || !item.date) return undefined
-  if (typeof item.billable_minutes !== "number" || !Number.isFinite(item.billable_minutes)) return undefined
-  if (typeof item.cost_usd !== "number" || !Number.isFinite(item.cost_usd)) return undefined
+  if (
+    typeof item.billable_minutes !== "number" ||
+    !Number.isFinite(item.billable_minutes)
+  )
+    return undefined
+  if (typeof item.cost_usd !== "number" || !Number.isFinite(item.cost_usd))
+    return undefined
   return {
     day: item.date.slice(0, 10),
     provider: "blacksmith",
