@@ -170,6 +170,9 @@ export const LoadFails: Story = {
     listReadFails = true
   },
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as SingleWorkspace.",
+    },
     ...loadFailsParameters,
     review: {
       purpose:
@@ -253,6 +256,9 @@ export const AddWorkspace: Story = {
 
 export const AddWorkspaceThenRepositories: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as SingleWorkspace.",
+    },
     review: {
       purpose:
         "Workspace list in the side nav: an owner created a Workspace in the Add Workspace dialog and opened it, so the dialog closed.",

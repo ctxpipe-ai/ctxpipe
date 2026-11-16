@@ -295,6 +295,9 @@ const manageCalls: typeof addCalls = []
 /** Manage starts from the current Workspaces and channels, and saves a change. */
 export const ManageKeepsTheCurrentScope: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as ChooseWorkspaces.",
+    },
     review: {
       purpose:
         "Slack setup dialog opened from Manage: it starts with the current Workspace and channel checked, and the admin saves one more channel.",
@@ -342,6 +345,9 @@ export const ManageKeepsTheCurrentScope: Story = {
 /** Unchecking a Workspace on Manage removes its Slack source. */
 export const ManageRemovesAnUncheckedWorkspace: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as ChooseWorkspaces.",
+    },
     review: {
       purpose:
         "Slack setup dialog opened from Manage: the admin unchecks a Workspace and saves, which removes its Slack source.",

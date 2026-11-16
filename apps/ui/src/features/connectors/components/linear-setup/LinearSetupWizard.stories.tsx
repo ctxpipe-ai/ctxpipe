@@ -354,6 +354,9 @@ const manageCalls: typeof addCalls = []
  */
 export const ManageKeepsTheCurrentScope: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as ChooseWorkspaces.",
+    },
     review: {
       purpose:
         "Linear setup wizard opened from Manage: it starts with the current Workspace and team checked, and the admin saves one more team.",

@@ -59,6 +59,9 @@ type Story = StoryObj<typeof meta>
  */
 export const LeavesWhenThePageGrowsDuringExit: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends on an empty test page after the modal closes.",
+    },
     review: {
       kind: "component",
       purpose:

@@ -47,8 +47,11 @@ export const Loading: Story = {
         "Onboarding screen, where a new user learns ctxpipe and an admin creates the organization: the session and the organizations are still loading.",
     },
     msw: {
+      // The preview defaults answer the session and the organizations
+      // first, so this story replaces them.
       handlers: {
-        page: [
+        defaults: [
+          authConfigHandler,
           http.get("*/.auth/api/v1/auth/get-session", async () => {
             await delay("infinite")
             return HttpResponse.json(null)
@@ -73,7 +76,11 @@ export const AdminFlowHowItWorks: Story = {
     },
     msw: {
       handlers: {
-        page: [sessionSignedInOnboardingHandler, organizationListEmptyHandler],
+        defaults: [
+          authConfigHandler,
+          sessionSignedInOnboardingHandler,
+          organizationListEmptyHandler,
+        ],
       },
     },
   },
@@ -157,6 +164,9 @@ export const JoinerFinishLandsInApp: Story = {
   render: () => <OnboardingJourney />,
   beforeEach: joinerSession.reset,
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends on a story route marker, which the product does not render.",
+    },
     review: {
       kind: "component",
       purpose:
@@ -292,6 +302,9 @@ export const AdminFlowCreateOrgLandsOnHome: Story = {
     creatorState.orgCompleted = false
   },
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends on a story route marker, which the product does not render.",
+    },
     review: {
       kind: "component",
       purpose:
@@ -366,6 +379,9 @@ export const AdminFinishFailureContinues: Story = {
     retryCreate.mockClear()
   },
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends on a story route marker, which the product does not render.",
+    },
     review: {
       kind: "component",
       purpose:

@@ -157,6 +157,7 @@ export const CreateNamedKey: Story = {
 
 export const RevokeKey: Story = {
   parameters: {
+    visual: { skip: "Behavior test: it ends in the same state as Populated." },
     msw: {
       handlers: {
         page: [orgApiKeysListPopulatedHandler, orgApiKeysDeleteHandler()],

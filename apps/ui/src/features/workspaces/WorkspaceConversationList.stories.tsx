@@ -66,6 +66,9 @@ export const WithConversations: Story = {
 
 export const SwitchFromOpenFile: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as WithConversations.",
+    },
     review: {
       purpose:
         "Conversation list of a Workspace in the side nav: a file is open, so the chat links go to the files pane and not to that file.",
@@ -390,6 +393,9 @@ export const DeleteCancel: Story = {
     requests.length = 0
   },
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as WithConversations, with only a focus ring more.",
+    },
     review: {
       purpose:
         "Conversation list of a Workspace in the side nav: the member canceled the delete dialog, and the chat stays in the list.",
@@ -492,6 +498,9 @@ export const DeleteOpenChatNavigatesAway: Story = {
   },
   args: { currentConversationId: "conv_2" },
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends on a story route marker, which the product does not render.",
+    },
     review: {
       purpose:
         "Conversation list of a Workspace in the side nav: the member deleted the open chat, and the app went to the Workspace start page.",
@@ -611,6 +620,9 @@ export const DeleteWhileChatStarts: Story = {
     startingDeletes = 0
   },
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as DeleteConfirm.",
+    },
     review: {
       purpose:
         "Conversation list of a Workspace in the side nav: the delete failed because the chat still starts, and the message offers Try again.",

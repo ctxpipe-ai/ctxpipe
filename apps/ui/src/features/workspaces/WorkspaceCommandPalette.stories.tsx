@@ -338,7 +338,7 @@ export const PaletteSkeletonHandsOverOnce: Story = {
       purpose:
         "Command palette, where a member searches Workspaces and pages: the Workspace list loaded and replaced the skeleton under one header.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: { skip: "Behavior test: it ends in the same state as Open." },
     intent:
       "Catches a palette that shows two Workspaces headers when loading ends. The list replaces the skeleton in one step. Not for the loading delay.",
     msw: {
@@ -503,6 +503,9 @@ export const PaletteHoverAndKeysShareOneHighlight: Story = {
 
 export const PaletteEnterAfterDeleteRunsFirstMatch: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as PaletteArrowKeysAndEnterKeepPane.",
+    },
     review: {
       purpose:
         "Command palette, where a member searches Workspaces and pages: Enter after a Backspace opened the first match.",
@@ -530,6 +533,9 @@ export const PaletteEnterAfterDeleteRunsFirstMatch: Story = {
 
 export const PaletteShortcutClosesAfterSyncRender: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as PaletteShortcutTogglesAndRestoresFocus.",
+    },
     review: {
       purpose:
         "Command palette, where a member searches Workspaces and pages: the shortcut closed the palette for good, and focus is back on the trigger.",

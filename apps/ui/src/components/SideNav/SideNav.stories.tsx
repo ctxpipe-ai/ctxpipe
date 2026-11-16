@@ -3,6 +3,7 @@ import { Link } from "react-aria-components"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { AppShell } from "@/components/AppShell"
+import { ShellLayoutProvider } from "@/components/ShellLayoutContext"
 import { SideNav } from "@/components/SideNav"
 import {
   docsConversations,
@@ -22,13 +23,14 @@ const meta = {
   title: "App/SideNav",
   component: SideNav,
   decorators: [
+    // The nav reads the current org and Workspace from the shell layout, as
+    // in AppShell. The story shows the nav alone, with no page beside it.
     (Story) => (
-      <div className="flex min-h-screen bg-zinc-950 text-zinc-100">
-        <Story />
-        <div className="flex-1 p-6 text-sm text-muted-foreground">
-          Main content
+      <ShellLayoutProvider>
+        <div className="flex min-h-screen bg-zinc-950 text-zinc-100">
+          <Story />
         </div>
-      </div>
+      </ShellLayoutProvider>
     ),
     ...entryPageInnerDecorators,
   ],
@@ -46,7 +48,7 @@ export const SingleWorkspace: Story = {
   parameters: {
     review: {
       purpose:
-        "Main navigation of an org, beside a placeholder page body: the org has one Workspace and the Workspace page is current.",
+        "Main navigation of an org: the org has one Workspace and the Workspace page is current.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
@@ -70,7 +72,7 @@ export const MultipleWorkspaces: Story = {
   parameters: {
     review: {
       purpose:
-        "Main navigation of an org, beside a placeholder page body: the org has two Workspaces, one of them read-only.",
+        "Main navigation of an org: the org has two Workspaces, one of them read-only.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
@@ -94,7 +96,7 @@ export const Collapsed: Story = {
   parameters: {
     review: {
       purpose:
-        "Main navigation of an org, beside a placeholder page body: the user collapsed the nav to the narrow icon rail.",
+        "Main navigation of an org: the user collapsed the nav to the narrow icon rail.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
@@ -127,10 +129,12 @@ export const Collapsed: Story = {
 export const ExpandedAfterCollapsedStory: Story = {
   parameters: {
     ...Collapsed.parameters,
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: {
+      skip: "Behavior test: it ends in the same state as SingleWorkspace.",
+    },
     review: {
       purpose:
-        "Main navigation of an org, beside a placeholder page body: the nav starts expanded after the story before it collapsed it.",
+        "Main navigation of an org: the nav starts expanded after the story before it collapsed it.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -154,6 +158,9 @@ export const PlainLinkMovesCurrentNav: Story = {
     </AppShell>
   ),
   parameters: {
+    visual: {
+      skip: "Behavior test: the page body is a test link, which the product does not render.",
+    },
     review: {
       purpose:
         "App shell with the main navigation and a placeholder body link: the user clicked the link and Connectors became the current nav item.",
@@ -197,13 +204,13 @@ export const PlainLinkMovesCurrentNav: Story = {
 
 export const DocsLinkOpensProductDocs: Story = {
   parameters: {
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     ...SingleWorkspace.parameters,
+    visual: { skip: "Behavior test: it ends in the same state as Collapsed." },
     intent:
       "Catches a Docs link that is missing from the Help list of the main navigation. Also catches a Docs link that does not open the product docs in a new tab, or that has no name in the collapsed rail. Not for the other footer items.",
     review: {
       purpose:
-        "Main navigation of an org, beside a placeholder page body: the nav is collapsed to the icon rail after a check of the Docs link.",
+        "Main navigation of an org: the nav is collapsed to the icon rail after a check of the Docs link.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -234,7 +241,7 @@ export const UserMenuLinksConnectedApps: Story = {
       "Catches a user menu whose Connected apps item does not link to the connected apps page in the auth area. Not for other menu items or account data.",
     review: {
       purpose:
-        "Main navigation of an org, beside a placeholder page body: the user menu is open with the focus on its first item.",
+        "Main navigation of an org: the user menu is open with the focus on its first item.",
     },
   },
   play: async ({ canvasElement }) => {

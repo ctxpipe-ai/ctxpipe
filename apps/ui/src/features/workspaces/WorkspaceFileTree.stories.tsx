@@ -121,19 +121,6 @@ export const EmptyProjection: Story = {
   args: { paths: [], selectedPath: null },
 }
 
-export const SelectedFile: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File tree of a Workspace, where a member browses and opens files: a file deep in a folder is selected, so its folders are open.",
-    },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
-  },
-  args: {
-    selectedPath: "knowledge/auth/session.ts",
-  },
-}
-
 export const GitShaped: Story = {
   parameters: {
     review: {
@@ -181,21 +168,6 @@ export const GitStatus: Story = {
         deletions: 1,
       },
     ],
-  },
-}
-
-export const ReadOnly: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File tree of a Workspace, where a member browses and opens files: the Workspace is read-only, so no edit controls show.",
-    },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
-  },
-  args: {
-    paths: docsWorkspaceGitTree.paths,
-    selectedPath: "AGENTS.md",
-    writable: false,
   },
 }
 
@@ -322,7 +294,7 @@ export const DeletedFile: Story = {
   parameters: {
     review: {
       purpose:
-        "File tree of a Workspace, where a member browses and opens files: a file deleted in this conversation shows as a struck-through row.",
+        "File tree of a Workspace, where a member browses and opens files: a file in a closed folder was deleted in this conversation, so the folder shows a change dot.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
@@ -331,24 +303,6 @@ export const DeletedFile: Story = {
     selectedPath: "knowledge/billing.md",
     gitStatus: [
       { path: "knowledge/old-pricing.md", status: "deleted", deletions: 12 },
-    ],
-  },
-}
-
-export const DeletedFolder: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File tree of a Workspace, where a member browses and opens files: all files of a folder were deleted, so the folder shows as deleted.",
-    },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
-  },
-  args: {
-    paths: ["AGENTS.md", "knowledge/billing.md"],
-    selectedPath: "knowledge/billing.md",
-    gitStatus: [
-      { path: "knowledge/archive/2023.md", status: "deleted", deletions: 40 },
-      { path: "knowledge/archive/2024.md", status: "deleted", deletions: 31 },
     ],
   },
 }

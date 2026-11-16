@@ -1833,6 +1833,7 @@ function withIngestion(
  */
 export const IngestionWorking: Story = {
   parameters: {
+    visual: { skip: "Behavior test: it ends in the same state as UpToDate." },
     ...withIngestion(
       workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
       [ingestionItemFixture()],
@@ -1853,6 +1854,9 @@ export const IngestionWorking: Story = {
 /** An upgrade needs the user while ingestion runs: the card shows the upgrade only. */
 export const IngestionWhileUpgradeNeedsYou: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as PurposeLine.",
+    },
     ...withIngestion(
       workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
       [ingestionItemFixture()],

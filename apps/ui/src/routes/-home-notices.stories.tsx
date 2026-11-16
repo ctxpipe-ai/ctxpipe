@@ -457,6 +457,7 @@ export const FailedUpgradeMember: Story = {
 /** Dismiss hides the toast in this browser and starts nothing. */
 export const Dismiss: Story = {
   parameters: {
+    visual: { skip: "Behavior test: it ends in the same state as UpdateOnce." },
     ...homeHandlers("owner", { docs: [upgradeItemFixture()] }),
     review: {
       purpose:
@@ -649,6 +650,9 @@ export const ReducedMotion: Story = {
 /** An item that no one can start now (running, open pull request, blocked) gets no toast. */
 export const NoToastWhenNothingToStart: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as the Populated story of the Home page.",
+    },
     ...homeHandlers("owner", {
       docs: [
         upgradeItemFixture({ status: "running" }),

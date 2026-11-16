@@ -327,6 +327,9 @@ export const SyncNowHiddenForMember: Story = {
  */
 export const SyncNowHiddenWhileAwaitingMerge: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as SyncNowHiddenForMember.",
+    },
     review: {
       purpose:
         "Linear connection card on the Connectors page: the only Workspace waits on a pull request merge, so the actions menu has no Sync now item.",
@@ -393,6 +396,7 @@ export const Revoked: Story = {
 
 export const RevokedDraft: Story = {
   parameters: {
+    visual: { skip: "Behavior test: it ends in the same state as Revoked." },
     review: {
       purpose:
         "Linear connection card on the Connectors page: access was revoked on a connection that is not installed, and the card shows needs reconnect, not setup not finished.",

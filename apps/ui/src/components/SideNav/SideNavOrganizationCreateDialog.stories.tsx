@@ -55,6 +55,9 @@ export const CreateOpensHome: Story = {
     userOnboardingCompleted.value = false
   },
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends on a story route marker, which the product does not render.",
+    },
     intent:
       "Catches organization creation that does not open the new organization home, or that marks the user's own onboarding as complete. Not for form validation or slug rules.",
     msw: {

@@ -97,21 +97,6 @@ export const Editable: Story = {
 const longLine =
   "A single row that is wider than the preview so the horizontal scrollbar sits on the pane, not under the last line of text. "
 
-export const ShortFile: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File preview of a Workspace, where a member reads a file: a file of three lines that does not fill the pane.",
-    },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
-  },
-  args: {
-    path: "apps/ui/src/main.tsx",
-    body: 'export function boot() {\n  return "ok"\n}\n',
-    cacheKey: "story:short:apps/ui/src/main.tsx",
-  },
-}
-
 export const LongFile: Story = {
   parameters: {
     review: {

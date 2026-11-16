@@ -79,6 +79,9 @@ export const RegisterNotionOauth: Story = {
   name: "Register Notion OAuth app (self-hosted)",
   render: () => dialog(),
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as AddNotionWebhookWaiting.",
+    },
     review: {
       purpose:
         "Notion setup dialog on a self-hosted install: the admin saves a private OAuth app, and the dialog moves on to wait for the webhook token.",

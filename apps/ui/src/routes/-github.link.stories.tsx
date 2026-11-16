@@ -135,6 +135,9 @@ export const RefusesWithoutConnectFlow: Story = {
     localStorage.removeItem(GITHUB_SETUP_RESULT_KEY)
   },
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as RefusesOtherAddress.",
+    },
     review: {
       purpose:
         "Popup step of the GitHub account link: no connect flow started in this app, so the step links nothing and says the link is not valid.",
@@ -178,6 +181,9 @@ export const LinksWhenNoGithubAccount: Story = {
     return startFlow()
   },
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as ChecksAccountsBeforeLinking.",
+    },
     review: {
       purpose:
         "Popup step of the GitHub account link: the user has no GitHub account yet, so the step starts the link and shows a spinner.",

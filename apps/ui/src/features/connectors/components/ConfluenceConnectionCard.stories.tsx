@@ -163,6 +163,7 @@ async function expectLiveRowNotPending(canvasElement: HTMLElement) {
 export const LiveViewerWithoutAtlassianLink: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
+    visual: { skip: "Behavior test: it ends in the same state as Connected." },
     review: {
       purpose:
         "Confluence connection card on the Connectors page: the connection is live, and the viewing member has no Atlassian link of their own.",
