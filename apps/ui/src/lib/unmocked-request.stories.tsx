@@ -10,7 +10,8 @@ import { expect } from "storybook/test"
 // This play proves the preview part in the real browser: an API request
 // with no handler is recorded and does not reach the network, and a static
 // asset goes to the network. At the end the play empties the record, so the
-// story itself passes.
+// story itself passes. Storybook reads stories from src only, so this
+// story is in src/lib with the other Testing stories (play-host).
 
 type UnhandledWindow = Window & { __ctxpipeUnhandledRequests?: string[] }
 

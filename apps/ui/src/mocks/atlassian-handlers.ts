@@ -2,8 +2,13 @@ import { HttpResponse, http } from "msw"
 
 import { type MockState, mockResponse } from "./mock-state"
 
-function pathnameOf(request: Request) {
-  return new URL(request.url).pathname
+/** Whether the request goes to `path`, for `connectionId` when it is set. */
+function matches(request: Request, path: string, connectionId?: string) {
+  const url = new URL(request.url)
+  return (
+    url.pathname.endsWith(path) &&
+    (!connectionId || url.searchParams.get("connectionId") === connectionId)
+  )
 }
 
 /**
@@ -12,9 +17,10 @@ function pathnameOf(request: Request) {
  */
 export function atlassianCapabilitiesHandler(
   installUrl: MockState<string | null>,
+  connectionId?: string,
 ) {
   return http.get(
-    ({ request }) => pathnameOf(request).endsWith("/api/v1/capabilities"),
+    ({ request }) => matches(request, "/api/v1/capabilities", connectionId),
     () =>
       mockResponse(installUrl, (installUrl) =>
         HttpResponse.json({ confluenceForgeInstallUrl: installUrl }),
@@ -22,16 +28,20 @@ export function atlassianCapabilitiesHandler(
   )
 }
 
-/** `GET …/org/atlassian-oauth`: the Atlassian OAuth app of a connection. */
+/**
+ * `GET …/org/atlassian-oauth`: the Atlassian OAuth app of a connection. With
+ * `connectionId`, it answers only that connection.
+ */
 export function atlassianOauthHandler(
   app: MockState<{
     oauthAppSaved: boolean
     globalAtlassianOAuthConfigured?: boolean
   }>,
+  connectionId?: string,
 ) {
   return http.get(
     ({ request }) =>
-      pathnameOf(request).endsWith("/api/v1/org/atlassian-oauth"),
+      matches(request, "/api/v1/org/atlassian-oauth", connectionId),
     ({ request }) =>
       mockResponse(app, (app) =>
         HttpResponse.json({

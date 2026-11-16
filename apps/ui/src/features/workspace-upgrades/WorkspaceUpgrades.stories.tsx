@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { delay, http } from "msw"
 import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
@@ -1511,12 +1510,7 @@ export const RoleNeverAnswers: Story = {
     msw: {
       handlers: {
         page: [
-          http.get(
-            "*/.auth/api/v1/auth/organization/get-active-member-role",
-            async () => {
-              await delay("infinite")
-            },
-          ),
+          activeMemberRoleHandler("loading"),
           workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
           workspaceUpgradeStartHandler({ requests: startRequests }),
         ],

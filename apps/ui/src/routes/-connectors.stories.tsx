@@ -3,10 +3,7 @@ import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { connectionAnchorId } from "@/features/connectors/connectionAnchor"
-import {
-  docsConversations,
-  docsWorkspace,
-} from "@/features/workspaces/workspace-fixtures"
+import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
 import {
   atlassianCapabilitiesHandler,
   atlassianOauthHandler,
@@ -19,7 +16,7 @@ import { githubAppInstalledHandlers } from "@/mocks/handlers"
 import { linearOauthAppHandler } from "@/mocks/linear-handlers"
 import { plainStatusHandler, plainStoryStatus } from "@/mocks/plain-handlers"
 import {
-  conversationsListHandler,
+  sideNavHandlers,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
 import {
@@ -53,8 +50,7 @@ const meta = {
         // nav and their chats, the GitHub App, the Linear OAuth app of the
         // host, and the Workspaces that use a connection (none).
         shared: [
-          workspaceListHandler([docsWorkspace]),
-          conversationsListHandler(docsConversations),
+          ...sideNavHandlers(),
           ...githubAppInstalledHandlers,
           linearOauthAppHandler(),
           connectionUsageHandler([]),

@@ -17,9 +17,9 @@ import { ConversationCtaActions } from "@/features/workspaces/WorkspaceChatChrom
 import { WorkspaceNavList } from "@/features/workspaces/WorkspaceNavList"
 import { WorkspacePaneTriggers } from "@/features/workspaces/WorkspacePane"
 import { workspaceCreatedFlag } from "@/lib/session-flags"
-import { githubAppInstalledHandlers } from "@/mocks/handlers"
 import {
   authConfigHandler,
+  githubAppInstalledHandlers,
   organizationListWithOrgHandler,
   sessionSignedInHandler,
 } from "@/mocks/handlers"

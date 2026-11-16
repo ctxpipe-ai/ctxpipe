@@ -8,13 +8,10 @@ import { delay, HttpResponse } from "msw"
  */
 export type MockState<T> = T | "loading" | "error"
 
-/**
- * The response of a request in `state`. A success sends `ok(data)`, which
- * is the data as JSON by default.
- */
+/** The response of a request in `state`. A success sends `ok(data)`. */
 export async function mockResponse<T>(
   state: MockState<T>,
-  ok: (data: T) => Response = (data) => HttpResponse.json(data as object),
+  ok: (data: T) => Response,
 ): Promise<Response> {
   if (state === "loading") await delay("infinite")
   if (state === "error" || state === "loading")

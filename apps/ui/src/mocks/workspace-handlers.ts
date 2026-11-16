@@ -240,14 +240,13 @@ export function workspaceActivityHandler(
   )
 }
 
-/** `GET /{orgSlug}/api/v1/activity`: the activity of every Workspace. */
-/** `GET /activity`: the activity of the org (none by default). */
+/** `GET /{orgSlug}/api/v1/activity`: the activity of the org (none by default). */
 export function orgActivityHandler(
   activity: MockState<WorkspaceActivityResponse> = emptyWorkspaceActivity,
 ) {
   return http.get(
     ({ request }) => /\/api\/v1\/activity$/.test(pathnameOf(request)),
-    () => mockResponse(activity),
+    () => mockResponse(activity, (activity) => HttpResponse.json(activity)),
   )
 }
 
@@ -398,7 +397,7 @@ export function conversationGitStatusHandler(
       /\/api\/v1\/conversations\/[^/]+\/files\/status$/.test(
         pathnameOf(request),
       ),
-    () => mockResponse(status),
+    () => mockResponse(status, (status) => HttpResponse.json(status)),
   )
 }
 
@@ -467,12 +466,9 @@ export function conversationFilePutHandler() {
 
 /**
  * `GET /conversations/:id/chat`: the transcript that the chat session loads
- * when it opens. `activeRunId` is a run that still streams.
+ * when it opens. No run streams.
  */
-export function conversationChatHandler(
-  messages: MockState<ChatMessage[]>,
-  activeRunId?: string,
-) {
+export function conversationChatHandler(messages: MockState<ChatMessage[]>) {
   return http.get(
     ({ request }) =>
       /\/api\/v1\/conversations\/[^/]+\/chat$/.test(pathnameOf(request)),
@@ -480,7 +476,7 @@ export function conversationChatHandler(
       mockResponse(messages, (messages) =>
         HttpResponse.json({
           messages,
-          activeRun: activeRunId ? { runId: activeRunId } : null,
+          activeRun: null,
           interrupts: null,
         }),
       ),
@@ -488,15 +484,15 @@ export function conversationChatHandler(
 }
 
 /** `GET /conversations/:id/turns`: the files that each turn changed. */
-function conversationTurnsHandler(
-  turns: MockState<ConversationTurnChangesResponse> = { items: [], syncs: [] },
-) {
-  return http.get(
-    ({ request }) =>
-      /\/api\/v1\/conversations\/[^/]+\/turns$/.test(pathnameOf(request)),
-    () => mockResponse(turns),
-  )
-}
+const conversationTurnsHandler = http.get(
+  ({ request }) =>
+    /\/api\/v1\/conversations\/[^/]+\/turns$/.test(pathnameOf(request)),
+  () =>
+    HttpResponse.json({
+      items: [],
+      syncs: [],
+    } satisfies ConversationTurnChangesResponse),
+)
 
 /**
  * `GET /conversations/:id/pull-request`: the pull request of the session
@@ -592,6 +588,17 @@ export function githubInstallationReposHandler(
 }
 
 /**
+ * The reads of the side nav of an org page: the Workspaces of the org (Docs)
+ * and the chats of the open Workspace.
+ */
+export function sideNavHandlers() {
+  return [
+    workspaceListHandler([docsWorkspace]),
+    conversationsListHandler(docsConversations),
+  ]
+}
+
+/**
  * The reads of the Settings pane of a Workspace: its sources (none), the
  * connections of the org (GitHub), its upgrades (none) and the automatic
  * upgrades setting (manual).
@@ -640,7 +647,7 @@ export function workspaceShellHandlers(input?: {
     conversationGitBlobHandler(input?.gitBlobs ?? docsWorkspaceGitBlobs),
     conversationGitStatusHandler(),
     conversationChatHandler(conversation?.messages ?? []),
-    conversationTurnsHandler(),
+    conversationTurnsHandler,
     conversationPullRequestHandler(pullRequestOf(conversation)),
     conversationSocketHandler,
     ...workspaceSettingsHandlers(),

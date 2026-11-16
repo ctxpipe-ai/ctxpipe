@@ -56,7 +56,7 @@ export function workspaceSourcesHandler(
   return http.get(
     ({ request }) =>
       /\/api\/v1\/workspaces\/[^/]+\/sources$/.test(pathnameOf(request)),
-    () => mockResponse(response),
+    () => mockResponse(response, (response) => HttpResponse.json(response)),
   )
 }
 

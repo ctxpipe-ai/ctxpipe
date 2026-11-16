@@ -1507,7 +1507,7 @@ export const GuideConnectGithubOpensLinkPopup: Story = {
     await expect(url.pathname).toBe("/.github/link")
     const next = new URL(url.searchParams.get("next") ?? "")
     await expect(`${next.origin}${next.pathname}`).toBe(
-      "https://github.com/apps/ctxpipe-agent/installations/new",
+      "https://github.com/apps/ctxpipe/installations/new",
     )
     await expect(next.searchParams.get("state")).toBeTruthy()
   },

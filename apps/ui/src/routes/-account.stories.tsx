@@ -2,14 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
-import {
-  docsConversations,
-  docsWorkspace,
-} from "@/features/workspaces/workspace-fixtures"
-import {
-  conversationsListHandler,
-  workspaceListHandler,
-} from "@/mocks/workspace-handlers"
+import { sideNavHandlers } from "@/mocks/workspace-handlers"
 
 import {
   entryPageInnerDecorators,
@@ -105,11 +98,7 @@ export const Settings: Story = {
     // invitation.
     msw: {
       handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          conversationsListHandler(docsConversations),
-          userInvitationsEmptyHandler,
-        ],
+        page: [...sideNavHandlers(), userInvitationsEmptyHandler],
       },
     },
   },
@@ -143,11 +132,7 @@ export const OrganizationsView: Story = {
     // invitation.
     msw: {
       handlers: {
-        page: [
-          workspaceListHandler([docsWorkspace]),
-          conversationsListHandler(docsConversations),
-          userInvitationsEmptyHandler,
-        ],
+        page: [...sideNavHandlers(), userInvitationsEmptyHandler],
       },
     },
   },

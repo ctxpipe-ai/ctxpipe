@@ -138,7 +138,8 @@ export const githubInstallationLinkedHandler = http.get(
     }),
 )
 
-const hostedGithubAppBootstrapHandler = githubConnectorBootstrapHandler({
+/** The GitHub connector bootstrap of the org, with the hosted GitHub App. */
+export const hostedGithubAppBootstrapHandler = githubConnectorBootstrapHandler({
   orgSlug: "acme",
   hostedDefaultAppInstallUrl:
     "https://github.com/apps/ctxpipe/installations/new",

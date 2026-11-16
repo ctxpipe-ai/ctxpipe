@@ -4,10 +4,6 @@ import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import {
-  docsConversations,
-  docsWorkspace,
-} from "@/features/workspaces/workspace-fixtures"
-import {
   orgApiKeysListEmptyHandler,
   orgApiKeysListForbiddenHandler,
   orgApiKeysListPopulatedHandler,
@@ -17,10 +13,7 @@ import {
   organizationMembersHandler,
   organizationPermissionHandler,
 } from "@/mocks/handlers"
-import {
-  conversationsListHandler,
-  workspaceListHandler,
-} from "@/mocks/workspace-handlers"
+import { sideNavHandlers } from "@/mocks/workspace-handlers"
 
 import {
   entryPageInnerDecorators,
@@ -76,8 +69,7 @@ export const Settings: Story = {
           organizationFullWithOrgHandler,
           // The admin may change the org.
           organizationPermissionHandler(true),
-          workspaceListHandler([docsWorkspace]),
-          conversationsListHandler(docsConversations),
+          ...sideNavHandlers(),
         ],
       },
     },

@@ -235,6 +235,26 @@ const settle = async () => {
   }
 }
 
+// The error for the requests that no MSW handler answered on the page
+// (apps/ui/.storybook/preview.tsx), or undefined when there is none. A record
+// that cannot be read is an error too: the story must not pass unchecked.
+const unhandledError = (page) =>
+  page
+    .evaluate(() => window.__ctxpipeUnhandledRequests)
+    .then((unhandled) => {
+      if (!Array.isArray(unhandled))
+        return "The page has no record of unhandled requests (apps/ui/.storybook/preview.tsx)."
+      if (!unhandled.length) return undefined
+      return `The story made requests that no MSW handler answers. Mock each request of the page (the storybook skill, "Mock every request"):\n${[...new Set(unhandled)].map((request) => `  ${request}`).join("\n")}`
+    })
+    .catch(
+      (readError) =>
+        `Could not read the unhandled requests of the page: ${readError.message}`,
+    )
+
+const withUnhandled = (storyError, unhandled) =>
+  [unhandled, storyError].filter(Boolean).join("\n") || undefined
+
 // Plays each story (an index.json entry) and calls `onStory(story, outcome)`
 // after it. `outcome.error` is set when the story failed. The options:
 // - `trace`: `outcome.coverage` holds the V8 JS coverage of the page
@@ -343,19 +363,12 @@ export async function playStories(
                 .catch((settleError) => String(settleError.message))
       // A request that no MSW handler answered fails the story
       // (apps/ui/.storybook/preview.tsx). It is often the cause of a play
-      // error too, so the message names both.
-      const unhandled = await page
-        .evaluate(() => window.__ctxpipeUnhandledRequests ?? [])
-        .catch(() => [])
-      const error = unhandled.length
-        ? [
-            `The story made requests that no MSW handler answers. Mock each request of the page (the storybook skill, "Mock every request"):\n${[...new Set(unhandled)].map((request) => `  ${request}`).join("\n")}`,
-            storyError,
-          ]
-            .filter(Boolean)
-            .join("\n")
-        : storyError
-      await afterPlay?.(page, story, error)
+      // error too, so the message names both. The record is read again
+      // after `afterPlay`, so a request of the screenshot capture fails the
+      // story too.
+      const playError = withUnhandled(storyError, await unhandledError(page))
+      await afterPlay?.(page, story, playError)
+      const error = withUnhandled(storyError, await unhandledError(page))
       let mocks
       let coverage
       if (trace) {
