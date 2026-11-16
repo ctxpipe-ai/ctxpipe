@@ -436,7 +436,8 @@ it.each([
   "continuous-native-push",
 ] as const)(
   "hands a raced Files write to one native semantic child and returns the published result: %s",
-  { timeout: 60_000 },
+  // The continuous race waits about 15 s between its attempts.
+  { timeout: 120_000 },
   async (raceBoundary) => {
     const path = "knowledge/race.md"
     const original =
@@ -531,31 +532,7 @@ it.each([
             workspaceFileEdit.spec,
             command,
           )
-          if (raceBoundary === "continuous-native-push") {
-            await expect(handle.result({ timeoutMs: 30_000 })).rejects.toThrow(
-              "Default branch kept changing during semantic merge",
-            )
-            expect(
-              (
-                await f.backend.getWorkflowRun({
-                  workflowRunId: handle.workflowRun.id,
-                })
-              )?.status,
-            ).toBe("failed")
-            expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(
-              humanSha,
-            )
-            expect(f.git("--git-dir", f.remote, "show", `main:${path}`)).toBe(
-              original.replace("Human: original", "Human: updated").trim(),
-            )
-            expect(
-              await withOrgIdContext(f.org, () =>
-                reconcileWorkspaceWriteJob(command.jobId),
-              ),
-            ).toMatchObject({ commitSha: null })
-            return
-          }
-          const result = await handle.result({ timeoutMs: 30_000 })
+          const result = await handle.result({ timeoutMs: 90_000 })
           expect(result).toMatchObject({ committed: true })
           expect(f.git("--git-dir", f.remote, "show", `main:${path}`)).toBe(
             original
@@ -590,6 +567,21 @@ it.each([
             (run) => run.workflowName === "workspace-write-semantic-merge",
           )
           expect(children).toHaveLength(1)
+          // A child that loses the push race waits longer before each new
+          // attempt, so that a burst of other writes ends first (CTX-1304).
+          // The continuous race moves the branch at three of its attempts.
+          const waits = (
+            await f.backend.listStepAttempts({
+              workflowRunId: children[0]?.id ?? "",
+            })
+          ).data.filter((step) => step.kind === "sleep")
+          expect(waits).toHaveLength(
+            raceBoundary === "continuous-native-push"
+              ? 3
+              : raceBoundary === "repeated-native-push"
+                ? 1
+                : 0,
+          )
           // The child input names the candidate commit on its job ref, not
           // its files (CTX-1239).
           expect(children[0]?.input).toMatchObject({
