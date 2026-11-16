@@ -35,7 +35,9 @@ Railway has no Fargate-style committed memory in IaC (usage-billed). Capacity mu
 
 5. **Hosted Railway:** production starts at the **medium** pair (indexer 2, pipelines 2, worker concurrency 10), chosen from observed ingest peak RSS — not a Terraform “plan size” (Railway services have no CPU/memory fields). PR preview uses the **small** pair. Changing these variables requires redeploying worker and codesearch.
 
-6. **Compose `deploy`:** small defaults. Host `pnpm dev` keeps the unset default of 4.
+6. **One SCIP indexer at a time** (2026-11-17, CTX-1315). At most one indexer spawn slot runs a SCIP indexer at a time; `zoekt-index` can use the other slots. A large SCIP indexer uses 2–2.6 GB, and two of them in a 6 GiB codesearch went past 90% memory. The Node indexers (`scip-typescript`, `scip-python`) get `--max-old-space-size` of ¾ of the container memory divided by the spawn slots.
+
+7. **Compose `deploy`:** small defaults. Host `pnpm dev` keeps the unset default of 4.
 
 ## Consequences
 

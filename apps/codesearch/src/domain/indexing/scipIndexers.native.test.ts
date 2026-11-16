@@ -45,62 +45,14 @@ async function fixture() {
 }
 
 it(
-  "runs native direct-output indexers concurrently with separate shard contents",
+  "runs one native SCIP indexer at a time, each into its own shard",
   { timeout: 30_000 },
   async () => {
     const f = await fixture()
     const runs: Promise<unknown>[] = []
     try {
-      // TypeScript runs per discovered project and merges shards, so these
-      // slot tests use single-process direct-output indexers.
-      for (const [command, name] of [
-        ["scip-go", "go"],
-        ["scip-python", "python"],
-      ] as const) {
-        await f.command(
-          command,
-          `for output do :; done
-printf '%s' ${quote(name)} > "$output"
-touch ${quote(join(f.directory, `${name}.started`))}
-while [ ! -f ${quote(join(f.directory, "release"))} ]; do sleep 0.01; done`,
-        )
-      }
-      for (const indexerId of ["go", "python"] as const)
-        runs.push(
-          runScipIndexer({
-            indexerId,
-            checkoutPath: f.checkoutPath,
-            shardPath: f.shard(indexerId),
-            env: f.env,
-          }),
-        )
-      await expect
-        .poll(
-          async () =>
-            (await exists(join(f.directory, "go.started"))) &&
-            (await exists(join(f.directory, "python.started"))),
-        )
-        .toBe(true)
-      expect(await exists(join(f.checkoutPath, "index.scip"))).toBe(false)
-      await f.release()
-      await Promise.all(runs)
-      expect(await readFile(f.shard("go"), "utf8")).toBe("go")
-      expect(await readFile(f.shard("python"), "utf8")).toBe("python")
-    } finally {
-      await f.release()
-      await Promise.allSettled(runs)
-      await f.cleanup()
-    }
-  },
-)
-
-it(
-  "admits at most two native indexer processes and releases a slot after exit",
-  { timeout: 30_000 },
-  async () => {
-    const f = await fixture()
-    const runs: Promise<unknown>[] = []
-    try {
+      // TypeScript runs per discovered project and merges shards, so this
+      // slot test uses single-process direct-output indexers.
       for (const [command, name] of [
         ["scip-go", "go"],
         ["scip-python", "python"],
@@ -124,21 +76,25 @@ while [ ! -f ${quote(join(f.directory, "release"))} ] && [ ! -f ${quote(join(f.d
           }),
         )
       const started = async () =>
-        (await readdir(f.directory)).filter((name) => name.endsWith(".started"))
-      await expect
-        .poll(async () => (await started()).length, { timeout: 5_000 })
-        .toBe(2)
-      const [first] = await started()
-      if (!first) throw new Error("Missing native process receipt")
-      await writeFile(
-        join(f.directory, `release-${first.slice(0, -".started".length)}`),
-        "release",
-      )
-      await expect
-        .poll(async () => (await started()).length, { timeout: 5_000 })
-        .toBe(3)
-      await f.release()
+        (await readdir(f.directory))
+          .filter((name) => name.endsWith(".started"))
+          .map((name) => name.slice(0, -".started".length))
+      const released: string[] = []
+      for (const count of [1, 2, 3]) {
+        await expect
+          .poll(async () => (await started()).length, { timeout: 5_000 })
+          .toBe(count)
+        // The running indexer has no free slot to share.
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        const running = (await started()).filter(
+          (name) => !released.includes(name),
+        )
+        expect(running).toHaveLength(1)
+        released.push(running[0] as string)
+        await writeFile(join(f.directory, `release-${running[0]}`), "release")
+      }
       await Promise.all(runs)
+      expect(await exists(join(f.checkoutPath, "index.scip"))).toBe(false)
       for (const name of ["go", "python", "ruby"])
         expect(await readFile(f.shard(name), "utf8")).toBe(name)
     } finally {
