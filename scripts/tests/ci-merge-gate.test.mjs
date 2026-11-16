@@ -243,6 +243,10 @@ test("the manifest job lists the tree with the base code before any PR code runs
   for (const file of [
     "scripts/node_modules/@jridgewell/sourcemap-codec/index.js",
     "node_modules/x/index.js",
+    "apps/node_modules/x/index.js",
+    "apps/ui/node_modules/x/index.js",
+    // A link named node_modules to a folder outside the list-time paths.
+    "scripts/node_modules",
   ])
     assert.equal(
       decideMode({
