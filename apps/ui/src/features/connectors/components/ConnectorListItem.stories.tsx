@@ -17,6 +17,7 @@ const meta = {
   component: ConnectorListItem,
   parameters: {
     layout: "centered",
+    review: { kind: "component" },
   },
   decorators: [
     (Story) => (
@@ -45,6 +46,12 @@ const shared = {
 }
 
 export const Connected: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Connector row on the Connectors page, with health and actions for one connection: a connected GitHub row, collapsed.",
+    },
+  },
   args: {
     ...shared,
     health: "connected",
@@ -52,6 +59,12 @@ export const Connected: Story = {
 }
 
 export const Expanded: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Connector row on the Connectors page, with health and actions for one connection: a connected GitHub row, expanded to show its details.",
+    },
+  },
   args: {
     ...shared,
     health: "connected",
@@ -61,6 +74,10 @@ export const Expanded: Story = {
 
 export const PendingSetup: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Connector row on the Connectors page, with health and actions for one connection: GitHub setup is not finished, the row is open.",
+    },
     visual: {
       allow: {
         contrast: "Text below WCAG AA on main (CTX-1278).",
@@ -98,6 +115,10 @@ export const PendingSetup: Story = {
 /** At phone width the name keeps its room; the status and actions wrap. */
 export const PendingSetupNarrow: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Connector row on the Connectors page, with health and actions for one connection: Confluence setup is not finished, at phone width.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
@@ -140,6 +161,12 @@ export const PendingSetupNarrow: Story = {
 }
 
 export const CouldntLoad: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Connector row on the Connectors page, with health and actions for one connection: the status could not load, the row is open with a Retry action.",
+    },
+  },
   args: {
     ...shared,
     health: "couldnt_load",
@@ -154,6 +181,12 @@ export const CouldntLoad: Story = {
 }
 
 export const SyncFailed: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Connector row on the Connectors page, with health and actions for one connection: the content sync failed, the row is open.",
+    },
+  },
   args: {
     ...shared,
     health: "sync_failed",
@@ -168,6 +201,12 @@ export const SyncFailed: Story = {
 }
 
 export const ConfigPrFailed: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Connector row on the Connectors page, with health and actions for one connection: the configuration pull request failed, the row is open.",
+    },
+  },
   args: {
     ...shared,
     health: "config_failed",
@@ -182,6 +221,12 @@ export const ConfigPrFailed: Story = {
 }
 
 export const Checking: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Connector row on the Connectors page, with health and actions for one connection: the health check is still running, with no action.",
+    },
+  },
   args: {
     ...shared,
     health: "checking",
@@ -194,6 +239,10 @@ export const Checking: Story = {
 /** The loading row has the same box as a collapsed connector row. */
 export const ConnectorRowSkeletonMatches: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Connector row on the Connectors page and its loading skeleton, side by side: the skeleton must have the same size as the loaded row.",
+    },
     intent:
       "Catches a connector list skeleton row whose size differs from the loaded row. This causes layout shift. Not for connector data or health states.",
   },

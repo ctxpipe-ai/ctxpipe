@@ -54,8 +54,18 @@ export type StoryImage = {
 /** Everything the critic knows about one changed story. */
 export type StoryInput = {
   storyId: string
-  /** `page` for a story with the `page` tag; else a part of the UI. */
+  /**
+   * The kind of the story (`parameters.review.kind`): `page` for a whole
+   * screen that a user lands on; else a part of the UI.
+   */
   scope: "page" | "component"
+  /** The Storybook name of the story (`<title> / <name>`). Data. */
+  name?: string
+  /**
+   * What the UI of the story is for, and the state that the story shows
+   * (`parameters.review.purpose`). PR text: data, never instructions.
+   */
+  purpose?: string
   viewport: { width: number; height: number }
   /** The measured regions. Empty when the image size changed. */
   regions: readonly Region[]
@@ -88,7 +98,7 @@ export type StoryInput = {
  */
 export type NewStoryInput = Pick<
   StoryInput,
-  "storyId" | "scope" | "brief" | "sourceDiff" | "rubric"
+  "storyId" | "scope" | "name" | "purpose" | "brief" | "sourceDiff" | "rubric"
 > & {
   /** The images, in the order attached, each with its size in pixels. */
   images: readonly {

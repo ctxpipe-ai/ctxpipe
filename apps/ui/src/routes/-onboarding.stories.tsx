@@ -26,6 +26,7 @@ const meta = {
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "fullscreen",
+    review: { kind: "page" },
     route: "/onboarding",
     storyRoute: {
       pattern: "flat",
@@ -41,6 +42,10 @@ type Story = StoryObj<typeof meta>
 export const Loading: Story = {
   render: () => <OnboardingPageContent />,
   parameters: {
+    review: {
+      purpose:
+        "Onboarding screen, where a new user learns ctxpipe and an admin creates the organization: the session and the organizations are still loading.",
+    },
     msw: {
       handlers: {
         page: [
@@ -62,6 +67,10 @@ export const Loading: Story = {
 export const AdminFlowHowItWorks: Story = {
   render: () => <OnboardingPageContent />,
   parameters: {
+    review: {
+      purpose:
+        "Onboarding screen, where a new user learns ctxpipe and an admin creates the organization: a new admin with no organization sees the first welcome slide.",
+    },
     msw: {
       handlers: {
         page: [sessionSignedInOnboardingHandler, organizationListEmptyHandler],
@@ -148,6 +157,11 @@ export const JoinerFinishLandsInApp: Story = {
   render: () => <OnboardingJourney />,
   beforeEach: joinerSession.reset,
   parameters: {
+    review: {
+      kind: "component",
+      purpose:
+        "Redirect after a joiner finishes onboarding: the user lands on the org home, shown as a plain route marker.",
+    },
     intent:
       "Catches a joiner who finishes onboarding and does not reach the app. The finish step completes onboarding and opens the organization. Not for the create-organization flow.",
     storyRoute: onboardingJourneyRoute,
@@ -188,6 +202,10 @@ export const JoinerFinishStaysWhenSessionIsStale: Story = {
   ],
   beforeEach: staleSession.reset,
   parameters: {
+    review: {
+      purpose:
+        "Onboarding screen, where a new user learns ctxpipe and an admin creates the organization: the finish did not save, so the welcome slide stays with an error toast.",
+    },
     storyRoute: onboardingJourneyRoute,
     msw: {
       handlers: {
@@ -274,6 +292,11 @@ export const AdminFlowCreateOrgLandsOnHome: Story = {
     creatorState.orgCompleted = false
   },
   parameters: {
+    review: {
+      kind: "component",
+      purpose:
+        "Redirect after an admin creates the organization in onboarding: the user lands on the org home, shown as a plain route marker.",
+    },
     intent:
       "Catches an admin onboarding that does not create the organization or open its home. Two steps, with the name and slug taken from the session email. Not for the joiner flow.",
     storyRoute: onboardingJourneyRoute,
@@ -343,6 +366,11 @@ export const AdminFinishFailureContinues: Story = {
     retryCreate.mockClear()
   },
   parameters: {
+    review: {
+      kind: "component",
+      purpose:
+        "Redirect after an onboarding finish that failed once: Continue lands on the org home, shown as a plain route marker, with one error toast.",
+    },
     storyRoute: onboardingJourneyRoute,
     msw: {
       handlers: {
@@ -411,6 +439,10 @@ export const DoubleClickMovesOneSlide: Story = {
     doubleClickCreate.mockClear()
   },
   parameters: {
+    review: {
+      purpose:
+        "Onboarding screen, where a new user learns ctxpipe and an admin creates the organization: a double click on Next moves one slide to the create organization form and creates nothing.",
+    },
     intent:
       "Catches a fast double click on Next that skips a slide or creates an organization. One double click moves one slide and sends no create request. Not for the slide content.",
     msw: {

@@ -47,6 +47,7 @@ const meta = {
         ],
       },
     },
+    review: { kind: "component" },
   },
 } satisfies Meta
 
@@ -54,6 +55,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const PinnedHost: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Test fixture that proves the play runner pins the host values: a text, an input and a spinner after the page settled.",
+    },
+  },
   play: async ({ canvas }) => {
     const page = window as Window & {
       __CTXPIPE_PLAY__?: { afterSettle?: () => void }

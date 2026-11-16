@@ -479,7 +479,6 @@ const deployJobs = [
   "publish_images",
   "ecr_digests",
   "copy_images_to_ecr",
-  "terraform",
   "forge_deploy",
 ]
 const sorted = (names) => [...names].sort()

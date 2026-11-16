@@ -10,6 +10,7 @@ const meta = {
   decorators: entryPageInnerDecorators,
   parameters: {
     layout: "fullscreen",
+    review: { kind: "page" },
   },
 } satisfies Meta<typeof OAuthOrganizationSelector>
 
@@ -25,6 +26,10 @@ export const MultipleOrganizations: Story = {
       pattern: "flat",
       path: "/.auth/select-organization",
     } satisfies StoryRouteParams,
+    review: {
+      purpose:
+        "OAuth screen where a user picks the organization that a client connection uses: the user has two organizations.",
+    },
   },
   args: {
     organizations: [

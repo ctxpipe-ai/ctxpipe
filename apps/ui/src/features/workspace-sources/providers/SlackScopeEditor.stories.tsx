@@ -43,6 +43,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -66,6 +67,12 @@ const scopeText = (canvasElement: HTMLElement) =>
   within(canvasElement).getByRole("status", { name: "Scope" }).textContent
 
 export const SearchesAndPicksChannels: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Slack scope editor, where the user picks the channels of a Workspace source: the user searches the channels and picks two of them.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.type(
@@ -87,6 +94,12 @@ export const SearchesAndPicksChannels: Story = {
 
 /** A channel can be chosen before the bot is invited; it says to invite the bot. */
 export const ChannelWithoutTheBotCanBeSelected: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Slack scope editor, where the user picks the channels of a Workspace source: a channel without the bot can be picked, with a note to invite the bot.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const allHands = await canvas.findByRole("checkbox", { name: /all-hands/ })
@@ -103,6 +116,12 @@ export const ChannelWithoutTheBotCanBeSelected: Story = {
 }
 
 export const EditsAnExistingScope: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Slack scope editor, where the user picks the channels of a Workspace source: a saved scope has a channel that Slack no longer lists, and the user clears all channels.",
+    },
+  },
   args: { initialScope: { channels: ["C0ENG0001", "C0GONE001"] } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -125,6 +144,10 @@ export const EditsAnExistingScope: Story = {
 
 export const LoadError: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Slack scope editor, where the user picks the channels of a Workspace source: the channel list did not load, so an error with Retry shows.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: { handlers: { page: [slackChannelsHandler("error")] } },
   },
@@ -142,6 +165,10 @@ export const LoadError: Story = {
 /** Slack has more channels than the list holds, so the picker says so. */
 export const ListIsTruncated: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Slack scope editor, where the user picks the channels of a Workspace source: Slack has more channels than the list holds, so a note says that search finds only listed channels.",
+    },
     msw: {
       handlers: {
         page: [slackChannelsHandler(slackStoryChannels, { truncated: true })],

@@ -310,8 +310,8 @@ async function github(path, token) {
 // Only a Publish job of a main run writes that notice, but any job with
 // `checks: write` can add annotations to a check run, and no job can delete
 // one. So a second notice, also a forged one, makes the image build: never
-// take the first or the last notice. A GHCR tag is no proof either: PR
-// builds (pr-deploy.yaml) push tags to the same packages.
+// take the first or the last notice. A GHCR tag is no proof either: the
+// builds of the old Railway PR previews pushed tags to the same packages.
 async function baseDigests({ repo, jobs, token }) {
   const digests = {}
   for (const { image } of images) {

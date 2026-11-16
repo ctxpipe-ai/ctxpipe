@@ -8,6 +8,7 @@ const meta = {
   component: ExternalLink,
   parameters: {
     layout: "centered",
+    review: { kind: "component" },
   },
 } satisfies Meta<typeof ExternalLink>
 
@@ -17,6 +18,12 @@ type Story = StoryObj<typeof meta>
 
 /** The link opens in a new tab, and a screen reader announces it. */
 export const OpensInNewTab: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Link to a page outside ctxpipe that opens in a new tab: a docs link whose name tells a screen reader about the new tab.",
+    },
+  },
   args: {
     href: "https://example.com/docs",
     children: "Read the docs",

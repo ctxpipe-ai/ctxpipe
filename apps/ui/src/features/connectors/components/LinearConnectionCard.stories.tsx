@@ -78,6 +78,7 @@ const meta = {
       pattern: "orgConnectors",
       orgSlug,
     } satisfies StoryRouteParams,
+    review: { kind: "component" },
   },
 } satisfies Meta<typeof LinearConnectionCard>
 
@@ -87,6 +88,10 @@ type Story = StoryObj<typeof meta>
 
 export const Checking: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Linear connection card on the Connectors page: the status request has not returned, so the card is still checking.",
+    },
     msw: {
       handlers: {
         page: [
@@ -102,6 +107,10 @@ export const Checking: Story = {
 
 export const CouldntLoad: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Linear connection card on the Connectors page: the status request failed, so the card could not load.",
+    },
     msw: {
       handlers: {
         page: [
@@ -120,6 +129,10 @@ const deleted = fn()
 
 export const PendingSetup: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Linear connection card on the Connectors page: Linear is not installed yet, so setup is not finished.",
+    },
     visual: {
       allow: {
         contrast: "Text below WCAG AA on main (CTX-1278).",
@@ -156,6 +169,10 @@ export const PendingSetup: Story = {
 /** An installed connection: no setup action; "Used in" adds it to Workspaces. */
 export const Connected: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Linear connection card on the Connectors page: Linear is installed and one Workspace uses it.",
+    },
     msw: { handlers: { page: [statusHandler(connected)] } },
   },
   play: async ({ canvasElement }) => {
@@ -171,6 +188,10 @@ export const Connected: Story = {
 /** Connected, but no Workspace uses it yet, so nothing syncs. */
 export const ConnectedNotInAWorkspace: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Linear connection card on the Connectors page: connected but in no Workspace, the card is open and says that nothing syncs yet.",
+    },
     msw: {
       handlers: {
         usage: [connectionUsageHandler([])],
@@ -219,6 +240,10 @@ export const SyncNowFromMenu: Story = {
     ),
   ],
   parameters: {
+    review: {
+      purpose:
+        "Linear connection card on the Connectors page: an admin starts a sync from the actions menu and a toast confirms it.",
+    },
     msw: {
       handlers: {
         page: [
@@ -252,6 +277,10 @@ export const SyncNowFails: Story = {
     ),
   ],
   parameters: {
+    review: {
+      purpose:
+        "Linear connection card on the Connectors page: an owner starts a sync from the actions menu and an error toast says it could not start.",
+    },
     msw: {
       handlers: {
         page: [
@@ -275,6 +304,10 @@ export const SyncNowFails: Story = {
 /** Only an org admin or owner can start a sync. */
 export const SyncNowHiddenForMember: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Linear connection card on the Connectors page: a plain member opens the actions menu, which has no Sync now item.",
+    },
     msw: {
       handlers: {
         page: [statusHandler(connected), activeMemberRoleHandler("member")],
@@ -294,6 +327,10 @@ export const SyncNowHiddenForMember: Story = {
  */
 export const SyncNowHiddenWhileAwaitingMerge: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Linear connection card on the Connectors page: the only Workspace waits on a pull request merge, so the actions menu has no Sync now item.",
+    },
     msw: {
       handlers: {
         usage: [
@@ -327,6 +364,10 @@ export const SyncNowHiddenWhileAwaitingMerge: Story = {
 
 export const Revoked: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Linear connection card on the Connectors page: a live connection whose access was revoked, so it needs a reconnect.",
+    },
     msw: {
       handlers: {
         page: [
@@ -352,6 +393,10 @@ export const Revoked: Story = {
 
 export const RevokedDraft: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Linear connection card on the Connectors page: access was revoked on a connection that is not installed, and the card shows needs reconnect, not setup not finished.",
+    },
     msw: {
       handlers: {
         page: [

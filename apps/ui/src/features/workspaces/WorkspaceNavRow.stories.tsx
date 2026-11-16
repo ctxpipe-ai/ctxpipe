@@ -28,6 +28,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "centered",
     storyRoute: {
       pattern: "orgIndex",
@@ -53,6 +54,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const MultipleWorkspaces: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Workspace row in the side nav, which opens a Workspace: two rows, the current Workspace and a read-only one.",
+    },
+  },
   render: (args) => (
     <>
       <WorkspaceNavRow {...args} current />
@@ -66,6 +73,12 @@ export const MultipleWorkspaces: Story = {
 }
 
 export const SingleWorkspace: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Workspace row in the side nav, which opens a Workspace: the only Workspace of the org, current and not collapsible.",
+    },
+  },
   args: {
     workspaceCount: 1,
     collapsible: false,
@@ -74,6 +87,12 @@ export const SingleWorkspace: Story = {
 }
 
 export const CollapsedNav: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Workspace row in the collapsed side nav rail, which opens a Workspace: the current Workspace as an icon with no name.",
+    },
+  },
   args: {
     navExpanded: false,
     current: true,
@@ -87,6 +106,10 @@ export const OpenWithConversations: Story = {
     currentConversationId: "conv_1",
   },
   parameters: {
+    review: {
+      purpose:
+        "Workspace row in the side nav, which opens a Workspace: the row is open and lists its chats, with the open chat selected.",
+    },
     msw: {
       handlers: {
         page: [conversationsListHandler(docsConversations)],
@@ -122,6 +145,10 @@ export const NotIngesting: Story = {
     </>
   ),
   parameters: {
+    review: {
+      purpose:
+        "Workspace row in the side nav, which opens a Workspace: the first row does not ingest, so it has no pulse, and the second row ingests.",
+    },
     msw: {
       handlers: {
         ingestion: workspaceIngestionHandlers({
@@ -147,7 +174,13 @@ export const NotIngesting: Story = {
  * text "Ingesting 2 sources" in a tooltip and in the row name (CTX-959).
  */
 export const Ingesting: Story = {
-  parameters: { msw: { handlers: ingestingDocs } },
+  parameters: {
+    review: {
+      purpose:
+        "Workspace row in the side nav, which opens a Workspace: it ingests two sources, so a teal dot pulses and its tooltip is open.",
+    },
+    msw: { handlers: ingestingDocs },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const row = await canvas.findByRole("link", {
@@ -179,6 +212,10 @@ export const Ingesting: Story = {
 export const IngestingReducedMotion: Story = {
   tags: ["required", "reduced-motion"],
   parameters: {
+    review: {
+      purpose:
+        "Workspace row in the side nav, which opens a Workspace: it ingests two sources with reduced motion, so the dot does not pulse.",
+    },
     intent:
       "Catches an ingesting dot in the workspace nav row that keeps animating when the user prefers reduced motion. The dot must not animate. Not for the row label or link.",
     msw: { handlers: ingestingDocs },
@@ -202,7 +239,13 @@ export const IngestingReducedMotion: Story = {
 /** In the collapsed sidebar the dot sits on the folder icon; the row tooltip gives the text. */
 export const IngestingCollapsed: Story = {
   args: { navExpanded: false, current: true },
-  parameters: { msw: { handlers: ingestingDocs } },
+  parameters: {
+    review: {
+      purpose:
+        "Workspace row in the collapsed side nav rail: it ingests two sources, so a dot sits on the icon and the row tooltip is open.",
+    },
+    msw: { handlers: ingestingDocs },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const row = await canvas.findByRole("button", {

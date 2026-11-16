@@ -32,6 +32,20 @@ describe("getServerApiHeaders", () => {
     ).toEqual({ cookie: "session=abc", traceparent })
   })
 
+  it("forwards the client address headers, so that the backend rate limits each browser and not the UI server", async () => {
+    expect(
+      await headersDuring({
+        cookie: "session=abc",
+        "x-forwarded-for": "198.51.100.66, 203.0.113.10",
+        "x-real-ip": "203.0.113.10",
+      }),
+    ).toEqual({
+      cookie: "session=abc",
+      "x-forwarded-for": "198.51.100.66, 203.0.113.10",
+      "x-real-ip": "203.0.113.10",
+    })
+  })
+
   it("returns no headers outside a request", () => {
     expect(getServerApiHeaders()).toEqual({})
   })

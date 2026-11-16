@@ -159,10 +159,10 @@ export async function judgeNewWithOpenRouter(
 /**
  * One chat call with `prompt`, which asks for a reply that matches the JSON
  * Schema `schema`: the reply text and its run facts, or it throws. The judge
- * panel of the bake-off (evals/critic/panel.ts) and the explainer of a Jev
- * regression (explain.ts) use it with their own prompts. `reasoning` goes to
- * OpenRouter as it is: the explainer asks for a low effort, to pay for fewer
- * reasoning tokens.
+ * panel of the visual evals (`factory eval visual:panel`) and the explainer
+ * of a Jev regression (explain.ts) use it with their own prompts.
+ * `reasoning` goes to OpenRouter as it is: the explainer asks for a low
+ * effort, to pay for fewer reasoning tokens.
  */
 export async function askOpenRouter(
   prompt: Prompt,

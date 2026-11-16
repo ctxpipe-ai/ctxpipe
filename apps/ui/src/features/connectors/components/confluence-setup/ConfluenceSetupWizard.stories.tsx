@@ -190,6 +190,7 @@ Workspaces (Workspaces, then spaces and pages) → complete.
       pattern: "orgIndex",
       orgSlug,
     } satisfies StoryRouteParams,
+    review: { kind: "component" },
   },
 } satisfies Meta<typeof ConfluenceSetupWizard>
 
@@ -201,6 +202,10 @@ export const Loading: Story = {
   name: "01 / Loading",
   render: () => wizard(),
   parameters: {
+    review: {
+      purpose:
+        "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the connection status is still loading.",
+    },
     msw: {
       handlers: {
         page: [
@@ -222,6 +227,10 @@ export const StatusError: Story = {
   name: "02 / Status error",
   render: () => wizard(),
   parameters: {
+    review: {
+      purpose:
+        "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the connection status request failed.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -241,6 +250,10 @@ export const RegisterAtlassianOauth: Story = {
   name: "03 / Register Atlassian OAuth app (self-hosted)",
   render: () => wizard(),
   parameters: {
+    review: {
+      purpose:
+        "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the self-hosted first step, register the Atlassian OAuth app.",
+    },
     msw: {
       handlers: {
         page: [status(s0), orgAtlassianOauthGet(false), orgAtlassianOauthPut],
@@ -253,6 +266,10 @@ export const LinkAtlassianSignIn: Story = {
   name: "03b / Link Atlassian (3LO saved — sign in)",
   render: () => wizard(),
   parameters: {
+    review: {
+      purpose:
+        "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the link step, with the org OAuth app saved so the user can sign in.",
+    },
     msw: {
       handlers: {
         page: [
@@ -269,6 +286,10 @@ export const LinkAtlassianGlobalEnv: Story = {
   name: "03c / Link Atlassian (global env OAuth only)",
   render: () => wizard(),
   parameters: {
+    review: {
+      purpose:
+        "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the link step on a managed deployment with its own OAuth app.",
+    },
     msw: {
       handlers: {
         page: [status(s0), orgAtlassianOauthGet(false, true)],
@@ -281,6 +302,10 @@ export const InstallForge: Story = {
   name: "04 / Install Forge",
   render: () => wizard(),
   parameters: {
+    review: {
+      purpose:
+        "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the account is linked and the Forge app install step shows.",
+    },
     msw: {
       handlers: {
         page: [
@@ -298,6 +323,10 @@ export const WaitForInstall: Story = {
   name: "05 / Wait for install",
   render: () => wizard({ initialWaitForInstall: true }),
   parameters: {
+    review: {
+      purpose:
+        "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the wizard waits for the Forge app install to finish.",
+    },
     msw: {
       handlers: {
         page: [
@@ -346,7 +375,13 @@ const installHandlers = [
 /** Close: ask the server to delete the draft while it is empty. */
 export const CloseCancelsTheSetup: Story = {
   render: () => wizard(),
-  parameters: { msw: { handlers: { page: installHandlers } } },
+  parameters: {
+    review: {
+      purpose:
+        "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the user closes the install step and the empty draft is canceled.",
+    },
+    msw: { handlers: { page: installHandlers } },
+  },
   play: async () => {
     cancelCalls.length = 0
     const body = within(document.body)
@@ -362,6 +397,10 @@ export const CloseCancelsTheSetup: Story = {
 export const InstallMarksTheDraft: Story = {
   render: () => wizard(),
   parameters: {
+    review: {
+      purpose:
+        "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the user clicks Install Forge app on the install step.",
+    },
     msw: { handlers: { page: installHandlers } },
   },
   play: async () => {
@@ -384,6 +423,10 @@ export const AddToWorkspaces: Story = {
   name: "06 / Add to Workspaces",
   render: () => wizard(),
   parameters: {
+    review: {
+      purpose:
+        "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the user adds a space to a Workspace and reaches the merge step.",
+    },
     msw: {
       handlers: {
         page: [
@@ -444,6 +487,10 @@ export const ManageKeepsTheCurrentScope: Story = {
   name: "06b / Manage keeps the current scope",
   render: () => wizard(),
   parameters: {
+    review: {
+      purpose:
+        "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the Workspaces step of a Workspace that already syncs a space, with no changes.",
+    },
     visual: {
       allow: {
         contrast: "Text below WCAG AA on main (CTX-1278).",
@@ -506,6 +553,10 @@ export const ReplacedSetup: Story = {
   name: "07 / Replaced setup with a config pull request",
   render: () => wizard(),
   parameters: {
+    review: {
+      purpose:
+        "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: a notice says a configuration pull request replaced this setup.",
+    },
     msw: {
       handlers: {
         page: [
@@ -542,6 +593,10 @@ export const MissingConnectionId: Story = {
   name: "08 / Missing connection id",
   render: () => wizard({ atlassianConnectionId: undefined }),
   parameters: {
+    review: {
+      purpose:
+        "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the wizard opened with no connection id.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {

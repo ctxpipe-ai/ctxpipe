@@ -28,6 +28,9 @@ const meta = {
     ),
   ],
   args: { path: "assets/logo.png", size: 180, rawUrl: stripesPng },
+  parameters: {
+    review: { kind: "component" },
+  },
 } satisfies Meta<typeof WorkspaceBinaryFile>
 
 export default meta
@@ -54,6 +57,12 @@ export const ImagePreview: Story = {
       ),
     )
   },
+  parameters: {
+    review: {
+      purpose:
+        "Binary file view in the Files pane, which previews or downloads a file: a small PNG image shows, with its size and an Actual size zoom.",
+    },
+  },
 }
 
 /** An SVG shows only through `<img>`, never as markup in the page. */
@@ -65,6 +74,12 @@ export const SvgPreview: Story = {
     await expect(image.tagName).toBe("IMG")
     await canvas.findByText("240 × 120 px")
     await expect(canvasElement.querySelector("circle")).toBeNull()
+  },
+  parameters: {
+    review: {
+      purpose:
+        "Binary file view in the Files pane, which previews or downloads a file: an SVG image shows as an image, not as page markup.",
+    },
   },
 }
 
@@ -96,6 +111,12 @@ export const SvgTextWithSource: Story = {
     await canvas.findByRole("img", { name: "diagram.svg" })
     await expect(canvasElement.querySelector("circle")).toBeNull()
   },
+  parameters: {
+    review: {
+      purpose:
+        "Binary file view in the Files pane, which previews or downloads a file: an SVG text file shows as an image, with a View source button.",
+    },
+  },
 }
 
 export const DownloadBinaryFile: Story = {
@@ -124,6 +145,12 @@ export const DownloadBinaryFile: Story = {
       ),
     ).toBeVisible()
     await expect(canvas.queryByRole("img")).toBeNull()
+  },
+  parameters: {
+    review: {
+      purpose:
+        "Binary file view in the Files pane, which previews or downloads a file: a zip file has no preview, so only a Download link shows.",
+    },
   },
 }
 
@@ -155,6 +182,12 @@ export const ImageOverPreviewLimit: Story = {
     ).toBeVisible()
     await expect(canvas.queryByRole("img")).toBeNull()
   },
+  parameters: {
+    review: {
+      purpose:
+        "Binary file view in the Files pane, which previews or downloads a file: the image is over the 5 MB preview limit, so only a Download link shows.",
+    },
+  },
 }
 
 /** A file over the raw file limit cannot download here, so the pane says how to get it. */
@@ -172,6 +205,12 @@ export const FileOverDownloadLimit: Story = {
     )
     await expect(canvas.queryByRole("link")).toBeNull()
   },
+  parameters: {
+    review: {
+      purpose:
+        "Binary file view in the Files pane, which previews or downloads a file: the video is over the 10 MB limit, and an alert says to clone the repository.",
+    },
+  },
 }
 
 /** A broken image keeps the download, so the user can still open the file. */
@@ -184,5 +223,11 @@ export const ImageLoadError: Story = {
     await expect(
       canvas.getByRole("link", { name: "Download logo.png" }),
     ).toBeVisible()
+  },
+  parameters: {
+    review: {
+      purpose:
+        "Binary file view in the Files pane, which previews or downloads a file: the image did not load, and the Download link stays.",
+    },
   },
 }

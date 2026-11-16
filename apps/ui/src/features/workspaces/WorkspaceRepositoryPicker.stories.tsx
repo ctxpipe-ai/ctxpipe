@@ -28,6 +28,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "centered",
     storyRoute: {
       pattern: "orgIndex",
@@ -58,6 +59,10 @@ type Story = StoryObj<typeof meta>
 
 export const Loading: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Repository picker, where an owner chooses the Workspace repository: the GitHub repository list still loads.",
+    },
     msw: {
       handlers: {
         page: [
@@ -80,6 +85,12 @@ export const Loading: Story = {
 }
 
 export const SelectGitHub: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Repository picker, where an owner chooses the Workspace repository: the owner picked a GitHub repository, so Create Workspace shows.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("list", { name: /repositories/i })
@@ -99,6 +110,10 @@ export const SelectGitHub: Story = {
 
 export const SelectGitHubEmpty: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Repository picker, where an owner chooses the Workspace repository: no GitHub repository is free to use, so a link changes the access.",
+    },
     msw: {
       handlers: {
         page: [
@@ -122,6 +137,10 @@ export const SelectGitHubEmpty: Story = {
  */
 export const NoGithubConnection: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Repository picker, where an owner chooses the Workspace repository: the org has no GitHub connection, and the owner opened the Paste URL tab.",
+    },
     msw: {
       handlers: {
         page: [
@@ -152,6 +171,10 @@ export const NoGithubConnection: Story = {
 
 export const SelectGitHubAllAccess: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Repository picker, where an owner chooses the Workspace repository: the GitHub App can see all repositories of the org.",
+    },
     msw: {
       handlers: {
         page: [
@@ -178,6 +201,10 @@ export const SelectGitHubAllAccess: Story = {
  */
 export const CreateOnGitHub: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Repository picker, where an owner chooses the Workspace repository: the owner read the Create on GitHub steps and went back to the list.",
+    },
     msw: {
       handlers: {
         page: [
@@ -221,6 +248,10 @@ export const CreateOnGitHub: Story = {
 /** The app sees every repository, so no access step shows. */
 export const CreateOnGitHubAllAccess: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Repository picker, where an owner chooses the Workspace repository: the Create on GitHub tab with no access step, because the app sees all repositories.",
+    },
     msw: {
       handlers: {
         page: [
@@ -254,6 +285,10 @@ export const CreateOnGitHubAllAccess: Story = {
 /** No GitHub connection: step 2 connects GitHub in place. */
 export const CreateOnGitHubNoConnection: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Repository picker, where an owner chooses the Workspace repository: the Create on GitHub tab, where step 2 connects GitHub in place.",
+    },
     msw: {
       handlers: {
         page: [
@@ -287,6 +322,12 @@ export const CreateOnGitHubNoConnection: Story = {
 }
 
 export const PasteUrl: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Repository picker, where an owner chooses the Workspace repository: the Paste URL tab is open with an empty git URL field.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(canvas.getByRole("tab", { name: /paste url/i }))
@@ -295,6 +336,12 @@ export const PasteUrl: Story = {
 
 /** A Workspace in a folder of a larger repository: the root folder goes with the choice. */
 export const PasteUrlWithRootFolder: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Repository picker, where an owner chooses the Workspace repository: the owner pasted a git URL with a root folder and clicked Create Workspace.",
+    },
+  },
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -324,6 +371,12 @@ export const PasteUrlWithRootFolder: Story = {
 
 /** The root folder is optional: an empty field sends "" for the whole repository. */
 export const PasteUrlWithEmptyRootFolder: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Repository picker, where an owner chooses the Workspace repository: the owner pasted a git URL with an empty root folder and clicked Create Workspace.",
+    },
+  },
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -348,6 +401,12 @@ export const PasteUrlWithEmptyRootFolder: Story = {
 }
 
 export const SaveError: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Repository picker, where an owner chooses the Workspace repository: the save failed because another Workspace already uses the git URL.",
+    },
+  },
   args: {
     error: "That git URL is already used by another Workspace.",
   },
@@ -362,6 +421,10 @@ const memberRepoReads: string[] = []
  */
 export const MemberAsksAnAdmin: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Repository picker, where a user chooses the Workspace repository: a member cannot list the repositories, so it asks for an admin, and Paste URL is open.",
+    },
     msw: {
       handlers: {
         role: [activeMemberRoleHandler("member")],
