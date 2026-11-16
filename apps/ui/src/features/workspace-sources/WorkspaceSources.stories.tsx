@@ -2103,7 +2103,7 @@ export const GithubRepositoryLostAccess: Story = {
         createdAt: "2026-10-01T10:00:00.000Z",
         indexingStatus: "failed",
         indexingError:
-          "ctxpipe has no access to this repository. Add the repository to the GitHub App installation, then refresh.",
+          "ctxpipe has no access to this repository. Add the repository to the GitHub App installation, or reconnect GitHub, then refresh.",
       },
       {
         id: "lnk_lost_2",

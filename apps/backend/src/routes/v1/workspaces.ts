@@ -528,17 +528,6 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       )
     }
     const linked = await listLinkedRepositories(workspace.id)
-    // A linked repository that lost access says "then refresh": the refresh
-    // tries its index again, at most once per minute (CTX-1297).
-    const lostAccess = linked
-      .filter(isRepositoryLostAccess)
-      .flatMap((row) => githubRepoFullNameFromWorkspaceUrl(row.gitUrl) ?? [])
-    if (orgId && lostAccess.length > 0)
-      void startLostAccessRebuilds({
-        orgId,
-        repoFullNames: lostAccess,
-        cause: `refresh:${Math.floor(Date.now() / 60_000)}`,
-      }).catch(detachedErrorLog("workspace.lost_access_rebuild.enqueue").error)
     return c.json(
       {
         ...serializeWorkspace(workspace),
@@ -673,6 +662,19 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
     await touchLastUsedWorkspace(workspace.id)
+    // A linked repository that lost access says "then refresh". The UI
+    // touches the Workspace when the user opens it, and never in a poll, so
+    // the open tries the index again, at most once per minute (CTX-1297).
+    const orgId = c.get("orgId")
+    const lostAccess = (await listLinkedRepositories(workspace.id))
+      .filter(isRepositoryLostAccess)
+      .flatMap((row) => githubRepoFullNameFromWorkspaceUrl(row.gitUrl) ?? [])
+    if (orgId && lostAccess.length > 0)
+      void startLostAccessRebuilds({
+        orgId,
+        repoFullNames: lostAccess,
+        cause: `refresh:${Math.floor(Date.now() / 60_000)}`,
+      }).catch(detachedErrorLog("workspace.lost_access_rebuild.enqueue").error)
     return c.body(null, 204)
   })
   .openapi(retryPrepareWorkspaceRoute, async (c) => {

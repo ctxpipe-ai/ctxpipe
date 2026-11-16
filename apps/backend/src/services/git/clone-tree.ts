@@ -150,7 +150,7 @@ export const GIT_REMOTE_ACCESS_MESSAGES = {
   noCredential:
     "ctxpipe has no access to this repository. Connect GitHub to this Workspace, then retry.",
   denied:
-    "ctxpipe has no access to this repository. Add the repository to the GitHub App installation, then refresh.",
+    "ctxpipe has no access to this repository. Add the repository to the GitHub App installation, or reconnect GitHub, then refresh.",
 } as const
 
 /** The remote refused the read credential, or the read needs one and has none. */

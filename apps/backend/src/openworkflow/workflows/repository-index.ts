@@ -308,11 +308,13 @@ export const repositoryIndex = defineWorkflow(
               input.githubConnectionId ?? repository.githubConnectionId,
           },
         })
-        // The Git host gave a credential: a lost access is back (CTX-1297).
-        await clearRepositoryLostAccess({
-          orgId: input.orgId,
-          repositoryId: input.repositoryId,
-        })
+        // GitHub gave a credential: a lost access is back (CTX-1297). With
+        // no credential (no connection), only a successful run ends it.
+        if (token)
+          await clearRepositoryLostAccess({
+            orgId: input.orgId,
+            repositoryId: input.repositoryId,
+          })
         return token
       } catch (error) {
         // A run with a request leaves the failure to its ingestion. A run

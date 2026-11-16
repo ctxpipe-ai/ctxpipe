@@ -434,9 +434,11 @@ export async function repositoryIndexAlreadyPublished(
 
 /**
  * The repository failed because its Git host refused ctxpipe access (the
- * GitHub installation lost the repository, or is gone). A sweep does not
- * index it again; a reindex, or an installation that gets the repository
- * back, does (CTX-1297).
+ * GitHub installation lost the repository, or is gone). The hourly sweep
+ * tries it again only after a week, in case a webhook was lost. A reindex,
+ * an installation that gets the repository back, and a user who opens the
+ * Workspace try it at once. A run that gets a credential, or that succeeds,
+ * ends the state (CTX-1297).
  */
 export function repositoryLostAccessCondition(): SQL {
   // Never null, so that `not(...)` keeps a repository with no status.
