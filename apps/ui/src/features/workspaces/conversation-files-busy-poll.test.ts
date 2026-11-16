@@ -160,6 +160,52 @@ describe("conversation Files queries while a turn runs or the chat starts", () =
     }
   }, 10_000)
 
+  for (const route of ["tree", "status", "blob"] as const) {
+    it(`asks files/${route} less often the longer a turn holds the conversation`, async () => {
+      clearAllConversationGitTreeSnapshots()
+      vi.useFakeTimers()
+      const at: number[] = []
+      const started = Date.now()
+      server.use(
+        http.get(
+          `http://localhost:3000/:orgSlug/api/v1/conversations/:conversationId/files/${route}`,
+          () => {
+            at.push(Date.now() - started)
+            return HttpResponse.json({ error: "turn_running" }, { status: 409 })
+          },
+        ),
+      )
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+      const options =
+        route === "tree"
+          ? conversationGitTreeOptions("acme", "conv_1")
+          : route === "status"
+            ? conversationGitStatusOptions("acme", "conv_1")
+            : conversationGitBlobOptions("acme", "conv_1", "AGENTS.md")
+      const unsubscribe = new QueryObserver(
+        queryClient,
+        options as ReturnType<typeof conversationGitTreeOptions>,
+      ).subscribe(() => {})
+      try {
+        // One minute of a running turn. A finished turn refreshes the Files
+        // reads, so the poll only covers a missed end.
+        for (let second = 0; second < 61; second += 1)
+          await vi.advanceTimersByTimeAsync(1000)
+        expect(at.length).toBeLessThanOrEqual(7)
+        const gaps = at.slice(1).map((time, index) => time - at[index]!)
+        expect(gaps[0]).toBeLessThanOrEqual(2_100)
+        expect(Math.max(...gaps)).toBeLessThanOrEqual(31_000)
+      } finally {
+        unsubscribe()
+        queryClient.clear()
+        vi.useRealTimers()
+        clearAllConversationGitTreeSnapshots()
+      }
+    })
+  }
+
   for (const route of ["tree", "status"] as const) {
     it(`does not ask files/${route} again after a 409 missing_sandbox`, async () => {
       clearAllConversationGitTreeSnapshots()

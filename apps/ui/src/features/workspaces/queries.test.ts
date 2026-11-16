@@ -162,6 +162,34 @@ describe("workspace query HTTP helpers", () => {
     expect(data.items.map((item) => item.runId)).toEqual(["run_1"])
   }, 10_000)
 
+  it("asks for the turn changes less often the longer the turn runs", async () => {
+    vi.useFakeTimers()
+    try {
+      const at: number[] = []
+      const started = Date.now()
+      server.use(
+        http.get("*/api/v1/conversations/conv_1/turns", () => {
+          at.push(Date.now() - started)
+          return HttpResponse.json({ error: "turn_running" }, { status: 409 })
+        }),
+      )
+      const client = new QueryClient()
+      const reading = client
+        .fetchQuery(conversationTurnChangesOptions("acme", "conv_1"))
+        .catch(() => "gave up")
+      for (let second = 0; second < 61; second += 1)
+        await vi.advanceTimersByTimeAsync(1000)
+      // A finished turn refreshes this read; the retries only cover a turn
+      // that records its changes late.
+      expect(at.length).toBeLessThanOrEqual(8)
+      for (let second = 0; second < 300; second += 1)
+        await vi.advanceTimersByTimeAsync(1000)
+      await expect(reading).resolves.toBe("gave up")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("sends no turn-changes request until the conversation has started", async () => {
     let calls = 0
     server.use(

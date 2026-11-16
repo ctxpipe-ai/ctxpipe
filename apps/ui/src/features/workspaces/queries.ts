@@ -899,6 +899,28 @@ export async function createConversationPullRequest(
 /** Query data for a Files read. `busy`: the last read got 409 turn_running or chat_starting. */
 type PolledFiles<T> = T & { busy?: boolean }
 
+/** When a Files read first got a busy 409, per query. */
+const filesBusySince = new WeakMap<object, number>()
+
+/**
+ * While a turn or a chat start holds the conversation, ask again: first after
+ * 2 s, then after as long as it has been busy, at most 30 s. The end of a turn
+ * refreshes the Files reads at once, so this poll only covers a missed end.
+ */
+function pollWhileBusy(
+  query: { state: { fetchStatus: string } },
+  busy: boolean,
+): number | false {
+  if (!busy) {
+    // A fetch clears the error of a query with no data until its answer comes.
+    if (query.state.fetchStatus !== "fetching") filesBusySince.delete(query)
+    return false
+  }
+  const since = filesBusySince.get(query) ?? Date.now()
+  filesBusySince.set(query, since)
+  return Math.min(30_000, Math.max(2000, Date.now() - since))
+}
+
 export function conversationGitTreeOptions(
   orgSlug: string,
   conversationId: string,
@@ -933,8 +955,8 @@ export function conversationGitTreeOptions(
       writeConversationGitTreeSnapshot(conversationId, listed)
       return listed
     },
-    // 409 turn_running or chat_starting: the holder lets go soon. Ask again.
-    refetchInterval: (query) => (query.state.data?.busy ? 2000 : false),
+    refetchInterval: (query) =>
+      pollWhileBusy(query, Boolean(query.state.data?.busy)),
     placeholderData: (previousData): ConversationGitTreeResponse | undefined =>
       readConversationGitTreeSnapshot(conversationId) ?? previousData,
     initialData: (): ConversationGitTreeResponse | undefined =>
@@ -950,8 +972,8 @@ export function conversationGitBlobOptions(
   return queryOptions({
     queryKey: workspaceKeys.conversationGitBlob(orgSlug, conversationId, path),
     queryFn: () => fetchConversationGitBlob(orgSlug, conversationId, path),
-    // 409 chat_starting or turn_running: the holder lets go soon. Ask again.
-    refetchInterval: (query) => (query.state.data?.busy ? 2000 : false),
+    refetchInterval: (query) =>
+      pollWhileBusy(query, Boolean(query.state.data?.busy)),
   })
 }
 
@@ -992,12 +1014,12 @@ export function conversationGitStatusOptions(
       }
       return status
     },
-    // 409 turn_running: a turn holds the conversation. Ask again.
     refetchInterval: (query) =>
-      query.state.data?.busy ||
-      query.state.error instanceof ConversationSandboxBusy
-        ? 2000
-        : false,
+      pollWhileBusy(
+        query,
+        Boolean(query.state.data?.busy) ||
+          query.state.error instanceof ConversationSandboxBusy,
+      ),
   })
 }
 
@@ -1037,15 +1059,17 @@ export function conversationTurnChangesOptions(
     queryKey: workspaceKeys.conversationTurnChanges(orgSlug, conversationId),
     queryFn: () => fetchConversationTurnChanges(orgSlug, conversationId),
     // A turn records its changes just before it ends, and the backend answers
-    // 409 until then. Ask again: the card shows when the turn is done.
+    // 409 until then. Ask again less often the longer it runs (1 s, 2 s, 4 s,
+    // up to 15 s, for about 2 minutes). The end of a turn refreshes this read.
     retry: (count, error) =>
       error instanceof ApiError && error.status === 409
-        ? count < 30
+        ? count < 12
         : retryQuery(count, error),
     retryDelay: (count, error) =>
-      error instanceof ApiError && error.status === 409
-        ? 1000
-        : Math.min(1000 * 2 ** count, 30_000),
+      Math.min(
+        1000 * 2 ** count,
+        error instanceof ApiError && error.status === 409 ? 15_000 : 30_000,
+      ),
   })
 }
 
