@@ -179,7 +179,8 @@ test("a change to a file that lists, defines or runs checks gives a full run, or
 
 test("the manifest job lists the tree with the base code before any PR code runs, and the plan reads that listing by its id", () => {
   const { jobs } = parseYaml(readFileSync(join(root, ciYaml), "utf8"))
-  const steps = jobs["merge-gate-manifest"].steps
+  const job = jobs["merge-gate-manifest"]
+  const steps = job.steps
   const index = (name) => steps.findIndex((step) => step.name === name)
   const base = index("The listing of the base revision")
   const back = index("The files of the PR again")
@@ -189,35 +190,64 @@ test("the manifest job lists the tree with the base code before any PR code runs
   for (const step of steps.slice(0, base)) {
     if (!step.run) continue
     assert.ok(
-      /^pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile /.test(step.run) ||
+      /^pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile /.test(
+        step.run,
+      ) ||
         step.run.includes("$RUNNER_TEMP/gate/") ||
         /git archive "\$rev"|corepack enable/.test(step.run),
       step.run,
     )
   }
+  // The step removes the PR files at the list-time paths before it puts the
+  // base files there, and the next step puts the PR files back.
+  assert.match(
+    steps[base].run,
+    /rm -rf \$LIST_TIME_PATHS\n\s*git archive HEAD\^1 \$LIST_TIME_PATHS \| tar -x\n\s*node scripts\/checks\/list\.mjs /,
+  )
+  assert.match(steps[back].run, /git checkout HEAD --/)
   // The listing of the PR runs after the PR files are back.
   assert.ok(index("Manifest and toolchain") > back)
-  // The base files replace each list-time file of a definition of checks.
-  const paths = steps[back].run.match(/paths="([^"]+)"/)[1].split(" ")
-  for (const path of paths) assert.ok(steps[base].run.includes(path), path)
-  const listTime = closureOf(["scripts/checks/list.mjs"]).filter((file) =>
-    decideMode({
-      config: pinned,
-      event: "pull_request",
-      fork: false,
-      changed: [file],
-    }).definitions?.includes(file),
-  )
-  assert.ok(listTime.includes("apps/ui/.storybook/check-modules.mjs"))
-  for (const file of listTime)
-    assert.ok(
-      paths.some((path) => file === path || file.startsWith(`${path}/`)),
+  // Each module that the listing imports, and the Storybook config that
+  // buildIndex loads, is at a list-time path. The other code that it runs
+  // comes from the dependencies.
+  const paths = job.env.LIST_TIME_PATHS.split(" ")
+  const at = (file) =>
+    paths.some((path) => file === path || file.startsWith(`${path}/`))
+  const imported = new Set()
+  const visit = (file) => {
+    if (imported.has(file)) return
+    imported.add(file)
+    const text = readFileSync(join(root, file), "utf8")
+    for (const [, path] of text.matchAll(
+      /(?:from\s+|import\(\s*)["'](\.{1,2}\/[^"']+)["']/g,
+    ))
+      visit(relative(root, resolve(root, dirname(file), path)))
+  }
+  visit("scripts/checks/list.mjs")
+  assert.ok(imported.has("apps/ui/.storybook/check-modules.mjs"))
+  assert.ok(imported.has("apps/backend/evals/mcp/cases.ts"))
+  for (const file of [...imported, "apps/ui/.storybook/main.ts"])
+    assert.ok(at(file), file)
+  // A change to a package file or the lockfile changes those dependencies,
+  // so with a definition of checks the run is full.
+  for (const file of ["apps/ui/package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "package.json"])
+    assert.deepEqual(
+      decideMode({
+        config: pinned,
+        event: "pull_request",
+        fork: false,
+        changed: ["scripts/checks/visual.mjs", file],
+      }),
+      {
+        mode: "full",
+        reason: `gate inputs changed: scripts/checks/visual.mjs, ${file}`,
+      },
       file,
     )
   // The plan reads the listing only by the artifact id of its upload, and the
   // manifest that the selector keyed from the select job.
   assert.equal(
-    jobs["merge-gate-manifest"].outputs["base-listing"],
+    job.outputs["base-listing"],
     "${{ steps.base-listing.outputs.artifact-id }}",
   )
   assert.ok(
@@ -229,8 +259,16 @@ test("the manifest job lists the tree with the base code before any PR code runs
   )
   assert.ok(
     jobs["merge-gate-select"].steps.some((step) =>
-      step.run?.includes('cp "$RUNNER_TEMP/inputs/manifest.json" "$out/manifest.json"'),
+      step.run?.includes(
+        'cp "$RUNNER_TEMP/inputs/manifest.json" "$out/manifest.json"',
+      ),
     ),
+  )
+  // The plan of such a run does not use the LLM stage, so its job does not
+  // run.
+  assert.match(
+    jobs["merge-gate-llm"].if,
+    /needs\.merge-gate-manifest\.outputs\.definitions != 'true'/,
   )
 })
 

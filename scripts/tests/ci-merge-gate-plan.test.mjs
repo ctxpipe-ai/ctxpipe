@@ -691,6 +691,22 @@ test("a PR cannot redefine a check to reuse a pass of the old definition", () =>
     `definitions of checks changed, and the listing of this PR drops 1 check that the base revision lists for the same tree: ${omitted}`,
   )
   assert.equal(dropped.hits, undefined)
+  // A PR listing that gives an id twice could hide its redefined entry
+  // behind a copy of the base entry, so the run is full.
+  const twice = planOf({
+    files: {
+      "mode.json": definitions,
+      "manifest.json": manifestOf([
+        ...listed(),
+        { ...entry(story), inputs: ["package.json"] },
+      ]),
+      "base-manifest.json": manifestOf(listed()),
+    },
+  })
+  assert.equal(
+    twice.reason,
+    `definitions of checks changed, and a listing gives a check id twice: ${story}`,
+  )
   // Without a valid listing of the base revision, the run is full.
   for (const base of [undefined, { schemaVersion: 1, checks: "all" }])
     assert.equal(

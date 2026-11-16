@@ -1434,7 +1434,12 @@ jobs:
     outputs:
       mode: ${{ steps.mode.outputs.mode }}
       record: ${{ steps.mode.outputs.record }}
+      definitions: ${{ steps.mode.outputs.definitions }}
       base-listing: ${{ steps.base-listing.outputs.artifact-id }}
+    env:
+      # The files that the listing of the checks executes, apart from the
+      # dependencies: the base revision lists with its own versions of them.
+      LIST_TIME_PATHS: scripts/checks scripts/ci apps/backend/evals/mcp apps/ui/.storybook apps/codesearch/scripts/run-vitest-contracts.mjs
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1504,8 +1509,11 @@ jobs:
       # the PR runs, and the plan compares that listing with the manifest of
       # the PR (scripts/checks/README.md, A change to a definition of checks).
       # The base versions of the files that list checks replace those of the
-      # PR for this step only. The upload gives its artifact id as an output,
-      # so a later step cannot replace the listing.
+      # PR for this step only: the PR files there are removed first. The
+      # dependencies come from the install above; gate.mjs gives a full run
+      # when the PR changes a package file or the lockfile. The upload gives
+      # its artifact id as an output, so a later step cannot replace the
+      # listing.
       - name: The listing of the base revision
         id: base
         if: steps.mode.outputs.definitions == 'true'
@@ -1513,17 +1521,15 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/base-listing"
-          git archive HEAD^1 scripts/checks scripts/ci apps/backend/evals/mcp \
-            apps/ui/.storybook/check-modules.mjs apps/codesearch/scripts/run-vitest-contracts.mjs |
-            tar -x
+          rm -rf $LIST_TIME_PATHS
+          git archive HEAD^1 $LIST_TIME_PATHS | tar -x
           node scripts/checks/list.mjs > "$RUNNER_TEMP/base-listing/base-manifest.json"
       - name: The files of the PR again
         if: steps.mode.outputs.definitions == 'true'
         run: |
-          paths="scripts/checks scripts/ci apps/backend/evals/mcp apps/ui/.storybook/check-modules.mjs apps/codesearch/scripts/run-vitest-contracts.mjs"
-          git checkout HEAD -- $paths
-          git clean -fdq -- $paths
-          test -z "$(git status --porcelain -- $paths)"
+          rm -rf $LIST_TIME_PATHS
+          git ls-tree -r -z --name-only HEAD -- $LIST_TIME_PATHS | xargs -0 git checkout HEAD --
+          test -z "$(git status --porcelain -- $LIST_TIME_PATHS)"
       - name: Preserve the listing of the base revision
         id: base-listing
         if: steps.base.outcome == 'success'
@@ -1843,11 +1849,14 @@ jobs:
   merge-gate-llm:
     timeout-minutes: 5
     name: Merge gate LLM selection
-    needs: merge-gate-select
+    needs: [merge-gate-manifest, merge-gate-select]
     # !cancelled(): the Nightly change job is skipped on a PR (see the select job).
+    # The plan of a change to a definition of checks does not use the LLM
+    # stage, so the job does not run for it.
     if: |
       !cancelled() &&
-      needs.merge-gate-select.result == 'success'
+      needs.merge-gate-select.result == 'success' &&
+      needs.merge-gate-manifest.outputs.definitions != 'true'
     continue-on-error: true
     environment: workbench
     # github-hosted: a short job without Docker (ADR-065)

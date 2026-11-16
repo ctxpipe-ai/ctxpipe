@@ -100,15 +100,6 @@ function withGateTests(selection, inputs) {
   )
 }
 
-// The text of a value with its object keys in order, so that two entries
-// with the same fields compare equal.
-const canonical = (value) =>
-  JSON.stringify(value, (_, item) =>
-    item && typeof item === "object" && !Array.isArray(item)
-      ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => (a < b ? -1 : 1)))
-      : item,
-  )
-
 // The checks whose definition the PR changed, from two listings of the merge
 // revision: the manifest that the selector keyed (the code of the PR made
 // it), and the listing that the code of the base revision made of the same
@@ -116,11 +107,26 @@ const canonical = (value) =>
 // PR does not. `changed`: a check that only the PR lists, or whose entry
 // differs other than by more inputs or another intent. More inputs only make
 // a key wider, so no pass of the old definition matches it. An eval or a
-// stochastic check has no key, so it reuses no pass.
+// stochastic check has no key, so it reuses no pass. `twice`: an id that a
+// listing gives more than once, so that the plan cannot know which entry the
+// selector keyed.
 export function definitionChanges(base, manifest) {
   const keyed = (check) => !check.stochastic && check.family !== "eval"
+  // The entry with its object keys in order, so that two entries with the
+  // same fields compare equal.
   const rest = ({ intent: _intent, inputs: _inputs, ownInputs: _own, ...item }) =>
-    canonical(item)
+    JSON.stringify(item, (_, value) =>
+      value && typeof value === "object" && !Array.isArray(value)
+        ? Object.fromEntries(
+            Object.entries(value).sort(([a], [b]) => (a < b ? -1 : 1)),
+          )
+        : value,
+    )
+  const twice = [base, manifest].flatMap(({ checks }) =>
+    checks
+      .map((check) => check.id)
+      .filter((id, index, ids) => ids.indexOf(id) !== index),
+  )
   const covers = (some = [], all = []) => some.every((item) => all.includes(item))
   const pr = new Map(manifest.checks.filter(keyed).map((check) => [check.id, check]))
   const listed = new Set()
@@ -138,7 +144,11 @@ export function definitionChanges(base, manifest) {
       changed.push(check.id)
   }
   for (const id of pr.keys()) if (!listed.has(id)) changed.push(id)
-  return { dropped: dropped.sort(), changed: changed.sort() }
+  return {
+    dropped: dropped.sort(),
+    changed: changed.sort(),
+    twice: [...new Set(twice)].sort(),
+  }
 }
 
 // The selection with each check whose definition the PR changed selected,
@@ -471,29 +481,23 @@ export function plan({ config, inputs, needs, store }) {
   const select = readJson(join(inputs, "selection.json"))
   const fallback = fallbackOf({ mode, selection: select, inputs, needs })
   const gate = config.mode === "gate"
-  if (fallback)
-    return {
-      schemaVersion: 1,
-      config: config.mode,
-      mode: "full",
-      reason: fallback,
-      jobs: {},
-      outputs: {},
-    }
+  const full = (reason) => ({
+    schemaVersion: 1,
+    config: config.mode,
+    mode: "full",
+    reason,
+    jobs: {},
+    outputs: {},
+  })
+  if (fallback) return full(fallback)
   // A change to a definition of checks (decideMode): the code of the base
   // revision listed the same tree, and the plan compares that listing with
   // the manifest of the PR. The LLM stage does not decide such a run.
   const definitions = mode.definitions ?? []
   let changes
   if (definitions.length) {
-    const full = (reason) => ({
-      schemaVersion: 1,
-      config: config.mode,
-      mode: "full",
-      reason: `definitions of checks changed, and ${reason}`,
-      jobs: {},
-      outputs: {},
-    })
+    const fullFor = (reason) =>
+      full(`definitions of checks changed, and ${reason}`)
     const base = readJson(join(inputs, "base-manifest.json"))
     const manifest = readJson(join(inputs, "manifest.json"))
     if (
@@ -501,13 +505,15 @@ export function plan({ config, inputs, needs, store }) {
         (listing) => !listing || schemaErrors(listing, "manifest.v1", 1).length,
       )
     )
-      return full(
+      return fullFor(
         "no valid listing of the base revision or of the PR is available",
       )
     changes = definitionChanges(base, manifest)
-    const { dropped } = changes
+    const { dropped, twice } = changes
+    if (twice.length)
+      return fullFor(`a listing gives a check id twice: ${twice.slice(0, 3).join(", ")}`)
     if (dropped.length)
-      return full(
+      return fullFor(
         `the listing of this PR drops ${dropped.length} ${dropped.length === 1 ? "check" : "checks"} that the base revision lists for the same tree: ${dropped.slice(0, 3).join(", ")}${dropped.length > 3 ? " and more" : ""}`,
       )
   }
