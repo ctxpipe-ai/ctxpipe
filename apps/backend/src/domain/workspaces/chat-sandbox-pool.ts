@@ -61,12 +61,14 @@ export function withPoolClaim(
         readySince: new Date(started - POOL_SESSION_TTL_MS + 60_000),
       })
       let handle: SandboxHandle | null = null
-      if (sessionId)
-        handle = await provider.resume({ id: sessionId }).catch(async () => {
+      if (sessionId) {
+        try {
+          handle = await provider.resume({ id: sessionId })
+        } catch {
           // The claim deleted the row: nothing else stops this session.
           await provider.destroy({ id: sessionId }).catch(() => undefined)
-          return null
-        })
+        }
+      }
       markSandboxLifecycle("pool-claim", {
         outcome: handle ? "hit" : sessionId ? "gone" : "miss",
         workspaceId: owner.workspaceId,
