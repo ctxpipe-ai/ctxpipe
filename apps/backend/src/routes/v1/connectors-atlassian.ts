@@ -24,7 +24,7 @@ import {
 } from "../../models/confluence-sync-target.js"
 import { forgeConnectionIsInstalled } from "../../models/connection-status.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
-import { getLogger } from "../../observability/logger.js"
+import { getLogger, log } from "../../observability/logger.js"
 import { enqueueWorkflow } from "../../openworkflow/client.js"
 import { forgeProvision } from "../../openworkflow/workflows/forge-provision.js"
 
@@ -858,9 +858,11 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       orgSlug,
       connectionId: inst.id,
     }).catch((err: unknown) => {
-      getLogger().error(err instanceof Error ? err : new Error(String(err)), {
+      // The response is sent, so the request logger is sealed: use the module log.
+      log.error({
         step: "connectors.atlassian.provision-enqueue",
         connectionId: inst.id,
+        error: err instanceof Error ? err.message : String(err),
       })
     })
     return c.json(
