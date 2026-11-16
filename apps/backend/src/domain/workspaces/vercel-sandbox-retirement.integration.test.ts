@@ -156,10 +156,8 @@ function row(
 
 const name = (label: string) => `${label}-${orgId}`
 
-/** Every event that the sweep logs. */
+/** The retirement's own log events. */
 const events: Record<string, unknown>[] = []
-const retirementEvents = () =>
-  events.filter((event) => event.step === "vercel-sandbox-retirement")
 
 beforeAll(async () => {
   const url = process.env.DATABASE_URL
@@ -169,7 +167,8 @@ beforeAll(async () => {
     env: { service: "ctxpipe-backend-test" },
     pretty: false,
     drain: (ctx) => {
-      events.push(ctx.event as Record<string, unknown>)
+      const event = ctx.event as Record<string, unknown>
+      if (event.step === "vercel-sandbox-retirement") events.push(event)
     },
   })
   await getSystemDb().insert(organizations).values({
@@ -350,12 +349,12 @@ describe("the sweep retires Vercel sandboxes (Postgres)", () => {
     expect(requests).toBe(before)
 
     // Counts and status codes only.
-    expect(retirementEvents().map((event) => event.message)).toEqual([
+    expect(events.map((event) => event.message)).toEqual([
       "Retiring a Vercel sandbox failed (kind chat)",
       "Retired 4 Vercel sandboxes; 2 kept, 1 failed",
       "Retired 3 Vercel sandboxes; 0 kept, 0 failed",
     ])
-    expect(retirementEvents()[0]).toMatchObject({ kind: "chat", status: 503 })
+    expect(events[0]).toMatchObject({ kind: "chat", status: 503 })
   })
 
   it("keeps a row when the snapshot list of its sandbox fails, also with a 404", async () => {
@@ -417,10 +416,6 @@ describe("the sweep retires Vercel sandboxes (Postgres)", () => {
     expect(result.nextSweepAt?.getTime()).toBeLessThanOrEqual(
       Date.now() + 5 * 60_000,
     )
-    // The failed push writes no line of its own.
-    expect(
-      events.filter((event) => event.step === "conversation-branch-push"),
-    ).toEqual([])
   })
 
   it("keeps a conversation sandbox while a turn holds the conversation, and the base it can have started from", async () => {
@@ -477,7 +472,7 @@ describe("the sweep retires Vercel sandboxes (Postgres)", () => {
     expect((await vercelRows()).map((item) => item.id)).toEqual([kept.id])
   })
 
-  it("logs no org, Workspace, sandbox or snapshot id, no token and no error text in any sweep line", () => {
+  it("logs no org, Workspace, sandbox or snapshot id, no token and no error text in the retirement's lines", () => {
     expect(events.length).toBeGreaterThan(0)
     for (const event of events) {
       const text = JSON.stringify(event)

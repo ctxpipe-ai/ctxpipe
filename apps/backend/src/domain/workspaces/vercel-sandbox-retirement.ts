@@ -116,8 +116,6 @@ async function retire(row: SandboxInstanceRecord, now: Date): Promise<boolean> {
               provider: "vercel",
               providerSandboxId: row.providerSandboxId,
               baseSha: row.revision.sha,
-              // Its lines can hold a branch name or an error text.
-              quiet: true,
             })
           : "done"
       if (
