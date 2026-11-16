@@ -116,15 +116,16 @@ describe("run with provider inputs from Secrets Manager", () => {
   const SECRETS = /https:\/\/secretsmanager\.us-west-2\.amazonaws\.com\/?$/
   const OUTSIDE_AWS_SLOT = new Date("2026-09-26T13:17:00.000Z")
 
-  // The task: no provider env vars, only the prefix. BLACKSMITH_TOKEN stays in the env, which wins over its secret.
+  // The ECS task: ECS sets its metadata endpoint, and no provider env vars. BLACKSMITH_TOKEN stays in the env, which
+  // wins over its secret.
   beforeEach(() => {
-    process.env.COST_TELEMETRY_SECRET_PREFIX = "cost-telemetry/"
+    process.env.ECS_CONTAINER_METADATA_URI_V4 = "http://169.254.170.2/v4/task-1"
     for (const name of ["OPENROUTER_MANAGEMENT_KEY", "GITHUB_BILLING_TOKEN", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "LINEAR_API_KEY"]) {
       delete process.env[name]
     }
   })
   afterEach(() => {
-    delete process.env.COST_TELEMETRY_SECRET_PREFIX
+    delete process.env.ECS_CONTAINER_METADATA_URI_V4
   })
 
   function secrets(values: Record<string, string | { error: string; status: number }>, asked: string[]) {
