@@ -128,6 +128,12 @@ function PaneLayout() {
 }
 
 export const PaneScrollsInside: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Test fixture that proves the full-page screenshot: a layout with the viewport height and a pane that scrolls inside, with all 60 rows in the baseline.",
+    },
+  },
   render: () => <PaneLayout />,
   play: async ({ canvas }) => {
     await expect(canvas.getByText("Pane row 60")).toBeInTheDocument()
