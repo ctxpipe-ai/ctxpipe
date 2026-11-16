@@ -48,6 +48,7 @@ import {
 } from "./conversation-files.js"
 import { switchToSessionBranch } from "./conversation-session-branch.js"
 import { addedOwnershipField } from "./host-only.js"
+import { sandboxFileChunks, sandboxFileSize } from "./job-sandbox.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
 import {
   type BranchChanges,
@@ -525,18 +526,7 @@ async function brokerPush(input: {
     if (changed.exitCode !== 0)
       throw new Error("Cannot count the conversation's changed files")
     const files = changed.stdout.split("\0").filter(Boolean).length
-    const size = await run(`wc -c < ${shellSingleQuote(agentPack)}`)
-    const packBytes = Number(size.stdout.trim())
-    if (
-      size.exitCode !== 0 ||
-      !Number.isSafeInteger(packBytes) ||
-      packBytes <= 0
-    )
-      throw new Error("Invalid conversation Git pack size")
-    // The sandbox reports the size. The copy below reads that many bytes into
-    // this process, so a larger pack is refused before any copy.
-    if (packBytes > 100 * 1024 * 1024)
-      throw new Error("The conversation Git pack is larger than 100 MB")
+    const packBytes = await sandboxFileSize(handle.exec, agentPack)
     writeToken = await getRepoWriteCloneToken(target.orgId, input.env, {
       githubConnectionId: target.connectionId,
       repoFullName: target.repositoryName,
@@ -557,23 +547,12 @@ async function brokerPush(input: {
         const localPack = join(directory, ".git", "conversation.pack")
         const output = await open(localPack, "wx")
         try {
-          const chunkBytes = 256 * 1024
-          for (let offset = 0; offset < packBytes; offset += chunkBytes) {
-            const chunk = await run(
-              `dd if=${shellSingleQuote(agentPack)} bs=${chunkBytes} skip=${offset / chunkBytes} count=1 2>/dev/null | base64`,
-            )
-            const encoded = chunk.stdout.replace(/\s/g, "")
-            const bytes = Buffer.from(encoded, "base64")
-            if (
-              chunk.exitCode !== 0 ||
-              !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) ||
-              bytes.length !== Math.min(chunkBytes, packBytes - offset)
-            )
-              throw new Error(
-                "Conversation Git transfer was truncated or changed",
-              )
+          for await (const bytes of sandboxFileChunks(
+            handle.exec,
+            agentPack,
+            packBytes,
+          ))
             await output.writeFile(bytes)
-          }
         } finally {
           await output.close()
         }

@@ -1,5 +1,13 @@
+import { createHash } from "node:crypto"
+
+import {
+  PutObjectCommand,
+  S3Client,
+  S3ServiceException,
+} from "@aws-sdk/client-s3"
 import { APIError } from "@vercel/sandbox"
 
+import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
   deleteSandboxInstance,
@@ -10,6 +18,8 @@ import {
 import { log } from "../../observability/logger.js"
 import { CHAT_SANDBOX_RETENTION_MS } from "./chat-lifecycle.js"
 import { pushBeforeSandboxDelete } from "./conversation-branch-push.js"
+import { sandboxFileChunks, sandboxFileSize } from "./job-sandbox.js"
+import type { JobSandboxHandle } from "./job-worktree.js"
 import { withSandboxLockIfFree } from "./sandbox-lock-store.js"
 import {
   destroyDetachedProviderSandbox,
@@ -43,6 +53,14 @@ export function retiresVercelRow(row: { provider?: string | null }): boolean {
  * its retention ends. A row whose delete fails also stays, and so does a
  * base that a conversation sandbox which stays can have started from.
  *
+ * When the push refuses the commits because of what they change (for
+ * example `generated_by` front matter), no retry can push them. With
+ * `RETIRED_SANDBOX_BUCKET`, the commits that no remote has go there as a Git
+ * bundle, at `retired-sandboxes/<orgId>/<conversationId>/<row id>.bundle`,
+ * and then the sandbox goes. Such a row stays until its bundle is saved,
+ * also after its retention, so that no commit is lost. Without the setting
+ * (a self-hosted deployment), it stays.
+ *
  * Returns the number of rows that stay, so that the sweep runs again soon.
  * The worker keeps `VERCEL_TOKEN` for this. The later change that removes
  * the Vercel provider code refuses to start while a `vercel` row stays.
@@ -52,10 +70,14 @@ export async function retireVercelSandboxes(
   orgId: string,
   now: Date,
 ): Promise<{ left: number }> {
+  const bucket = parseEnv(
+    process.env as Record<string, string | undefined>,
+  ).RETIRED_SANDBOX_BUCKET
   const rows = (
     await withOrgDbContext(orgId, () => listSandboxInstances({}))
   ).filter(retiresVercelRow)
   let retired = 0
+  let bundled = 0
   let kept = 0
   let failed = 0
   // The conversation sandboxes that stay keep the bases they can have
@@ -66,12 +88,16 @@ export async function retireVercelSandboxes(
     ...rows.filter((item) => item.kind === "base"),
   ]) {
     try {
-      if (row.kind === "base" && workspaceBaseHeldUntil(row, stayed) !== null)
+      const outcome =
+        row.kind === "base" && workspaceBaseHeldUntil(row, stayed) !== null
+          ? "kept"
+          : await retire(row, now, bucket)
+      if (outcome === "kept") {
         kept += 1
-      else if (await retire(row, now)) retired += 1
-      else {
-        kept += 1
-        stayed.push(row)
+        if (row.kind !== "base") stayed.push(row)
+      } else {
+        retired += 1
+        if (outcome === "bundled") bundled += 1
       }
     } catch (error) {
       failed += 1
@@ -88,21 +114,30 @@ export async function retireVercelSandboxes(
   if (rows.length)
     log.info({
       step: "vercel-sandbox-retirement",
-      message: `Retired ${retired} Vercel sandboxes; ${kept} kept, ${failed} failed`,
+      message: `Retired ${retired} Vercel sandboxes (${bundled} saved as Git bundles); ${kept} kept, ${failed} failed`,
       retired,
+      bundled,
       kept,
       failed,
     })
   return { left: kept + failed }
 }
 
-/** Delete the row's Vercel resource, then the row. False: it stays for now. */
-async function retire(row: SandboxInstanceRecord, now: Date): Promise<boolean> {
+/** Delete the row's Vercel resource, then the row, or keep both for now. */
+async function retire(
+  row: SandboxInstanceRecord,
+  now: Date,
+  /** `RETIRED_SANDBOX_BUCKET`. */
+  bucket: string | undefined,
+): Promise<"retired" | "bundled" | "kept"> {
   const { conversationId } = row
   if (row.kind !== "chat" || !conversationId) {
     await deleteRow(row)
-    return true
+    return "retired"
   }
+  // Set only when the push refused the commits: the row stays until they
+  // are saved.
+  let refused: "saved" | "unsaved" | undefined
   const outcome = await withSandboxLockIfFree(
     row.orgId,
     `chat-thread:${conversationId}`,
@@ -116,19 +151,87 @@ async function retire(row: SandboxInstanceRecord, now: Date): Promise<boolean> {
               provider: "vercel",
               providerSandboxId: row.providerSandboxId,
               baseSha: row.revision.sha,
+              saveRefused: async (handle) => {
+                const saved =
+                  bucket !== undefined &&
+                  (await saveBundle(
+                    handle,
+                    bucket,
+                    `retired-sandboxes/${row.orgId}/${conversationId}/${row.id}.bundle`,
+                  ))
+                refused = saved ? "saved" : "unsaved"
+                return saved
+              },
             })
           : "done"
       if (
         pushed === "retry" &&
-        now.getTime() - row.lastHeartbeatAt.getTime() <
-          CHAT_SANDBOX_RETENTION_MS
+        (refused === "unsaved" ||
+          now.getTime() - row.lastHeartbeatAt.getTime() <
+            CHAT_SANDBOX_RETENTION_MS)
       )
         return false
       await deleteRow(row)
       return true
     },
   )
-  return !outcome.busy && outcome.value
+  if (outcome.busy || !outcome.value) return "kept"
+  return refused === "saved" ? "bundled" : "retired"
+}
+
+/**
+ * Save the sandbox's commits that no remote has as a Git bundle in the
+ * bucket, at `key`. The bucket is private and encrypts each object. False:
+ * nothing was saved; the log line holds the HTTP status only. The success
+ * line holds a hash of the key, not the key, because the key holds ids.
+ */
+async function saveBundle(
+  handle: JobSandboxHandle,
+  bucket: string,
+  key: string,
+): Promise<boolean> {
+  try {
+    const path = ".git/ctxpipe-retired.bundle"
+    const created = await handle.exec(
+      `git bundle create ${path} HEAD --branches --not --remotes`,
+      { env: {} },
+    )
+    if (created.exitCode !== 0) throw new Error("git bundle create failed")
+    const chunks: Buffer[] = []
+    for await (const chunk of sandboxFileChunks(
+      handle.exec,
+      path,
+      await sandboxFileSize(handle.exec, path),
+    ))
+      chunks.push(chunk)
+    const s3 = new S3Client({})
+    try {
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          Body: Buffer.concat(chunks),
+        }),
+      )
+    } finally {
+      s3.destroy()
+    }
+    log.info({
+      step: "vercel-sandbox-retirement",
+      message: "Saved the refused commits of a Vercel sandbox as a Git bundle",
+      bundleKeySha256: createHash("sha256").update(key).digest("hex"),
+    })
+    return true
+  } catch (error) {
+    log.warn({
+      step: "vercel-sandbox-retirement",
+      message: "Saving the refused commits of a Vercel sandbox failed",
+      ...(error instanceof S3ServiceException
+        ? { status: error.$metadata.httpStatusCode }
+        : {}),
+    })
+    return false
+  }
 }
 
 async function deleteRow(row: SandboxInstanceRecord): Promise<void> {
