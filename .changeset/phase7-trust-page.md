@@ -1,4 +1,4 @@
 ---
 ---
 
-The data and privacy page states the AWS region us-west-2, the new sub-processors and the telemetry retention.
+The sub-processor list names AWS (us-west-2) and marks Railway, Neon and the Vercel sandboxes as being retired.

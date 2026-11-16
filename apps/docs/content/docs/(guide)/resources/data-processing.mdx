@@ -38,26 +38,15 @@ ctxpipe reads nothing that you did not connect.
 - If you stop using ctxpipe, your Workspace repositories stay with you, with
   their full history.
 
-## Where your data is
-
-Since 2026-11-15, hosted ctxpipe runs in one AWS region: **us-west-2**
-(Oregon, United States). The database, the indexes, the sandboxes (Amazon
-Bedrock AgentCore), and our own observability are all in that region. Requests
-in transit pass through the Cloudflare edge, and model calls go to the model
-providers. Both can process data outside us-west-2.
-
-Before 2026-11-15, hosted ctxpipe ran on Railway (compute) and Neon (Postgres)
-in the United States, and the sandboxes ran on Vercel Sandbox. Copies of data
-from that time stay with these providers until we delete them.
-
 ## Sub-processors
 
 | Provider | Purpose |
 | --- | --- |
-| Amazon Web Services (AWS) | Compute, the Postgres database, storage, and the isolated sandboxes (microVMs) for Workspace chat and for ingestion. A sandbox holds a copy of the Workspace repository, or of the linked repository that it ingests. AWS also runs our own observability (logs, traces, and model traces). |
-| Cloudflare | The network edge: DNS, TLS, protection against attacks, and the private connection to AWS. Requests to ctxpipe go through Cloudflare. |
+| Amazon Web Services (AWS), us-west-2 | Compute and hosting, the Postgres database, and our own observability (logs, traces, and model traces). Isolated sandboxes (microVMs) for Workspace chat and for ingestion. A sandbox holds a copy of the Workspace repository, or of the linked repository that it ingests. |
 | OpenRouter | Model routing, only to zero data retention endpoints |
-| Vercel | The ctxpipe marketing site and this documentation. Until 2026-11-15, Vercel Sandbox also ran the sandboxes for Workspace chat and for ingestion. We are deleting the sandboxes that remain there. |
+| Railway | Being retired. Compute and hosting until 2026-11-15 |
+| Neon | Being retired. Postgres database until 2026-11-15 |
+| Vercel | Being retired for sandboxes. Isolated sandboxes for Workspace chat and for ingestion until 2026-11-15 |
 
 ## How ctxpipe uses models
 
@@ -73,7 +62,7 @@ from that time stay with these providers until we delete them.
 ctxpipe does not send a whole repository to a model in one request. Retrieval
 and tools select the context.
 
-On hosted ctxpipe, each model call of the product goes through OpenRouter to
+On hosted ctxpipe, each model call goes through OpenRouter to
 [zero data retention (ZDR)](https://openrouter.ai/docs/guides/features/zdr)
 endpoints only. Our OpenRouter account enforces this, so the model providers do
 not store your prompts or train on them. See the
@@ -81,16 +70,10 @@ not store your prompts or train on them. See the
 
 ## Retention
 
-We do not publish fixed retention periods for indexed data yet. Two exceptions:
-
-- ctxpipe deletes the saved sandbox files of a Workspace chat conversation 29
-  days after the last use of the conversation. The branch of the conversation
-  in your repository stays.
-- Our own observability (HyperDX) keeps logs and traces for 30 days. A trace
-  of a model call holds the prompt and the output of that call. AWS CloudWatch
-  keeps the raw service logs for 1 day.
-
-For deletion times, export, or a DPA,
+We do not publish fixed retention periods for indexed data yet. One exception:
+ctxpipe deletes the saved sandbox files of a Workspace chat conversation 29 days
+after the last use of the conversation. The branch of the conversation in your
+repository stays. For deletion times, export, or a DPA,
 [get in touch](/docs/getting-started/get-in-touch).
 
 ## What we do not do
