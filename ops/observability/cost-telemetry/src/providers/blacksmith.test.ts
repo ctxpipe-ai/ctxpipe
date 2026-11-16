@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import { useEnv } from "../test-env"
 import { rows } from "./blacksmith"
 
@@ -15,11 +16,38 @@ const FIXTURE = {
     runtime_minutes: 3.5,
     cost_usd: 0.096,
   },
-  daily: [{ date: DAY, jobs: 4, billable_minutes: 12, billing_minutes: 11.25, runtime_minutes: 3.5, cost_usd: 0.096 }],
+  daily: [
+    {
+      date: DAY,
+      jobs: 4,
+      billable_minutes: 12,
+      billing_minutes: 11.25,
+      runtime_minutes: 3.5,
+      cost_usd: 0.096,
+    },
+  ],
   breakdowns: {
-    day: [{ date: DAY, jobs: 4, billable_minutes: 12, billing_minutes: 11.25, runtime_minutes: 3.5, cost_usd: 0.096 }],
-    runner_type: [{ runner_type: "blacksmith-4vcpu-ubuntu-2404", jobs: 4, billable_minutes: 12, cost_usd: 0.096 }],
-    workflow: [{ workflow: "CI", jobs: 4, billable_minutes: 12, cost_usd: 0.096 }],
+    day: [
+      {
+        date: DAY,
+        jobs: 4,
+        billable_minutes: 12,
+        billing_minutes: 11.25,
+        runtime_minutes: 3.5,
+        cost_usd: 0.096,
+      },
+    ],
+    runner_type: [
+      {
+        runner_type: "blacksmith-4vcpu-ubuntu-2404",
+        jobs: 4,
+        billable_minutes: 12,
+        cost_usd: 0.096,
+      },
+    ],
+    workflow: [
+      { workflow: "CI", jobs: 4, billable_minutes: 12, cost_usd: 0.096 },
+    ],
   },
 }
 
@@ -62,7 +90,9 @@ cat "${fixturePath}"
     expect(argv).toContain(
       `usage --start-time ${DAY}T00:00:00Z --end-time ${DAY}T23:59:59Z --format json --limit 1000 --org ctxpipe-ai`,
     )
-    expect(argv).toContain("auth login --api-token - --non-interactive --organization ctxpipe-ai")
+    expect(argv).toContain(
+      "auth login --api-token - --non-interactive --organization ctxpipe-ai",
+    )
   })
 
   test("throws on a non-zero exit and includes a stderr slice", async () => {
@@ -70,7 +100,9 @@ cat "${fixturePath}"
 echo 'token verification failed: invalid token' >&2
 exit 1
 `)
-    await expect(rows([DAY])).rejects.toThrow("token verification failed: invalid token")
+    await expect(rows([DAY])).rejects.toThrow(
+      "token verification failed: invalid token",
+    )
   })
 
   test("throws when usage stdout is not JSON", async () => {
@@ -78,7 +110,9 @@ exit 1
 if [ "$1" != "usage" ]; then exit 0; fi
 echo 'not-json'
 `)
-    await expect(rows([DAY])).rejects.toThrow("blacksmith usage stdout was not JSON")
+    await expect(rows([DAY])).rejects.toThrow(
+      "blacksmith usage stdout was not JSON",
+    )
   })
 
   test("throws when daily usage is missing", async () => {

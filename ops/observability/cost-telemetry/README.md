@@ -41,13 +41,12 @@ AWS Cost Explorer is billed at $0.01 for each paginated `GetCostAndUsage` reques
 
 ## Environment
 
-The task definition sets the first three as plain env. Each provider input (the rows after them) comes from its env var when it is set (local runs and tests). Else, when `COST_TELEMETRY_SECRET_PREFIX` is set, the run reads the secret `<prefix><NAME>` (for example `cost-telemetry/LINEAR_API_KEY`) once with `GetSecretValue`: the task role, region `AWS_REGION`, else `us-west-2`. The task reads them itself because ECS cannot start a task while an injected secret is empty. A missing input (no env var, no secret, no `AWSCURRENT` value, or an empty value) fails only its provider with `billing.error=missing_env`; another read error fails it with `secret_read`. The log line names each input that the run could not read with its class only (`inputs=LINEAR_API_KEY:missing_env`), never a value.
+The task definition sets the first three as plain env. Each provider input (the rows after them) comes from its env var when it is set (local runs and tests). Else, in the ECS task (ECS sets `ECS_CONTAINER_METADATA_URI_V4`), the run reads the secret `cost-telemetry/<NAME>` (for example `cost-telemetry/LINEAR_API_KEY`) once with `GetSecretValue`: the task role, region `AWS_REGION`, else `us-west-2`. The task reads them itself because ECS cannot start a task while an injected secret is empty. A missing input (no env var, no secret, no `AWSCURRENT` value, or an empty value) fails only its provider with `billing.error=missing_env`; another read error fails it with `secret_read`. The log line names each input that the run could not read with its class only (`inputs=LINEAR_API_KEY:missing_env`), never a value.
 
 | Variable | Use |
 | --- | --- |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Required. The collector (`http://collector.observability.internal:4318` in the VPC). |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Optional, `key=value` pairs. The in-VPC collector takes none; a collector behind Cloudflare Access takes its token headers here. |
-| `COST_TELEMETRY_SECRET_PREFIX` | Optional. The name prefix of the provider input secrets in Secrets Manager (`cost-telemetry/` in the task). |
 | `OPENROUTER_MANAGEMENT_KEY` | OpenRouter management key (the activity endpoint returns 403 for a normal key). |
 | `GITHUB_BILLING_TOKEN` | A fine-grained token with only organization Administration: Read (billing usage). GitHub shows the plan (`plan` of `GET /orgs/{org}`) only when the token's owner is an organization owner. Do not use a classic token with `admin:org`: it can also write to the organization. |
 | `BLACKSMITH_TOKEN` | Blacksmith organization token. |

@@ -3,15 +3,28 @@ import { errorClass, httpClass, ProviderError, requiredEnv } from "./http"
 import { due as awsDue, rows as awsRows } from "./providers/aws"
 import { rows as blacksmithRows } from "./providers/blacksmith"
 import { rows as cloudflareRows } from "./providers/cloudflare"
-import { planRows as githubPlanRows, rows as githubRows } from "./providers/github"
+import {
+  planRows as githubPlanRows,
+  rows as githubRows,
+} from "./providers/github"
 import { rows as linearRows } from "./providers/linear"
 import { rows as openRouterRows } from "./providers/openrouter"
+import {
+  mapRowsToOtlp,
+  utcDays,
+  type CostRow,
+  type OtlpMetricsRequest,
+  type ProviderStatus,
+} from "./rows"
 import { forgetProviderInputs, loadProviderInputs } from "./secrets"
-import { mapRowsToOtlp, utcDays, type CostRow, type OtlpMetricsRequest, type ProviderStatus } from "./rows"
 
 // Each name is the `billing.provider` of the entry's `billing.provider_status` point. An entry that is not `due` in
 // a run is not called and sends no status point.
-const PROVIDERS: { name: string; rows: (days: string[]) => Promise<CostRow[]>; due?: (now: Date) => boolean }[] = [
+const PROVIDERS: {
+  name: string
+  rows: (days: string[]) => Promise<CostRow[]>
+  due?: (now: Date) => boolean
+}[] = [
   { name: "openrouter", rows: openRouterRows },
   { name: "github", rows: githubRows },
   // Its own entry: a token that cannot see the plan fails only the plan rows.
@@ -45,12 +58,18 @@ export async function run(): Promise<number> {
       rows.push(...result.value)
       statuses.push({ provider: provider.name })
     } else {
-      statuses.push({ provider: provider.name, error: errorClass(result?.reason) })
+      statuses.push({
+        provider: provider.name,
+        error: errorClass(result?.reason),
+      })
     }
   }
   let fx: { rate: number; timeUnixNano: string } | undefined
   if (fxResult?.status === "fulfilled") {
-    fx = { rate: fxResult.value, timeUnixNano: (BigInt(now.getTime()) * 1_000_000n).toString() }
+    fx = {
+      rate: fxResult.value,
+      timeUnixNano: (BigInt(now.getTime()) * 1_000_000n).toString(),
+    }
     statuses.push({ provider: "fx" })
   } else {
     statuses.push({ provider: "fx", error: errorClass(fxResult?.reason) })
@@ -58,14 +77,20 @@ export async function run(): Promise<number> {
 
   // Only the class of each failure (and the variable name of an input that could not be read): a message can hold a
   // response body.
-  const failures = statuses.flatMap((status) => (status.error === undefined ? [] : [`${status.provider}:${status.error}`]))
+  const failures = statuses.flatMap((status) =>
+    status.error === undefined ? [] : [`${status.provider}:${status.error}`],
+  )
   console.log(
     `cost-telemetry rows=${rows.length} providers=${statuses.length - failures.length}/${statuses.length} fx=${fx?.rate ?? "failed"} failures=${failures.join(",") || "none"} inputs=${inputFailures.join(",") || "ok"} days=${days[0]}/${days[days.length - 1]}`,
   )
   try {
     const endpoint = requiredEnv("OTEL_EXPORTER_OTLP_ENDPOINT")
     // In the VPC the collector takes no headers; a collector behind Cloudflare Access takes them from this variable.
-    await postOtlp(endpoint, mapRowsToOtlp(rows, fx, statuses, now.getTime()), otlpHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS ?? ""))
+    await postOtlp(
+      endpoint,
+      mapRowsToOtlp(rows, fx, statuses, now.getTime()),
+      otlpHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS ?? ""),
+    )
   } catch (err) {
     console.error(`cost-telemetry OTLP export failed: ${errorClass(err)}`)
     return 1
@@ -90,7 +115,11 @@ export function otlpHeaders(raw: string): Record<string, string> {
   return headers
 }
 
-async function postOtlp(endpoint: string, body: OtlpMetricsRequest, headers: Record<string, string>): Promise<void> {
+async function postOtlp(
+  endpoint: string,
+  body: OtlpMetricsRequest,
+  headers: Record<string, string>,
+): Promise<void> {
   const response = await fetch(`${endpoint.replace(/\/+$/, "")}/v1/metrics`, {
     method: "POST",
     headers: { ...headers, "content-type": "application/json" },
@@ -99,7 +128,10 @@ async function postOtlp(endpoint: string, body: OtlpMetricsRequest, headers: Rec
   })
   if (!response.ok) {
     const text = await response.text()
-    throw new ProviderError(httpClass(response.status), `OTLP POST /v1/metrics failed: HTTP ${response.status} ${text.slice(0, 500)}`)
+    throw new ProviderError(
+      httpClass(response.status),
+      `OTLP POST /v1/metrics failed: HTTP ${response.status} ${text.slice(0, 500)}`,
+    )
   }
 }
 

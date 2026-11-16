@@ -1,9 +1,13 @@
-import { GetSecretValueCommand, SecretsManagerClient } from "@aws-sdk/client-secrets-manager"
+import {
+  GetSecretValueCommand,
+  SecretsManagerClient,
+} from "@aws-sdk/client-secrets-manager"
+
 import { fetchHandler, ProviderError } from "./http"
 
-// The provider inputs. Each comes from its env var (local runs and tests), else from the secret
-// `<COST_TELEMETRY_SECRET_PREFIX><NAME>`: ECS cannot start a task while an injected secret is empty, so the task reads
-// them itself, and one missing secret fails only its provider.
+// The provider inputs. Each comes from its env var (local runs and tests), else, in the ECS task, from the secret
+// `cost-telemetry/<NAME>`: ECS cannot start a task while an injected secret is empty, so the task reads them itself,
+// and one missing secret fails only its provider.
 const INPUTS = [
   "OPENROUTER_MANAGEMENT_KEY",
   "GITHUB_BILLING_TOKEN",
@@ -16,17 +20,25 @@ const INPUTS = [
 let loaded = new Map<string, string | ProviderError>()
 
 /**
- * Reads each provider input that the env does not set from Secrets Manager, once per run (the task role; region
- * AWS_REGION, else us-west-2). Returns `<NAME>:<class>` for each input that it could not read: never a value.
+ * In the ECS task (ECS sets its metadata endpoint), reads each provider input that the env does not set from Secrets
+ * Manager, once per run (the task role; region AWS_REGION, else us-west-2). A local run reads env vars only. Returns
+ * `<NAME>:<class>` for each input that it could not read: never a value.
  */
 export async function loadProviderInputs(): Promise<string[]> {
   loaded = new Map()
-  const prefix = process.env.COST_TELEMETRY_SECRET_PREFIX?.trim()
   const names = INPUTS.filter((name) => !process.env[name]?.trim())
-  if (!prefix || names.length === 0) return []
-  const client = new SecretsManagerClient({ region: process.env.AWS_REGION?.trim() || "us-west-2", requestHandler: fetchHandler() })
+  if (!process.env.ECS_CONTAINER_METADATA_URI_V4 || names.length === 0)
+    return []
+  const client = new SecretsManagerClient({
+    region: process.env.AWS_REGION?.trim() || "us-west-2",
+    requestHandler: fetchHandler(),
+  })
   try {
-    await Promise.all(names.map(async (name) => loaded.set(name, await read(client, `${prefix}${name}`, name))))
+    await Promise.all(
+      names.map(async (name) =>
+        loaded.set(name, await read(client, `cost-telemetry/${name}`, name)),
+      ),
+    )
   } finally {
     client.destroy()
   }
@@ -36,16 +48,34 @@ export async function loadProviderInputs(): Promise<string[]> {
   })
 }
 
-async function read(client: SecretsManagerClient, secretId: string, name: string): Promise<string | ProviderError> {
+async function read(
+  client: SecretsManagerClient,
+  secretId: string,
+  name: string,
+): Promise<string | ProviderError> {
   try {
-    const value = (await client.send(new GetSecretValueCommand({ SecretId: secretId }))).SecretString?.trim()
-    return value || new ProviderError("missing_env", `${name} has no value in Secrets Manager`)
+    const value = (
+      await client.send(new GetSecretValueCommand({ SecretId: secretId }))
+    ).SecretString?.trim()
+    return (
+      value ||
+      new ProviderError(
+        "missing_env",
+        `${name} has no value in Secrets Manager`,
+      )
+    )
   } catch (err) {
     // A secret that does not exist, or that has no AWSCURRENT version, is missing.
     if (err instanceof Error && err.name === "ResourceNotFoundException") {
-      return new ProviderError("missing_env", `${name} is not in Secrets Manager`)
+      return new ProviderError(
+        "missing_env",
+        `${name} is not in Secrets Manager`,
+      )
     }
-    return new ProviderError("secret_read", `${name} could not be read from Secrets Manager`)
+    return new ProviderError(
+      "secret_read",
+      `${name} could not be read from Secrets Manager`,
+    )
   }
 }
 

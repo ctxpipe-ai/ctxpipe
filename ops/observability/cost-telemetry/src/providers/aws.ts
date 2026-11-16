@@ -1,5 +1,9 @@
-import { CostExplorerClient, GetCostAndUsageCommand } from "@aws-sdk/client-cost-explorer"
+import {
+  CostExplorerClient,
+  GetCostAndUsageCommand,
+} from "@aws-sdk/client-cost-explorer"
 import { fromTemporaryCredentials } from "@aws-sdk/credential-providers"
+
 import { fetchHandler, ProviderError } from "../http"
 import type { CostRow } from "../rows"
 
@@ -49,7 +53,10 @@ export async function rows(days: string[]): Promise<CostRow[]> {
     region: "us-east-1",
     // A constant, not an env var: the factory policy pack forbids another account's ARN in the task definition.
     credentials: fromTemporaryCredentials({
-      params: { RoleArn: "arn:aws:iam::007664619564:role/ctxpipe-cost-explorer-read", RoleSessionName: "ctxpipe-cost-telemetry" },
+      params: {
+        RoleArn: "arn:aws:iam::007664619564:role/ctxpipe-cost-explorer-read",
+        RoleSessionName: "ctxpipe-cost-telemetry",
+      },
     }),
     requestHandler: fetchHandler(),
     maxAttempts: 1,
@@ -70,18 +77,35 @@ export async function rows(days: string[]): Promise<CostRow[]> {
           NextPageToken: nextPageToken,
         }),
       )
-      if (!Array.isArray(response.ResultsByTime)) throw new ProviderError("parse", "Cost Explorer response was missing ResultsByTime")
+      if (!Array.isArray(response.ResultsByTime))
+        throw new ProviderError(
+          "parse",
+          "Cost Explorer response was missing ResultsByTime",
+        )
       for (const result of response.ResultsByTime) {
         const day = result.TimePeriod?.Start
-        if (!day) throw new ProviderError("parse", "Cost Explorer result was missing TimePeriod.Start")
+        if (!day)
+          throw new ProviderError(
+            "parse",
+            "Cost Explorer result was missing TimePeriod.Start",
+          )
         if (!wanted.has(day)) continue
         for (const group of result.Groups ?? []) {
           const account = group.Keys?.[0]
           const service = group.Keys?.[1]
-          if (!account || !service) throw new ProviderError("parse", "Cost Explorer group was missing LINKED_ACCOUNT or SERVICE")
-          const costUsd = metricAmount(group.Metrics, "NetUnblendedCost") ?? metricAmount(group.Metrics, "UnblendedCost")
+          if (!account || !service)
+            throw new ProviderError(
+              "parse",
+              "Cost Explorer group was missing LINKED_ACCOUNT or SERVICE",
+            )
+          const costUsd =
+            metricAmount(group.Metrics, "NetUnblendedCost") ??
+            metricAmount(group.Metrics, "UnblendedCost")
           if (costUsd === undefined) {
-            throw new ProviderError("parse", `Cost Explorer group ${account}/${service} on ${day} was missing NetUnblendedCost and UnblendedCost`)
+            throw new ProviderError(
+              "parse",
+              `Cost Explorer group ${account}/${service} on ${day} was missing NetUnblendedCost and UnblendedCost`,
+            )
           }
           mapped.push({
             day,
@@ -110,7 +134,10 @@ function exclusiveEnd(lastDay: string): string {
   return new Date(startMs + 86_400_000).toISOString().slice(0, 10)
 }
 
-function metricAmount(metrics: Record<string, { Amount?: string } | undefined> | undefined, name: string): number | undefined {
+function metricAmount(
+  metrics: Record<string, { Amount?: string } | undefined> | undefined,
+  name: string,
+): number | undefined {
   const amount = metrics?.[name]?.Amount
   if (typeof amount !== "string" || amount.trim() === "") return undefined
   const value = Number(amount)

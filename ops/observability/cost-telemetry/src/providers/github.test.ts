@@ -1,6 +1,15 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test"
+
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
+
 import { githubUsdPerSeatMonth } from "../rates"
 import { useEnv } from "../test-env"
 import { planRows, rows } from "./github"
@@ -36,16 +45,21 @@ afterAll(() => {
 describe("github rows", () => {
   test("maps the usage fixture and sends the billing request", async () => {
     server.use(
-      http.get("https://api.github.com/organizations/ctxpipe-ai/settings/billing/usage", ({ request }) => {
-        const url = new URL(request.url)
-        expect(url.searchParams.get("year")).toBe("2025")
-        expect(url.searchParams.get("month")).toBe("1")
-        expect(url.searchParams.get("day")).toBe("15")
-        expect(request.headers.get("Authorization")).toBe("Bearer gh-token")
-        expect(request.headers.get("X-GitHub-Api-Version")).toBe("2022-11-28")
-        expect(request.headers.get("Accept")).toBe("application/vnd.github+json")
-        return HttpResponse.json({ usageItems: [ITEM] })
-      }),
+      http.get(
+        "https://api.github.com/organizations/ctxpipe-ai/settings/billing/usage",
+        ({ request }) => {
+          const url = new URL(request.url)
+          expect(url.searchParams.get("year")).toBe("2025")
+          expect(url.searchParams.get("month")).toBe("1")
+          expect(url.searchParams.get("day")).toBe("15")
+          expect(request.headers.get("Authorization")).toBe("Bearer gh-token")
+          expect(request.headers.get("X-GitHub-Api-Version")).toBe("2022-11-28")
+          expect(request.headers.get("Accept")).toBe(
+            "application/vnd.github+json",
+          )
+          return HttpResponse.json({ usageItems: [ITEM] })
+        },
+      ),
     )
     await expect(rows([DAY])).resolves.toEqual([
       {
@@ -63,15 +77,28 @@ describe("github rows", () => {
 
   test("sums duplicate sku and scope rows and uses org when the repo is missing", async () => {
     server.use(
-      http.get("https://api.github.com/organizations/ctxpipe-ai/settings/billing/usage", () =>
-        HttpResponse.json({
-          usageItems: [
-            ITEM,
-            { ...ITEM, quantity: 10, netAmount: 0.08 },
-            { ...ITEM, repositoryName: undefined, quantity: 4, netAmount: 0.032 },
-            { ...ITEM, repositoryName: "", sku: "actions-windows", quantity: 2, netAmount: 0.016 },
-          ],
-        }),
+      http.get(
+        "https://api.github.com/organizations/ctxpipe-ai/settings/billing/usage",
+        () =>
+          HttpResponse.json({
+            usageItems: [
+              ITEM,
+              { ...ITEM, quantity: 10, netAmount: 0.08 },
+              {
+                ...ITEM,
+                repositoryName: undefined,
+                quantity: 4,
+                netAmount: 0.032,
+              },
+              {
+                ...ITEM,
+                repositoryName: "",
+                sku: "actions-windows",
+                quantity: 2,
+                netAmount: 0.016,
+              },
+            ],
+          }),
       ),
     )
     const result = await rows([DAY])
@@ -111,20 +138,36 @@ describe("github rows", () => {
 
   test("throws on a non-OK response", async () => {
     server.use(
-      http.get("https://api.github.com/organizations/ctxpipe-ai/settings/billing/usage", () => new HttpResponse("nope", { status: 401 })),
+      http.get(
+        "https://api.github.com/organizations/ctxpipe-ai/settings/billing/usage",
+        () => new HttpResponse("nope", { status: 401 }),
+      ),
     )
-    await expect(rows([DAY])).rejects.toThrow("GitHub billing usage HTTP 401: nope")
+    await expect(rows([DAY])).rejects.toThrow(
+      "GitHub billing usage HTTP 401: nope",
+    )
   })
 
   test("throws when usageItems is missing", async () => {
-    server.use(http.get("https://api.github.com/organizations/ctxpipe-ai/settings/billing/usage", () => HttpResponse.json({})))
-    await expect(rows([DAY])).rejects.toThrow("GitHub billing usage response was missing usageItems")
+    server.use(
+      http.get(
+        "https://api.github.com/organizations/ctxpipe-ai/settings/billing/usage",
+        () => HttpResponse.json({}),
+      ),
+    )
+    await expect(rows([DAY])).rejects.toThrow(
+      "GitHub billing usage response was missing usageItems",
+    )
   })
 
   test("skips a malformed usage item", async () => {
     server.use(
-      http.get("https://api.github.com/organizations/ctxpipe-ai/settings/billing/usage", () =>
-        HttpResponse.json({ usageItems: [ITEM, { ...ITEM, quantity: "x" }, null, "nope"] }),
+      http.get(
+        "https://api.github.com/organizations/ctxpipe-ai/settings/billing/usage",
+        () =>
+          HttpResponse.json({
+            usageItems: [ITEM, { ...ITEM, quantity: "x" }, null, "nope"],
+          }),
       ),
     )
     await expect(rows([DAY])).resolves.toEqual([
@@ -142,13 +185,22 @@ describe("github rows", () => {
   })
 
   test("throws when the JSON body is null", async () => {
-    server.use(http.get("https://api.github.com/organizations/ctxpipe-ai/settings/billing/usage", () => HttpResponse.json(null)))
-    await expect(rows([DAY])).rejects.toThrow("GitHub billing usage response was missing usageItems")
+    server.use(
+      http.get(
+        "https://api.github.com/organizations/ctxpipe-ai/settings/billing/usage",
+        () => HttpResponse.json(null),
+      ),
+    )
+    await expect(rows([DAY])).rejects.toThrow(
+      "GitHub billing usage response was missing usageItems",
+    )
   })
 
   test("throws when the billing token is missing", async () => {
     delete process.env.GITHUB_BILLING_TOKEN
-    await expect(rows([DAY])).rejects.toThrow("GITHUB_BILLING_TOKEN is required")
+    await expect(rows([DAY])).rejects.toThrow(
+      "GITHUB_BILLING_TOKEN is required",
+    )
   })
 })
 
@@ -160,26 +212,69 @@ describe("github plan rows", () => {
       http.get(ORG, ({ request }) => {
         expect(request.headers.get("Authorization")).toBe("Bearer gh-token")
         expect(request.headers.get("X-GitHub-Api-Version")).toBe("2022-11-28")
-        return HttpResponse.json({ login: "example-org", plan: { name: "team", space: 976562499, private_repos: 999999, filled_seats: 4, seats: 5 } })
+        return HttpResponse.json({
+          login: "example-org",
+          plan: {
+            name: "team",
+            space: 976562499,
+            private_repos: 999999,
+            filled_seats: 4,
+            seats: 5,
+          },
+        })
       }),
     )
     const price = githubUsdPerSeatMonth.team ?? Number.NaN
     await expect(planRows(["2025-01-15", "2025-02-01"])).resolves.toEqual([
-      { day: "2025-01-15", provider: "github", sku: "plan/team", scope: "org", usage: 5, unit: "seats", costUsd: (5 * price) / 31, source: "derived" },
-      { day: "2025-02-01", provider: "github", sku: "plan/team", scope: "org", usage: 5, unit: "seats", costUsd: (5 * price) / 28, source: "derived" },
+      {
+        day: "2025-01-15",
+        provider: "github",
+        sku: "plan/team",
+        scope: "org",
+        usage: 5,
+        unit: "seats",
+        costUsd: (5 * price) / 31,
+        source: "derived",
+      },
+      {
+        day: "2025-02-01",
+        provider: "github",
+        sku: "plan/team",
+        scope: "org",
+        usage: 5,
+        unit: "seats",
+        costUsd: (5 * price) / 28,
+        source: "derived",
+      },
     ])
   })
 
   test("gives no rows on the free plan", async () => {
-    server.use(http.get(ORG, () => HttpResponse.json({ plan: { name: "free", space: 1, private_repos: 1, seats: 1 } })))
+    server.use(
+      http.get(ORG, () =>
+        HttpResponse.json({
+          plan: { name: "free", space: 1, private_repos: 1, seats: 1 },
+        }),
+      ),
+    )
     await expect(planRows([DAY])).resolves.toEqual([])
   })
 
   test("throws when the token cannot see the plan, and on a plan without a committed price", async () => {
     server.use(http.get(ORG, () => HttpResponse.json({ login: "example-org" })))
-    await expect(planRows([DAY])).rejects.toThrow("GitHub organization response has no plan")
+    await expect(planRows([DAY])).rejects.toThrow(
+      "GitHub organization response has no plan",
+    )
     server.resetHandlers()
-    server.use(http.get(ORG, () => HttpResponse.json({ plan: { name: "enterprise", space: 1, private_repos: 1, seats: 3 } })))
-    await expect(planRows([DAY])).rejects.toThrow("no committed seat price for GitHub plan enterprise")
+    server.use(
+      http.get(ORG, () =>
+        HttpResponse.json({
+          plan: { name: "enterprise", space: 1, private_repos: 1, seats: 3 },
+        }),
+      ),
+    )
+    await expect(planRows([DAY])).rejects.toThrow(
+      "no committed seat price for GitHub plan enterprise",
+    )
   })
 })
