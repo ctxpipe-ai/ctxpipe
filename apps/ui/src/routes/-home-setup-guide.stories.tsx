@@ -3,7 +3,6 @@ import { delay, HttpResponse, http, type RequestHandler } from "msw"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { responseGate } from "@/components/ui/skeletonMatchStory"
-import { githubConnectorBootstrapHandler } from "@/features/connectors/mocks/github-bootstrap-msw"
 import type { Workspace, WorkspaceDetail } from "@/features/workspaces/types"
 import {
   createdWorkspace,
@@ -20,10 +19,10 @@ import { onboardingHandOffFlag } from "@/lib/session-flags"
 import {
   authConfigHandler,
   githubInstallationLinkedHandler,
-  githubInstallationNoneHandler,
   organizationListHandler,
   sessionSignedInHandler,
 } from "@/mocks/handlers"
+import { setupGuideHandlers } from "@/mocks/setup-guide-handlers"
 import {
   githubInstallationReposHandler,
   orgActivityHandler,
@@ -32,6 +31,7 @@ import {
   workspaceShellHandlers,
 } from "@/mocks/workspace-handlers"
 import {
+  activeMemberRoleHandler,
   orgConnectionsHandler,
   workspaceSourceList,
   workspaceSourcesHandler,
@@ -49,7 +49,6 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const daysAgo = (days: number) =>
   new Date(Date.now() - days * DAY_MS).toISOString()
 const userId = "user_storybook"
-const authBase = "*/.auth/api/v1/auth"
 
 /**
  * A signed-in user who finished onboarding `daysAgo` days ago, in an
@@ -75,71 +74,6 @@ function sessionDefaults(daysAgo: number, orgDaysAgo = 365) {
   ]
 }
 
-/** `GET .../organization/get-active-member-role`: `{ role }`. */
-function roleHandler(role: string) {
-  return http.get(`${authBase}/organization/get-active-member-role`, () =>
-    HttpResponse.json({ role }),
-  )
-}
-
-/** `GET .../organization/list-members` in the Better Auth response shape. */
-function membersHandler(count: number) {
-  return http.get(`${authBase}/organization/list-members`, () =>
-    HttpResponse.json({
-      members: Array.from({ length: count }, (_, index) => ({
-        id: `mem_story_${index}`,
-        organizationId: "org_storybook",
-        userId: index === 0 ? userId : `user_story_${index}`,
-        role: index === 0 ? "owner" : "member",
-        createdAt: "2026-10-01T00:00:00.000Z",
-        user: {
-          id: index === 0 ? userId : `user_story_${index}`,
-          name: "Storybook User",
-          email: `member${index}@story.example`,
-          image: null,
-        },
-      })),
-      total: count,
-    }),
-  )
-}
-
-/** `GET .../organization/list-invitations`: an array of invitations. */
-function invitationsHandler(statuses: string[]) {
-  return http.get(`${authBase}/organization/list-invitations`, () =>
-    HttpResponse.json(
-      statuses.map((status, index) => ({
-        id: `inv_story_${index}`,
-        organizationId: "org_storybook",
-        email: `teammate${index}@story.example`,
-        role: "member",
-        status,
-        inviterId: userId,
-        expiresAt: "2026-12-01T00:00:00.000Z",
-        createdAt: "2026-10-01T00:00:00.000Z",
-      })),
-    ),
-  )
-}
-
-function connectorsHandler(types: string[]) {
-  return http.get(
-    ({ request }) =>
-      new URL(request.url).pathname.endsWith("/api/v1/connectors"),
-    () =>
-      HttpResponse.json({
-        items: types.map((type, index) => ({
-          id: `con_story_${index}`,
-          type,
-          displayName: null,
-          status: "connected",
-          createdAt: "2026-10-01T00:00:00.000Z",
-          updatedAt: "2026-10-01T00:00:00.000Z",
-        })),
-      }),
-  )
-}
-
 const failed = (path: string) =>
   http.get(
     ({ request }) => new URL(request.url).pathname.endsWith(path),
@@ -154,16 +88,7 @@ function adminGuide(input: {
   detail?: WorkspaceDetail
 }) {
   return [
-    roleHandler("owner"),
-    membersHandler(1),
-    invitationsHandler(input.invitations ?? []),
-    githubConnectorBootstrapHandler({
-      orgSlug: "acme",
-      hostedDefaultAppInstallUrl:
-        "https://github.com/apps/ctxpipe-agent/installations/new",
-    }),
-    input.github ?? githubInstallationNoneHandler,
-    input.connectors ?? connectorsHandler([]),
+    ...setupGuideHandlers(input),
     workspaceDetailHandler(input.detail ?? emptyLinkedWorkspaceDetail),
   ]
 }
@@ -179,9 +104,16 @@ const buildingWorkspace: Workspace = {
   mostRecentConversationId: null,
 }
 
-/** Workspace shell handlers come after the guide handlers, so these win. */
+/**
+ * The guide handlers come first, so they win over the Workspace shell and
+ * the org activity.
+ */
 function homeHandlers(guide: RequestHandler[], workspaces: Workspace[]) {
-  return [...guide, ...workspaceShellHandlers({ workspaces })]
+  return [
+    ...guide,
+    ...workspaceShellHandlers({ workspaces }),
+    orgActivityHandler(),
+  ]
 }
 
 function clearPreferences() {
@@ -339,7 +271,9 @@ export const GuideAdminWorkspaceBuilding: Story = {
         page: homeHandlers(
           adminGuide({
             github: githubInstallationLinkedHandler,
-            connectors: connectorsHandler(["github"]),
+            connectors: orgConnectionsHandler([
+              { id: "con_story_0", type: "github" },
+            ]),
             detail: { ...emptyLinkedWorkspaceDetail, ...buildingWorkspace },
           }),
           [buildingWorkspace],
@@ -384,7 +318,9 @@ export const GuideAdminWorkspaceReadingRepository: Story = {
         page: homeHandlers(
           adminGuide({
             github: githubInstallationLinkedHandler,
-            connectors: connectorsHandler(["github"]),
+            connectors: orgConnectionsHandler([
+              { id: "con_story_0", type: "github" },
+            ]),
             detail: { ...emptyLinkedWorkspaceDetail, ...waitingWorkspace },
           }),
           [waitingWorkspace],
@@ -418,7 +354,9 @@ export const GuideAdminWorkspaceBuildFailed: Story = {
         page: homeHandlers(
           adminGuide({
             github: githubInstallationLinkedHandler,
-            connectors: connectorsHandler(["github"]),
+            connectors: orgConnectionsHandler([
+              { id: "con_story_0", type: "github" },
+            ]),
             detail: { ...emptyLinkedWorkspaceDetail, ...failedWorkspace },
           }),
           [failedWorkspace],
@@ -948,7 +886,9 @@ export const GuideAdminAfterFirstQuestion: Story = {
         page: homeHandlers(
           adminGuide({
             github: githubInstallationLinkedHandler,
-            connectors: connectorsHandler(["github"]),
+            connectors: orgConnectionsHandler([
+              { id: "con_story_0", type: "github" },
+            ]),
             detail: docsWorkspaceDetail,
           }),
           [docsWorkspace],
@@ -991,7 +931,10 @@ export const GuideMemberView: Story = {
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
-        page: homeHandlers([roleHandler("member")], [quietWorkspace]),
+        page: homeHandlers(
+          [activeMemberRoleHandler("member")],
+          [quietWorkspace],
+        ),
       },
     },
   },
@@ -1038,7 +981,10 @@ export const GuideAllDone: Story = {
         page: homeHandlers(
           adminGuide({
             github: githubInstallationLinkedHandler,
-            connectors: connectorsHandler(["github", "linear"]),
+            connectors: orgConnectionsHandler([
+              { id: "con_story_0", type: "github" },
+              { id: "con_story_1", type: "linear" },
+            ]),
             invitations: ["canceled", "pending"],
             detail: docsWorkspaceDetail,
           }),
@@ -1133,6 +1079,9 @@ const loadingGate = responseGate()
  */
 export const GuideReservesNoSpaceWhileLoading: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as FadesInAfterOnboarding.",
+    },
     review: {
       purpose:
         "Org home page with the setup guide, which leads a new org through its first steps: a guide signal still loads, so the guide holds no space until it appears.",
@@ -1151,6 +1100,8 @@ export const GuideReservesNoSpaceWhileLoading: Story = {
           ),
           ...adminGuide({}),
           workspaceListHandler([]),
+          // The activity loads too, so its loading text shows first.
+          orgActivityHandler("loading"),
         ],
       },
     },
@@ -1167,13 +1118,7 @@ export const GuideReservesNoSpaceWhileLoading: Story = {
 }
 
 /** The activity read of Home never answers, as for a slow unrelated read. */
-const activityNeverAnswers = http.get(
-  ({ request }) => /\/api\/v1\/activity$/.test(new URL(request.url).pathname),
-  async () => {
-    await delay("infinite")
-    return HttpResponse.json({ items: [] })
-  },
-)
+const activityNeverAnswers = orgActivityHandler("loading")
 
 const handOffGate = responseGate()
 /**
@@ -1324,10 +1269,7 @@ export const GuideRoleFailureHidesIt: Story = {
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
-        page: homeHandlers(
-          [failed("/organization/get-active-member-role")],
-          [docsWorkspace],
-        ),
+        page: homeHandlers([activeMemberRoleHandler("error")], [docsWorkspace]),
       },
     },
   },
@@ -1392,7 +1334,9 @@ export const GuideEstablishedUserNewOrg: Story = {
         page: homeHandlers(
           adminGuide({
             github: githubInstallationLinkedHandler,
-            connectors: connectorsHandler(["github"]),
+            connectors: orgConnectionsHandler([
+              { id: "con_story_0", type: "github" },
+            ]),
           }),
           [quietWorkspace],
         ),
@@ -1462,7 +1406,9 @@ export const GuideStaysAfterFirstWorkspace: Story = {
         page: homeHandlers(
           adminGuide({
             github: githubInstallationLinkedHandler,
-            connectors: connectorsHandler(["github"]),
+            connectors: orgConnectionsHandler([
+              { id: "con_story_0", type: "github" },
+            ]),
           }),
           [{ ...quietWorkspace, createdAt: daysAgo(1) }],
         ),
@@ -1488,7 +1434,7 @@ export const GuideMemberNoWorkspace: Story = {
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
-        page: homeHandlers([roleHandler("member")], []),
+        page: homeHandlers([activeMemberRoleHandler("member")], []),
       },
     },
   },
@@ -1561,7 +1507,7 @@ export const GuideConnectGithubOpensLinkPopup: Story = {
     await expect(url.pathname).toBe("/.github/link")
     const next = new URL(url.searchParams.get("next") ?? "")
     await expect(`${next.origin}${next.pathname}`).toBe(
-      "https://github.com/apps/ctxpipe-agent/installations/new",
+      "https://github.com/apps/ctxpipe/installations/new",
     )
     await expect(next.searchParams.get("state")).toBeTruthy()
   },

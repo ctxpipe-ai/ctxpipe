@@ -3,8 +3,11 @@ import { expect, userEvent, within } from "storybook/test"
 
 import {
   docsWorkspace,
+  docsWorkspaceDetail,
   readOnlyWorkspace,
+  readOnlyWorkspaceDetail,
 } from "@/features/workspaces/workspace-fixtures"
+import { workspaceDetailHandler } from "@/mocks/workspace-handlers"
 
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -39,6 +42,15 @@ export const WithWorkspaces: Story = {
     review: {
       purpose:
         "Org home composer, where a member asks a question in a Workspace: the Workspace menu is open with two Workspaces.",
+    },
+    // Each item of the open menu preloads its Workspace.
+    msw: {
+      handlers: {
+        page: [
+          workspaceDetailHandler(docsWorkspaceDetail, "docs"),
+          workspaceDetailHandler(readOnlyWorkspaceDetail, "handbook"),
+        ],
+      },
     },
   },
   play: async ({ canvasElement }) => {

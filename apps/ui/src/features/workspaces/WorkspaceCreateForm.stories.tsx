@@ -4,9 +4,9 @@ import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { Button } from "@/components/ui/Button"
+import { githubAppInstalledHandlers } from "@/mocks/handlers"
 import {
   githubInstallationReposHandler,
-  orgGithubConnectionsHandler,
   workspaceCreateHandler,
   workspaceDetailHandler,
   workspaceListHandler,
@@ -54,9 +54,10 @@ const meta = {
         role: [activeMemberRoleHandler("owner")],
         page: [
           workspaceListHandler([]),
-          orgGithubConnectionsHandler(),
+          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
           githubInstallationReposHandler(),
         ],
+        github: githubAppInstalledHandlers,
       },
     },
   },
@@ -150,6 +151,7 @@ export const SaveError: Story = {
       handlers: {
         page: [
           workspaceListHandler([]),
+          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
           githubInstallationReposHandler(),
           http.post(
             ({ request }) =>

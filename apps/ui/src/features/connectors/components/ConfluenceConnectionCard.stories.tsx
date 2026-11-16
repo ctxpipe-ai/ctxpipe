@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test"
 
+import { atlassianOauthHandler } from "@/mocks/atlassian-handlers"
 import {
   connectionUsageHandler,
   connectionUsageItem,
@@ -64,25 +65,6 @@ function atlassianStatus(status: object) {
   )
 }
 
-const orgAtlassianOauthHandler = http.get(
-  ({ request }) => {
-    const u = new URL(request.url)
-    return (
-      u.pathname === `/${orgSlug}/api/v1/org/atlassian-oauth` &&
-      u.searchParams.get("connectionId") === connectionId
-    )
-  },
-  ({ request }) =>
-    HttpResponse.json({
-      oauthAppSaved: true,
-      atlassianOAuthClientId: "story-client",
-      globalAtlassianOAuthConfigured: false,
-      oauthCallbackUrl: `${new URL(request.url).origin}/api/v1/integrations/atlassian/callback`,
-      atlassianCreateUrl:
-        "https://developer.atlassian.com/cloud/oauth-2-3lo-apps",
-    }),
-)
-
 const meta = {
   title: "Components/Connections/Atlassian/ConnectionCard",
   component: ConfluenceConnectionCard,
@@ -130,7 +112,10 @@ export const Connected: Story = {
     },
     msw: {
       handlers: {
-        page: [atlassianStatus(statusComplete), orgAtlassianOauthHandler],
+        page: [
+          atlassianStatus(statusComplete),
+          atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
+        ],
       },
     },
   },
@@ -172,7 +157,7 @@ export const LiveViewerWithoutAtlassianLink: Story = {
       handlers: {
         page: [
           atlassianStatus({ ...statusComplete, isLinked: false }),
-          orgAtlassianOauthHandler,
+          atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
         ],
       },
     },
@@ -204,7 +189,7 @@ export const LiveForgeUninstalled: Story = {
             isInstalled: false,
             installationStatus: "uninstalled",
           }),
-          orgAtlassianOauthHandler,
+          atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
         ],
       },
     },
@@ -234,7 +219,7 @@ export const Checking: Story = {
               return HttpResponse.json(statusNotLinked)
             },
           ),
-          orgAtlassianOauthHandler,
+          atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
         ],
       },
     },
@@ -260,7 +245,7 @@ export const CouldntLoad: Story = {
             },
             () => new HttpResponse(null, { status: 500 }),
           ),
-          orgAtlassianOauthHandler,
+          atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
         ],
       },
     },
@@ -286,7 +271,10 @@ export const PendingSetup: Story = {
     },
     msw: {
       handlers: {
-        page: [atlassianStatus(statusNotLinked), orgAtlassianOauthHandler],
+        page: [
+          atlassianStatus(statusNotLinked),
+          atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
+        ],
       },
     },
   },
@@ -328,7 +316,7 @@ export const RemovePendingSetup: Story = {
       handlers: {
         page: [
           atlassianStatus(statusNotLinked),
-          orgAtlassianOauthHandler,
+          atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
           http.delete(
             ({ request }) => {
               const u = new URL(request.url)
@@ -382,7 +370,7 @@ export const InstalledNotInWorkspaces: Story = {
             isInstalled: true,
             installationStatus: "installed",
           }),
-          orgAtlassianOauthHandler,
+          atlassianOauthHandler({ oauthAppSaved: true }, connectionId),
         ],
       },
     },

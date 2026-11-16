@@ -9,13 +9,19 @@ import {
 } from "@/components/ui/skeletonMatchStory"
 import type { ConversationLastTurn } from "@/features/chat/types"
 import {
+  conversationDetailHandler,
+  conversationGitTreeHandler,
   conversationsListHandler,
   conversationsListLoadingHandler,
 } from "@/mocks/workspace-handlers"
 
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { docsConversations, docsWorkspace } from "./workspace-fixtures"
+import {
+  docsConversationDetail,
+  docsConversations,
+  docsWorkspace,
+} from "./workspace-fixtures"
 import { WorkspaceConversationList } from "./WorkspaceConversationList"
 
 const meta = {
@@ -895,6 +901,9 @@ export const WorkingThenUnreadThenRead: Story = {
               })
             },
           ),
+          // Opening the chat loads it and its files.
+          conversationDetailHandler(docsConversationDetail),
+          conversationGitTreeHandler(),
         ],
       },
     },
@@ -959,6 +968,9 @@ export const WorkingThenNeedsAttention: Story = {
               })
             },
           ),
+          // Opening the chat loads it and its files.
+          conversationDetailHandler(docsConversationDetail),
+          conversationGitTreeHandler(),
         ],
       },
     },

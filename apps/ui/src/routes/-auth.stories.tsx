@@ -7,6 +7,7 @@ import {
   authConfigHandler,
   organizationListEmptyHandler,
   organizationListHandler,
+  organizationListWithOrgHandler,
   sessionSignedInHandler,
   sessionSignedOutHandler,
 } from "@/mocks/handlers"
@@ -61,6 +62,8 @@ export const DeviceLoading: Story = {
             await delay("infinite")
             return HttpResponse.json({})
           }),
+          // The org list of the user can load while the session loads.
+          organizationListWithOrgHandler,
         ],
       },
     },

@@ -7,7 +7,10 @@ import {
   githubInstallationLinkedHandler,
   githubInstallationNoneHandler,
 } from "@/mocks/handlers"
-import { workspaceListHandler } from "@/mocks/workspace-handlers"
+import {
+  sideNavHandlers,
+  workspaceListHandler,
+} from "@/mocks/workspace-handlers"
 
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
@@ -27,6 +30,14 @@ const meta = {
       search: "?returnTo=connectors",
     } satisfies StoryRouteParams,
     review: { kind: "page" },
+    msw: {
+      handlers: {
+        // A story sets `page`. It comes first, so it wins over `shell`.
+        page: [],
+        // The side nav lists the Workspaces of the org and their chats.
+        shell: [...sideNavHandlers()],
+      },
+    },
   },
 } satisfies Meta
 

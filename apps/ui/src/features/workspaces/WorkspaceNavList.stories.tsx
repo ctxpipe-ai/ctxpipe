@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import { githubAppInstalledHandlers } from "@/mocks/handlers"
 import {
   conversationsListHandler,
   githubInstallationReposHandler,
@@ -233,6 +234,8 @@ export const AddWorkspace: Story = {
         page: [
           workspaceListHandler([docsWorkspace]),
           conversationsListHandler(docsConversations),
+          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
+          ...githubAppInstalledHandlers,
           githubInstallationReposHandler(),
         ],
       },
@@ -273,6 +276,7 @@ export const AddWorkspaceThenRepositories: Story = {
           orgConnectionsHandler([
             { id: "con_gh", type: "github", displayName: "acme" },
           ]),
+          ...githubAppInstalledHandlers,
           githubInstallationReposHandler(),
           workspaceCreateHandler(createdWorkspace),
           workspaceDetailHandler(createdWritableWorkspaceDetail),

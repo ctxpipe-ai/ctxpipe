@@ -1,28 +1,85 @@
 import type { Preview } from "@storybook/react-vite"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { HttpResponse, isCommonAssetRequest, WebSocketHandler, ws } from "msw"
 import { getWorker, initialize, mswLoader } from "msw-storybook-addon"
 import { type ReactElement, Suspense, useMemo } from "react"
 
 import { layoutProblems } from "../src/lib/layout-checks"
 import {
   authConfigHandler,
+  organizationFullWithOrgHandler,
   organizationListWithOrgHandler,
   sessionSignedInHandler,
 } from "../src/mocks/handlers"
 import { workspaceIngestionHandlers } from "../src/mocks/workspace-ingestion-handlers"
+import { activeMemberRoleHandler } from "../src/mocks/workspace-sources-handlers"
 import { pendingWorkspaceUpgradesHandler } from "../src/mocks/workspace-upgrades-handlers"
 import { storyRouteLoader } from "./decorators/with-story-route"
 
 import "../src/styles.css"
 
-initialize({ onUnhandledRequest: "bypass" })
+// A story must mock each request of its page (the storybook skill, "Mock
+// every request"). A request that no handler answers fails with a network
+// error, and the play runner (scripts/ci/storybook-play.mjs) fails the story
+// that made it. A static asset (a script, a style, a font, an image, a
+// WebAssembly module) of the Storybook server or of a CDN goes to the
+// network. An API path (`/api/`) is never an asset, also when it ends in
+// `.md` or `.json`.
+//
+// The initial handlers answer the org of the signed-in story user. Each page
+// under `/$orgSlug` reads them. Any handler of a story, in any key, comes
+// before them.
+const unhandledRequests: string[] = []
+// MSW calls `onUnhandledRequest` for a WebSocket only when no `ws` handler
+// exists. When a story has one, MSW gives each socket to the `ws` handlers,
+// also a socket that no handler matches. So this handler matches each
+// socket. It records a socket that no other `ws` handler matches, and
+// closes it with an error.
+const unhandledSocketHandler = ws
+  .link(/.*/)
+  .addEventListener("connection", ({ client }) => {
+    const handled = getWorker()
+      .listHandlers()
+      .some(
+        (handler) =>
+          handler !== unhandledSocketHandler &&
+          handler instanceof WebSocketHandler &&
+          handler.test(client.url),
+      )
+    if (handled) return
+    unhandledRequests.push(`WS ${client.url.href}`)
+    client.close(1011, "No mock answers this socket.")
+  })
+initialize(
+  {
+    onUnhandledRequest(request, print) {
+      const { pathname } = new URL(request.url)
+      if (
+        (isCommonAssetRequest(request) || pathname.endsWith(".wasm")) &&
+        !pathname.includes("/api/")
+      )
+        return
+      unhandledRequests.push(`${request.method} ${request.url}`)
+      print.error()
+      // MSW resolves the request with what the callback throws: a network
+      // error, so the request never reaches a server.
+      throw HttpResponse.error()
+    },
+  },
+  [
+    organizationFullWithOrgHandler,
+    activeMemberRoleHandler("admin"),
+    unhandledSocketHandler,
+  ],
+)
 
 // The check runner (scripts/checks/README.md) records which MSW handlers
 // answered a request of the story. A handler header is `<METHOD> <path>`.
 // The screenshot capture (scripts/ci/visual-capture.mjs) runs the layout
-// checks of each story.
+// checks of each story. The play runner reads the unhandled requests.
 Object.assign(window, {
   __ctxpipeLayoutProblems: layoutProblems,
+  __ctxpipeUnhandledRequests: unhandledRequests,
   __ctxpipeMswHandlers: () =>
     getWorker()
       .listHandlers()
@@ -78,9 +135,14 @@ const preview: Preview = {
   // story. The user preferences hold the SideNav width and collapse, the
   // setup-guide dismissal and the seen hints. Session storage holds drafts.
   // The Query client is built per story, and a story has no theme state.
+  // The list of unhandled requests is emptied when the story closes, so that
+  // the requests of the story loaders stay in it.
   beforeEach: () => {
     window.localStorage.clear()
     window.sessionStorage.clear()
+    return () => {
+      unhandledRequests.length = 0
+    }
   },
   loaders: [mswLoader, storyRouteLoader],
   decorators: [

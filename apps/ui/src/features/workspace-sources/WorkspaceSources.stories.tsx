@@ -1535,7 +1535,12 @@ export const GithubNoRepositories: Story = {
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
-        page: [workspaceSourcesHandler(workspaceSourceList()), connected],
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          connected,
+          // The Add repositories dialog lists the repositories of the App.
+          githubInstallationReposHandler(),
+        ],
       },
     },
   },

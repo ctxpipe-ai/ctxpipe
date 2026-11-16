@@ -8,11 +8,13 @@ import { Button } from "@/components/ui/Button"
 import { CHOOSE_WORKSPACES_HINT } from "@/features/workspace-sources/ChooseWorkspacesStep"
 import { workspaceSourcesOptions } from "@/features/workspace-sources/queries"
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
+import { githubAppMissingHandlers } from "@/mocks/handlers"
 import { slackChannelsHandler } from "@/mocks/slack-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
   connectionUsageHandler,
   connectionUsageItem,
+  workspaceSourceAddHandlers,
   workspaceSourceChangeHandlers,
   workspaceSourceFixture,
   workspaceSourceList,
@@ -137,6 +139,7 @@ export const ConnectGitHub: Story = {
             setupPhase: "draft",
             syncTarget: null,
           }),
+          ...githubAppMissingHandlers,
         ],
       },
     },
@@ -168,7 +171,7 @@ export const ChooseWorkspaces: Story = {
           workspaceListHandler([docsWorkspace]),
           connectionUsageHandler([]),
           slackChannelsHandler(),
-          ...workspaceSourceChangeHandlers(addCalls),
+          ...workspaceSourceAddHandlers(addCalls),
         ],
       },
     },

@@ -2,37 +2,14 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import { atlassianCapabilitiesHandler } from "@/mocks/atlassian-handlers"
+
 import { entryPageInnerDecorators } from "../../../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../../../.storybook/decorators/with-story-route"
 import { InstallForgeStep } from "./InstallForgeStep"
 
 const orgSlug = "acme"
 const atlassianConnectionId = "install_step_conn"
-
-const marketplaceCapsHandler = http.get(
-  ({ request }) => {
-    const u = new URL(request.url)
-    return (
-      u.pathname.endsWith("/api/v1/capabilities") &&
-      u.searchParams.get("connectionId") === atlassianConnectionId
-    )
-  },
-  () =>
-    HttpResponse.json({
-      confluenceForgeInstallUrl: "https://example.com/marketplace/forge",
-    }),
-)
-
-const provisionCapsHandler = http.get(
-  ({ request }) => {
-    const u = new URL(request.url)
-    return (
-      u.pathname.endsWith("/api/v1/capabilities") &&
-      u.searchParams.get("connectionId") === atlassianConnectionId
-    )
-  },
-  () => HttpResponse.json({ confluenceForgeInstallUrl: null }),
-)
 
 const connectorStatusOk = HttpResponse.json({
   isLinked: true,
@@ -99,21 +76,6 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-/** Capabilities delayed so the step shows "Loading install options" (no hosted / self-hosted flash). */
-const delayedProvisionCapsHandler = http.get(
-  ({ request }) => {
-    const u = new URL(request.url)
-    return (
-      u.pathname.endsWith("/api/v1/capabilities") &&
-      u.searchParams.get("connectionId") === atlassianConnectionId
-    )
-  },
-  async () => {
-    await delay(60_000)
-    return HttpResponse.json({ confluenceForgeInstallUrl: null })
-  },
-)
-
 export const CapabilitiesLoading: Story = {
   name: "Capabilities loading (no flash)",
   render: () => (
@@ -131,7 +93,7 @@ export const CapabilitiesLoading: Story = {
     msw: {
       handlers: {
         page: [
-          delayedProvisionCapsHandler,
+          atlassianCapabilitiesHandler("loading", atlassianConnectionId),
           statusHandler(),
           http.post(
             ({ request }) =>
@@ -167,7 +129,7 @@ export const ProvisionFailed: Story = {
     msw: {
       handlers: {
         page: [
-          provisionCapsHandler,
+          atlassianCapabilitiesHandler(null, atlassianConnectionId),
           provisionStatusHandler({
             connectionId: atlassianConnectionId,
             provisionStatus: "failed",
@@ -210,7 +172,10 @@ export const HostedInstallIntentError: Story = {
     msw: {
       handlers: {
         page: [
-          marketplaceCapsHandler,
+          atlassianCapabilitiesHandler(
+            "https://example.com/marketplace/forge",
+            atlassianConnectionId,
+          ),
           http.post(
             ({ request }) =>
               new URL(request.url).pathname.endsWith(
@@ -256,7 +221,10 @@ export const InstallForge: Story = {
     msw: {
       handlers: {
         page: [
-          marketplaceCapsHandler,
+          atlassianCapabilitiesHandler(
+            "https://example.com/marketplace/forge",
+            atlassianConnectionId,
+          ),
           http.post(
             ({ request }) =>
               new URL(request.url).pathname.endsWith(
@@ -288,7 +256,7 @@ export const ProvisionSelfHosted: Story = {
     msw: {
       handlers: {
         page: [
-          provisionCapsHandler,
+          atlassianCapabilitiesHandler(null, atlassianConnectionId),
           provisionStatusHandler({
             connectionId: atlassianConnectionId,
             provisionStatus: "idle",
@@ -330,7 +298,7 @@ export const ProvisionRunning: Story = {
     msw: {
       handlers: {
         page: [
-          provisionCapsHandler,
+          atlassianCapabilitiesHandler(null, atlassianConnectionId),
           provisionStatusHandler({
             connectionId: atlassianConnectionId,
             provisionStatus: "running",
@@ -360,7 +328,10 @@ export const MarketplaceInstallPending: Story = {
     msw: {
       handlers: {
         page: [
-          marketplaceCapsHandler,
+          atlassianCapabilitiesHandler(
+            "https://example.com/marketplace/forge",
+            atlassianConnectionId,
+          ),
           http.post(
             ({ request }) =>
               new URL(request.url).pathname.endsWith(

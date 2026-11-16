@@ -19,6 +19,7 @@ import { WorkspacePaneTriggers } from "@/features/workspaces/WorkspacePane"
 import { workspaceCreatedFlag } from "@/lib/session-flags"
 import {
   authConfigHandler,
+  githubAppInstalledHandlers,
   organizationListWithOrgHandler,
   sessionSignedInHandler,
 } from "@/mocks/handlers"
@@ -227,6 +228,7 @@ export const AddWorkspaceHintSkippedAfterCreating: Story = {
           orgConnectionsHandler([
             { id: "con_gh", type: "github", displayName: "acme" },
           ]),
+          ...githubAppInstalledHandlers,
           githubInstallationReposHandler(),
           workspaceDetailHandler(createdWritableWorkspaceDetail),
           workspaceSourcesHandler(workspaceSourceList()),

@@ -14,6 +14,7 @@ import {
   workspaceListHandler,
   workspaceShellHandlers,
 } from "@/mocks/workspace-handlers"
+import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
@@ -27,6 +28,8 @@ const meta = {
     layout: "fullscreen",
     review: { kind: "page" },
     route: "/$orgSlug/",
+    // The user is a member, so the setup guide of an admin does not load.
+    msw: { handlers: { role: [activeMemberRoleHandler("member")] } },
   },
 } satisfies Meta
 

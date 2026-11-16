@@ -11,9 +11,11 @@ import {
   organizationFullHandler,
   organizationListEmptyHandler,
   organizationListWithOrgHandler,
+  organizationSetActiveHandler,
   sessionSignedInOnboardingHandler,
 } from "@/mocks/handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
+import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 
 import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
@@ -137,12 +139,8 @@ function onboardingSession() {
         if (options.completes) completedAt = new Date().toISOString()
         return HttpResponse.json({ completedAt })
       }),
-      http.post("*/.auth/api/v1/auth/organization/set-active", () =>
-        HttpResponse.json({}),
-      ),
-      http.get("*/.auth/api/v1/auth/organization/get-active-member-role", () =>
-        HttpResponse.json({ role: options.role ?? "member" }),
-      ),
+      organizationSetActiveHandler(),
+      activeMemberRoleHandler(options.role ?? "member"),
     ],
   }
 }

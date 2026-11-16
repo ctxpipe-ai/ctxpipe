@@ -11,7 +11,7 @@ import {
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
   connectionUsageHandler,
-  workspaceSourceChangeHandlers,
+  workspaceSourceAddHandlers,
 } from "@/mocks/workspace-sources-handlers"
 
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
@@ -171,10 +171,7 @@ export const AddToWorkspaces: Story = {
     },
     msw: {
       handlers: {
-        page: [
-          ...workspacesHandlers,
-          ...workspaceSourceChangeHandlers(addCalls),
-        ],
+        page: [...workspacesHandlers, ...workspaceSourceAddHandlers(addCalls)],
       },
     },
   },

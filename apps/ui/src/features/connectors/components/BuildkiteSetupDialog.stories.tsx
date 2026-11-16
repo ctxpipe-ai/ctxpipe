@@ -11,7 +11,7 @@ import {
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
   connectionUsageHandler,
-  workspaceSourceChangeHandlers,
+  workspaceSourceAddHandlers,
 } from "@/mocks/workspace-sources-handlers"
 
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
@@ -194,6 +194,8 @@ function webhookHandlers() {
     ),
     workspaceListHandler([docsWorkspace]),
     buildkitePipelinesHandler,
+    // No Workspace uses the new connection yet.
+    connectionUsageHandler([]),
   ]
 }
 
@@ -292,7 +294,7 @@ export const AddToWorkspaces: Story = {
           ),
           workspaceListHandler([docsWorkspace]),
           buildkitePipelinesHandler,
-          ...workspaceSourceChangeHandlers(addCalls),
+          ...workspaceSourceAddHandlers(addCalls),
           connectionUsageHandler([]),
         ],
       },

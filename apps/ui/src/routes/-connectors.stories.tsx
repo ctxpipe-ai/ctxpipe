@@ -5,11 +5,20 @@ import { expect, userEvent, waitFor, within } from "storybook/test"
 import { connectionAnchorId } from "@/features/connectors/connectionAnchor"
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
 import {
+  atlassianCapabilitiesHandler,
+  atlassianOauthHandler,
+} from "@/mocks/atlassian-handlers"
+import {
   buildkiteStatusHandler,
   buildkiteStoryStatus,
 } from "@/mocks/buildkite-handlers"
+import { githubAppInstalledHandlers } from "@/mocks/handlers"
+import { linearOauthAppHandler } from "@/mocks/linear-handlers"
 import { plainStatusHandler, plainStoryStatus } from "@/mocks/plain-handlers"
-import { workspaceListHandler } from "@/mocks/workspace-handlers"
+import {
+  sideNavHandlers,
+  workspaceListHandler,
+} from "@/mocks/workspace-handlers"
 import {
   activeMemberRoleHandler,
   connectionUsageHandler,
@@ -33,6 +42,21 @@ const meta = {
     layout: "fullscreen",
     review: { kind: "page" },
     route: "/$orgSlug/connectors",
+    msw: {
+      handlers: {
+        // A story sets `page`. It comes first, so it wins over `shared`.
+        page: [],
+        // The reads that most stories share: the Workspaces of the side
+        // nav and their chats, the GitHub App, the Linear OAuth app of the
+        // host, and the Workspaces that use a connection (none).
+        shared: [
+          ...sideNavHandlers(),
+          ...githubAppInstalledHandlers,
+          linearOauthAppHandler(),
+          connectionUsageHandler([]),
+        ],
+      },
+    },
   },
 } satisfies Meta
 
@@ -160,25 +184,6 @@ const connectionItems = [
     updatedAt: "2025-01-02T00:00:00.000Z",
   },
 ]
-
-const orgAtlassianOauthHandler = http.get(
-  ({ request }) => {
-    const u = new URL(request.url)
-    return (
-      u.pathname === `/${orgSlug}/api/v1/org/atlassian-oauth` &&
-      u.searchParams.get("connectionId") === forgeId
-    )
-  },
-  ({ request }) =>
-    HttpResponse.json({
-      oauthAppSaved: true,
-      atlassianOAuthClientId: "story-client",
-      globalAtlassianOAuthConfigured: false,
-      oauthCallbackUrl: `${new URL(request.url).origin}/api/v1/integrations/atlassian/callback`,
-      atlassianCreateUrl:
-        "https://developer.atlassian.com/cloud/oauth-2-3lo-apps",
-    }),
-)
 
 const atlassianStatusComplete = {
   isLinked: true,
@@ -403,7 +408,7 @@ export const Full: Story = {
     ...pageHandlers([
       connectorsListHandler(),
       atlassianStatusHandler(atlassianStatusComplete),
-      orgAtlassianOauthHandler,
+      atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
       notionStatusHandler(notionStatusComplete),
       githubInstallationHandler(githubInstallationComplete),
       linearStatusHandler(linearStatusComplete),
@@ -448,7 +453,7 @@ export const NeedsFormatUpgrade: Story = {
       [
         connectorsListHandler(),
         atlassianStatusHandler(atlassianStatusComplete),
-        orgAtlassianOauthHandler,
+        atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
         notionStatusHandler(notionStatusComplete),
         githubInstallationHandler(githubInstallationComplete),
         linearStatusHandler(linearStatusComplete),
@@ -491,7 +496,7 @@ export const NeedsFormatUpgradeNoRowYet: Story = {
       [
         connectorsListHandler(),
         atlassianStatusHandler(atlassianStatusComplete),
-        orgAtlassianOauthHandler,
+        atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
         notionStatusHandler(notionStatusComplete),
         githubInstallationHandler(githubInstallationComplete),
         linearStatusHandler(linearStatusComplete),
@@ -556,7 +561,7 @@ export const InProgress: Story = {
     ...pageHandlers([
       connectorsListHandler(),
       githubInstallationHandler(null),
-      orgAtlassianOauthHandler,
+      atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
       atlassianStatusHandler({
         isLinked: true,
         isInstalled: true,
@@ -618,7 +623,7 @@ export const MixedHealth: Story = {
     ...pageHandlers([
       connectorsListHandler(),
       githubInstallationHandler(githubInstallationComplete),
-      orgAtlassianOauthHandler,
+      atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
       atlassianStatusHandler({
         isLinked: false,
         isInstalled: false,
@@ -655,7 +660,7 @@ export const CouldntLoad: Story = {
   parameters: {
     ...pageHandlers([
       connectorsListHandler(),
-      orgAtlassianOauthHandler,
+      atlassianOauthHandler({ oauthAppSaved: true }, forgeId),
       statusFailed("/api/v1/github/installation", githubId),
       statusFailed("/api/v1/connectors/atlassian/status", forgeId),
       statusFailed("/api/v1/connectors/linear/status", linearId),
@@ -722,6 +727,9 @@ export const ReopensConfluenceWizardAfterAccountLink: Story = {
               new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
             () => HttpResponse.json({ items: [] }),
           ),
+          // The OAuth app is saved, and the install link fails to load.
+          atlassianOauthHandler({ oauthAppSaved: true }, "con_forge_story"),
+          atlassianCapabilitiesHandler("error", "con_forge_story"),
           http.get(
             ({ request }) =>
               new URL(request.url).pathname.endsWith(

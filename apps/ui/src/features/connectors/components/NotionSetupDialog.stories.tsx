@@ -6,7 +6,7 @@ import { notionResourcesHandler } from "@/mocks/notion-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
   connectionUsageHandler,
-  workspaceSourceChangeHandlers,
+  workspaceSourceAddHandlers,
 } from "@/mocks/workspace-sources-handlers"
 
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
@@ -301,7 +301,7 @@ const installedHandlers = [
   }),
   workspaceListHandler([docsWorkspace]),
   notionResourcesHandler,
-  ...workspaceSourceChangeHandlers(addCalls),
+  ...workspaceSourceAddHandlers(addCalls),
   connectionUsageHandler([]),
 ]
 

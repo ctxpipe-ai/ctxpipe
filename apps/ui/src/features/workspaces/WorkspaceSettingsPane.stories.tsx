@@ -4,6 +4,11 @@ import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import {
+  githubInstallationLinkedHandler,
+  githubInstallationNoneHandler,
+} from "@/mocks/handlers"
+import { setupGuideHandlers } from "@/mocks/setup-guide-handlers"
+import {
   githubInstallationReposHandler,
   orgActivityHandler,
   workspaceActivityHandler,
@@ -24,6 +29,7 @@ import {
 import {
   upgradeItemFixture,
   upgradesFixture,
+  workspaceUpgradeAutomaticHandlers,
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
 import { OrgHomePageContent } from "@/routes/$orgSlug.index"
@@ -74,6 +80,10 @@ const meta = {
         upgrades: [
           workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
         ],
+        // Upgrades wait for a start by hand.
+        automaticUpgrades: workspaceUpgradeAutomaticHandlers(),
+        // The org has the GitHub App installed.
+        github: [githubInstallationLinkedHandler],
       },
     },
   },
@@ -334,6 +344,7 @@ export const ReadOnlyWithoutConnection: Story = {
       purpose:
         "Settings pane of a Workspace: no GitHub connection reads the repository, and the context repository dialog is open to select it again.",
     },
+    msw: { handlers: { github: [githubInstallationNoneHandler] } },
   },
   args: {
     workspace: {
@@ -1043,6 +1054,18 @@ export const DeleteConfirmPending: Story = {
  * show zero Workspaces at once, also when the list request does not complete.
  */
 export const DeleteLastWorkspaceEmptiesHome: Story = {
+  // The owner dismissed the setup guide, so Home with no Workspace shows
+  // Create Workspace and not the guide.
+  beforeEach: () => {
+    window.localStorage.setItem(
+      "ctxpipe:userPreferences",
+      JSON.stringify({
+        orgGuides: {
+          "user_storybook:acme": { dismissedAt: "2026-01-01T00:00:00.000Z" },
+        },
+      }),
+    )
+  },
   render: (args) => (
     <>
       <WorkspaceSettingsPane {...args} />
@@ -1052,7 +1075,7 @@ export const DeleteLastWorkspaceEmptiesHome: Story = {
   parameters: {
     review: {
       purpose:
-        "Settings pane of a Workspace above the org home body: the owner deleted the only Workspace, and Home shows zero Workspaces at once.",
+        "Settings pane of a Workspace above the org home body: the owner, who dismissed the setup guide, deleted the only Workspace, and Home shows zero Workspaces at once.",
     },
     msw: {
       handlers: {
@@ -1074,6 +1097,14 @@ export const DeleteLastWorkspaceEmptiesHome: Story = {
             // With no Workspace left, Home shows the activity of the organization.
             orgActivityHandler(),
             githubInstallationReposHandler(),
+            // Home reads the landing Workspace and the setup guide signals.
+            workspaceDetailHandler(docsWorkspaceDetail),
+            ...setupGuideHandlers({
+              github: githubInstallationLinkedHandler,
+              connectors: orgConnectionsHandler([
+                { id: "con_gh", type: "github" },
+              ]),
+            }),
             http.delete(
               ({ request }) =>
                 /\/api\/v1\/workspaces\/[^/]+$/.test(

@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { delay, http } from "msw"
 import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
@@ -109,11 +108,12 @@ const meta = {
           workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
           workspaceUpgradeStartHandler({ requests: startRequests }),
           workspaceUpgradeCheckHandler({ requests: checkRequests }),
-          ...workspaceUpgradeAutomaticHandlers({
-            requests: automaticRequests,
-            setting,
-          }),
         ],
+        // Its own key, so a story that replaces `page` keeps the setting.
+        automatic: workspaceUpgradeAutomaticHandlers({
+          requests: automaticRequests,
+          setting,
+        }),
       },
     },
   },
@@ -1510,12 +1510,7 @@ export const RoleNeverAnswers: Story = {
     msw: {
       handlers: {
         page: [
-          http.get(
-            "*/.auth/api/v1/auth/organization/get-active-member-role",
-            async () => {
-              await delay("infinite")
-            },
-          ),
+          activeMemberRoleHandler("loading"),
           workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
           workspaceUpgradeStartHandler({ requests: startRequests }),
         ],
@@ -1539,6 +1534,9 @@ export const CheckingEndsAfterAMinute: Story = {
   // An own Workspace: the minute counts from the first sight of this item.
   args: { workspaceSlug: "docs-clock" },
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the state of Upgrades/Progress, Checking Format Times Out Admin.",
+    },
     ...withUpgrades(
       workspaceUpgradesHandler(
         upgradesFixture(

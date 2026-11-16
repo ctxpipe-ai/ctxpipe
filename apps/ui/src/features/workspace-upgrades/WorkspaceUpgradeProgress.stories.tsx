@@ -7,6 +7,7 @@ import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 import {
   upgradeItemFixture,
   upgradesFixture,
+  workspaceUpgradeAutomaticHandlers,
   workspaceUpgradeCheckHandler,
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
@@ -50,6 +51,8 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
+    // Upgrades wait for a start by hand.
+    msw: { handlers: { automatic: workspaceUpgradeAutomaticHandlers() } },
   },
   args: { orgSlug: "acme", workspaceSlug: "docs" },
 } satisfies Meta<typeof WorkspaceUpgrades>

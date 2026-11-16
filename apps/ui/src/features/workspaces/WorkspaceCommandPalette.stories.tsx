@@ -5,11 +5,18 @@ import { type ComponentProps, useState } from "react"
 import { flushSync } from "react-dom"
 import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test"
 
-import { workspaceListHandler } from "@/mocks/workspace-handlers"
+import {
+  workspaceDetailHandler,
+  workspaceListHandler,
+} from "@/mocks/workspace-handlers"
 
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { docsWorkspace, readOnlyWorkspace } from "./workspace-fixtures"
+import {
+  docsWorkspace,
+  readOnlyWorkspace,
+  readOnlyWorkspaceDetail,
+} from "./workspace-fixtures"
 import { WorkspaceCommandPalette } from "./WorkspaceCommandPalette"
 
 const longNameWorkspace = {
@@ -75,6 +82,8 @@ const meta = {
             readOnlyWorkspace,
             longNameWorkspace,
           ]),
+          // A palette item opens the Handbook Workspace.
+          workspaceDetailHandler(readOnlyWorkspaceDetail, "handbook"),
         ],
       },
     },

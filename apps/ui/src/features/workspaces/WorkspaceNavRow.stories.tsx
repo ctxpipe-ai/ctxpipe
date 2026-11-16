@@ -1,7 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
-import { conversationsListHandler } from "@/mocks/workspace-handlers"
+import {
+  conversationDetailHandler,
+  conversationGitTreeHandler,
+  conversationsListHandler,
+  workspaceDetailHandler,
+} from "@/mocks/workspace-handlers"
 import {
   ingestionItemFixture,
   workspaceIngestionHandlers,
@@ -10,8 +15,10 @@ import {
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import {
+  docsConversationDetail,
   docsConversations,
   docsWorkspace,
+  docsWorkspaceDetail,
   readOnlyWorkspace,
 } from "./workspace-fixtures"
 import { WorkspaceNavRow } from "./WorkspaceNavRow"
@@ -179,7 +186,17 @@ export const Ingesting: Story = {
       purpose:
         "Workspace row in the side nav, which opens a Workspace: it ingests two sources, so a teal dot pulses and its tooltip is open.",
     },
-    msw: { handlers: ingestingDocs },
+    msw: {
+      handlers: {
+        ...ingestingDocs,
+        // The hover preloads the Workspace and its last conversation.
+        page: [
+          workspaceDetailHandler(docsWorkspaceDetail),
+          conversationDetailHandler(docsConversationDetail),
+          conversationGitTreeHandler(),
+        ],
+      },
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

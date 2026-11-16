@@ -8,8 +8,12 @@ import {
   orgApiKeysListForbiddenHandler,
   orgApiKeysListPopulatedHandler,
   organizationFullWithOrgHandler,
+  organizationInvitationsHandler,
   organizationListWithOrgHandler,
+  organizationMembersHandler,
+  organizationPermissionHandler,
 } from "@/mocks/handlers"
+import { sideNavHandlers } from "@/mocks/workspace-handlers"
 
 import {
   entryPageInnerDecorators,
@@ -60,7 +64,13 @@ export const Settings: Story = {
     route: "/$orgSlug/organization/$organizationView",
     msw: {
       handlers: {
-        page: [organizationListWithOrgHandler, organizationFullWithOrgHandler],
+        page: [
+          organizationListWithOrgHandler,
+          organizationFullWithOrgHandler,
+          // The admin may change the org.
+          organizationPermissionHandler(true),
+          ...sideNavHandlers(),
+        ],
       },
     },
   },
@@ -145,6 +155,9 @@ const subPageHandlers = [
   organizationListWithOrgHandler,
   organizationFullWithOrgHandler,
   orgApiKeysListEmptyHandler,
+  organizationPermissionHandler(true),
+  organizationMembersHandler(1),
+  organizationInvitationsHandler([]),
 ]
 
 /** The frame that every sub-page and the loading state share. */
