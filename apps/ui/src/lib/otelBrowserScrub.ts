@@ -35,7 +35,7 @@ function scrubTelemetryUrl(value: string): string {
   return redactSecretPath(cut)
 }
 
-function scrubTelemetryString(value: string): string {
+export function scrubTelemetryString(value: string): string {
   return value
     .replace(EMBEDDED_URL, (part) => scrubTelemetryUrl(part))
     .replace(EMAIL, "{email}")

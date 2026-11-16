@@ -44,6 +44,8 @@
     "apps/ui": {
       "entry": [
         "src/router.tsx",
+        "src/server.ts",
+        "src/lib/serverTelemetryNitroPlugin.ts",
         "src/routes/**/*.{ts,tsx}",
         "src/**/*.stories.tsx",
         "src/**/*.test.{ts,tsx}",
