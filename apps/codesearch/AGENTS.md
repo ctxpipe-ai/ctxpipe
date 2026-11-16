@@ -82,11 +82,6 @@ These instructions supplement the repository-root `AGENTS.md`.
   gate after hot/cold or ingest changes and update the ceiling from the
   printed peak before raising it — do not treat 5670m as a new-model
   calibration until that re-run lands.
-- Re-run of 2026-11-10 (the S3 cold tier, CTX-1215): the gate passed (exit 0,
-  no OOM kill, hot empty), but the cgroup peak reached the 5670m ceiling
-  (page cache counts), so it gives no new calibration. The ceiling stays
-  provisional.
-- Re-run of 2026-11-17 (the SCIP heap of half the container, CTX-1348): the
-  gate passed (exit 0, no OOM kill, hot empty). The cgroup peak again reached
-  the 5670m ceiling (5945430016 bytes). Kubernetes detects only Go, so this
-  gate does not run a Node indexer and does not test that heap.
+- Re-runs of 2026-11-10 (CTX-1215) and 2026-11-17 (CTX-1348): exit 0, no OOM
+  kill, hot empty, but the cgroup peak reached the 5670m ceiling (page cache
+  counts): no new calibration. The gate runs only Go, not a Node indexer.
