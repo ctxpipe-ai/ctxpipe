@@ -27,18 +27,24 @@ import type { WorkspaceChatTanstackTool } from "./workspace-chat-tools.js"
 /** A push gives up after this long, so it never holds the conversation. */
 const PUSH_TIMEOUT_MS = 2 * 60_000
 
+type PushLog = Pick<typeof log, "info" | "warn">
+
+/** For a caller whose logs must hold no id and no error text. */
+const NO_PUSH_LOG: PushLog = { info: () => {}, warn: () => {} }
+
 function logPush(
   conversationId: string,
   outcome: SessionPushResult | Error,
+  to: PushLog = log,
 ): void {
   if (outcome instanceof Error)
-    log.warn({
+    to.warn({
       step: "conversation-branch-push",
       message: `Conversation commits were not pushed: ${outcome.message}`,
       conversationId,
     })
   else if (outcome.status === "failed" || outcome.status === "skipped")
-    log.info({
+    to.info({
       step: "conversation-branch-push",
       message: `Conversation commits were not pushed (${outcome.reason})`,
       conversationId,
@@ -169,7 +175,7 @@ true`
  * (`…/<n+1>`) instead, which becomes the conversation's branch.
  *
  * `retry`: a local branch still has commits that no remote has; keep the
- * sandbox for the next sweep.
+ * sandbox for the next sweep. `quiet` writes no log line.
  */
 export async function pushBeforeSandboxDelete(input: {
   orgId: string
@@ -179,7 +185,9 @@ export async function pushBeforeSandboxDelete(input: {
   providerSandboxId: string
   /** The default commit the sandbox is recorded on. */
   baseSha: string
+  quiet?: boolean
 }): Promise<"done" | "retry"> {
+  const say = input.quiet ? NO_PUSH_LOG : log
   try {
     const org = await getSystemDb().query.organizations.findFirst({
       where: { id: { eq: input.orgId } },
@@ -205,13 +213,15 @@ export async function pushBeforeSandboxDelete(input: {
       if (resolved.ok)
         logPush(
           input.conversationId,
-          await pushOrRescue(handle, {
-            ...resolved.target,
-            baseSha: input.baseSha,
-          }),
+          await pushOrRescue(
+            handle,
+            { ...resolved.target, baseSha: input.baseSha },
+            say,
+          ),
+          say,
         )
       else
-        log.info({
+        say.info({
           step: "conversation-branch-push",
           message: `Conversation commits were not pushed (${resolved.reason})`,
           conversationId: input.conversationId,
@@ -224,7 +234,7 @@ export async function pushBeforeSandboxDelete(input: {
         { env: {} },
       )
       if (unpushed.exitCode === 0 && !unpushed.stdout.trim()) return "done"
-      log.warn({
+      say.warn({
         step: "conversation-branch-push",
         message:
           "The sandbox has commits that no remote has; it stays for the next sweep",
@@ -236,6 +246,7 @@ export async function pushBeforeSandboxDelete(input: {
     logPush(
       input.conversationId,
       error instanceof Error ? error : new Error(String(error)),
+      say,
     )
     return "retry"
   }
@@ -249,6 +260,7 @@ export async function pushBeforeSandboxDelete(input: {
 async function pushOrRescue(
   handle: JobSandboxHandle,
   target: PublishTarget,
+  say: PushLog,
 ): Promise<SessionPushResult> {
   const push = async (to: PublishTarget) => {
     const pushed = await pushConversationSession({
@@ -295,7 +307,7 @@ async function pushOrRescue(
   if (moved.exitCode !== 0) return { status: "failed", reason: "push_failed" }
   const rescued = await push({ ...target, branch: next, pushedSha: null })
   if (rescued.status === "pushed")
-    log.info({
+    say.info({
       step: "conversation-branch-push",
       message: `The deleted sandbox's commits went to ${next}: the session branch moved on GitHub`,
       conversationId: target.conversationId,

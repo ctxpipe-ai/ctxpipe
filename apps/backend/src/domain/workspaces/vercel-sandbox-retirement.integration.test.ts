@@ -31,6 +31,7 @@ import {
   persistSandboxInstance,
   type SandboxInstanceRecord,
 } from "../../models/workspace-sandboxes.js"
+import { RUNTIME_ARN } from "../../test/agentcore-fake.js"
 import { sweepConversationSandboxes } from "./conversation-sandbox-lifecycle.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 
@@ -155,8 +156,10 @@ function row(
 
 const name = (label: string) => `${label}-${orgId}`
 
-/** Every event that the retirement logs. */
+/** Every event that the sweep logs. */
 const events: Record<string, unknown>[] = []
+const retirementEvents = () =>
+  events.filter((event) => event.step === "vercel-sandbox-retirement")
 
 beforeAll(async () => {
   const url = process.env.DATABASE_URL
@@ -167,8 +170,7 @@ beforeAll(async () => {
     pretty: false,
     silent: true,
     drain: (ctx) => {
-      const event = ctx.event as Record<string, unknown>
-      if (event.step === "vercel-sandbox-retirement") events.push(event)
+      events.push(ctx.event as Record<string, unknown>)
     },
   })
   await getSystemDb().insert(organizations).values({
@@ -195,6 +197,8 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
+  // The AgentCore deployment of production; no AgentCore call is made.
+  vi.stubEnv("AGENTCORE_RUNTIME_ARN", RUNTIME_ARN)
   vi.stubEnv("VERCEL_TOKEN", TOKEN)
   vi.stubEnv("VERCEL_TEAM_ID", "team_test")
   vi.stubEnv("VERCEL_PROJECT_ID", "prj_test")
@@ -252,6 +256,20 @@ describe("the sweep retires Vercel sandboxes (Postgres)", () => {
       providerSandboxId: name("chat-fail"),
       lastHeartbeatAt: new Date(Date.now() - 40 * 24 * 60 * 60_000),
     })
+    const base = row({
+      kind: "base",
+      provider: "vercel",
+      providerSandboxId: name("base"),
+      latestSnapshotId: `snap_base_${orgId}`,
+      state: "live",
+    })
+    // A base whose builder is gone and whose snapshot Vercel no longer has.
+    const baseGone = row({
+      kind: "base",
+      provider: "vercel",
+      latestSnapshotId: `snap_gone_${orgId}`,
+      state: "live",
+    })
     const docker = row({
       kind: "base",
       provider: "docker",
@@ -282,20 +300,8 @@ describe("the sweep retires Vercel sandboxes (Postgres)", () => {
         state: "live",
       }),
       row({ kind: "job", provider: "vercel", providerSandboxId: name("job") }),
-      row({
-        kind: "base",
-        provider: "vercel",
-        providerSandboxId: name("base"),
-        latestSnapshotId: `snap_base_${orgId}`,
-        state: "live",
-      }),
-      // A base whose builder is gone and whose snapshot Vercel no longer has.
-      row({
-        kind: "base",
-        provider: "vercel",
-        latestSnapshotId: `snap_gone_${orgId}`,
-        state: "live",
-      }),
+      base,
+      baseGone,
       // Not Vercel: the retirement never touches it.
       docker,
     ])
@@ -303,12 +309,23 @@ describe("the sweep retires Vercel sandboxes (Postgres)", () => {
 
     const now = new Date()
     const first = await sweepConversationSandboxes(orgId, now)
-    expect([...project.sandboxes]).toEqual([name("chat-fail")])
-    expect(project.snapshots.size).toBe(0)
-    // The regular sweep skipped it: it is not marked `destroy_failed`.
-    expect((await vercelRows()).map((item) => [item.id, item.state])).toEqual([
-      [failing.id, "stopped"],
-    ])
+    // The failed conversation sandbox keeps the base it can have started
+    // from, with its builder and snapshots.
+    expect([...project.sandboxes].sort()).toEqual(
+      [name("base"), name("chat-fail")].sort(),
+    )
+    expect([...project.snapshots.keys()].sort()).toEqual(
+      [`snap_base_${orgId}`, `snap_builder_${orgId}`].sort(),
+    )
+    // The regular sweep skipped the failed row: it is not `destroy_failed`.
+    const states = Object.fromEntries(
+      (await vercelRows()).map((item) => [item.id, item.state]),
+    )
+    expect(states).toEqual({
+      [failing.id]: "stopped",
+      [base.id]: "live",
+      [baseGone.id]: "live",
+    })
     // The failed row brings the next sweep to the retry, not to the docker
     // base's retention end.
     expect(first.nextSweepAt?.getTime()).toBeLessThanOrEqual(
@@ -318,6 +335,8 @@ describe("the sweep retires Vercel sandboxes (Postgres)", () => {
     project.sandboxes.delete(name("chat-fail"))
     const second = await sweepConversationSandboxes(orgId, new Date())
     expect(await vercelRows()).toEqual([])
+    expect(project.sandboxes.size).toBe(0)
+    expect(project.snapshots.size).toBe(0)
     expect(second.nextSweepAt?.getTime()).toBeGreaterThan(
       Date.now() + 24 * 60 * 60_000,
     )
@@ -331,19 +350,13 @@ describe("the sweep retires Vercel sandboxes (Postgres)", () => {
     await sweepConversationSandboxes(orgId, new Date())
     expect(requests).toBe(before)
 
-    // Counts and status codes only: no org, Workspace, sandbox or snapshot
-    // id, no token, and no error text.
-    expect(events.map((event) => event.message)).toEqual([
+    // Counts and status codes only.
+    expect(retirementEvents().map((event) => event.message)).toEqual([
       "Retiring a Vercel sandbox failed (kind chat)",
-      "Retired 6 Vercel sandboxes; 0 kept, 1 failed",
-      "Retired 1 Vercel sandboxes; 0 kept, 0 failed",
+      "Retired 4 Vercel sandboxes; 2 kept, 1 failed",
+      "Retired 3 Vercel sandboxes; 0 kept, 0 failed",
     ])
-    expect(events[0]).toMatchObject({ kind: "chat", status: 503 })
-    for (const event of events) {
-      const text = JSON.stringify(event)
-      for (const secret of [orgId, workspaceId, TOKEN, "unavailable", "snap_"])
-        expect(text).not.toContain(secret)
-    }
+    expect(retirementEvents()[0]).toMatchObject({ kind: "chat", status: 503 })
   })
 
   it("keeps a row when the snapshot list of its sandbox fails, also with a 404", async () => {
@@ -405,12 +418,27 @@ describe("the sweep retires Vercel sandboxes (Postgres)", () => {
     expect(result.nextSweepAt?.getTime()).toBeLessThanOrEqual(
       Date.now() + 5 * 60_000,
     )
+    // The failed push writes no line of its own.
+    expect(
+      events.filter((event) => event.step === "conversation-branch-push"),
+    ).toEqual([])
   })
 
-  it("keeps a conversation sandbox while a turn holds the conversation", async () => {
+  it("keeps a conversation sandbox while a turn holds the conversation, and the base it can have started from", async () => {
     vi.stubEnv("SANDBOX_PROVIDER", "agentcore")
-    const project = vercelProject({ sandboxes: [name("busy")], snapshots: {} })
+    const project = vercelProject({
+      sandboxes: [name("busy"), name("held-base")],
+      snapshots: { [`snap_held_${orgId}`]: name("held-base") },
+    })
     server.use(...project.handlers)
+    const base = row({
+      kind: "base",
+      provider: "vercel",
+      providerSandboxId: name("held-base"),
+      latestSnapshotId: `snap_held_${orgId}`,
+      state: "live",
+    })
+    await persistSandboxInstance(base)
     const busy = row({
       kind: "chat",
       provider: "vercel",
@@ -422,10 +450,17 @@ describe("the sweep retires Vercel sandboxes (Postgres)", () => {
       `chat-thread:${conversationId}`,
       () => sweepConversationSandboxes(orgId, new Date()),
     )
-    expect((await vercelRows()).map((item) => item.id)).toEqual([busy.id])
-    expect([...project.sandboxes]).toEqual([name("busy")])
+    expect((await vercelRows()).map((item) => item.id).sort()).toEqual(
+      [base.id, busy.id].sort(),
+    )
+    expect([...project.sandboxes].sort()).toEqual(
+      [name("busy"), name("held-base")].sort(),
+    )
+    expect(project.snapshots.size).toBe(1)
     await sweepConversationSandboxes(orgId, new Date())
     expect(await vercelRows()).toEqual([])
+    expect(project.sandboxes.size).toBe(0)
+    expect(project.snapshots.size).toBe(0)
   })
 
   it("does nothing while the deployment runs Vercel sandboxes (a rollback)", async () => {
@@ -441,5 +476,23 @@ describe("the sweep retires Vercel sandboxes (Postgres)", () => {
     await sweepConversationSandboxes(orgId, new Date())
     expect(requests).toBe(before)
     expect((await vercelRows()).map((item) => item.id)).toEqual([kept.id])
+  })
+
+  it("logs no org, Workspace, sandbox or snapshot id, no token and no error text in any sweep line", () => {
+    expect(events.length).toBeGreaterThan(0)
+    for (const event of events) {
+      const text = JSON.stringify(event)
+      for (const secret of [
+        orgId,
+        workspaceId,
+        TOKEN,
+        name(""),
+        "snap_",
+        "sbx_",
+        "unavailable",
+        "Status code",
+      ])
+        expect(text).not.toContain(secret)
+    }
   })
 })

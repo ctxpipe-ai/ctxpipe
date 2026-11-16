@@ -16,6 +16,7 @@ import {
   lockedSandboxProvider,
 } from "./sandbox-provider.js"
 import { deleteWorkspaceBaseArtifacts } from "./workspace-base-providers.js"
+import { workspaceBaseHeldUntil } from "./workspace-sandbox-cleanup.js"
 
 /**
  * True for a `vercel` sandbox row while the deployment does not lock
@@ -39,7 +40,8 @@ export function retiresVercelRow(row: { provider?: string | null }): boolean {
  * A conversation sandbox is deleted as the sweep deletes one: under the
  * conversation's lock, after its committed work is pushed to GitHub. It
  * stays while the conversation is busy, and while a push must retry until
- * its retention ends. A row whose delete fails also stays.
+ * its retention ends. A row whose delete fails also stays, and so does a
+ * base that a conversation sandbox which stays can have started from.
  *
  * Returns the number of rows that stay, so that the sweep runs again soon.
  * The worker keeps `VERCEL_TOKEN` for this. The later change that removes
@@ -56,15 +58,24 @@ export async function retireVercelSandboxes(
   let retired = 0
   let kept = 0
   let failed = 0
+  // The conversation sandboxes that stay keep the bases they can have
+  // started from, as in the base cleanup.
+  const stayed: SandboxInstanceRecord[] = []
   for (const row of [
     ...rows.filter((item) => item.kind !== "base"),
     ...rows.filter((item) => item.kind === "base"),
   ]) {
     try {
-      if (await retire(row, now)) retired += 1
-      else kept += 1
+      if (row.kind === "base" && workspaceBaseHeldUntil(row, stayed) !== null)
+        kept += 1
+      else if (await retire(row, now)) retired += 1
+      else {
+        kept += 1
+        stayed.push(row)
+      }
     } catch (error) {
       failed += 1
+      stayed.push(row)
       // The error text can hold a snapshot id: log the kind and status only.
       log.warn({
         step: "vercel-sandbox-retirement",
@@ -105,6 +116,8 @@ async function retire(row: SandboxInstanceRecord, now: Date): Promise<boolean> {
               provider: "vercel",
               providerSandboxId: row.providerSandboxId,
               baseSha: row.revision.sha,
+              // Its lines can hold a branch name or an error text.
+              quiet: true,
             })
           : "done"
       if (
