@@ -198,9 +198,11 @@ test("no workflow builds or pushes a preview image", () => {
   }
 })
 
-// The plan as the factory CLI reads it: stdout, without $GITHUB_OUTPUT.
+// The plan as the factory CLI reads it: stdout, without $GITHUB_OUTPUT. The
+// table goes to stderr then.
 function printedPlan(t, result, names) {
   const log = t.mock.method(console, "log", () => {})
+  const error = t.mock.method(console, "error", () => {})
   const env = { ...process.env }
   delete process.env.GITHUB_OUTPUT
   delete process.env.GITHUB_STEP_SUMMARY
@@ -212,12 +214,14 @@ function printedPlan(t, result, names) {
   } finally {
     Object.assign(process.env, env)
     log.mock.restore()
+    error.mock.restore()
   }
-  return log.mock.calls.map((c) => c.arguments[0]).join("\n")
+  const text = (mock) => mock.mock.calls.map((c) => c.arguments[0]).join("\n")
+  return { stdout: text(log), stderr: text(error) }
 }
 
 test("the plan goes to stdout, and a changed path with a newline cannot forge a line of it", (t) => {
-  const printed = printedPlan(
+  const { stdout: printed, stderr: table } = printedPlan(
     t,
     {
       build: [{ image: "ui" }],
@@ -226,22 +230,24 @@ test("the plan goes to stdout, and a changed path with a newline cannot forge a 
     },
     ["backend", "ui"],
   )
+  assert.match(table, /^\| ui \| build: changed \|$/m)
+  assert.doesNotMatch(printed, /\| ui \|/)
   assert.match(printed, /^build=\[\{"image":"ui"\}\]$/m)
   assert.match(
     printed,
     new RegExp(`^reuse=\\{"backend":"${digestOf("backend")}"\\}$`, "m"),
   )
-  const forged = printedPlan(
-    t,
-    {
-      build: [{ image: "ui" }],
-      reuse: {},
-      reasons: { ui: 'apps/ui/x\nreuse={"ui":"sha256:0"}\r changed' },
-    },
-    ["ui"],
-  )
-  assert.deepEqual(
-    forged.split("\n").filter((line) => line.startsWith("reuse=")),
-    ["reuse={}"],
-  )
+  for (const separator of ["\n", "\r", "\u0085", "\u2028", "\u2029"]) {
+    const { stdout, stderr } = printedPlan(
+      t,
+      {
+        build: [{ image: "ui" }],
+        reuse: {},
+        reasons: { ui: `apps/ui/x${separator}reuse={"ui":"sha256:0"} changed` },
+      },
+      ["ui"],
+    )
+    assert.equal(stdout, 'build=[{"image":"ui"}]\nreuse={}', JSON.stringify(separator))
+    assert.equal(stderr.split(/\r\n|[\n\r\u0085\u2028\u2029]/u).length, 3, JSON.stringify(separator))
+  }
 })

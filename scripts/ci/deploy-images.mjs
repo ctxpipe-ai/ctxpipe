@@ -649,14 +649,13 @@ async function lockfileChangedFor(root, baseSha, list) {
 
 /**
  * Write the plan of `list`: `build` and `reuse`, and each line of `extra`, to
- * $GITHUB_OUTPUT (else stdout), and a table of the plan to stdout and to
- * $GITHUB_STEP_SUMMARY.
+ * $GITHUB_OUTPUT (else stdout), and a table of the plan to stdout (else
+ * stderr) and to $GITHUB_STEP_SUMMARY.
  */
 // A reason can name a changed path, which can hold a newline or another
-// control character. A reason stays on its one table row, so that no line of
-// the summary reads as `build=` or `reuse=` to the factory CLI, which reads
-// the plan from stdout.
-const oneLine = (text) => String(text).replace(/[\u0000-\u001f\u007f]/g, " ")
+// control or line separator character. A reason stays on its one table row.
+const oneLine = (text) =>
+  String(text).replace(/[\p{Cc}\u2028\u2029]/gu, " ")
 
 export function writePlan(result, list, extra = []) {
   const env = process.env
@@ -673,7 +672,9 @@ export function writePlan(result, list, extra = []) {
         `| ${image} | ${image in result.reuse ? "reuse" : "build"}: ${oneLine(result.reasons[image])} |`,
     ),
   ]
-  console.log(summary.join("\n"))
+  // Without $GITHUB_OUTPUT (the factory CLI reads the plan from stdout), the
+  // table goes to stderr: stdout holds only the plan lines.
+  ;(env.GITHUB_OUTPUT ? console.log : console.error)(summary.join("\n"))
   if (env.GITHUB_OUTPUT)
     appendFileSync(env.GITHUB_OUTPUT, `${lines.join("\n")}\n`)
   else console.log(lines.join("\n"))
