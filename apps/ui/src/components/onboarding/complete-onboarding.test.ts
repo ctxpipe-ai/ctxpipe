@@ -13,6 +13,7 @@ import {
 } from "vitest"
 
 import { orgGateOptions } from "@/lib/org-gate"
+import { duringServerRequest, signedInHeaders } from "@/lib/server-request-test"
 
 import { completeOnboarding } from "./complete-onboarding"
 
@@ -61,18 +62,20 @@ afterAll(() => server.close())
 
 describe("completeOnboarding", () => {
   it("drops the org gate cached before onboarding, so the org pages do not send the user back", async () => {
-    const queryClient = new QueryClient()
-    // A visit to the org page before onboarding cached its gate with
-    // onboarding open; the org page then sent the user to /onboarding.
-    const before = await queryClient.fetchQuery(orgGateOptions("acme"))
-    expect(before.session?.user.onboardingCompletedAt).toBeNull()
+    await duringServerRequest(signedInHeaders, async () => {
+      const queryClient = new QueryClient()
+      // A visit to the org page before onboarding cached its gate with
+      // onboarding open; the org page then sent the user to /onboarding.
+      const before = await queryClient.fetchQuery(orgGateOptions("acme"))
+      expect(before.session?.user.onboardingCompletedAt).toBeNull()
 
-    await completeOnboarding("acme", queryClient)
+      await completeOnboarding("acme", queryClient)
 
-    // The org layout reads its gate like this.
-    const after = await queryClient.ensureQueryData(orgGateOptions("acme"))
-    expect(after.session?.user.onboardingCompletedAt).toBe(
-      "2026-10-16T00:00:00.000Z",
-    )
+      // The org layout reads its gate like this.
+      const after = await queryClient.ensureQueryData(orgGateOptions("acme"))
+      expect(after.session?.user.onboardingCompletedAt).toBe(
+        "2026-10-16T00:00:00.000Z",
+      )
+    })
   })
 })

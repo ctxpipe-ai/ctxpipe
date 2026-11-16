@@ -24,26 +24,34 @@ function authBaseUrl(): string {
   return ssrApiBaseUrl()
 }
 
-async function authFetchInit(): Promise<RequestInit> {
+/**
+ * The fetch options for an auth call, or null when the server-render request
+ * carries no session credential. Such a request has no session, so the caller
+ * answers it without a backend call. A scanner burst then cannot hit the
+ * backend rate limit and turn each page into a server-render error.
+ */
+async function authFetchInit(): Promise<RequestInit | null> {
   // `import.meta.env.SSR` lets Vite drop the .server import from the client bundle.
   if (import.meta.env.SSR) {
-    const { getServerApiHeaders } = await import("./api-headers.server")
-    return {
-      credentials: "include",
-      headers: getServerApiHeaders(),
-    }
+    const { getServerApiHeaders, hasSessionCredential } =
+      await import("./api-headers.server")
+    const headers = getServerApiHeaders()
+    if (!hasSessionCredential(headers)) return null
+    return { credentials: "include", headers }
   }
   return { credentials: "include" }
 }
 
 /**
  * Session for route loaders — works on SSR with forwarded cookies.
- * Returns null only when the backend says there is no session. A network
- * error, a timeout, or a server error throws `ApiError`: the loader must not
- * send a signed-in user to sign-in because one call failed.
+ * Returns null when the request carries no session credential, or when the
+ * backend says there is no session. A network error, a timeout, a rate limit,
+ * or a server error throws `ApiError`: the loader must not send a signed-in
+ * user to sign-in because one call failed.
  */
 export async function fetchSsrSession(): Promise<SsrSession> {
   const init = await authFetchInit()
+  if (!init) return null
   const res = await apiFetch(
     `${authBaseUrl()}/.auth/api/v1/auth/get-session`,
     init,
@@ -60,11 +68,12 @@ export async function fetchSsrSession(): Promise<SsrSession> {
 
 /**
  * Org membership list for route loaders. Returns [] only for a signed-out
- * request (401). Other failures throw `ApiError`, so that a failed call does
- * not send the user to onboarding.
+ * request (no session credential, or 401). Other failures throw `ApiError`,
+ * so that a failed call does not send the user to onboarding.
  */
 export async function fetchSsrOrganizations(): Promise<SsrOrganization[]> {
   const init = await authFetchInit()
+  if (!init) return []
   const res = await apiFetch(
     `${authBaseUrl()}/.auth/api/v1/auth/organization/list`,
     init,

@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 
 import { workspaceListOptions } from "@/features/workspaces/queries"
 import { installRelativeFetch } from "@/features/workspaces/relative-fetch-test"
+import { duringServerRequest, signedInHeaders } from "@/lib/server-request-test"
 
 import { warmWorkspaceLists } from "./index"
 
@@ -42,7 +43,11 @@ describe("warmWorkspaceLists", () => {
       defaultOptions: { queries: { retry: false } },
     })
 
-    await expect(warmWorkspaceLists(queryClient)).resolves.toBeUndefined()
+    await expect(
+      duringServerRequest(signedInHeaders, () =>
+        warmWorkspaceLists(queryClient),
+      ),
+    ).resolves.toBeUndefined()
 
     expect(
       queryClient.getQueryState(workspaceListOptions("acme").queryKey)?.status,
