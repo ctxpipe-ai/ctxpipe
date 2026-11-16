@@ -266,7 +266,7 @@ describe("agentCoreSandboxProvider", () => {
   it("reads each shim answer to its end, so no call shows as aborted in the HTTP client spans", async () => {
     // Production: each staged script ended its InvokeAgentRuntime call before the answer's end, and the HTTP client
     // span of each command was an "aborted" error.
-    fake.delayInvocationEnds(100)
+    fake.delayInvocationEnds(20)
     const upstream = createServer((_request, response) => response.end("ok"))
     const port = await listen(upstream)
     try {

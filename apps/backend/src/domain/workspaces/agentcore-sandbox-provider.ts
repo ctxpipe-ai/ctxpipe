@@ -894,9 +894,12 @@ async function forward(
       if (event.type === "head") response.writeHead(event.status, event.headers)
       else if (event.type === "body")
         response.write(Buffer.from(event.data, "base64"))
-      // As in `stage`, the loop continues to the end of the answer.
-      else if (event.type === "error") failure = event.message
-      else if (event.type === "end") {
+      // As in `stage`, the loop continues to the end of the answer. An error
+      // is a last event too: an `end` after it does not end the response.
+      else if (event.type === "error") {
+        failure = event.message
+        ended = true
+      } else if (event.type === "end") {
         ended = true
         response.end()
       }
