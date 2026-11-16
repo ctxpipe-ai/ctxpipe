@@ -436,18 +436,22 @@ it.each([
   "native-push",
   "repeated-native-push",
   "continuous-native-push",
+  "endless-native-push",
 ] as const)(
   "hands a raced Files write to one native semantic child and returns the published result: %s",
-  { timeout: 60_000 },
+  // The endless race makes 9 attempts of a few seconds each.
+  { timeout: 90_000 },
   async (raceBoundary) => {
     // The race moves main at the parent's push and at this many attempts of
     // the merge child. Each lost attempt waits before the next (CTX-1304).
     const additionalHumans =
-      raceBoundary === "continuous-native-push"
-        ? 3
-        : raceBoundary === "repeated-native-push"
-          ? 1
-          : 0
+      raceBoundary === "endless-native-push"
+        ? 8
+        : raceBoundary === "continuous-native-push"
+          ? 3
+          : raceBoundary === "repeated-native-push"
+            ? 1
+            : 0
     const path = "knowledge/race.md"
     const original =
       "# Race\n\nHuman: original\n\nOne\nTwo\nThree\nFour\nFive\n\nJob: original\n"
@@ -535,9 +539,9 @@ it.each([
             workspaceFileEdit.spec,
             command,
           )
-          // A lost race makes the merge sleep for up to a minute. End each
-          // sleep now: set its resume time and the run's start to now.
-          const settled = handle.result({ timeoutMs: 45_000 }).then(
+          // A lost race makes the merge sleep before its next attempt. End
+          // each sleep now: set its resume time and the run's start to now.
+          const settled = handle.result({ timeoutMs: 75_000 }).then(
             () => true,
             () => true,
           )
@@ -550,11 +554,11 @@ it.each([
             const sleeping = (
               await getSystemDb().execute<{ workflow_run_id: string }>(sql`
                 select workflow_run_id from openworkflow.step_attempts
-                where namespace_id = ${openWorkflowNamespaceId()}
+                where namespace_id = ${f.id}
                   and kind = 'sleep' and status = 'running'
                   and workflow_run_id in (
                     select id from openworkflow.workflow_runs
-                    where namespace_id = ${openWorkflowNamespaceId()}
+                    where namespace_id = ${f.id}
                       and workflow_name = 'workspace-write-semantic-merge'
                       and input->>'workspaceId' = ${f.workspaceId})
               `)
@@ -566,7 +570,7 @@ it.each([
                 set context = jsonb_set(context, '{resumeAt}',
                   to_jsonb(to_char((now() - interval '1 second') at time zone 'utc',
                     'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')))
-                where namespace_id = ${openWorkflowNamespaceId()}
+                where namespace_id = ${f.id}
                   and kind = 'sleep' and status = 'running'
                   and workflow_run_id in (${sql.join(
                     sleeping.map((row) => sql`${row.workflow_run_id}`),
@@ -574,9 +578,34 @@ it.each([
                   )})
                 returning workflow_run_id)
               update openworkflow.workflow_runs set available_at = now()
-              where namespace_id = ${openWorkflowNamespaceId()}
+              where namespace_id = ${f.id}
                 and id in (select workflow_run_id from woken)
             `)
+          }
+          const mergeWaits = async () => {
+            const [child] = (
+              await f.backend.listWorkflowRuns({ limit: 100 })
+            ).data.filter(
+              (run) => run.workflowName === "workspace-write-semantic-merge",
+            )
+            return (
+              await f.backend.listStepAttempts({
+                workflowRunId: child?.id ?? "",
+              })
+            ).data.filter((step) => step.kind === "sleep")
+          }
+          if (raceBoundary === "endless-native-push") {
+            // The branch moves at each of the 8 attempts: the merge fails,
+            // with no wait after its last attempt, and main keeps the human
+            // commits.
+            await expect(handle.result({ timeoutMs: 1_000 })).rejects.toThrow(
+              "Default branch kept changing during semantic merge",
+            )
+            expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(
+              humanSha,
+            )
+            expect(await mergeWaits()).toHaveLength(7)
+            return
           }
           const result = await handle.result({ timeoutMs: 1_000 })
           expect(result).toMatchObject({ committed: true })
@@ -624,12 +653,7 @@ it.each([
           )
           expect(children).toHaveLength(1)
           // One wait for each lost attempt of the child.
-          const waits = (
-            await f.backend.listStepAttempts({
-              workflowRunId: children[0]?.id ?? "",
-            })
-          ).data.filter((step) => step.kind === "sleep")
-          expect(waits).toHaveLength(additionalHumans)
+          expect(await mergeWaits()).toHaveLength(additionalHumans)
           // The child input names the candidate commit on its job ref, not
           // its files (CTX-1239).
           expect(children[0]?.input).toMatchObject({
