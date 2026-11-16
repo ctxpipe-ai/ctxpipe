@@ -203,8 +203,11 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
       /^scripts\/ci\/(?!(?:module-scope-values-baseline|page-story-exemptions)\.json$)[^/]+\.json$/,
       /^\.npmrc$/,
       /^patches\//,
+      // A committed package folder: Node loads a package from the nearest
+      // node_modules, also in the steps that must not run PR code.
+      /(?:^|\/)node_modules\//,
       /^apps\/backend\/evals\/mcp\/(?:cases|gate)\.ts$/,
-      /^apps\/ui\/\.storybook\/check-modules\.mjs$/,
+      /^apps\/ui\/\.storybook\/(?:check-modules\.mjs|main\.ts)$/,
       /^apps\/codesearch\/scripts\/run-vitest-contracts\.mjs$/,
     ].some((input) => input.test(path)),
   )

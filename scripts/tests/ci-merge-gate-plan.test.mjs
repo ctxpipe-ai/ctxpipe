@@ -707,6 +707,33 @@ test("a PR cannot redefine a check to reuse a pass of the old definition", () =>
     twice.reason,
     `definitions of checks changed, and a listing gives a check id twice: ${story}`,
   )
+  // New own inputs keep a change from selecting other checks, so the run is
+  // full.
+  const owned = planOf({
+    files: {
+      "mode.json": definitions,
+      "manifest.json": manifestOf(
+        listed().map((item) =>
+          item.id === lint ? { ...item, ownInputs: ["apps/**"] } : item,
+        ),
+      ),
+      "base-manifest.json": manifestOf(listed()),
+    },
+  })
+  assert.equal(
+    owned.reason,
+    `definitions of checks changed, and the own inputs of a check changed: ${lint}`,
+  )
+  // A dropped eval case has no key, but it is dropped too.
+  const evals = planOf({
+    files: {
+      "mode.json": definitions,
+      "manifest.json": manifestOf(listed()),
+      "base-manifest.json": manifestOf([...listed(), entry(evalCase)]),
+    },
+  })
+  assert.equal(evals.mode, "full")
+  assert.match(evals.reason, /drops 1 check that the base revision lists/)
   // Without a valid listing of the base revision, the run is full.
   for (const base of [undefined, { schemaVersion: 1, checks: "all" }])
     assert.equal(

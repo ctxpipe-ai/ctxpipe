@@ -100,16 +100,20 @@ function withGateTests(selection, inputs) {
   )
 }
 
-// The checks whose definition the PR changed, from two listings of the merge
-// revision: the manifest that the selector keyed (the code of the PR made
-// it), and the listing that the code of the base revision made of the same
-// tree before any PR code ran. `dropped`: a check that the base lists and the
-// PR does not. `changed`: a check that only the PR lists, or whose entry
-// differs other than by more inputs or another intent. More inputs only make
-// a key wider, so no pass of the old definition matches it. An eval or a
-// stochastic check has no key, so it reuses no pass. `twice`: an id that a
-// listing gives more than once, so that the plan cannot know which entry the
-// selector keyed.
+// The checks whose definition the PR changed. It compares two listings of
+// the merge revision. The code of the PR made the manifest that the selector
+// keyed. The code of the base revision made the other listing, before any PR
+// code ran. It gives these lists of check ids:
+// - `dropped`: the base lists the check, and the PR does not.
+// - `twice`: a listing gives the id more than once. Then the plan cannot know
+//   which entry the selector keyed.
+// - `owned`: the `ownInputs` of the check differ, or only the PR gives the
+//   check with `ownInputs`. Own inputs keep a change from selecting other
+//   checks, so they can drop checks from the selection.
+// - `changed`: a check with a key that only the PR lists, or whose entry
+//   differs other than by more inputs or another intent. More inputs only
+//   make a key wider, so no pass of the old definition matches it. An eval
+//   or a stochastic check has no key, so it reuses no pass.
 export function definitionChanges(base, manifest) {
   const keyed = (check) => !check.stochastic && check.family !== "eval"
   // The entry with its object keys in order, so that two entries with the
@@ -128,26 +132,31 @@ export function definitionChanges(base, manifest) {
       .filter((id, index, ids) => ids.indexOf(id) !== index),
   )
   const covers = (some = [], all = []) => some.every((item) => all.includes(item))
-  const pr = new Map(manifest.checks.filter(keyed).map((check) => [check.id, check]))
-  const listed = new Set()
+  const same = (a = [], b = []) => covers(a, b) && covers(b, a)
+  const pr = new Map(manifest.checks.map((check) => [check.id, check]))
+  const listed = new Map(base.checks.map((check) => [check.id, check]))
   const dropped = []
+  const owned = []
   const changed = []
-  for (const check of base.checks.filter(keyed)) {
-    listed.add(check.id)
+  for (const check of base.checks) {
     const other = pr.get(check.id)
     if (!other) dropped.push(check.id)
+    else if (!same(check.ownInputs, other.ownInputs)) owned.push(check.id)
     else if (
-      rest(check) !== rest(other) ||
-      !covers(check.inputs, other.inputs) ||
-      !covers(check.ownInputs, other.ownInputs)
+      keyed(check) &&
+      (rest(check) !== rest(other) || !covers(check.inputs, other.inputs))
     )
       changed.push(check.id)
   }
-  for (const id of pr.keys()) if (!listed.has(id)) changed.push(id)
+  for (const [id, check] of pr)
+    if (listed.has(id)) continue
+    else if (check.ownInputs?.length) owned.push(id)
+    else if (keyed(check)) changed.push(id)
   return {
     dropped: dropped.sort(),
-    changed: changed.sort(),
     twice: [...new Set(twice)].sort(),
+    owned: owned.sort(),
+    changed: changed.sort(),
   }
 }
 
@@ -509,9 +518,13 @@ export function plan({ config, inputs, needs, store }) {
         "no valid listing of the base revision or of the PR is available",
       )
     changes = definitionChanges(base, manifest)
-    const { dropped, twice } = changes
+    const { dropped, twice, owned } = changes
     if (twice.length)
       return fullFor(`a listing gives a check id twice: ${twice.slice(0, 3).join(", ")}`)
+    if (owned.length)
+      return fullFor(
+        `the own inputs of a check changed: ${owned.slice(0, 3).join(", ")}${owned.length > 3 ? " and more" : ""}`,
+      )
     if (dropped.length)
       return fullFor(
         `the listing of this PR drops ${dropped.length} ${dropped.length === 1 ? "check" : "checks"} that the base revision lists for the same tree: ${dropped.slice(0, 3).join(", ")}${dropped.length > 3 ? " and more" : ""}`,

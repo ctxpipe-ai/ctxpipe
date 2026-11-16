@@ -228,6 +228,32 @@ test("the manifest job lists the tree with the base code before any PR code runs
   assert.ok(imported.has("apps/backend/evals/mcp/cases.ts"))
   for (const file of [...imported, "apps/ui/.storybook/main.ts"])
     assert.ok(at(file), file)
+  // The Storybook config that buildIndex loads decides which stories exist,
+  // so a change to it is a definition of checks. A committed package folder
+  // could replace a dependency of the listing, so it gives a full run.
+  assert.deepEqual(
+    decideMode({
+      config: pinned,
+      event: "pull_request",
+      fork: false,
+      changed: ["apps/ui/.storybook/main.ts"],
+    }).definitions,
+    ["apps/ui/.storybook/main.ts"],
+  )
+  for (const file of [
+    "scripts/node_modules/@jridgewell/sourcemap-codec/index.js",
+    "node_modules/x/index.js",
+  ])
+    assert.equal(
+      decideMode({
+        config: pinned,
+        event: "pull_request",
+        fork: false,
+        changed: ["scripts/checks/visual.mjs", file],
+      }).mode,
+      "full",
+      file,
+    )
   // A change to a package file or the lockfile changes those dependencies,
   // so with a definition of checks the run is full.
   for (const file of ["apps/ui/package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "package.json"])
