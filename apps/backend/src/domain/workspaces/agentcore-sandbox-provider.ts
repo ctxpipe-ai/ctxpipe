@@ -144,38 +144,62 @@ type ShimRequest =
       body?: string
     }
 
-/** The events of one `InvokeAgentRuntime` call to the shim. */
+/**
+ * The events of one `InvokeAgentRuntime` call to the shim. The answer ends
+ * at once after its last event (`stored`, `error` or `end`), and a consumer
+ * reads on to that end: a call closed early shows as an aborted HTTP call.
+ * A process in the sandbox can replace the shim, so the read stops 2 s after
+ * the last event, also when the answer has not ended.
+ */
 async function* shimEvents(
   runtime: AgentCoreRuntime,
   sessionId: string,
   payload: ShimRequest,
   signal?: AbortSignal,
 ): AsyncGenerator<ShimEvent> {
-  const output = await runtime.client.send(
-    new InvokeAgentRuntimeCommand({
-      agentRuntimeArn: runtime.runtimeArn,
-      qualifier: runtime.qualifier,
-      runtimeSessionId: sessionId,
-      contentType: "application/json",
-      accept: "text/event-stream",
-      payload: Buffer.from(JSON.stringify(payload)),
-    }),
-    signal ? { abortSignal: signal } : {},
-  )
-  let buffer = ""
-  const decoder = new TextDecoder()
-  for await (const chunk of output.response as AsyncIterable<Uint8Array>) {
-    buffer += decoder.decode(chunk, { stream: true })
-    for (
-      let end = buffer.indexOf("\n\n");
-      end >= 0;
-      end = buffer.indexOf("\n\n")
-    ) {
-      const block = buffer.slice(0, end)
-      buffer = buffer.slice(end + 2)
-      if (block.startsWith("data: "))
-        yield shimEventSchema.parse(JSON.parse(block.slice("data: ".length)))
+  const stopRead = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const output = await runtime.client.send(
+      new InvokeAgentRuntimeCommand({
+        agentRuntimeArn: runtime.runtimeArn,
+        qualifier: runtime.qualifier,
+        runtimeSessionId: sessionId,
+        contentType: "application/json",
+        accept: "text/event-stream",
+        payload: Buffer.from(JSON.stringify(payload)),
+      }),
+      {
+        abortSignal: signal
+          ? AbortSignal.any([signal, stopRead.signal])
+          : stopRead.signal,
+      },
+    )
+    let buffer = ""
+    const decoder = new TextDecoder()
+    for await (const chunk of output.response as AsyncIterable<Uint8Array>) {
+      buffer += decoder.decode(chunk, { stream: true })
+      for (
+        let end = buffer.indexOf("\n\n");
+        end >= 0;
+        end = buffer.indexOf("\n\n")
+      ) {
+        const block = buffer.slice(0, end)
+        buffer = buffer.slice(end + 2)
+        if (!block.startsWith("data: ")) continue
+        const event = shimEventSchema.parse(
+          JSON.parse(block.slice("data: ".length)),
+        )
+        if (event.type !== "head" && event.type !== "body")
+          timer ??= setTimeout(() => stopRead.abort(), 2_000)
+        yield event
+      }
     }
+  } catch (error) {
+    // The answer had its last event and did not end: it is complete.
+    if (!stopRead.signal.aborted) throw error
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -193,16 +217,22 @@ async function stage(
   data: Buffer,
 ): Promise<string> {
   const id = randomBytes(16).toString("hex")
+  let stored = false
+  let failure: string | undefined
+  // Read to the end of the answer (see `shimEvents`): a return or a throw in
+  // the loop closes the call early, and its HTTP span is an error.
   for await (const event of shimEvents(runtime, sessionId, {
     action: "put",
     id,
     data: data.toString("base64"),
   })) {
-    if (event.type === "stored") return id
-    if (event.type === "error")
-      throw new Error(`Sending data to the sandbox failed: ${event.message}`)
+    if (event.type === "stored") stored = true
+    if (event.type === "error") failure = event.message
   }
-  throw new Error("The shim did not store the data")
+  if (failure !== undefined)
+    throw new Error(`Sending data to the sandbox failed: ${failure}`)
+  if (!stored) throw new Error("The shim did not store the data")
+  return id
 }
 
 /**
@@ -824,7 +854,20 @@ async function forward(
   }
   route.usedAt = Date.now()
   const aborted = new AbortController()
-  response.on("close", () => aborted.abort())
+  let ended = false
+  let failure: string | undefined
+  // A client that leaves before the end stops the call. `end()` also closes
+  // the response: then the call continues to read to the end of the answer.
+  response.on("close", () => {
+    if (!ended) aborted.abort()
+  })
+  // A failed write to the client stops this request, never the process.
+  response.on("error", (error) =>
+    log.warn({
+      step: "agentcore-port-bridge",
+      message: `The port bridge could not answer its client: ${error.message}`,
+    }),
+  )
   try {
     // Inside the try: a client that leaves during its upload ends here.
     const chunks: Buffer[] = []
@@ -846,17 +889,24 @@ async function forward(
       },
       aborted.signal,
     )) {
+      // Nothing after the end reaches the client.
+      if (ended) continue
       if (event.type === "head") response.writeHead(event.status, event.headers)
       else if (event.type === "body")
         response.write(Buffer.from(event.data, "base64"))
-      else if (event.type === "error")
-        throw new Error(`The sandbox port did not answer: ${event.message}`)
-      else if (event.type === "end") {
+      // As in `stage`, the loop continues to the end of the answer. An error
+      // is a last event too: an `end` after it does not end the response.
+      else if (event.type === "error") {
+        failure = event.message
+        ended = true
+      } else if (event.type === "end") {
+        ended = true
         response.end()
-        return
       }
     }
-    throw new Error("The shim answer ended early")
+    if (failure !== undefined)
+      throw new Error(`The sandbox port did not answer: ${failure}`)
+    if (!ended) throw new Error("The shim answer ended early")
   } catch (error) {
     if (!response.headersSent)
       response
