@@ -39,8 +39,9 @@ import {
 //     Prints {"mode", "reason"}: `select` when the selector runs for this
 //     run, else `full` and why. <file> lists the changed paths of the PR.
 //     With `select`, "jobs" names the jobs of a ci.yaml change whose checks
-//     all run, and "gateInputs" the changed gate inputs that the base
-//     revision decides. It runs git on the checkout (HEAD^1 and HEAD). The
+//     all run, "gateInputs" the changed gate inputs that the base revision
+//     decides, and "definitions" the changed definitions of checks. It runs
+//     git on the checkout (HEAD^1 and HEAD). The
 //     gate jobs of ci.yaml run each command of this file from the base
 //     revision of a PR.
 //
@@ -86,12 +87,32 @@ export function stepResults(jobs) {
   return results
 }
 
+// The jobs of ci.yaml that run no check, and whose `steps` a change can touch
+// without a full run. A pull_request never runs the first ones, so no PR
+// run, full or gated, runs their steps. Each PR run runs the steps of the
+// others in the same way, so a gated run proves the change. A change to any
+// other key of these jobs, such as `if:`, still gives the full run. A test
+// keeps each job in its group.
+export const offPullRequestJobs = new Set([
+  "nightly-change",
+  "trace",
+  "project-checks",
+  "layer-cache",
+  "nightly-plan",
+  "results-writer",
+  "non-portable-checks",
+  "nightly-tickets",
+  "unstable-screenshots",
+])
+export const sameInEachRunJobs = new Set(["migrate"])
+
 // The job of line i of ci.yaml when the line is in the `steps` of a job that
-// a manifest check runs in (or in the Storybook build job, which they need);
-// null for a blank or comment line; else undefined. A step or a job that
-// only a full run uses (its `if:` needs `mode != 'gate'` or a matrix lane
-// other than `selected`) is undefined too: a gated run does not run it, so
-// only a full run can prove its change. It reads the indents of the
+// a manifest check runs in (or in the Storybook build job, which they need).
+// Null for a blank or comment line, or for a line in the `steps` of a job of
+// `offPullRequestJobs` or `sameInEachRunJobs`. Else undefined. A step or a
+// job that only a full run uses (its `if:` needs `mode != 'gate'` or a matrix
+// lane other than `selected`) is undefined too: a gated run does not run it,
+// so only a full run can prove its change. It reads the indents of the
 // workflow, not its YAML.
 function jobOf(lines, i) {
   if (/^\s*(?:#|$)/.test(lines[i])) return null
@@ -106,13 +127,9 @@ function jobOf(lines, i) {
       job ??= name
       header ??= j
     } else if (indent.length === 0) {
-      if (
-        name !== "jobs" ||
-        !job ||
-        key !== "steps" ||
-        !(checkJobs.has(job) || job === "storybook-build")
-      )
-        return undefined
+      if (name !== "jobs" || !job || key !== "steps") return undefined
+      if (offPullRequestJobs.has(job) || sameInEachRunJobs.has(job)) return null
+      if (!(checkJobs.has(job) || job === "storybook-build")) return undefined
       break
     }
   }
@@ -171,20 +188,27 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
   // list complete). Package files and the lockfile are lane inputs that the
   // selector reads, not gate inputs. Other workflows, Markdown files and
   // .node-version are lane inputs too, and the toolchain is part of each key.
+  // A data file in scripts/ci is a gate input, except a file that only its
+  // own check reads and whose key holds it (a test keeps the list true).
   // The run is full, except for the inputs that the base revision decides
-  // and a ci.yaml change in the steps of check jobs.
+  // and a ci.yaml change only in the steps of check jobs, of
+  // `offPullRequestJobs` and of `sameInEachRunJobs`.
   let inputs = changed.filter((path) =>
     [
       /^\.github\/workflows\/ci\.yaml$/,
       /^\.github\/actions\//,
       /^\.github\/merge-gate\.json$/,
-      /^scripts\/checks\/(?:schema\/[^/]+\.json|[^/]+\.mjs)$/,
+      /^scripts\/checks\/(?:schema\/[^/]+\.json|[^/]+\.(?:mjs|json))$/,
       /^scripts\/ci\/(?:vitest-launch|test-suite|graph-ready|prerequisites|storybook-play)\.mjs$/,
-      /^scripts\/ci\/[^/]+\.json$/,
+      /^scripts\/ci\/(?!(?:module-scope-values-baseline|page-story-exemptions)\.json$)[^/]+\.json$/,
       /^\.npmrc$/,
       /^patches\//,
+      // A committed package folder, or a link with that name: Node loads a
+      // package from the nearest node_modules, also in the steps that must
+      // not run PR code.
+      /(?:^|\/)node_modules(?:\/|$)/,
       /^apps\/backend\/evals\/mcp\/(?:cases|gate)\.ts$/,
-      /^apps\/ui\/\.storybook\/check-modules\.mjs$/,
+      /^apps\/ui\/\.storybook\/(?:check-modules\.mjs|main\.ts)$/,
       /^apps\/codesearch\/scripts\/run-vitest-contracts\.mjs$/,
     ].some((input) => input.test(path)),
   )
@@ -201,8 +225,32 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
     ].some((input) => input.test(path)),
   )
   inputs = inputs.filter((path) => !decided.includes(path))
-  // A change to ci.yaml only in the `steps` of check jobs runs
-  // the selector; the shadow job then runs each check of those jobs.
+  // The files that define how the checks of a family are listed and run.
+  // The key of each check that one can change holds it: a Vitest or
+  // Storybook key holds run.mjs and so its import closure, a project key
+  // holds projects.mjs, and each data file is an input of the checks that
+  // read it. Thus a change misses each stored pass of the old definition.
+  // The job Merge gate base listing lists the same tree with the code and
+  // the dependencies of the base revision, and runs no PR code. The plan
+  // compares the two listings (definitionChanges in plan.mjs). The files
+  // that run the checks of every family stay full-run inputs: the runner and
+  // its host pins, the prerequisites, the CI runner steps, and
+  // toolchain.mjs, whose record is part of each key. A project key does not
+  // hold them.
+  const definitions = inputs.filter(
+    (path) =>
+      !/(?:^|\/)node_modules(?:\/|$)/.test(path) &&
+      !/^scripts\/checks\/(?:run|families|prerequisites|selected|rerun-failed|toolchain)\.mjs$|^scripts\/ci\/(?:prerequisites|graph-ready|vitest-launch)\.mjs$/.test(
+        path,
+      ) &&
+      [/^scripts\/checks\//, /^scripts\/ci\//, /^apps\//].some((input) =>
+        input.test(path),
+      ),
+  )
+  inputs = inputs.filter((path) => !definitions.includes(path))
+  // A change to ci.yaml only in the `steps` of check jobs, of
+  // `offPullRequestJobs` and of `sameInEachRunJobs` runs the selector; the
+  // plan then runs each check of those check jobs.
   let jobs = []
   const scoped =
     inputs.join() === ".github/workflows/ci.yaml" &&
@@ -229,6 +277,7 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
     reason: config.mode,
     ...(jobs.length && { jobs }),
     ...(decided.length && { gateInputs: decided }),
+    ...(definitions.length && { definitions }),
   }
 }
 
@@ -733,6 +782,8 @@ export function describe(reason) {
       return `ci.yaml changed in job ${reason.jobs?.join(", ")}`
     case "gate":
       return `gate input ${reason.inputs?.join(", ")} changed`
+    case "definition":
+      return `its definition changed with ${reason.inputs?.join(", ")}`
     case "added":
       return `added by the LLM: ${reason.why}`
     case "contract":
@@ -993,6 +1044,9 @@ export function gateDecision({
       reason: "gate: the gated run gates",
       // The changed gate inputs that the base revision decided (decideMode).
       gateInputs: planned.gateInputs ?? [],
+      // The changed definitions of checks, and the checks whose definition
+      // changed (definitionChanges in plan.mjs).
+      ...(planned.definitions && { definitions: planned.definitions }),
       factory: config.factory?.version ?? null,
       acceptAgentResults: config.acceptAgentResults === true,
       acceptPrResults: config.acceptPrResults === true,
@@ -1141,6 +1195,11 @@ export function gateText(
     lines.push(
       "",
       `**Gate inputs changed:** ${decision.gateInputs.map((path) => code(path)).join(", ")}. The gate code and the pin of the base revision decided this run, not the code of this PR, and every test of the CI scripts was selected.`,
+    )
+  if (decision.definitions)
+    lines.push(
+      "",
+      `**Definitions of checks changed:** ${decision.definitions.inputs.map((path) => code(path)).join(", ")}. The base revision listed the same tree; ${decision.definitions.changed.length} checks whose definition changed ran without a stored pass.`,
     )
   const shards = Object.entries(decision.shards ?? {})
   if (shards.length)
