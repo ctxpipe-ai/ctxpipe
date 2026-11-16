@@ -2,7 +2,15 @@ import { QueryClient } from "@tanstack/react-query"
 import { isRedirect } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 
 import { isWorkspaceConversationDocument } from "@/features/workspaces/ensure-route-data"
 import { workspaceListOptions } from "@/features/workspaces/queries"
@@ -40,6 +48,16 @@ describe("resolveOrgGate", () => {
     server.close()
     restoreFetch()
   })
+
+  /** The gate result, or the redirect or error that it throws. */
+  function gateOutcome(headers: Record<string, string>, orgSlug = "acme") {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    return duringServerRequest(headers, () =>
+      resolveOrgGate(queryClient, orgSlug),
+    ).catch((error: unknown) => error)
+  }
 
   it("does not throw when the Workspace list read fails, so the side nav owns the error", async () => {
     server.use(
@@ -79,13 +97,7 @@ describe("resolveOrgGate", () => {
         HttpResponse.json({ message: "Too many requests" }, { status: 429 }),
       ),
     )
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    })
-
-    const outcome = await duringServerRequest(signedInHeaders, () =>
-      resolveOrgGate(queryClient, "acme"),
-    ).catch((error: unknown) => error)
+    const outcome = await gateOutcome(signedInHeaders)
 
     expect(isRedirect(outcome)).toBe(true)
     expect(isRedirect(outcome) && outcome.options.to).toBe("/.auth/sign-in")
@@ -105,29 +117,23 @@ describe("resolveOrgGate", () => {
           HttpResponse.json({ message: "Too many requests" }, { status: 429 }),
       ),
     )
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    })
-
-    const outcome = await duringServerRequest(signedInHeaders, () =>
-      resolveOrgGate(queryClient, "acme"),
-    ).catch((error: unknown) => error)
+    const outcome = await gateOutcome(signedInHeaders)
 
     expect(outcome).toMatchObject({ status: 429 })
   })
 
   it("sends an anonymous scanner path to sign-in without a backend call", async () => {
     // No handlers: msw fails the test on any backend call.
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    })
+    const logged = vi.spyOn(console, "error")
 
-    const outcome = await duringServerRequest(
-      { "x-forwarded-for": "203.0.113.10" },
-      () => resolveOrgGate(queryClient, "sendform.zip"),
-    ).catch((error: unknown) => error)
+    const outcome = await gateOutcome(
+      { cookie: "theme=dark", "x-forwarded-for": "203.0.113.10" },
+      "sendform.zip",
+    )
 
     expect(isRedirect(outcome) && outcome.options.to).toBe("/.auth/sign-in")
+    expect(logged).not.toHaveBeenCalled()
+    logged.mockRestore()
   })
 
   it("keeps a real backend failure an error, so the error screen shows and it logs", async () => {
@@ -136,13 +142,7 @@ describe("resolveOrgGate", () => {
         HttpResponse.json({ message: "Bad gateway" }, { status: 502 }),
       ),
     )
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    })
-
-    const outcome = await duringServerRequest(signedInHeaders, () =>
-      resolveOrgGate(queryClient, "acme"),
-    ).catch((error: unknown) => error)
+    const outcome = await gateOutcome(signedInHeaders)
 
     expect(outcome).toBeInstanceOf(ApiError)
     expect(outcome).toMatchObject({ status: 502 })

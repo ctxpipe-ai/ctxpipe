@@ -1,5 +1,6 @@
 import { type QueryClient, queryOptions } from "@tanstack/react-query"
 
+import { ApiError } from "./api-result"
 import {
   fetchSsrOrganizations,
   fetchSsrSession,
@@ -27,22 +28,26 @@ export function orgGateOptions(orgSlug: string) {
     // (an explicit `retry: undefined` would replace it).
     ...(import.meta.env.SSR ? { retry: false } : {}),
     queryFn: async (): Promise<OrgGate> => {
-      const [session, organizations] = await Promise.allSettled([
-        fetchSsrSession(),
-        fetchSsrOrganizations(),
-      ]).then(([session, organizations]) => {
-        if (session.status === "rejected") throw session.reason
-        // With no session, the loader sends the request to sign-in, so a
-        // failed organization list does not matter.
-        if (!session.value) return [null, []] as const
-        if (organizations.status === "rejected") throw organizations.reason
-        return [session.value, organizations.value] as const
+      const session = await fetchSsrSession().catch((error: unknown) => {
+        // In a server render, a rate-limited session check comes from a
+        // scanner burst with a fake or expired cookie. Send it to sign-in:
+        // the error screen would answer 500 and log an error for each path.
+        if (
+          import.meta.env.SSR &&
+          error instanceof ApiError &&
+          error.status === 429
+        )
+          return null
+        throw error
       })
+      // With no session, the loader sends the request to sign-in, so the
+      // gate does not ask for the organization list.
+      if (!session) return { session, organizations: [], orgAccessDenied: true }
+      const organizations = await fetchSsrOrganizations()
       return {
         session,
         organizations,
-        orgAccessDenied:
-          !session || !organizations.some((org) => org.slug === orgSlug),
+        orgAccessDenied: !organizations.some((org) => org.slug === orgSlug),
       }
     },
   })

@@ -41,7 +41,10 @@ export async function readHyperDxDocumentIdentity(
 ): Promise<HyperDxSessionIdentity | null> {
   if (isHyperDxSignOutPath(pathname)) return null
   const cookie = request.headers.get("cookie")
-  if (!cookie) return null
+  // Without a session cookie there is no session to read. Do not ask the
+  // backend: a scanner burst would use up its rate limit.
+  const { hasSessionCredential } = await import("./api-headers.server")
+  if (!cookie || !hasSessionCredential({ cookie })) return null
   const fetchOptions = {
     headers: { cookie },
     baseURL: `${ssrApiBaseUrl()}/.auth/api/v1/auth`,

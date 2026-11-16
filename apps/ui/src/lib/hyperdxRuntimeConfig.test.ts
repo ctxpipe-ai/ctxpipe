@@ -49,7 +49,9 @@ const backend = "http://backend.internal:8080"
 function sessionHandlers(activeOrganizationId = "org_1") {
   return [
     http.get(`${backend}/.auth/api/v1/auth/get-session`, ({ request }) => {
-      expect(request.headers.get("cookie")).toBe("session=abc")
+      expect(request.headers.get("cookie")).toBe(
+        "better-auth.session_token=abc",
+      )
       return HttpResponse.json({
         user: { id: "user_1", email: "a@b.c", name: "Ada" },
         session: { activeOrganizationId },
@@ -83,7 +85,7 @@ describe("readHyperDxDocumentIdentity", () => {
   it("stamps the org in the URL from the same record and drops email", async () => {
     server.use(...sessionHandlers())
     const identity = await readHyperDxDocumentIdentity(
-      documentRequest("/acme/repositories", "session=abc"),
+      documentRequest("/acme/repositories", "better-auth.session_token=abc"),
       "/acme/repositories",
     )
     expect(identity).toEqual({
@@ -101,7 +103,7 @@ describe("readHyperDxDocumentIdentity", () => {
     server.use(...sessionHandlers())
     await expect(
       readHyperDxDocumentIdentity(
-        documentRequest("/acme/repositories", "session=abc"),
+        documentRequest("/acme/repositories", "better-auth.session_token=abc"),
         "/acme/repositories",
       ),
     ).resolves.toEqual({
@@ -115,13 +117,13 @@ describe("readHyperDxDocumentIdentity", () => {
     server.use(...sessionHandlers())
     await expect(
       readHyperDxDocumentIdentity(
-        documentRequest("/.auth/sign-in", "session=abc"),
+        documentRequest("/.auth/sign-in", "better-auth.session_token=abc"),
         "/.auth/sign-in",
       ),
     ).resolves.toEqual({ userId: "user_1", teamId: "", teamName: "" })
     await expect(
       readHyperDxDocumentIdentity(
-        documentRequest("/.auth/sign-out", "session=abc"),
+        documentRequest("/.auth/sign-out", "better-auth.session_token=abc"),
         "/.auth/sign-out",
       ),
     ).resolves.toBeNull()
@@ -130,6 +132,16 @@ describe("readHyperDxDocumentIdentity", () => {
   it("does not call auth when the document has no cookie", async () => {
     await expect(
       readHyperDxDocumentIdentity(documentRequest("/acme"), "/acme"),
+    ).resolves.toBeNull()
+  })
+
+  it("does not call auth when the document has no session cookie", async () => {
+    // No handlers: msw fails the test on any backend call.
+    await expect(
+      readHyperDxDocumentIdentity(
+        documentRequest("/sendform.zip", "theme=dark"),
+        "/sendform.zip",
+      ),
     ).resolves.toBeNull()
   })
 })
