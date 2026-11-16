@@ -193,16 +193,20 @@ async function stage(
   data: Buffer,
 ): Promise<string> {
   const id = randomBytes(16).toString("hex")
+  let stored = false
+  // Read to the end of the answer, which follows `stored` at once: a return
+  // in the loop closes the call early, and its HTTP span is an error.
   for await (const event of shimEvents(runtime, sessionId, {
     action: "put",
     id,
     data: data.toString("base64"),
   })) {
-    if (event.type === "stored") return id
+    if (event.type === "stored") stored = true
     if (event.type === "error")
       throw new Error(`Sending data to the sandbox failed: ${event.message}`)
   }
-  throw new Error("The shim did not store the data")
+  if (!stored) throw new Error("The shim did not store the data")
+  return id
 }
 
 /**
@@ -825,6 +829,7 @@ async function forward(
   route.usedAt = Date.now()
   const aborted = new AbortController()
   response.on("close", () => aborted.abort())
+  let ended = false
   try {
     // Inside the try: a client that leaves during its upload ends here.
     const chunks: Buffer[] = []
@@ -851,12 +856,13 @@ async function forward(
         response.write(Buffer.from(event.data, "base64"))
       else if (event.type === "error")
         throw new Error(`The sandbox port did not answer: ${event.message}`)
+      // Read on to the end of the answer, which follows at once, as in `stage`.
       else if (event.type === "end") {
         response.end()
-        return
+        ended = true
       }
     }
-    throw new Error("The shim answer ended early")
+    if (!ended) throw new Error("The shim answer ended early")
   } catch (error) {
     if (!response.headersSent)
       response

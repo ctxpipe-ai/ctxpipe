@@ -263,6 +263,27 @@ describe("agentCoreSandboxProvider", () => {
     await provider.destroy({ id: handle.id })
   })
 
+  it("reads each shim answer to its end, so no call shows as aborted in the HTTP client spans", async () => {
+    // Production: each staged script ended its InvokeAgentRuntime call before the answer's end, and the HTTP client
+    // span of each command was an "aborted" error.
+    fake.delayInvocationEnds(100)
+    const upstream = createServer((_request, response) => response.end("ok"))
+    const port = await listen(upstream)
+    try {
+      const handle = await provider.create({})
+      const before = fake.cutInvocations.length
+      expect((await handle.process.exec("echo hi")).stdout).toBe("hi\n")
+      await handle.fs.write("staged.txt", "content")
+      const channel = await handle.ports.connect(port)
+      expect(await (await fetch(`${channel.url}/`)).text()).toBe("ok")
+      expect(fake.cutInvocations.slice(before)).toEqual([])
+      await provider.destroy({ id: handle.id })
+    } finally {
+      fake.delayInvocationEnds(0)
+      upstream.close()
+    }
+  })
+
   it("reaches a sandbox port through the shim and streams its answer", async () => {
     const handle = await provider.create({})
     let upstreamClosed = () => {}
