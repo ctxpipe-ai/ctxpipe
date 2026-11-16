@@ -135,7 +135,10 @@ export const images = [
 // the lockfile's sha512 integrity, with no install script (TURBO_BIN, the
 // tests' turbo, is one that pnpm installed and checked). A prune that fails or
 // takes longer than PRUNE_MS counts as a changed lockfile: the image builds.
+// All of it ends by LOCKFILE_MS, well inside the plan job's 5 minutes; after
+// the first failure every image that is left builds too.
 const PRUNE_MS = 60_000
+const LOCKFILE_MS = 150_000
 
 /** The checked turbo binary of the lockfile's version for this platform. */
 async function turboBinary(root) {
@@ -173,14 +176,17 @@ async function turboBinary(root) {
   return bin
 }
 
-/** The SHA-256 of the pruned lockfile of `packages` in the checkout `dir`. */
-export function prunedLockfile(turbo, dir, packages) {
+/**
+ * The SHA-256 of the pruned lockfile of `packages` in the checkout `dir`, by
+ * turbo within `timeout` ms.
+ */
+export function prunedLockfile(turbo, dir, packages, timeout = PRUNE_MS) {
   const out = mkdtempSync(join(tmpdir(), "prune-"))
   try {
     execFileSync(turbo, ["prune", ...packages, "--docker", "--out-dir", out], {
       cwd: dir,
       stdio: "ignore",
-      timeout: PRUNE_MS,
+      timeout,
     })
     return createHash("sha256")
       .update(readFileSync(join(out, "json", "pnpm-lock.yaml")))
@@ -544,29 +550,40 @@ export async function planImages({ root, event, repo, token }) {
  * changed, so it builds.
  */
 async function lockfileChanges(root, baseSha) {
+  const deadline = Date.now() + LOCKFILE_MS
+  const everything = () => true
   let turbo
   try {
     turbo = await turboBinary(root)
   } catch {
-    return () => true
+    return everything
   }
-  const baseDir = mkdtempSync(join(tmpdir(), "deploy-base-"))
   const git = (...args) =>
-    execFileSync("git", args, { cwd: root, stdio: "ignore" })
+    execFileSync("git", args, { cwd: root, stdio: "ignore", timeout: PRUNE_MS })
+  let baseDir
   try {
+    baseDir = mkdtempSync(join(tmpdir(), "deploy-base-"))
     git("worktree", "add", "--detach", baseDir, baseSha)
     const pruned = new Map()
+    let failed = false
     const prune = (dir, packages) => {
       const key = `${dir}\0${packages.join(",")}`
-      if (!pruned.has(key))
-        pruned.set(key, prunedLockfile(turbo, dir, packages))
+      if (!pruned.has(key)) {
+        const left = deadline - Date.now()
+        if (left <= 0) throw new Error("out of time")
+        pruned.set(
+          key,
+          prunedLockfile(turbo, dir, packages, Math.min(PRUNE_MS, left)),
+        )
+      }
       return pruned.get(key)
     }
     const changedFor = ({ packages }) => {
-      if (!packages) return true
+      if (!packages || failed) return true
       try {
         return prune(baseDir, packages) !== prune(root, packages)
       } catch {
+        failed = true
         return true
       }
     }
@@ -575,12 +592,18 @@ async function lockfileChanges(root, baseSha) {
     )
     return (image) => results.get(image.image)
   } catch {
-    return () => true
+    return everything
   } finally {
-    try {
-      git("worktree", "remove", "--force", baseDir)
-    } catch {
-      rmSync(baseDir, { recursive: true, force: true })
+    if (baseDir) {
+      try {
+        git("worktree", "remove", "--force", baseDir)
+      } catch {
+        try {
+          rmSync(baseDir, { recursive: true, force: true })
+        } catch {
+          // A temporary folder that stays changes no plan.
+        }
+      }
     }
   }
 }

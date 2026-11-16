@@ -304,6 +304,26 @@ test("a lockfile change builds only the images whose pruned lockfile changed", a
   assert.equal(result.reuse.ui, digestOf("ui"))
 })
 
+test("without a working turbo, a lockfile change builds every image that installs packages", async () => {
+  const { dir, base } = repository(
+    { "pnpm-lock.yaml": workspace("BBBB")["pnpm-lock.yaml"] },
+    { baseChanges: workspace("AAAA") },
+  )
+  server.use(...github({ base }))
+  const turbo = process.env.TURBO_BIN
+  process.env.TURBO_BIN = join(dir, "no-turbo")
+  try {
+    assert.deepEqual(built(await plan(dir)), [
+      "backend",
+      "worker",
+      "ui",
+      "codesearch",
+    ])
+  } finally {
+    process.env.TURBO_BIN = turbo
+  }
+})
+
 test("a change to the deploy workflow or to this plan builds every image", async () => {
   for (const path of [
     ".github/workflows/deploy.yaml",
