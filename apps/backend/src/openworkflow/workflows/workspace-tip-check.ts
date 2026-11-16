@@ -413,8 +413,14 @@ export const workspaceTipCheck = defineWorkflow(
         "ctxpipe.tip_check.no_access_linked": linkedNoAccess,
       })
       const now = new Date()
-      // Also restarts the sandbox sweep chain if it was ever lost.
-      await scheduleConversationSandboxSweep(input.orgId, now)
+      // Restart the sandbox sweep chain if it was ever lost. The sweep is
+      // keyed by the start of the hour, so all the checks of one hour queue
+      // one sweep. A key from the time of each check queued one sweep for
+      // each webhook (CTX-1305).
+      await scheduleConversationSandboxSweep(
+        input.orgId,
+        new Date(`${hour}:00:00.000Z`),
+      )
       const idleJobs = jobSandboxesDueForDestroy({
         workspaces: workspaces.map((row) => ({
           id: row.id,

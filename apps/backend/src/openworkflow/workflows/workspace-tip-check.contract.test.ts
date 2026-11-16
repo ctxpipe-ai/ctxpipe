@@ -832,3 +832,38 @@ describe("cron write probe and the upgrade scan", () => {
     },
   )
 })
+
+it(
+  "the tip checks of one hour restart the sandbox sweep chain once, not once per check (CTX-1305)",
+  { timeout: 90_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable" },
+      async (f) => {
+        await f.publish()
+        // A burst of webhooks starts many checks in one hour.
+        for (let check = 0; check < 3; check++)
+          await runTipCheck(f, "2026-01-01T09")
+        await runTipCheck(f, "2026-01-01T10")
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
+          runMigrations: false,
+        })
+        try {
+          const sweeps = (
+            await backend.listWorkflowRuns({ limit: 1000 })
+          ).data.filter(
+            (run) =>
+              run.workflowName === "conversation-sandbox-sweep" &&
+              (run.input as { orgId?: string })?.orgId === f.org.id,
+          )
+          expect(
+            sweeps.map((run) => run.availableAt?.toISOString()).sort(),
+          ).toEqual(["2026-01-01T09:00:00.000Z", "2026-01-01T10:00:00.000Z"])
+        } finally {
+          await backend.stop()
+        }
+      },
+    )
+  },
+)

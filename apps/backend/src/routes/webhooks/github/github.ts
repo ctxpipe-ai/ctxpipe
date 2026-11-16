@@ -19,7 +19,7 @@ import {
 } from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
-import { enqueueWorkspaceTipCheck } from "../../../openworkflow/enqueue-workspace-tip-check.js"
+import { enqueuePushTipChecks } from "./github-push-tip-check.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 import {
@@ -263,9 +263,13 @@ async function processPushEvent(
       { ...delivery, orgIds: installationRows.map((row) => row.orgId) },
       ctx.log,
     )
-  for (const installationRow of installationRows) {
-    await enqueueWorkspaceTipCheck(installationRow.orgId, ctx.log)
-  }
+  await enqueuePushTipChecks({
+    orgIds: installationRows.map((row) => row.orgId),
+    repository: repo.full_name,
+    ref,
+    defaultBranch,
+    log: ctx.log,
+  })
 
   if (!onDefaultBranch) return
 
