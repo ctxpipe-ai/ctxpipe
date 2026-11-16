@@ -89,14 +89,14 @@ type RootCommand = (cmd: string[]) => Promise<RootResult>
  */
 function signalledRootExec(exec: RootCommand): RootExec {
   return async (script, options) => {
-    const given = [options?.signal, options?.stop].filter(
+    const signals = [options?.signal, options?.stop].filter(
       (s): s is AbortSignal => s !== undefined,
     )
-    if (!given.length) return exec(["sh", "-c", script])
+    if (!signals.length) return exec(["sh", "-c", script])
     options?.signal?.throwIfAborted()
     if (options?.stop?.aborted)
       return { stdout: "", stderr: "", exitCode: -1, stopped: true }
-    const signal = AbortSignal.any(given)
+    const signal = AbortSignal.any(signals)
     // `setsid -w` makes a new process group (its id is the shell's pid) and
     // waits for it. The id goes to a root-only file, so an abort can end
     // the group, also the agent processes that `runuser` started.

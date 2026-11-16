@@ -27,6 +27,7 @@ import type {
 import { logIngestEvent } from "./ingest-telemetry.js"
 import {
   INGEST_CONTEXT_ROOT,
+  INGEST_OUT_ROOT,
   INGEST_ROOT,
   INGEST_SKILLS_ROOT,
   INGEST_SOURCE_ROOT,
@@ -56,30 +57,34 @@ export const INGEST_STEP_LIMIT_MS = 10 * 60_000
 /**
  * The time limit of one step. At the limit, the step's exec ends its process
  * group in the sandbox before the step returns, so a retry never runs while
- * an old `opencode run` lives.
+ * an old `opencode run` lives. `leadMs` makes the signal abort that much
+ * earlier.
  */
-export function ingestStepSignal(): AbortSignal {
+export function ingestStepSignal(leadMs = 0): AbortSignal {
   const controller = new AbortController()
   setTimeout(
-    () => controller.abort(new Error("The ingest step reached its time limit")),
-    INGEST_STEP_LIMIT_MS,
+    () => controller.abort(new IngestStepTimeLimitError()),
+    INGEST_STEP_LIMIT_MS - leadMs,
   ).unref?.()
   return controller.signal
+}
+
+/** A step that reached its time limit or its checkpoint with nothing staged. */
+export class IngestStepTimeLimitError extends Error {
+  constructor() {
+    super("The ingest step reached its time limit")
+    this.name = "IngestStepTimeLimitError"
+  }
 }
 
 /**
  * The checkpoint of one step, one minute before its limit
  * (`IngestRuntimeStep.checkpoint`). A step that the limit ends loses its
- * work, and the retry starts over. The minute is for the stop, the finish,
- * and the collect of the step output.
+ * work, and the retry starts over. The minute gives the host time to stop
+ * the model, run `ctxpipe-finish`, and collect the step output.
  */
 export function ingestStepCheckpoint(): AbortSignal {
-  const controller = new AbortController()
-  setTimeout(
-    () => controller.abort(new Error("The ingest step reached its time limit")),
-    INGEST_STEP_LIMIT_MS - 60_000,
-  ).unref?.()
-  return controller.signal
+  return ingestStepSignal(60_000)
 }
 
 /** The discover-roots result may be at most this large. */
@@ -273,7 +278,7 @@ function ingestStepPrompt(
     `Give each script of the skill these arguments: ${ingestSkillArguments({ root: step.root, ...source })}`,
     `The Workspace is ${step.workspaceId}: its context checkout is ${INGEST_CONTEXT_ROOT}/${step.workspaceId}, and its index is ${INGEST_CONTEXT_ROOT}/${step.workspaceId}.index.json.`,
     "When you are done, run ctxpipe-finish, with --more when files wait for a next page.",
-    "The host can end the step at its time limit. It then keeps the files that you staged, and runs the skill again on a next page. So write each file when it is ready, not all of them at the end.",
+    "The host can end the step at its time limit. It then keeps the files that you staged, and runs the skill again on a next page. So stage your work in parts: write each file, or run the write script of the skill, when a part is ready, not all at the end.",
   ].join(" ")
 }
 
@@ -300,7 +305,7 @@ function scanStartsModel(scan: { exitCode: number; stdout: string }): boolean {
  * gives its scripts. `patch.json` holds `more` (ADR-052 section 6). A model
  * step returns the usage that OpenCode reports, when it reports usage. At
  * `step.checkpoint`, a model step stops the model and finishes with
- * `--more`; when it staged nothing, it throws the checkpoint's reason.
+ * `--more`; when it staged nothing, it throws `IngestStepTimeLimitError`.
  */
 export async function runIngestShardStep(
   root: RootExec,
@@ -417,17 +422,16 @@ export async function runIngestShardStep(
       `Ingest step ${step.name} failed (${finish.exitCode}): ${finish.stderr.slice(-500)}`,
     )
   if (stopped) {
-    // `ctxpipe-finish` prints the op counts. With no op there is nothing to
-    // keep, so the attempt fails at the time limit, as with no checkpoint.
-    const kept = !/^patch\.json: 0 create, 0 update, 0 delete\b/.test(
-      finish.stdout,
-    )
+    // With no op in patch.json there is nothing to keep, so the attempt
+    // fails at the time limit, as with no checkpoint.
+    const patch = await root(`cat ${INGEST_OUT_ROOT}/patch.json`)
+    const ops = (JSON.parse(patch.stdout) as { ops?: unknown[] }).ops ?? []
     logIngestEvent("info", "ingestion-v2.step-checkpoint", {
       ingestStep: step.name,
       workspaceId: step.workspaceId,
-      kept,
+      ops: ops.length,
     })
-    if (!kept) throw step.checkpoint?.reason
+    if (!ops.length) throw new IngestStepTimeLimitError()
   }
   return usage ? { usage } : {}
 }

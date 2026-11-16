@@ -12,6 +12,7 @@ import {
 } from "../../domain/ingestion/ingest-refs.js"
 import {
   IngestStepCommandError,
+  IngestStepTimeLimitError,
   ingestStepCheckpoint,
   ingestStepSignal,
 } from "../../domain/ingestion/ingest-shard-ops.js"
@@ -897,7 +898,8 @@ async function attemptSkillStep(
       // the time limit) and the fields of `ingestErrorFields`.
       const command = error instanceof IngestStepCommandError ? error : null
       // A checkpoint with nothing staged fails as the time limit does.
-      const timeLimit = signal.aborted || error === checkpoint.reason
+      const timeLimit =
+        signal.aborted || error instanceof IngestStepTimeLimitError
       failed = timeLimit
         ? "timeLimit"
         : command?.model?.errors.length
