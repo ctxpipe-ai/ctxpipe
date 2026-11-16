@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { execFileSync, spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import {
   copyFileSync,
   mkdirSync,
@@ -16,7 +17,12 @@ import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { parse } from "yaml"
 
-import { images, planImages, uncoveredSources } from "../ci/deploy-images.mjs"
+import {
+  images,
+  planImages,
+  turboBinary,
+  uncoveredSources,
+} from "../ci/deploy-images.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 // The plan's turbo: the one that pnpm installed and checked, not a download.
@@ -319,6 +325,49 @@ test("without a working turbo, a lockfile change builds every image that install
       "ui",
       "codesearch",
     ])
+  } finally {
+    process.env.TURBO_BIN = turbo
+  }
+})
+
+test("turbo is the lockfile's platform binary, checked against its sha512 integrity", async () => {
+  const os = { darwin: "darwin", linux: "linux", win32: "windows" }[
+    process.platform
+  ]
+  const arch = { arm64: "arm64", x64: "64" }[process.arch]
+  const name = `@turbo/${os}-${arch}`
+  const dir = mkdtempSync(join(tmpdir(), "turbo-registry-"))
+  mkdirSync(join(dir, `${os}-${arch}`, "bin"), { recursive: true })
+  writeFileSync(join(dir, `${os}-${arch}`, "bin", "turbo"), "#!/bin/sh\n")
+  execFileSync("tar", ["-czf", "turbo.tgz", `${os}-${arch}`], { cwd: dir })
+  const tarball = readFileSync(join(dir, "turbo.tgz"))
+  const integrity = `sha512-${createHash("sha512").update(tarball).digest("base64")}`
+  const lockfile = (entry) =>
+    writeFileSync(
+      join(dir, "pnpm-lock.yaml"),
+      `lockfileVersion: '9.0'\n\npackages:\n${entry}`,
+    )
+  server.use(
+    http.get(
+      `https://registry.npmjs.org/${name}/-/${os}-${arch}-9.9.9.tgz`,
+      () => HttpResponse.arrayBuffer(tarball),
+    ),
+  )
+  const work = () => mkdtempSync(join(tmpdir(), "turbo-work-"))
+  const turbo = process.env.TURBO_BIN
+  delete process.env.TURBO_BIN
+  try {
+    lockfile(
+      `\n  '${name}@9.9.9':\n    resolution: {integrity: ${integrity}}\n`,
+    )
+    assert.equal(
+      readFileSync(await turboBinary(dir, work()), "utf8"),
+      "#!/bin/sh\n",
+    )
+    lockfile(`\n  '${name}@9.9.9':\n    resolution: {integrity: sha512-AAAA}\n`)
+    await assert.rejects(turboBinary(dir, work()), /integrity/)
+    lockfile("")
+    await assert.rejects(turboBinary(dir, work()), /resolves no/)
   } finally {
     process.env.TURBO_BIN = turbo
   }
