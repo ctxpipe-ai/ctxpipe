@@ -91,7 +91,7 @@ export type WorkspaceBaseBuild = {
   /** Recorded on the base row at once, so a lost build is cleaned up. */
   builderId: string
   handle: SandboxHandle
-  /** Snapshot the prepared builder; returns the image or snapshot id. */
+  /** Snapshot the prepared builder; returns the image id. */
   capture: () => Promise<string>
   /** Called once, however the build ends: Docker removes the builder. */
   finish: () => Promise<void>

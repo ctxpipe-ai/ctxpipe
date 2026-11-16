@@ -94,7 +94,7 @@ describe("refuseVercelSandboxRows (Postgres)", () => {
         expect(refusal).toBeInstanceOf(Error)
         const message = (refusal as Error).message
         expect(message).toContain("(count: 1)")
-        expect(message).toContain("retireVercelSandboxes.ts")
+        expect(message).toContain("sandbox sweep")
         const refusalLogs = refusalEvents()
         expect(refusalLogs).toMatchObject([
           { level: "error", step: "vercel-sandbox-rows", message, rows: 1 },

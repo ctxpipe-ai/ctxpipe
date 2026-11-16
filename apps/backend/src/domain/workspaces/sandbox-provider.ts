@@ -69,8 +69,8 @@ export function warnIfUnsandboxed(
 /**
  * Refuses the start of the backend or the worker while the database holds a
  * sandbox row of the removed Vercel provider (CTX-1220, ADR-048). This code
- * cannot delete the Vercel sandbox or snapshot of such a row. The retirement
- * script of the release before this one deletes them and the rows. The error
+ * cannot delete the Vercel sandbox or snapshot of such a row. The sandbox
+ * sweep of the release before this one deletes them and the rows. The error
  * gives the count only, never an org or a sandbox id. Call it after
  * `initDb`, before the process serves a request or runs a job.
  */
@@ -79,7 +79,7 @@ export async function refuseVercelSandboxRows(
 ): Promise<void> {
   const rows = await countVercelSandboxRows(orgIds)
   if (rows === 0) return
-  const message = `Sandbox rows of the removed Vercel provider are in the database (count: ${rows}). This release cannot delete their Vercel sandboxes and snapshots, so it does not start. With the release before this one, run \`bun src/scripts/retireVercelSandboxes.ts\` in apps/backend until it reports no rows. Then start this release again.`
+  const message = `Sandbox rows of the removed Vercel provider are in the database (count: ${rows}). This release cannot delete their Vercel sandboxes and snapshots, so it does not start. The sandbox sweep of the worker of the release before this one deletes them and their rows. Run that release until the count is 0. Then start this release again.`
   log.error({ step: "vercel-sandbox-rows", message, rows })
   await flushEvlog()
   throw new Error(message)
