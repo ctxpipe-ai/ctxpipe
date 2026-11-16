@@ -11,6 +11,8 @@ import {
   vi,
 } from "vitest"
 
+import { getApiClient } from "@/lib/api"
+
 import { clearAllConversationGitTreeSnapshots } from "./conversation-git-tree-snapshot"
 import {
   conversationGitBlobOptions,
@@ -163,6 +165,8 @@ describe("conversation Files queries while a turn runs or the chat starts", () =
   for (const route of ["tree", "status", "blob"] as const) {
     it(`asks files/${route} less often the longer a turn holds the conversation`, async () => {
       clearAllConversationGitTreeSnapshots()
+      // The API client loads lazily; fake timers do not run that load.
+      await getApiClient()
       vi.useFakeTimers()
       const at: number[] = []
       const started = Date.now()
@@ -178,15 +182,21 @@ describe("conversation Files queries while a turn runs or the chat starts", () =
       const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false } },
       })
-      const options =
+      const unsubscribe = (
         route === "tree"
-          ? conversationGitTreeOptions("acme", "conv_1")
+          ? new QueryObserver(
+              queryClient,
+              conversationGitTreeOptions("acme", "conv_1"),
+            )
           : route === "status"
-            ? conversationGitStatusOptions("acme", "conv_1")
-            : conversationGitBlobOptions("acme", "conv_1", "AGENTS.md")
-      const unsubscribe = new QueryObserver(
-        queryClient,
-        options as ReturnType<typeof conversationGitTreeOptions>,
+            ? new QueryObserver(
+                queryClient,
+                conversationGitStatusOptions("acme", "conv_1"),
+              )
+            : new QueryObserver(
+                queryClient,
+                conversationGitBlobOptions("acme", "conv_1", "AGENTS.md"),
+              )
       ).subscribe(() => {})
       try {
         // One minute of a running turn. A finished turn refreshes the Files
@@ -194,7 +204,7 @@ describe("conversation Files queries while a turn runs or the chat starts", () =
         for (let second = 0; second < 61; second += 1)
           await vi.advanceTimersByTimeAsync(1000)
         expect(at.length).toBeLessThanOrEqual(7)
-        const gaps = at.slice(1).map((time, index) => time - at[index]!)
+        const gaps = at.slice(1).map((time, index) => time - (at[index] ?? 0))
         expect(gaps[0]).toBeLessThanOrEqual(2_100)
         expect(Math.max(...gaps)).toBeLessThanOrEqual(31_000)
       } finally {

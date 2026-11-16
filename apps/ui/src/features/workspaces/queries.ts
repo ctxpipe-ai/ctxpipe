@@ -760,7 +760,12 @@ export function refreshConversationAfterTurn(
       workspaceKeys.conversationGitStatus(orgSlug, conversationId),
       workspaceKeys.conversationTurnChanges(orgSlug, conversationId),
       workspaceKeys.conversationGitDiffs(orgSlug, conversationId),
-    ].map((queryKey) => client.invalidateQueries({ queryKey })),
+    ].map(async (queryKey) => {
+      // A read with no data that waits for its next retry (a 409 while the
+      // turn ran) keeps that wait on an invalidate. Cancel it, then read.
+      await client.cancelQueries({ queryKey })
+      await client.invalidateQueries({ queryKey })
+    }),
   )
 }
 
@@ -906,14 +911,18 @@ const filesBusySince = new WeakMap<object, number>()
  * While a turn or a chat start holds the conversation, ask again: first after
  * 2 s, then after as long as it has been busy, at most 30 s. The end of a turn
  * refreshes the Files reads at once, so this poll only covers a missed end.
+ * Another error stops the poll.
  */
-function pollWhileBusy(
-  query: { state: { fetchStatus: string } },
-  busy: boolean,
-): number | false {
+function pollWhileBusy(query: {
+  state: { fetchStatus: string; error: unknown; data?: { busy?: unknown } }
+}): number | false {
+  const { error, data, fetchStatus } = query.state
+  const busy = error
+    ? error instanceof ConversationSandboxBusy
+    : Boolean(data?.busy)
   if (!busy) {
     // A fetch clears the error of a query with no data until its answer comes.
-    if (query.state.fetchStatus !== "fetching") filesBusySince.delete(query)
+    if (fetchStatus !== "fetching") filesBusySince.delete(query)
     return false
   }
   const since = filesBusySince.get(query) ?? Date.now()
@@ -955,8 +964,7 @@ export function conversationGitTreeOptions(
       writeConversationGitTreeSnapshot(conversationId, listed)
       return listed
     },
-    refetchInterval: (query) =>
-      pollWhileBusy(query, Boolean(query.state.data?.busy)),
+    refetchInterval: pollWhileBusy,
     placeholderData: (previousData): ConversationGitTreeResponse | undefined =>
       readConversationGitTreeSnapshot(conversationId) ?? previousData,
     initialData: (): ConversationGitTreeResponse | undefined =>
@@ -972,8 +980,7 @@ export function conversationGitBlobOptions(
   return queryOptions({
     queryKey: workspaceKeys.conversationGitBlob(orgSlug, conversationId, path),
     queryFn: () => fetchConversationGitBlob(orgSlug, conversationId, path),
-    refetchInterval: (query) =>
-      pollWhileBusy(query, Boolean(query.state.data?.busy)),
+    refetchInterval: pollWhileBusy,
   })
 }
 
@@ -1014,12 +1021,7 @@ export function conversationGitStatusOptions(
       }
       return status
     },
-    refetchInterval: (query) =>
-      pollWhileBusy(
-        query,
-        Boolean(query.state.data?.busy) ||
-          query.state.error instanceof ConversationSandboxBusy,
-      ),
+    refetchInterval: pollWhileBusy,
   })
 }
 

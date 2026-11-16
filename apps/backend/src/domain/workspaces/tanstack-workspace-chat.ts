@@ -1415,6 +1415,7 @@ async function buildWorkspaceChatSandbox(
   }
 }
 
+/** Exported for the AgentCore contract test, which runs this setup in the chat image. */
 export function conversationSandboxWorkspace(input: {
   isolation: SandboxProviderName
   input: TanstackWorkspaceChatInput

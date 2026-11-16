@@ -11,6 +11,8 @@ import {
   vi,
 } from "vitest"
 
+import { getApiClient } from "@/lib/api"
+
 import {
   clearAllConversationGitTreeSnapshots,
   readConversationGitTreeSnapshot,
@@ -163,6 +165,8 @@ describe("workspace query HTTP helpers", () => {
   }, 10_000)
 
   it("asks for the turn changes less often the longer the turn runs", async () => {
+    // The API client loads lazily; fake timers do not run that load.
+    await getApiClient()
     vi.useFakeTimers()
     try {
       const at: number[] = []
@@ -185,6 +189,42 @@ describe("workspace query HTTP helpers", () => {
       for (let second = 0; second < 300; second += 1)
         await vi.advanceTimersByTimeAsync(1000)
       await expect(reading).resolves.toBe("gave up")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("reads the turn changes at once when the turn ends, also while a retry waits", async () => {
+    // The API client loads lazily; fake timers do not run that load.
+    await getApiClient()
+    vi.useFakeTimers()
+    try {
+      let ended = false
+      server.use(
+        http.get("*/api/v1/conversations/conv_1/turns", () =>
+          ended
+            ? HttpResponse.json({
+                items: [{ runId: "run_1", turn: 1, files: [] }],
+                syncs: [],
+              })
+            : HttpResponse.json({ error: "turn_running" }, { status: 409 }),
+        ),
+      )
+      const client = new QueryClient()
+      const observer = new QueryObserver(
+        client,
+        conversationTurnChangesOptions("acme", "conv_1"),
+      )
+      const unsubscribe = observer.subscribe(() => {})
+      // The retry waits are now long (8 s, then 15 s).
+      for (let second = 0; second < 20; second += 1)
+        await vi.advanceTimersByTimeAsync(1000)
+      ended = true
+      expect(observer.getCurrentResult().failureCount).toBeGreaterThan(3)
+      await refreshConversationAfterTurn(client, "acme", "conv_1")
+      await vi.advanceTimersByTimeAsync(100)
+      expect(observer.getCurrentResult().data?.items).toHaveLength(1)
+      unsubscribe()
     } finally {
       vi.useRealTimers()
     }
