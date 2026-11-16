@@ -42,10 +42,14 @@ ctxpipe reads nothing that you did not connect.
 
 | Provider | Purpose |
 | --- | --- |
-| Railway | Compute and hosting, and our own observability (logs, traces, and model traces) |
-| Neon | Postgres database |
+| Amazon Web Services (AWS), us-west-2 | Compute and hosting, the Postgres database, storage, logs, and traces. Traces, which may hold prompt text, are kept 30 days. Isolated sandboxes (microVMs) for Workspace chat and for ingestion. A sandbox holds a copy of the Workspace repository, or of the linked repository that it ingests. |
+| Cloudflare | The edge network: DNS, TLS, the proxy that each request to ctxpipe passes through, the tunnels to AWS, and Access for our internal tools |
 | OpenRouter | Model routing, only to zero data retention endpoints |
-| Vercel | Isolated sandboxes (microVMs) for Workspace chat and for ingestion. A sandbox holds a copy of the Workspace repository, or of the linked repository that it ingests. |
+| Anthropic | AI assistants used by the ctxpipe team for engineering operations; may process production logs and traces, outside OpenRouter, so zero data retention does not apply |
+| OpenAI | AI assistants used by the ctxpipe team for engineering operations; may process production logs and traces, outside OpenRouter, so zero data retention does not apply |
+| Railway | Being retired. Compute and hosting, and our own observability (logs, traces, and model traces), until 2026-11-15 |
+| Neon | Being retired. Postgres database until 2026-11-15 |
+| Vercel | Being retired for sandboxes. Isolated sandboxes for Workspace chat and for ingestion until 2026-11-15 |
 
 ## How ctxpipe uses models
 
