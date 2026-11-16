@@ -200,33 +200,37 @@ export async function pushWorkspaceCommit(
         )
       if (input.mirror)
         await assertConnectorMirrorBinding(input.orgId, input.mirror, revision)
-      await nativeGit(
-        directory,
-        [
-          "push",
-          "--porcelain",
-          "--",
-          revision.remote.url,
-          `${committed.sha}:refs/heads/${revision.defaultBranch}`,
-        ],
-        undefined,
-        gitRemoteEnvironment({ url: revision.remote.url, token }),
-      ).catch(async (error: unknown) => {
+      try {
+        await nativeGit(
+          directory,
+          [
+            "push",
+            "--porcelain",
+            "--",
+            revision.remote.url,
+            `${committed.sha}:refs/heads/${revision.defaultBranch}`,
+          ],
+          undefined,
+          gitRemoteEnvironment({ url: revision.remote.url, token }),
+        )
+      } catch (error) {
         const reason = writeAccessDenialReason(error)
         if (reason) throw new WorkspaceWriteAccessUnavailableError(reason)
         // Another writer can push between the tip check and this push, and
         // the remote then rejects it: that is a lost race, which the caller
         // merges again, not a failed step (CTX-1355).
-        const after = await resolveGitRemoteTip({
-          url: revision.remote.url,
-          token,
-        }).catch(() => undefined)
+        let after: Awaited<ReturnType<typeof resolveGitRemoteTip>> | undefined
+        try {
+          after = await resolveGitRemoteTip({ url: revision.remote.url, token })
+        } catch {
+          after = undefined
+        }
         if (after?.branch === revision.defaultBranch) {
           if (after.sha === committed.sha) return
           if (after.sha !== revision.sha) throw new WorkspaceTipAdvancedError()
         }
         throw error
-      })
+      }
     },
     // The commit comes from its job ref (CTX-1235).
     writeCommitPack(committed, revision.remote.url),

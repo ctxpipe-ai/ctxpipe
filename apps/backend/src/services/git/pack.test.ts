@@ -238,7 +238,9 @@ it("puts the rejected refs of a failed porcelain push in its error: Git writes t
         remote,
         `${ours}:refs/heads/main`,
       ]),
-    ).rejects.toThrow(/refs\/heads\/main\t\[rejected\] \((fetch first|non-fast-forward)\)/)
+    ).rejects.toThrow(
+      /refs\/heads\/main\t\[rejected\] \((fetch first|non-fast-forward)\)/,
+    )
   } finally {
     await rm(root, { recursive: true, force: true })
   }
