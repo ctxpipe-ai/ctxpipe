@@ -2,6 +2,7 @@ import { HttpResponse, type HttpResponseResolver, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
+import { parseEnv } from "../../config/env.js"
 import {
   type AgentVaultAccess,
   AgentVaultUnavailableError,
@@ -18,9 +19,9 @@ import {
 } from "./sandbox-credential-rules.js"
 
 /**
- * An Agent Vault API that accepts each call. `policy` is how it answers the
- * settings PATCH, and `stall` can answer a call first; each test has its own
- * address, so no login is shared.
+ * An Agent Vault API that accepts each call, with its TLS proxy on port
+ * 14322. `policy` is how it answers the settings PATCH, and `stall` can
+ * answer a call first; each test has its own address, so no login is shared.
  */
 function agentVault(
   address: string,
@@ -50,6 +51,13 @@ function agentVault(
       calls.sessions += 1
       return HttpResponse.json({ token: "session" })
     }),
+    http.get(
+      `${address}/v1/mitm/ca.pem`,
+      () =>
+        new HttpResponse("ca", {
+          headers: { "X-MITM-Port": "14322", "X-MITM-TLS": "1" },
+        }),
+    ),
     http.all(`${address}/v1/vaults/:name/*`, async ({ request }) => {
       if (request.url.endsWith("/services")) {
         const body = (await request.json()) as {
@@ -376,4 +384,73 @@ describe("run vault rules on hosted AgentCore (CTX-1287)", () => {
       expect(calls.hosts[0]).toMatch(/^git\.example\.test:8080\//)
     },
   )
+})
+
+describe("the proxy host that sandboxes connect to", () => {
+  const accepted = () => HttpResponse.json({})
+
+  async function proxyEnv(env: Record<string, string>) {
+    const access = agentVaultAccess({
+      AGENT_VAULT_OWNER_PASSWORD: "owner-password",
+      ...env,
+    })
+    if (!access) throw new Error("No Agent Vault access")
+    const vault = await openRunVault({
+      access,
+      runKey: `test:${crypto.randomUUID()}`,
+      ttlSeconds: 60,
+      rules: [],
+    })
+    const { HTTPS_PROXY, HTTP_PROXY, https_proxy, http_proxy } = vault.env
+    return [HTTPS_PROXY, HTTP_PROXY, https_proxy, http_proxy].map(
+      (value) => new URL(value ?? "").host,
+    )
+  }
+
+  it("is AGENT_VAULT_SANDBOX_PROXY_HOST when it is set", async () => {
+    // The API's name does not resolve here: the backend must not look it up.
+    const address = "http://agent-vault-api.invalid:14321"
+    agentVault(address, accepted)
+    const host = "vpce-0abc-xyz.vpce-svc-0def.us-west-2.vpce.amazonaws.com"
+    expect(
+      await proxyEnv({
+        AGENT_VAULT_ADDR: address,
+        AGENT_VAULT_SANDBOX_PROXY_HOST: host,
+      }),
+    ).toEqual(Array(4).fill(`${host}:14322`))
+  })
+
+  it.each(["", "  "])(
+    "is the API's host when the setting is %j",
+    async (value) => {
+      const address = "http://10.20.30.40:14321"
+      agentVault(address, accepted)
+      expect(
+        await proxyEnv({
+          AGENT_VAULT_ADDR: address,
+          AGENT_VAULT_SANDBOX_PROXY_HOST: value,
+        }),
+      ).toEqual(Array(4).fill("10.20.30.40:14322"))
+    },
+  )
+
+  const env = (value: string) => ({
+    NODE_ENV: "test",
+    DATABASE_URL: "postgres://localhost:5432/ctxpipe",
+    AUTH_SECRET: "abcdefghijklmnopqrstuvwxyz123456",
+    AGENT_VAULT_SANDBOX_PROXY_HOST: value,
+  })
+
+  it("parses a blank value as unset", () => {
+    expect(parseEnv(env("  ")).AGENT_VAULT_SANDBOX_PROXY_HOST).toBeUndefined()
+  })
+
+  it.each([
+    "https://vpce.example.com",
+    "vpce.example.com:14322",
+    "vpce.example.com/proxy",
+    "vpce example.com",
+  ])("refuses %s at config parse", (value) => {
+    expect(() => parseEnv(env(value))).toThrow(/AGENT_VAULT_SANDBOX_PROXY_HOST/)
+  })
 })

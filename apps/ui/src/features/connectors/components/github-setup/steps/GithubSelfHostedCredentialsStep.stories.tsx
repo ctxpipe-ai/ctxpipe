@@ -8,7 +8,7 @@ import { GithubSelfHostedCredentialsStep } from "./GithubSelfHostedCredentialsSt
 const meta = {
   title: "Components/Connections/GitHub/SelfHostedCredentials",
   component: GithubSelfHostedCredentialsStep,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", review: { kind: "component" } },
 } satisfies Meta<typeof GithubSelfHostedCredentialsStep>
 
 export default meta
@@ -40,5 +40,11 @@ function Interactive() {
 }
 
 export const SelfHostedCredentials: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Credentials step of the self-hosted GitHub App setup, where the admin enters the app id, slug and private key: the form is empty except for the app slug.",
+    },
+  },
   render: () => <Interactive />,
 }

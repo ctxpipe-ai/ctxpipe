@@ -196,6 +196,7 @@ const meta = {
   render: () => <OrgHomePageContent orgSlug="acme" />,
   parameters: {
     layout: "fullscreen",
+    review: { kind: "page" },
     route: "/$orgSlug/",
     storyRoute: {
       pattern: "orgIndex",
@@ -229,6 +230,10 @@ async function findGuide(canvasElement: HTMLElement) {
 export const GuideAdminNewOrg: Story = {
   tags: ["required"],
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: a new admin with no Workspace, so the guide replaces the composer and no step is done.",
+    },
     intent:
       "Catches a setup guide for a new organization that shows the wrong progress or action. It shows zero of six done and one Connect GitHub action. Not for later steps.",
     msw: {
@@ -267,6 +272,10 @@ export const GuideAdminNewOrg: Story = {
  */
 export const GuideEditorStepCopiesCommand: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: the step that connects the agents of the user copies its setup command.",
+    },
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
@@ -320,6 +329,10 @@ export const GuideEditorStepCopiesCommand: Story = {
 /** GitHub is connected and the first Workspace still builds. */
 export const GuideAdminWorkspaceBuilding: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: GitHub is connected and the first Workspace still builds.",
+    },
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
@@ -361,6 +374,10 @@ const waitingWorkspace: Workspace = {
 /** The first Workspace waits for the first commit: build step 1 of 2. */
 export const GuideAdminWorkspaceReadingRepository: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: the first Workspace waits for its first commit, at build step 1 of 2.",
+    },
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
@@ -390,6 +407,10 @@ const failedWorkspace: Workspace = {
 /** The build of the first Workspace failed: the row says so and links to it. */
 export const GuideAdminWorkspaceBuildFailed: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: the build of the first Workspace failed, and the row links to it.",
+    },
     visual: { allow: { overflow: "A layout defect on main (CTX-1279)." } },
     msw: {
       handlers: {
@@ -481,6 +502,10 @@ export const GuideAdminCreatesWorkspaceOnHome: Story = {
     createState.created = false
   },
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: Create Workspace opens Add Workspace on Home, and after Done the guide shows the build.",
+    },
     intent:
       "Catches a first workspace creation on the home page that does not update the guide and home. Create must add the workspace and move the guide forward. Not for the guide copy.",
     msw: {
@@ -601,6 +626,10 @@ export const GuideAdminLinksRepositoriesOnHome: Story = {
     linkState.opened = false
   },
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: Link repositories opens a dialog, and after the pull request the row shows Awaiting merge.",
+    },
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
@@ -753,6 +782,10 @@ async function openLinkRepositories(canvasElement: HTMLElement) {
  */
 export const GuideRepositoriesReadOnlyShowsReason: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: the Workspace is read-only, so the repositories dialog gives the reason and the next step.",
+    },
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
@@ -785,6 +818,10 @@ export const GuideRepositoriesReadOnlyShowsReason: Story = {
  */
 export const GuideRepositoriesNeedUpgradeFirst: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: the Workspace is below format 2, so the repositories dialog says to upgrade first.",
+    },
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
@@ -816,6 +853,10 @@ export const GuideRepositoriesNeedUpgradeFirst: Story = {
 /** No GitHub connection yet: the dialog links to the Connectors page. */
 export const GuideRepositoriesWithoutConnectionLinksToConnectors: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: no GitHub connection yet, so the repositories dialog links to the Connectors page.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -852,6 +893,10 @@ export const GuideRepositoriesConnectionsFailedShowsRetry: Story = {
     connectionReads = 0
   },
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: the connections failed to load, so the repositories dialog shows Retry.",
+    },
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
@@ -891,6 +936,10 @@ export const GuideRepositoriesConnectionsFailedShowsRetry: Story = {
 export const GuideAdminAfterFirstQuestion: Story = {
   tags: ["required"],
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: after the first question the guide is one collapsed line that still expands.",
+    },
     intent:
       "Catches a guide after the first question that shows the wrong progress or ignores the user's collapse choice. It starts collapsed and keeps the choice. Not for new organizations.",
     msw: {
@@ -933,6 +982,10 @@ export const GuideAdminAfterFirstQuestion: Story = {
 export const GuideMemberView: Story = {
   tags: ["required"],
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: a member sees only the member steps, and Ask fills the composer.",
+    },
     intent:
       "Catches a member guide that shows admin steps. A member sees only the two member steps, and Ask fills and focuses the composer each time. Not for admin guides.",
     msw: {
@@ -975,6 +1028,10 @@ export const GuideMemberView: Story = {
 /** Every counted row is done: the complete line shows on this load. */
 export const GuideAllDone: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: every step is done, so the guide shows its complete line.",
+    },
     msw: {
       handlers: {
         defaults: sessionDefaults(3),
@@ -1009,6 +1066,10 @@ export const GuideAllDone: Story = {
 export const GuideDismissRemovesIt: Story = {
   tags: ["required"],
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: the user dismissed the guide, and Home stays with the Workspace selector.",
+    },
     intent:
       "Catches a dismissed guide that stays on the home page. Dismiss removes the guide and shows the workspace selector. Not for guide progress.",
     msw: {
@@ -1035,6 +1096,10 @@ export const GuideDismissRemovesIt: Story = {
 export const GuideSignalFailureKeepsHome: Story = {
   tags: ["required"],
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: the guide signal queries failed and count as not done, and Home still works.",
+    },
     intent:
       "Catches a failed guide signal query that breaks the home page. A failed signal counts as not done and home still works. Not for loaded signals.",
     msw: {
@@ -1068,6 +1133,10 @@ const loadingGate = responseGate()
  */
 export const GuideReservesNoSpaceWhileLoading: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: a guide signal still loads, so the guide holds no space until it appears.",
+    },
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
@@ -1117,6 +1186,10 @@ const handOffGate = responseGate()
 export const FadesInAfterOnboarding: Story = {
   beforeEach: () => onboardingHandOffFlag.set(),
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: onboarding opened Home, so Home stays hidden until its first data is ready and then fades in.",
+    },
     msw: {
       handlers: {
         defaults: sessionDefaults(0),
@@ -1169,6 +1242,10 @@ export const FadesInAfterOnboarding: Story = {
 export const HandOffShowsHomeWhenDataIsSlow: Story = {
   beforeEach: () => onboardingHandOffFlag.set(),
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: after onboarding a guide read is slow, so Home shows after 1 second without the guide.",
+    },
     msw: {
       handlers: {
         defaults: sessionDefaults(0),
@@ -1210,6 +1287,10 @@ export const HandOffShowsHomeWhenDataIsSlow: Story = {
 export const HandOffShowsHomeWhenReadFails: Story = {
   beforeEach: () => onboardingHandOffFlag.set(),
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: after onboarding the Workspace list failed to load, so Home shows its error with Retry.",
+    },
     msw: {
       handlers: {
         defaults: sessionDefaults(0),
@@ -1236,6 +1317,10 @@ export const HandOffShowsHomeWhenReadFails: Story = {
 /** A failed role query hides the guide. Home still works. */
 export const GuideRoleFailureHidesIt: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: the role query failed, so the guide is hidden and Home still works.",
+    },
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
@@ -1262,6 +1347,10 @@ export const GuideRoleFailureHidesIt: Story = {
 export const GuideEstablishedUserHidden: Story = {
   tags: ["required"],
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: the user finished onboarding more than 14 days ago in an old org, so no guide shows.",
+    },
     intent:
       "Catches a guide that shows for an established user in an old organization. It stays hidden with no skeleton. Not for new organizations or empty ones.",
     msw: {
@@ -1291,6 +1380,10 @@ export const GuideEstablishedUserHidden: Story = {
 export const GuideEstablishedUserNewOrg: Story = {
   tags: ["required"],
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: an established user in an org that is less than 14 days old, so the guide shows.",
+    },
     intent:
       "Catches a guide that hides for an established user in a new organization. It shows for the first 14 days, also after the first workspace. Not for old organizations.",
     msw: {
@@ -1319,6 +1412,10 @@ export const GuideEstablishedUserNewOrg: Story = {
 export const GuideEstablishedUserEmptyOrg: Story = {
   tags: ["required"],
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: an older org with no Workspace, so the guide shows with the empty activity below.",
+    },
     intent:
       "Catches a guide that hides in an old organization with no workspace. The guide shows with the empty activity below it. Not for organizations with workspaces.",
     msw: {
@@ -1347,6 +1444,10 @@ export const GuideEstablishedUserEmptyOrg: Story = {
 export const GuideStaysAfterFirstWorkspace: Story = {
   tags: ["required"],
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: an older org whose first Workspace is from the last 14 days, so the guide stays.",
+    },
     intent:
       "Catches a guide that disappears when an old organization makes its first workspace in the last 14 days. It stays during the setup. Not for older workspaces.",
     msw: {
@@ -1374,6 +1475,10 @@ export const GuideStaysAfterFirstWorkspace: Story = {
  */
 export const GuideMemberNoWorkspace: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: a member in an org with no Workspace, so the row asks for an admin and has no Create button.",
+    },
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
@@ -1419,6 +1524,10 @@ export const GuideConnectGithubOpensLinkPopup: Story = {
     }
   },
   parameters: {
+    review: {
+      purpose:
+        "Org home page with the setup guide, which leads a new org through its first steps: the admin presses Connect GitHub, and one popup opens at the GitHub link page.",
+    },
     msw: {
       handlers: {
         defaults: [

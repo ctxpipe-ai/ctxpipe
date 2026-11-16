@@ -70,6 +70,7 @@ const meta = {
     onConnectionIdChange: fn(),
   },
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgConnectors",
@@ -84,6 +85,10 @@ type Story = StoryObj<typeof meta>
 
 export const Loading: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Linear setup wizard, which connects Linear and adds its teams to Workspaces: the status request is still loading.",
+    },
     msw: {
       handlers: {
         page: [
@@ -100,6 +105,10 @@ export const Loading: Story = {
 export const ConnectWorkspace: Story = {
   args: { connectionId: undefined },
   parameters: {
+    review: {
+      purpose:
+        "Linear setup wizard for a new connection on the hosted product, where ctxpipe supplies the OAuth app: the first step, which connects a Linear workspace.",
+    },
     msw: {
       handlers: {
         page: [
@@ -122,6 +131,10 @@ export const ConnectWorkspace: Story = {
 export const RegisterOauthApp: Story = {
   args: { connectionId },
   parameters: {
+    review: {
+      purpose:
+        "Linear setup wizard on a self-hosted install: the step where the admin registers a private Linear OAuth app, with no app saved yet.",
+    },
     msw: {
       handlers: {
         page: [
@@ -144,6 +157,10 @@ export const RegisterOauthApp: Story = {
 export const RegisterOauthAppSaved: Story = {
   args: { connectionId },
   parameters: {
+    review: {
+      purpose:
+        "Linear setup wizard on a self-hosted install: the private Linear OAuth app is saved and the admin can connect Linear.",
+    },
     msw: {
       handlers: {
         page: [
@@ -171,6 +188,10 @@ const onOpenChange = fn()
 export const ChooseWorkspaces: Story = {
   args: { onOpenChange },
   parameters: {
+    review: {
+      purpose:
+        "Linear setup wizard after the OAuth grant: the admin adds a Linear team to a Workspace, and the wizard moves to the merge step.",
+    },
     msw: {
       handlers: {
         page: [
@@ -238,6 +259,10 @@ let merged = false
  */
 export const MergeStepShowsTheMerge: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Linear setup wizard at the merge step: the admin merges the pull request on GitHub, and the step changes to Pull request merged.",
+    },
     msw: {
       handlers: {
         page: [
@@ -329,6 +354,10 @@ const manageCalls: typeof addCalls = []
  */
 export const ManageKeepsTheCurrentScope: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Linear setup wizard opened from Manage: it starts with the current Workspace and team checked, and the admin saves one more team.",
+    },
     msw: {
       handlers: {
         page: [
@@ -433,6 +462,10 @@ export const ManageAgainShowsTheNewScope: Story = {
   tags: ["reduced-motion"],
   render: (args) => <ManageButton {...args} />,
   parameters: {
+    review: {
+      purpose:
+        "Linear setup wizard opened from Manage a second time: it shows the teams after a merge, not the teams of the first open.",
+    },
     msw: {
       handlers: {
         page: [

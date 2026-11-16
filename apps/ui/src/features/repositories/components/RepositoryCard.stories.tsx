@@ -52,6 +52,7 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
+    review: { kind: "component" },
   },
 } satisfies Meta<typeof RepositoryCard>
 
@@ -60,6 +61,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Ready: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Repository card that shows the index state of a repository: the index is ready, from an ingest one hour ago.",
+    },
+  },
   render: () => (
     <RepositoryCard
       repo={{
@@ -76,6 +83,12 @@ export const Ready: Story = {
 }
 
 export const IndexingWithStepLabel: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Repository card that shows the index state of a repository: the first index runs at step 7 of 22.",
+    },
+  },
   render: () => (
     <RepositoryCard
       repo={{
@@ -92,6 +105,12 @@ export const IndexingWithStepLabel: Story = {
 }
 
 export const IndexingNoStepData: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Repository card that shows the index state of a repository: an index after a merge runs with no step data.",
+    },
+  },
   render: () => (
     <RepositoryCard
       repo={{
@@ -106,6 +125,12 @@ export const IndexingNoStepData: Story = {
 }
 
 export const RefreshingWithStepLabel: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Repository card that shows the index state of a repository: a refresh of a ready index runs at step 14 of 22.",
+    },
+  },
   render: () => (
     <RepositoryCard
       repo={{
@@ -123,6 +148,12 @@ export const RefreshingWithStepLabel: Story = {
 }
 
 export const Queued: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Repository card that shows the index state of a repository: the index waits in the queue.",
+    },
+  },
   render: () => (
     <RepositoryCard
       repo={{ ...baseRepo, indexingStatus: "queued" }}
@@ -133,6 +164,12 @@ export const Queued: Story = {
 }
 
 export const Failed: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Repository card that shows the index state of a repository: the index failed because the clone timed out.",
+    },
+  },
   render: () => (
     <RepositoryCard
       repo={{
@@ -147,6 +184,12 @@ export const Failed: Story = {
 }
 
 export const CompleteWithIssues: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Repository card that shows the index state of a repository: the index ended with issues, and the user picked Retry in the menu.",
+    },
+  },
   args: {
     repo: {
       ...baseRepo,

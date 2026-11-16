@@ -17,7 +17,6 @@ export const runners = {
   lint: runProjects,
   policy: runProjects,
   build: runProjects,
-  deploy: runProjects,
 }
 
 // The checks with `portable` removed from each id in `denied`.

@@ -89,6 +89,7 @@ const meta = {
       workspaceSlug: "docs",
     } satisfies StoryRouteParams,
     msw: { handlers: { defaults: newUserDefaults } },
+    review: { kind: "component" },
   },
 } satisfies Meta
 
@@ -112,6 +113,10 @@ export const AddWorkspaceHint: Story = {
           conversationsListHandler(docsConversations),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Onboarding hint popover next to the Workspace list in the nav: the user closed the Add Workspace hint with Escape.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -160,6 +165,10 @@ export const AddWorkspaceHintWaitsForDialog: Story = {
           conversationsListHandler(docsConversations),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Onboarding hint popover next to the Workspace list in the nav: a dialog closed, and the Add Workspace hint shows after it.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -225,6 +234,10 @@ export const AddWorkspaceHintSkippedAfterCreating: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Onboarding hint popover next to the Workspace list in the nav: the user created a Workspace, and the hint shows only without the flag.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -272,6 +285,12 @@ export const AddWorkspaceHintSkippedAfterCreating: Story = {
 
 /** Pane triggers on the first Workspace visit with the pane closed. */
 export const PanesHint: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Onboarding hint popover next to the Files and Graph pane buttons of a Workspace: the user pressed Got it, and the hint closed.",
+    },
+  },
   beforeEach: () => seedHintsSeen([]),
   render: () => (
     <div className="flex w-96 justify-end p-4">
@@ -309,6 +328,12 @@ export const PanesHint: Story = {
 
 /** Create PR, the first time it shows, after the panes hint was seen. */
 export const CreatePrHint: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Onboarding hint popover next to the Create PR button of a conversation: the hint shows the first time and does not take focus.",
+    },
+  },
   beforeEach: () => seedHintsSeen(["panes"]),
   render: () => (
     <div className="flex w-96 justify-end p-4">

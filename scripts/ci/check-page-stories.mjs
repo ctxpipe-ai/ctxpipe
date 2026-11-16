@@ -19,26 +19,20 @@
 //
 // Usage: node scripts/ci/check-page-stories.mjs [repo root]   (default: this repo)
 
-import { readdirSync, readFileSync } from "node:fs"
+import { readFileSync } from "node:fs"
 import { join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { csfTools } from "../../apps/ui/.storybook/check-modules.mjs"
-import { storiesOf } from "../../packages/visual-review/src/story-tags.ts"
+import {
+  storiesOf,
+  storyFiles,
+} from "../../packages/visual-review/src/story-tags.ts"
 
 const root = resolve(
   process.argv[2] ?? fileURLToPath(new URL("../..", import.meta.url)),
 )
 const { loadCsf } = await csfTools()
-
-function storyFiles(directory) {
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(directory, entry.name)
-    if (entry.isDirectory())
-      return entry.name === "node_modules" ? [] : storyFiles(path)
-    return /\.stories\.tsx?$/.test(entry.name) ? [path] : []
-  })
-}
 
 const ids = [
   ...readFileSync(join(root, "apps/ui/src/routeTree.gen.ts"), "utf8")

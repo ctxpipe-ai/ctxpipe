@@ -20,6 +20,7 @@ const meta = {
   title: "Components/Home/Activity heatmap",
   component: WorkspaceActivityHeatmap,
   parameters: {
+    review: { kind: "component" },
     layout: "padded",
   },
 } satisfies Meta<typeof WorkspaceActivityHeatmap>
@@ -29,6 +30,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Populated: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Commit activity heatmap of a Workspace on the org home: a year of commits by day, with weekday labels.",
+    },
+  },
   args: {
     days: docsWorkspaceActivity.days,
   },
@@ -42,6 +49,12 @@ export const Populated: Story = {
 
 /** The selected day has a light outline. */
 export const DaySelected: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Commit activity heatmap of a Workspace on the org home: one day is selected and has a light outline.",
+    },
+  },
   args: {
     days: docsWorkspaceActivity.days,
     selectedDate: "2026-08-22",
@@ -49,12 +62,24 @@ export const DaySelected: Story = {
 }
 
 export const NoHistory: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Commit activity heatmap of a Workspace on the org home: the Workspace has no commits yet.",
+    },
+  },
   args: {
     days: emptyWorkspaceActivity.days,
   },
 }
 
 export const Loading: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Commit activity heatmap of a Workspace on the org home: the skeleton while the activity loads.",
+    },
+  },
   args: {
     days: [],
   },
@@ -63,6 +88,10 @@ export const Loading: Story = {
 
 export const HeatmapSkeletonMatches: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Commit activity heatmap of a Workspace: the loading skeleton and the loaded heatmap side by side, at the same size.",
+    },
     intent:
       "Catches an activity heatmap skeleton whose size differs from the loaded heatmap. This causes layout shift. Not for activity counts or colors.",
   },

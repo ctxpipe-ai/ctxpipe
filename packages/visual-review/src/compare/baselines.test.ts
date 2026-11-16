@@ -35,6 +35,11 @@ const home: IndexStory = {
   importPath: "./src/routes/-home.stories.tsx",
   exportName: "Default",
   tags: ["dev", "page"],
+  review: {
+    name: "Pages/Home / Default",
+    kind: "page",
+    purpose: "Org home page of a signed-in member with two Workspaces.",
+  },
 }
 const canvas: IndexStory = {
   id: "features-card--canvas",
@@ -176,9 +181,12 @@ describe("visual:check", () => {
     const story = (await manifest()).stories.find(
       (entry) => entry.baseline === homeMobile,
     )
+    // The kind, the name and the purpose of the story go to the critic.
     expect(story).toMatchObject({
       id: home.id,
       scope: "page",
+      name: "Pages/Home / Default",
+      purpose: "Org home page of a signed-in member with two Workspaces.",
       viewport: "mobile",
       componentFile: "apps/ui/src/routes/-home.stories.tsx",
       images: { after: `${home.id}/mobile/after.png` },

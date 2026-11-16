@@ -46,6 +46,7 @@ const meta = {
   },
   parameters: {
     layout: "fullscreen",
+    review: { kind: "page" },
     route: "/$orgSlug/",
     storyRoute: {
       pattern: "orgIndex",
@@ -133,10 +134,16 @@ function frontTitle(canvasElement: HTMLElement) {
 
 /** One toast for the one Workspace item that waits for a start. */
 export const SingleToast: Story = {
-  parameters: homeHandlers("owner", {
-    docs: [upgradeItemFixture()],
-    handbook: [upgradeItemFixture({ status: "completed" })],
-  }),
+  parameters: {
+    ...homeHandlers("owner", {
+      docs: [upgradeItemFixture()],
+      handbook: [upgradeItemFixture({ status: "completed" })],
+    }),
+    review: {
+      purpose:
+        "Org home page with upgrade and problem notices as toasts: one toast for the one Workspace upgrade that waits for a start.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const region = await canvas.findByRole("region", {
@@ -176,7 +183,13 @@ export const SingleToast: Story = {
  * by the height of the toast.
  */
 export const ToastTakesNoSpaceAfterItGoes: Story = {
-  parameters: homeHandlers("owner", { docs: [upgradeItemFixture()] }),
+  parameters: {
+    ...homeHandlers("owner", { docs: [upgradeItemFixture()] }),
+    review: {
+      purpose:
+        "Org home page with upgrade and problem notices as toasts: the toast went away and the composer moved back up with no gap.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const region = await canvas.findByRole("region", {
@@ -214,7 +227,13 @@ export const ToastTakesNoSpaceAfterItGoes: Story = {
 
 /** Update once starts this item with the existing start API. */
 export const UpdateOnce: Story = {
-  parameters: homeHandlers("owner", { docs: [upgradeItemFixture()] }),
+  parameters: {
+    ...homeHandlers("owner", { docs: [upgradeItemFixture()] }),
+    review: {
+      purpose:
+        "Org home page with upgrade and problem notices as toasts: the owner pressed Update once and the upgrade starts.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -236,7 +255,13 @@ export const UpdateOnce: Story = {
  * commit. The toast follows the save as progress.
  */
 export const AlwaysUpdate: Story = {
-  parameters: homeHandlers("owner", { docs: [upgradeItemFixture()] }),
+  parameters: {
+    ...homeHandlers("owner", { docs: [upgradeItemFixture()] }),
+    review: {
+      purpose:
+        "Org home page with upgrade and problem notices as toasts: the owner pressed Always update and the toast shows the progress of the save.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -264,12 +289,18 @@ export const AlwaysUpdate: Story = {
  * starts the upgrade, and the other buttons stay usable. Dismiss still works.
  */
 export const AlwaysUpdateSlowSave: Story = {
-  parameters: homeHandlers(
-    "owner",
-    { docs: [upgradeItemFixture()] },
-    {},
-    { status: "running", failureReason: null },
-  ),
+  parameters: {
+    ...homeHandlers(
+      "owner",
+      { docs: [upgradeItemFixture()] },
+      {},
+      { status: "running", failureReason: null },
+    ),
+    review: {
+      purpose:
+        "Org home page with upgrade and problem notices as toasts: the Always update save is slow, and the other buttons stay usable.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -290,16 +321,22 @@ export const AlwaysUpdateSlowSave: Story = {
 
 /** A failed save shows its cause and the next steps. */
 export const AlwaysUpdateSaveFails: Story = {
-  parameters: homeHandlers(
-    "owner",
-    { docs: [upgradeItemFixture()] },
-    {},
-    {
-      status: "failed",
-      failureReason:
-        "The write stopped before it finished. stdout maxBuffer length exceeded",
+  parameters: {
+    ...homeHandlers(
+      "owner",
+      { docs: [upgradeItemFixture()] },
+      {},
+      {
+        status: "failed",
+        failureReason:
+          "The write stopped before it finished. stdout maxBuffer length exceeded",
+      },
+    ),
+    review: {
+      purpose:
+        "Org home page with upgrade and problem notices as toasts: the Always update save failed, and the toast shows the cause and the next steps.",
     },
-  ),
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -346,7 +383,13 @@ const failedUpgrade = upgradeItemFixture({
  * agent puts the prompt into the composer of that Workspace.
  */
 export const FailedUpgrade: Story = {
-  parameters: homeHandlers("owner", { docs: [failedUpgrade] }),
+  parameters: {
+    ...homeHandlers("owner", { docs: [failedUpgrade] }),
+    review: {
+      purpose:
+        "Org home page with upgrade and problem notices as toasts: an upgrade failed, so the owner sees the cause and two next steps, with no update buttons.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const region = await canvas.findByRole("region", {
@@ -385,7 +428,13 @@ export const FailedUpgrade: Story = {
 
 /** A member sees the cause and the next steps of a failed upgrade too. */
 export const FailedUpgradeMember: Story = {
-  parameters: homeHandlers("member", { docs: [failedUpgrade] }),
+  parameters: {
+    ...homeHandlers("member", { docs: [failedUpgrade] }),
+    review: {
+      purpose:
+        "Org home page with upgrade and problem notices as toasts: an upgrade failed, and a member sees the cause and the next steps too.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const region = await canvas.findByRole("region", {
@@ -407,7 +456,13 @@ export const FailedUpgradeMember: Story = {
 
 /** Dismiss hides the toast in this browser and starts nothing. */
 export const Dismiss: Story = {
-  parameters: homeHandlers("owner", { docs: [upgradeItemFixture()] }),
+  parameters: {
+    ...homeHandlers("owner", { docs: [upgradeItemFixture()] }),
+    review: {
+      purpose:
+        "Org home page with upgrade and problem notices as toasts: the user dismissed the toast and nothing started.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -441,7 +496,13 @@ export const Dismiss: Story = {
 
 /** Two dismissed toasts collapse to one icon with a count; a press restores both. */
 export const DismissedCollapseToIcon: Story = {
-  parameters: homeHandlers("owner", threeItems),
+  parameters: {
+    ...homeHandlers("owner", threeItems),
+    review: {
+      purpose:
+        "Org home page with upgrade and problem notices as toasts: two dismissed toasts collapse to one icon with a count.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("region", { name: "Workspace notices" })
@@ -481,7 +542,13 @@ export const DismissedCollapseToIcon: Story = {
  * edges behind it. The pointer opens the stack, and Tab reaches each toast.
  */
 export const StackOfThree: Story = {
-  parameters: homeHandlers("owner", threeItems),
+  parameters: {
+    ...homeHandlers("owner", threeItems),
+    review: {
+      purpose:
+        "Org home page with upgrade and problem notices as toasts: three toasts in one stack, and the pointer opens the stack.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("region", { name: "Workspace notices" })
@@ -533,7 +600,13 @@ export const StackOfThree: Story = {
 
 /** A member gets the toast with a quiet line and no button. */
 export const MemberView: Story = {
-  parameters: homeHandlers("member", threeItems),
+  parameters: {
+    ...homeHandlers("member", threeItems),
+    review: {
+      purpose:
+        "Org home page with upgrade and problem notices as toasts: a member sees the toasts with a quiet line and no button.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const region = await canvas.findByRole("region", {
@@ -551,7 +624,13 @@ export const MemberView: Story = {
 /** With reduced motion the stack opens and closes with no transition. */
 export const ReducedMotion: Story = {
   tags: ["reduced-motion"],
-  parameters: homeHandlers("owner", threeItems),
+  parameters: {
+    ...homeHandlers("owner", threeItems),
+    review: {
+      purpose:
+        "Org home page with upgrade and problem notices as toasts: the user prefers reduced motion, so the stack opens with no transition.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("region", { name: "Workspace notices" })
@@ -569,13 +648,19 @@ export const ReducedMotion: Story = {
 
 /** An item that no one can start now (running, open pull request, blocked) gets no toast. */
 export const NoToastWhenNothingToStart: Story = {
-  parameters: homeHandlers("owner", {
-    docs: [
-      upgradeItemFixture({ status: "running" }),
-      { ...reingest, status: "blocked", blockedReason: "needs_format" },
-    ],
-    handbook: [upgradeItemFixture({ status: "pr_open" })],
-  }),
+  parameters: {
+    ...homeHandlers("owner", {
+      docs: [
+        upgradeItemFixture({ status: "running" }),
+        { ...reingest, status: "blocked", blockedReason: "needs_format" },
+      ],
+      handbook: [upgradeItemFixture({ status: "pr_open" })],
+    }),
+    review: {
+      purpose:
+        "Org home page with upgrade and problem notices as toasts: no item can start now, so no toast shows.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () =>
@@ -601,7 +686,13 @@ const taxFile: WorkspaceSkippedFile = {
  * agent puts the fix prompt into the composer of that Workspace.
  */
 export const ProblemOnly: Story = {
-  parameters: homeHandlers("owner", {}, { handbook: [taxFile] }),
+  parameters: {
+    ...homeHandlers("owner", {}, { handbook: [taxFile] }),
+    review: {
+      purpose:
+        "Org home page with upgrade and problem notices as toasts: a hydrate problem shows as a warning toast with Fix using agent.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const region = await canvas.findByRole("region", {
@@ -647,11 +738,17 @@ export const ProblemOnly: Story = {
  * agent gets only the file of Git.
  */
 export const ProblemLegacyOverlayAndFile: Story = {
-  parameters: homeHandlers(
-    "owner",
-    {},
-    { handbook: [taxFile, legacyOverlaySkippedFile] },
-  ),
+  parameters: {
+    ...homeHandlers(
+      "owner",
+      {},
+      { handbook: [taxFile, legacyOverlaySkippedFile] },
+    ),
+    review: {
+      purpose:
+        "Org home page with upgrade and problem notices as toasts: a problem toast names a file of Git and a skipped legacy overlay file.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const region = await canvas.findByRole("region", {
@@ -693,11 +790,13 @@ export const ProblemLegacyOverlayAndFile: Story = {
 
 /** Only a legacy overlay file: no fix exists, so the toast opens settings. */
 export const ProblemLegacyOverlayOnly: Story = {
-  parameters: homeHandlers(
-    "owner",
-    {},
-    { handbook: [legacyOverlaySkippedFile] },
-  ),
+  parameters: {
+    ...homeHandlers("owner", {}, { handbook: [legacyOverlaySkippedFile] }),
+    review: {
+      purpose:
+        "Org home page with upgrade and problem notices as toasts: only a legacy overlay file has a problem, so the toast opens the settings.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const region = await canvas.findByRole("region", {
@@ -715,13 +814,22 @@ export const ProblemLegacyOverlayOnly: Story = {
 
 /** A problem and an upgrade in one stack: the problem is in front. */
 export const MixedStack: Story = {
-  parameters: homeHandlers(
-    "owner",
-    { docs: [upgradeItemFixture()] },
-    {
-      handbook: [taxFile, { path: "knowledge/legal.md", reason: "malformed" }],
+  parameters: {
+    ...homeHandlers(
+      "owner",
+      { docs: [upgradeItemFixture()] },
+      {
+        handbook: [
+          taxFile,
+          { path: "knowledge/legal.md", reason: "malformed" },
+        ],
+      },
+    ),
+    review: {
+      purpose:
+        "Org home page with upgrade and problem notices as toasts: a problem and an upgrade in one stack, with the problem in front.",
     },
-  ),
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("region", { name: "Workspace notices" })
@@ -751,11 +859,17 @@ export const MixedStack: Story = {
  * a count for each type. A press shows the stack again.
  */
 export const CollapsedBothTypes: Story = {
-  parameters: homeHandlers(
-    "owner",
-    { docs: [upgradeItemFixture(), reingest] },
-    { handbook: [taxFile] },
-  ),
+  parameters: {
+    ...homeHandlers(
+      "owner",
+      { docs: [upgradeItemFixture(), reingest] },
+      { handbook: [taxFile] },
+    ),
+    review: {
+      purpose:
+        "Org home page with upgrade and problem notices as toasts: dismissed notices of both types collapse to one button with a count for each type.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("region", { name: "Workspace notices" })

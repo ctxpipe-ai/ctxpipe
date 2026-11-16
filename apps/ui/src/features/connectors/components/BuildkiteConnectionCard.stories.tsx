@@ -26,6 +26,7 @@ const meta = {
   args: { orgSlug, connectionId, onOpenSetup },
   decorators: entryPageInnerDecorators,
   parameters: {
+    review: { kind: "component" },
     msw: {
       handlers: {
         usage: [
@@ -60,6 +61,10 @@ const card = () =>
 export const Connected: Story = {
   render: card,
   parameters: {
+    review: {
+      purpose:
+        "Buildkite connection card on the Connectors page: connected with the webhook set up, card open with the Manage action.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -94,6 +99,10 @@ export const WebhookMissing: Story = {
   name: "No webhook, setup opens at the webhook step",
   render: card,
   parameters: {
+    review: {
+      purpose:
+        "Buildkite connection card on the Connectors page: connected but with no webhook, so builds sync once a day and an Add the webhook action shows.",
+    },
     msw: {
       handlers: { page: [buildkiteStatusHandler(buildkiteStoryStatus())] },
     },
@@ -123,6 +132,10 @@ export const ReplaceWebhookToken: Story = {
   name: "Webhook saved, its token can be replaced",
   render: card,
   parameters: {
+    review: {
+      purpose:
+        "Buildkite connection card on the Connectors page: the webhook is saved and the card offers to replace its token.",
+    },
     msw: {
       handlers: {
         page: [
@@ -151,6 +164,10 @@ export const RevokedOpensReconnect: Story = {
   name: "Revoked, reconnect opens setup",
   render: card,
   parameters: {
+    review: {
+      purpose:
+        "Buildkite connection card on the Connectors page: Buildkite does not accept the saved token, so the card needs a reconnect.",
+    },
     msw: {
       handlers: {
         page: [
@@ -190,6 +207,10 @@ const deleted = fn()
 export const Remove: Story = {
   render: card,
   parameters: {
+    review: {
+      purpose:
+        "Buildkite connection card on the Connectors page: the user removes the connector through the actions menu and a confirm dialog.",
+    },
     msw: {
       handlers: {
         page: [
@@ -232,6 +253,10 @@ export const Remove: Story = {
 export const Checking: Story = {
   render: card,
   parameters: {
+    review: {
+      purpose:
+        "Buildkite connection card on the Connectors page: the status request has not returned, so the card is still checking.",
+    },
     msw: {
       handlers: {
         page: [
