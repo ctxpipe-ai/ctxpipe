@@ -9,6 +9,7 @@ import {
   ne,
   notInArray,
   or,
+  type SQL,
   sql,
 } from "drizzle-orm"
 
@@ -35,6 +36,10 @@ import { generateObjectId } from "../lib/id.js"
 import { userFacingIndexingError } from "../lib/memoryFitError.js"
 import { log } from "../observability/logger.js"
 import { withGraphClient } from "../platform/graph/client.js"
+import {
+  GIT_REMOTE_ACCESS_MESSAGES,
+  type GitRemoteAccessError,
+} from "../services/git/clone-tree.js"
 import { projectRepositoryIngestionOwners } from "./repository-ingestion-owners.js"
 import { repositoryIngestionWriteCondition } from "./repository-ingestion-requests.js"
 import { invalidateLinkedReadBindings } from "./workspaces.js"
@@ -425,6 +430,131 @@ export async function repositoryIndexAlreadyPublished(
       row?.indexingStatus === "ready" && row.lastIngestedHash === targetHash
     )
   })
+}
+
+/**
+ * The repository failed because its Git host refused ctxpipe access (the
+ * GitHub installation lost the repository, or is gone). The hourly sweep
+ * tries it again only after a week, in case a webhook was lost. A reindex,
+ * an installation that gets the repository back, and a user who opens the
+ * Workspace try it at once. A run that gets a credential, or that succeeds,
+ * ends the state (CTX-1297).
+ */
+export function repositoryLostAccessCondition(): SQL {
+  // Never null, so that `not(...)` keeps a repository with no status.
+  return sql`coalesce(${and(
+    eq(repositories.indexingStatus, "failed"),
+    inArray(
+      repositories.indexingError,
+      Object.values(GIT_REMOTE_ACCESS_MESSAGES),
+    ),
+  )}, false)`
+}
+
+/** The row form of `repositoryLostAccessCondition`. */
+export function isRepositoryLostAccess(row: {
+  indexingStatus: string | null
+  indexingError: string | null
+}): boolean {
+  return (
+    row.indexingStatus === "failed" &&
+    Object.values<string | null>(GIT_REMOTE_ACCESS_MESSAGES).includes(
+      row.indexingError,
+    )
+  )
+}
+
+/**
+ * Records a lost access on an idle repository. It keeps the published
+ * revision and `index_ready`: the graph of that revision stays readable.
+ */
+export async function markRepositoryLostAccess(input: {
+  orgId: string
+  repositoryId: string
+  error: GitRemoteAccessError
+}): Promise<void> {
+  await withOrgDbContext(input.orgId, (db) =>
+    db
+      .update(repositories)
+      .set({
+        indexingStatus: "failed",
+        indexingError: input.error.message,
+        indexingFailedAt: new Date(),
+        indexingStep: null,
+        indexingStepTotal: null,
+        indexingStepKey: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(repositories.orgId, input.orgId),
+          eq(repositories.id, input.repositoryId),
+          or(
+            isNull(repositories.indexingStatus),
+            notInArray(repositories.indexingStatus, [
+              "queued",
+              "running",
+              "unindexing",
+            ]),
+          ),
+        ),
+      ),
+  )
+}
+
+/** A rebuild that read the repository again ends the lost-access state. */
+export async function clearRepositoryLostAccess(input: {
+  orgId: string
+  repositoryId: string
+}): Promise<void> {
+  await withOrgDbContext(input.orgId, (db) =>
+    db
+      .update(repositories)
+      .set({
+        indexReady: sql`${repositories.lastIngestedHash} is not null`,
+        indexingStatus: "ready",
+        indexingError: null,
+        indexingFailedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(repositories.orgId, input.orgId),
+          eq(repositories.id, input.repositoryId),
+          repositoryLostAccessCondition(),
+        ),
+      ),
+  )
+}
+
+/**
+ * The published repositories of an org in the lost-access state, with their
+ * Git URL: all of them, or those of one GitHub connection.
+ */
+export async function listLostAccessRepositories(input: {
+  orgId: string
+  githubConnectionId?: string
+}): Promise<Array<{ id: string; gitUrl: string; sha: string }>> {
+  const rows = await withOrgDbContext(input.orgId, (db) =>
+    db
+      .select({
+        id: repositories.id,
+        gitUrl: repositories.gitUrl,
+        sha: repositories.lastIngestedHash,
+      })
+      .from(repositories)
+      .where(
+        and(
+          eq(repositories.orgId, input.orgId),
+          input.githubConnectionId
+            ? eq(repositories.githubConnectionId, input.githubConnectionId)
+            : undefined,
+          isNotNull(repositories.lastIngestedHash),
+          repositoryLostAccessCondition(),
+        ),
+      ),
+  )
+  return rows.flatMap((row) => (row.sha ? [{ ...row, sha: row.sha }] : []))
 }
 
 /** Single repository for org via org DB (explicit orgId + repositoryId filter). */

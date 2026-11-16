@@ -1,6 +1,12 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
@@ -104,8 +110,23 @@ const ci = parse(
   ),
 ).jobs
 
-test("a GitHub-hosted CI job uses no Docker", () => {
-  for (const [name, job] of Object.entries(ci)) {
+// Each job of each workflow, as [<file>#<job>, job, workflow].
+const directory = fileURLToPath(
+  new URL("../../.github/workflows/", import.meta.url),
+)
+const allJobs = readdirSync(directory)
+  .filter((file) => /\.ya?ml$/.test(file))
+  .flatMap((file) => {
+    const workflow = parse(readFileSync(join(directory, file), "utf8"))
+    return Object.entries(workflow.jobs).map(([name, job]) => [
+      `${file}#${name}`,
+      job,
+      workflow,
+    ])
+  })
+
+test("a GitHub-hosted job uses no Docker", () => {
+  for (const [name, job] of allJobs) {
     if (String(job["runs-on"]).startsWith("blacksmith-")) continue
     assert.equal(job.services, undefined, name)
     assert.equal(job.container, undefined, name)
@@ -135,10 +156,7 @@ test("the toolchain record and the git lanes use the pinned git", () => {
 
 test("Merge gate plan and Merge gate share one cache store", () => {
   // The plan job restores the merge-gate-pr cache that Merge gate saves.
-  assert.equal(
-    ci["merge-gate-plan"]["runs-on"],
-    ci["merge-gate"]["runs-on"],
-  )
+  assert.equal(ci["merge-gate-plan"]["runs-on"], ci["merge-gate"]["runs-on"])
 })
 
 // The workflow that fills the caches of main for the pull request jobs.
@@ -150,27 +168,28 @@ const caches = parse(
     "utf8",
   ),
 )
-const uses = (jobs, name, prefix) =>
-  jobs[name].steps?.find((step) => step.uses?.startsWith(prefix))
+const uses = (job, prefix) =>
+  job.steps?.find((step) => step.uses?.startsWith(prefix))
 
 test("a lockfile change on main fills the pnpm store of both cache stores", () => {
   // setup-node keys the pnpm store by the OS, the architecture and the
   // lockfile, and each runner type has its own cache store. A later push
-  // must not cancel a fill.
+  // must not cancel a fill. Each job of a pull request workflow restores it.
   assert.deepEqual(caches.on.push.branches, ["main"])
   assert.ok(caches.on.push.paths.includes("pnpm-lock.yaml"))
   assert.ok(caches.on.push.paths.includes(".node-version"))
   assert.notEqual(caches.concurrency["cancel-in-progress"], true)
   const restorersByCacheJob = { "github-cache": [], "blacksmith-cache": [] }
-  for (const [name, job] of Object.entries(ci)) {
-    const setup = uses(ci, name, "actions/setup-node@")
+  for (const [name, job, workflow] of allJobs) {
+    if (!("pull_request" in (workflow.on ?? {}))) continue
+    const setup = uses(job, "actions/setup-node@")
     if (setup?.with?.cache !== "pnpm") continue
     const store = String(job["runs-on"]).startsWith("blacksmith-")
       ? "blacksmith-cache"
       : "github-cache"
     assert.deepEqual(
       setup.with,
-      uses(caches.jobs, store, "actions/setup-node@").with,
+      uses(caches.jobs[store], "actions/setup-node@").with,
       name,
     )
     restorersByCacheJob[store].push(name)

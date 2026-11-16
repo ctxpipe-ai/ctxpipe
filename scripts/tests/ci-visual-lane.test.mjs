@@ -1,6 +1,11 @@
 import assert from "node:assert/strict"
+import { spawnSync } from "node:child_process"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
 import { test } from "node:test"
 
+import { inputs as playInputs, storyCheck } from "../checks/storybook.mjs"
 import {
   listVisual,
   visualOptions,
@@ -452,4 +457,95 @@ test("a screenshot with a layout problem fails its record, and the message names
   // The pixels are unchanged, so a new baseline does not fix it.
   assert.doesNotMatch(record.message, /visual:update/)
   assert.match(record.message, /parameters\.visual\.allow/)
+})
+
+// The ids of the checks that the selector picks for a working-tree change in
+// a small git repo, with `checks` as the manifest. `changes` maps each changed
+// path to its new text. The selector is the factory CLI. It is optional for
+// this public repo: without it on PATH, this gives null.
+function factorySelect(checks, changes) {
+  const repo = mkdtempSync(join(tmpdir(), "ctxpipe-visual-select-"))
+  const git = (...args) =>
+    spawnSync(
+      "git",
+      ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args],
+      { cwd: repo },
+    )
+  const write = (path, text) => {
+    mkdirSync(dirname(join(repo, path)), { recursive: true })
+    writeFileSync(join(repo, path), text)
+  }
+  try {
+    for (const [path, text] of Object.entries({
+      "package.json": '{"scripts":{"tool":"one"}}\n',
+      "apps/ui/package.json": '{"scripts":{"tool":"one"}}\n',
+      "apps/ui/src/features/card/Card.tsx": "export const Card = 1\n",
+      "apps/ui/src/features/card/Card.stories.tsx":
+        'import { Card } from "./Card"\nexport default { component: Card }\n',
+      "apps/ui/src/routes/-home.stories.tsx": "export default {}\n",
+      [homeDesktop]: "one\n",
+      [homeMobile]: "one\n",
+      "pnpm-lock.yaml": "lockfileVersion: '9.0'\n",
+      "manifest.json": JSON.stringify({ schemaVersion: 1, checks }),
+    }))
+      write(path, text)
+    git("init", "-q", "-b", "main")
+    git("add", "-A")
+    git("commit", "-q", "-m", "fixture")
+    for (const [path, text] of Object.entries(changes)) write(path, text)
+    const result = spawnSync(
+      "factory",
+      [
+        "check",
+        "--repo",
+        repo,
+        "--manifest",
+        join(repo, "manifest.json"),
+        "--base",
+        "HEAD",
+        "--dry-run",
+        "--json",
+        "--llm-provider",
+        "none",
+      ],
+      { encoding: "utf8" },
+    )
+    if (result.error?.code === "ENOENT") return null
+    assert.equal(result.status, 0, result.stderr)
+    return JSON.parse(result.stdout.split("\n")[0])
+      .selected.map(({ id }) => id)
+      .sort()
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+}
+
+test("the selector picks no Storybook check for a root script change, the checks of the stories that import a changed component, and one check for both baselines of a story", () => {
+  const story = { ...card, tags: ["dev", "play-fn"] }
+  const [cardVisual, homeVisual] = listVisual([story, home], [])
+  const cardPlay = {
+    ...storyCheck(story),
+    family: "storybook",
+    root: "apps/ui",
+    inputs: playInputs,
+    prerequisites: [],
+  }
+  const checks = [cardVisual, homeVisual, cardPlay]
+  const forRootScript = factorySelect(checks, {
+    "package.json": '{"scripts":{"tool":"two"}}\n',
+  })
+  if (forRootScript === null) return
+  assert.deepEqual(forRootScript, [])
+  assert.deepEqual(
+    factorySelect(checks, {
+      "apps/ui/src/features/card/Card.tsx": "export const Card = 2\n",
+    }),
+    [cardPlay.id, cardVisual.id].sort(),
+  )
+  // A page story has a desktop and a mobile baseline. A change to both
+  // selects only the check of that story, not the whole lane.
+  assert.deepEqual(
+    factorySelect(checks, { [homeDesktop]: "two\n", [homeMobile]: "two\n" }),
+    [homeVisual.id],
+  )
 })

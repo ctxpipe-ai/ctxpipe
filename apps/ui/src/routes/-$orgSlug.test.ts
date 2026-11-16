@@ -6,6 +6,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { isWorkspaceConversationDocument } from "@/features/workspaces/ensure-route-data"
 import { workspaceListOptions } from "@/features/workspaces/queries"
 import { installRelativeFetch } from "@/features/workspaces/relative-fetch-test"
+import { ApiError } from "@/lib/api-result"
+import { duringServerRequest, signedInHeaders } from "@/lib/server-request-test"
 
 import { resolveOrgGate } from "./$orgSlug"
 
@@ -38,6 +40,16 @@ describe("resolveOrgGate", () => {
     restoreFetch()
   })
 
+  /** The gate result, or the redirect or error that it throws. */
+  function gateOutcome(headers: Record<string, string>, orgSlug = "acme") {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    return duringServerRequest(headers, () =>
+      resolveOrgGate(queryClient, orgSlug),
+    ).catch((error: unknown) => error)
+  }
+
   it("does not throw when the Workspace list read fails, so the side nav owns the error", async () => {
     server.use(
       http.get("http://localhost:3000/.auth/api/v1/auth/get-session", () =>
@@ -58,11 +70,44 @@ describe("resolveOrgGate", () => {
       defaultOptions: { queries: { retry: false } },
     })
 
-    const gate = await resolveOrgGate(queryClient, "acme")
+    const gate = await duringServerRequest(signedInHeaders, () =>
+      resolveOrgGate(queryClient, "acme"),
+    )
 
     expect(gate.orgAccessDenied).toBe(false)
     expect(
       queryClient.getQueryState(workspaceListOptions("acme").queryKey)?.status,
     ).toBe("error")
+  })
+
+  it("keeps a rate-limited organization list an error when the session is valid", async () => {
+    server.use(
+      http.get("http://localhost:3000/.auth/api/v1/auth/get-session", () =>
+        HttpResponse.json({
+          session: { id: "ses_1", userId: "usr_1" },
+          user: { id: "usr_1", onboardingCompletedAt: "2026-01-01T00:00:00Z" },
+        }),
+      ),
+      http.get(
+        "http://localhost:3000/.auth/api/v1/auth/organization/list",
+        () =>
+          HttpResponse.json({ message: "Too many requests" }, { status: 429 }),
+      ),
+    )
+    const outcome = await gateOutcome(signedInHeaders)
+
+    expect(outcome).toMatchObject({ status: 429 })
+  })
+
+  it("keeps a real backend failure an error, so the error screen shows and it logs", async () => {
+    server.use(
+      http.get("http://localhost:3000/.auth/api/v1/auth/*", () =>
+        HttpResponse.json({ message: "Bad gateway" }, { status: 502 }),
+      ),
+    )
+    const outcome = await gateOutcome(signedInHeaders)
+
+    expect(outcome).toBeInstanceOf(ApiError)
+    expect(outcome).toMatchObject({ status: 502 })
   })
 })

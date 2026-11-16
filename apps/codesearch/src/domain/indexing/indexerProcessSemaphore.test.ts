@@ -4,6 +4,7 @@ import { getIndexerProcessConcurrency } from "./capacityEnv.js"
 import {
   resetIndexerProcessSemaphoreForTests,
   withIndexerProcessSlot,
+  withScipIndexerSlot,
 } from "./indexerProcessSemaphore.js"
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
@@ -48,5 +49,36 @@ describe("indexer process semaphore", () => {
     first.resolve()
     await Promise.all([a, b, startedSecond.promise])
     expect(maxConcurrent).toBe(1)
+  })
+})
+
+describe("SCIP indexer slot", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    resetIndexerProcessSemaphoreForTests()
+  })
+
+  it("runs one SCIP indexer at a time and keeps a process slot for Zoekt", async () => {
+    vi.stubEnv("CODESEARCH_INDEXER_CONCURRENCY", "2")
+    const firstScip = deferred()
+    const started: string[] = []
+
+    const a = withScipIndexerSlot(async () => {
+      started.push("scip-a")
+      await firstScip.promise
+    })
+    const b = withScipIndexerSlot(async () => {
+      started.push("scip-b")
+    })
+    await vi.waitFor(() => expect(started).toEqual(["scip-a"]))
+
+    await withIndexerProcessSlot(async () => {
+      started.push("zoekt")
+    })
+    expect(started).toEqual(["scip-a", "zoekt"])
+
+    firstScip.resolve()
+    await Promise.all([a, b])
+    expect(started).toEqual(["scip-a", "zoekt", "scip-b"])
   })
 })

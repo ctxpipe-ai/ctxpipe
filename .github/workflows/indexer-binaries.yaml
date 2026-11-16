@@ -33,6 +33,7 @@ concurrency:
 jobs:
   # The two build jobs share their steps (the anchor). Only the runner and
   # ARCH differ: check-runners.mjs needs a literal runner label on each job.
+  # outside-gate: a paths filter starts it only for a change to the indexer build; it builds release binaries, not a check
   build-arm64:
     timeout-minutes: 240
     name: Build (arm64)
@@ -60,6 +61,7 @@ jobs:
           path: ${{ runner.temp }}/out/*
           if-no-files-found: error
 
+  # outside-gate: a paths filter starts it only for a change to the indexer build; it builds release binaries, not a check
   build-amd64:
     timeout-minutes: 240
     name: Build (amd64)

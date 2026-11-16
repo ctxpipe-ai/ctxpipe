@@ -237,6 +237,20 @@ test("a change to the lockfile or the chat sandbox files builds the images that 
   assert.deepEqual(built(await plan(shim.dir)), ["chat-sandbox-agentcore"])
 })
 
+test("a change to the cost job's source builds only its image", async () => {
+  const { dir, base } = repository({
+    "ops/observability/cost-telemetry/src/index.ts": "x\n",
+  })
+  server.use(...github({ base }))
+  const result = await plan(dir)
+  assert.deepEqual(built(result), ["cost-telemetry"])
+  assert.deepEqual(result.build[0], {
+    image: "cost-telemetry",
+    dockerfile: "ops/observability/cost-telemetry/Dockerfile",
+    context: "ops/observability/cost-telemetry",
+  })
+})
+
 // A pnpm workspace with the image packages, each with one dependency, and its
 // lockfile with the given integrity of codesearch's dependency.
 function workspace(codesearchIntegrity) {
@@ -436,6 +450,7 @@ test("an image without exactly one valid digest notice in the base run builds", 
   assert.deepEqual(Object.keys(result.reuse), [
     "chat-sandbox",
     "chat-sandbox-agentcore",
+    "cost-telemetry",
   ])
 })
 

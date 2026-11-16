@@ -916,7 +916,7 @@ describe("clone-tree", { timeout: 30_000 }, () => {
       const denied = await resolveGitRemoteTip({ url, token }).catch((e) => e)
       expect(denied).toBeInstanceOf(GitRemoteAccessError)
       expect(denied.message).toBe(
-        "ctxpipe has no access to this repository. Add the repository to the GitHub App installation, then refresh.",
+        "ctxpipe has no access to this repository. Add the repository to the GitHub App installation, or reconnect GitHub, then refresh.",
       )
       expect(authorizations).toContain(`Basic ${encoded}`)
       const surface = [

@@ -1,21 +1,10 @@
-import { requestHandler } from "@tanstack/react-start/server"
 import { describe, expect, it } from "vitest"
 
-import { getServerApiHeaders } from "./api-headers.server"
+import { getServerApiHeaders, hasSessionCredential } from "./api-headers.server"
+import { duringServerRequest } from "./server-request-test"
 
-async function headersDuring(
-  incoming: Record<string, string>,
-): Promise<HeadersInit> {
-  const handle = requestHandler(() =>
-    Response.json(getServerApiHeaders() as Record<string, string>),
-  )
-  const response = await handle(
-    new Request("http://ui.railway.internal:3002/onboarding", {
-      headers: incoming,
-    }),
-    {},
-  )
-  return (await response.json()) as HeadersInit
+function headersDuring(incoming: Record<string, string>): Promise<HeadersInit> {
+  return duringServerRequest(incoming, async () => getServerApiHeaders())
 }
 
 describe("getServerApiHeaders", () => {
@@ -48,5 +37,24 @@ describe("getServerApiHeaders", () => {
 
   it("returns no headers outside a request", () => {
     expect(getServerApiHeaders()).toEqual({})
+  })
+})
+
+describe("hasSessionCredential", () => {
+  it("accepts a Better Auth session cookie or a bearer token", () => {
+    expect(
+      hasSessionCredential({
+        cookie: "theme=dark; __Secure-better-auth.session_token=tok_1",
+      }),
+    ).toBe(true)
+    expect(hasSessionCredential({ authorization: "Bearer tok_1" })).toBe(true)
+  })
+
+  it("rejects other cookies and other authorization schemes", () => {
+    expect(hasSessionCredential({ cookie: "theme=dark" })).toBe(false)
+    expect(hasSessionCredential({ authorization: "Basic dXNlcjpwYXNz" })).toBe(
+      false,
+    )
+    expect(hasSessionCredential({ authorization: "Bearer " })).toBe(false)
   })
 })

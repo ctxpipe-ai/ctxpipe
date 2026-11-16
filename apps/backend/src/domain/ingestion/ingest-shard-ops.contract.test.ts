@@ -391,6 +391,142 @@ describe("ingest shard commands in a Docker sandbox", () => {
   )
 
   it(
+    "at the checkpoint, a model step stops the model and keeps its staged files as a page with more; with no staged file, it fails at the time limit (CTX-1312)",
+    { timeout: 300_000 },
+    async () => {
+      const bundle = await readIngestSkillBundle(bundleDir)
+      const provider = dockerSandbox({ image: workspaceChatDockerImage() })
+      const handle = await provider.create({
+        id: `ingest-ops-checkpoint-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      })
+      try {
+        const root = dockerRootExec(handle.id)
+        await runAsRoot(root, "git config --system --add safe.directory '*'")
+        const sourceSha = await containerRepo(
+          handle,
+          "/tmp/remotes/source.git",
+          SOURCE_FILES,
+        )
+        const contextSha = await containerRepo(
+          handle,
+          "/tmp/remotes/context.git",
+          CONTEXT_FILES,
+        )
+        const hostSource = hostRepo(SOURCE_FILES)
+        const hostContext = hostRepo(CONTEXT_FILES)
+        const agentEnv = await ingestAgentEnv(root, {
+          modelProxyUrl: "http://127.0.0.1:9/v1",
+        })
+        await prepareIngestShard(handle, root, {
+          bundle,
+          opencodeConfig: ingestOpenCodeConfig({
+            modelBase: "stub",
+            models: [],
+            skills: bundle.skills,
+            proxyAddsCredentials: true,
+            toolBridgeUrl: "http://127.0.0.1:9/tool-bridge",
+          }),
+          agentEnv,
+          source: {
+            url: "file:///tmp/remotes/source.git",
+            sha: sourceSha,
+            blobless: true,
+          },
+          contexts: [
+            { workspaceId: WORKSPACE_ID, url: "/tmp/remotes/context.git" },
+          ],
+          now: new Date("2026-10-01T00:00:00Z"),
+        })
+        // An `opencode run` that finishes one model call, stages a file when
+        // `stage` is set, and then works on past the checkpoint.
+        const fakeOpenCode = (stage: boolean) =>
+          [
+            "#!/bin/sh",
+            ...(stage
+              ? [
+                  "path=$(ctxpipe-stage knowledge/databases/orders.md | awk '{print $NF}')",
+                  `printf -- '---\\nkind: Database\\nname: PostgreSQL for orders\\nsummary: Primary store for order data.\\n---\\n\\n# PostgreSQL for orders\\n\\nRole: primary store.\\n' > "$path"`,
+                ]
+              : []),
+            `echo '{"type":"step_finish","part":{"tokens":{"input":100,"output":10}}}'`,
+            "touch /ctxpipe/home/ready",
+            "exec sleep 86405",
+          ].join("\n")
+        await handle.process.exec("mkdir -p /tmp/fake-bin")
+        const modelStep = async (stage: boolean) => {
+          await handle.fs.write("/tmp/fake-bin/opencode", fakeOpenCode(stage))
+          await handle.process.exec("chmod 755 /tmp/fake-bin/opencode")
+          const checkpoint = new AbortController()
+          const running = runIngestShardStep(root, {
+            step: {
+              name: `skill:repository:datasources-infra:${WORKSPACE_ID}`,
+              skill: "datasources-infra",
+              run: "model",
+              root: null,
+              workspaceId: WORKSPACE_ID,
+              baseCommit: contextSha,
+              rootMap: { roots: [] },
+              signal: AbortSignal.timeout(240_000),
+              checkpoint: checkpoint.signal,
+            },
+            agentEnv: { ...agentEnv, PATH: `/tmp/fake-bin:${agentEnv.PATH}` },
+            remote: "/tmp/remotes/context.git",
+            sourceUrl: SOURCE_URL,
+            sourcePath: SOURCE_PATH,
+            index: '{"entries":[]}',
+          })
+          const outcome = running.then(
+            (result) => ({ result }),
+            (error: Error) => ({ error: error.message }),
+          )
+          while (
+            (await root("test -f /ctxpipe/home/ready")).exitCode !== 0 &&
+            !(await Promise.race([outcome, Promise.resolve(undefined)]))
+          ) {}
+          checkpoint.abort(new Error("The ingest step reached its time limit"))
+          return outcome
+        }
+
+        expect(await modelStep(true)).toEqual({
+          result: { usage: { inputTokens: 100, outputTokens: 10 } },
+        })
+        expect(
+          (await root("pgrep -f 'sleep 8640[5]' || true")).stdout.trim(),
+        ).toBe("")
+        const patch = JSON.parse(
+          (await root("cat /ctxpipe/out/patch.json")).stdout,
+        )
+        expect(patch).toMatchObject({ more: true })
+        const tar = await collectIngestStep(handle, root)
+        const result = await withIngestStepOutput(tar, (stagedDir) =>
+          validatePatchStep({
+            repoDir: hostContext.dir,
+            baseCommit: contextSha,
+            stagedDir,
+            source: { url: SOURCE_URL, sha: sourceSha },
+            sourcePath: SOURCE_PATH,
+            skill: "datasources-infra",
+            bundle: bundle.name,
+            ...gitSource(hostSource.dir, hostSource.sha),
+          }),
+        )
+        expect(result.rejections).toEqual([])
+        expect(result.accepted).toEqual([
+          { op: "create", path: "knowledge/databases/orders.md" },
+        ])
+
+        // A model that staged nothing by the checkpoint leaves nothing to
+        // keep: the attempt fails at the time limit, as before.
+        expect(await modelStep(false)).toEqual({
+          error: "The ingest step reached its time limit",
+        })
+      } finally {
+        await provider.destroy({ id: handle.id })
+      }
+    },
+  )
+
+  it(
     "stops the plain git clone of prepare at the step's signal when the git host sends nothing, and sets the low speed limit on the clone",
     { timeout: 300_000 },
     async () => {

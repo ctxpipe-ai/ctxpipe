@@ -11,10 +11,9 @@ A pull request gets its proof in three places: on the agent host with `factory c
 - **The agent host proves the change.** Before each push, the agent runs `factory check`. It runs the checks that the change can break and the review critics, and it stores the passes and the verdicts.
 - **CI on the branch reuses the proof.** The merge gate (`.github/workflows/ci.yaml`, [`scripts/checks/README.md`](../../../scripts/checks/README.md), Merge gate) runs only the selected checks that have no stored pass, and the critics gate makes no model call. A fork pull request and a run by hand get the full run.
 - **A push to `main` runs no check.** No workflow runs a test, a lint, a typecheck, a build check, a screenshot or a critic of the product code on a push to `main`. A push to `main` does only this work:
-  - `deploy.yaml` publishes: the release pull request, the npm packages and the deploy.
+  - `deploy.yaml` publishes: the release pull request, the npm packages and the deploy (also the cost-telemetry image of `ops/observability`, whose tests `observability.yaml` runs only on a pull request).
   - The Layer cache jobs of `ci.yaml` write the Docker layer cache that the branch builds read. Only `main` writes that cache, because all branches share one tag.
   - The workflow `main-caches.yaml` saves the pnpm store in the GitHub and Blacksmith caches for the pull request jobs. It runs only on a push that changes `pnpm-lock.yaml` or `.node-version` ([ADR-065](ADR-065-light-ci-jobs-on-github-hosted-runners.md)).
-  - `observability.yaml` builds and pushes the cost-telemetry image when its files change. Its tests run only on a pull request.
 - **A thin nightly run of `main` audits the proof.** It starts only when `main` has a commit since the last successful nightly run. Then the jobs whose `if:` in `ci.yaml` names `schedule` run, and each flake and each failure makes a Linear ticket (the revision below gives the details). Project check times runs each typecheck, lint and policy check that has a cache key (it skips a check with `cacheable: false`, such as `policy:adr`). In a full nightly run (a run by hand, or each 7 days), the test, Storybook plays and screenshots, codesearch, upgrade and build jobs run every check. An incremental run runs only the checks of its plan (the second revision below). The nightly run records the trace of `main` for `factory check` and writes the `ci` class of the result store. It finds a fault that two pull requests make together, a false pass in a stored result, and a flaky check. A new check, such as the screenshot lane, joins this nightly run. It does not get a job on push.
 
 ### Revision 2026-11-10: a thin nightly run
@@ -36,6 +35,15 @@ The product owner decided this on 2026-11-10 ([CTX-1246](https://linear.app/ctxp
 - **Sampled audit.** The run also runs a random sample of the checks whose key has only agent passes (at least 20, and 10%), with the seed in the plan and the job summary. The Results writer audits it with the same quarantine rules, and fails when a sampled check was not audited or the plan is missing.
 - **Only keyed checks.** A check with `cacheable: false` or a stochastic check has no key; an incremental nightly run does not run it, and the selection picks it by its static layers. Thus an incremental run builds no image; a full run (by hand, or each 7 days) builds every image.
 - The `ci` class stores only what the nightly run ran.
+
+### Revision 2026-11-16: a pull request job outside the gate states its reason
+
+The product owner decided this on 2026-11-16. A workflow (PR #679) built the preview images on each push of each pull request, outside the merge gate, for about $7 a day. No rule stopped it. Thus [`scripts/ci/check-ci-jobs.mjs`](../../../scripts/ci/check-ci-jobs.mjs), a cacheable check that the Merge gate job also runs on each pull request ([`scripts/checks/README.md`](../../../scripts/checks/README.md), Jobs outside the merge gate), enforces these rules:
+
+- A job that starts on a pull request runs only when the plan selects it, or it has a stated reason (`# outside-gate:`). A job in the gate runs its checks through the manifest, or states why not (`# outside-manifest:`).
+- Each CI script check has a cache key: no computed `import()` in its closure. A check without a cache, and a check that is not portable, states its reason.
+
+The owner chose plain rules and no cost projection: the critics and a person judge the cost of a stated reason.
 
 ## Consequences
 

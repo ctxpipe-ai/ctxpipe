@@ -32,6 +32,7 @@ import {
   ORG_INGEST_SANDBOX_LIMIT,
   ORG_RUNNING_SANDBOX_LIMIT,
 } from "./chat-lifecycle.js"
+import { POOL_SESSION_TTL_MS, poolRowDueAt } from "./chat-sandbox-pool.js"
 import { pushBeforeSandboxDelete } from "./conversation-branch-push.js"
 import type { WorkspaceRevision } from "./revision.js"
 import {
@@ -405,7 +406,8 @@ export async function orgsWithSandboxes(): Promise<string[]> {
  *   (`CHAT_SANDBOX_DELETE_AFTER_MS`), when its conversation is gone, or
  *   when an earlier delete failed; committed work is pushed first;
  * - delete an ingest sandbox whose run finished or that is older than the
- *   shard limit (60 minutes).
+ *   shard limit (60 minutes);
+ * - stop a pool session 12 minutes after it is ready.
  * Returns when the next sweep is due (an idle stop, a deletion, a retry), or
  * null when no sandbox is left. Workspace bases always schedule the next
  * sweep (see below).
@@ -580,6 +582,51 @@ export async function sweepConversationSandboxes(
     log.error({
       step: "conversation-sandbox-sweep",
       message: `Reading the ingest sandboxes failed: ${String(error)}`,
+      orgId,
+    })
+    dueAt(retryAt)
+  }
+  // Pool sessions (CTX-1323): a ready one goes after its wait, a fill after
+  // its lease, and a failed delete at once. AgentCore stops an idle session
+  // after 15 minutes anyway.
+  try {
+    const pool = await withOrgDbContext(orgId, () =>
+      listSandboxInstances({ kind: "pool" }),
+    )
+    for (const row of pool) {
+      const due = poolRowDueAt(row)
+      if (row.state !== "destroy_failed" && due > now.getTime()) {
+        dueAt(due)
+        continue
+      }
+      try {
+        const result = await destroyUnusedSandbox(
+          row.id,
+          orgId,
+          row.lastHeartbeatAt,
+        )
+        if (result === "destroyed") {
+          deleted += 1
+          continue
+        }
+        // A fill that finished since the list: its own wait applies.
+        if (result === "used") {
+          dueAt(now.getTime() + POOL_SESSION_TTL_MS)
+          continue
+        }
+      } catch (error) {
+        log.error({
+          step: "conversation-sandbox-sweep",
+          message: `Deleting a pool session failed: ${String(error)}`,
+          sandboxId: row.id,
+        })
+      }
+      dueAt(retryAt)
+    }
+  } catch (error) {
+    log.error({
+      step: "conversation-sandbox-sweep",
+      message: `Reading the pool sessions failed: ${String(error)}`,
       orgId,
     })
     dueAt(retryAt)

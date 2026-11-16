@@ -61,6 +61,7 @@ const config = defineConfig({
     tanstackStart(),
     nitroV2Plugin({
       preset: "bun",
+      plugins: [resolve(__dirname, "src/lib/serverTelemetryNitroPlugin.ts")],
       alias: {
         "@/cosmograph/style.module.css": cosmographStyleAlias,
       },

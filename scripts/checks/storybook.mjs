@@ -35,7 +35,6 @@ const ui = join(root, "apps/ui")
 // import: the Storybook and Vite configs, the static files, the lockfile and
 // the runner.
 export const inputs = [
-  "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
   ".node-version",

@@ -197,6 +197,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: ignore
 
+  # outside-manifest: it builds the chat sandbox image, a prerequisite of the backend lanes, from the layer cache of main
   test-shards:
     # The runner's own limit (scripts/ci/test-suite.mjs) is 30 min for backend
     # and 45 min for contracts. The job limit adds 15 min for setup, so the
@@ -454,6 +455,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
 
+  # outside-manifest: only in a full run, never in gate mode: it checks that the shard reports cover each full inventory (scripts/ci/test-suite.mjs)
   test:
     timeout-minutes: 10
     # Keeps the single "Tests" check: it passes only when every shard and
@@ -655,6 +657,7 @@ jobs:
             ${{ runner.temp }}/project-trace/rerun/
           if-no-files-found: ignore
 
+  # outside-manifest: each matrix job is the check build:image-<name>; the merge gate takes the job result as its result (stepResults in gate.mjs)
   production-builds:
     timeout-minutes: 45
     name: Production build (${{ matrix.name }})
@@ -690,7 +693,9 @@ jobs:
           {"name": "codesearch", "dockerfile": "apps/codesearch/Dockerfile"},
           {"name": "docs", "dockerfile": "apps/docs/Dockerfile"},
           {"name": "chat-sandbox", "dockerfile": "scripts/chat-sandbox/Dockerfile",
-          "context": "scripts/chat-sandbox"}
+          "context": "scripts/chat-sandbox"},
+          {"name": "cost-telemetry", "dockerfile": "ops/observability/cost-telemetry/Dockerfile",
+          "context": "ops/observability/cost-telemetry"}
           ]') }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -762,6 +767,7 @@ jobs:
           cache-from: type=registry,ref=${{ matrix.cache }}
           cache-to: type=registry,ref=${{ matrix.cache }},mode=max,ignore-error=true
 
+  # outside-manifest: the typecheck of the self-host example runs only in a full run; it is also the check typecheck:self-host of the Typecheck job
   packages:
     timeout-minutes: 20
     name: Runnable packages and examples
@@ -822,6 +828,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: ignore
 
+  # outside-manifest: it builds the static Storybook, the prerequisite storybook-build of the play and screenshot checks
   storybook-build:
     timeout-minutes: 20
     name: Storybook build
@@ -855,6 +862,7 @@ jobs:
           path: apps/ui/storybook-static
           if-no-files-found: error
 
+  # outside-manifest: only in a full run, never in gate mode: in gate mode the Storybook plays job runs the required stories through selected.mjs
   storybook-required:
     timeout-minutes: 30
     name: Storybook required plays
@@ -1123,6 +1131,7 @@ jobs:
           ID: ${{ steps.preserve.outputs.artifact-id }}
         run: echo "artifact-${SHARD}=${ID}" >> "$GITHUB_OUTPUT"
 
+  # outside-manifest: the timeout proof of the download script (apps/codesearch/scripts/fetch-releases.test.mjs) is no check of the manifest yet
   codesearch:
     timeout-minutes: 30
     name: Codesearch real toolchain contracts
@@ -1218,6 +1227,7 @@ jobs:
           path: ${{ runner.temp }}/codesearch-trace/trace.json.gz
           if-no-files-found: ignore
 
+  # outside-gate: always runs in gate mode (scripts/checks/README.md, Gate mode): no check of the manifest applies the migrations to an empty database
   migrate:
     timeout-minutes: 20
     name: Migrations (fresh schema)
@@ -1420,6 +1430,7 @@ jobs:
   # select job and for the nightly Results writer. It has the setup of the
   # test jobs (Node, pnpm, Bun) and sets none of the lane variables, so its
   # toolchain record is theirs: the same pinned git, zoekt and ast-grep.
+  # outside-gate: the merge gate itself: it decides the mode and lists the checks
   merge-gate-manifest:
     timeout-minutes: 10
     name: Merge gate manifest
@@ -1434,6 +1445,7 @@ jobs:
     outputs:
       mode: ${{ steps.mode.outputs.mode }}
       record: ${{ steps.mode.outputs.record }}
+      definitions: ${{ steps.mode.outputs.definitions }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1474,6 +1486,7 @@ jobs:
           {
             echo "mode=$(jq -r .mode "$RUNNER_TEMP/merge-gate/mode.json")"
             echo "record=$(jq -c . "$RUNNER_TEMP/merge-gate/mode.json")"
+            echo "definitions=$(jq -r 'if (.definitions // []) == [] then "false" else "true" end' "$RUNNER_TEMP/merge-gate/mode.json")"
           } >> "$GITHUB_OUTPUT"
       # The record and the git lanes use one git version (ADR-065).
       - uses: ./.github/actions/git
@@ -1542,6 +1555,68 @@ jobs:
           name: merge-gate-inputs
           path: ${{ runner.temp }}/merge-gate/
           if-no-files-found: ignore
+
+  # The listing of the checks that the code of the base revision makes of the
+  # merge tree, for a change to a definition of checks (`definitions` in the
+  # mode record; scripts/checks/README.md, A change to a definition of
+  # checks). The plan compares it with the manifest of the PR. No code of the
+  # PR runs in this job: before any step runs a program of the checkout, the
+  # base versions replace each file that the listing runs (LIST_TIME_PATHS)
+  # and each file that decides the tools and the dependencies. The install
+  # uses a new store and no cache, and the files of the PR are only data. The
+  # plan downloads the listing by the artifact id that this job gives.
+  merge-gate-base-listing:
+    timeout-minutes: 10
+    name: Merge gate base listing
+    needs: merge-gate-manifest
+    if: |
+      !cancelled() &&
+      needs.merge-gate-manifest.outputs.definitions == 'true'
+    continue-on-error: true
+    # github-hosted: a short job without Docker (ADR-065)
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    outputs:
+      artifact-id: ${{ steps.preserve.outputs.artifact-id }}
+    env:
+      LIST_TIME_PATHS: scripts/checks scripts/ci apps/backend/evals/mcp apps/ui/.storybook apps/codesearch/scripts/run-vitest-contracts.mjs
+      # The files that decide the tools and the dependencies of the install.
+      INSTALL_FILES: (^|/)(package\.json|\.npmrc|\.pnpmfile\.cjs|\.corepack\.env)$|(^|/)node_modules(/|$)|^(pnpm-lock\.yaml|pnpm-workspace\.yaml|\.node-version)$|^patches/
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: The files of the base revision that the listing runs
+        run: |
+          set -euo pipefail
+          rm -rf $LIST_TIME_PATHS
+          git ls-files -z | { grep -zE "$INSTALL_FILES" || true; } | xargs -0 -r rm -rf
+          git ls-tree -r -z --name-only HEAD^1 | { grep -zE "$INSTALL_FILES" || true; } > "$RUNNER_TEMP/install-files"
+          git archive HEAD^1 $LIST_TIME_PATHS | tar -x
+          xargs -0 -r git archive HEAD^1 -- < "$RUNNER_TEMP/install-files" | tar -x
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+      - name: The listing of the base revision
+        env:
+          # Corepack reads no .corepack.env of the checkout.
+          COREPACK_ENV_FILE: "0"
+        run: |
+          set -o pipefail
+          corepack enable
+          pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile --store-dir "$RUNNER_TEMP/pnpm-store" \
+            --filter @ctxpipe-dev/root --filter @ctxpipe/ui
+          mkdir -p "$RUNNER_TEMP/out"
+          node scripts/checks/list.mjs > "$RUNNER_TEMP/out/base-manifest.json"
+      - name: Preserve the listing of the base revision
+        id: preserve
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: merge-gate-base-listing
+          path: ${{ runner.temp }}/out/base-manifest.json
+          if-no-files-found: error
 
   # Selects the checks of a same-repo PR and looks up their stored results.
   # It holds a read-only OIDC role of the factory account, which trusts only
@@ -1655,6 +1730,9 @@ jobs:
           echo "the selection record did not parse" > "$out/select-cause.txt"
           head -n 1 "$RUNNER_TEMP/raw.json" | jq -c 'del(.cache.hits[]?.provenance.who)' > "$RUNNER_TEMP/selection.json"
           mv "$RUNNER_TEMP/selection.json" "$out/selection.json"
+          # The plan compares the manifest that the selector keyed with the
+          # listing of the base revision.
+          cp "$RUNNER_TEMP/inputs/manifest.json" "$out/manifest.json"
           rm "$out/select-cause.txt"
           find "$XDG_CACHE_HOME/factory/traces" -name '*.json.gz' -exec cp {} "$out/trace.json.gz" \; -quit || true
       - name: Preserve the selection
@@ -1683,6 +1761,7 @@ jobs:
   # A lookup of 16 hunks and 4 critics took 5 s.
   # The timeout is large, because a large diff (a lockfile) has many hunks
   # and so many store keys.
+  # outside-gate: the merge gate itself: the verdicts of the review critics
   merge-gate-critics:
     timeout-minutes: 25
     name: Merge gate critics
@@ -1803,11 +1882,14 @@ jobs:
   merge-gate-llm:
     timeout-minutes: 5
     name: Merge gate LLM selection
-    needs: merge-gate-select
+    needs: [merge-gate-manifest, merge-gate-select]
     # !cancelled(): the Nightly change job is skipped on a PR (see the select job).
+    # The plan of a change to a definition of checks does not use the LLM
+    # stage, so the job does not run for it.
     if: |
       !cancelled() &&
-      needs.merge-gate-select.result == 'success'
+      needs.merge-gate-select.result == 'success' &&
+      needs.merge-gate-manifest.outputs.definitions != 'true'
     continue-on-error: true
     environment: workbench
     # github-hosted: a short job without Docker (ADR-065)
@@ -2020,10 +2102,18 @@ jobs:
   # the PR: only a run of this PR writes there (the merge gate job).
   # On a nightly run of main, it puts the checks of the nightly plan into the
   # jobs of the run (gate.mjs nightly) in the same way.
+  # outside-gate: the merge gate itself: the plan that starts each check job
   merge-gate-plan:
     timeout-minutes: 5
     name: Merge gate plan
-    needs: [merge-gate-manifest, merge-gate-select, merge-gate-llm, nightly-plan]
+    needs:
+      [
+        merge-gate-manifest,
+        merge-gate-select,
+        merge-gate-llm,
+        merge-gate-base-listing,
+        nightly-plan,
+      ]
     if: |
       !cancelled() &&
       (github.event_name == 'pull_request' || needs.nightly-plan.result == 'success')
@@ -2088,6 +2178,14 @@ jobs:
           artifact-ids: ${{ needs.merge-gate-llm.outputs.artifact-id }}
           merge-multiple: true
           path: ${{ runner.temp }}/inputs
+      # The listing of the base revision, by the artifact id of its job.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: github.event_name == 'pull_request' && needs.merge-gate-base-listing.outputs.artifact-id != ''
+        continue-on-error: true
+        with:
+          artifact-ids: ${{ needs.merge-gate-base-listing.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/inputs
       - name: The mode of the manifest job
         if: github.event_name == 'pull_request'
         env:
@@ -2145,6 +2243,7 @@ jobs:
   # what a gated run would decide from the same results, and the agreement
   # record (scripts/checks/README.md). It runs only the public gate.mjs,
   # with no package.
+  # outside-gate: the merge gate itself: the verdict, the required status and the workflow guards
   merge-gate:
     timeout-minutes: 15
     # A fixed name: this job is the required status, also when the plan job
@@ -2346,7 +2445,7 @@ jobs:
         if: always()
         run: |
           code=0
-          for script in workflow-credentials secret-jobs workflow-inputs runners unstable-list; do
+          for script in workflow-credentials secret-jobs workflow-inputs runners ci-jobs unstable-list; do
             node "scripts/ci/check-$script.mjs" || code=1
           done
           exit "$code"
@@ -2615,7 +2714,9 @@ jobs:
           else
             git switch -q -c "$branch"
           fi
-          jq --argjson ids "$IDS" '. + $ids | unique' "$list" > "$RUNNER_TEMP/list.json"
+          # Each entry states its reason (scripts/ci/check-ci-jobs.mjs).
+          jq --argjson ids "$IDS" 'reduce $ids[] as $id (.; .[$id] //= "the nightly audit: it failed in CI and in its rerun, and each stored pass of its key came from another platform")' \
+            "$list" > "$RUNNER_TEMP/list.json"
           mv "$RUNNER_TEMP/list.json" "$list"
           if git diff --quiet; then
             echo "The denylist already holds ${IDS}."

@@ -18,6 +18,7 @@ import {
   registerInstallationOnConnection,
 } from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
+import { startLostAccessRebuilds } from "../../../openworkflow/enqueue-codesearch-rebuild.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
@@ -97,6 +98,7 @@ async function registerInstallationFromConnectionWebhook(
   connectionId: string,
   installationId: number,
   ctx: GithubWebhookContext,
+  access: { repoFullNames?: string[]; deliveryId: string | undefined },
 ) {
   const row = await getGithubConnectionRowByConnectionId(connectionId)
   if (!row) {
@@ -130,6 +132,13 @@ async function registerInstallationFromConnectionWebhook(
     connectionId,
     env: ctx.env,
     log: ctx.log,
+  })
+  // A repository that lost access indexes again now that it can be back.
+  await startLostAccessRebuilds({
+    orgId: row.orgId,
+    githubConnectionId: connectionId,
+    repoFullNames: access.repoFullNames,
+    cause: access.deliveryId ?? new Date().toISOString(),
   })
 }
 
@@ -332,6 +341,7 @@ async function processInstallationEvent(
   connectionId: string | undefined,
   payload: unknown,
   ctx: GithubWebhookContext,
+  deliveryId: string | undefined,
 ) {
   if (!connectionId) return
   const parsed = z
@@ -347,6 +357,7 @@ async function processInstallationEvent(
     connectionId,
     parsed.data.installation.id,
     ctx,
+    { deliveryId },
   )
 }
 
@@ -354,6 +365,7 @@ async function processInstallationRepositoriesEvent(
   connectionId: string | undefined,
   payload: unknown,
   ctx: GithubWebhookContext,
+  deliveryId: string | undefined,
 ) {
   const parsed = z
     .object({
@@ -366,11 +378,11 @@ async function processInstallationRepositoriesEvent(
     .safeParse(payload)
   if (!parsed.success) return
   if (parsed.data.action !== "added") return
+  const repoFullNames = (parsed.data.repositories_added ?? []).map(
+    (repository) => repository.full_name,
+  )
 
   if (!connectionId) {
-    const repoFullNames = (parsed.data.repositories_added ?? []).map(
-      (repository) => repository.full_name,
-    )
     if (repoFullNames.length === 0) return
     // The deployment's App names the installation and the added repositories.
     // A user who gives it access to a repository after a Paste expects that
@@ -381,7 +393,7 @@ async function processInstallationRepositoriesEvent(
       undefined,
       ctx.env,
     )
-    for (const installation of installations)
+    for (const installation of installations) {
       await rebindUnboundWorkspaces({
         orgId: installation.orgId,
         connectionId: installation.id,
@@ -389,6 +401,14 @@ async function processInstallationRepositoriesEvent(
         log: ctx.log,
         repoFullNames,
       })
+      // A repository that lost access indexes again now that it is back.
+      await startLostAccessRebuilds({
+        orgId: installation.orgId,
+        githubConnectionId: installation.id,
+        repoFullNames,
+        cause: deliveryId ?? new Date().toISOString(),
+      })
+    }
     return
   }
 
@@ -396,6 +416,7 @@ async function processInstallationRepositoriesEvent(
     connectionId,
     parsed.data.installation.id,
     ctx,
+    { repoFullNames, deliveryId },
   )
 }
 
@@ -415,7 +436,12 @@ export async function processGithubWebhookPayload(
       await processRepositoryEvent(payload, ctx, opts?.connectionId)
       return
     case "installation":
-      await processInstallationEvent(opts?.connectionId, payload, ctx)
+      await processInstallationEvent(
+        opts?.connectionId,
+        payload,
+        ctx,
+        opts?.deliveryId,
+      )
       await maybeEnqueueGithubIssueBackfillsOnPermissionsAccepted({
         payload,
         githubConnectionId: opts?.connectionId,
@@ -427,6 +453,7 @@ export async function processGithubWebhookPayload(
         opts?.connectionId,
         payload,
         ctx,
+        opts?.deliveryId,
       )
       return
     case "pull_request":

@@ -24,18 +24,24 @@ import {
  * Runs a shell script as root in the sandbox. With a `signal`, an abort ends
  * the script's whole process group in the sandbox and each process of the
  * agent user (also one that left the group with `setsid`), and the promise
- * rejects with the signal's reason only after they are gone.
+ * rejects with the signal's reason only after they are gone. A `stop` ends
+ * the same processes, but the promise resolves with the output that the
+ * script wrote, and `stopped` is true.
  */
 export type RootExec = (
   script: string,
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal; stop?: AbortSignal },
 ) => Promise<RootResult>
 
 /**
  * The result of a root command. `stdoutTruncated`: the command wrote more
  * stdout than the worker keeps, so a part of it is not in `stdout`.
+ * `stopped`: a `stop` ended the command, so its exit code is not its own.
  */
-export type RootResult = ExecResult & { stdoutTruncated?: boolean }
+export type RootResult = ExecResult & {
+  stdoutTruncated?: boolean
+  stopped?: boolean
+}
 
 /** The agent user on every provider. It is in no sudoers file. */
 export const INGEST_AGENT_USER = "ctxpipe-agent"
@@ -77,14 +83,20 @@ const EXEC_GROUPS = "/run/ctxpipe-exec"
 type RootCommand = (cmd: string[]) => Promise<RootResult>
 
 /**
- * A `RootExec` from a root command. With a `signal`, the script runs in its
- * own process group, and an abort ends that group (see `RootExec`).
+ * A `RootExec` from a root command. With a `signal` or a `stop`, the script
+ * runs in its own process group, and an abort ends that group (see
+ * `RootExec`).
  */
 function signalledRootExec(exec: RootCommand): RootExec {
   return async (script, options) => {
-    const signal = options?.signal
-    if (!signal) return exec(["sh", "-c", script])
-    signal.throwIfAborted()
+    const signals = [options?.signal, options?.stop].filter(
+      (s): s is AbortSignal => s !== undefined,
+    )
+    if (!signals.length) return exec(["sh", "-c", script])
+    options?.signal?.throwIfAborted()
+    if (options?.stop?.aborted)
+      return { stdout: "", stderr: "", exitCode: -1, stopped: true }
+    const signal = AbortSignal.any(signals)
     // `setsid -w` makes a new process group (its id is the shell's pid) and
     // waits for it. The id goes to a root-only file, so an abort can end
     // the group, also the agent processes that `runuser` started.
@@ -118,7 +130,8 @@ function signalledRootExec(exec: RootCommand): RootExec {
       const result = await running
       if (killed) {
         await killed
-        throw signal.reason
+        if (options?.signal?.aborted) throw options.signal.reason
+        return { ...result, stopped: true }
       }
       return result
     } catch (error) {

@@ -30,9 +30,11 @@ Time range first, then `DeploymentEnvironment`, then `ServiceName` or `TraceId`.
 
 ### Keys
 
-One key per concept. Resource attributes: `service.name` (`backend`, `openworkflow`, `codesearch`, `ui`), `service.namespace=ctxpipe` on backend, codesearch, and the UI relay, `deployment.environment`. Scope names are not `service.name`.
+One key per concept. Resource attributes: `service.name` (`backend`, `openworkflow`, `codesearch`, `ui`), `service.namespace=ctxpipe` on backend, codesearch, the UI server, and the UI relay, `deployment.environment`. Scope names are not `service.name`.
 
-`deployment.environment` on backend traces, metrics, and logs, the Langfuse environment tag, codesearch, and the UI relay is `DEPLOYMENT_ENVIRONMENT` when that is set (`RAILWAY_ENVIRONMENT_NAME` is the fallback while Railway previews exist), otherwise `deployment.environment` from `OTEL_RESOURCE_ATTRIBUTES`, otherwise `production` when `NODE_ENV=production`, otherwise `development`.
+The UI server and the browser both send as `ui`. Use `telemetry.sdk.language` to tell them apart: `nodejs` is the UI server, `webjs` is the browser. The UI server writes one `SERVER` span for each request (`http.request.method`, `url.path`, `http.response.status_code`; none for the `/.otel` relay). For each `console.error`, such as an SSR render error, it sets that span to Error, adds an `exception` event, and writes a log with severity ERROR in the same trace. Of the error text, only an approved head is exported: an HTTP reason such as `Unauthorized`, a network code such as `ECONNRESET`, `Request failed (<status>)`, or a React error number. Other text is `{redacted}`, and the stack frames show where the error came from.
+
+`deployment.environment` on backend traces, metrics, and logs, the Langfuse environment tag, codesearch, the UI server, and the UI relay is `DEPLOYMENT_ENVIRONMENT` when that is set (`RAILWAY_ENVIRONMENT_NAME` is the fallback while Railway previews exist), otherwise `deployment.environment` from `OTEL_RESOURCE_ATTRIBUTES`, otherwise `production` when `NODE_ENV=production`, otherwise `development`.
 
 | Key | Where it is set |
 | --- | --- |

@@ -265,13 +265,14 @@ jobs:
             exit 0
           fi
           cd "$RUNNER_TEMP/index"
-          # The ECR repositories that exist (factory #99, ctxpipe/*). An image
+          # The ECR repositories of the images (factory #99, ctxpipe/*;
+          # cost-telemetry: the observability stack). An image
           # without one is skipped with a notice: release and forge_deploy
           # wait for this job, so a failure here would stop them.
           for image in *; do
             digest="$(cat "$image")"
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::$image holds no image digest" >&2; exit 1; }
-            if [[ ! "$image" =~ ^(backend|worker|ui|codesearch|chat-sandbox|chat-sandbox-agentcore)$ ]]; then
+            if [[ ! "$image" =~ ^(backend|worker|ui|codesearch|chat-sandbox|chat-sandbox-agentcore|cost-telemetry)$ ]]; then
               echo "::notice::$image is not on the ECR list of this job; it is not copied" >&2
               continue
             fi
@@ -385,8 +386,13 @@ jobs:
             echo "$target $digest" | tee -a "$GITHUB_STEP_SUMMARY"
           }
           [ "$DIGESTS" != "{}" ] || echo "::warning::ecr_digests gave no image digests, so this build is not copied to the ECR" | tee -a "$GITHUB_STEP_SUMMARY"
+          # The observability stack makes ctxpipe/cost-telemetry, so that one
+          # image skips its repository while it does not exist yet. No deploy
+          # waits for it: deploy-dispatch reacts only to the app images.
           while read -r image digest; do
-            copy "$PUSH_PRODUCTION" fail "ghcr.io/ctxpipe-ai/$image@$digest" "$PRODUCTION_ECR/ctxpipe/$image:$GITHUB_SHA"
+            missing=fail
+            [ "$image" != cost-telemetry ] || missing=skip
+            copy "$PUSH_PRODUCTION" "$missing" "ghcr.io/ctxpipe-ai/$image@$digest" "$PRODUCTION_ECR/ctxpipe/$image:$GITHUB_SHA"
           done < <(jq -r 'to_entries[] | "\(.key) \(.value)"' <<< "$DIGESTS")
           # The hosted, observability and preview stacks run these upstream
           # images. Each pin is a multi-platform index digest, and the copy

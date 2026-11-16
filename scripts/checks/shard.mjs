@@ -52,7 +52,15 @@ const runsIn = {
   "vitest:codesearch": { job: "codesearch", profile: "codesearch" },
   "vitest:codesearch-bun": { job: "codesearch", profile: "codesearch" },
   ...Object.fromEntries([
-    ...["backend", "worker", "ui", "codesearch", "docs", "chat-sandbox"].map(
+    ...[
+      "backend",
+      "worker",
+      "ui",
+      "codesearch",
+      "docs",
+      "chat-sandbox",
+      "cost-telemetry",
+    ].map(
       (name) => [`build:image-${name}`, { job: "production-builds" }],
     ),
     ...["backend", "codesearch", "aws-cdk", "cli"].map((name) => [

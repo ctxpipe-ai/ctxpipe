@@ -21,7 +21,7 @@ import { markPortable } from "../checks/families.mjs"
 import { fullRunResults, stepResults } from "../checks/gate.mjs"
 import { jobPlans, placeOf } from "../checks/plan.mjs"
 import { prerequisites, withNeeds } from "../checks/prerequisites.mjs"
-import { uiBundledImports } from "../checks/projects.mjs"
+import { listProjects, uiBundledImports } from "../checks/projects.mjs"
 import { runsInOf } from "../checks/shard.mjs"
 import { vitestCommand } from "../ci/vitest-launch.mjs"
 
@@ -433,7 +433,9 @@ test("the manifest marks exactly the platform-independent checks portable", () =
     new Set(['["container-platform"]']),
   )
   // A check that the denylist names is never portable.
-  const denied = JSON.parse(readFileSync(script("non-portable.json"), "utf8"))
+  const denied = Object.keys(
+    JSON.parse(readFileSync(script("non-portable.json"), "utf8")),
+  )
   for (const check of checks.filter(({ id }) => denied.includes(id)))
     assert.equal(check.portable, undefined, check.id)
   const listed = { id: "vitest:ui:a.test.ts", portable: true }
@@ -836,19 +838,65 @@ test("the browser trace maps page coverage to source lines through the build's s
   }
 })
 
-test("every check has the root toolchain files among its inputs", () => {
+test("the inputs of each project check hold its file", () => {
+  // Else a change to the file selects no check.
+  for (const { id, file, inputs } of listProjects())
+    assert.ok(
+      inputs.some(
+        (input) =>
+          input === file ||
+          (input.endsWith("/**") && file.startsWith(input.slice(0, -2))),
+      ),
+      id,
+    )
+})
+
+test("every check has the root toolchain files among its inputs, and a Storybook check has the UI package file instead of the root package.json", () => {
   const result = node([script("list.mjs")])
   assert.equal(result.status, 0, result.stderr)
   const { checks } = JSON.parse(result.stdout)
-  assert.ok(checks.length > 0)
-  for (const { id, inputs } of checks)
+  assert.ok(checks.some(({ lane }) => lane === "visual"))
+  assert.ok(checks.some(({ lane }) => lane === "plays"))
+  for (const { id, family, inputs } of checks) {
     for (const file of [
-      "package.json",
       "pnpm-lock.yaml",
       "pnpm-workspace.yaml",
       ".node-version",
+      family === "storybook" ? "apps/ui/package.json" : "package.json",
     ])
       assert.ok(inputs.includes(file), `${id} lacks input ${file}`)
+    if (family === "storybook")
+      assert.ok(
+        !inputs.includes("package.json"),
+        `${id} has input package.json`,
+      )
+  }
+})
+
+test("the key of each cached check holds the module that lists and runs it", () => {
+  // A key holds the static import closure of each code input. run.mjs
+  // imports families.mjs, which imports each family module, so a Vitest or
+  // Storybook key holds lanes.mjs, storybook.mjs, visual.mjs and the trace
+  // files. A project check runs a command of projects.mjs. Thus a change to
+  // how a check is listed or run changes its key, and no stored pass of the
+  // old definition matches (scripts/checks/README.md, A change to a
+  // definition of checks).
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const { checks } = JSON.parse(result.stdout)
+  const cached = checks.filter(
+    (check) => !check.stochastic && check.cacheable !== false,
+  )
+  assert.ok(cached.length > 1000)
+  for (const { id, family, inputs } of cached)
+    assert.ok(
+      inputs.includes(
+        ["vitest", "storybook"].includes(family)
+          ? "scripts/checks/run.mjs"
+          : "scripts/checks/projects.mjs",
+      ),
+      id,
+    )
 })
 
 test("the manifest lists a check for each job of the other pull request workflows", () => {
@@ -963,6 +1011,9 @@ test("the manifest lists a build check for each production image and package of 
     "build:image-docs:apps/docs/Dockerfile": ["apps/docs/**"],
     "build:image-chat-sandbox:scripts/chat-sandbox/Dockerfile": [
       "scripts/chat-sandbox/**",
+    ],
+    "build:image-cost-telemetry:ops/observability/cost-telemetry/Dockerfile": [
+      "ops/observability/cost-telemetry/**",
     ],
     "build:package-backend:apps/backend/package.json": [
       "apps/backend/**",
@@ -1079,7 +1130,9 @@ test("the project check times job selects the typecheck, lint and policy checks 
   // that the filter leaves such a check out.
   const uncacheable = spawnSync("jq", ["-r", filter[1]], {
     input: JSON.stringify({
-      checks: [{ id: "policy:remote:x.mjs", family: "policy", cacheable: false }],
+      checks: [
+        { id: "policy:remote:x.mjs", family: "policy", cacheable: false },
+      ],
     }),
     encoding: "utf8",
   })

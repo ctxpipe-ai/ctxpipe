@@ -1,15 +1,11 @@
-# The cost-telemetry package of ops/observability: tests on pull requests,
-# and its image on GHCR. The observability stack itself (ClickStack) lives in
-# the factory repo (machines/observability, ADR-061).
+# The cost-telemetry package of ops/observability: tests on pull requests.
+# deploy.yaml builds its image and copies it to the production ECR. The
+# observability stack itself (ClickStack) lives in the factory repo
+# (machines/observability, ADR-061).
 
 name: Observability
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "ops/observability/**"
-      - ".github/workflows/observability.yaml"
   pull_request:
     paths:
       - "ops/observability/**"
@@ -20,6 +16,7 @@ permissions:
   contents: read
 
 jobs:
+  # outside-gate: a paths filter decides until its jobs are checks (CTX-1152)
   test:
     name: Test cost-telemetry
     if: github.event_name == 'pull_request' && github.repository == 'ctxpipe-ai/ctxpipe'
@@ -49,40 +46,3 @@ jobs:
 
       - name: Typecheck cost-telemetry
         run: pnpm --filter cost-telemetry typecheck
-
-  image:
-    name: Build the cost-telemetry image
-    if: github.repository == 'ctxpipe-ai/ctxpipe' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    # amd64: preserve image targets and run the amd64 Blacksmith cost-telemetry CLI.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout repository
-        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
-        with:
-          persist-credentials: false
-
-      - name: Image tag
-        id: tag
-        run: echo "image=ghcr.io/ctxpipe-ai/obs-cost-telemetry:$(git rev-parse HEAD:ops/observability/cost-telemetry)" >> "$GITHUB_OUTPUT"
-
-      - name: Setup Blacksmith Builder
-        uses: useblacksmith/setup-docker-builder@v1
-
-      - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push image
-        uses: useblacksmith/build-push-action@v2
-        with:
-          context: ops/observability/cost-telemetry
-          file: ops/observability/cost-telemetry/Dockerfile
-          push: true
-          tags: ${{ steps.tag.outputs.image }}

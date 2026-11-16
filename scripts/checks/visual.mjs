@@ -17,7 +17,6 @@ const root = fileURLToPath(new URL("../../", import.meta.url))
 // runner, the image pin, the list of unstable screenshots, the capture
 // script with its layout checks, and the compare engine with its tolerance.
 const inputs = [
-  "package.json",
   "pnpm-lock.yaml",
   "pnpm-workspace.yaml",
   ".node-version",

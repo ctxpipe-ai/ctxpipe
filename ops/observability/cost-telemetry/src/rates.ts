@@ -1,8 +1,19 @@
-// Standard storage only. Infrequent Access has no free tier and is not queried here.
-// checked 2026-09-27 https://developers.cloudflare.com/r2/pricing
-export const cloudflareR2StorageUsdPerGbMonth = 0.015
-export const cloudflareR2ClassAUsdPerMillion = 4.5
-export const cloudflareR2ClassBUsdPerMillion = 0.36
-export const cloudflareR2FreeStorageGbMonth = 10
-export const cloudflareR2FreeClassA = 1_000_000
-export const cloudflareR2FreeClassB = 10_000_000
+// The per-seat list prices of the derived rows (README "Sources"). Update a constant when its pricing page changes.
+
+// USD per seat per month, by Linear subscription type (PaidSubscription.type, `<plan>_<billing>`). The pricing page's
+// "Billed yearly" toggle switches between the subscriptions basic_yearly_10 and basic_monthly_12, and
+// business_yearly_16 and business_monthly_18. A type that is not here (Enterprise, a legacy plan) fails the provider
+// until its price is added.
+// checked 2026-11-16 https://linear.app/pricing
+export const linearUsdPerSeatMonth: Record<string, number> = {
+  basic_yearly: 10,
+  basic_monthly: 12,
+  business_yearly: 16,
+  business_monthly: 18,
+}
+
+// USD per seat per month, by GitHub plan name (GET /orgs/{org} plan.name).
+// checked 2026-11-16 https://github.com/pricing
+export const githubUsdPerSeatMonth: Record<string, number> = {
+  team: 4,
+}

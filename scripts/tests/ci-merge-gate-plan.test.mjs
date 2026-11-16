@@ -555,6 +555,225 @@ test("a change to the gate code or its pin runs every test of the CI scripts, an
   )
 })
 
+// A manifest entry of a check id.
+const entry = (id, inputs = ["package.json", "scripts/checks/run.mjs"]) => {
+  const [family, lane, ...file] = id.split(":")
+  return {
+    id,
+    family,
+    lane,
+    root: "",
+    file: file.join(":").split("#")[0],
+    inputs,
+    intent: "Catches a fault.",
+  }
+}
+const manifestOf = (checks) => ({ schemaVersion: 1, checks })
+const listed = () =>
+  [ui, backend, contract, story, lint, image, omitted].map((id) => entry(id))
+
+test("a change to a definition of checks reuses each stored pass whose definition the base revision gives too", () => {
+  const definitions = { mode: "select", reason: "gate", definitions: ["scripts/checks/lanes.mjs"] }
+  const planned = planOf({
+    files: {
+      "mode.json": definitions,
+      "manifest.json": manifestOf(listed()),
+      "base-manifest.json": manifestOf(listed()),
+    },
+  })
+  assert.equal(planned.mode, "gate")
+  // The LLM stage does not decide: the deterministic selection stays, with
+  // each hit of the select job.
+  assert.ok(planned.ran.includes(backend))
+  assert.ok(!planned.ran.includes(addedCase))
+  assert.deepEqual(
+    planned.hits.map(({ id }) => id),
+    [story, lint],
+  )
+  assert.deepEqual(planned.definitions, {
+    inputs: ["scripts/checks/lanes.mjs"],
+    changed: [],
+  })
+  assert.match(planned.reason, /definitions of checks changed \(scripts\/checks\/lanes\.mjs\)/)
+  // The merge gate comment says why.
+  const { decision } = gateDecision({
+    config: config(),
+    planned,
+    records: [],
+    needs,
+    jobs: { jobs: [] },
+    run: { id: "42", attempt: 1, pr: 7, sha: sha(9) },
+    store: store(),
+    now: new Date("2026-10-28T12:00:00Z"),
+  })
+  assert.ok(
+    gateText(decision, "https://example.com/run").includes(
+      "**Definitions of checks changed:** `scripts/checks/lanes.mjs`. The base revision listed the same tree; 0 checks whose definition changed ran without a stored pass.",
+    ),
+  )
+  // More inputs only widen a key, and the intent text is no part of it.
+  const wider = listed().map((item) =>
+    item.id === lint
+      ? { ...item, inputs: [...item.inputs, "knip.json"], intent: "Other." }
+      : item,
+  )
+  assert.deepEqual(
+    planOf({
+      files: {
+        "mode.json": definitions,
+        "manifest.json": manifestOf(wider),
+        "base-manifest.json": manifestOf(listed()),
+      },
+    }).hits.map(({ id }) => id),
+    [story, lint],
+  )
+})
+
+test("a PR cannot redefine a check to reuse a pass of the old definition", () => {
+  const definitions = { mode: "select", reason: "gate", definitions: ["scripts/checks/storybook.mjs"] }
+  // The PR listing gives the story check fewer inputs, makes the lint check
+  // portable, and adds a check that the base listing does not give.
+  const added = "storybook:plays:apps/ui/src/f.stories.tsx#f--one"
+  const redefined = [
+    ...listed().map((item) =>
+      item.id === story
+        ? { ...item, inputs: ["package.json"] }
+        : item.id === lint
+          ? { ...item, portable: true }
+          : item,
+    ),
+    entry(added),
+  ]
+  const select = selectRecord()
+  const planned = planOf({
+    files: {
+      "mode.json": definitions,
+      "selection.json": {
+        ...select,
+        selected: [...select.selected, check(added)],
+        cache: { ...select.cache, hits: [...select.cache.hits, hit(added, "agent", 7)] },
+      },
+      "manifest.json": manifestOf(redefined),
+      "base-manifest.json": manifestOf(listed()),
+    },
+  })
+  assert.equal(planned.mode, "gate")
+  assert.deepEqual(planned.hits, [])
+  // Each one runs, and its stored pass is a miss of this run.
+  for (const id of [story, lint, added]) {
+    assert.ok(planned.ran.includes(id), id)
+    assert.ok(
+      planned.selection.cache.misses.some(
+        (miss) => miss.id === id && miss.mode === "definition",
+      ),
+      id,
+    )
+  }
+  assert.deepEqual(planned.definitions.changed, [added, lint, story].sort())
+  assert.equal(
+    describe({ kind: "definition", inputs: ["scripts/checks/storybook.mjs"] }),
+    "its definition changed with scripts/checks/storybook.mjs",
+  )
+  // A failure of such a check contradicts a stored pass of its key.
+  assert.ok(planned.rerun.includes(story))
+  // A check that the base listing gives and the PR listing does not: the
+  // plan cannot see that check, so the run is full.
+  const dropped = planOf({
+    files: {
+      "mode.json": definitions,
+      "manifest.json": manifestOf(listed().filter((item) => item.id !== omitted)),
+      "base-manifest.json": manifestOf(listed()),
+    },
+  })
+  assert.equal(dropped.mode, "full")
+  assert.equal(
+    dropped.reason,
+    `definitions of checks changed, and the listing of this PR drops 1 check that the base revision lists for the same tree: ${omitted}`,
+  )
+  assert.equal(dropped.hits, undefined)
+  // A PR listing that gives an id twice could hide its redefined entry
+  // behind a copy of the base entry, so the run is full.
+  const twice = planOf({
+    files: {
+      "mode.json": definitions,
+      "manifest.json": manifestOf([
+        ...listed(),
+        { ...entry(story), inputs: ["package.json"] },
+      ]),
+      "base-manifest.json": manifestOf(listed()),
+    },
+  })
+  assert.equal(
+    twice.reason,
+    `definitions of checks changed, and a listing gives a check id twice: ${story}`,
+  )
+  // New own inputs keep a change from selecting other checks, so the run is
+  // full.
+  const owned = planOf({
+    files: {
+      "mode.json": definitions,
+      "manifest.json": manifestOf(
+        listed().map((item) =>
+          item.id === lint ? { ...item, ownInputs: ["apps/**"] } : item,
+        ),
+      ),
+      "base-manifest.json": manifestOf(listed()),
+    },
+  })
+  assert.equal(
+    owned.reason,
+    `definitions of checks changed, and the own inputs of a check changed: ${lint}`,
+  )
+  // A check that the PR makes stochastic leaves the selection of the
+  // selector, so the plan cannot run it, and the run is full.
+  const keyed = selectRecord()
+  const stochastic = planOf({
+    files: {
+      "mode.json": definitions,
+      "selection.json": {
+        ...keyed,
+        selected: keyed.selected.filter((item) => item.id !== backend),
+        cache: {
+          ...keyed.cache,
+          misses: keyed.cache.misses.filter((miss) => miss.id !== backend),
+        },
+      },
+      "manifest.json": manifestOf(
+        listed().map((item) =>
+          item.id === backend ? { ...item, stochastic: true } : item,
+        ),
+      ),
+      "base-manifest.json": manifestOf(listed()),
+    },
+  })
+  assert.equal(
+    stochastic.reason,
+    `definitions of checks changed, and 1 check whose definition changed is in no selection: ${backend}`,
+  )
+  // A dropped eval case has no key, but it is dropped too.
+  const evals = planOf({
+    files: {
+      "mode.json": definitions,
+      "manifest.json": manifestOf(listed()),
+      "base-manifest.json": manifestOf([...listed(), entry(evalCase)]),
+    },
+  })
+  assert.equal(evals.mode, "full")
+  assert.match(evals.reason, /drops 1 check that the base revision lists/)
+  // Without a valid listing of the base revision, the run is full.
+  for (const base of [undefined, { schemaVersion: 1, checks: "all" }])
+    assert.equal(
+      planOf({
+        files: {
+          "mode.json": definitions,
+          "manifest.json": manifestOf(listed()),
+          ...(base && { "base-manifest.json": base }),
+        },
+      }).reason,
+      "definitions of checks changed, and no valid listing of the base revision or of the PR is available",
+    )
+})
+
 test("a check of a job-scoped ci.yaml change gets no hit from the PR store", () => {
   // An earlier run of the PR can have run the check with another ci.yaml,
   // under the same key.
@@ -909,6 +1128,44 @@ test("the PR comment shows the selection, the hits, the LLM decisions and the mi
     "**Shards:** `test-shards` 1 of 9 (about",
   ])
     assert.ok(text.includes(part), part)
+})
+
+test("the PR comment counts by family the selected checks that no store had a pass for", () => {
+  const text = (decision) => gateText(decision, undefined, { comment: true })
+  const { decision } = decide()
+  // ui and contract have a key and no stored pass; the image build has no
+  // key, so it is not a miss.
+  assert.deepEqual(decision.noStoredPass, { vitest: 2 })
+  assert.ok(
+    text(decision).includes(
+      "**No stored pass:** vitest 2. The author's `factory check` did not store a pass with the key of CI for these selected checks with a cache key, so CI ran them.",
+    ),
+    text(decision),
+  )
+  // A pass of an earlier run of this PR is a stored pass.
+  const prPass = (id, n) => ({
+    id,
+    key: key(n),
+    run: "41",
+    createdAt: "2026-10-28T09:00:00Z",
+  })
+  const one = decide({ store: store([prPass(ui, 5)]) }).decision
+  assert.deepEqual(one.noStoredPass, { vitest: 1 })
+  const none = decide({ store: store([prPass(ui, 5), prPass(contract, 8)]) })
+    .decision
+  assert.deepEqual(none.noStoredPass, {})
+  assert.ok(!text(none).includes("No stored pass"), text(none))
+  // Without the shared store, the author's run is not the cause.
+  const offline = {
+    ...decision,
+    selection: { ...decision.selection, shared: false },
+  }
+  assert.ok(
+    text(offline).includes(
+      "**No stored pass:** vitest 2. The shared result store did not answer, so CI ran these selected checks with a cache key.",
+    ),
+    text(offline),
+  )
 })
 
 test("the verdict line names each failed check and always-run job in full", () => {
@@ -1498,6 +1755,7 @@ test("the gate reads each record of a trusted job only by the artifact id that t
     "merge-gate-llm": "merge-gate-llm",
     "merge-gate-plan": "merge-gate-plan",
     "merge-gate-critics": "merge-gate-critics",
+    "merge-gate-base-listing": "merge-gate-base-listing",
     "nightly-plan": "nightly-plan",
   }
   for (const [writer, name] of Object.entries(writers)) {

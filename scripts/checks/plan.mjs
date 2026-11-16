@@ -100,6 +100,76 @@ function withGateTests(selection, inputs) {
   )
 }
 
+// The checks whose definition the PR changed. It compares two listings of
+// the merge revision. The code of the PR made the manifest that the selector
+// keyed. The code of the base revision made the other listing, before any PR
+// code ran. It gives these lists of check ids:
+// - `dropped`: the base lists the check, and the PR does not.
+// - `twice`: a listing gives the id more than once. Then the plan cannot know
+//   which entry the selector keyed.
+// - `owned`: the `ownInputs` of the check differ, or only the PR gives the
+//   check with `ownInputs`. Own inputs keep a change from selecting other
+//   checks, so they can drop checks from the selection.
+// - `changed`: a check with a key that only the PR lists, or whose entry
+//   differs other than by more inputs or another intent. More inputs only
+//   make a key wider, so no pass of the old definition matches it. An eval
+//   or a stochastic check has no key, so it reuses no pass.
+export function definitionChanges(base, manifest) {
+  const keyed = (check) => !check.stochastic && check.family !== "eval"
+  // The entry with its object keys in order, so that two entries with the
+  // same fields compare equal.
+  const rest = ({ intent: _intent, inputs: _inputs, ownInputs: _own, ...item }) =>
+    JSON.stringify(item, (_, value) =>
+      value && typeof value === "object" && !Array.isArray(value)
+        ? Object.fromEntries(
+            Object.entries(value).sort(([a], [b]) => (a < b ? -1 : 1)),
+          )
+        : value,
+    )
+  const twice = [base, manifest].flatMap(({ checks }) =>
+    checks
+      .map((check) => check.id)
+      .filter((id, index, ids) => ids.indexOf(id) !== index),
+  )
+  const covers = (some = [], all = []) => some.every((item) => all.includes(item))
+  const same = (a = [], b = []) => covers(a, b) && covers(b, a)
+  const pr = new Map(manifest.checks.map((check) => [check.id, check]))
+  const listed = new Map(base.checks.map((check) => [check.id, check]))
+  const dropped = []
+  const owned = []
+  const changed = []
+  for (const check of base.checks) {
+    const other = pr.get(check.id)
+    if (!other) dropped.push(check.id)
+    else if (!same(check.ownInputs, other.ownInputs)) owned.push(check.id)
+    else if (
+      keyed(check) &&
+      (rest(check) !== rest(other) || !covers(check.inputs, other.inputs))
+    )
+      changed.push(check.id)
+  }
+  for (const [id, check] of pr)
+    if (listed.has(id)) continue
+    else if (check.ownInputs?.length) owned.push(id)
+    else if (keyed(check)) changed.push(id)
+  return {
+    dropped: dropped.sort(),
+    twice: [...new Set(twice)].sort(),
+    owned: owned.sort(),
+    changed: changed.sort(),
+  }
+}
+
+// The selection with each check whose definition the PR changed selected,
+// without a hit of any class: its key comes from the definition of the PR.
+function withDefinitionChecks(selection, changed, inputs) {
+  const ids = new Set(changed)
+  return withChecks(selection, (check) => ids.has(check.id), {
+    kind: "definition",
+    inputs,
+  })
+}
+
 // The selection of the gate: the selected and omitted checks of the LLM job
 // (the deterministic layers, then the LLM stage), with the cache lookup of
 // the select job. A check that only the LLM job selected (the LLM added it,
@@ -138,6 +208,12 @@ export function combine(select, llm, llmCause) {
     },
   }
 }
+
+// A miss whose key has a stored pass that this run does not accept: a check
+// of a job-scoped ci.yaml change (withJobChecks), a check whose definition
+// the PR changed (withDefinitionChecks) or a quarantined key (withStoreHits).
+export const storedMiss = (miss) =>
+  ["jobs", "definition", "quarantined"].includes(miss.mode)
 
 // The PR store: the passes of the earlier runs of this PR (the `pr` class).
 // The merge gate job writes it to the GitHub Actions cache of the PR, and the
@@ -238,6 +314,7 @@ export function placeOf(id) {
 // equal to the matrix of ci.yaml.
 const imageOptions = {
   "chat-sandbox": { context: "scripts/chat-sandbox" },
+  "cost-telemetry": { context: "ops/observability/cost-telemetry" },
 }
 
 // The matrix jobs whose checks shard.mjs packs into shards.
@@ -414,24 +491,68 @@ export function plan({ config, inputs, needs, store }) {
   const select = readJson(join(inputs, "selection.json"))
   const fallback = fallbackOf({ mode, selection: select, inputs, needs })
   const gate = config.mode === "gate"
-  if (fallback)
-    return {
-      schemaVersion: 1,
-      config: config.mode,
-      mode: "full",
-      reason: fallback,
-      jobs: {},
-      outputs: {},
-    }
+  const full = (reason) => ({
+    schemaVersion: 1,
+    config: config.mode,
+    mode: "full",
+    reason,
+    jobs: {},
+    outputs: {},
+  })
+  if (fallback) return full(fallback)
+  // A change to a definition of checks (decideMode): the code of the base
+  // revision listed the same tree, and the plan compares that listing with
+  // the manifest of the PR. The LLM stage does not decide such a run.
+  const definitions = mode.definitions ?? []
+  let changes
+  if (definitions.length) {
+    const fullFor = (reason) =>
+      full(`definitions of checks changed, and ${reason}`)
+    const base = readJson(join(inputs, "base-manifest.json"))
+    const manifest = readJson(join(inputs, "manifest.json"))
+    if (
+      [base, manifest].some(
+        (listing) => !listing || schemaErrors(listing, "manifest.v1", 1).length,
+      )
+    )
+      return fullFor(
+        "no valid listing of the base revision or of the PR is available",
+      )
+    changes = definitionChanges(base, manifest)
+    const { dropped, twice, owned } = changes
+    if (twice.length)
+      return fullFor(`a listing gives a check id twice: ${twice.slice(0, 3).join(", ")}`)
+    if (owned.length)
+      return fullFor(
+        `the own inputs of a check changed: ${owned.slice(0, 3).join(", ")}${owned.length > 3 ? " and more" : ""}`,
+      )
+    if (dropped.length)
+      return fullFor(
+        `the listing of this PR drops ${dropped.length} ${dropped.length === 1 ? "check" : "checks"} that the base revision lists for the same tree: ${dropped.slice(0, 3).join(", ")}${dropped.length > 3 ? " and more" : ""}`,
+      )
+  }
   let selection = combine(
     select,
-    readJson(join(inputs, "llm-selection.json")),
-    readText(join(inputs, "llm-cause.txt")),
+    definitions.length ? undefined : readJson(join(inputs, "llm-selection.json")),
+    definitions.length
+      ? "a definition of checks changed, so the LLM stage does not decide"
+      : readText(join(inputs, "llm-cause.txt")),
   )
   // The PR store first: a check of a job-scoped ci.yaml change then loses
   // its `pr` hit too.
   selection = withStoreHits(selection, store)
   if (mode.jobs?.length) selection = withJobChecks(selection, mode.jobs)
+  if (changes) {
+    selection = withDefinitionChecks(selection, changes.changed, definitions)
+    // The selector lists a stochastic check in no list, so a check that the
+    // PR made stochastic is in no selection: the plan cannot run it.
+    const selected = new Set(selection.selected.map((check) => check.id))
+    const lost = changes.changed.filter((id) => !selected.has(id))
+    if (lost.length)
+      return full(
+        `definitions of checks changed, and ${lost.length} ${lost.length === 1 ? "check" : "checks"} whose definition changed ${lost.length === 1 ? "is" : "are"} in no selection: ${lost.slice(0, 3).join(", ")}`,
+      )
+  }
   const gateInputs = mode.gateInputs ?? []
   if (gateInputs.length) selection = withGateTests(selection, gateInputs)
   const selected = new Set(selection.selected.map((check) => check.id))
@@ -452,7 +573,7 @@ export function plan({ config, inputs, needs, store }) {
   const stored = new Set([
     ...(selection.cache?.hits ?? []).map((hit) => hit.id),
     ...(selection.cache?.misses ?? [])
-      .filter((miss) => ["jobs", "quarantined"].includes(miss.mode))
+      .filter(storedMiss)
       .map((miss) => miss.id),
   ])
   const rerun = new Set(ran.filter((id) => stored.has(id)))
@@ -469,8 +590,15 @@ export function plan({ config, inputs, needs, store }) {
       gateInputs.length
         ? `; gate inputs changed (${gateInputs.join(", ")}): the gate code and the pin of the base revision decide, and every test of the CI scripts runs`
         : ""
+    }${
+      changes
+        ? `; definitions of checks changed (${definitions.join(", ")}): the base revision listed the same tree, and ${changes.changed.length} checks whose definition changed run without a stored pass`
+        : ""
     }`,
     gateInputs,
+    ...(changes && {
+      definitions: { inputs: definitions, changed: changes.changed },
+    }),
     selection,
     hits: [...hits.values()],
     ran,
