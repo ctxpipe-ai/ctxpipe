@@ -83,13 +83,17 @@ export function storyBoxes() {
       style.overflowX === "visible" && style.overflowY === "visible"
         ? clip
         : intersect(box, clip)
-    for (const node of element.childNodes)
+    // The content of a shadow root is content too (the file tree).
+    const nodes = [
+      ...element.childNodes,
+      ...(element.shadowRoot?.childNodes ?? []),
+    ]
+    for (const node of nodes)
       if (visible && node.nodeType === Node.TEXT_NODE && node.data.trim()) {
         const range = document.createRange()
         range.selectNodeContents(node)
         add(range.getBoundingClientRect(), inner)
-      }
-    for (const child of element.children) visit(child, inner)
+      } else if (node.nodeType === Node.ELEMENT_NODE) visit(node, inner)
   }
   for (const child of decorator?.children ?? []) visit(child, null)
   for (const child of document.body.children)
