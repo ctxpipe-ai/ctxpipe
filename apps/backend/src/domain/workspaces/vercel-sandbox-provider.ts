@@ -44,8 +44,8 @@ export const GIT_TOKEN_ROTATE_MS = 10 * 60_000
 const GIT_TOKEN_REVOKE_GRACE_MS = 30_000
 
 /**
- * Tags on every hosted chat sandbox. `environment` is the Railway environment
- * name, so the sandboxes of one environment can be listed. `environment` is
+ * Tags on every hosted chat sandbox. `environment` is the deployment
+ * environment name, so the sandboxes of one environment can be listed. `environment` is
  * the first tag because `listTaggedSandboxes` filters on the
  * first tag: one environment has fewer chats than all environments.
  */
@@ -377,9 +377,9 @@ export function conversationFirewall(
 }
 
 /**
- * Builder snapshots on a PR preview expire after 30 days, so a PR-close
- * cleanup that misses a builder leaves a bounded leftover. Production ones
- * have no expiry; they are deleted from their rows (bases) or when another
+ * Builder snapshots on a PR preview expire after 30 days, and the account
+ * step that ends Vercel Sandbox deletes what is left. Production ones have
+ * no expiry; they are deleted from their rows (bases) or when another
  * OpenCode version replaces them (agent snapshots).
  */
 export function builderSnapshotExpiration(environment: string): number {
