@@ -120,6 +120,12 @@ describe("mapRowsToOtlp", () => {
     expect(usage[0]?.gauge.dataPoints.map((point) => point.asDouble)).toEqual([5, 12])
   })
 
+  test("adds billing.account only to a row that names its account", () => {
+    const payload = mapRowsToOtlp([ROW, { ...ROW, provider: "aws", account: "production" }])
+    const cost = payload.resourceMetrics[0]?.scopeMetrics[0]?.metrics.find((metric) => metric.name === "billing.cost")
+    expect(cost?.gauge.dataPoints.map((point) => attr(point.attributes, "billing.account"))).toEqual([undefined, "production"])
+  })
+
   test("adds billing.fx_rate when an fx sample is given", () => {
     const payload = mapRowsToOtlp([ROW], { rate: 1.4224, timeUnixNano: "123" })
     const fx = payload.resourceMetrics[0]?.scopeMetrics[0]?.metrics.find((metric) => metric.name === "billing.fx_rate")

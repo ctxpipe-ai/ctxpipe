@@ -1,15 +1,20 @@
 export type CostRow = {
   day: string
-  provider: "openrouter" | "github" | "blacksmith" | "cloudflare" | "aws"
+  provider: "openrouter" | "github" | "blacksmith" | "cloudflare" | "aws" | "linear"
   sku: string
   scope: string
   usage: number
   unit: string
   costUsd: number
-  source: "reported" | "estimated"
+  /** README "Sources": reported by the provider, or derived from a plan and a committed price. */
+  source: "reported" | "derived"
+  /** The name of the AWS account (billing.account). */
+  account?: string
 }
 
 type FxSample = { rate: number; timeUnixNano: string }
+/** The result of one provider entry of a run: `error` is the class of its failure, absent on success. */
+export type ProviderStatus = { provider: string; error?: string }
 
 type OtlpAttribute = { key: string; value: { stringValue: string } }
 type OtlpDataPoint = { asDouble: number; timeUnixNano: string; attributes: OtlpAttribute[] }
@@ -34,6 +39,22 @@ export function sumRows(rows: CostRow[]): CostRow[] {
   return [...byKey.values()]
 }
 
+/**
+ * Derived rows of a seat plan: for each day, `seats` × the monthly seat price spread over the days of that day's
+ * month. Every day of the window takes today's seat count.
+ */
+export function seatRows(
+  days: string[],
+  plan: Pick<CostRow, "provider" | "sku" | "scope">,
+  seats: number,
+  usdPerSeatMonth: number,
+): CostRow[] {
+  return days.map((day) => {
+    const daysInMonth = new Date(Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)), 0)).getUTCDate()
+    return { day, ...plan, usage: seats, unit: "seats", costUsd: (seats * usdPerSeatMonth) / daysInMonth, source: "derived" }
+  })
+}
+
 /** Last `count` UTC days ending on the UTC calendar day of `nowMs`. */
 export function utcDays(nowMs: number, count: number): string[] {
   const start = new Date(nowMs)
@@ -47,8 +68,9 @@ export function utcDays(nowMs: number, count: number): string[] {
   return days
 }
 
-export function mapRowsToOtlp(rows: CostRow[], fx?: FxSample): OtlpMetricsRequest {
-  const observedAtUnixMs = String(Date.now())
+/** `observedAtMs` is the time of the run: the observed_at of each point and the time of each status point. */
+export function mapRowsToOtlp(rows: CostRow[], fx?: FxSample, statuses: ProviderStatus[] = [], observedAtMs = Date.now()): OtlpMetricsRequest {
+  const observedAtUnixMs = String(observedAtMs)
   const metrics: OtlpMetric[] = []
   if (rows.length > 0) {
     metrics.push({
@@ -68,6 +90,24 @@ export function mapRowsToOtlp(rows: CostRow[], fx?: FxSample): OtlpMetricsReques
       unit: "1",
       gauge: {
         dataPoints: [{ asDouble: fx.rate, timeUnixNano: fx.timeUnixNano, attributes: [attr("billing.pair", "USD/AUD")] }],
+      },
+    })
+  }
+  if (statuses.length > 0) {
+    const timeUnixNano = (BigInt(observedAtUnixMs) * 1_000_000n).toString()
+    metrics.push({
+      name: "billing.provider_status",
+      unit: "1",
+      gauge: {
+        dataPoints: statuses.map((status) => ({
+          asDouble: status.error === undefined ? 1 : 0,
+          timeUnixNano,
+          attributes: [
+            attr("billing.provider", status.provider),
+            attr("billing.observed_at_unix_ms", observedAtUnixMs),
+            ...(status.error === undefined ? [] : [attr("billing.error", status.error)]),
+          ],
+        })),
       },
     })
   }
@@ -99,6 +139,7 @@ function dataPoint(row: CostRow, value: number, observedAtUnixMs: string): OtlpD
       attr("billing.source", row.source),
       attr("billing.unit", row.unit),
       attr("billing.observed_at_unix_ms", observedAtUnixMs),
+      ...(row.account === undefined ? [] : [attr("billing.account", row.account)]),
     ],
   }
 }

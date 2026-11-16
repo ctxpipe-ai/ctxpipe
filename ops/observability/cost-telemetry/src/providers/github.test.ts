@@ -1,8 +1,9 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
+import { githubUsdPerSeatMonth } from "../rates"
 import { useEnv } from "../test-env"
-import { rows } from "./github"
+import { planRows, rows } from "./github"
 
 const DAY = "2025-01-15"
 const ITEM = {
@@ -148,5 +149,37 @@ describe("github rows", () => {
   test("throws when the billing token is missing", async () => {
     delete process.env.GITHUB_BILLING_TOKEN
     await expect(rows([DAY])).rejects.toThrow("GITHUB_BILLING_TOKEN is required")
+  })
+})
+
+describe("github plan rows", () => {
+  const ORG = "https://api.github.com/orgs/ctxpipe-ai"
+
+  test("derives each day's cost from the plan's paid seats and the committed seat price", async () => {
+    server.use(
+      http.get(ORG, ({ request }) => {
+        expect(request.headers.get("Authorization")).toBe("Bearer gh-token")
+        expect(request.headers.get("X-GitHub-Api-Version")).toBe("2022-11-28")
+        return HttpResponse.json({ login: "example-org", plan: { name: "team", space: 976562499, private_repos: 999999, filled_seats: 4, seats: 5 } })
+      }),
+    )
+    const price = githubUsdPerSeatMonth.team ?? Number.NaN
+    await expect(planRows(["2025-01-15", "2025-02-01"])).resolves.toEqual([
+      { day: "2025-01-15", provider: "github", sku: "plan/team", scope: "org", usage: 5, unit: "seats", costUsd: (5 * price) / 31, source: "derived" },
+      { day: "2025-02-01", provider: "github", sku: "plan/team", scope: "org", usage: 5, unit: "seats", costUsd: (5 * price) / 28, source: "derived" },
+    ])
+  })
+
+  test("gives no rows on the free plan", async () => {
+    server.use(http.get(ORG, () => HttpResponse.json({ plan: { name: "free", space: 1, private_repos: 1, seats: 1 } })))
+    await expect(planRows([DAY])).resolves.toEqual([])
+  })
+
+  test("throws when the token cannot see the plan, and on a plan without a committed price", async () => {
+    server.use(http.get(ORG, () => HttpResponse.json({ login: "example-org" })))
+    await expect(planRows([DAY])).rejects.toThrow("GitHub organization response has no plan")
+    server.resetHandlers()
+    server.use(http.get(ORG, () => HttpResponse.json({ plan: { name: "enterprise", space: 1, private_repos: 1, seats: 3 } })))
+    await expect(planRows([DAY])).rejects.toThrow("no committed seat price for GitHub plan enterprise")
   })
 })

@@ -1,8 +1,9 @@
-import { getJson, isRecord, requiredEnv } from "../http"
+import { getJson, isRecord, ProviderError } from "../http"
+import { providerInput } from "../secrets"
 import { sumRows, utcDays, type CostRow } from "../rows"
 
 export async function rows(days: string[]): Promise<CostRow[]> {
-  const key = requiredEnv("OPENROUTER_MANAGEMENT_KEY")
+  const key = providerInput("OPENROUTER_MANAGEMENT_KEY")
   const last = days[days.length - 1]
   if (!last) return []
   // OpenRouter only serves completed UTC days, so shift one day back from the shared window.
@@ -17,7 +18,7 @@ async function fetchDay(day: string, key: string): Promise<CostRow[]> {
     { headers: { Authorization: `Bearer ${key}` } },
     "OpenRouter activity",
   )
-  if (!isRecord(body) || !Array.isArray(body.data)) throw new Error("OpenRouter activity response was missing data")
+  if (!isRecord(body) || !Array.isArray(body.data)) throw new ProviderError("parse", "OpenRouter activity response was missing data")
   const mapped: CostRow[] = []
   for (const item of body.data) {
     if (!isRecord(item)) continue
