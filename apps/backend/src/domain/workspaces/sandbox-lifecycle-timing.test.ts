@@ -32,6 +32,15 @@ describe("sandbox lifecycle timing", () => {
     expect(
       classifySandboxCommand("opencode serve --hostname=127.0.0.1 --port=4096"),
     ).toBe("opencode-serve")
+    // AgentCore runs all setup steps as one command; each step marks itself.
+    expect(
+      classifySandboxCommand(
+        [
+          wrapSandboxSetupCommand("setup-opencode", "command -v opencode"),
+          wrapSandboxSetupCommand("setup-checkout", "git cat-file -e x"),
+        ].join(" &&\n"),
+      ),
+    ).toBe("setup")
   })
 
   it("wraps a setup command so the bootstrap shell sees the real exit code", () => {
