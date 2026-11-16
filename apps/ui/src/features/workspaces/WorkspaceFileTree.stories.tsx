@@ -414,7 +414,9 @@ export const DeletedFileStaysUntilMerged: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: the change was merged into the base branch, so the deleted file row is gone.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: {
+      skip: "Behavior test: it ends on a test harness with a Merge into base branch button, which the product does not render.",
+    },
     intent:
       "Catches a deleted file that vanishes from the tree or can be selected. It stays as a struck-through row with a text summary and is not selectable. Not for other markers.",
   },
@@ -565,7 +567,9 @@ export const NewPathsKeepExpandedFolders: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: new paths loaded, and the folder that the member opened stays open.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: {
+      skip: "Behavior test: it ends on a test harness with a Load new paths button, which the product does not render.",
+    },
     intent:
       "Catches a path reload that collapses folders the user opened. New paths appear and open folders stay open. Not for the first load.",
   },
