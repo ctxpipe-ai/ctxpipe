@@ -11,18 +11,6 @@
       "type": "http",
       "url": "http://127.0.0.1:6006/mcp"
     },
-    "neon": {
-      "type": "http",
-      "url": "https://mcp.neon.tech/mcp?readonly=true",
-      "headers": {
-        "Authorization": "Bearer ${NEON_API_KEY:-}"
-      }
-    },
-    "railway": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@railway/cli@5.63.1", "mcp", "local"]
-    },
     "hyperdx": {
       "type": "http",
       "url": "https://hyperdx.ctxpipe.dev/api/mcp",
