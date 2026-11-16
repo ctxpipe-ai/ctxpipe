@@ -62,8 +62,8 @@ export const conversationSandboxSweep = defineWorkflow(
  * Runs are keyed by org and by the minute boundary at or after `at`. Every
  * caller derives `at` from the same state (a sandbox's last use plus 5
  * minutes, or the shared retry boundary), so runs that want the same sweep
- * share one run and the org keeps a single chain. The tip check gives the
- * start of its hour, so it restarts a lost chain at most once an hour.
+ * share one run and the org keeps a single chain. The backstops use
+ * `scheduleSweepBackstop`.
  */
 export async function scheduleConversationSandboxSweep(
   orgId: string,
@@ -101,14 +101,31 @@ export async function scheduleIdleSandboxStop(
 }
 
 /**
- * Backstop for a lost chain (a failed schedule, a crashed replica): on worker
- * start, sweep every org that has a sandbox row (`orgsWithSandboxes`).
+ * Restarts a lost chain (a failed schedule, a crashed replica). The run is
+ * keyed by the start of the hour of `now`, so the tip checks and the worker
+ * starts of one hour share one sweep for each org (CTX-1305).
  */
-export async function scheduleSweepsForOrgsNeedingIt(): Promise<void> {
-  const now = new Date()
+export async function scheduleSweepBackstop(
+  orgId: string,
+  now: Date,
+): Promise<void> {
+  await scheduleConversationSandboxSweep(
+    orgId,
+    new Date(Math.floor(now.getTime() / 3_600_000) * 3_600_000),
+  )
+}
+
+/**
+ * On worker start, run the backstop for every org that has a sandbox row
+ * (`orgsWithSandboxes`). Autoscaling starts worker tasks many times an hour;
+ * each start in the same hour queues nothing new.
+ */
+export async function scheduleSweepsForOrgsNeedingIt(
+  now: Date = new Date(),
+): Promise<void> {
   for (const orgId of await orgsWithSandboxes()) {
     try {
-      await scheduleConversationSandboxSweep(orgId, now)
+      await scheduleSweepBackstop(orgId, now)
     } catch (error) {
       log.error({
         step: "conversation-sandbox-sweep-backstop",

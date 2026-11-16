@@ -1,6 +1,16 @@
-import { afterAll, afterEach, beforeAll, describe, expect, setSystemTime, test } from "bun:test"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  setSystemTime,
+  test,
+} from "bun:test"
+
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
+
 import { utcDays } from "../rows"
 import { useEnv } from "../test-env"
 import { rows } from "./openrouter"
@@ -64,8 +74,20 @@ describe("openrouter rows", () => {
         HttpResponse.json({
           data: [
             ITEM,
-            { ...ITEM, endpoint_id: "other", prompt_tokens: 10, completion_tokens: 20, usage: 0.01 },
-            { ...ITEM, provider_name: "Anthropic", prompt_tokens: 1, completion_tokens: 2, usage: 0.002 },
+            {
+              ...ITEM,
+              endpoint_id: "other",
+              prompt_tokens: 10,
+              completion_tokens: 20,
+              usage: 0.01,
+            },
+            {
+              ...ITEM,
+              provider_name: "Anthropic",
+              prompt_tokens: 1,
+              completion_tokens: 2,
+              usage: 0.002,
+            },
           ],
         }),
       ),
@@ -108,23 +130,42 @@ describe("openrouter rows", () => {
       }),
     )
     await expect(rows(utcDays(Date.now(), 3))).resolves.toEqual([])
-    expect([...requested].sort()).toEqual(["2026-09-23", "2026-09-24", "2026-09-25"])
+    expect([...requested].sort()).toEqual([
+      "2026-09-23",
+      "2026-09-24",
+      "2026-09-25",
+    ])
   })
 
   test("throws on a non-OK response", async () => {
-    server.use(http.get("https://openrouter.ai/api/v1/activity", () => new HttpResponse("nope", { status: 403 })))
-    await expect(rows(["2025-08-25"])).rejects.toThrow("OpenRouter activity HTTP 403: nope")
+    server.use(
+      http.get(
+        "https://openrouter.ai/api/v1/activity",
+        () => new HttpResponse("nope", { status: 403 }),
+      ),
+    )
+    await expect(rows(["2025-08-25"])).rejects.toThrow(
+      "OpenRouter activity HTTP 403: nope",
+    )
   })
 
   test("throws when data is missing", async () => {
-    server.use(http.get("https://openrouter.ai/api/v1/activity", () => HttpResponse.json({})))
-    await expect(rows(["2025-08-25"])).rejects.toThrow("OpenRouter activity response was missing data")
+    server.use(
+      http.get("https://openrouter.ai/api/v1/activity", () =>
+        HttpResponse.json({}),
+      ),
+    )
+    await expect(rows(["2025-08-25"])).rejects.toThrow(
+      "OpenRouter activity response was missing data",
+    )
   })
 
   test("skips a malformed activity item", async () => {
     server.use(
       http.get("https://openrouter.ai/api/v1/activity", () =>
-        HttpResponse.json({ data: [ITEM, { ...ITEM, prompt_tokens: "x" }, null, "nope"] }),
+        HttpResponse.json({
+          data: [ITEM, { ...ITEM, prompt_tokens: "x" }, null, "nope"],
+        }),
       ),
     )
     await expect(rows(["2025-08-25"])).resolves.toEqual([
@@ -142,12 +183,20 @@ describe("openrouter rows", () => {
   })
 
   test("throws when the JSON body is null", async () => {
-    server.use(http.get("https://openrouter.ai/api/v1/activity", () => HttpResponse.json(null)))
-    await expect(rows(["2025-08-25"])).rejects.toThrow("OpenRouter activity response was missing data")
+    server.use(
+      http.get("https://openrouter.ai/api/v1/activity", () =>
+        HttpResponse.json(null),
+      ),
+    )
+    await expect(rows(["2025-08-25"])).rejects.toThrow(
+      "OpenRouter activity response was missing data",
+    )
   })
 
   test("throws when the management key is missing", async () => {
     delete process.env.OPENROUTER_MANAGEMENT_KEY
-    await expect(rows(["2025-08-25"])).rejects.toThrow("OPENROUTER_MANAGEMENT_KEY is required")
+    await expect(rows(["2025-08-25"])).rejects.toThrow(
+      "OPENROUTER_MANAGEMENT_KEY is required",
+    )
   })
 })

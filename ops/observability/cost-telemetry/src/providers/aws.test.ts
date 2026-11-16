@@ -1,6 +1,16 @@
-import { afterAll, afterEach, beforeAll, describe, expect, setSystemTime, test } from "bun:test"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  setSystemTime,
+  test,
+} from "bun:test"
+
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
+
 import { useEnv } from "../test-env"
 import { due, rows } from "./aws"
 
@@ -30,25 +40,41 @@ afterAll(() => {
 describe("aws rows", () => {
   test("assumes the Cost Explorer role with the task role and signs Cost Explorer with the assumed credentials", async () => {
     setSystemTime(FETCH_AT)
-    const assumed: { form: URLSearchParams; authorization: string | null }[] = []
+    const assumed: { form: URLSearchParams; authorization: string | null }[] =
+      []
     const signed: { authorization: string | null; token: string | null }[] = []
     server.use(
       http.post(STS, async ({ request }) => {
-        assumed.push({ form: new URLSearchParams(await request.text()), authorization: request.headers.get("authorization") })
+        assumed.push({
+          form: new URLSearchParams(await request.text()),
+          authorization: request.headers.get("authorization"),
+        })
         return assumeRoleXml()
       }),
       http.post(CE, ({ request }) => {
-        signed.push({ authorization: request.headers.get("authorization"), token: request.headers.get("x-amz-security-token") })
+        signed.push({
+          authorization: request.headers.get("authorization"),
+          token: request.headers.get("x-amz-security-token"),
+        })
         return ceJson({ ResultsByTime: [] })
       }),
     )
     await expect(rows(DAYS)).resolves.toEqual([])
     expect(assumed).toHaveLength(1)
     expect(assumed[0]?.form.get("Action")).toBe("AssumeRole")
-    expect(assumed[0]?.form.get("RoleArn")).toBe("arn:aws:iam::007664619564:role/ctxpipe-cost-explorer-read")
-    expect(assumed[0]?.form.get("RoleSessionName")).toBe("ctxpipe-cost-telemetry")
+    expect(assumed[0]?.form.get("RoleArn")).toBe(
+      "arn:aws:iam::007664619564:role/ctxpipe-cost-explorer-read",
+    )
+    expect(assumed[0]?.form.get("RoleSessionName")).toBe(
+      "ctxpipe-cost-telemetry",
+    )
     expect(assumed[0]?.authorization).toContain("Credential=AKIATASKROLE/")
-    expect(signed).toEqual([{ authorization: expect.stringContaining("Credential=ASIAASSUMED/"), token: "assumed-token" }])
+    expect(signed).toEqual([
+      {
+        authorization: expect.stringContaining("Credential=ASIAASSUMED/"),
+        token: "assumed-token",
+      },
+    ])
   })
 
   test("groups every account by LINKED_ACCOUNT and SERVICE and names each account", async () => {
@@ -57,7 +83,9 @@ describe("aws rows", () => {
     server.use(
       http.post(STS, () => assumeRoleXml()),
       http.post(CE, async ({ request }) => {
-        expect(request.headers.get("x-amz-target")).toBe("AWSInsightsIndexService.GetCostAndUsage")
+        expect(request.headers.get("x-amz-target")).toBe(
+          "AWSInsightsIndexService.GetCostAndUsage",
+        )
         bodies.push(await request.json())
         return ceJson({
           ResultsByTime: [
@@ -66,7 +94,9 @@ describe("aws rows", () => {
               group("134416647419", "AWS Lambda", "-0.25"),
               group("999999999999", "Amazon Simple Storage Service", "0.02"),
             ]),
-            result("2026-09-25", [group("007664619564", "AWS Cost Explorer", "0.01")]),
+            result("2026-09-25", [
+              group("007664619564", "AWS Cost Explorer", "0.01"),
+            ]),
           ],
         })
       }),
@@ -158,7 +188,9 @@ describe("aws rows", () => {
           })
         }
         return ceJson({
-          ResultsByTime: [result("2026-09-26", [group("787752212265", "AWS Glue", "1.5")])],
+          ResultsByTime: [
+            result("2026-09-26", [group("787752212265", "AWS Glue", "1.5")]),
+          ],
         })
       }),
     )
@@ -198,7 +230,9 @@ describe("aws rows", () => {
           { status: 403 },
         ),
       ),
-      http.post(CE, () => HttpResponse.text("should not call Cost Explorer", { status: 500 })),
+      http.post(CE, () =>
+        HttpResponse.text("should not call Cost Explorer", { status: 500 }),
+      ),
     )
     await expect(rows(DAYS)).rejects.toThrow(/sts:AssumeRole/)
 
@@ -207,8 +241,14 @@ describe("aws rows", () => {
       http.post(STS, () => assumeRoleXml()),
       http.post(CE, () =>
         HttpResponse.json(
-          { __type: "AccessDeniedException", Message: "User is not authorized" },
-          { status: 403, headers: { "Content-Type": "application/x-amz-json-1.1" } },
+          {
+            __type: "AccessDeniedException",
+            Message: "User is not authorized",
+          },
+          {
+            status: 403,
+            headers: { "Content-Type": "application/x-amz-json-1.1" },
+          },
         ),
       ),
     )
@@ -230,7 +270,9 @@ describe("aws rows", () => {
         }),
       ),
     )
-    await expect(rows(DAYS)).rejects.toThrow("missing NetUnblendedCost and UnblendedCost")
+    await expect(rows(DAYS)).rejects.toThrow(
+      "missing NetUnblendedCost and UnblendedCost",
+    )
   })
 })
 
@@ -253,7 +295,10 @@ function assumeRoleXml() {
 }
 
 function group(account: string, service: string, cost: string) {
-  return { Keys: [account, service], Metrics: { NetUnblendedCost: { Amount: cost, Unit: "USD" } } }
+  return {
+    Keys: [account, service],
+    Metrics: { NetUnblendedCost: { Amount: cost, Unit: "USD" } },
+  }
 }
 
 function result(start: string, groups: unknown[]) {
@@ -266,9 +311,13 @@ function result(start: string, groups: unknown[]) {
 }
 
 function exclusiveNext(day: string): string {
-  return new Date(Date.parse(`${day}T00:00:00.000Z`) + 86_400_000).toISOString().slice(0, 10)
+  return new Date(Date.parse(`${day}T00:00:00.000Z`) + 86_400_000)
+    .toISOString()
+    .slice(0, 10)
 }
 
 function ceJson(body: Record<string, unknown>) {
-  return HttpResponse.json(body, { headers: { "Content-Type": "application/x-amz-json-1.1" } })
+  return HttpResponse.json(body, {
+    headers: { "Content-Type": "application/x-amz-json-1.1" },
+  })
 }

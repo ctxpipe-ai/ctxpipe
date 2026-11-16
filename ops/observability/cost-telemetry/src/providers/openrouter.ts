@@ -1,13 +1,16 @@
 import { getJson, isRecord, ProviderError } from "../http"
-import { providerInput } from "../secrets"
 import { sumRows, utcDays, type CostRow } from "../rows"
+import { providerInput } from "../secrets"
 
 export async function rows(days: string[]): Promise<CostRow[]> {
   const key = providerInput("OPENROUTER_MANAGEMENT_KEY")
   const last = days[days.length - 1]
   if (!last) return []
   // OpenRouter only serves completed UTC days, so shift one day back from the shared window.
-  const completed = utcDays(Date.parse(`${last}T00:00:00.000Z`) - 86_400_000, days.length)
+  const completed = utcDays(
+    Date.parse(`${last}T00:00:00.000Z`) - 86_400_000,
+    days.length,
+  )
   const batches = await Promise.all(completed.map((day) => fetchDay(day, key)))
   return sumRows(batches.flat())
 }
@@ -18,13 +21,30 @@ async function fetchDay(day: string, key: string): Promise<CostRow[]> {
     { headers: { Authorization: `Bearer ${key}` } },
     "OpenRouter activity",
   )
-  if (!isRecord(body) || !Array.isArray(body.data)) throw new ProviderError("parse", "OpenRouter activity response was missing data")
+  if (!isRecord(body) || !Array.isArray(body.data))
+    throw new ProviderError(
+      "parse",
+      "OpenRouter activity response was missing data",
+    )
   const mapped: CostRow[] = []
   for (const item of body.data) {
     if (!isRecord(item)) continue
-    if (typeof item.date !== "string" || typeof item.model !== "string" || typeof item.provider_name !== "string") continue
-    if (typeof item.prompt_tokens !== "number" || !Number.isFinite(item.prompt_tokens)) continue
-    if (typeof item.completion_tokens !== "number" || !Number.isFinite(item.completion_tokens)) continue
+    if (
+      typeof item.date !== "string" ||
+      typeof item.model !== "string" ||
+      typeof item.provider_name !== "string"
+    )
+      continue
+    if (
+      typeof item.prompt_tokens !== "number" ||
+      !Number.isFinite(item.prompt_tokens)
+    )
+      continue
+    if (
+      typeof item.completion_tokens !== "number" ||
+      !Number.isFinite(item.completion_tokens)
+    )
+      continue
     if (typeof item.usage !== "number" || !Number.isFinite(item.usage)) continue
     mapped.push({
       day: item.date.slice(0, 10),

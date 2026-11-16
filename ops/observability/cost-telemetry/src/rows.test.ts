@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test"
+
 import { mapRowsToOtlp, utcDays, type CostRow } from "./rows"
 
 const ROW: CostRow = {
@@ -12,18 +13,32 @@ const ROW: CostRow = {
   source: "reported",
 }
 
-function attr(attributes: { key: string; value: { stringValue: string } }[], key: string) {
-  return attributes.find((attribute) => attribute.key === key)?.value.stringValue
+function attr(
+  attributes: { key: string; value: { stringValue: string } }[],
+  key: string,
+) {
+  return attributes.find((attribute) => attribute.key === key)?.value
+    .stringValue
 }
 
 describe("utcDays", () => {
   test("returns the last count UTC days ending today", () => {
-    expect(utcDays(Date.parse("2026-09-26T23:59:59.999Z"), 3)).toEqual(["2026-09-24", "2026-09-25", "2026-09-26"])
-    expect(utcDays(Date.parse("2026-09-26T00:00:00.000Z"), 1)).toEqual(["2026-09-26"])
+    expect(utcDays(Date.parse("2026-09-26T23:59:59.999Z"), 3)).toEqual([
+      "2026-09-24",
+      "2026-09-25",
+      "2026-09-26",
+    ])
+    expect(utcDays(Date.parse("2026-09-26T00:00:00.000Z"), 1)).toEqual([
+      "2026-09-26",
+    ])
   })
 
   test("crosses a month boundary", () => {
-    expect(utcDays(Date.parse("2026-03-01T12:00:00.000Z"), 3)).toEqual(["2026-02-27", "2026-02-28", "2026-03-01"])
+    expect(utcDays(Date.parse("2026-03-01T12:00:00.000Z"), 3)).toEqual([
+      "2026-02-27",
+      "2026-02-28",
+      "2026-03-01",
+    ])
   })
 })
 
@@ -37,12 +52,23 @@ describe("mapRowsToOtlp", () => {
     const observedAt = String(Date.now())
     const payload = mapRowsToOtlp([ROW])
     const resource = payload.resourceMetrics[0]
-    expect(attr(resource?.resource.attributes ?? [], "service.name")).toBe("cost-telemetry")
-    expect(attr(resource?.resource.attributes ?? [], "service.namespace")).toBe("ctxpipe")
-    expect(attr(resource?.resource.attributes ?? [], "deployment.environment")).toBe("observability")
+    expect(attr(resource?.resource.attributes ?? [], "service.name")).toBe(
+      "cost-telemetry",
+    )
+    expect(attr(resource?.resource.attributes ?? [], "service.namespace")).toBe(
+      "ctxpipe",
+    )
+    expect(
+      attr(resource?.resource.attributes ?? [], "deployment.environment"),
+    ).toBe("observability")
     expect(resource?.scopeMetrics[0]?.scope.name).toBe("cost-telemetry")
 
-    const metrics = Object.fromEntries((resource?.scopeMetrics[0]?.metrics ?? []).map((metric) => [metric.name, metric]))
+    const metrics = Object.fromEntries(
+      (resource?.scopeMetrics[0]?.metrics ?? []).map((metric) => [
+        metric.name,
+        metric,
+      ]),
+    )
     expect(metrics["billing.fx_rate"]).toBeUndefined()
     expect(metrics["billing.cost"]).toEqual({
       name: "billing.cost",
@@ -58,7 +84,10 @@ describe("mapRowsToOtlp", () => {
               { key: "billing.scope", value: { stringValue: "OpenAI" } },
               { key: "billing.source", value: { stringValue: "reported" } },
               { key: "billing.unit", value: { stringValue: "requests" } },
-              { key: "billing.observed_at_unix_ms", value: { stringValue: observedAt } },
+              {
+                key: "billing.observed_at_unix_ms",
+                value: { stringValue: observedAt },
+              },
             ],
           },
         ],
@@ -78,7 +107,10 @@ describe("mapRowsToOtlp", () => {
               { key: "billing.scope", value: { stringValue: "OpenAI" } },
               { key: "billing.source", value: { stringValue: "reported" } },
               { key: "billing.unit", value: { stringValue: "requests" } },
-              { key: "billing.observed_at_unix_ms", value: { stringValue: observedAt } },
+              {
+                key: "billing.observed_at_unix_ms",
+                value: { stringValue: observedAt },
+              },
             ],
           },
         ],
@@ -94,46 +126,96 @@ describe("mapRowsToOtlp", () => {
     setSystemTime(new Date(second))
     const later = mapRowsToOtlp([{ ...ROW, costUsd: -0.5, usage: 0 }])
 
-    const earlierCost = earlier.resourceMetrics[0]?.scopeMetrics[0]?.metrics.find((metric) => metric.name === "billing.cost")?.gauge.dataPoints[0]
-    const laterCost = later.resourceMetrics[0]?.scopeMetrics[0]?.metrics.find((metric) => metric.name === "billing.cost")?.gauge.dataPoints[0]
-    const laterUsage = later.resourceMetrics[0]?.scopeMetrics[0]?.metrics.find((metric) => metric.name === "billing.usage")?.gauge.dataPoints[0]
+    const earlierCost =
+      earlier.resourceMetrics[0]?.scopeMetrics[0]?.metrics.find(
+        (metric) => metric.name === "billing.cost",
+      )?.gauge.dataPoints[0]
+    const laterCost = later.resourceMetrics[0]?.scopeMetrics[0]?.metrics.find(
+      (metric) => metric.name === "billing.cost",
+    )?.gauge.dataPoints[0]
+    const laterUsage = later.resourceMetrics[0]?.scopeMetrics[0]?.metrics.find(
+      (metric) => metric.name === "billing.usage",
+    )?.gauge.dataPoints[0]
     const dayUnix = `${BigInt(Date.parse("2026-09-25T00:00:00.000Z")) * 1_000_000n}`
     expect(earlierCost?.timeUnixNano).toBe(dayUnix)
     expect(laterCost?.timeUnixNano).toBe(dayUnix)
     expect(laterUsage?.timeUnixNano).toBe(dayUnix)
-    expect(attr(earlierCost?.attributes ?? [], "billing.observed_at_unix_ms")).toBe(String(first))
-    expect(attr(laterCost?.attributes ?? [], "billing.observed_at_unix_ms")).toBe(String(second))
-    expect(attr(laterUsage?.attributes ?? [], "billing.observed_at_unix_ms")).toBe(String(second))
+    expect(
+      attr(earlierCost?.attributes ?? [], "billing.observed_at_unix_ms"),
+    ).toBe(String(first))
+    expect(
+      attr(laterCost?.attributes ?? [], "billing.observed_at_unix_ms"),
+    ).toBe(String(second))
+    expect(
+      attr(laterUsage?.attributes ?? [], "billing.observed_at_unix_ms"),
+    ).toBe(String(second))
     expect(laterCost?.asDouble).toBe(-0.5)
-    expect(Number(attr(laterCost?.attributes ?? [], "billing.observed_at_unix_ms"))).toBeGreaterThan(
-      Number(attr(earlierCost?.attributes ?? [], "billing.observed_at_unix_ms")),
+    expect(
+      Number(attr(laterCost?.attributes ?? [], "billing.observed_at_unix_ms")),
+    ).toBeGreaterThan(
+      Number(
+        attr(earlierCost?.attributes ?? [], "billing.observed_at_unix_ms"),
+      ),
     )
   })
 
   test("emits one billing.usage metric with unit 1 when row units differ", () => {
-    const minutes: CostRow = { ...ROW, provider: "github", sku: "actions-linux", unit: "minutes", usage: 12 }
+    const minutes: CostRow = {
+      ...ROW,
+      provider: "github",
+      sku: "actions-linux",
+      unit: "minutes",
+      usage: 12,
+    }
     const payload = mapRowsToOtlp([ROW, minutes])
-    const usage = (payload.resourceMetrics[0]?.scopeMetrics[0]?.metrics ?? []).filter((metric) => metric.name === "billing.usage")
+    const usage = (
+      payload.resourceMetrics[0]?.scopeMetrics[0]?.metrics ?? []
+    ).filter((metric) => metric.name === "billing.usage")
     expect(usage).toHaveLength(1)
     expect(usage[0]?.unit).toBe("1")
-    expect(usage[0]?.gauge.dataPoints.map((point) => attr(point.attributes, "billing.unit"))).toEqual(["requests", "minutes"])
-    expect(usage[0]?.gauge.dataPoints.map((point) => point.asDouble)).toEqual([5, 12])
+    expect(
+      usage[0]?.gauge.dataPoints.map((point) =>
+        attr(point.attributes, "billing.unit"),
+      ),
+    ).toEqual(["requests", "minutes"])
+    expect(usage[0]?.gauge.dataPoints.map((point) => point.asDouble)).toEqual([
+      5, 12,
+    ])
   })
 
   test("adds billing.account only to a row that names its account", () => {
-    const payload = mapRowsToOtlp([ROW, { ...ROW, provider: "aws", account: "production" }])
-    const cost = payload.resourceMetrics[0]?.scopeMetrics[0]?.metrics.find((metric) => metric.name === "billing.cost")
-    expect(cost?.gauge.dataPoints.map((point) => attr(point.attributes, "billing.account"))).toEqual([undefined, "production"])
+    const payload = mapRowsToOtlp([
+      ROW,
+      { ...ROW, provider: "aws", account: "production" },
+    ])
+    const cost = payload.resourceMetrics[0]?.scopeMetrics[0]?.metrics.find(
+      (metric) => metric.name === "billing.cost",
+    )
+    expect(
+      cost?.gauge.dataPoints.map((point) =>
+        attr(point.attributes, "billing.account"),
+      ),
+    ).toEqual([undefined, "production"])
   })
 
   test("adds billing.fx_rate when an fx sample is given", () => {
     const payload = mapRowsToOtlp([ROW], { rate: 1.4224, timeUnixNano: "123" })
-    const fx = payload.resourceMetrics[0]?.scopeMetrics[0]?.metrics.find((metric) => metric.name === "billing.fx_rate")
+    const fx = payload.resourceMetrics[0]?.scopeMetrics[0]?.metrics.find(
+      (metric) => metric.name === "billing.fx_rate",
+    )
     expect(fx).toEqual({
       name: "billing.fx_rate",
       unit: "1",
       gauge: {
-        dataPoints: [{ asDouble: 1.4224, timeUnixNano: "123", attributes: [{ key: "billing.pair", value: { stringValue: "USD/AUD" } }] }],
+        dataPoints: [
+          {
+            asDouble: 1.4224,
+            timeUnixNano: "123",
+            attributes: [
+              { key: "billing.pair", value: { stringValue: "USD/AUD" } },
+            ],
+          },
+        ],
       },
     })
   })

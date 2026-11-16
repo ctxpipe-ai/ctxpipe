@@ -38,6 +38,11 @@ export class NetworkingConstruct extends Construct {
     })
     appSecurityGroup.addIngressRule(
       appSecurityGroup,
+      ec2.Port.tcp(3000),
+      "Allow ECS services to reach backend on 3000",
+    )
+    appSecurityGroup.addIngressRule(
+      appSecurityGroup,
       ec2.Port.tcp(3002),
       "Allow ECS services to reach UI on 3002",
     )
