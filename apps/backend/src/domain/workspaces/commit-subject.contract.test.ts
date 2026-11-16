@@ -1,6 +1,15 @@
 import { delay, HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
-import { expect, it } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 
 import { generateCommitSubject } from "./commit-subject.js"
 
@@ -22,14 +31,12 @@ it(
       MODEL_FAST_NAME: "arbitrary-large-tier-model",
     })
     const requests: Record<string, unknown>[] = []
-    const signals: AbortSignal[] = []
     const server = setupServer(
       http.post(
         "https://commit-subject.test/v1/chat/completions",
         async ({ request }) => {
           const body = (await request.json()) as Record<string, unknown>
           requests.push(body)
-          signals.push(request.signal)
           if (body.stream) {
             const chunks = [
               {
@@ -96,9 +103,6 @@ it(
         "Changed files (names only): knowledge/reviewed.md",
       )
       expect(subject).toBe("ctxpipe - Update reviewed knowledge")
-      // A completed request must not receive a later cancellation from a leftover deadline.
-      await delay(5_200)
-      expect(signals[0]?.aborted).toBe(false)
     } finally {
       server.close()
       for (const [key, value] of prior) {
@@ -109,70 +113,104 @@ it(
   },
 )
 
-it(
-  "aborts a slow subject request and uses the deterministic fallback",
-  { timeout: 20_000 },
-  async () => {
-    const keys = [
-      "MODEL_PROVIDER",
-      "MODEL_PROVIDER_API_KEY",
-      "MODEL_PROVIDER_URL",
-    ] as const
-    const prior = new Map(keys.map((key) => [key, process.env[key]]))
+function subjectResponse(content: string) {
+  return HttpResponse.json({
+    id: "subject",
+    object: "chat.completion",
+    created: 1,
+    model: "fixture",
+    choices: [
+      {
+        index: 0,
+        message: { role: "assistant", content },
+        finish_reason: "stop",
+      },
+    ],
+  })
+}
+
+describe("subject deadline", () => {
+  const keys = [
+    "MODEL_PROVIDER",
+    "MODEL_PROVIDER_API_KEY",
+    "MODEL_PROVIDER_URL",
+  ] as const
+  const prior = new Map(keys.map((key) => [key, process.env[key]]))
+  const server = setupServer()
+
+  beforeAll(() => {
     Object.assign(process.env, {
       MODEL_PROVIDER: "openai-like",
       MODEL_PROVIDER_API_KEY: "fixture-only",
       MODEL_PROVIDER_URL: "https://commit-subject.test/v1",
     })
-    let aborted = false
-    const server = setupServer(
+    server.listen({ onUnhandledRequest: "error" })
+  })
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    server.resetHandlers()
+  })
+  afterAll(() => {
+    server.close()
+    for (const [key, value] of prior) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  })
+
+  const input = {
+    repoName: "knowledge",
+    trigger: "ui_file_edit",
+    fileNames: ["knowledge/reviewed.md"],
+  }
+
+  // Production answers took up to 4.6 s; a 5 s deadline aborted 5 of 759.
+  it("keeps a model subject that arrives after 7 s", async () => {
+    const signals: AbortSignal[] = []
+    server.use(
       http.post(
         "https://commit-subject.test/v1/chat/completions",
         async ({ request }) => {
-          request.signal.addEventListener(
-            "abort",
-            () => {
-              aborted = true
-            },
-            { once: true },
-          )
-          await delay(8_000)
-          return HttpResponse.json({
-            id: "slow",
-            object: "chat.completion",
-            created: 1,
-            model: "fixture",
-            choices: [
-              {
-                index: 0,
-                message: {
-                  role: "assistant",
-                  content: "ctxpipe - Late model subject",
-                },
-                finish_reason: "stop",
-              },
-            ],
-          })
+          signals.push(request.signal)
+          await delay(7_000)
+          return subjectResponse("ctxpipe - Slow but valid subject")
         },
       ),
     )
-    server.listen({ onUnhandledRequest: "error" })
-    try {
-      const subject = await generateCommitSubject({
-        repoName: "knowledge",
-        trigger: "ui_file_edit",
-        fileNames: ["knowledge/reviewed.md"],
-      })
-      expect(subject).toBe(
-        "ctxpipe - Knowledge update of knowledge from ui_file_edit",
-      )
-      expect(aborted).toBe(true)
-    } finally {
-      server.close()
-      for (const [key, value] of prior) {
-        if (value === undefined) delete process.env[key]
-        else process.env[key] = value
-      }
-    }
-  },
-)
+    const subject = generateCommitSubject(input)
+    await vi.advanceTimersByTimeAsync(7_000)
+    await expect(subject).resolves.toBe("ctxpipe - Slow but valid subject")
+    // A completed request must not receive a later cancellation from a leftover deadline.
+    await vi.advanceTimersByTimeAsync(20_000)
+    expect(signals[0]?.aborted).toBe(false)
+  })
+
+  it("aborts a hung subject request and uses the deterministic fallback", async () => {
+    let aborted = false
+    server.use(
+      http.post(
+        "https://commit-subject.test/v1/chat/completions",
+        ({ request }) =>
+          new Promise<Response>((_, reject) => {
+            request.signal.addEventListener(
+              "abort",
+              () => {
+                aborted = true
+                reject(request.signal.reason)
+              },
+              { once: true },
+            )
+          }),
+      ),
+    )
+    const subject = generateCommitSubject(input)
+    await vi.advanceTimersByTimeAsync(15_000)
+    await expect(subject).resolves.toBe(
+      "ctxpipe - Knowledge update of knowledge from ui_file_edit",
+    )
+    expect(aborted).toBe(true)
+  })
+})
