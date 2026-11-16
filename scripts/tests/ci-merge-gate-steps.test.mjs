@@ -243,7 +243,7 @@ test("the evals reminder stays away with the label or without an MCP change", ()
   }
 })
 
-const postComment = (options) => {
+const postComment = ({ api, ...options } = {}) => {
   const dir = setup({
     api: {
       [`repos/${repo}/issues/7/comments`]: [
@@ -254,6 +254,7 @@ const postComment = (options) => {
         },
       ],
       rate_limit: { resources: { core: { remaining: 0, reset: 0 } } },
+      ...api,
     },
     ...options,
   })
@@ -287,6 +288,45 @@ test("the PR comment waits for the rate limit reset, and a limit that stays does
   })
   assert.equal(broken.status, 1)
   assert.match(broken.stderr, /HTTP 500/)
+})
+
+test("gh_retry waits one minute for a secondary limit, does not wait for a far reset, and fails on another error after the wait", () => {
+  const comments = `repos/${repo}/issues/7/comments`
+  const secondary = postComment({
+    api: { rate_limit: { resources: { core: { remaining: 10, reset: 0 } } } },
+    errorsOnce: {
+      [comments]: "You have exceeded a secondary rate limit (HTTP 403)",
+    },
+  })
+  assert.equal(secondary.status, 0, secondary.stderr)
+  assert.deepEqual(secondary.sleeps, ["60"])
+  assert.equal(
+    secondary.calls[0],
+    `api --method PATCH repos/${repo}/issues/comments/5 -f body=<!-- merge-gate -->`,
+  )
+  // A reset more than 5 minutes away: no wait, and no failure.
+  const far = postComment({
+    api: {
+      rate_limit: {
+        resources: {
+          core: { remaining: 0, reset: Math.floor(Date.now() / 1000) + 3600 },
+        },
+      },
+    },
+    errorsOnce: { [comments]: "API rate limit exceeded (HTTP 403)" },
+  })
+  assert.equal(far.status, 0, far.stderr)
+  assert.doesNotMatch(far.stderr, /runs again/)
+  assert.deepEqual(far.sleeps, [])
+  assert.match(far.stdout, /rate limit stays/)
+  // The call hits the limit, then a server error: not a rate limit.
+  const broken = postComment({
+    errorsOnce: { [comments]: "API rate limit exceeded (HTTP 403)" },
+    errors: { [comments]: "gh: Server Error (HTTP 500)" },
+  })
+  assert.equal(broken.status, 1)
+  assert.match(broken.stderr, /HTTP 500/)
+  assert.doesNotMatch(broken.stdout, /rate limit stays/)
 })
 
 test("the evals reminder writes nothing when the comment file is missing", () => {

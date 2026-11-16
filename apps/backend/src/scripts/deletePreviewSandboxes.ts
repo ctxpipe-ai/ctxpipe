@@ -15,10 +15,9 @@ const PREVIEW = /^pr-\d+$/
  * Delete every hosted sandbox a PR preview created: chat sandboxes with their
  * saved state, and the builders of Workspace bases and agent snapshots (any
  * OpenCode version) with the snapshots taken from them. `environment` is one
- * preview (`pr-<number>`). Only a sandbox whose
- * `environment` tag is exactly `pr-<number>` is deleted, so production and
- * untagged sandboxes stay. Snapshots carry no tags; they go with their
- * builder or chat sandbox.
+ * preview (`pr-<number>`). Only a sandbox whose `environment` tag is exactly
+ * `pr-<number>` is deleted, so production and untagged sandboxes stay.
+ * Snapshots carry no tags; they go with their builder or chat sandbox.
  *
  * Already deleted counts as deleted. Another API error does not stop the
  * run: the remaining sandboxes are deleted, then the first error is thrown.
