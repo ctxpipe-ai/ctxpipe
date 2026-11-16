@@ -75,7 +75,6 @@ function sessionDefaults(daysAgo: number, orgDaysAgo = 365) {
       },
     ]),
     organizationFullWithOrgHandler,
-    organizationFullWithOrgHandler,
   ]
 }
 
@@ -139,7 +138,6 @@ const meta = {
       },
     },
     app: "org",
-    queryClient: true,
     layout: "fullscreen",
     review: { kind: "page" },
     route: "/$orgSlug/",

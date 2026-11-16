@@ -64,7 +64,6 @@ const meta = {
   parameters: {
     msw: { handlers: { session: signedInHandlers } },
     app: "root",
-    queryClient: true,
     layout: "centered",
     storyRoute: {
       pattern: "orgIndex",

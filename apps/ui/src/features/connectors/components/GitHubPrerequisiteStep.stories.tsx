@@ -12,7 +12,6 @@ const meta = {
   component: GitHubPrerequisiteStep,
   parameters: {
     app: "root",
-    queryClient: true,
     layout: "centered",
     storyRoute: {
       pattern: "orgIndex",

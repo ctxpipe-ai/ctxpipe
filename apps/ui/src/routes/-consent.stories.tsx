@@ -19,7 +19,6 @@ const meta = {
   component: ConsentPage,
   parameters: {
     app: "root",
-    queryClient: true,
     layout: "fullscreen",
     route: "/.auth/consent",
     storyRoute: {

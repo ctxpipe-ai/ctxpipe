@@ -128,7 +128,6 @@ const meta = {
       },
     },
     app: "root",
-    queryClient: true,
     layout: "fullscreen",
     docs: {
       description: {

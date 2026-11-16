@@ -27,7 +27,10 @@ function StoryQueryClient({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>
 }
 
-/** `parameters.queryClient: true` (opt-in): a new Query client for each story. */
+/**
+ * `parameters.queryClient: true` or `parameters.app` (opt-in): a new Query
+ * client for each story.
+ */
 export const withQueryClient: Decorator = (Story, { id }) => (
   <StoryQueryClient key={id}>
     <Story />

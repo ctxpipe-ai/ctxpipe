@@ -58,7 +58,6 @@ const meta = {
   },
   parameters: {
     app: "root",
-    queryClient: true,
     msw: {
       handlers: {
         session: signedInHandlers,

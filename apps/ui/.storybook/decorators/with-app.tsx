@@ -24,11 +24,12 @@ function ReactAriaRouterBridge({ children }: { children: ReactNode }) {
 /**
  * `parameters.app` (opt-in): the providers of the app around the story.
  * - `"root"`: the providers of `__root.tsx`: auth, HyperDX (off) and the
- *   React Aria router.
+ *   React Aria router. The Query client of `withQueryClient` also applies,
+ *   above the router as in production.
  * - `"org"`: the same, and the `AppShell` of the `/$orgSlug` layout.
  *
- * The providers read the router (`parameters.storyRoute`) and the Query
- * client (`parameters.queryClient`), so a story sets both.
+ * The providers read the router, so a story sets `parameters.storyRoute`
+ * too. Auth reads the session, so the story mocks it (`signedInHandlers`).
  */
 export const withApp: Decorator = (Story, { parameters }) => (
   <AuthProvider>

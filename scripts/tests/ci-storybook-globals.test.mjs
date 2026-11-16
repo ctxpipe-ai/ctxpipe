@@ -28,7 +28,7 @@ function check(files) {
 const preview = ({
   initialize = "initialize({}, [unhandledSocketHandler])",
   parameters = "{ controls: {} }",
-  decorators = '[optIn("app", withApp), optIn("queryClient", withQueryClient)]',
+  decorators = '[optIn(["app"], withApp), optIn(["queryClient", "app"], withQueryClient)]',
 } = {}) => `
 import { initialize, mswLoader } from "msw-storybook-addon"
 import { optIn } from "./decorators/opt-in"
@@ -69,17 +69,17 @@ test("an initial handler other than the socket enforcement fails", () => {
   assert.match(result.stderr, /initialize\(\) gets initial handlers/)
 })
 
-test("a global decorator without optIn fails", () => {
+test("a global decorator that is not optIn with a list of parameters fails", () => {
   const result = check({
     "preview.tsx": preview({
       decorators:
-        '[optIn("app", withApp), (Story) => <div className="min-h-screen"><Story /></div>, withQueryClient]',
+        '[optIn(["app"], withApp), (Story) => <div className="min-h-screen"><Story /></div>, optIn("queryClient", withQueryClient)]',
     }),
   })
   assert.equal(result.status, 1)
   const lines = result.stderr.trim().split("\n")
   assert.equal(lines.length, 2, result.stderr)
-  for (const line of lines) assert.match(line, /must be optIn\("<parameter>"/)
+  for (const line of lines) assert.match(line, /must be optIn\(\["<parameter>"/)
 })
 
 test("a file of .storybook that imports, makes or adds a handler fails", () => {

@@ -66,7 +66,6 @@ const meta = {
   render: (args) => <PaletteHarness {...args} />,
   parameters: {
     app: "root",
-    queryClient: true,
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {

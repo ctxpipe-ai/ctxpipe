@@ -85,7 +85,6 @@ const meta = {
   title: "Components/Onboarding/Hints",
   parameters: {
     app: "root",
-    queryClient: true,
     layout: "centered",
     storyRoute: {
       pattern: "orgWorkspace",

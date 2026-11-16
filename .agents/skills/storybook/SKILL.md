@@ -119,10 +119,10 @@ Each UI state has one story. Two stories of one state give two screenshots to re
 
 The mocks and the wrappers of a story are in its story file: in its meta or in its stories, never above. The globals of [`preview.tsx`](../../../apps/ui/.storybook/preview.tsx) add no mock, add nothing to the DOM and change no behavior that a story sees.
 
-- **Opt-in decorators.** Each global decorator is `optIn("<parameter>", decorator)`: it does nothing until the story file sets the parameter. Set it in the meta, or in a story.
-  - `queryClient: true`: a new Query client for the story. Set it when the story reads TanStack Query.
+- **Opt-in decorators.** Each global decorator is `optIn(["<parameter>", ...], decorator)`: it does nothing until the story file sets one of its parameters. Set it in the meta, or in a story.
+  - `queryClient: true`: a new Query client for the story. Set it when the story reads TanStack Query and has no `app`.
   - `storyRoute: { ... }`: the in-memory router that renders the story at a route ([`with-story-route.tsx`](../../../apps/ui/.storybook/decorators/with-story-route.tsx)).
-  - `app: "root"`: the providers of `__root.tsx` (auth, HyperDX off, the React Aria router). `app: "org"`: the same, and the `AppShell` of `/$orgSlug`. The providers read the router and the Query client, so set `storyRoute` and `queryClient` too, and mock the session (`signedInHandlers`).
+  - `app: "root"`: the providers of `__root.tsx` (auth, HyperDX off, the React Aria router). `app: "org"`: the same, and the `AppShell` of `/$orgSlug`. `app` also gives the Query client, above the router as in production. The providers read the router, so set `storyRoute` too, and mock the session (`signedInHandlers`). A component that reads no router, auth or query does not get `app`.
 - A wrapper that only one story file needs (a frame with a width, a `Toaster`) is a decorator in that file.
 - **The globals that stay** add nothing that a story sees:
   - The MSW worker start (`initialize`) with the record of the unmocked requests (see Mock every request). Its one initial handler, `unhandledSocketHandler`, answers no socket: it closes a socket that no story handler matches, as a request with no mock fails. It does nothing to a socket that a story handler matches.

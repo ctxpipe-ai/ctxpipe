@@ -49,7 +49,6 @@ const meta = {
       },
     },
     app: "root",
-    queryClient: true,
     layout: "fullscreen",
     storyRoute: { pattern: "orgIndex", orgSlug } satisfies StoryRouteParams,
     review: { kind: "component" },

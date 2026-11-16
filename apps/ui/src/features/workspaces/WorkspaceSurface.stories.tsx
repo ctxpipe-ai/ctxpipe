@@ -65,7 +65,6 @@ const meta = {
       },
     },
     app: "org",
-    queryClient: true,
     layout: "fullscreen",
     route: "/$orgSlug/ws/$workspaceSlug",
     review: { kind: "page" },

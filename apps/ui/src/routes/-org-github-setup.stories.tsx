@@ -23,7 +23,6 @@ const meta = {
   render: () => <GitHubSetupPageContent orgSlug="acme" />,
   parameters: {
     app: "org",
-    queryClient: true,
     layout: "fullscreen",
     route: "/$orgSlug/github/setup",
     storyRoute: {

@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { useQueryClient } from "@tanstack/react-query"
+import { QueryClientContext } from "@tanstack/react-query"
 import { getWorker } from "msw-storybook-addon"
+import { useContext } from "react"
 import { expect } from "storybook/test"
 
 // The globals of the preview (.storybook/preview.tsx) add no mock, add
@@ -10,12 +11,7 @@ import { expect } from "storybook/test"
 // source; this play proves the result in the real browser.
 
 function QueryClientProbe() {
-  let queryClient = "yes"
-  try {
-    useQueryClient()
-  } catch {
-    queryClient = "no"
-  }
+  const queryClient = useContext(QueryClientContext) ? "yes" : "no"
   return <p data-query-client={queryClient}>A story with no opt-in.</p>
 }
 

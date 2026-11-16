@@ -43,7 +43,6 @@ const meta = {
       },
     },
     app: "root",
-    queryClient: true,
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {

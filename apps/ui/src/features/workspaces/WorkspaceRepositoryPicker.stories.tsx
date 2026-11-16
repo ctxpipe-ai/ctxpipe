@@ -33,7 +33,6 @@ const meta = {
   ],
   parameters: {
     app: "root",
-    queryClient: true,
     review: { kind: "component" },
     layout: "centered",
     storyRoute: {

@@ -28,7 +28,6 @@ const meta = {
       },
     },
     app: "root",
-    queryClient: true,
     layout: "fullscreen",
     storyRoute: {
       pattern: "flat",

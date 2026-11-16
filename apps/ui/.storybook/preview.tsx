@@ -98,9 +98,10 @@ const preview: Preview = {
   // Each decorator is a no-op until the story file sets its parameter. The
   // first decorator is the innermost.
   decorators: [
-    optIn("app", withApp),
-    optIn("storyRoute", withStoryRoute),
-    optIn("queryClient", withQueryClient),
+    optIn(["app"], withApp),
+    optIn(["storyRoute"], withStoryRoute),
+    // The app providers read the Query client: `app` turns it on too.
+    optIn(["queryClient", "app"], withQueryClient),
   ],
   parameters: {
     controls: {

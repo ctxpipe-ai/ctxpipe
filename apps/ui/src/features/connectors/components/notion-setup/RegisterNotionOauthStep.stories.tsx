@@ -29,7 +29,6 @@ const meta = {
   parameters: {
     msw: { handlers: { session: signedInHandlers } },
     app: "root",
-    queryClient: true,
     layout: "centered",
     review: { kind: "component" },
     storyRoute: {

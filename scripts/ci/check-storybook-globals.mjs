@@ -12,9 +12,15 @@
 //   - a file of .storybook imports the shared mocks (`src/mocks`), makes an
 //     MSW handler (`http.*`, `graphql.*`) or adds one to the worker
 //     (`worker.use(...)`, `getWorker().use(...)`);
-//   - a global decorator of `preview.tsx` is not `optIn("<parameter>", ...)`.
-//     `optIn` renders the story as it is until the story file sets the
-//     parameter.
+//   - a global decorator of `preview.tsx` is not
+//     `optIn(["<parameter>", ...], decorator)`. `optIn` renders the story as
+//     it is until the story file sets one of the parameters.
+//
+// The check reads the source by names: it does not follow an import out of
+// .storybook or an aliased `http`. The story Testing/Preview globals
+// (apps/ui/src/lib/preview-globals.stories.tsx) checks the result in the
+// browser: no wrapper, no Query client and no handler but the socket
+// enforcement for a story with no opt-in.
 //
 // Usage: node scripts/ci/check-storybook-globals.mjs [repo root]   (default: this repo)
 
@@ -164,10 +170,12 @@ else
           ts.isIdentifier(decorator.expression) &&
           decorator.expression.text === "optIn" &&
           decorator.arguments.length === 2 &&
-          ts.isStringLiteral(decorator.arguments[0])
+          ts.isArrayLiteralExpression(decorator.arguments[0]) &&
+          decorator.arguments[0].elements.length > 0 &&
+          decorator.arguments[0].elements.every(ts.isStringLiteral)
         if (!optIn)
           errors.push(
-            `${where(preview, decorator)}: a global decorator must be optIn("<parameter>", decorator), a no-op until the story file sets the parameter.`,
+            `${where(preview, decorator)}: a global decorator must be optIn(["<parameter>", ...], decorator), a no-op until the story file sets a parameter.`,
           )
       }
     }

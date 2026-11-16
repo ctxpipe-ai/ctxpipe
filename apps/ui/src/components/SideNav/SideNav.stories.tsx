@@ -42,7 +42,6 @@ const meta = {
       },
     },
     app: "root",
-    queryClient: true,
     layout: "fullscreen",
     review: { kind: "component" },
   },

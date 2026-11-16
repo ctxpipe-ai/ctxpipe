@@ -27,7 +27,6 @@ const meta = {
   parameters: {
     msw: { handlers: { session: signedInHandlers } },
     app: "root",
-    queryClient: true,
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",

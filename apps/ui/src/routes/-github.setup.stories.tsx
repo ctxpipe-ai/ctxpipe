@@ -18,7 +18,6 @@ const meta = {
   parameters: {
     msw: { handlers: { session: signedInHandlers } },
     app: "root",
-    queryClient: true,
     layout: "fullscreen",
     route: "/.github/setup",
     storyRoute: {

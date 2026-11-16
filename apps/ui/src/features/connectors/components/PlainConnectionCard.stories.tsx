@@ -25,7 +25,6 @@ const meta = {
   args: { orgSlug, connectionId, onOpenSetup },
   parameters: {
     app: "root",
-    queryClient: true,
     review: { kind: "component" },
     msw: {
       handlers: {

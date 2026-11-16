@@ -273,7 +273,6 @@ const meta = {
   ],
   parameters: {
     app: "root",
-    queryClient: true,
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgWorkspace",

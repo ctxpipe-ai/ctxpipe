@@ -39,7 +39,6 @@ const meta = {
   tags: ["page"],
   parameters: {
     app: "org",
-    queryClient: true,
     layout: "fullscreen",
     review: { kind: "page" },
     route: "/$orgSlug/connectors",

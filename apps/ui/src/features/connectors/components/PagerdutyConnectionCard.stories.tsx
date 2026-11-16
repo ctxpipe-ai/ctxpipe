@@ -67,7 +67,6 @@ const meta = {
   },
   parameters: {
     app: "root",
-    queryClient: true,
     review: { kind: "component" },
     msw: {
       handlers: {

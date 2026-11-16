@@ -2,9 +2,6 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { OnboardingHowItWorksSlide } from "@/components/onboarding/OnboardingHowItWorksSlide"
-import { signedInHandlers } from "@/mocks/handlers"
-
-import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 
 const meta = {
   title: "Components/Onboarding/Slides/HowItWorks",
@@ -17,14 +14,7 @@ const meta = {
     ),
   ],
   parameters: {
-    msw: { handlers: { session: signedInHandlers } },
-    app: "root",
-    queryClient: true,
     layout: "centered",
-    storyRoute: {
-      pattern: "flat",
-      path: "/onboarding",
-    } satisfies StoryRouteParams,
     review: { kind: "component" },
   },
   args: {

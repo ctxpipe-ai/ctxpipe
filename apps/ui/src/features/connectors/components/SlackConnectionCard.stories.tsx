@@ -36,7 +36,6 @@ const meta = {
   args: { orgSlug, connectionId },
   parameters: {
     app: "root",
-    queryClient: true,
     review: { kind: "component" },
     msw: {
       handlers: {
