@@ -70,7 +70,7 @@ import {
   type EnqueueWorkspaceWriteCommitInput,
   enqueueWorkspaceWriteCommit,
 } from "../enqueue-workspace-write-commit.js"
-import { scheduleConversationSandboxSweep } from "./conversation-sandbox-sweep.js"
+import { scheduleSweepBackstop } from "./conversation-sandbox-sweep.js"
 
 /** A Workspace in the no-access state reads its remote again after this, or after a retry or a reconnect. */
 const NO_ACCESS_RETRY_MS = 6 * 60 * 60 * 1000
@@ -413,14 +413,9 @@ export const workspaceTipCheck = defineWorkflow(
         "ctxpipe.tip_check.no_access_linked": linkedNoAccess,
       })
       const now = new Date()
-      // Restart the sandbox sweep chain if it was ever lost. The sweep is
-      // keyed by the start of the hour, so all the checks of one hour queue
-      // one sweep. A key from the time of each check queued one sweep for
-      // each webhook (CTX-1305).
-      await scheduleConversationSandboxSweep(
-        input.orgId,
-        new Date(`${hour}:00:00.000Z`),
-      )
+      // Restart the sandbox sweep chain if it was ever lost: one sweep for
+      // each org and hour, however many checks run (CTX-1305).
+      await scheduleSweepBackstop(input.orgId, new Date(`${hour}:00:00.000Z`))
       const idleJobs = jobSandboxesDueForDestroy({
         workspaces: workspaces.map((row) => ({
           id: row.id,
