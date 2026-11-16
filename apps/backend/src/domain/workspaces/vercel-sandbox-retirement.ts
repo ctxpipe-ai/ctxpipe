@@ -204,13 +204,18 @@ async function saveBundle(
       await sandboxFileSize(handle.exec, path),
     ))
       chunks.push(chunk)
-    await new S3Client({}).send(
-      new PutObjectCommand({
-        Bucket: bucket,
-        Key: key,
-        Body: Buffer.concat(chunks),
-      }),
-    )
+    const s3 = new S3Client({})
+    try {
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          Body: Buffer.concat(chunks),
+        }),
+      )
+    } finally {
+      s3.destroy()
+    }
     log.info({
       step: "vercel-sandbox-retirement",
       message: "Saved the refused commits of a Vercel sandbox as a Git bundle",
