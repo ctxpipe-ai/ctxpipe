@@ -86,3 +86,7 @@ These instructions supplement the repository-root `AGENTS.md`.
   no OOM kill, hot empty), but the cgroup peak reached the 5670m ceiling
   (page cache counts), so it gives no new calibration. The ceiling stays
   provisional.
+- Re-run of 2026-11-16 (one SCIP indexer at a time, CTX-1315): the gate
+  passed (exit 0, no OOM kill, one SCIP shard, hot empty). The cgroup peak
+  again reached the 5670m ceiling (page cache counts), so it gives no new
+  calibration.
