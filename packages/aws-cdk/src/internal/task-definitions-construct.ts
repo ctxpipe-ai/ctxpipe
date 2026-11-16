@@ -263,7 +263,12 @@ export class TaskDefinitionsConstruct extends Construct {
         NODE_ENV: "production",
         PORT: "3002",
         VITE_PUBLIC_API_URL: appUrl,
-        AUTH_BASE_URL: appUrl,
+        // The server render calls the backend directly. A call through the
+        // load balancer gives Better Auth the UI task's address, so all
+        // browsers share one rate limit bucket.
+        AUTH_BASE_URL: "http://backend.ctxpipe.local:3000",
+        // The telemetry relay reads the allowed browser origins from here.
+        AUTH_ALLOWED_ORIGINS: appUrl,
         ...otelExportEnvironment(otelEndpoint, otelResourceAttributes, "ui"),
       },
       ...(otelHeadersSecret ? { secrets: otelHeaderSecrets } : {}),
