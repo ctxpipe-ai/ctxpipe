@@ -1,7 +1,6 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import {
-  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -57,6 +56,13 @@ const pinned = {
 // text of each module: each reference of `references` (below), and a script
 // that a `json("x")` call spawns.
 function closureOf(starts) {
+  // Only a tracked file can change in a pull request. A generated file that
+  // git ignores (such as the stamped aws-cdk image tag) is not a definition.
+  const tracked = new Set(
+    spawnSync("git", ["ls-files"], { cwd: root, encoding: "utf8" })
+      .stdout.split("\n")
+      .filter(Boolean),
+  )
   const seen = new Set()
   const visit = (file) => {
     if (seen.has(file)) return
@@ -71,7 +77,7 @@ function closureOf(starts) {
     ]
     for (const path of found)
       for (const candidate of [path, `${path}.ts`, `${path}.mjs`])
-        if (existsSync(join(root, candidate))) {
+        if (tracked.has(candidate)) {
           visit(candidate)
           break
         }
