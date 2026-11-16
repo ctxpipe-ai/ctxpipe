@@ -1417,7 +1417,8 @@ async function buildWorkspaceChatSandbox(
   }
 }
 
-function conversationSandboxWorkspace(input: {
+/** Exported for the AgentCore contract test, which runs this setup in the chat image. */
+export function conversationSandboxWorkspace(input: {
   isolation: SandboxProviderName
   input: TanstackWorkspaceChatInput
   cloneToken: string
@@ -1470,6 +1471,9 @@ function conversationSandboxWorkspace(input: {
     "setup-opencode-json",
     "setup-size-cap",
   ]
+  const steps = setup.map((command, index) =>
+    wrapSandboxSetupCommand(setupNames[index] ?? `setup-${index}`, command),
+  )
   return defineWorkspace({
     source: gitSource({
       url: originUrlWithoutCredentials(input.desiredUrl),
@@ -1478,9 +1482,15 @@ function conversationSandboxWorkspace(input: {
       // token, and stock clone only authenticates when the token is non-empty.
       auth: { token: cloneToken },
     }),
-    setup: setup.map((command, index) =>
-      wrapSandboxSetupCommand(setupNames[index] ?? `setup-${index}`, command),
-    ),
+    // AgentCore: each command is a round trip of 150-800 ms. The setup steps
+    // run as one command. A chat installs no packages, so a fixed package
+    // manager stops the four lock-file probes.
+    ...(input.isolation === "agentcore"
+      ? {
+          packageManager: "npm" as const,
+          setup: [steps.map((step) => `{\n${step}\n}`).join(" &&\n")],
+        }
+      : { setup: steps }),
     secrets,
   })
 }

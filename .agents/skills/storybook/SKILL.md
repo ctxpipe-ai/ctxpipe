@@ -49,7 +49,7 @@ export const LinkedToAnotherUser: Story = {
     review: {
       kind: "component",
       purpose:
-        "Popup step of the GitHub account link: the account is already linked to another ctxpipe user.",
+        "Popup step of the GitHub account link: the user signed in to GitHub to link it to ctxpipe, but the account is already linked to another ctxpipe user.",
     },
   },
 }
@@ -57,11 +57,24 @@ export const LinkedToAnotherUser: Story = {
 
 - `kind` is `"page"` or `"component"`. A `page` is a whole screen that a user lands on: a page with its shell, or a full popup or onboarding screen. A component, a dialog, a step of a flow, or a part of a page is a `component`. Put `kind` in the `meta` when it is the same for all stories of the file; a story's own `kind` wins.
 - Most stories with the `page` tag have the kind `page`. A page story that shows only one small step of its route (a popup step with a title and a paragraph) has the kind `component`. A story with the kind `page` needs no `page` tag (for example, a full screen that no route renders alone).
-- `purpose` is one sentence in the story itself, at most 200 characters: what the UI is for, and the state that the story shows. For example: "Org home page of a member with no Workspaces yet." Do not start with "Shows".
+- Choose the kind from what the screenshot shows, not from the file. The page-only qualities (for example, one primary action for each page) apply only to a `page`, so a wrong kind gives wrong findings.
+- `purpose` is one sentence in the story itself, on one line of at most 240 characters. The critic reads it first and judges the screenshot against it, so meaning matters more than form. A good purpose tells the critic:
+  - what the UI is for, by the name that the user sees, and its real kind (do not call a page a wizard, or a section a dialog);
+  - how the user uses it;
+  - the state that the story shows, and how the user got there (what they pressed or opened). Name each state that a reviewer can take for a defect, such as a loading, pending, empty or error state.
+- Examples: "After the member presses Publish, the Workspace page waits for the push, so the Publish button shows its spinner." "Connectors page where an admin adds the tools of the org: two connections still wait for the end of their setup." Not "Workspace page with a pending button" (no use, no user step), and not "Shows the pending state" (no UI).
+- Describe the UI, not the story: do not start with "Shows", "Displays" or "Renders".
 - Both values are string literals: the check and the critic read the story file with the CSF parser, and the build does not run.
 - The critic gets the Storybook name (`<title> / <name>`), the kind and the purpose with each screenshot. The kind gives the scope: the page-only qualities apply only to a `page`. The purpose goes into the prompt as data in a `<data>` block. It tells the critic what it looks at. It does not explain a change: that is the job of the brief.
 - `visual:review` reads the story file at the merge base (`--images`, the factory critic), or the manifest of `pnpm visual:check`. A new story that is not at the merge base has no kind or purpose there: its scope is `component`, and the verdict says so.
-- **Guard:** `node scripts/ci/check-story-review.mjs` runs in CI (the policy check `story-review`). It fails for each story with no valid `kind` or no `purpose` of its own.
+- **Guard:** `node scripts/ci/check-story-review.mjs` runs in CI (the policy check `story-review`). It fails for each story with no valid `kind`, with no `purpose` of its own, or with a purpose that is not one line of 40 to 240 characters or that starts with "Shows", "Displays" or "Renders". It cannot check that the purpose is meaningful or true: the critic does that.
+
+### Realistic story data
+
+The visual critic reports story data that no real user sees as a defect of the story. The fix is in the story, not in the style of the UI.
+
+- Mock data is realistic: real-looking names, values and text, never random values or lorem ipsum. Give a fixture the counts and mixes that a real org has. Do not use a run of generated ids (`ITEM001` to `ITEM100`) to reach a limit. Use the smallest real case that shows the state.
+- Do not render debug output, such as the serialized value of a control, in the canvas. A play reads the result through the visible UI, a recorded msw request, or an `fn()` spy on a callback.
 
 ## Colocation and naming
 
