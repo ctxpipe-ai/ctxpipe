@@ -39,8 +39,9 @@ import {
 //     Prints {"mode", "reason"}: `select` when the selector runs for this
 //     run, else `full` and why. <file> lists the changed paths of the PR.
 //     With `select`, "jobs" names the jobs of a ci.yaml change whose checks
-//     all run, and "gateInputs" the changed gate inputs that the base
-//     revision decides. It runs git on the checkout (HEAD^1 and HEAD). The
+//     all run, "gateInputs" the changed gate inputs that the base revision
+//     decides, and "definitions" the changed definitions of checks. It runs
+//     git on the checkout (HEAD^1 and HEAD). The
 //     gate jobs of ci.yaml run each command of this file from the base
 //     revision of a PR.
 //
@@ -220,20 +221,25 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
     ].some((input) => input.test(path)),
   )
   inputs = inputs.filter((path) => !decided.includes(path))
-  // The files that define how checks are listed and run. The key of each
-  // cached check holds run.mjs and so its import closure, and each data file
-  // is an input of the checks that read it: a change misses each stored pass
-  // of the old definition. The manifest job also lists the same tree with
-  // the code of the base revision, before any PR code runs, and the plan
-  // compares the two listings (definitionChanges in plan.mjs). The runner
-  // steps of CI (selected.mjs, rerun-failed.mjs) and toolchain.mjs, whose
-  // record is part of each key, stay full-run inputs.
-  const definitions = inputs.filter((path) =>
-    [
-      /^scripts\/checks\/(?!(?:selected|rerun-failed|toolchain)\.mjs$)[^/]+\.(?:mjs|json)$/,
-      /^scripts\/ci\//,
-      /^apps\//,
-    ].some((input) => input.test(path)),
+  // The files that define how the checks of a family are listed and run.
+  // The key of each check that one can change holds it: a Vitest or
+  // Storybook key holds run.mjs and so its import closure, a project key
+  // holds projects.mjs, and each data file is an input of the checks that
+  // read it. Thus a change misses each stored pass of the old definition.
+  // The manifest job also lists the same tree with the code of the base
+  // revision, before any PR code runs, and the plan compares the two
+  // listings (definitionChanges in plan.mjs). The files that run the checks
+  // of every family stay full-run inputs: the runner and its host pins, the
+  // prerequisites, the CI runner steps, and toolchain.mjs, whose record is
+  // part of each key. A project key does not hold them.
+  const definitions = inputs.filter(
+    (path) =>
+      !/^scripts\/checks\/(?:run|families|prerequisites|selected|rerun-failed|toolchain)\.mjs$|^scripts\/ci\/(?:prerequisites|graph-ready|vitest-launch)\.mjs$/.test(
+        path,
+      ) &&
+      [/^scripts\/checks\//, /^scripts\/ci\//, /^apps\//].some((input) =>
+        input.test(path),
+      ),
   )
   inputs = inputs.filter((path) => !definitions.includes(path))
   // A change to ci.yaml only in the `steps` of check jobs, of
@@ -1032,6 +1038,9 @@ export function gateDecision({
       reason: "gate: the gated run gates",
       // The changed gate inputs that the base revision decided (decideMode).
       gateInputs: planned.gateInputs ?? [],
+      // The changed definitions of checks, and the checks whose definition
+      // changed (definitionChanges in plan.mjs).
+      ...(planned.definitions && { definitions: planned.definitions }),
       factory: config.factory?.version ?? null,
       acceptAgentResults: config.acceptAgentResults === true,
       acceptPrResults: config.acceptPrResults === true,
@@ -1180,6 +1189,11 @@ export function gateText(
     lines.push(
       "",
       `**Gate inputs changed:** ${decision.gateInputs.map((path) => code(path)).join(", ")}. The gate code and the pin of the base revision decided this run, not the code of this PR, and every test of the CI scripts was selected.`,
+    )
+  if (decision.definitions)
+    lines.push(
+      "",
+      `**Definitions of checks changed:** ${decision.definitions.inputs.map((path) => code(path)).join(", ")}. The base revision listed the same tree; ${decision.definitions.changed.length} checks whose definition changed ran without a stored pass.`,
     )
   const shards = Object.entries(decision.shards ?? {})
   if (shards.length)

@@ -134,13 +134,19 @@ test("a change to a file that lists, defines or runs checks gives a full run, or
       file,
     )
   }
-  // The CI runner steps and the toolchain record stay full-run inputs: a
-  // check that runs in CI runs through them, and the record is part of each
-  // key.
+  // The files that run the checks of every family stay full-run inputs: a
+  // project key does not hold them, a check that runs in CI runs through
+  // the CI runner steps, and the toolchain record is part of each key.
   for (const file of [
+    "scripts/checks/run.mjs",
+    "scripts/checks/families.mjs",
+    "scripts/checks/prerequisites.mjs",
     "scripts/checks/selected.mjs",
     "scripts/checks/rerun-failed.mjs",
     "scripts/checks/toolchain.mjs",
+    "scripts/ci/vitest-launch.mjs",
+    "scripts/ci/graph-ready.mjs",
+    "scripts/ci/prerequisites.mjs",
   ])
     assert.equal(
       decideMode({
@@ -306,8 +312,9 @@ test("only a same-repo pull_request without gate input changes runs the selector
     })
   for (const path of [
     ".github/actions/setup/action.yml",
+    "scripts/checks/run.mjs",
     "scripts/checks/toolchain.mjs",
-    "scripts/checks/selected.mjs",
+    "scripts/ci/vitest-launch.mjs",
     ".npmrc",
     "patches/a.patch",
   ])
@@ -318,12 +325,12 @@ test("only a same-repo pull_request without gate input changes runs the selector
   // A definition of checks runs the selector, and the plan compares the
   // listing of the PR with the listing of the base revision.
   for (const path of [
-    "scripts/checks/run.mjs",
+    "scripts/checks/list.mjs",
     "scripts/checks/lanes.mjs",
     "scripts/checks/visual.mjs",
+    "scripts/checks/projects.mjs",
     "scripts/checks/non-portable.json",
     "scripts/ci/test-suite.mjs",
-    "scripts/ci/vitest-launch.mjs",
     "scripts/ci/test-weights.json",
     "apps/ui/.storybook/check-modules.mjs",
   ])

@@ -595,6 +595,22 @@ test("a change to a definition of checks reuses each stored pass whose definitio
     changed: [],
   })
   assert.match(planned.reason, /definitions of checks changed \(scripts\/checks\/lanes\.mjs\)/)
+  // The merge gate comment says why.
+  const { decision } = gateDecision({
+    config: config(),
+    planned,
+    records: [],
+    needs,
+    jobs: { jobs: [] },
+    run: { id: "42", attempt: 1, pr: 7, sha: sha(9) },
+    store: store(),
+    now: new Date("2026-10-28T12:00:00Z"),
+  })
+  assert.ok(
+    gateText(decision, "https://example.com/run").includes(
+      "**Definitions of checks changed:** `scripts/checks/lanes.mjs`. The base revision listed the same tree; 0 checks whose definition changed ran without a stored pass.",
+    ),
+  )
   // More inputs only widen a key, and the intent text is no part of it.
   const wider = listed().map((item) =>
     item.id === lint

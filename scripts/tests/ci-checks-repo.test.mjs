@@ -851,12 +851,14 @@ test("every check has the root toolchain files among its inputs", () => {
       assert.ok(inputs.includes(file), `${id} lacks input ${file}`)
 })
 
-test("the key of each cached check holds the check runner, and so each module that lists or runs checks", () => {
+test("the key of each cached check holds the module that lists and runs it", () => {
   // A key holds the static import closure of each code input. run.mjs
-  // imports families.mjs, which imports each family module and the
-  // prerequisites. Thus a change to how a check is listed or run changes its
-  // key, and no stored pass of the old definition matches (scripts/checks/
-  // README.md, A change to a definition of checks).
+  // imports families.mjs, which imports each family module, so a Vitest or
+  // Storybook key holds lanes.mjs, storybook.mjs, visual.mjs and the trace
+  // files. A project check runs a command of projects.mjs. Thus a change to
+  // how a check is listed or run changes its key, and no stored pass of the
+  // old definition matches (scripts/checks/README.md, A change to a
+  // definition of checks).
   const result = node([script("list.mjs")])
   assert.equal(result.status, 0, result.stderr)
   const { checks } = JSON.parse(result.stdout)
@@ -864,8 +866,15 @@ test("the key of each cached check holds the check runner, and so each module th
     (check) => !check.stochastic && check.cacheable !== false,
   )
   assert.ok(cached.length > 1000)
-  for (const { id, inputs } of cached)
-    assert.ok(inputs.includes("scripts/checks/run.mjs"), id)
+  for (const { id, family, inputs } of cached)
+    assert.ok(
+      inputs.includes(
+        ["vitest", "storybook"].includes(family)
+          ? "scripts/checks/run.mjs"
+          : "scripts/checks/projects.mjs",
+      ),
+      id,
+    )
 })
 
 test("the manifest lists a check for each job of the other pull request workflows", () => {
