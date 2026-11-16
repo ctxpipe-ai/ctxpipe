@@ -609,6 +609,20 @@ it.each([
           }
           const result = await handle.result({ timeoutMs: 1_000 })
           expect(result).toMatchObject({ committed: true })
+          // A push that loses the race at the remote is a lost race, not a
+          // failed step that retries its run (CTX-1355).
+          const pushFailures = []
+          for (const run of (await f.backend.listWorkflowRuns({ limit: 100 }))
+            .data)
+            pushFailures.push(
+              ...(
+                await f.backend.listStepAttempts({ workflowRunId: run.id })
+              ).data.filter(
+                (step) =>
+                  step.stepName === "broker-push" && step.status === "failed",
+              ),
+            )
+          expect(pushFailures).toEqual([])
           // No human commit is lost: main holds the last one.
           expect(
             f.git(

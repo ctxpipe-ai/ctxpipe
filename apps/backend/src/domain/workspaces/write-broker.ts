@@ -211,9 +211,20 @@ export async function pushWorkspaceCommit(
         ],
         undefined,
         gitRemoteEnvironment({ url: revision.remote.url, token }),
-      ).catch((error: unknown) => {
+      ).catch(async (error: unknown) => {
         const reason = writeAccessDenialReason(error)
         if (reason) throw new WorkspaceWriteAccessUnavailableError(reason)
+        // Another writer can push between the tip check and this push, and
+        // the remote then rejects it: that is a lost race, which the caller
+        // merges again, not a failed step (CTX-1355).
+        const after = await resolveGitRemoteTip({
+          url: revision.remote.url,
+          token,
+        }).catch(() => undefined)
+        if (after?.branch === revision.defaultBranch) {
+          if (after.sha === committed.sha) return
+          if (after.sha !== revision.sha) throw new WorkspaceTipAdvancedError()
+        }
         throw error
       })
     },

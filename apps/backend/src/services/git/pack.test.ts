@@ -202,6 +202,48 @@ it("opens a large pack without the whole pack in memory", async () => {
   }
 }, 120_000)
 
+it("puts the rejected refs of a failed porcelain push in its error: Git writes them to stdout", async () => {
+  const root = await mkdtemp(join(tmpdir(), "push-rejected-"))
+  try {
+    const remote = join(root, "remote.git")
+    const work = join(root, "work")
+    await nativeGit(root, ["init", "-q", "--bare", "-b", "main", remote])
+    await nativeGit(root, ["init", "-q", "-b", "main", work])
+    const commit = async (message: string) => {
+      await nativeGit(work, [
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        message,
+      ])
+      return (await nativeGit(work, ["rev-parse", "HEAD"])).toString().trim()
+    }
+    const first = await commit("first")
+    await nativeGit(work, ["push", "-q", remote, "HEAD:main"])
+    // Another writer moves main; this commit is not on top of it.
+    await commit("theirs")
+    await nativeGit(work, ["push", "-q", remote, "HEAD:main"])
+    await nativeGit(work, ["reset", "-q", "--hard", first])
+    const ours = await commit("ours")
+    await expect(
+      nativeGit(work, [
+        "push",
+        "--porcelain",
+        "--",
+        remote,
+        `${ours}:refs/heads/main`,
+      ]),
+    ).rejects.toThrow(/refs\/heads\/main\t\[rejected\] \((fetch first|non-fast-forward)\)/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 it("puts the Git error output and the exit code in the error of a failed pack", async () => {
   const sha = "a".repeat(40)
   await expect(
