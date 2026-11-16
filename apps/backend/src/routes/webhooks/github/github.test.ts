@@ -81,6 +81,8 @@ vi.mock("../../../openworkflow/enqueue-repository-ingestion.js", () => ({
 
 const persistWorkspaceTipsMock = vi.hoisted(() => vi.fn().mockResolvedValue(0))
 
+// The tip check filter reads Workspaces from the database, which this file
+// does not have; github-tip.contract.test.ts proves it on a real one.
 vi.mock("./github-push-tip-check.js", () => ({
   enqueuePushTipChecks: vi.fn().mockResolvedValue(undefined),
 }))

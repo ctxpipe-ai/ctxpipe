@@ -4,6 +4,7 @@ import {
   listOrgLinkedRepositories,
   listOrgWorkspaces,
 } from "../../../models/workspaces.js"
+import { getLogger } from "../../../observability/logger.js"
 import { enqueueWorkspaceTipCheck } from "../../../openworkflow/enqueue-workspace-tip-check.js"
 
 const MINUTE_MS = 60_000
@@ -60,22 +61,28 @@ export async function enqueuePushTipChecks(input: {
   repository: string
   ref: string
   defaultBranch: string
-  log: { error: (err: Error) => void }
 }): Promise<void> {
   if (!input.ref.startsWith("refs/heads/")) return
   const branch = input.ref.slice("refs/heads/".length)
   const minute = Math.ceil(Date.now() / MINUTE_MS) * MINUTE_MS
+  const logger = getLogger()
   for (const orgId of new Set(input.orgIds)) {
-    if (
-      !(await orgReadsBranch({
+    // A failed read skips this org only: the hourly check reads its tips,
+    // and the other orgs and the ingestion of the push go on.
+    const reads = await orgReadsBranch({
+      orgId,
+      repository: input.repository,
+      branch,
+      defaultBranch: input.defaultBranch,
+    }).catch((error: unknown) => {
+      logger.error(error instanceof Error ? error : new Error(String(error)), {
+        step: "github_push.tip_check_filter",
         orgId,
-        repository: input.repository,
-        branch,
-        defaultBranch: input.defaultBranch,
-      }))
-    )
-      continue
-    await enqueueWorkspaceTipCheck(orgId, input.log, {
+      })
+      return false
+    })
+    if (!reads) continue
+    await enqueueWorkspaceTipCheck(orgId, logger, {
       idempotencyKey: `workspace-tip-check-push:${orgId}:${minute}`,
       availableAt: new Date(minute),
     })

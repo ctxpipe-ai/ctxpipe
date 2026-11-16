@@ -19,7 +19,6 @@ import {
 } from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
-import { enqueuePushTipChecks } from "./github-push-tip-check.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 import {
@@ -30,6 +29,7 @@ import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
 import { maybeActivatePagerdutySyncOnConfigPush } from "./github-pagerduty-push.js"
 import { maybeEnqueueGithubPrMirror } from "./github-pr-mirror-events.js"
+import { enqueuePushTipChecks } from "./github-push-tip-check.js"
 import { maybeEnqueueUpgradeScanForPullRequest } from "./github-upgrade-pr.js"
 import {
   logGithubWebhookNoOrganization,
@@ -268,7 +268,6 @@ async function processPushEvent(
     repository: repo.full_name,
     ref,
     defaultBranch,
-    log: ctx.log,
   })
 
   if (!onDefaultBranch) return

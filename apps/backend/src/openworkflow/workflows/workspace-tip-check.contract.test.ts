@@ -588,12 +588,17 @@ async function workspaceRuns(f: NativeHydrationFixture, workflowName: string) {
     return (await backend.listWorkflowRuns({ limit: 1000 })).data.filter(
       (run) => {
         const input = run.input as {
+          orgId?: string
           workspaceId?: string
           revision?: { workspaceId?: string }
         }
+        const workspaceId = input?.workspaceId ?? input?.revision?.workspaceId
+        // A run for the whole org (a sandbox sweep) names no Workspace.
         return (
           run.workflowName === workflowName &&
-          (input?.workspaceId ?? input?.revision?.workspaceId) === f.workspaceId
+          (workspaceId === undefined
+            ? input?.orgId === f.org.id
+            : workspaceId === f.workspaceId)
         )
       },
     )
@@ -845,24 +850,10 @@ it(
         for (let check = 0; check < 3; check++)
           await runTipCheck(f, "2026-01-01T09")
         await runTipCheck(f, "2026-01-01T10")
-        const backend = await BackendPostgres.connect(f.databaseUrl, {
-          namespaceId: openWorkflowNamespaceId(),
-          runMigrations: false,
-        })
-        try {
-          const sweeps = (
-            await backend.listWorkflowRuns({ limit: 1000 })
-          ).data.filter(
-            (run) =>
-              run.workflowName === "conversation-sandbox-sweep" &&
-              (run.input as { orgId?: string })?.orgId === f.org.id,
-          )
-          expect(
-            sweeps.map((run) => run.availableAt?.toISOString()).sort(),
-          ).toEqual(["2026-01-01T09:00:00.000Z", "2026-01-01T10:00:00.000Z"])
-        } finally {
-          await backend.stop()
-        }
+        const sweeps = await workspaceRuns(f, "conversation-sandbox-sweep")
+        expect(
+          sweeps.map((run) => run.availableAt?.toISOString()).sort(),
+        ).toEqual(["2026-01-01T09:00:00.000Z", "2026-01-01T10:00:00.000Z"])
       },
     )
   },

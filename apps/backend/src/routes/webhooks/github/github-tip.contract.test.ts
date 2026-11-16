@@ -26,20 +26,20 @@ import { contextStorage } from "../../../test/hono-test-logger.js"
 import { insertLinkedRepositoryRows } from "../../../test/workspace-links-fixture.js"
 import { registerGithubWebhookRoute } from "./github.js"
 
+/** One queued run of the org. */
+type QueuedRun = {
+  workflow_name: string
+  input: unknown
+  available_at: Date
+}
+
 type PushFixture = {
   org: { id: string; slug: string; name: string }
   workspaceId: string
   /** Send one signed push and give the HTTP status. */
   push: (input: { repository: string; ref: string }) => Promise<number>
   /** The queued runs of the org. */
-  runs: () => Promise<
-    Array<{
-      workflow_name: string
-      input: unknown
-      idempotency_key: string | null
-      available_at: Date
-    }>
-  >
+  runs: () => Promise<QueuedRun[]>
 }
 
 /**
@@ -142,13 +142,8 @@ async function withPushFixture(
       },
       runs: async () =>
         (
-          await getSystemDb().execute<{
-            workflow_name: string
-            input: unknown
-            idempotency_key: string | null
-            available_at: Date
-          }>(
-            sql`select workflow_name, input, idempotency_key, available_at from openworkflow.workflow_runs where input->>'orgId' = ${org.id} order by available_at`,
+          await getSystemDb().execute<QueuedRun>(
+            sql`select workflow_name, input, available_at from openworkflow.workflow_runs where input->>'orgId' = ${org.id} order by available_at`,
           )
         ).rows.map((row) => ({
           ...row,
