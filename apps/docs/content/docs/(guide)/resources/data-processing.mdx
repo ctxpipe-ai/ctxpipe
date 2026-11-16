@@ -40,10 +40,15 @@ ctxpipe reads nothing that you did not connect.
 
 ## Where your data is
 
-Hosted ctxpipe runs in one AWS region: **us-west-2** (Oregon, United States).
-The database, the indexes, the sandboxes, and our own observability are all in
-that region. Requests in transit pass through the Cloudflare edge, and model
-calls go to the model providers. Both can process data outside us-west-2.
+Since 2026-11-15, hosted ctxpipe runs in one AWS region: **us-west-2**
+(Oregon, United States). The database, the indexes, the sandboxes (Amazon
+Bedrock AgentCore), and our own observability are all in that region. Requests
+in transit pass through the Cloudflare edge, and model calls go to the model
+providers. Both can process data outside us-west-2.
+
+Before 2026-11-15, hosted ctxpipe ran on Railway (compute) and Neon (Postgres)
+in the United States, and the sandboxes ran on Vercel Sandbox. Copies of data
+from that time stay with these providers until we delete them.
 
 ## Sub-processors
 
@@ -52,8 +57,7 @@ calls go to the model providers. Both can process data outside us-west-2.
 | Amazon Web Services (AWS) | Compute, the Postgres database, storage, and the isolated sandboxes (microVMs) for Workspace chat and for ingestion. A sandbox holds a copy of the Workspace repository, or of the linked repository that it ingests. AWS also runs our own observability (logs, traces, and model traces). |
 | Cloudflare | The network edge: DNS, TLS, protection against attacks, and the private connection to AWS. Requests to ctxpipe go through Cloudflare. |
 | OpenRouter | Model routing, only to zero data retention endpoints |
-| Vercel | The ctxpipe marketing site and this documentation only. Vercel does not process your Workspace data or model traffic. |
-| Anthropic and OpenAI | The model providers of the AI agents that the ctxpipe team uses to operate and debug the service. These agents read our logs and traces, which can hold the prompts and outputs of model calls. See [Retention](#retention). |
+| Vercel | The ctxpipe marketing site and this documentation. Until 2026-11-15, Vercel Sandbox also ran the sandboxes for Workspace chat and for ingestion. We are deleting the sandboxes that remain there. |
 
 ## How ctxpipe uses models
 
@@ -85,12 +89,6 @@ We do not publish fixed retention periods for indexed data yet. Two exceptions:
 - Our own observability (HyperDX) keeps logs and traces for 30 days. A trace
   of a model call holds the prompt and the output of that call. AWS CloudWatch
   keeps the raw service logs for 1 day.
-
-The ctxpipe team uses AI agents to operate and debug the service. These agents
-read logs and traces, so this content also goes to the model providers of the
-agents (Anthropic and OpenAI). These calls do not go through OpenRouter, so the
-zero data retention rule above does not apply to them. The terms of the
-accounts of the ctxpipe team with each provider apply.
 
 For deletion times, export, or a DPA,
 [get in touch](/docs/getting-started/get-in-touch).
