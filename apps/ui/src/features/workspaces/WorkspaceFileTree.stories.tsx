@@ -294,7 +294,7 @@ export const DeletedFile: Story = {
   parameters: {
     review: {
       purpose:
-        "File tree of a Workspace, where a member browses and opens files: a file in a closed folder was deleted in this conversation, so the folder shows a change dot.",
+        "File tree of a Workspace, where a member browses and opens files: the member opened a folder, and a file deleted in this conversation shows as a struck-through row.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
@@ -304,6 +304,25 @@ export const DeletedFile: Story = {
     gitStatus: [
       { path: "knowledge/old-pricing.md", status: "deleted", deletions: 12 },
     ],
+  },
+  play: async ({ canvasElement }) => {
+    const folder = await waitFor(() => {
+      const row = findInShadows(
+        canvasElement,
+        "[data-item-type='folder'][data-item-path^='knowledge']",
+      )
+      expect(row).toBeTruthy()
+      return row as HTMLElement
+    })
+    await userEvent.click(folder)
+    await waitFor(() =>
+      expect(
+        findInShadows(
+          canvasElement,
+          "[data-item-path='knowledge/old-pricing.md']",
+        ),
+      ).toBeTruthy(),
+    )
   },
 }
 

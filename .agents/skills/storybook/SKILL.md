@@ -69,7 +69,7 @@ export const LinkedToAnotherUser: Story = {
 Each story shows a state that a user can see in the real product. A screenshot of a state that the product never renders wastes the review, and the visual critic judges a UI that does not exist.
 
 - Render a component with the props that a real caller passes. Find the callers (`rg "<MyComponent"`) and the route before you choose the args.
-- Do not story an empty frame: a shell, a layout or a page frame with a placeholder child ("Slide placeholder", "Main content"). Put a real child in it, or story the page that renders it.
+- Do not write a story for an empty frame: a shell, a layout or a page frame with a placeholder child ("Slide placeholder", "Main content"). Put a real child in it, or write a story for the page that renders it.
 - Do not give a component a context that the product never gives it. For example, the SideNav is always in the shell layout: its story wraps it in `ShellLayoutProvider`, or the nav has no org and no items.
 - The end state of a play is the screenshot. A play that ends on a test harness (a test panel with load buttons, a story route marker such as "Story route: /acme", "Landed on …" or "Home page", an empty page after a navigation) keeps its play and skips its screenshot: `visual: { skip: "Behavior test: it ends on a story route marker, which the product does not render." }`.
 - MSW: the preview `defaults` (the signed-in session, the org list, the auth config) answer before a story's `page` handlers. A story that changes the session or the org list puts its handlers in `defaults`. Else the story shows the default user, or "Not Found" after a redirect.
@@ -85,7 +85,7 @@ Each UI state has one story. Two stories of one state give two screenshots to re
 - **A variant** whose args or fixtures do not change the pixels (the same file content, a prop that only a play reads) is not a new state. Delete it, or give it a play that reaches its own state.
 - When only the mobile screenshot is the same as another story, set `visual: { viewports: ["desktop"] }`.
 - Before you add a story, look at the stories of the component, of its wrapper and of its route. If one shows the state, extend that story.
-- **Guard:** `node scripts/ci/check-duplicate-screenshots.mjs` runs in CI (the policy check `duplicate-screenshots`). It fails when the committed baselines of two different stories have the same pixels. A named snapshot may repeat the end state of its own story. When two stories must look the same (rare), give the second one `visual: { duplicate: "<reason>" }`.
+- **Guard:** `node scripts/ci/check-duplicate-screenshots.mjs` runs in CI (the policy check `duplicate-screenshots`). It fails when the committed baselines of two different stories have the same pixels. A named snapshot may repeat the end state of its own story. When two stories must look the same (rare), give the second one `visual: { duplicate: "<reason>" }`. Exactly one story of a set of same pixels has no reason: it owns the state.
 
 ## Colocation and naming
 

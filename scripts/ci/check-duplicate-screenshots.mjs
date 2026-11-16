@@ -3,10 +3,12 @@
 // have the same pixels.
 //
 // A baseline is <dir>/screenshots/<story file stem>.<export>[@<snapshot>].<viewport>.screenshot.png
-// beside the story file <dir>/<story file stem>.stories.tsx. A story with
+// beside the story file <dir>/<story file stem>.stories.tsx: the name that
+// `baselinePath` (packages/visual-review/src/compare/manifest.ts) gives, and
+// that name has only `.stories.tsx` story files. A story with
 // `parameters.visual.duplicate: "<reason>"` may have the same pixels as one
-// other story. A baseline with no story file is an orphan; `pnpm visual:check`
-// reports it, so this check does not read it.
+// story with no reason. A baseline with no story file is an orphan;
+// `pnpm visual:check` reports it, so this check does not read it.
 //
 // Usage: node scripts/ci/check-duplicate-screenshots.mjs [repo root]   (default: this repo)
 
@@ -35,13 +37,14 @@ function baselines(dir) {
       const path = posix.join(dir, entry.name)
       if (entry.isDirectory())
         return entry.name === "node_modules" ? [] : baselines(path)
-      const name = /^(.+)\.([A-Za-z_$][\w$]*)(?:@[a-z0-9-]+)?\.(?:desktop|mobile)\.screenshot\.png$/.exec(
-        entry.name,
-      )
-      if (!name || posix.basename(dir) !== "screenshots") return []
-      const file = posix.join(posix.dirname(dir), `${name[1]}.stories.tsx`)
+      const [, stem, exportName] =
+        /^(.+)\.([A-Za-z_$][\w$]*)(?:@[a-z0-9-]+)?\.(?:desktop|mobile)\.screenshot\.png$/.exec(
+          entry.name,
+        ) ?? []
+      if (!stem || posix.basename(dir) !== "screenshots") return []
+      const file = posix.join(posix.dirname(dir), `${stem}.stories.tsx`)
       if (!existsSync(join(root, file))) return []
-      return [{ path, file, exportName: name[2] }]
+      return [{ path, file, exportName }]
     },
   )
 }
@@ -65,30 +68,30 @@ const options = visualOptions(entries, loadCsf, (file) =>
   readFileSync(join(root, file), "utf8"),
 )
 // The baselines of each set of pixels (the size and the color of each pixel,
-// so another PNG encoding of the same pixels is the same). A set fails when
-// two or more of its stories have no duplicate reason. Two baselines of one
-// story (a named snapshot and the end state) are not a duplicate.
-const bySame = new Map()
+// so another PNG encoding of the same pixels is the same). A set of two or
+// more stories passes only when exactly one of them has no duplicate reason:
+// that story owns the state. Two baselines of one story (a named snapshot
+// and the end state) are not a duplicate.
+const baselinesByPixels = new Map()
 for (const { path, file, exportName } of found) {
   const { data, width, height } = decode(readFileSync(join(root, path)))
   const key = createHash("sha256")
     .update(`${width}x${height}:`)
     .update(data)
     .digest("hex")
-  bySame.set(key, [
-    ...(bySame.get(key) ?? []),
+  baselinesByPixels.set(key, [
+    ...(baselinesByPixels.get(key) ?? []),
     { path, story: `${file}#${exportName}` },
   ])
 }
-const groups = [...bySame.values()]
-  .filter(
-    (group) =>
-      new Set(
-        group
-          .filter(({ story }) => !options.get(story)?.duplicate)
-          .map(({ story }) => story),
-      ).size > 1,
-  )
+const groups = [...baselinesByPixels.values()]
+  .filter((group) => {
+    const stories = new Set(group.map(({ story }) => story))
+    const owners = [...stories].filter(
+      (story) => !options.get(story)?.duplicate,
+    )
+    return stories.size > 1 && owners.length !== 1
+  })
   .map((group) => group.map(({ path }) => path).sort())
 for (const group of groups)
   console.error(

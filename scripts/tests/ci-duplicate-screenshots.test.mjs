@@ -87,6 +87,14 @@ test("a story with a duplicate reason may repeat one story, and the reason must 
     files(`{ duplicate: "The hidden card keeps its place on purpose." }`),
   )
   assert.equal(allowed.status, 0, allowed.stderr)
+  // Two stories with a reason and none with no reason: no story owns the state.
+  const noOwner = check({
+    ...files(`{ duplicate: "The hidden card keeps its place on purpose." }`),
+    "x/Card.stories.tsx": storyFile(
+      `export const Shown = { parameters: { visual: { duplicate: "A copy." } } }\nexport const Hidden = { parameters: { visual: { duplicate: "A copy." } } }`,
+    ),
+  })
+  assert.equal(noOwner.status, 1)
   const noReason = check(files(`{ duplicate: "" }`))
   assert.equal(noReason.status, 1)
   assert.match(noReason.stderr, /parameters\.visual\.duplicate needs a reason/)
