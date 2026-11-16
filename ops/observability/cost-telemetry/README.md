@@ -14,7 +14,7 @@ The shared window is the last 3 UTC days, today included. OpenRouter lags by one
 
 - `billing.cost` (USD) and `billing.usage` (unit `1`; the unit of the row is `billing.unit`): one point per row at 00:00 UTC of its day. Attributes: `billing.provider`, `billing.sku`, `billing.scope`, `billing.source`, `billing.unit`, `billing.observed_at_unix_ms`, and `billing.account` on AWS rows.
 - `billing.fx_rate` (unit `1`, `billing.pair=USD/AUD`): one point on each run with a successful FX fetch from Frankfurter v2 (`https://api.frankfurter.dev/v2/rates`, `providers=ecb`). An alert of the observability stack expects it every hour.
-- `billing.provider_status` (unit `1`): one point for each provider entry of the run, at the time of the run: 1 when the entry succeeded, 0 when it failed. Attributes: `billing.provider` (the entry: `openrouter`, `github`, `github-plan`, `blacksmith`, `cloudflare`, `aws`, `linear`, `fx`), `billing.observed_at_unix_ms` (the run time), and on a failure `billing.error`, a short class: `missing_env`, `http_<status>` (`http_401`, `http_403`, `http_429`, …), `http_5xx`, `timeout`, `parse` (an unexpected response), `graphql` (a GraphQL `errors` array), `cli` (the Blacksmith CLI failed), `no_plan` (the token cannot see the GitHub plan), `no_price` (no committed seat price), `currency` (a Cloudflare charge not in USD), or `error` (any other failure). AWS sends no status point outside its 12:17 UTC slot, because the run does not call it then.
+- `billing.provider_status` (unit `1`): one point for each provider entry of the run, at the time of the run: 1 when the entry succeeded, 0 when it failed. Attributes: `billing.provider` (the entry: `openrouter`, `github`, `github-plan`, `blacksmith`, `cloudflare`, `aws`, `linear`, `fx`), `billing.observed_at_unix_ms` (the run time), and on a failure `billing.error`, a short class: `missing_env`, `http_<status>` (`http_401`, `http_403`, `http_429`, …), `http_5xx`, `timeout`, `parse` (an unexpected response), `graphql` (a GraphQL `errors` array), `cli` (the Blacksmith CLI failed), `no_plan` (the token cannot see the GitHub plan), `no_price` (no committed seat price), `currency` (a Cloudflare charge not in USD), `secret_read` (Secrets Manager could not read an input), or `error` (any other failure). AWS sends no status point outside its 12:17 UTC slot, because the run does not call it then.
 
 ## Sources
 
@@ -41,12 +41,13 @@ AWS Cost Explorer is billed at $0.01 for each paginated `GetCostAndUsage` reques
 
 ## Environment
 
-The task definition sets these. A missing provider input fails only that provider.
+The task definition sets the first three as plain env. Each provider input (the rows after them) comes from its env var when it is set (local runs and tests). Else, when `COST_TELEMETRY_SECRET_PREFIX` is set, the run reads the secret `<prefix><NAME>` (for example `cost-telemetry/LINEAR_API_KEY`) once with `GetSecretValue`: the task role, region `AWS_REGION`, else `us-west-2`. The task reads them itself because ECS cannot start a task while an injected secret is empty. A missing input (no env var, no secret, no `AWSCURRENT` value, or an empty value) fails only its provider with `billing.error=missing_env`; another read error fails it with `secret_read`. The log line names each input that the run could not read with its class only (`inputs=LINEAR_API_KEY:missing_env`), never a value.
 
 | Variable | Use |
 | --- | --- |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Required. The collector (`http://collector.observability.internal:4318` in the VPC). |
 | `OTEL_EXPORTER_OTLP_HEADERS` | Optional, `key=value` pairs. The in-VPC collector takes none; a collector behind Cloudflare Access takes its token headers here. |
+| `COST_TELEMETRY_SECRET_PREFIX` | Optional. The name prefix of the provider input secrets in Secrets Manager (`cost-telemetry/` in the task). |
 | `OPENROUTER_MANAGEMENT_KEY` | OpenRouter management key (the activity endpoint returns 403 for a normal key). |
 | `GITHUB_BILLING_TOKEN` | A fine-grained token with only organization Administration: Read (billing usage). GitHub shows the plan (`plan` of `GET /orgs/{org}`) only when the token's owner is an organization owner. Do not use a classic token with `admin:org`: it can also write to the organization. |
 | `BLACKSMITH_TOKEN` | Blacksmith organization token. |
@@ -56,7 +57,7 @@ The task definition sets these. A missing provider input fails only that provide
 
 OpenRouter management keys and Blacksmith organization tokens also permit management actions. Neither provider has a read-only token for these APIs.
 
-AWS has no keys: the SDK default credential chain gives the ECS task role, which assumes `arn:aws:iam::007664619564:role/ctxpipe-cost-explorer-read` (a read-only `ce:GetCostAndUsage` role in the management account; factory aws-core) through STS. The role is a constant in `src/providers/aws.ts`, not an env var: the factory policy pack forbids the ARN of another account in the task definition.
+AWS has no keys: the SDK default credential chain gives the ECS task role. It reads the provider input secrets (`secretsmanager:GetSecretValue` on `cost-telemetry/*`) and assumes `arn:aws:iam::007664619564:role/ctxpipe-cost-explorer-read` (a read-only `ce:GetCostAndUsage` role in the management account; factory aws-core) through STS. The role is a constant in `src/providers/aws.ts`, not an env var: the factory policy pack forbids the ARN of another account in the task definition.
 
 ## Image
 

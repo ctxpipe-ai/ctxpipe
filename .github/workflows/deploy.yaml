@@ -389,7 +389,6 @@ jobs:
           # The observability stack makes ctxpipe/cost-telemetry, so that one
           # image skips its repository while it does not exist yet. No deploy
           # waits for it: deploy-dispatch reacts only to the app images.
-          # Remove this skip when that repository exists (CTX-1216).
           while read -r image digest; do
             missing=fail
             [ "$image" != cost-telemetry ] || missing=skip

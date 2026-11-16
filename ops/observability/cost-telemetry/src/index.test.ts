@@ -112,6 +112,95 @@ describe("run", () => {
   })
 })
 
+describe("run with provider inputs from Secrets Manager", () => {
+  const SECRETS = /https:\/\/secretsmanager\.us-west-2\.amazonaws\.com\/?$/
+  const OUTSIDE_AWS_SLOT = new Date("2026-09-26T13:17:00.000Z")
+
+  // The task: no provider env vars, only the prefix. BLACKSMITH_TOKEN stays in the env, which wins over its secret.
+  beforeEach(() => {
+    process.env.COST_TELEMETRY_SECRET_PREFIX = "cost-telemetry/"
+    for (const name of ["OPENROUTER_MANAGEMENT_KEY", "GITHUB_BILLING_TOKEN", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "LINEAR_API_KEY"]) {
+      delete process.env[name]
+    }
+  })
+  afterEach(() => {
+    delete process.env.COST_TELEMETRY_SECRET_PREFIX
+  })
+
+  function secrets(values: Record<string, string | { error: string; status: number }>, asked: string[]) {
+    return http.post(SECRETS, async ({ request }) => {
+      expect(request.headers.get("x-amz-target")).toBe("secretsmanager.GetSecretValue")
+      const { SecretId } = (await request.json()) as { SecretId: string }
+      asked.push(SecretId)
+      const value = values[SecretId]
+      if (value === undefined || typeof value !== "string") {
+        const error = value ?? { error: "ResourceNotFoundException", status: 400 }
+        return HttpResponse.json(
+          { __type: error.error, message: "Secrets Manager can't find the specified secret." },
+          { status: error.status, headers: { "Content-Type": "application/x-amz-json-1.1" } },
+        )
+      }
+      return HttpResponse.json({ Name: SecretId, SecretString: value, VersionStages: ["AWSCURRENT"] }, { headers: { "Content-Type": "application/x-amz-json-1.1" } })
+    })
+  }
+
+  test("uses a present secret, fails only the provider of a missing one, and keeps the env over the secret", async () => {
+    setSystemTime(OUTSIDE_AWS_SLOT)
+    const asked: string[] = []
+    const authorizations: (string | null)[] = []
+    server.use(
+      secrets(
+        {
+          "cost-telemetry/OPENROUTER_MANAGEMENT_KEY": "or-secret",
+          "cost-telemetry/GITHUB_BILLING_TOKEN": "gh-secret",
+          "cost-telemetry/CLOUDFLARE_API_TOKEN": "cf-secret",
+          "cost-telemetry/CLOUDFLARE_ACCOUNT_ID": "cf-account",
+        },
+        asked,
+      ),
+      http.get("https://api.github.com/organizations/ctxpipe-ai/settings/billing/usage", ({ request }) => {
+        authorizations.push(request.headers.get("Authorization"))
+        return HttpResponse.json({ usageItems: [] })
+      }),
+    )
+    expect(await run()).toBe(0)
+    expect(statuses()).toEqual(
+      ALL.filter((provider) => provider !== "aws").map((provider) =>
+        provider === "linear" ? { provider, value: 0, error: "missing_env" } : { provider, value: 1, error: undefined },
+      ),
+    )
+    expect(authorizations).toContain("Bearer gh-secret")
+    expect(asked.sort()).toEqual([
+      "cost-telemetry/CLOUDFLARE_ACCOUNT_ID",
+      "cost-telemetry/CLOUDFLARE_API_TOKEN",
+      "cost-telemetry/GITHUB_BILLING_TOKEN",
+      "cost-telemetry/LINEAR_API_KEY",
+      "cost-telemetry/OPENROUTER_MANAGEMENT_KEY",
+    ])
+    expect(logs.join("\n")).toContain("inputs=LINEAR_API_KEY:missing_env")
+    expect(logs.join("\n")).not.toContain("gh-secret")
+  })
+
+  test("an empty secret is missing, and another read error fails only its providers with secret_read", async () => {
+    setSystemTime(OUTSIDE_AWS_SLOT)
+    server.use(
+      secrets(
+        {
+          "cost-telemetry/OPENROUTER_MANAGEMENT_KEY": "",
+          "cost-telemetry/GITHUB_BILLING_TOKEN": { error: "AccessDeniedException", status: 400 },
+          "cost-telemetry/CLOUDFLARE_API_TOKEN": "cf-secret",
+          "cost-telemetry/CLOUDFLARE_ACCOUNT_ID": "cf-account",
+          "cost-telemetry/LINEAR_API_KEY": "lin-secret",
+        },
+        [],
+      ),
+    )
+    expect(await run()).toBe(0)
+    const failed = Object.fromEntries(statuses().filter((status) => status.value === 0).map((status) => [status.provider, status.error]))
+    expect(failed).toEqual({ openrouter: "missing_env", github: "secret_read", "github-plan": "secret_read" })
+  })
+})
+
 describe("otlpHeaders", () => {
   test("sends no headers to the in-VPC collector when OTEL_EXPORTER_OTLP_HEADERS is not set", () => {
     expect(otlpHeaders("")).toEqual({})

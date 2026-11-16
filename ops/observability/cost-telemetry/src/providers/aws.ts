@@ -1,8 +1,7 @@
 import { CostExplorerClient, GetCostAndUsageCommand } from "@aws-sdk/client-cost-explorer"
 import { fromTemporaryCredentials } from "@aws-sdk/credential-providers"
-import { FetchHttpHandler } from "@smithy/fetch-http-handler"
-import { ProviderError } from "../http"
-import { sumRows, type CostRow } from "../rows"
+import { fetchHandler, ProviderError } from "../http"
+import type { CostRow } from "../rows"
 
 /** The name of each account of the organization (billing.account). An account that is not here keeps its id as its name. */
 const ACCOUNT_NAMES: Record<string, string> = {
@@ -36,10 +35,8 @@ const ACCOUNT_NAMES: Record<string, string> = {
  *   takes the region and the HTTP handler of the Cost Explorer client. This package does not
  *   create credentials or IAM.
  * - Cost Explorer API: $0.01 per paginated request (AWS Cost Explorer pricing). The run calls it only when `due`.
- * - HTTP uses official FetchHttpHandler (not Node HTTPS) so Bun and MSW see the
- *   call. customFetch buffers the body first: an MSW/Bun ReadableStream is empty
- *   by the time the SDK streamCollector runs. maxAttempts is 1 so retries do not
- *   multiply the $0.01-per-page charge.
+ * - HTTP uses fetchHandler (src/http.ts), so Bun and MSW see the call. maxAttempts
+ *   is 1 so retries do not multiply the $0.01-per-page charge.
  */
 export async function rows(days: string[]): Promise<CostRow[]> {
   const first = days[0]
@@ -54,17 +51,7 @@ export async function rows(days: string[]): Promise<CostRow[]> {
     credentials: fromTemporaryCredentials({
       params: { RoleArn: "arn:aws:iam::007664619564:role/ctxpipe-cost-explorer-read", RoleSessionName: "ctxpipe-cost-telemetry" },
     }),
-    requestHandler: new FetchHttpHandler({
-      requestTimeout: 30_000,
-      customFetch: (async (input, init) => {
-        const response = await fetch(input, init)
-        return new Response(await response.arrayBuffer(), {
-          status: response.status,
-          statusText: response.statusText,
-          headers: response.headers,
-        })
-      }) as typeof fetch,
-    }),
+    requestHandler: fetchHandler(),
     maxAttempts: 1,
   })
   try {
@@ -111,7 +98,7 @@ export async function rows(days: string[]): Promise<CostRow[]> {
       }
       nextPageToken = response.NextPageToken
     } while (nextPageToken)
-    return sumRows(mapped)
+    return mapped
   } finally {
     client.destroy()
   }

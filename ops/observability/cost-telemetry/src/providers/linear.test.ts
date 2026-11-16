@@ -49,8 +49,7 @@ describe("linear rows", () => {
     server.use(http.post(LINEAR, () => subscription({ type: "basic_monthly_12", seats: 2, seatsMinimum: 3, seatsMaximum: null })))
     expect((await rows(["2026-03-01"]))[0]).toMatchObject({ sku: "basic_monthly_12", usage: 3, costUsd: (3 * monthly) / 31 })
     server.resetHandlers()
-    // An older schema names only the plan.
-    server.use(http.post(LINEAR, () => subscription({ type: "basic", seats: 12, seatsMinimum: null, seatsMaximum: 10 })))
+    server.use(http.post(LINEAR, () => subscription({ type: "basic_yearly", seats: 12, seatsMinimum: null, seatsMaximum: 10 })))
     expect((await rows(["2026-03-01"]))[0]).toMatchObject({ usage: 10, costUsd: (10 * yearly) / 31 })
   })
 
@@ -62,6 +61,10 @@ describe("linear rows", () => {
   test("throws on a subscription type without a committed price", async () => {
     server.use(http.post(LINEAR, () => subscription({ type: "enterprise_yearly", seats: 7, seatsMinimum: null, seatsMaximum: null })))
     await expect(rows(DAYS)).rejects.toThrow("no committed seat price for Linear subscription type enterprise_yearly")
+    // A type without its billing variant does not say which price applies.
+    server.resetHandlers()
+    server.use(http.post(LINEAR, () => subscription({ type: "basic", seats: 7, seatsMinimum: null, seatsMaximum: null })))
+    await expect(rows(DAYS)).rejects.toThrow("no committed seat price for Linear subscription type basic")
   })
 
   test("throws on GraphQL errors, a missing organization and missing seats", async () => {

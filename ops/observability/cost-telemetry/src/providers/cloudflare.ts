@@ -1,4 +1,5 @@
-import { getJson, isRecord, ProviderError, requiredEnv, throwGraphqlErrors } from "../http"
+import { getJson, isRecord, ProviderError, throwGraphqlErrors } from "../http"
+import { providerInput } from "../secrets"
 import { sumRows, type CostRow } from "../rows"
 
 const classA = new Set([
@@ -59,8 +60,8 @@ const QUERY = `query R2Cost($accountTag: string!, $start: Date!, $end: Date!) {
  *   counted twice. Storage is the day's share of a GB-month (bytes / 1e9 / 30).
  */
 export async function rows(days: string[]): Promise<CostRow[]> {
-  const token = requiredEnv("CLOUDFLARE_API_TOKEN")
-  const accountId = requiredEnv("CLOUDFLARE_ACCOUNT_ID")
+  const token = providerInput("CLOUDFLARE_API_TOKEN")
+  const accountId = providerInput("CLOUDFLARE_ACCOUNT_ID")
   const first = days[0]
   const last = days[days.length - 1]
   if (!first || !last) return []

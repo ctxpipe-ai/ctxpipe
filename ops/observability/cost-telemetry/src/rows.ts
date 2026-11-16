@@ -68,8 +68,9 @@ export function utcDays(nowMs: number, count: number): string[] {
   return days
 }
 
-export function mapRowsToOtlp(rows: CostRow[], fx?: FxSample, statuses: ProviderStatus[] = []): OtlpMetricsRequest {
-  const observedAtUnixMs = String(Date.now())
+/** `observedAtMs` is the time of the run: the observed_at of each point and the time of each status point. */
+export function mapRowsToOtlp(rows: CostRow[], fx?: FxSample, statuses: ProviderStatus[] = [], observedAtMs = Date.now()): OtlpMetricsRequest {
+  const observedAtUnixMs = String(observedAtMs)
   const metrics: OtlpMetric[] = []
   if (rows.length > 0) {
     metrics.push({

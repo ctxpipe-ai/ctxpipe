@@ -1,4 +1,5 @@
-import { getJson, isRecord, ProviderError, requiredEnv, throwGraphqlErrors } from "../http"
+import { getJson, isRecord, ProviderError, throwGraphqlErrors } from "../http"
+import { providerInput } from "../secrets"
 import { linearUsdPerSeatMonth } from "../rates"
 import { seatRows, type CostRow } from "../rows"
 
@@ -10,7 +11,7 @@ import { seatRows, type CostRow } from "../rows"
  * `seats` clamped to `seatsMinimum` and `seatsMaximum`. A workspace with no paid subscription gives no rows.
  */
 export async function rows(days: string[]): Promise<CostRow[]> {
-  const key = requiredEnv("LINEAR_API_KEY")
+  const key = providerInput("LINEAR_API_KEY")
   const body = await getJson(
     "https://api.linear.app/graphql",
     {
@@ -30,9 +31,8 @@ export async function rows(days: string[]): Promise<CostRow[]> {
   if (typeof subscription.seats !== "number" || !Number.isFinite(subscription.seats)) {
     throw new ProviderError("parse", "Linear response was missing subscription.seats")
   }
-  // A price suffix (`basic_monthly_12`) goes. An older schema names only the plan (`basic`): it takes the yearly rate.
-  const variant = subscription.type.replace(/_\d+$/, "")
-  const price = linearUsdPerSeatMonth[variant] ?? linearUsdPerSeatMonth[`${variant}_yearly`]
+  // The price suffix of a type (`basic_monthly_12`) goes.
+  const price = linearUsdPerSeatMonth[subscription.type.replace(/_\d+$/, "")]
   if (price === undefined) throw new ProviderError("no_price", `no committed seat price for Linear subscription type ${subscription.type} (src/rates.ts)`)
   let seats = subscription.seats
   if (typeof subscription.seatsMinimum === "number") seats = Math.max(seats, subscription.seatsMinimum)

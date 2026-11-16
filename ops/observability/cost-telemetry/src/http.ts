@@ -1,3 +1,5 @@
+import { FetchHttpHandler } from "@smithy/fetch-http-handler"
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
@@ -51,4 +53,22 @@ export function throwGraphqlErrors(body: Record<string, unknown>, label: string)
   if (!Array.isArray(body.errors) || body.errors.length === 0) return
   const messages = body.errors.flatMap((error) => (isRecord(error) && typeof error.message === "string" ? [error.message] : []))
   throw new ProviderError("graphql", messages.join("; ") || `${label} response had errors`)
+}
+
+/**
+ * The HTTP handler of the AWS SDK clients: the official FetchHttpHandler (not Node HTTPS), so Bun and MSW see each
+ * call. customFetch buffers the body first: an MSW/Bun ReadableStream is empty by the time the SDK streamCollector runs.
+ */
+export function fetchHandler(): FetchHttpHandler {
+  return new FetchHttpHandler({
+    requestTimeout: 30_000,
+    customFetch: (async (input, init) => {
+      const response = await fetch(input, init)
+      return new Response(await response.arrayBuffer(), {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      })
+    }) as typeof fetch,
+  })
 }

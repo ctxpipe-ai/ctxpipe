@@ -6,6 +6,7 @@ import { rows as cloudflareRows } from "./providers/cloudflare"
 import { planRows as githubPlanRows, rows as githubRows } from "./providers/github"
 import { rows as linearRows } from "./providers/linear"
 import { rows as openRouterRows } from "./providers/openrouter"
+import { forgetProviderInputs, loadProviderInputs } from "./secrets"
 import { mapRowsToOtlp, utcDays, type CostRow, type OtlpMetricsRequest, type ProviderStatus } from "./rows"
 
 // Each name is the `billing.provider` of the entry's `billing.provider_status` point. An entry that is not `due` in
@@ -30,7 +31,11 @@ export async function run(): Promise<number> {
   const now = new Date()
   const days = utcDays(now.getTime(), 3)
   const entries = PROVIDERS.filter((provider) => provider.due?.(now) ?? true)
-  const [results, fxResult] = await Promise.all([Promise.allSettled(entries.map((provider) => provider.rows(days))), settle(usdAudRate())])
+  const inputFailures = await loadProviderInputs()
+  const [[fxResult], results] = await Promise.all([
+    Promise.allSettled([usdAudRate()]),
+    Promise.allSettled(entries.map((provider) => provider.rows(days))),
+  ]).finally(forgetProviderInputs)
 
   const rows: CostRow[] = []
   const statuses: ProviderStatus[] = []
@@ -44,34 +49,28 @@ export async function run(): Promise<number> {
     }
   }
   let fx: { rate: number; timeUnixNano: string } | undefined
-  if (fxResult.status === "fulfilled") {
+  if (fxResult?.status === "fulfilled") {
     fx = { rate: fxResult.value, timeUnixNano: (BigInt(now.getTime()) * 1_000_000n).toString() }
     statuses.push({ provider: "fx" })
   } else {
-    statuses.push({ provider: "fx", error: errorClass(fxResult.reason) })
+    statuses.push({ provider: "fx", error: errorClass(fxResult?.reason) })
   }
 
-  // Only the class of each failure: a message can hold a response body.
+  // Only the class of each failure (and the variable name of an input that could not be read): a message can hold a
+  // response body.
   const failures = statuses.flatMap((status) => (status.error === undefined ? [] : [`${status.provider}:${status.error}`]))
   console.log(
-    `cost-telemetry rows=${rows.length} providers=${statuses.length - failures.length}/${statuses.length} fx=${fx?.rate ?? "failed"} failures=${failures.join(",") || "none"} days=${days[0]}/${days[days.length - 1]}`,
+    `cost-telemetry rows=${rows.length} providers=${statuses.length - failures.length}/${statuses.length} fx=${fx?.rate ?? "failed"} failures=${failures.join(",") || "none"} inputs=${inputFailures.join(",") || "ok"} days=${days[0]}/${days[days.length - 1]}`,
   )
   try {
     const endpoint = requiredEnv("OTEL_EXPORTER_OTLP_ENDPOINT")
     // In the VPC the collector takes no headers; a collector behind Cloudflare Access takes them from this variable.
-    await postOtlp(endpoint, mapRowsToOtlp(rows, fx, statuses), otlpHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS ?? ""))
+    await postOtlp(endpoint, mapRowsToOtlp(rows, fx, statuses, now.getTime()), otlpHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS ?? ""))
   } catch (err) {
     console.error(`cost-telemetry OTLP export failed: ${errorClass(err)}`)
     return 1
   }
   return 0
-}
-
-function settle<T>(promise: Promise<T>): Promise<PromiseSettledResult<T>> {
-  return promise.then(
-    (value) => ({ status: "fulfilled" as const, value }),
-    (reason: unknown) => ({ status: "rejected" as const, reason }),
-  )
 }
 
 export function otlpHeaders(raw: string): Record<string, string> {

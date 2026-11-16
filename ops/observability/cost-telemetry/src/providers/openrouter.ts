@@ -1,8 +1,9 @@
-import { getJson, isRecord, ProviderError, requiredEnv } from "../http"
+import { getJson, isRecord, ProviderError } from "../http"
+import { providerInput } from "../secrets"
 import { sumRows, utcDays, type CostRow } from "../rows"
 
 export async function rows(days: string[]): Promise<CostRow[]> {
-  const key = requiredEnv("OPENROUTER_MANAGEMENT_KEY")
+  const key = providerInput("OPENROUTER_MANAGEMENT_KEY")
   const last = days[days.length - 1]
   if (!last) return []
   // OpenRouter only serves completed UTC days, so shift one day back from the shared window.

@@ -1,4 +1,5 @@
-import { isRecord, ProviderError, requiredEnv } from "../http"
+import { isRecord, ProviderError } from "../http"
+import { providerInput } from "../secrets"
 import { sumRows, type CostRow } from "../rows"
 
 const ORG = "ctxpipe-ai"
@@ -9,7 +10,7 @@ const ORG = "ctxpipe-ai"
  * runner/workflow breakdowns cannot be joined to a day, so use org-level rows.
  */
 export async function rows(days: string[]): Promise<CostRow[]> {
-  const token = requiredEnv("BLACKSMITH_TOKEN")
+  const token = providerInput("BLACKSMITH_TOKEN")
   const first = days[0]
   const last = days[days.length - 1]
   if (!first || !last) return []

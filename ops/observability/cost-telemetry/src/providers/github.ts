@@ -1,10 +1,11 @@
-import { getJson, isRecord, ProviderError, requiredEnv } from "../http"
+import { getJson, isRecord, ProviderError } from "../http"
+import { providerInput } from "../secrets"
 import { githubUsdPerSeatMonth } from "../rates"
 import { seatRows, sumRows, type CostRow } from "../rows"
 
 /** The organization's metered usage (Actions, Packages, and others): netAmount is the real spend, source `reported`. */
 export async function rows(days: string[]): Promise<CostRow[]> {
-  const token = requiredEnv("GITHUB_BILLING_TOKEN")
+  const token = providerInput("GITHUB_BILLING_TOKEN")
   const batches = await Promise.all(days.map((day) => fetchDay(day, token)))
   return sumRows(batches.flat())
 }
@@ -15,7 +16,7 @@ export async function rows(days: string[]): Promise<CostRow[]> {
  * `derived`. GitHub shows `plan` only to an organization owner's token; without it this throws.
  */
 export async function planRows(days: string[]): Promise<CostRow[]> {
-  const token = requiredEnv("GITHUB_BILLING_TOKEN")
+  const token = providerInput("GITHUB_BILLING_TOKEN")
   const body = await getJson("https://api.github.com/orgs/ctxpipe-ai", { headers: headers(token) }, "GitHub organization")
   const plan = isRecord(body) && isRecord(body.plan) ? body.plan : undefined
   if (!plan) throw new ProviderError("no_plan", "GitHub organization response has no plan: the token cannot see the organization's plan")
