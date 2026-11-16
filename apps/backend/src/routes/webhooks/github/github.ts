@@ -19,7 +19,6 @@ import {
 } from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
-import { enqueueWorkspaceTipCheck } from "../../../openworkflow/enqueue-workspace-tip-check.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 import {
@@ -30,6 +29,7 @@ import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
 import { maybeActivatePagerdutySyncOnConfigPush } from "./github-pagerduty-push.js"
 import { maybeEnqueueGithubPrMirror } from "./github-pr-mirror-events.js"
+import { enqueuePushTipChecks } from "./github-push-tip-check.js"
 import { maybeEnqueueUpgradeScanForPullRequest } from "./github-upgrade-pr.js"
 import {
   logGithubWebhookNoOrganization,
@@ -263,9 +263,12 @@ async function processPushEvent(
       { ...delivery, orgIds: installationRows.map((row) => row.orgId) },
       ctx.log,
     )
-  for (const installationRow of installationRows) {
-    await enqueueWorkspaceTipCheck(installationRow.orgId, ctx.log)
-  }
+  await enqueuePushTipChecks({
+    orgIds: installationRows.map((row) => row.orgId),
+    repository: repo.full_name,
+    ref,
+    defaultBranch,
+  })
 
   if (!onDefaultBranch) return
 
