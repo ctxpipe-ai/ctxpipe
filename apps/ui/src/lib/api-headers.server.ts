@@ -1,4 +1,5 @@
 import { getRequestHeader } from "@tanstack/react-start/server"
+import { getSessionCookie } from "better-auth/cookies"
 
 /**
  * Forward auth cookies and the `traceparent` from the incoming SSR request to
@@ -27,4 +28,13 @@ export function getServerApiHeaders(): HeadersInit {
     // Vitest / non-request contexts have no Start AsyncLocalStorage event.
     return {}
   }
+}
+
+/**
+ * True when the forwarded headers can carry a session: a Better Auth session
+ * cookie, or a bearer token (the backend's `bearer()` plugin).
+ */
+export function hasSessionCredential(headers: HeadersInit): boolean {
+  const forwarded = new Headers(headers)
+  return forwarded.has("authorization") || getSessionCookie(forwarded) !== null
 }

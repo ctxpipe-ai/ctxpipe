@@ -19,6 +19,7 @@ import {
   orgGateOptions,
   peekOrgGate,
 } from "./org-gate"
+import { duringServerRequest, signedInHeaders } from "./server-request-test"
 
 const memberGate: OrgGate = {
   session: {
@@ -69,12 +70,51 @@ describe("orgGateOptions against the backend", () => {
   })
   afterAll(() => server.close())
 
-  function fetchGate() {
-    return new QueryClient().fetchQuery({
-      ...orgGateOptions("acme"),
-      retry: false,
-    })
+  function fetchGate(headers: Record<string, string> = signedInHeaders) {
+    return duringServerRequest(headers, () =>
+      new QueryClient().fetchQuery({
+        ...orgGateOptions("acme"),
+        retry: false,
+      }),
+    )
   }
+
+  // A scanner burst got 429 from the session check, and each page then
+  // failed its server render with an error log.
+  it("resolves a signed-out gate for a request with no session cookie, and makes no backend call", async () => {
+    let calls = 0
+    server.use(
+      http.get(`${backend}/.auth/api/v1/auth/*`, () => {
+        calls += 1
+        return HttpResponse.json(
+          { message: "Too many requests" },
+          { status: 429 },
+        )
+      }),
+    )
+    await expect(
+      fetchGate({ cookie: "theme=dark", "x-forwarded-for": "203.0.113.10" }),
+    ).resolves.toEqual({
+      session: null,
+      organizations: [],
+      orgAccessDenied: true,
+    })
+    expect(calls).toBe(0)
+  })
+
+  it("asks the backend when the request carries a bearer token", async () => {
+    server.use(
+      http.get(`${backend}/.auth/api/v1/auth/get-session`, () =>
+        HttpResponse.json(session),
+      ),
+      http.get(`${backend}/.auth/api/v1/auth/organization/list`, () =>
+        HttpResponse.json([{ id: "org_1", name: "Acme", slug: "acme" }]),
+      ),
+    )
+    await expect(
+      fetchGate({ authorization: "Bearer tok_1" }),
+    ).resolves.toMatchObject({ orgAccessDenied: false })
+  })
 
   it("resolves a signed-out gate when the backend says there is no session", async () => {
     server.use(
@@ -159,7 +199,9 @@ describe("orgGateOptions against the backend", () => {
       defaultOptions: { queries: { retry: retryQuery, retryDelay: 0 } },
     })
     await expect(
-      queryClient.fetchQuery(orgGateOptions("acme")),
+      duringServerRequest(signedInHeaders, () =>
+        queryClient.fetchQuery(orgGateOptions("acme")),
+      ),
     ).rejects.toBeInstanceOf(ApiError)
     expect(sessionCalls).toBe(1)
     // Worst case is one SSR timeout. UI_PROXY_TIMEOUT_MS in

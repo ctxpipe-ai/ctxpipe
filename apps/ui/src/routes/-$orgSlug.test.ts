@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { isWorkspaceConversationDocument } from "@/features/workspaces/ensure-route-data"
 import { workspaceListOptions } from "@/features/workspaces/queries"
 import { installRelativeFetch } from "@/features/workspaces/relative-fetch-test"
+import { duringServerRequest, signedInHeaders } from "@/lib/server-request-test"
 
 import { resolveOrgGate } from "./$orgSlug"
 
@@ -58,7 +59,9 @@ describe("resolveOrgGate", () => {
       defaultOptions: { queries: { retry: false } },
     })
 
-    const gate = await resolveOrgGate(queryClient, "acme")
+    const gate = await duringServerRequest(signedInHeaders, () =>
+      resolveOrgGate(queryClient, "acme"),
+    )
 
     expect(gate.orgAccessDenied).toBe(false)
     expect(
