@@ -136,12 +136,23 @@ describe("readHyperDxDocumentIdentity", () => {
   })
 
   it("does not call auth when the document has no session cookie", async () => {
-    // No handlers: msw fails the test on any backend call.
+    // The identity read swallows errors, so count the calls instead.
+    let calls = 0
+    server.use(
+      http.get(`${backend}/.auth/api/v1/auth/*`, () => {
+        calls += 1
+        return HttpResponse.json(
+          { message: "Too many requests" },
+          { status: 429 },
+        )
+      }),
+    )
     await expect(
       readHyperDxDocumentIdentity(
         documentRequest("/sendform.zip", "theme=dark"),
         "/sendform.zip",
       ),
     ).resolves.toBeNull()
+    expect(calls).toBe(0)
   })
 })
