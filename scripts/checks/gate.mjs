@@ -230,9 +230,9 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
   // Storybook key holds run.mjs and so its import closure, a project key
   // holds projects.mjs, and each data file is an input of the checks that
   // read it. Thus a change misses each stored pass of the old definition.
-  // The manifest job also lists the same tree with the code of the base
-  // revision, before any PR code runs, and the plan compares the two
-  // listings (definitionChanges in plan.mjs). The files that run the checks
+  // The job Merge gate base listing lists the same tree with the code and
+  // the dependencies of the base revision, and runs no PR code. The plan
+  // compares the two listings (definitionChanges in plan.mjs). The files that run the checks
   // of every family stay full-run inputs: the runner and its host pins, the
   // prerequisites, the CI runner steps, and toolchain.mjs, whose record is
   // part of each key. A project key does not hold them.

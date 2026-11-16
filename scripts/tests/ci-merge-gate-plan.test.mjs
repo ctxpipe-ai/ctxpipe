@@ -1729,6 +1729,7 @@ test("the gate reads each record of a trusted job only by the artifact id that t
     "merge-gate-llm": "merge-gate-llm",
     "merge-gate-plan": "merge-gate-plan",
     "merge-gate-critics": "merge-gate-critics",
+    "merge-gate-base-listing": "merge-gate-base-listing",
     "nightly-plan": "nightly-plan",
   }
   for (const [writer, name] of Object.entries(writers)) {

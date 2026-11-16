@@ -177,39 +177,50 @@ test("a change to a file that lists, defines or runs checks gives a full run, or
   assert.deepEqual(full.jobs, {})
 })
 
-test("the manifest job lists the tree with the base code before any PR code runs, and the plan reads that listing by its id", () => {
+test("the base listing job runs no code of the PR, and the plan reads its listing by its id", () => {
   const { jobs } = parseYaml(readFileSync(join(root, ciYaml), "utf8"))
-  const job = jobs["merge-gate-manifest"]
-  const steps = job.steps
-  const index = (name) => steps.findIndex((step) => step.name === name)
-  const base = index("The listing of the base revision")
-  const back = index("The files of the PR again")
-  assert.ok(base > 0 && back === base + 1)
-  // Before it, no step runs code of the PR: the install runs no lifecycle
-  // script, and each other step is an action or the gate of the base.
-  for (const step of steps.slice(0, base)) {
-    if (!step.run) continue
-    assert.ok(
-      /^pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile /.test(
-        step.run,
-      ) ||
-        step.run.includes("$RUNNER_TEMP/gate/") ||
-        /git archive "\$rev"|corepack enable/.test(step.run),
-      step.run,
-    )
-  }
-  // The step removes the PR files at the list-time paths before it puts the
-  // base files there, and the next step puts the PR files back.
+  const job = jobs["merge-gate-base-listing"]
+  assert.equal(job.needs, "merge-gate-manifest")
+  assert.match(job.if, /needs\.merge-gate-manifest\.outputs\.definitions == 'true'/)
+  assert.deepEqual(job.permissions, { contents: "read" })
+  const [checkout, overlay, node, listing, upload] = job.steps
+  assert.equal(job.steps.length, 5)
+  assert.equal(checkout.with["persist-credentials"], false)
+  // Before any step runs a program of the checkout, the base versions
+  // replace each list-time file and each file that decides the tools and
+  // the dependencies. The PR versions are removed first.
   assert.match(
-    steps[base].run,
-    /rm -rf \$LIST_TIME_PATHS\n\s*git archive HEAD\^1 \$LIST_TIME_PATHS \| tar -x\n\s*node scripts\/checks\/list\.mjs /,
+    overlay.run,
+    /rm -rf \$LIST_TIME_PATHS\n\s*git ls-files -z \| .*"\$INSTALL_FILES".*\| xargs -0 -r rm -rf\n.*\n\s*git archive HEAD\^1 \$LIST_TIME_PATHS \| tar -x\n\s*xargs -0 -r git archive HEAD\^1 -- < "\$RUNNER_TEMP\/install-files" \| tar -x/,
   )
-  assert.match(steps[back].run, /git checkout HEAD --/)
-  // The listing of the PR runs after the PR files are back.
-  assert.ok(index("Manifest and toolchain") > back)
+  const install = new RegExp(job.env.INSTALL_FILES)
+  for (const file of [
+    "package.json",
+    "apps/ui/package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    ".npmrc",
+    ".pnpmfile.cjs",
+    ".corepack.env",
+    ".node-version",
+    "patches/a.patch",
+    "scripts/node_modules",
+    "apps/node_modules/x/index.js",
+  ])
+    assert.ok(install.test(file), file)
+  // The tools come from pinned actions and the base files: no cache that a
+  // run of the PR can write, and no .corepack.env.
+  assert.ok(node.uses.startsWith("actions/setup-node@"))
+  assert.equal(node.with.cache, undefined)
+  assert.equal(listing.env.COREPACK_ENV_FILE, "0")
+  assert.match(
+    listing.run,
+    /pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile --store-dir "\$RUNNER_TEMP\/pnpm-store"/,
+  )
+  assert.match(listing.run, /node scripts\/checks\/list\.mjs > /)
+  assert.equal(upload.id, "preserve")
   // Each module that the listing imports, and the Storybook config that
-  // buildIndex loads, is at a list-time path. The other code that it runs
-  // comes from the dependencies.
+  // buildIndex loads, is at a list-time path.
   const paths = job.env.LIST_TIME_PATHS.split(" ")
   const at = (file) =>
     paths.some((path) => file === path || file.startsWith(`${path}/`))
@@ -229,8 +240,8 @@ test("the manifest job lists the tree with the base code before any PR code runs
   for (const file of [...imported, "apps/ui/.storybook/main.ts"])
     assert.ok(at(file), file)
   // The Storybook config that buildIndex loads decides which stories exist,
-  // so a change to it is a definition of checks. A committed package folder
-  // could replace a dependency of the listing, so it gives a full run.
+  // so a change to it is a definition of checks. A committed package folder,
+  // or a link with that name, gives a full run.
   assert.deepEqual(
     decideMode({
       config: pinned,
@@ -245,7 +256,6 @@ test("the manifest job lists the tree with the base code before any PR code runs
     "node_modules/x/index.js",
     "apps/node_modules/x/index.js",
     "apps/ui/node_modules/x/index.js",
-    // A link named node_modules to a folder outside the list-time paths.
     "scripts/node_modules",
   ])
     assert.equal(
@@ -258,33 +268,14 @@ test("the manifest job lists the tree with the base code before any PR code runs
       "full",
       file,
     )
-  // A change to a package file or the lockfile changes those dependencies,
-  // so with a definition of checks the run is full.
-  for (const file of ["apps/ui/package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "package.json"])
-    assert.deepEqual(
-      decideMode({
-        config: pinned,
-        event: "pull_request",
-        fork: false,
-        changed: ["scripts/checks/visual.mjs", file],
-      }),
-      {
-        mode: "full",
-        reason: `gate inputs changed: scripts/checks/visual.mjs, ${file}`,
-      },
-      file,
-    )
-  // The plan reads the listing only by the artifact id of its upload, and the
+  // The plan reads the listing only by the artifact id of its job, and the
   // manifest that the selector keyed from the select job.
-  assert.equal(
-    job.outputs["base-listing"],
-    "${{ steps.base-listing.outputs.artifact-id }}",
-  )
+  assert.equal(job.outputs["artifact-id"], "${{ steps.preserve.outputs.artifact-id }}")
   assert.ok(
     jobs["merge-gate-plan"].steps.some(
       (step) =>
         step.with?.["artifact-ids"] ===
-        "${{ needs.merge-gate-manifest.outputs.base-listing }}",
+        "${{ needs.merge-gate-base-listing.outputs.artifact-id }}",
     ),
   )
   assert.ok(
