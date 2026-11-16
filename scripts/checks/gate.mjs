@@ -17,6 +17,7 @@ import {
   placeOf,
   plan,
   readStore,
+  storedMiss,
   withJobChecks,
 } from "./plan.mjs"
 import {
@@ -969,11 +970,10 @@ export function gateDecision({
     }))
   const next = nextStore({ store, selection, ran, contradictions, run, now })
   // The selected checks with a key and no stored pass in any store, by
-  // family (the first part of the id). A `jobs` or `quarantined` miss had a
-  // stored pass that this run did not accept (withJobChecks, withStoreHits).
+  // family (the first part of the id).
   const noStoredPass = {}
   for (const miss of selection.cache?.misses ?? [])
-    if (!["jobs", "quarantined"].includes(miss.mode)) {
+    if (!storedMiss(miss)) {
       const family = miss.id.split(":")[0]
       noStoredPass[family] = (noStoredPass[family] ?? 0) + 1
     }
@@ -1129,8 +1129,8 @@ export function gateText(
       "",
       `**No stored pass:** ${noPass.map(([family, count]) => `${family} ${count}`).join(", ")}. ${
         s.shared
-          ? "The author's `factory check` did not store a pass with the key of CI for these selected checks, so CI ran them."
-          : "The shared result store did not answer, so CI ran these selected checks."
+          ? "The author's `factory check` did not store a pass with the key of CI for these selected checks with a cache key, so CI ran them."
+          : "The shared result store did not answer, so CI ran these selected checks with a cache key."
       }`,
     )
   lines.push(

@@ -919,7 +919,7 @@ test("the PR comment counts by family the selected checks that no store had a pa
   assert.deepEqual(decision.noStoredPass, { vitest: 2 })
   assert.ok(
     text(decision).includes(
-      "**No stored pass:** vitest 2. The author's `factory check` did not store a pass with the key of CI for these selected checks, so CI ran them.",
+      "**No stored pass:** vitest 2. The author's `factory check` did not store a pass with the key of CI for these selected checks with a cache key, so CI ran them.",
     ),
     text(decision),
   )
@@ -943,7 +943,7 @@ test("the PR comment counts by family the selected checks that no store had a pa
   }
   assert.ok(
     text(offline).includes(
-      "**No stored pass:** vitest 2. The shared result store did not answer, so CI ran these selected checks.",
+      "**No stored pass:** vitest 2. The shared result store did not answer, so CI ran these selected checks with a cache key.",
     ),
     text(offline),
   )
