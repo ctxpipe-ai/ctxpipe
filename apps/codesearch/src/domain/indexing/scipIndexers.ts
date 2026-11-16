@@ -9,7 +9,7 @@ import { mergeScipShardFiles } from "../graph/scipProto.js"
 import { getIndexerProcessConcurrency } from "./capacityEnv.js"
 import type { ScipIndexerId } from "./detectLanguages.js"
 import { withIndexerGoLimits } from "./indexerChildEnv.js"
-import { withIndexerProcessSlot } from "./indexerProcessSemaphore.js"
+import { withScipIndexerSlot } from "./indexerProcessSemaphore.js"
 import { errorFromIndexerExit } from "./memoryFitError.js"
 import { INDEX_CHILD_LOG_TAIL_BYTES, readStreamTail } from "./streamTail.js"
 import {
@@ -122,7 +122,7 @@ async function runIndexerProcess(input: {
   /** Node heap for Node-based indexers; set after the env allowlist. */
   heapMb?: number
 }): Promise<void> {
-  await withIndexerProcessSlot(() =>
+  await withScipIndexerSlot(() =>
     trace
       .getTracer("codesearch")
       .startActiveSpan(
@@ -275,7 +275,13 @@ export async function runScipIndexer(input: {
     const argv = [...SCIP_INDEXER_ARGV[input.indexerId], outputFlag, shardPath]
     await rm(shardPath, { force: true })
     try {
-      await runIndexerProcess({ ...input, argv })
+      await runIndexerProcess({
+        ...input,
+        argv,
+        ...(input.indexerId === "python"
+          ? { heapMb: nodeIndexerHeapMb() }
+          : {}),
+      })
       await verifyShard(input.indexerId, shardPath)
     } catch (error) {
       await removeFileBestEffort(shardPath)
@@ -320,6 +326,18 @@ export async function runScipIndexer(input: {
   return {}
 }
 
+/**
+ * The V8 heap of a Node-based indexer (scip-typescript, scip-python). The
+ * default heap follows host memory (2 GB in an 8 GB container), which a large
+ * project outgrows; give the indexer 3/4 of its process slot's share of the
+ * container. A fixed cap also keeps the indexer inside that share.
+ */
+function nodeIndexerHeapMb(): number {
+  const shareMb =
+    process.constrainedMemory() / 1024 / 1024 / getIndexerProcessConcurrency()
+  return Math.min(8192, Math.floor(shareMb * 0.75)) || 4096
+}
+
 type ProjectOutcome =
   | { status: "indexed"; shard: string }
   | { status: "empty" }
@@ -343,12 +361,7 @@ async function runTypeScriptIndexer(input: {
   const workspace = await scanTypeScriptWorkspace(input.checkoutPath)
   const { configPaths, standaloneConfig, cleanup } =
     await prepareTypeScriptWorkspace(input.checkoutPath, workspace)
-  // V8's default heap follows host memory (2 GB in an 8 GB container), which
-  // a large monorepo package outgrows; give each concurrent indexer 3/4 of
-  // its share of the container.
-  const shareMb =
-    process.constrainedMemory() / 1024 / 1024 / getIndexerProcessConcurrency()
-  const heapMb = Math.min(8192, Math.floor(shareMb * 0.75)) || 4096
+  const heapMb = nodeIndexerHeapMb()
   const outcomes: Array<{ dir: string; outcome: ProjectOutcome }> = []
   await rm(input.shardPath, { force: true })
   try {

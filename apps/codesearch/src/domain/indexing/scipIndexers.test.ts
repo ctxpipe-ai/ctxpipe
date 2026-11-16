@@ -102,7 +102,7 @@ describe("SCIP_INDEXER_ARGV", () => {
 })
 
 describe("runScipIndexer", () => {
-  it("runs direct-output indexers concurrently against unique shards", async () => {
+  it("writes overlapping direct-output runs to their own shards", async () => {
     const directory = await mkdtemp(join(tmpdir(), "scip-indexers-"))
     const checkoutPath = join(directory, "checkout")
     const goShard = join(directory, "shards", "go.scip")
@@ -110,20 +110,14 @@ describe("runScipIndexer", () => {
     await mkdir(checkoutPath)
     writeFileSync(join(checkoutPath, "tsconfig.json"), "{}")
 
-    const exits: Array<() => void> = []
     const spawn = vi.fn((argv: string[]) => {
-      writeFileSync(outputOf(argv), `index-${exits.length}`)
-      let resolveExit: () => void = () => undefined
-      const exited = new Promise<number>((resolve) => {
-        resolveExit = () => resolve(0)
-      })
-      exits.push(resolveExit)
-      return fakeSubprocess(exited)
+      writeFileSync(outputOf(argv), `index-${spawn.mock.calls.length - 1}`)
+      return fakeSubprocess(Promise.resolve(0))
     })
     vi.stubGlobal("Bun", { spawn })
 
     try {
-      const runs = [
+      await Promise.all([
         runScipIndexer({
           indexerId: "go",
           checkoutPath,
@@ -134,9 +128,8 @@ describe("runScipIndexer", () => {
           checkoutPath,
           shardPath: typescriptShard,
         }),
-      ]
+      ])
 
-      await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(2))
       expect(spawn.mock.calls[0]?.[0]).toEqual([
         "scip-go",
         "--output",
@@ -150,9 +143,6 @@ describe("runScipIndexer", () => {
         join(checkoutPath, "tsconfig.json"),
       ])
       expect(existsSync(join(checkoutPath, "index.scip"))).toBe(false)
-
-      for (const resolveExit of exits) resolveExit()
-      await Promise.all(runs)
       expect(readFileSync(goShard, "utf8")).toBe("index-0")
       expect(readFileSync(typescriptShard, "utf8")).toBe("index-1")
     } finally {
@@ -160,50 +150,38 @@ describe("runScipIndexer", () => {
     }
   })
 
-  it("limits raw parallel polyglot indexer spawns to two processes", async () => {
+  it("caps the Node heap of scip-python like scip-typescript", async () => {
     const directory = await mkdtemp(join(tmpdir(), "scip-indexers-"))
     const checkoutPath = join(directory, "checkout")
     await mkdir(checkoutPath)
     writeFileSync(join(checkoutPath, "tsconfig.json"), "{}")
-
-    const exits: Array<() => void> = []
-    const spawn = vi.fn((argv: string[]) => {
-      writeFileSync(outputOf(argv), `index-${exits.length}`)
-      let resolveExit: () => void = () => undefined
-      const exited = new Promise<number>((resolve) => {
-        resolveExit = () => resolve(0)
-      })
-      exits.push(resolveExit)
-      return fakeSubprocess(exited)
+    // A 6 GiB container with the default two indexer process slots.
+    vi.spyOn(process, "constrainedMemory").mockReturnValue(6 * 1024 ** 3)
+    const spawn = vi.fn((argv: string[], _options?: object) => {
+      writeFileSync(outputOf(argv), "index")
+      return fakeSubprocess(Promise.resolve(0))
     })
     vi.stubGlobal("Bun", { spawn })
 
-    const runs = (["go", "typescript", "python"] as const).map((indexerId) =>
-      runScipIndexer({
-        indexerId,
-        checkoutPath,
-        shardPath: join(directory, "shards", `${indexerId}.scip`),
-      }),
-    )
-
     try {
-      await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(2))
-      await new Promise((resolveDelay) => setTimeout(resolveDelay, 20))
-      expect(spawn).toHaveBeenCalledTimes(2)
-
-      exits[0]?.()
-      await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(3))
-
-      for (const resolveExit of exits) resolveExit()
-      await Promise.all(runs)
-      expect(spawn.mock.calls.map(([argv]) => argv[0]).sort()).toEqual([
-        "scip-go",
-        "scip-python",
-        "scip-typescript",
+      for (const indexerId of ["python", "typescript"] as const) {
+        await runScipIndexer({
+          indexerId,
+          checkoutPath,
+          shardPath: join(directory, "shards", `${indexerId}.scip`),
+        })
+      }
+      expect(
+        spawn.mock.calls.map(([argv, options]) => [
+          argv[0],
+          (options as { env: Record<string, string> }).env.NODE_OPTIONS,
+        ]),
+      ).toEqual([
+        ["scip-python", "--max-old-space-size=2304"],
+        ["scip-typescript", "--max-old-space-size=2304"],
       ])
     } finally {
-      for (const resolveExit of exits) resolveExit()
-      await Promise.allSettled(runs)
+      vi.restoreAllMocks()
       await rm(directory, { recursive: true, force: true })
     }
   })
@@ -553,7 +531,10 @@ describe("runScipIndexer", () => {
         shardPath: join(directory, "shards", "python.scip"),
         env: { NODE_OPTIONS: "--require ./preload.js" },
       })
-      expect(spawn.mock.calls[0]?.[1]).not.toHaveProperty("env.NODE_OPTIONS")
+      expect(spawn.mock.calls[0]?.[1]).toHaveProperty(
+        "env.NODE_OPTIONS",
+        expect.not.stringContaining("--require"),
+      )
     } finally {
       await rm(directory, { recursive: true, force: true })
     }

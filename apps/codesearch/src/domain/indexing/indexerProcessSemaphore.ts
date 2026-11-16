@@ -6,42 +6,51 @@
  */
 import { getIndexerProcessConcurrency } from "./capacityEnv.js"
 
-let activeIndexerProcesses = 0
-const indexerProcessWaiters: Array<() => void> = []
-
-function releaseIndexerProcessSlot(): void {
-  activeIndexerProcesses = Math.max(0, activeIndexerProcesses - 1)
-  const next = indexerProcessWaiters.shift()
-  if (next) next()
+function createSemaphore(cap: () => number) {
+  let active = 0
+  const waiters: Array<() => void> = []
+  return {
+    async run<T>(fn: () => Promise<T>): Promise<T> {
+      if (active < cap()) {
+        active += 1
+      } else {
+        // The releasing run hands its place to the next waiter.
+        await new Promise<void>((resolve) => waiters.push(resolve))
+      }
+      try {
+        return await fn()
+      } finally {
+        const next = waiters.shift()
+        if (next) next()
+        else active = Math.max(0, active - 1)
+      }
+    },
+    reset(): void {
+      active = 0
+      waiters.length = 0
+    },
+  }
 }
 
-async function acquireIndexerProcessSlot(): Promise<void> {
-  const cap = getIndexerProcessConcurrency()
-  if (activeIndexerProcesses < cap) {
-    activeIndexerProcesses += 1
-    return
-  }
+const processSlots = createSemaphore(getIndexerProcessConcurrency)
+// A SCIP indexer can reach 2–2.6 GB; two of them beside the service go past
+// 80% of a 6 GiB container. The host has two vCPUs, so a second one adds
+// little speed. Zoekt keeps the other process slot.
+const scipIndexerSlots = createSemaphore(() => 1)
 
-  await new Promise<void>((resolve) => {
-    indexerProcessWaiters.push(() => {
-      activeIndexerProcesses += 1
-      resolve()
-    })
-  })
+export function withIndexerProcessSlot<T>(fn: () => Promise<T>): Promise<T> {
+  return processSlots.run(fn)
 }
 
-export async function withIndexerProcessSlot<T>(
-  fn: () => Promise<T>,
-): Promise<T> {
-  await acquireIndexerProcessSlot()
-  try {
-    return await fn()
-  } finally {
-    releaseIndexerProcessSlot()
-  }
+/**
+ * One SCIP indexer process at a time, inside a process slot. A waiting SCIP
+ * indexer holds no process slot, so `zoekt-index` does not wait behind it.
+ */
+export function withScipIndexerSlot<T>(fn: () => Promise<T>): Promise<T> {
+  return scipIndexerSlots.run(() => processSlots.run(fn))
 }
 
 export function resetIndexerProcessSemaphoreForTests(): void {
-  activeIndexerProcesses = 0
-  indexerProcessWaiters.length = 0
+  processSlots.reset()
+  scipIndexerSlots.reset()
 }

@@ -343,7 +343,7 @@ endpoint is unset returns `204`.
 | `AUTH_ALLOWED_ORIGINS` | Comma-separated list of allowed CORS origins for auth endpoints. |
 | `OPENWORKFLOW_CONCURRENCY` | In-flight OpenWorkflow runs per worker process. Default `4` when unset. Compose sets `6`. AWS CDK sets a value for each size. |
 | `AUTH_TOKEN_AUDIENCE_CODESEARCH` | Optional. The audience of the tokens that the backend sends to codesearch. If you set it, set the same value on the backend, the worker, and codesearch. |
-| `CODESEARCH_INDEXER_CONCURRENCY` | Max concurrent Zoekt/SCIP child processes on codesearch, and SCIP HTTP batch size on the worker. Default `2`. |
+| `CODESEARCH_INDEXER_CONCURRENCY` | Max concurrent Zoekt/SCIP child processes on codesearch, and SCIP HTTP batch size on the worker. Default `2`. Only one of the processes is a SCIP indexer. |
 | `CODESEARCH_INDEX_PIPELINE_CONCURRENCY` | Max distinct repos with in-flight OpenWorkflow index-phase HTTP (clone included). Default `2`. Codesearch returns 429 when full. |
 
 ## Related pages
