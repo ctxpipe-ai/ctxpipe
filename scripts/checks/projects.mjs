@@ -19,6 +19,9 @@ const shared = [
   "pnpm-workspace.yaml",
   ".node-version",
   "scripts/checks/projects.mjs",
+  // The runner, and through its imports each module that lists or runs
+  // checks: a change to one changes the key, so no old pass matches.
+  "scripts/checks/run.mjs",
 ]
 const node = (script, ...args) => [process.execPath, script, ...args]
 const pnpm = (...args) => ["pnpm", ...args]

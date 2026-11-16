@@ -220,6 +220,22 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
     ].some((input) => input.test(path)),
   )
   inputs = inputs.filter((path) => !decided.includes(path))
+  // The files that define how checks are listed and run. The key of each
+  // cached check holds run.mjs and so its import closure, and each data file
+  // is an input of the checks that read it: a change misses each stored pass
+  // of the old definition. The manifest job also lists the same tree with
+  // the code of the base revision, before any PR code runs, and the plan
+  // compares the two listings (definitionChanges in plan.mjs). The runner
+  // steps of CI (selected.mjs, rerun-failed.mjs) and toolchain.mjs, whose
+  // record is part of each key, stay full-run inputs.
+  const definitions = inputs.filter((path) =>
+    [
+      /^scripts\/checks\/(?!(?:selected|rerun-failed|toolchain)\.mjs$)[^/]+\.(?:mjs|json)$/,
+      /^scripts\/ci\//,
+      /^apps\//,
+    ].some((input) => input.test(path)),
+  )
+  inputs = inputs.filter((path) => !definitions.includes(path))
   // A change to ci.yaml only in the `steps` of check jobs, of
   // `offPullRequestJobs` and of `sameInEachRunJobs` runs the selector; the
   // plan then runs each check of those check jobs.
@@ -249,6 +265,7 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
     reason: config.mode,
     ...(jobs.length && { jobs }),
     ...(decided.length && { gateInputs: decided }),
+    ...(definitions.length && { definitions }),
   }
 }
 
@@ -753,6 +770,8 @@ export function describe(reason) {
       return `ci.yaml changed in job ${reason.jobs?.join(", ")}`
     case "gate":
       return `gate input ${reason.inputs?.join(", ")} changed`
+    case "definition":
+      return `its definition changed with ${reason.inputs?.join(", ")}`
     case "added":
       return `added by the LLM: ${reason.why}`
     case "contract":

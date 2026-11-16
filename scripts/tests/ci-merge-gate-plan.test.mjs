@@ -555,6 +555,140 @@ test("a change to the gate code or its pin runs every test of the CI scripts, an
   )
 })
 
+// A manifest entry of a check id.
+const entry = (id, inputs = ["package.json", "scripts/checks/run.mjs"]) => {
+  const [family, lane, ...file] = id.split(":")
+  return {
+    id,
+    family,
+    lane,
+    root: "",
+    file: file.join(":").split("#")[0],
+    inputs,
+    intent: "Catches a fault.",
+  }
+}
+const manifestOf = (checks) => ({ schemaVersion: 1, checks })
+const listed = () =>
+  [ui, backend, contract, story, lint, image, omitted].map((id) => entry(id))
+
+test("a change to a definition of checks reuses each stored pass whose definition the base revision gives too", () => {
+  const definitions = { mode: "select", reason: "gate", definitions: ["scripts/checks/lanes.mjs"] }
+  const planned = planOf({
+    files: {
+      "mode.json": definitions,
+      "manifest.json": manifestOf(listed()),
+      "base-manifest.json": manifestOf(listed()),
+    },
+  })
+  assert.equal(planned.mode, "gate")
+  // The LLM stage does not decide: the deterministic selection stays, with
+  // each hit of the select job.
+  assert.ok(planned.ran.includes(backend))
+  assert.ok(!planned.ran.includes(addedCase))
+  assert.deepEqual(
+    planned.hits.map(({ id }) => id),
+    [story, lint],
+  )
+  assert.deepEqual(planned.definitions, {
+    inputs: ["scripts/checks/lanes.mjs"],
+    changed: [],
+  })
+  assert.match(planned.reason, /definitions of checks changed \(scripts\/checks\/lanes\.mjs\)/)
+  // More inputs only widen a key, and the intent text is no part of it.
+  const wider = listed().map((item) =>
+    item.id === lint
+      ? { ...item, inputs: [...item.inputs, "knip.json"], intent: "Other." }
+      : item,
+  )
+  assert.deepEqual(
+    planOf({
+      files: {
+        "mode.json": definitions,
+        "manifest.json": manifestOf(wider),
+        "base-manifest.json": manifestOf(listed()),
+      },
+    }).hits.map(({ id }) => id),
+    [story, lint],
+  )
+})
+
+test("a PR cannot redefine a check to reuse a pass of the old definition", () => {
+  const definitions = { mode: "select", reason: "gate", definitions: ["scripts/checks/storybook.mjs"] }
+  // The PR listing gives the story check fewer inputs, makes the lint check
+  // portable, and adds a check that the base listing does not give.
+  const added = "storybook:plays:apps/ui/src/f.stories.tsx#f--one"
+  const redefined = [
+    ...listed().map((item) =>
+      item.id === story
+        ? { ...item, inputs: ["package.json"] }
+        : item.id === lint
+          ? { ...item, portable: true }
+          : item,
+    ),
+    entry(added),
+  ]
+  const select = selectRecord()
+  const planned = planOf({
+    files: {
+      "mode.json": definitions,
+      "selection.json": {
+        ...select,
+        selected: [...select.selected, check(added)],
+        cache: { ...select.cache, hits: [...select.cache.hits, hit(added, "agent", 7)] },
+      },
+      "manifest.json": manifestOf(redefined),
+      "base-manifest.json": manifestOf(listed()),
+    },
+  })
+  assert.equal(planned.mode, "gate")
+  assert.deepEqual(planned.hits, [])
+  // Each one runs, and its stored pass is a miss of this run.
+  for (const id of [story, lint, added]) {
+    assert.ok(planned.ran.includes(id), id)
+    assert.ok(
+      planned.selection.cache.misses.some(
+        (miss) => miss.id === id && miss.mode === "definition",
+      ),
+      id,
+    )
+  }
+  assert.deepEqual(planned.definitions.changed, [added, lint, story].sort())
+  assert.equal(
+    describe({ kind: "definition", inputs: ["scripts/checks/storybook.mjs"] }),
+    "its definition changed with scripts/checks/storybook.mjs",
+  )
+  // A failure of such a check contradicts a stored pass of its key.
+  assert.ok(planned.rerun.includes(story))
+  // A check that the base listing gives and the PR listing does not: the
+  // plan cannot see that check, so the run is full.
+  const dropped = planOf({
+    files: {
+      "mode.json": definitions,
+      "manifest.json": manifestOf(listed().filter((item) => item.id !== omitted)),
+      "base-manifest.json": manifestOf(listed()),
+    },
+  })
+  assert.equal(dropped.mode, "full")
+  assert.equal(
+    dropped.reason,
+    `definitions of checks changed, and the listing of this PR drops 1 check that the base revision lists for the same tree: ${omitted}`,
+  )
+  assert.equal(dropped.hits, undefined)
+  // Without a valid listing of the base revision, the run is full.
+  for (const base of [undefined, { schemaVersion: 1, checks: "all" }])
+    assert.equal(
+      planOf({
+        files: {
+          "mode.json": definitions,
+          "manifest.json": manifestOf(listed()),
+          ...(base && { "base-manifest.json": base }),
+        },
+      }).reason,
+      "definitions of checks changed, and no valid listing of the base revision or of the PR is available",
+    )
+})
+
 test("a check of a job-scoped ci.yaml change gets no hit from the PR store", () => {
   // An earlier run of the PR can have run the check with another ci.yaml,
   // under the same key.

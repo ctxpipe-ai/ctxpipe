@@ -80,7 +80,7 @@ function closureOf(starts) {
   return [...seen]
 }
 
-test("a change to a file that lists, defines or runs checks gives a full run, which reuses no stored pass", () => {
+test("a change to a file that lists, defines or runs checks gives a full run, or a run that compares the listing of the base revision", () => {
   const files = closureOf([
     "scripts/checks/list.mjs",
     "scripts/checks/run.mjs",
@@ -115,12 +115,32 @@ test("a change to a file that lists, defines or runs checks gives a full run, wh
   ])
     assert.ok(files.includes(known), `walk reaches ${known}`)
   // A package file is a lane input of each check of its package
-  // (scripts/checks/README.md, Lanes).
+  // (scripts/checks/README.md, Lanes). Each other file gives a full run, or
+  // names a definition of checks: the plan then compares the two listings.
   for (const file of [
     ...files.filter(
       (file) => !keyed.has(file) && !file.endsWith("package.json"),
     ),
     ".npmrc",
+  ]) {
+    const decided = decideMode({
+      config: pinned,
+      event: "pull_request",
+      fork: false,
+      changed: [file],
+    })
+    assert.ok(
+      decided.mode === "full" || decided.definitions?.includes(file),
+      file,
+    )
+  }
+  // The CI runner steps and the toolchain record stay full-run inputs: a
+  // check that runs in CI runs through them, and the record is part of each
+  // key.
+  for (const file of [
+    "scripts/checks/selected.mjs",
+    "scripts/checks/rerun-failed.mjs",
+    "scripts/checks/toolchain.mjs",
   ])
     assert.equal(
       decideMode({
@@ -151,6 +171,63 @@ test("a change to a file that lists, defines or runs checks gives a full run, wh
   assert.deepEqual(full.jobs, {})
 })
 
+test("the manifest job lists the tree with the base code before any PR code runs, and the plan reads that listing by its id", () => {
+  const { jobs } = parseYaml(readFileSync(join(root, ciYaml), "utf8"))
+  const steps = jobs["merge-gate-manifest"].steps
+  const index = (name) => steps.findIndex((step) => step.name === name)
+  const base = index("The listing of the base revision")
+  const back = index("The files of the PR again")
+  assert.ok(base > 0 && back === base + 1)
+  // Before it, no step runs code of the PR: the install runs no lifecycle
+  // script, and each other step is an action or the gate of the base.
+  for (const step of steps.slice(0, base)) {
+    if (!step.run) continue
+    assert.ok(
+      /^pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile /.test(step.run) ||
+        step.run.includes("$RUNNER_TEMP/gate/") ||
+        /git archive "\$rev"|corepack enable/.test(step.run),
+      step.run,
+    )
+  }
+  // The listing of the PR runs after the PR files are back.
+  assert.ok(index("Manifest and toolchain") > back)
+  // The base files replace each list-time file of a definition of checks.
+  const paths = steps[back].run.match(/paths="([^"]+)"/)[1].split(" ")
+  for (const path of paths) assert.ok(steps[base].run.includes(path), path)
+  const listTime = closureOf(["scripts/checks/list.mjs"]).filter((file) =>
+    decideMode({
+      config: pinned,
+      event: "pull_request",
+      fork: false,
+      changed: [file],
+    }).definitions?.includes(file),
+  )
+  assert.ok(listTime.includes("apps/ui/.storybook/check-modules.mjs"))
+  for (const file of listTime)
+    assert.ok(
+      paths.some((path) => file === path || file.startsWith(`${path}/`)),
+      file,
+    )
+  // The plan reads the listing only by the artifact id of its upload, and the
+  // manifest that the selector keyed from the select job.
+  assert.equal(
+    jobs["merge-gate-manifest"].outputs["base-listing"],
+    "${{ steps.base-listing.outputs.artifact-id }}",
+  )
+  assert.ok(
+    jobs["merge-gate-plan"].steps.some(
+      (step) =>
+        step.with?.["artifact-ids"] ===
+        "${{ needs.merge-gate-manifest.outputs.base-listing }}",
+    ),
+  )
+  assert.ok(
+    jobs["merge-gate-select"].steps.some((step) =>
+      step.run?.includes('cp "$RUNNER_TEMP/inputs/manifest.json" "$out/manifest.json"'),
+    ),
+  )
+})
+
 test("a data file that only its own check reads is a lane input; one that the listing or a runner reads gives a full run", async () => {
   const mode = (path) =>
     decideMode({
@@ -167,7 +244,11 @@ test("a data file that only its own check reads is a lane input; one that the li
     assert.deepEqual(mode(path), { mode: "select", reason: "shadow" }, path)
   const gateInput = (path) => {
     const decided = mode(path)
-    return decided.mode === "full" || !!decided.gateInputs?.includes(path)
+    return (
+      decided.mode === "full" ||
+      !!decided.gateInputs?.includes(path) ||
+      !!decided.definitions?.includes(path)
+    )
   }
   const { listProjects } = await import("../checks/projects.mjs")
   const checks = listProjects()
@@ -225,18 +306,31 @@ test("only a same-repo pull_request without gate input changes runs the selector
     })
   for (const path of [
     ".github/actions/setup/action.yml",
-    "scripts/checks/run.mjs",
-    "scripts/checks/lanes.mjs",
     "scripts/checks/toolchain.mjs",
-    "scripts/ci/test-suite.mjs",
-    "scripts/ci/vitest-launch.mjs",
-    "scripts/ci/test-weights.json",
+    "scripts/checks/selected.mjs",
     ".npmrc",
     "patches/a.patch",
   ])
     assert.deepEqual(mode({ changed: ["apps/a.ts", path] }), {
       mode: "full",
       reason: `gate inputs changed: ${path}`,
+    })
+  // A definition of checks runs the selector, and the plan compares the
+  // listing of the PR with the listing of the base revision.
+  for (const path of [
+    "scripts/checks/run.mjs",
+    "scripts/checks/lanes.mjs",
+    "scripts/checks/visual.mjs",
+    "scripts/checks/non-portable.json",
+    "scripts/ci/test-suite.mjs",
+    "scripts/ci/vitest-launch.mjs",
+    "scripts/ci/test-weights.json",
+    "apps/ui/.storybook/check-modules.mjs",
+  ])
+    assert.deepEqual(mode({ changed: ["apps/a.ts", path] }), {
+      mode: "select",
+      reason: "shadow",
+      definitions: [path],
     })
   for (const path of [
     ".github/workflows/deploy.yaml",
@@ -285,12 +379,13 @@ test("a change to the gate code or its pin runs the selector, and only the other
     mode([
       ".github/merge-gate.json",
       "scripts/checks/projects.mjs",
-      "scripts/checks/run.mjs",
+      "scripts/checks/selected.mjs",
+      "scripts/checks/toolchain.mjs",
     ]),
     {
       mode: "full",
       reason:
-        "gate inputs changed: scripts/checks/projects.mjs, scripts/checks/run.mjs",
+        "gate inputs changed: scripts/checks/selected.mjs, scripts/checks/toolchain.mjs",
     },
   )
 })

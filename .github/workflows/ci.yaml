@@ -1434,6 +1434,7 @@ jobs:
     outputs:
       mode: ${{ steps.mode.outputs.mode }}
       record: ${{ steps.mode.outputs.record }}
+      base-listing: ${{ steps.base-listing.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1474,6 +1475,7 @@ jobs:
           {
             echo "mode=$(jq -r .mode "$RUNNER_TEMP/merge-gate/mode.json")"
             echo "record=$(jq -c . "$RUNNER_TEMP/merge-gate/mode.json")"
+            echo "definitions=$(jq -r 'if (.definitions // []) == [] then "false" else "true" end' "$RUNNER_TEMP/merge-gate/mode.json")"
           } >> "$GITHUB_OUTPUT"
       # The record and the git lanes use one git version (ADR-065).
       - uses: ./.github/actions/git
@@ -1493,8 +1495,43 @@ jobs:
       # scripts/checks/list.mjs loads: the root, and apps/ui for Storybook
       # (apps/ui/.storybook/check-modules.mjs). The listing is the same as
       # with the full install.
-      - run: pnpm install --frozen-lockfile --filter @ctxpipe-dev/root --filter @ctxpipe/ui
+      # No lifecycle script runs, so no code of the PR runs before the
+      # listing of the base revision.
+      - run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile --filter @ctxpipe-dev/root --filter @ctxpipe/ui
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
+      # A change to a definition of checks (`definitions` in the mode record):
+      # the code of the base revision lists the same tree before any code of
+      # the PR runs, and the plan compares that listing with the manifest of
+      # the PR (scripts/checks/README.md, A change to a definition of checks).
+      # The base versions of the files that list checks replace those of the
+      # PR for this step only. The upload gives its artifact id as an output,
+      # so a later step cannot replace the listing.
+      - name: The listing of the base revision
+        id: base
+        if: steps.mode.outputs.definitions == 'true'
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/base-listing"
+          git archive HEAD^1 scripts/checks scripts/ci apps/backend/evals/mcp \
+            apps/ui/.storybook/check-modules.mjs apps/codesearch/scripts/run-vitest-contracts.mjs |
+            tar -x
+          node scripts/checks/list.mjs > "$RUNNER_TEMP/base-listing/base-manifest.json"
+      - name: The files of the PR again
+        if: steps.mode.outputs.definitions == 'true'
+        run: |
+          paths="scripts/checks scripts/ci apps/backend/evals/mcp apps/ui/.storybook/check-modules.mjs apps/codesearch/scripts/run-vitest-contracts.mjs"
+          git checkout HEAD -- $paths
+          git clean -fdq -- $paths
+          test -z "$(git status --porcelain -- $paths)"
+      - name: Preserve the listing of the base revision
+        id: base-listing
+        if: steps.base.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: merge-gate-base-listing
+          path: ${{ runner.temp }}/base-listing/base-manifest.json
+          if-no-files-found: error
       # The toolchain record holds the versions of the host programs that a
       # check declares (scripts/checks/toolchain.mjs), so this job has the
       # same zoekt and ast-grep as the test jobs: the build of scripts/zoekt
@@ -1655,6 +1692,9 @@ jobs:
           echo "the selection record did not parse" > "$out/select-cause.txt"
           head -n 1 "$RUNNER_TEMP/raw.json" | jq -c 'del(.cache.hits[]?.provenance.who)' > "$RUNNER_TEMP/selection.json"
           mv "$RUNNER_TEMP/selection.json" "$out/selection.json"
+          # The plan compares the manifest that the selector keyed with the
+          # listing of the base revision.
+          cp "$RUNNER_TEMP/inputs/manifest.json" "$out/manifest.json"
           rm "$out/select-cause.txt"
           find "$XDG_CACHE_HOME/factory/traces" -name '*.json.gz' -exec cp {} "$out/trace.json.gz" \; -quit || true
       - name: Preserve the selection
@@ -2086,6 +2126,15 @@ jobs:
         continue-on-error: true
         with:
           artifact-ids: ${{ needs.merge-gate-llm.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/inputs
+      # The manifest job uploads the listing of the base revision before any
+      # code of the PR runs, and gives its artifact id.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: github.event_name == 'pull_request' && needs.merge-gate-manifest.outputs.base-listing != ''
+        continue-on-error: true
+        with:
+          artifact-ids: ${{ needs.merge-gate-manifest.outputs.base-listing }}
           merge-multiple: true
           path: ${{ runner.temp }}/inputs
       - name: The mode of the manifest job
