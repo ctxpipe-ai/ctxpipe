@@ -36,6 +36,7 @@ import {
 } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { conversations } from "../../db/schema/conversations.js"
+import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
 import {
   workspaceSandboxInstances,
   workspaces,
@@ -65,12 +66,13 @@ import { withDestroyedWorkspaceSandboxes } from "./workspace-sandbox-cleanup.js"
 
 /*
  * The warm pool of AgentCore chat sessions (CTX-1323), against Postgres and
- * the AgentCore provider on a fake endpoint. The Workspace repository is a
+ * the AgentCore provider on a fake endpoint. Each Workspace repository is a
  * local bare repository. The fake has one microVM: a new session empties it.
  */
 let fake: Awaited<ReturnType<typeof startFakeAgentCore>>
 let repo = ""
-let repoUrl = ""
+/** The repository URL of each test Workspace. */
+const repoUrls = new Map<string, string>()
 
 beforeAll(async () => {
   const url = process.env.DATABASE_URL
@@ -96,8 +98,8 @@ beforeAll(async () => {
     ],
     { cwd: join(repo, "work") },
   )
-  git("clone", "-q", "--bare", "work", "context.git")
-  repoUrl = `file://${join(repo, "context.git")}`
+  for (let index = 0; index < 4; index++)
+    git("clone", "-q", "--bare", "work", `context-${index}.git`)
 })
 afterAll(async () => {
   fake.close()
@@ -122,9 +124,11 @@ async function withOrg<T>(
   vi.stubEnv("AWS_ACCESS_KEY_ID", "test")
   vi.stubEnv("AWS_SECRET_ACCESS_KEY", "test")
   const orgId = generateObjectId("org")
-  const workspaceIds = Array.from({ length: workspaceCount }, () =>
-    generateObjectId("ws"),
-  )
+  const workspaceIds = Array.from({ length: workspaceCount }, (_, index) => {
+    const id = generateObjectId("ws")
+    repoUrls.set(id, `file://${join(repo, `context-${index}.git`)}`)
+    return id
+  })
   await getSystemDb().insert(organizations).values({
     id: orgId,
     slug: orgId,
@@ -139,8 +143,10 @@ async function withOrg<T>(
           orgId,
           slug: `context-${index}`,
           displayName: `Context ${index}`,
-          // The pool's revisions name the local repository.
-          workspaceRepositoryUrl: `https://example.test/context-${index}.git`,
+          workspaceRepositoryUrl: repoUrls.get(id) ?? "",
+          desiredGeneration: 1,
+          desiredSha: "a".repeat(40),
+          desiredDefaultBranch: "main",
         })),
       ),
     )
@@ -159,7 +165,7 @@ async function withOrg<T>(
 
 const revisionOf = (workspaceId: string): WorkspaceRevision => ({
   workspaceId,
-  remote: { url: repoUrl, connectionId: null },
+  remote: { url: repoUrls.get(workspaceId) ?? "", connectionId: null },
   sha: "a".repeat(40),
   generation: 1,
   defaultBranch: "main",
@@ -238,7 +244,11 @@ async function startChatSandbox(
       ),
     ),
     workspace: defineWorkspace({
-      source: gitSource({ url: repoUrl, ref: "main", auth: { token: "" } }),
+      source: gitSource({
+        url: revision.remote.url,
+        ref: "main",
+        auth: { token: "" },
+      }),
       secrets: createSecrets(secrets),
       setup: ["test -f README.md"],
     }),
@@ -345,14 +355,15 @@ describe("the warm pool of AgentCore chat sessions (Postgres)", () => {
       await row("old-generation", { generation: 2 }, now)
       await row(
         "other-connection",
-        { remote: { url: repoUrl, connectionId: "con_other" } },
+        { remote: { url: revision.remote.url, connectionId: "con_other" } },
         now,
       )
       await row(
         "other-repository",
-        { remote: { url: `${repoUrl}x`, connectionId: null } },
+        { remote: { url: `${revision.remote.url}x`, connectionId: null } },
         now,
       )
+      await row("other-branch", { defaultBranch: "develop" }, now)
       await row("waited-too-long", {}, new Date(now.getTime() - 60 * 60_000))
       expect(
         await claimPoolSession({
@@ -362,7 +373,7 @@ describe("the warm pool of AgentCore chat sessions (Postgres)", () => {
           readySince: new Date(now.getTime() - 60_000),
         }),
       ).toBeNull()
-      expect(await poolRows(orgId)).toHaveLength(4)
+      expect(await poolRows(orgId)).toHaveLength(5)
     })
   }, 60_000)
 
@@ -420,7 +431,19 @@ describe("the warm pool of AgentCore chat sessions (Postgres)", () => {
       ).finally(() => {
         done = true
       })
-      await new Promise((resolve) => setTimeout(resolve, 500))
+      // The delete holds the Workspace lock and waits for the fill's own lock.
+      await vi.waitFor(async () =>
+        expect(
+          await withOrgDbContext(orgId, (db) =>
+            db
+              .select({ key: sandboxLocks.key })
+              .from(sandboxLocks)
+              .where(
+                eq(sandboxLocks.key, `workspace-sandboxes:${workspaceId}`),
+              ),
+          ),
+        ).toHaveLength(1),
+      )
       expect(done).toBe(false)
       release()
       expect(await filling).toBe("filled")
@@ -429,6 +452,52 @@ describe("the warm pool of AgentCore chat sessions (Postgres)", () => {
       expect([...fake.running].filter((id) => !runningBefore.has(id))).toEqual(
         [],
       )
+    })
+  }, 60_000)
+
+  it("fills nothing for a binding that a relink replaced before the fill", async () => {
+    await withOrg(1, async ({ orgId, workspaceIds: [workspaceId = ""] }) => {
+      // The relink came first: its cleanup listed no pool row.
+      await withOrgDbContext(orgId, (db) =>
+        db
+          .update(workspaces)
+          .set({ desiredGeneration: 2 })
+          .where(eq(workspaces.id, workspaceId)),
+      )
+      const runningBefore = new Set(fake.running)
+      expect(await fill(orgId, workspaceId)).toBe("stale")
+      expect(await poolRows(orgId)).toEqual([])
+      expect([...fake.running].filter((id) => !runningBefore.has(id))).toEqual(
+        [],
+      )
+    })
+  }, 60_000)
+
+  it("counts a session after its wait until the sweep stops it", async () => {
+    await withOrg(1, async ({ orgId, workspaceIds: [workspaceId = ""] }) => {
+      expect(await fill(orgId, workspaceId)).toBe("filled")
+      const [ready] = await poolRows(orgId)
+      if (!ready) throw new Error("No pool row")
+      // Its wait is over, and the sweep has not stopped it yet.
+      await persistSandboxInstance({
+        ...ready,
+        lastHeartbeatAt: new Date(Date.now() - 2 * POOL_SESSION_TTL_MS),
+      })
+      expect(await fill(orgId, workspaceId)).toBe("full")
+      await sweepConversationSandboxes(orgId)
+      expect(await fill(orgId, workspaceId)).toBe("filled")
+    })
+  }, 60_000)
+
+  it("a claim whose marker check fails stops that session and starts cold", async () => {
+    await withOrg(1, async ({ orgId, workspaceIds: [workspaceId = ""] }) => {
+      expect(await fill(orgId, workspaceId)).toBe("filled")
+      const [ready] = await poolRows(orgId)
+      const pooled = ready?.providerSandboxId ?? ""
+      fake.failNextCommand("platform")
+      const handle = await startChatSandbox({ orgId, workspaceId })
+      expect(handle.id).not.toBe(pooled)
+      expect(fake.running.has(pooled)).toBe(false)
     })
   }, 60_000)
 

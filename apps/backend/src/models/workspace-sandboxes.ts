@@ -1,7 +1,6 @@
 import {
   and,
   count,
-  desc,
   eq,
   getTableColumns,
   gt,
@@ -611,13 +610,13 @@ export async function updateBuildingBase(input: {
  * give its provider session id, or null when none is ready. The row goes in
  * the same statement, and `skip locked` passes over a row that a parallel
  * claim holds, so two claims never get the same session. Only a session of
- * the same repository, generation and connection, made after `readySince`,
- * matches.
+ * the same repository, generation, connection and default branch, made
+ * after `readySince`, matches.
  */
 export async function claimPoolSession(input: {
   orgId: string
   workspaceId: string
-  revision: Pick<WorkspaceRevision, "remote" | "generation">
+  revision: Pick<WorkspaceRevision, "remote" | "generation" | "defaultBranch">
   readySince: Date
 }): Promise<string | null> {
   const t = workspaceSandboxInstances
@@ -633,12 +632,14 @@ export async function claimPoolSession(input: {
           eq(t.state, "live"),
           isNotNull(t.providerSandboxId),
           gt(t.lastHeartbeatAt, input.readySince),
+          // The same binding as `sameWorkspaceBinding` (revision.ts), which
+          // the fill checks before it reserves a row.
           sql`${t.revision}->'remote'->>'url' = ${input.revision.remote.url}`,
           sql`coalesce(${t.revision}->'remote'->>'connectionId', '') = ${input.revision.remote.connectionId ?? ""}`,
           sql`(${t.revision}->>'generation')::int = ${input.revision.generation}`,
+          sql`${t.revision}->>'defaultBranch' = ${input.revision.defaultBranch}`,
         ),
       )
-      .orderBy(desc(t.lastHeartbeatAt))
       .limit(1)
       .for("update", { skipLocked: true })
     const [claimed] = await getOrgDb()
