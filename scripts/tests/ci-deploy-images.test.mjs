@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import { execFileSync, spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import {
   copyFileSync,
   mkdirSync,
@@ -16,9 +17,16 @@ import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { parse } from "yaml"
 
-import { images, planImages, uncoveredSources } from "../ci/deploy-images.mjs"
+import {
+  images,
+  planImages,
+  turboBinary,
+  uncoveredSources,
+} from "../ci/deploy-images.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
+// The plan's turbo: the one that pnpm installed and checked, not a download.
+process.env.TURBO_BIN = join(root, "node_modules", ".bin", "turbo")
 
 // GitHub is an outside service: msw answers its HTTP calls.
 const server = setupServer()
@@ -227,6 +235,142 @@ test("a change to the lockfile or the chat sandbox files builds the images that 
   const shim = repository({ "scripts/chat-sandbox/agentcore-shim.mjs": "x\n" })
   server.use(...github({ base: shim.base }))
   assert.deepEqual(built(await plan(shim.dir)), ["chat-sandbox-agentcore"])
+})
+
+// A pnpm workspace with the image packages, each with one dependency, and its
+// lockfile with the given integrity of codesearch's dependency.
+function workspace(codesearchIntegrity) {
+  const apps = ["backend", "codesearch", "ui"]
+  const lockfile = [
+    "lockfileVersion: '9.0'",
+    "",
+    "settings:",
+    "  autoInstallPeers: true",
+    "  excludeLinksFromLockfile: false",
+    "",
+    "importers:",
+    "",
+    "  .: {}",
+    ...apps.flatMap((app) => [
+      "",
+      `  apps/${app}:`,
+      "    dependencies:",
+      `      dep-${app}:`,
+      "        specifier: 1.0.0",
+      "        version: 1.0.0",
+    ]),
+    "",
+    "packages:",
+    ...apps.flatMap((app) => [
+      "",
+      `  dep-${app}@1.0.0:`,
+      `    resolution: {integrity: sha512-${app === "codesearch" ? codesearchIntegrity : "AAAA"}}`,
+    ]),
+    "",
+    "snapshots:",
+    ...apps.flatMap((app) => ["", `  dep-${app}@1.0.0: {}`]),
+    "",
+  ].join("\n")
+  return {
+    "package.json": JSON.stringify({
+      name: "fixture",
+      private: true,
+      packageManager: "pnpm@10.12.1",
+    }),
+    "pnpm-workspace.yaml": "packages:\n  - apps/*\n",
+    "turbo.json": "{}\n",
+    ...Object.fromEntries(
+      apps.map((app) => [
+        `apps/${app}/package.json`,
+        JSON.stringify({
+          name: `@ctxpipe/${app}`,
+          version: "0.0.0",
+          dependencies: { [`dep-${app}`]: "1.0.0" },
+        }),
+      ]),
+    ),
+    "pnpm-lock.yaml": lockfile,
+  }
+}
+
+test("a lockfile change builds only the images whose pruned lockfile changed", async () => {
+  // Only codesearch's dependency changed in the lockfile: turbo prune finds it.
+  const { dir, base } = repository(
+    { "pnpm-lock.yaml": workspace("BBBB")["pnpm-lock.yaml"] },
+    { baseChanges: workspace("AAAA") },
+  )
+  server.use(...github({ base }))
+  const result = await plan(dir)
+  assert.deepEqual(built(result), ["codesearch"])
+  assert.equal(
+    result.reasons.codesearch,
+    `pnpm-lock.yaml changed since ${base.slice(0, 7)}`,
+  )
+  assert.equal(result.reuse.backend, digestOf("backend"))
+  assert.equal(result.reuse.ui, digestOf("ui"))
+})
+
+test("without a working turbo, a lockfile change builds every image that installs packages", async () => {
+  const { dir, base } = repository(
+    { "pnpm-lock.yaml": workspace("BBBB")["pnpm-lock.yaml"] },
+    { baseChanges: workspace("AAAA") },
+  )
+  server.use(...github({ base }))
+  const turbo = process.env.TURBO_BIN
+  process.env.TURBO_BIN = join(dir, "no-turbo")
+  try {
+    assert.deepEqual(built(await plan(dir)), [
+      "backend",
+      "worker",
+      "ui",
+      "codesearch",
+    ])
+  } finally {
+    process.env.TURBO_BIN = turbo
+  }
+})
+
+test("turbo is the lockfile's platform binary, checked against its sha512 integrity", async () => {
+  const os = { darwin: "darwin", linux: "linux", win32: "windows" }[
+    process.platform
+  ]
+  const arch = { arm64: "arm64", x64: "64" }[process.arch]
+  const name = `@turbo/${os}-${arch}`
+  const dir = mkdtempSync(join(tmpdir(), "turbo-registry-"))
+  mkdirSync(join(dir, `${os}-${arch}`, "bin"), { recursive: true })
+  writeFileSync(join(dir, `${os}-${arch}`, "bin", "turbo"), "#!/bin/sh\n")
+  execFileSync("tar", ["-czf", "turbo.tgz", `${os}-${arch}`], { cwd: dir })
+  const tarball = readFileSync(join(dir, "turbo.tgz"))
+  const integrity = `sha512-${createHash("sha512").update(tarball).digest("base64")}`
+  const lockfile = (entry) =>
+    writeFileSync(
+      join(dir, "pnpm-lock.yaml"),
+      `lockfileVersion: '9.0'\n\npackages:\n${entry}`,
+    )
+  server.use(
+    http.get(
+      `https://registry.npmjs.org/${name}/-/${os}-${arch}-9.9.9.tgz`,
+      () => HttpResponse.arrayBuffer(tarball),
+    ),
+  )
+  const work = () => mkdtempSync(join(tmpdir(), "turbo-work-"))
+  const turbo = process.env.TURBO_BIN
+  delete process.env.TURBO_BIN
+  try {
+    lockfile(
+      `\n  '${name}@9.9.9':\n    resolution: {integrity: ${integrity}}\n`,
+    )
+    assert.equal(
+      readFileSync(await turboBinary(dir, work()), "utf8"),
+      "#!/bin/sh\n",
+    )
+    lockfile(`\n  '${name}@9.9.9':\n    resolution: {integrity: sha512-AAAA}\n`)
+    await assert.rejects(turboBinary(dir, work()), /integrity/)
+    lockfile("")
+    await assert.rejects(turboBinary(dir, work()), /resolves no/)
+  } finally {
+    process.env.TURBO_BIN = turbo
+  }
 })
 
 test("a change to the deploy workflow or to this plan builds every image", async () => {

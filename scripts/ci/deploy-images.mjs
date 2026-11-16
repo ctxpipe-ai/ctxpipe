@@ -1,5 +1,14 @@
 import { execFileSync } from "node:child_process"
-import { appendFileSync, readFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import {
+  appendFileSync,
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
@@ -50,6 +59,7 @@ export const images = [
   {
     image: "backend",
     dockerfile: "apps/backend/Dockerfile",
+    packages: ["@ctxpipe/backend"],
     inputs: [
       ...backend,
       "apps/backend/public",
@@ -62,11 +72,13 @@ export const images = [
   {
     image: "worker",
     dockerfile: "apps/backend/Dockerfile.worker",
+    packages: ["@ctxpipe/backend"],
     inputs: backend,
   },
   {
     image: "ui",
     dockerfile: "apps/ui/Dockerfile",
+    packages: ["@ctxpipe/ui", "@ctxpipe/backend"],
     inputs: [
       ...workspace,
       "shared",
@@ -78,6 +90,7 @@ export const images = [
   {
     image: "codesearch",
     dockerfile: "apps/codesearch/Dockerfile",
+    packages: ["@ctxpipe/codesearch"],
     inputs: [
       ...workspace,
       "shared",
@@ -110,6 +123,85 @@ export const images = [
     ],
   },
 ]
+
+// The lockfile is an input of each image that installs packages, but most of a
+// change to it is about other apps. So a change to pnpm-lock.yaml counts for an
+// image only when the pruned lockfile of its `packages` changed: the lockfile
+// that `turbo prune <packages> --docker` writes, which holds exactly what the
+// image's install reads.
+//
+// The plan's output decides what the production build pushes, so turbo is the
+// platform binary of the version that the lockfile resolves, checked against
+// the lockfile's sha512 integrity, with no install script (TURBO_BIN, the
+// tests' turbo, is one that pnpm installed and checked). It runs without the
+// job's credentials and output files. A step that fails or takes longer than
+// PRUNE_MS counts as a changed lockfile: the image builds.
+const PRUNE_MS = 60_000
+
+/**
+ * The checked turbo binary of the lockfile's version for this platform, put in
+ * `workDir`, from `registry` within `timeout` ms.
+ */
+export async function turboBinary(
+  root,
+  workDir,
+  { registry = "https://registry.npmjs.org", timeout = PRUNE_MS } = {},
+) {
+  if (process.env.TURBO_BIN) return process.env.TURBO_BIN
+  const os = { darwin: "darwin", linux: "linux", win32: "windows" }[
+    process.platform
+  ]
+  const arch = { arm64: "arm64", x64: "64" }[process.arch]
+  const name = `@turbo/${os}-${arch}`
+  const entry = new RegExp(
+    `^ {2}'${name}@(\\d+\\.\\d+\\.\\d+)':\\n {4}resolution: \\{integrity: (sha512-[A-Za-z0-9+/=]+)\\}`,
+    "m",
+  ).exec(readFileSync(join(root, "pnpm-lock.yaml"), "utf8"))
+  if (!entry) throw new Error(`the lockfile resolves no ${name}`)
+  const [, version, integrity] = entry
+  const response = await fetch(
+    `${registry}/${name}/-/${os}-${arch}-${version}.tgz`,
+    { signal: AbortSignal.timeout(timeout) },
+  )
+  if (!response.ok)
+    throw new Error(`${name}@${version}: HTTP ${response.status}`)
+  const tarball = Buffer.from(await response.arrayBuffer())
+  const actual = `sha512-${createHash("sha512").update(tarball).digest("base64")}`
+  if (actual !== integrity)
+    throw new Error(`${name}@${version}: integrity ${actual}, not ${integrity}`)
+  writeFileSync(join(workDir, "turbo.tgz"), tarball)
+  // The tarball's one top folder (its name varies) goes away.
+  execFileSync("tar", ["-xzf", "turbo.tgz", "--strip-components=1"], {
+    cwd: workDir,
+    stdio: "ignore",
+    timeout,
+  })
+  const bin = join(workDir, "bin", "turbo")
+  chmodSync(bin, 0o755)
+  return bin
+}
+
+/** The pruned lockfile of `packages` in the checkout `dir`, by turbo within `timeout` ms. */
+export function prunedLockfile(turbo, dir, packages, timeout) {
+  const out = mkdtempSync(join(tmpdir(), "prune-"))
+  try {
+    execFileSync(turbo, ["prune", ...packages, "--docker", "--out-dir", out], {
+      cwd: dir,
+      stdio: "ignore",
+      timeout,
+      // No GH_TOKEN, no GITHUB_* output file, and no telemetry.
+      env: {
+        PATH: process.env.PATH,
+        HOME: tmpdir(),
+        TURBO_TELEMETRY_DISABLED: "1",
+        DO_NOT_TRACK: "1",
+      },
+    })
+    return readFileSync(join(out, "json", "pnpm-lock.yaml"), "utf8")
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
 
 const inputsOf = ({ dockerfile, context = ".", inputs }) => [
   dockerfile,
@@ -353,7 +445,7 @@ async function baseDigests({ repo, jobs, token }) {
 }
 
 // The matrix entry of an image: the image without its inputs.
-const matrixEntry = ({ inputs, ...matrix }) => matrix
+const matrixEntry = ({ inputs, packages, ...matrix }) => matrix
 
 /**
  * Which images this run builds, and the digest of the base run for each
@@ -431,9 +523,16 @@ export async function planImages({ root, event, repo, token }) {
   if (everyImageChange) return everything(`${everyImageChange} changed`)
   const result = { build: [], reuse: {}, reasons: {} }
   const short = base.head_sha.slice(0, 7)
+  const lockfileChanged = changed.includes("pnpm-lock.yaml")
+    ? await lockfileChangedFor(root, base.head_sha)
+    : () => true
   for (const image of images) {
     const uncovered = uncoveredSources(root, image)
-    const touched = changed.find((path) => covers(inputsOf(image), path))
+    const touched = changed.find(
+      (path) =>
+        covers(inputsOf(image), path) &&
+        (path !== "pnpm-lock.yaml" || lockfileChanged(image)),
+    )
     const { digest, reason } = digests[image.image]
     const why = uncovered.length
       ? `its Dockerfile reads paths that its inputs do not cover: ${uncovered.join(", ")}`
@@ -450,6 +549,70 @@ export async function planImages({ root, event, repo, token }) {
     }
   }
   return result
+}
+
+/**
+ * Whether an image's pruned lockfile changed since the base commit: a function
+ * of the image. An image without `packages`, a step that fails, and every
+ * image after the first failure count as changed, so they build. All of it
+ * ends within 150 s, well inside the plan job's 5 minutes.
+ */
+async function lockfileChangedFor(root, baseSha) {
+  const deadline = Date.now() + 150_000
+  // The time a step may take: PRUNE_MS, or what is left.
+  const budget = () => {
+    const left = Math.min(PRUNE_MS, deadline - Date.now())
+    if (left <= 0) throw new Error("the lockfile check is out of time")
+    return left
+  }
+  let workDir
+  try {
+    workDir = mkdtempSync(join(tmpdir(), "deploy-lockfile-"))
+    const turbo = await turboBinary(root, workDir, { timeout: budget() })
+    const baseDir = join(workDir, "base")
+    const git = (timeout, ...args) =>
+      execFileSync("git", args, { cwd: root, stdio: "ignore", timeout })
+    git(budget(), "worktree", "add", "--detach", baseDir, baseSha)
+    try {
+      const lockfiles = new Map()
+      let failed = false
+      const pruned = (dir, packages) => {
+        const key = `${dir}\0${packages.join(",")}`
+        if (!lockfiles.has(key))
+          lockfiles.set(key, prunedLockfile(turbo, dir, packages, budget()))
+        return lockfiles.get(key)
+      }
+      const changed = ({ packages }) => {
+        if (!packages || failed) return true
+        try {
+          return pruned(baseDir, packages) !== pruned(root, packages)
+        } catch {
+          failed = true
+          return true
+        }
+      }
+      const results = new Map(
+        images.map((image) => [image.image, changed(image)]),
+      )
+      return (image) => results.get(image.image)
+    } finally {
+      try {
+        git(30_000, "worktree", "remove", "--force", baseDir)
+      } catch {
+        // The folder goes with workDir below.
+      }
+    }
+  } catch {
+    return () => true
+  } finally {
+    if (workDir) {
+      try {
+        rmSync(workDir, { recursive: true, force: true })
+      } catch {
+        // A temporary folder that stays changes no plan.
+      }
+    }
+  }
 }
 
 if (
