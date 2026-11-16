@@ -25,6 +25,17 @@ const pnpm = (...args) => ["pnpm", ...args]
 
 const code = ["apps/**", "packages/**"]
 
+// The Dockerfiles and the .dockerignore of the deploy and preview images:
+// the tests ci-deploy-images and ci-preview-images check them against their
+// inputs (scripts/ci/deploy-images.mjs).
+const imageBuildFiles = [
+  ".dockerignore",
+  "apps/backend/Dockerfile",
+  "apps/backend/Dockerfile.worker",
+  "apps/ui/Dockerfile",
+  "apps/codesearch/Dockerfile",
+]
+
 // The files outside apps/ui that the UI production build bundles: the value
 // imports of each bundled UI file (alias `backend/*` or a relative path), and
 // then the value imports of those files, until no new file is found. The
@@ -280,16 +291,11 @@ const definitions = () => [
             ],
             "ci-codesearch-releases": ["apps/codesearch/scripts/**"],
             "ci-codesearch-selection": ["apps/codesearch/**"],
-            // The Dockerfiles of the deploy images, against their inputs
-            // (scripts/ci/deploy-images.mjs).
             "ci-deploy-images": [
-              ".dockerignore",
-              "apps/backend/Dockerfile",
-              "apps/backend/Dockerfile.worker",
-              "apps/ui/Dockerfile",
-              "apps/codesearch/Dockerfile",
+              ...imageBuildFiles,
               "ops/observability/cost-telemetry/Dockerfile",
             ],
+            "ci-preview-images": imageBuildFiles,
             "ci-test-shards": ["apps/backend/**"],
             "ci-visual-container": ["apps/ui/package.json"],
           }[stem] ?? []),

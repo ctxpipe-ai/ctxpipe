@@ -15,6 +15,18 @@ Browser + HTTP run of the **critical flows** against a **disposable** target: lo
 
 Every run **starts from registration**: it creates its own accounts, organization, and Workspaces. There are no pre-seeded users. Never point a run at production.
 
+## AWS PR previews
+
+An AWS preview of a pull request (`https://pr-<N>.ctxpipe.dev`) comes from the factory CLI, not from CI. No CI job builds a preview image.
+
+1. Install the agent host once (`factory agent-host install`). It writes the AWS profile `ctxpipe-preview-push`.
+2. Start Docker (Colima on a Mac).
+3. In a ctxpipe checkout, run `factory preview up <N>` (`--repo <checkout>` from another folder).
+
+The command starts the factory `preview.yml` run at once. The run makes the task group and the clone of the production database. At the same time, the command builds the images whose inputs changed since main's last deploy. Main's `scripts/ci/preview-images.mjs` decides which images changed. For the other images, the command copies main's images. It pushes all four to the preview account. The run waits for the images, then migrates and starts the services. Each output line has the time since the start. `factory preview down <N>` deletes the preview. Details: the factory CLI README, "Previews".
+
+Only a pull request from ctxpipe-ai/ctxpipe itself into `main` gets a preview. `factory preview up` and the preview workflow refuse a PR from a fork. They refuse it before they build, push or clone anything. The [target guard](run-setup.md#target-guard) of this sweep does not admit `pr-<N>.ctxpipe.dev` yet ([CTX-1352](https://linear.app/ctxpipe/issue/CTX-1352)).
+
 ## 1. Collect inputs
 
 | Input | Example |

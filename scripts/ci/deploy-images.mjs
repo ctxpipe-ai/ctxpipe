@@ -456,111 +456,130 @@ async function baseDigests({ repo, jobs, token }) {
   return digests
 }
 
+/**
+ * The newest successful Deploy run on main that published images (a push, or
+ * a dispatch with the input `deploy`), with its jobs and the digest that it
+ * published for each image: `{ run, digests }`, or undefined. A dispatch
+ * without `deploy` (the prerelease) has no Publish job. A run in progress is
+ * not in the list.
+ */
+async function lastDeploy({ repo, token }) {
+  const { workflow_runs: runs } = await github(
+    `/repos/${repo}/actions/workflows/deploy.yaml/runs?branch=main&status=success&per_page=20`,
+    token,
+  )
+  for (const run of runs) {
+    if (!["push", "workflow_dispatch"].includes(run.event)) continue
+    const { jobs } = await github(
+      `/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`,
+      token,
+    )
+    if (
+      jobs.some(
+        ({ name, conclusion }) =>
+          name.startsWith("Publish image (") && conclusion === "success",
+      )
+    ) {
+      return { run, digests: await baseDigests({ repo, jobs, token }) }
+    }
+  }
+  return undefined
+}
+
 // The matrix entry of an image: the image without its inputs.
 const matrixEntry = ({ inputs, packages, ...matrix }) => matrix
 
+// The plan that builds each image of `list`, for `reason`.
+const buildAll = (list, reason) => ({
+  build: list.map(matrixEntry),
+  reuse: {},
+  reasons: Object.fromEntries(list.map(({ image }) => [image, reason])),
+})
+
 /**
- * Which images this run builds, and the digest of the base run for each
- * other image: `{ build: [matrix entry], reuse: { image: digest },
- * reasons: { image: text } }`.
+ * The plan of the images of `list` at HEAD of `root` against the last
+ * successful Deploy run on main (the base): `{ build: [matrix entry],
+ * reuse: { image: digest }, reasons: { image: text } }`. An image builds when
+ * one of its inputs differs between the base commit and HEAD, when its
+ * Dockerfile reads a path that its inputs do not cover, or when the base has
+ * no valid digest of it. Every image builds when no base is found, when the
+ * GitHub API or git fails, when deploy.yaml or this file differs, or, with
+ * `baseInHistory`, when the base commit is not in the history of HEAD.
  */
-export async function planImages({ root, event, repo, token }) {
-  const everything = (reason) => ({
-    build: images.map(matrixEntry),
-    reuse: {},
-    reasons: Object.fromEntries(images.map(({ image }) => [image, reason])),
-  })
-  if (event !== "push") return everything(`a ${event} run builds every image`)
-  let base
-  let changed
-  let digests
+export async function planFrom({ root, list, repo, token, baseInHistory }) {
+  const everything = (reason) => buildAll(list, reason)
   try {
-    // The newest successful run on main that published images: a push, or a
-    // dispatch with the input `deploy`. A dispatch without it (the
-    // prerelease) has no Publish job. A run in progress, this one too, is not
-    // in the list.
-    const { workflow_runs: runs } = await github(
-      `/repos/${repo}/actions/workflows/deploy.yaml/runs?branch=main&status=success&per_page=20`,
-      token,
-    )
-    let jobs
-    for (const run of runs) {
-      if (!["push", "workflow_dispatch"].includes(run.event)) continue
-      ;({ jobs } = await github(
-        `/repos/${repo}/actions/runs/${run.id}/jobs?filter=latest&per_page=100`,
-        token,
-      ))
-      if (
-        jobs.some(
-          ({ name, conclusion }) =>
-            name.startsWith("Publish image (") && conclusion === "success",
+    const base = await lastDeploy({ repo, token })
+    if (!base) return everything("no successful Deploy run on main")
+    const sha = base.run.head_sha
+    if (!/^[0-9a-f]{40}$/.test(sha))
+      return everything("the base run has no commit")
+    if (baseInHistory) {
+      try {
+        execFileSync("git", ["merge-base", "--is-ancestor", sha, "HEAD"], {
+          cwd: root,
+          stdio: "ignore",
+        })
+      } catch {
+        return everything(
+          `the base commit ${sha} is not in the history of HEAD`,
         )
-      ) {
-        base = run
-        break
       }
     }
-    if (!base) return everything("no successful Deploy run on main")
-    if (!/^[0-9a-f]{40}$/.test(base.head_sha))
-      return everything("the base run has no commit")
-    try {
-      execFileSync(
-        "git",
-        ["merge-base", "--is-ancestor", base.head_sha, "HEAD"],
-        { cwd: root, stdio: "ignore" },
-      )
-    } catch {
-      return everything(
-        `the base commit ${base.head_sha} is not in the history of HEAD`,
-      )
-    }
-    // Each path that changed since the base, also a deleted one.
-    changed = execFileSync(
+    // Each path that differs, also a deleted one. NUL-separated: git quotes a
+    // path with a tab, a newline or a non-ASCII character in the plain list,
+    // and a quoted path does not start with its input.
+    const changed = execFileSync(
       "git",
-      ["diff", "--name-only", "--no-renames", base.head_sha, "HEAD"],
-      { cwd: root, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 },
+      ["diff", "--name-only", "--no-renames", "-z", sha, "HEAD"],
+      {
+        cwd: root,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        maxBuffer: 256 * 1024 * 1024,
+      },
     )
-      .split("\n")
+      .split("\0")
       .filter(Boolean)
-    digests = await baseDigests({ repo, jobs, token })
+    // A change to one of these files can change how every image builds.
+    const everyImageChange = changed.find((path) =>
+      [
+        ".github/workflows/deploy.yaml",
+        "scripts/ci/deploy-images.mjs",
+      ].includes(path),
+    )
+    if (everyImageChange) return everything(`${everyImageChange} changed`)
+    const result = { build: [], reuse: {}, reasons: {} }
+    const short = sha.slice(0, 7)
+    const lockfileChanged = changed.includes("pnpm-lock.yaml")
+      ? await lockfileChangedFor(root, sha, list)
+      : () => true
+    for (const image of list) {
+      const uncovered = uncoveredSources(root, image)
+      const touched = changed.find(
+        (path) =>
+          covers(inputsOf(image), path) &&
+          (path !== "pnpm-lock.yaml" || lockfileChanged(image)),
+      )
+      const { digest, reason } = base.digests[image.image]
+      const why = uncovered.length
+        ? `its Dockerfile reads paths that its inputs do not cover: ${uncovered.join(", ")}`
+        : touched
+          ? `${touched} changed since ${short}`
+          : reason
+      if (why) {
+        result.build.push(matrixEntry(image))
+        result.reasons[image.image] = why
+      } else {
+        result.reuse[image.image] = digest
+        result.reasons[image.image] =
+          `no input changed since ${short}: reuses ${digest}`
+      }
+    }
+    return result
   } catch (error) {
     return everything(`no base: ${error.message}`)
   }
-  // A change to one of these files can change how every image builds.
-  const everyImageChange = changed.find((path) =>
-    [".github/workflows/deploy.yaml", "scripts/ci/deploy-images.mjs"].includes(
-      path,
-    ),
-  )
-  if (everyImageChange) return everything(`${everyImageChange} changed`)
-  const result = { build: [], reuse: {}, reasons: {} }
-  const short = base.head_sha.slice(0, 7)
-  const lockfileChanged = changed.includes("pnpm-lock.yaml")
-    ? await lockfileChangedFor(root, base.head_sha)
-    : () => true
-  for (const image of images) {
-    const uncovered = uncoveredSources(root, image)
-    const touched = changed.find(
-      (path) =>
-        covers(inputsOf(image), path) &&
-        (path !== "pnpm-lock.yaml" || lockfileChanged(image)),
-    )
-    const { digest, reason } = digests[image.image]
-    const why = uncovered.length
-      ? `its Dockerfile reads paths that its inputs do not cover: ${uncovered.join(", ")}`
-      : touched
-        ? `${touched} changed since ${short}`
-        : reason
-    if (why) {
-      result.build.push(matrixEntry(image))
-      result.reasons[image.image] = why
-    } else {
-      result.reuse[image.image] = digest
-      result.reasons[image.image] =
-        `no input changed since ${short}: reuses ${digest}`
-    }
-  }
-  return result
 }
 
 /**
@@ -569,7 +588,7 @@ export async function planImages({ root, event, repo, token }) {
  * image after the first failure count as changed, so they build. All of it
  * ends within 150 s, well inside the plan job's 5 minutes.
  */
-async function lockfileChangedFor(root, baseSha) {
+async function lockfileChangedFor(root, baseSha, list) {
   const deadline = Date.now() + 150_000
   // The time a step may take: PRUNE_MS, or what is left.
   const budget = () => {
@@ -604,7 +623,7 @@ async function lockfileChangedFor(root, baseSha) {
         }
       }
       const results = new Map(
-        images.map((image) => [image.image, changed(image)]),
+        list.map((image) => [image.image, changed(image)]),
       )
       return (image) => results.get(image.image)
     } finally {
@@ -627,6 +646,52 @@ async function lockfileChangedFor(root, baseSha) {
   }
 }
 
+
+/**
+ * Write the plan of `list`: `build` and `reuse`, and each line of `extra`, to
+ * $GITHUB_OUTPUT (else stdout), and a table of the plan to stdout (else
+ * stderr) and to $GITHUB_STEP_SUMMARY.
+ */
+// A reason can name a changed path, which can hold a newline or another
+// control or line separator character. A reason stays on its one table row.
+const oneLine = (text) =>
+  String(text).replace(/[\p{Cc}\u2028\u2029]/gu, " ")
+
+export function writePlan(result, list, extra = []) {
+  const env = process.env
+  const lines = [
+    `build=${JSON.stringify(result.build)}`,
+    `reuse=${JSON.stringify(result.reuse)}`,
+    ...extra,
+  ]
+  const summary = [
+    "| Image | Plan |",
+    "| --- | --- |",
+    ...list.map(
+      ({ image }) =>
+        `| ${image} | ${image in result.reuse ? "reuse" : "build"}: ${oneLine(result.reasons[image])} |`,
+    ),
+  ]
+  // Without $GITHUB_OUTPUT (the factory CLI reads the plan from stdout), the
+  // table goes to stderr: stdout holds only the plan lines.
+  ;(env.GITHUB_OUTPUT ? console.log : console.error)(summary.join("\n"))
+  if (env.GITHUB_OUTPUT)
+    appendFileSync(env.GITHUB_OUTPUT, `${lines.join("\n")}\n`)
+  else console.log(lines.join("\n"))
+  if (env.GITHUB_STEP_SUMMARY)
+    appendFileSync(env.GITHUB_STEP_SUMMARY, `${summary.join("\n")}\n`)
+}
+
+/**
+ * Which images this run builds, and the digest of the base run for each
+ * other image (planFrom). Only a push to main keeps an image.
+ */
+export async function planImages({ root, event, repo, token }) {
+  if (event !== "push")
+    return buildAll(images, `a ${event} run builds every image`)
+  return planFrom({ root, list: images, repo, token, baseInHistory: true })
+}
+
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
@@ -638,23 +703,7 @@ if (
     repo: env.GITHUB_REPOSITORY,
     token: env.GH_TOKEN,
   })
-  const lines = [
-    `build=${JSON.stringify(result.build)}`,
-    `reuse=${JSON.stringify(result.reuse)}`,
+  writePlan(result, images, [
     `images=${JSON.stringify(images.map(matrixEntry))}`,
-  ]
-  const summary = [
-    "| Image | Plan |",
-    "| --- | --- |",
-    ...images.map(
-      ({ image }) =>
-        `| ${image} | ${image in result.reuse ? "reuse" : "build"}: ${result.reasons[image]} |`,
-    ),
-  ]
-  console.log(summary.join("\n"))
-  if (env.GITHUB_OUTPUT)
-    appendFileSync(env.GITHUB_OUTPUT, `${lines.join("\n")}\n`)
-  else console.log(lines.join("\n"))
-  if (env.GITHUB_STEP_SUMMARY)
-    appendFileSync(env.GITHUB_STEP_SUMMARY, `${summary.join("\n")}\n`)
+  ])
 }
