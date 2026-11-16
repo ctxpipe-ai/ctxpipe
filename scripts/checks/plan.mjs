@@ -238,6 +238,7 @@ export function placeOf(id) {
 // equal to the matrix of ci.yaml.
 const imageOptions = {
   "chat-sandbox": { context: "scripts/chat-sandbox" },
+  "cost-telemetry": { context: "ops/observability/cost-telemetry" },
 }
 
 // The matrix jobs whose checks shard.mjs packs into shards.

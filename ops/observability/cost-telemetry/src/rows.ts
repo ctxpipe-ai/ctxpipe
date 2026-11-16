@@ -1,12 +1,15 @@
 export type CostRow = {
   day: string
-  provider: "openrouter" | "github" | "blacksmith" | "cloudflare" | "aws"
+  provider: "openrouter" | "github" | "blacksmith" | "cloudflare" | "aws" | "linear"
   sku: string
   scope: string
   usage: number
   unit: string
   costUsd: number
-  source: "reported" | "estimated"
+  /** README "Sources": reported by the provider, or derived from a plan and a committed price. */
+  source: "reported" | "derived"
+  /** The name of the AWS account (billing.account). */
+  account?: string
 }
 
 type FxSample = { rate: number; timeUnixNano: string }
@@ -22,7 +25,7 @@ export type OtlpMetricsRequest = {
 export function sumRows(rows: CostRow[]): CostRow[] {
   const byKey = new Map<string, CostRow>()
   for (const row of rows) {
-    const key = `${row.day}\0${row.provider}\0${row.sku}\0${row.scope}\0${row.source}\0${row.unit}`
+    const key = `${row.day}\0${row.provider}\0${row.sku}\0${row.scope}\0${row.source}\0${row.unit}\0${row.account ?? ""}`
     const existing = byKey.get(key)
     if (!existing) {
       byKey.set(key, { ...row })
@@ -32,6 +35,22 @@ export function sumRows(rows: CostRow[]): CostRow[] {
     existing.costUsd += row.costUsd
   }
   return [...byKey.values()]
+}
+
+/**
+ * Derived rows of a seat plan: for each day, `seats` × the monthly seat price spread over the days of that day's
+ * month. Every day of the window takes today's seat count.
+ */
+export function seatRows(
+  days: string[],
+  plan: Pick<CostRow, "provider" | "sku" | "scope">,
+  seats: number,
+  usdPerSeatMonth: number,
+): CostRow[] {
+  return days.map((day) => {
+    const daysInMonth = new Date(Date.UTC(Number(day.slice(0, 4)), Number(day.slice(5, 7)), 0)).getUTCDate()
+    return { day, ...plan, usage: seats, unit: "seats", costUsd: (seats * usdPerSeatMonth) / daysInMonth, source: "derived" }
+  })
 }
 
 /** Last `count` UTC days ending on the UTC calendar day of `nowMs`. */
@@ -99,6 +118,7 @@ function dataPoint(row: CostRow, value: number, observedAtUnixMs: string): OtlpD
       attr("billing.source", row.source),
       attr("billing.unit", row.unit),
       attr("billing.observed_at_unix_ms", observedAtUnixMs),
+      ...(row.account === undefined ? [] : [attr("billing.account", row.account)]),
     ],
   }
 }

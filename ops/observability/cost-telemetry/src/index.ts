@@ -3,21 +3,26 @@ import { requiredEnv } from "./http"
 import { rows as awsRows } from "./providers/aws"
 import { rows as blacksmithRows } from "./providers/blacksmith"
 import { rows as cloudflareRows } from "./providers/cloudflare"
-import { rows as githubRows } from "./providers/github"
+import { planRows as githubPlanRows, rows as githubRows } from "./providers/github"
+import { rows as linearRows } from "./providers/linear"
 import { rows as openRouterRows } from "./providers/openrouter"
 import { mapRowsToOtlp, utcDays, type CostRow, type OtlpMetricsRequest } from "./rows"
 
 const PROVIDERS: { name: string; rows: (days: string[]) => Promise<CostRow[]> }[] = [
   { name: "openrouter", rows: openRouterRows },
   { name: "github", rows: githubRows },
+  // Its own entry: a token that cannot see the plan fails only the plan rows.
+  { name: "github plan", rows: githubPlanRows },
   { name: "blacksmith", rows: blacksmithRows },
   { name: "cloudflare", rows: cloudflareRows },
   { name: "aws", rows: awsRows },
+  { name: "linear", rows: linearRows },
 ]
 
 async function main(): Promise<void> {
   const endpoint = requiredEnv("OTEL_EXPORTER_OTLP_ENDPOINT")
-  const headers = otlpHeaders(requiredEnv("OTEL_EXPORTER_OTLP_HEADERS"))
+  // In the VPC the collector takes no headers; a collector behind Cloudflare Access takes them from this variable.
+  const headers = otlpHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS ?? "")
   const days = utcDays(Date.now(), 3)
   const failures: string[] = []
   const rows: CostRow[] = []
@@ -63,7 +68,7 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-function otlpHeaders(raw: string): Record<string, string> {
+export function otlpHeaders(raw: string): Record<string, string> {
   const headers: Record<string, string> = {}
   for (const part of raw.split(",")) {
     const eq = part.indexOf("=")
@@ -77,7 +82,6 @@ function otlpHeaders(raw: string): Record<string, string> {
       headers[key] = encoded
     }
   }
-  if (Object.keys(headers).length === 0) throw new Error("OTEL_EXPORTER_OTLP_HEADERS is required")
   return headers
 }
 

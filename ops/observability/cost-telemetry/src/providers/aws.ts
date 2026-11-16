@@ -1,20 +1,29 @@
 import { CostExplorerClient, GetCostAndUsageCommand } from "@aws-sdk/client-cost-explorer"
+import { fromTemporaryCredentials } from "@aws-sdk/credential-providers"
 import { FetchHttpHandler } from "@smithy/fetch-http-handler"
-import { requiredEnv } from "../http"
 import { sumRows, type CostRow } from "../rows"
 
-/** ctxpipe-sandbox (`~/.aws/config` profile). Hardcoded so another account cannot leak into this dashboard. */
-const LINKED_ACCOUNT = "007664619564"
+/** The name of each account of the organization (billing.account). An account that is not here keeps its id as its name. */
+const ACCOUNT_NAMES: Record<string, string> = {
+  "213102790567": "production",
+  "134416647419": "factory",
+  "787752212265": "selfhost-sandbox",
+  "115673809568": "archive",
+  "573018602187": "preview",
+  "007664619564": "management",
+}
 /** Cost Explorer is billed per paginated request and updates at least daily; the hourly cron only calls at 12:17 UTC. */
 const FETCH_HOUR_UTC = 12
 
 /**
- * AWS Cost Explorer for the ctxpipe-sandbox account.
+ * AWS Cost Explorer of the management account: the payer view of every account of the organization.
  *
  * Assumptions (official GetCostAndUsage:
  * https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_GetCostAndUsage.html):
  * - TimePeriod start is inclusive, end is exclusive. The shared 3-day window becomes
  *   Start=first day, End=day after last day.
+ * - GroupBy takes at most two keys: LINKED_ACCOUNT and SERVICE. sku is the service, scope is
+ *   `{account}/{service}`, and billing.account is the account's name from ACCOUNT_NAMES.
  * - NetUnblendedCost is a documented metric (cost after discounts). UnblendedCost is
  *   requested too so a group that omits NetUnblendedCost still has a cost figure.
  * - source is always `reported`. Cost Explorer sets Estimated=true for the current
@@ -22,11 +31,10 @@ const FETCH_HOUR_UTC = 12
  * - Negative Amounts (credits, refunds) are emitted as-is so they reduce the daily total.
  * - A group with no finite cost (neither metric) throws. Missing/invalid UsageQuantity
  *   becomes usage=0 so a real cost row is not dropped. Unit "N/A" or empty is not meaningful.
- * - sku is USAGE_TYPE, scope is `{account}/{SERVICE}`. One point per day+sku+scope (sumRows).
- * - LINKED_ACCOUNT is this sandbox id, not an env var: it is a fixed internal test
- *   account (root AGENTS.md: no new env for values that do not differ by environment).
- * - Auth is the AWS env keys (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY) of a read-only ce:GetCostAndUsage
- *   principal. This package does not create credentials or IAM.
+ * - Auth: the SDK default credential chain (the ECS task role) assumes ctxpipe-cost-explorer-read
+ *   (a read-only ce:GetCostAndUsage role in the management account) through STS. The STS client
+ *   takes the region and the HTTP handler of the Cost Explorer client. This package does not
+ *   create credentials or IAM.
  * - Cost Explorer API: $0.01 per paginated request (AWS Cost Explorer pricing).
  * - HTTP uses official FetchHttpHandler (not Node HTTPS) so Bun and MSW see the
  *   call. customFetch buffers the body first: an MSW/Bun ReadableStream is empty
@@ -38,15 +46,15 @@ export async function rows(days: string[]): Promise<CostRow[]> {
   const first = days[0]
   const last = days[days.length - 1]
   if (!first || !last) return []
-  const accessKeyId = requiredEnv("AWS_ACCESS_KEY_ID")
-  const secretAccessKey = requiredEnv("AWS_SECRET_ACCESS_KEY")
-  const sessionToken = process.env.AWS_SESSION_TOKEN?.trim() || undefined
   const wanted = new Set(days)
   const start = first
   const end = exclusiveEnd(last)
   const client = new CostExplorerClient({
     region: "us-east-1",
-    credentials: { accessKeyId, secretAccessKey, sessionToken },
+    // A constant, not an env var: the factory policy pack forbids another account's ARN in the task definition.
+    credentials: fromTemporaryCredentials({
+      params: { RoleArn: "arn:aws:iam::007664619564:role/ctxpipe-cost-explorer-read", RoleSessionName: "ctxpipe-cost-telemetry" },
+    }),
     requestHandler: new FetchHttpHandler({
       requestTimeout: 30_000,
       customFetch: (async (input, init) => {
@@ -70,10 +78,9 @@ export async function rows(days: string[]): Promise<CostRow[]> {
           Granularity: "DAILY",
           Metrics: ["NetUnblendedCost", "UnblendedCost", "UsageQuantity"],
           GroupBy: [
+            { Type: "DIMENSION", Key: "LINKED_ACCOUNT" },
             { Type: "DIMENSION", Key: "SERVICE" },
-            { Type: "DIMENSION", Key: "USAGE_TYPE" },
           ],
-          Filter: { Dimensions: { Key: "LINKED_ACCOUNT", Values: [LINKED_ACCOUNT] } },
           NextPageToken: nextPageToken,
         }),
       )
@@ -83,24 +90,25 @@ export async function rows(days: string[]): Promise<CostRow[]> {
         if (!day) throw new Error("Cost Explorer result was missing TimePeriod.Start")
         if (!wanted.has(day)) continue
         for (const group of result.Groups ?? []) {
-          const service = group.Keys?.[0]
-          const usageType = group.Keys?.[1]
-          if (!service || !usageType) throw new Error("Cost Explorer group was missing SERVICE or USAGE_TYPE")
+          const account = group.Keys?.[0]
+          const service = group.Keys?.[1]
+          if (!account || !service) throw new Error("Cost Explorer group was missing LINKED_ACCOUNT or SERVICE")
           const costUsd = metricAmount(group.Metrics, "NetUnblendedCost") ?? metricAmount(group.Metrics, "UnblendedCost")
           if (costUsd === undefined) {
-            throw new Error(`Cost Explorer group ${service}/${usageType} on ${day} was missing NetUnblendedCost and UnblendedCost`)
+            throw new Error(`Cost Explorer group ${account}/${service} on ${day} was missing NetUnblendedCost and UnblendedCost`)
           }
           const usageMetric = group.Metrics?.UsageQuantity
           const usage = metricAmount({ UsageQuantity: usageMetric }, "UsageQuantity") ?? 0
           mapped.push({
             day,
             provider: "aws",
-            sku: usageType,
-            scope: `${LINKED_ACCOUNT}/${service}`,
+            sku: service,
+            scope: `${account}/${service}`,
             usage,
             unit: meaningfulUnit(usageMetric?.Unit),
             costUsd,
             source: "reported",
+            account: ACCOUNT_NAMES[account] ?? account,
           })
         }
       }

@@ -964,6 +964,9 @@ test("the manifest lists a build check for each production image and package of 
     "build:image-chat-sandbox:scripts/chat-sandbox/Dockerfile": [
       "scripts/chat-sandbox/**",
     ],
+    "build:image-cost-telemetry:ops/observability/cost-telemetry/Dockerfile": [
+      "ops/observability/cost-telemetry/**",
+    ],
     "build:package-backend:apps/backend/package.json": [
       "apps/backend/**",
       "shared/**",

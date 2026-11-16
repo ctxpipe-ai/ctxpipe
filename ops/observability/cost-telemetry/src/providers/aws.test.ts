@@ -6,13 +6,14 @@ import { rows } from "./aws"
 
 const DAYS = ["2026-09-24", "2026-09-25", "2026-09-26"]
 const FETCH_AT = new Date("2026-09-26T12:17:00.000Z")
-const ACCOUNT = "007664619564"
 const CE = /https:\/\/ce\.us-east-1\.amazonaws\.com\/?$/
+const STS = /https:\/\/sts\.us-east-1\.amazonaws\.com\/?$/
 
 const server = setupServer()
+// The task role, as the default credential chain reads it (the env provider comes first in that chain).
 useEnv({
-  AWS_ACCESS_KEY_ID: "AKIATEST",
-  AWS_SECRET_ACCESS_KEY: "test-secret",
+  AWS_ACCESS_KEY_ID: "AKIATASKROLE",
+  AWS_SECRET_ACCESS_KEY: "task-secret",
 })
 
 beforeAll(() => {
@@ -27,22 +28,45 @@ afterAll(() => {
 })
 
 describe("aws rows", () => {
-  test("maps Cost Explorer groups and sends DAILY GetCostAndUsage for the sandbox account", async () => {
+  test("assumes the Cost Explorer role with the task role and signs Cost Explorer with the assumed credentials", async () => {
+    setSystemTime(FETCH_AT)
+    const assumed: { form: URLSearchParams; authorization: string | null }[] = []
+    const signed: { authorization: string | null; token: string | null }[] = []
+    server.use(
+      http.post(STS, async ({ request }) => {
+        assumed.push({ form: new URLSearchParams(await request.text()), authorization: request.headers.get("authorization") })
+        return assumeRoleXml()
+      }),
+      http.post(CE, ({ request }) => {
+        signed.push({ authorization: request.headers.get("authorization"), token: request.headers.get("x-amz-security-token") })
+        return ceJson({ ResultsByTime: [] })
+      }),
+    )
+    await expect(rows(DAYS)).resolves.toEqual([])
+    expect(assumed).toHaveLength(1)
+    expect(assumed[0]?.form.get("Action")).toBe("AssumeRole")
+    expect(assumed[0]?.form.get("RoleArn")).toBe("arn:aws:iam::007664619564:role/ctxpipe-cost-explorer-read")
+    expect(assumed[0]?.form.get("RoleSessionName")).toBe("ctxpipe-cost-telemetry")
+    expect(assumed[0]?.authorization).toContain("Credential=AKIATASKROLE/")
+    expect(signed).toEqual([{ authorization: expect.stringContaining("Credential=ASIAASSUMED/"), token: "assumed-token" }])
+  })
+
+  test("groups every account by LINKED_ACCOUNT and SERVICE and names each account", async () => {
     setSystemTime(FETCH_AT)
     const bodies: unknown[] = []
     server.use(
+      http.post(STS, () => assumeRoleXml()),
       http.post(CE, async ({ request }) => {
         expect(request.headers.get("x-amz-target")).toBe("AWSInsightsIndexService.GetCostAndUsage")
         bodies.push(await request.json())
         return ceJson({
           ResultsByTime: [
             result("2026-09-24", [
-              group("Amazon Elastic Compute Cloud - Compute", "BoxUsage:t3.micro", "0.0104", "24", "Hrs"),
-              group("AWS Lambda", "Lambda-GB-Second", "-0.25", "0", "N/A"),
-              group("Amazon Simple Storage Service", "TimedStorage-ByteHrs", "0.02", "12.5", "GB-Month"),
-              group("Amazon Simple Storage Service", "TimedStorage-ByteHrs", "0.01", "2.5", "GB-Month"),
+              group("213102790567", "Amazon Elastic Container Service", "1.25", "24", "Hrs"),
+              group("134416647419", "AWS Lambda", "-0.25", "0", "N/A"),
+              group("999999999999", "Amazon Simple Storage Service", "0.02", "12.5", "GB-Month"),
             ]),
-            result("2026-09-25", [group("Amazon Simple Storage Service", "Requests-Tier1", "0", "0", "N/A")]),
+            result("2026-09-25", [group("007664619564", "AWS Cost Explorer", "0.01", "1", "Requests")]),
           ],
         })
       }),
@@ -51,42 +75,46 @@ describe("aws rows", () => {
       {
         day: "2026-09-24",
         provider: "aws",
-        sku: "BoxUsage:t3.micro",
-        scope: `${ACCOUNT}/Amazon Elastic Compute Cloud - Compute`,
+        sku: "Amazon Elastic Container Service",
+        scope: "213102790567/Amazon Elastic Container Service",
         usage: 24,
         unit: "Hrs",
-        costUsd: 0.0104,
+        costUsd: 1.25,
         source: "reported",
+        account: "production",
       },
       {
         day: "2026-09-24",
         provider: "aws",
-        sku: "Lambda-GB-Second",
-        scope: `${ACCOUNT}/AWS Lambda`,
+        sku: "AWS Lambda",
+        scope: "134416647419/AWS Lambda",
         usage: 0,
         unit: "",
         costUsd: -0.25,
         source: "reported",
+        account: "factory",
       },
       {
         day: "2026-09-24",
         provider: "aws",
-        sku: "TimedStorage-ByteHrs",
-        scope: `${ACCOUNT}/Amazon Simple Storage Service`,
-        usage: 15,
+        sku: "Amazon Simple Storage Service",
+        scope: "999999999999/Amazon Simple Storage Service",
+        usage: 12.5,
         unit: "GB-Month",
-        costUsd: 0.03,
+        costUsd: 0.02,
         source: "reported",
+        account: "999999999999",
       },
       {
         day: "2026-09-25",
         provider: "aws",
-        sku: "Requests-Tier1",
-        scope: `${ACCOUNT}/Amazon Simple Storage Service`,
-        usage: 0,
-        unit: "",
-        costUsd: 0,
+        sku: "AWS Cost Explorer",
+        scope: "007664619564/AWS Cost Explorer",
+        usage: 1,
+        unit: "Requests",
+        costUsd: 0.01,
         source: "reported",
+        account: "management",
       },
     ])
     expect(bodies).toEqual([
@@ -95,18 +123,19 @@ describe("aws rows", () => {
         Granularity: "DAILY",
         Metrics: ["NetUnblendedCost", "UnblendedCost", "UsageQuantity"],
         GroupBy: [
+          { Type: "DIMENSION", Key: "LINKED_ACCOUNT" },
           { Type: "DIMENSION", Key: "SERVICE" },
-          { Type: "DIMENSION", Key: "USAGE_TYPE" },
         ],
-        Filter: { Dimensions: { Key: "LINKED_ACCOUNT", Values: [ACCOUNT] } },
       },
     ])
   })
 
   test("returns no rows outside the 12:17 UTC Cost Explorer slot", async () => {
     setSystemTime(new Date("2026-09-26T13:17:00.000Z"))
-    delete process.env.AWS_ACCESS_KEY_ID
-    server.use(http.post(CE, () => HttpResponse.text("should not call Cost Explorer", { status: 500 })))
+    server.use(
+      http.post(STS, () => HttpResponse.text("should not assume the role", { status: 500 })),
+      http.post(CE, () => HttpResponse.text("should not call Cost Explorer", { status: 500 })),
+    )
     await expect(rows(DAYS)).resolves.toEqual([])
   })
 
@@ -114,6 +143,7 @@ describe("aws rows", () => {
     setSystemTime(FETCH_AT)
     const tokens: Array<string | undefined> = []
     server.use(
+      http.post(STS, () => assumeRoleXml()),
       http.post(CE, async ({ request }) => {
         const body = (await request.json()) as { NextPageToken?: string }
         tokens.push(body.NextPageToken)
@@ -123,7 +153,7 @@ describe("aws rows", () => {
             ResultsByTime: [
               result("2026-09-26", [
                 {
-                  Keys: ["AmazonCloudWatch", "CW:Requests"],
+                  Keys: ["573018602187", "AmazonCloudWatch"],
                   Metrics: {
                     UnblendedCost: { Amount: "0.12", Unit: "USD" },
                     UsageQuantity: { Amount: "1000", Unit: "Requests" },
@@ -133,9 +163,8 @@ describe("aws rows", () => {
             ],
           })
         }
-        expect(body.NextPageToken).toBe("page-2")
         return ceJson({
-          ResultsByTime: [result("2026-09-26", [group("AWS Glue", "Crawler-DPU-Hour", "1.5", "3", "DPU-Hour")])],
+          ResultsByTime: [result("2026-09-26", [group("787752212265", "AWS Glue", "1.5", "3", "DPU-Hour")])],
         })
       }),
     )
@@ -143,30 +172,45 @@ describe("aws rows", () => {
       {
         day: "2026-09-26",
         provider: "aws",
-        sku: "CW:Requests",
-        scope: `${ACCOUNT}/AmazonCloudWatch`,
+        sku: "AmazonCloudWatch",
+        scope: "573018602187/AmazonCloudWatch",
         usage: 1000,
         unit: "Requests",
         costUsd: 0.12,
         source: "reported",
+        account: "preview",
       },
       {
         day: "2026-09-26",
         provider: "aws",
-        sku: "Crawler-DPU-Hour",
-        scope: `${ACCOUNT}/AWS Glue`,
+        sku: "AWS Glue",
+        scope: "787752212265/AWS Glue",
         usage: 3,
         unit: "DPU-Hour",
         costUsd: 1.5,
         source: "reported",
+        account: "selfhost-sandbox",
       },
     ])
     expect(tokens).toEqual([undefined, "page-2"])
   })
 
-  test("throws on an error response and on a group with no cost metric", async () => {
+  test("throws when the role cannot be assumed, on an error response and on a group with no cost metric", async () => {
     setSystemTime(FETCH_AT)
     server.use(
+      http.post(STS, () =>
+        HttpResponse.xml(
+          `<ErrorResponse><Error><Type>Sender</Type><Code>AccessDenied</Code><Message>not authorized to perform sts:AssumeRole</Message></Error></ErrorResponse>`,
+          { status: 403 },
+        ),
+      ),
+      http.post(CE, () => HttpResponse.text("should not call Cost Explorer", { status: 500 })),
+    )
+    await expect(rows(DAYS)).rejects.toThrow(/sts:AssumeRole/)
+
+    server.resetHandlers()
+    server.use(
+      http.post(STS, () => assumeRoleXml()),
       http.post(CE, () =>
         HttpResponse.json(
           { __type: "AccessDeniedException", Message: "User is not authorized" },
@@ -178,12 +222,13 @@ describe("aws rows", () => {
 
     server.resetHandlers()
     server.use(
+      http.post(STS, () => assumeRoleXml()),
       http.post(CE, () =>
         ceJson({
           ResultsByTime: [
             result("2026-09-24", [
               {
-                Keys: ["Amazon Simple Storage Service", "Requests-Tier2"],
+                Keys: ["213102790567", "Amazon Simple Storage Service"],
                 Metrics: { UsageQuantity: { Amount: "9", Unit: "Requests" } },
               },
             ]),
@@ -193,17 +238,29 @@ describe("aws rows", () => {
     )
     await expect(rows(DAYS)).rejects.toThrow("missing NetUnblendedCost and UnblendedCost")
   })
-
-  test("throws when the access key is missing at the fetch hour", async () => {
-    setSystemTime(FETCH_AT)
-    delete process.env.AWS_ACCESS_KEY_ID
-    await expect(rows(DAYS)).rejects.toThrow("AWS_ACCESS_KEY_ID is required")
-  })
 })
 
-function group(service: string, usageType: string, cost: string, usage: string, unit: string) {
+function assumeRoleXml() {
+  return HttpResponse.xml(`<AssumeRoleResponse xmlns="https://sts.amazonaws.com/doc/2011-06-15/">
+  <AssumeRoleResult>
+    <Credentials>
+      <AccessKeyId>ASIAASSUMED</AccessKeyId>
+      <SecretAccessKey>assumed-secret</SecretAccessKey>
+      <SessionToken>assumed-token</SessionToken>
+      <Expiration>2026-09-26T13:17:00Z</Expiration>
+    </Credentials>
+    <AssumedRoleUser>
+      <AssumedRoleId>AROAEXAMPLE:ctxpipe-cost-telemetry</AssumedRoleId>
+      <Arn>arn:aws:sts::007664619564:assumed-role/ctxpipe-cost-explorer-read/ctxpipe-cost-telemetry</Arn>
+    </AssumedRoleUser>
+  </AssumeRoleResult>
+  <ResponseMetadata><RequestId>example</RequestId></ResponseMetadata>
+</AssumeRoleResponse>`)
+}
+
+function group(account: string, service: string, cost: string, usage: string, unit: string) {
   return {
-    Keys: [service, usageType],
+    Keys: [account, service],
     Metrics: {
       NetUnblendedCost: { Amount: cost, Unit: "USD" },
       UsageQuantity: { Amount: usage, Unit: unit },
