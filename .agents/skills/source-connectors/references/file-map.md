@@ -56,9 +56,8 @@ Same encryption key (`AUTH_SECRET` / `CONNECTION_SECRETS_ENCRYPTION_KEY`) on bac
 | Parse (optional strings; empty must not fail `parseEnv`) | `apps/backend/src/config/env.ts` |
 | Examples | `apps/backend/.env.example`, `docker-compose.env.example` |
 | Compose `deploy` profile | `docker-compose.yml` (backend + worker) |
-| Railway Terraform | `infra/variables.tf`, `infra/module/ctxpipe/variables.tf`, `infra/module/ctxpipe/railway.tf` |
+| Hosted ctxpipe (AWS) | the factory repo, which holds the hosted secrets and deploys AWS (ADR-061) |
 | AWS CDK | `packages/aws-cdk/src/internal/secrets-construct.ts` + README; **changeset** for `@ctxpipe/aws-cdk` |
-| CI secret plumbing if required | `.github/workflows/deploy.yaml`, `pr-deploy.yaml`, `terraform-plan-pr.yaml` |
 
 Typical names: `<SLUG>_CLIENT_ID`, `<SLUG>_CLIENT_SECRET`, `<SLUG>_WEBHOOK_SECRET` or `_SIGNING_SECRET`, optional `<SLUG>_REDIRECT_URI`.
 

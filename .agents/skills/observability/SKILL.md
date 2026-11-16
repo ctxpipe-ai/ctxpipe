@@ -11,7 +11,7 @@ Hosted stack: HyperDX at `hyperdx.ctxpipe.dev`, in the production AWS account (f
 
 1. Take the id you have: response header `x-request-id` (`request.id`), a W3C `traceId`, `enduser.id` plus a time window, `ctxpipe.org.slug` / `ctxpipe.org.id`, or an OpenWorkflow run (`SpanName` `workflow_run.create`, `workflow_run.execute`, or `step_attempt.execute` on scope `openworkflow`). Correlate runs with `openworkflow.run.id`. Execution spans carry `ctxpipe.actor.type=job`. Each execution is its own trace, linked to `workflow_run.create`; step spans are children of that execution.
 2. Name the environment: `production`, `pr-<digits>`, `observability`, or `local-<name>`. Dashboards and the shared filter: [USING.md](../../../ops/observability/USING.md#dashboards).
-3. Read logs, traces (with the LLM prompt text), and metrics in HyperDX (MCP `hyperdx`). Then read AWS state through the audit role: CloudWatch Logs, ECS services and events, RDS, EC2, AgentCore. A process that exited before export: its CloudWatch lines are in HyperDX as `service.name=cloudwatch:<log group>`; on Railway, until the cutover, read its stdout through the Railway MCP. URLs, keys and the audit profiles: [USING.md](../../../ops/observability/USING.md#agent-hosts).
+3. Read logs, traces (with the LLM prompt text), and metrics in HyperDX (MCP `hyperdx`). Then read AWS state through the audit role: CloudWatch Logs, ECS services and events, RDS, EC2, AgentCore. A process that exited before export: its CloudWatch lines are in HyperDX as `service.name=cloudwatch:<log group>`. URLs, keys and the audit profiles: [USING.md](../../../ops/observability/USING.md#agent-hosts).
 4. Done when the failing span or log line is named, or the window is empty and the environment, service, and time range are written down.
 
 Stay inside a few hours. `otel` parts older than 3 days sit on the cold bucket; a cold read fails within 120s when the bucket is down. Traces and logs stay 30 days, metrics 390.
@@ -82,7 +82,7 @@ Tests sit next to the module. Assert telemetry through the OTel SDK in-memory ex
 
 Do **not** export Better Stack **CSV**. Mixed-service CSV drops HTTP `message`, splits TanStack ANSI across `info` rows, and hides the OpenCode 500 body.
 
-1. Prefer HyperDX (MCP `hyperdx`) JSON/JSONL for `ServiceName=backend`, or Railway MCP JSON/JSONL when the process never exported. Better Stack only if you can export **JSON or JSONL**.
+1. Prefer HyperDX (MCP `hyperdx`) JSON/JSONL for `ServiceName=backend`. When the process never exported, use its CloudWatch lines (`service.name=cloudwatch:<log group>`). Better Stack only if you can export **JSON or JSONL**.
 2. Filter `step` in (`opencode.chatStream`, `tanstack-workspace-chat`, `attach-chat-sandbox-handle`) plus the conversation `POST /:orgSlug/api/v1/conversations/:conversationId` `request.id`.
 3. The conversation `POST` is **200** when the stream opens (~17–18s). That is not a successful turn. The chat-attempt event is a **second** row with `step=opencode.chatStream` after Hono emits the HTTP event.
 4. If you see `[evlog] log.set() called after the wide event was emitted` dropping `step, conversationId, workspaceId, status, bodyExcerpt`, that deploy still writes to the sealed request logger — the chat-attempt fields never land.

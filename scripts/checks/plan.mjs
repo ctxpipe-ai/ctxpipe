@@ -228,14 +228,10 @@ export function withStoreHits(selection, store) {
 // another workflow runs it, and its own status reports the result.
 const external = {
   eval: "MCP evals (mcp-evals.yaml, starts with the label mcp-evals)",
-  // The check runs in terraform-plan-pr.yaml; without this entry the policy
-  // family maps it to the lint job, which does not run it.
-  "policy:terraform-plan":
-    "Terraform plan (terraform-plan-pr.yaml, started by the merge gate for a change under infra/)",
 }
 export function placeOf(id) {
   const [family, lane] = id.split(":")
-  const workflow = external[`${family}:${lane}`] ?? external[family]
+  const workflow = external[family]
   if (workflow) return { workflow }
   if (family === "storybook" && lane !== "visual")
     return { job: "storybook-plays" }

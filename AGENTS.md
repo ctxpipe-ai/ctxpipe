@@ -26,7 +26,6 @@ Claude Code and Codex read keys from environment variables. Only `ctxpipe` can f
 
 1. **HyperDX MCP** (`hyperdx`) — logs, traces with prompt text, metrics. Filter `DeploymentEnvironment` (`production`, `pr-N`, `observability`, `local-<name>`).
 2. **AWS reads, audit role** — CloudWatch, ECS, RDS, EC2, AgentCore ([setup](ops/observability/USING.md#agent-hosts)).
-3. **Railway MCP** (`railway`) — until the AWS cutover: stdout that never exported.
 
 For Storybook conventions and tools, read [.agents/skills/storybook/SKILL.md](.agents/skills/storybook/SKILL.md) with [apps/ui/AGENTS.md](apps/ui/AGENTS.md).
 

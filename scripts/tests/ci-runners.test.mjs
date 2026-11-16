@@ -187,17 +187,3 @@ test("a lockfile change on main fills the pnpm store of both cache stores", () =
   assert.match(caches.jobs["github-cache"]["runs-on"], /^ubuntu-/)
   assert.match(caches.jobs["blacksmith-cache"]["runs-on"], /^blacksmith-/)
 })
-
-test("a Terraform lock change on main fills the providers of Terraform configuration", () => {
-  assert.ok(caches.on.push.paths.includes("infra/.terraform.lock.hcl"))
-  assert.equal(
-    ci["terraform-validate"]["runs-on"],
-    caches.jobs["github-cache"]["runs-on"],
-  )
-  for (const prefix of ["actions/cache@", "hashicorp/setup-terraform@"])
-    assert.deepEqual(
-      uses(caches.jobs, "github-cache", prefix).with,
-      uses(ci, "terraform-validate", prefix).with,
-      prefix,
-    )
-})

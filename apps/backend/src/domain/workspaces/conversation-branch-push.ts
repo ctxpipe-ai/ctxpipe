@@ -169,7 +169,9 @@ true`
  * (`…/<n+1>`) instead, which becomes the conversation's branch.
  *
  * `retry`: a local branch still has commits that no remote has; keep the
- * sandbox for the next sweep.
+ * sandbox for the next sweep. With `saveRefused`, commits that the push
+ * refuses because of what they change go there instead; `retry` when they
+ * are not saved.
  */
 export async function pushBeforeSandboxDelete(input: {
   orgId: string
@@ -179,6 +181,11 @@ export async function pushBeforeSandboxDelete(input: {
   providerSandboxId: string
   /** The default commit the sandbox is recorded on. */
   baseSha: string
+  /**
+   * Saves the commits that no remote has, when the push refused them because
+   * of what they change. True: they are saved, and the sandbox can go.
+   */
+  saveRefused?: (handle: JobSandboxHandle) => Promise<boolean>
 }): Promise<"done" | "retry"> {
   try {
     const org = await getSystemDb().query.organizations.findFirst({
@@ -202,15 +209,24 @@ export async function pushBeforeSandboxDelete(input: {
         AbortSignal.timeout(PUSH_TIMEOUT_MS),
       )
       await handle.exec(STOP_UNFINISHED_GIT_WORK, { env: {} })
-      if (resolved.ok)
-        logPush(
-          input.conversationId,
-          await pushOrRescue(handle, {
-            ...resolved.target,
-            baseSha: input.baseSha,
-          }),
-        )
-      else
+      let refused = false
+      if (resolved.ok) {
+        const pushed = await pushOrRescue(handle, {
+          ...resolved.target,
+          baseSha: input.baseSha,
+        })
+        logPush(input.conversationId, pushed)
+        // The push refuses these commits because of what they change, and
+        // nothing outside the commits changes that. Only an agent that
+        // rewrites them can, and a sandbox that the sweep deletes runs no
+        // more turns. A Workspace upgrade (`upgrade_needed`) or a
+        // re-ingestion (`legacy_knowledge`) can make a later push work.
+        refused =
+          pushed.status === "skipped" &&
+          ["host_only_field", "outside_root", "format_file"].includes(
+            pushed.reason,
+          )
+      } else
         log.info({
           step: "conversation-branch-push",
           message: `Conversation commits were not pushed (${resolved.reason})`,
@@ -224,6 +240,15 @@ export async function pushBeforeSandboxDelete(input: {
         { env: {} },
       )
       if (unpushed.exitCode === 0 && !unpushed.stdout.trim()) return "done"
+      // The push can have used most of its time: the save gets its own.
+      if (
+        refused &&
+        input.saveRefused &&
+        (await input.saveRefused(
+          adaptTanstackHandle(sandbox, AbortSignal.timeout(PUSH_TIMEOUT_MS)),
+        ))
+      )
+        return "done"
       log.warn({
         step: "conversation-branch-push",
         message:

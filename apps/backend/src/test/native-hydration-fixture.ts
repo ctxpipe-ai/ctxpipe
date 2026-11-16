@@ -975,7 +975,8 @@ async function createNativeHydrationFixture(
       },
       publish: async () => {
         await worker.start()
-        expect(await handle.result({ timeoutMs: 30_000 })).toMatchObject({
+        // The 7,000-file tree takes about 30 s on a laptop and more on a CI runner.
+        expect(await handle.result({ timeoutMs: 120_000 })).toMatchObject({
           hydrated: true,
           units: count,
           skipped: 0,
