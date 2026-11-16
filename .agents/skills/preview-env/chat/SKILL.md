@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 Stock TanStack `useChat` over a websocket, `chat()` + `withSandbox` + `opencodeText`, models only through the app proxy. One sandbox per conversation. Needs hydrate `ready` ([HYD-1](../hydrate/SKILL.md)), a warm worker, and the model proxy. [Harness](../harness.md) is `PASS`. Flow format: [run-setup](../run-setup.md#flow-format).
 
-**Sandbox provider by mode.** Hosted (`preview`): Vercel Sandbox, one microVM per conversation. Files are saved when idle (a sandbox stops after 5 minutes idle; the next message resumes it), saved state is kept 30 days, at most 50 sandboxes run per org (the next one gets an "at capacity" error), and the GitHub token never enters the sandbox (it lives in the firewall rule). Self-host and `local`: Docker. Flows marked `hosted-only` are `SKIP(hosted-only)` on `local`; flows marked `needs-ticket-02` are `SKIP(needs-ticket-02)` until the Vercel lifecycle lands.
+**Sandbox provider by mode.** Hosted (`aws`): Amazon Bedrock AgentCore Runtime, one microVM session per conversation. After 5 minutes idle, the sweep pushes the committed work and deletes the sandbox; the next message starts a new sandbox from git (only commits stay). At most 50 sandboxes run per org (the next one gets an "at capacity" error), and the GitHub token never enters the sandbox (Agent Vault adds it outside). Self-host and `local`: Docker. Flows marked `hosted-only` are `SKIP(hosted-only)` on `local`; flows marked `needs-ticket-02` are `SKIP(needs-ticket-02)` until a run on `aws` proves them.
 
 Use a **real** question about the Workspace's repository (a named file, how a feature works). Do not paste a canned "what's in this repo?" prompt. Record the answer time against the 5 s target in [workspace-chat-latency](../../../../.ai/memory/PRDs/workspace-chat-latency.md).
 
@@ -19,7 +19,7 @@ Use a **real** question about the Workspace's repository (a named file, how a fe
 2. Watch **Setting up sandbox**, then **Thinking…**, then the streamed answer.
 
 **Expect (UI)** the URL becomes `/{orgSlug}/ws/{workspace1Slug}/conv_…`; the user bubble holds the question; **Setting up sandbox** and **Thinking…** clear; assistant text arrives progressively (more than one text update, not one dump) with tool or reasoning chips; the answer cites the named file; the sidebar entry changes from **New conversation** to a model-written title.
-**Expect (backend)** `conversations` row (name updated once after the first turn); `chat_threads`, `chat_runs`, `conversation_messages`; `workspace_sandbox_instances` row for the conversation (hosted: Vercel provider, tagged with the environment, started from the Workspace base snapshot with no clone in this turn); hosted `workspace_sandbox_git_tokens` row (encrypted); the model call arrived through the app proxy at a configured tier (default fast), no other model host.
+**Expect (backend)** `conversations` row (name updated once after the first turn); `chat_threads`, `chat_runs`, `conversation_messages`; `workspace_sandbox_instances` row for the conversation (hosted: `agentcore` provider, started from a clone of the Workspace commit); hosted `workspace_sandbox_git_tokens` row (encrypted); the model call arrived through the app proxy at a configured tier (default fast), no other model host.
 **Budget** 12 s / 30 s, **Send** to a complete answer. The CTO set this budget on [CTX-848](https://linear.app/ctxpipe/issue/CTX-848) (first 15 s, then 20 s, then 30 s on 2026-10-19). Also record time to first token and time to **Setting up sandbox** clearing.
 **Evidence** `CHAT-1-1.png` (mid-stream), `CHAT-1-2.png` (final), `chat.webm`; trace of the conversation request and the `opencode.chatStream` / `tanstack-workspace-chat` steps.
 
@@ -67,16 +67,16 @@ Use a **real** question about the Workspace's repository (a named file, how a fe
 **Budget** 5 s / 15 s per answer.
 **Evidence** `CHAT-5-1.png`, `CHAT-5-2.png`; both conversation ids and sandbox ids.
 
-### CHAT-6 Idle stop and resume with files intact (`hosted-only`, `needs-ticket-02`)
-**Requires** CHAT-5 (conversation Y has a file turn); hosted preview.
+### CHAT-6 Idle delete and resume from git (`hosted-only`)
+**Requires** CHAT-5, then ask Y's agent to commit its file and confirm the commit; hosted (`aws`).
 **Steps**
 1. Leave Y untouched for 6 minutes.
-2. Check the sandbox state (database row and the Vercel sandbox).
+2. Check the sandbox state (database row and the sandbox spans).
 3. Send "what is in the file you created?".
 
-**Expect (UI)** after the wait nothing changes in the UI; the next message shows **Setting up sandbox** briefly, then an answer that quotes the file's content (saved files survived the stop).
-**Expect (backend)** after about 5 minutes the sandbox row is stopped and its GitHub token revoked; one running slot is freed; on the message the same persistent sandbox resumes (no fresh clone) and a new short-lived token is minted.
-**Budget** 8 s / 20 s, **Send** to a complete answer (resume is about 2 s of that); stop within 7 minutes of the last activity.
+**Expect (UI)** after the wait nothing changes in the UI; the next message shows **Setting up sandbox** briefly, then an answer that quotes the file's content (the commit stayed).
+**Expect (backend)** after about 5 minutes the sweep pushes Y's commits to its session branch, deletes the sandbox and its row, and revokes its GitHub token; one running slot is freed; on the message a new sandbox starts from the session branch and a new short-lived token is minted.
+**Budget** 8 s / 20 s, **Send** to a complete answer; delete within 7 minutes of the last activity.
 **Evidence** `CHAT-6-1.png`; sandbox state before and after; trace; token rows.
 
 ### CHAT-7 Lost sandbox is recreated from the session branch (`needs-ticket-02`)

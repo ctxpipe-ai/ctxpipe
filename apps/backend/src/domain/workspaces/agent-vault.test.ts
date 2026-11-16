@@ -360,7 +360,7 @@ describe("run vault rules on hosted AgentCore (CTX-1287)", () => {
     )
   })
 
-  it.each(["docker", "vercel", undefined])(
+  it.each(["docker", "unsandboxed", undefined])(
     "writes the rules as given with SANDBOX_PROVIDER=%s",
     async (provider) => {
       const address = `http://agent-vault-${provider ?? "default"}.test`

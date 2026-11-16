@@ -84,3 +84,52 @@ export function adaptTanstackHandle(
       : handle.fs,
   }
 }
+
+/**
+ * The size of a file in the sandbox, as the sandbox reports it. The copy
+ * reads that many bytes into this process, so a file larger than 100 MB is
+ * refused before any copy.
+ */
+export async function sandboxFileSize(
+  exec: JobWorktreeExec,
+  path: string,
+): Promise<number> {
+  const size = await exec('wc -c < "$SANDBOX_FILE"', {
+    env: { SANDBOX_FILE: path },
+  })
+  const bytes = Number(size.stdout.trim())
+  if (size.exitCode !== 0 || !Number.isSafeInteger(bytes) || bytes <= 0)
+    throw new Error("Invalid sandbox file size")
+  if (bytes > 100 * 1024 * 1024)
+    throw new Error("The sandbox file is larger than 100 MB")
+  return bytes
+}
+
+/**
+ * Copy a file of the sandbox into this process, in chunks of 256 KiB as
+ * base64 on the command output. `bytes` is the size from
+ * `sandboxFileSize`; a chunk that is not base64 or has another size stops
+ * the copy.
+ */
+export async function* sandboxFileChunks(
+  exec: JobWorktreeExec,
+  path: string,
+  bytes: number,
+): AsyncGenerator<Buffer> {
+  const chunkBytes = 256 * 1024
+  for (let offset = 0; offset < bytes; offset += chunkBytes) {
+    const chunk = await exec(
+      `dd if="$SANDBOX_FILE" bs=${chunkBytes} skip=${offset / chunkBytes} count=1 2>/dev/null | base64`,
+      { env: { SANDBOX_FILE: path } },
+    )
+    const encoded = chunk.stdout.replace(/\s/g, "")
+    const data = Buffer.from(encoded, "base64")
+    if (
+      chunk.exitCode !== 0 ||
+      !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded) ||
+      data.length !== Math.min(chunkBytes, bytes - offset)
+    )
+      throw new Error("The sandbox file transfer was truncated or changed")
+    yield data
+  }
+}

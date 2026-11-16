@@ -124,7 +124,7 @@ A `local` run exports to the hosted collector so every flow is debuggable in Hyp
 | Database row | read-only `SELECT` against `DATABASE_URL` in `apps/backend/.env.local` | Neon MCP (read-only) | no database access from outside the AWS VPC: assert through the API response, the UI, and the HyperDX span |
 | Git commit or PR | `gh api repos/{GH_TEST_ORG}/{repo}/commits`, `gh pr view` | same | same |
 | Workflow run | HyperDX `SpanName = workflow_run.execute` in `local-<name>`, `openworkflow.run.id` | HyperDX `SpanName = workflow_run.execute`, `openworkflow.run.id` | the same span in the `DeploymentEnvironment` of the AWS stack |
-| Sandbox | `workspace_sandbox_instances` row; Docker container | same row plus the Vercel sandbox tagged with the environment | the sandbox spans in the `DeploymentEnvironment` of the AWS stack |
+| Sandbox | `workspace_sandbox_instances` row; Docker container | same row | the sandbox spans in the `DeploymentEnvironment` of the AWS stack |
 
 Tables the flows name: `users`, `sessions`, `accounts`, `organizations`, `members`, `invitations`, `apikeys`, `org_onboarding`, `connections`, `workspaces`, `workspace_linked_repositories`, `workspace_knowledge_units`, `workspace_write_jobs`, `workspace_repository_commits`, `workspace_commit_projections`, `conversations`, `conversation_messages`, `chat_threads`, `chat_runs`, `workspace_sandbox_instances`, `workspace_sandbox_git_tokens`. Run `\d <table>` before asserting a column; assert on presence, count, and state, not on exact schema.
 
