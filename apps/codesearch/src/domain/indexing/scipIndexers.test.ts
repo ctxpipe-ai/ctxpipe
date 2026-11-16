@@ -155,7 +155,8 @@ describe("runScipIndexer", () => {
     const checkoutPath = join(directory, "checkout")
     await mkdir(checkoutPath)
     writeFileSync(join(checkoutPath, "tsconfig.json"), "{}")
-    // A 6 GiB container with the default two indexer process slots.
+    // A 6 GiB container with two indexer process slots.
+    vi.stubEnv("CODESEARCH_INDEXER_CONCURRENCY", "2")
     vi.spyOn(process, "constrainedMemory").mockReturnValue(6 * 1024 ** 3)
     const spawn = vi.fn((argv: string[], _options?: object) => {
       writeFileSync(outputOf(argv), "index")
@@ -182,6 +183,7 @@ describe("runScipIndexer", () => {
       ])
     } finally {
       vi.restoreAllMocks()
+      vi.unstubAllEnvs()
       await rm(directory, { recursive: true, force: true })
     }
   })

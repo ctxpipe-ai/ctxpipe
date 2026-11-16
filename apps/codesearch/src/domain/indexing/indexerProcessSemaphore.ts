@@ -35,7 +35,7 @@ function createSemaphore(cap: () => number) {
 const processSlots = createSemaphore(getIndexerProcessConcurrency)
 // A SCIP indexer can reach 2–2.6 GB; two of them beside the service go past
 // 80% of a 6 GiB container. The host has two vCPUs, so a second one adds
-// little speed. Zoekt keeps the other process slot.
+// little speed. `zoekt-index` can use the other process slots.
 const scipIndexerSlots = createSemaphore(() => 1)
 
 export function withIndexerProcessSlot<T>(fn: () => Promise<T>): Promise<T> {
