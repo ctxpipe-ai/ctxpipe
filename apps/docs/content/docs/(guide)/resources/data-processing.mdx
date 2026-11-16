@@ -42,7 +42,7 @@ ctxpipe reads nothing that you did not connect.
 
 | Provider | Purpose |
 | --- | --- |
-| Amazon Web Services (AWS), us-west-2 | Compute and hosting, the Postgres database, and our own observability (logs, traces, and model traces). Isolated sandboxes (microVMs) for Workspace chat and for ingestion. A sandbox holds a copy of the Workspace repository, or of the linked repository that it ingests. |
+| Amazon Web Services (AWS), us-west-2 | Compute and hosting, the Postgres database, storage, and logs. Isolated sandboxes (microVMs) for Workspace chat and for ingestion. A sandbox holds a copy of the Workspace repository, or of the linked repository that it ingests. |
 | Cloudflare | The edge network: DNS, TLS, the proxy that each request to ctxpipe passes through, the tunnels to AWS, and Access for our internal tools |
 | OpenRouter | Model routing, only to zero data retention endpoints |
 | Railway | Being retired. Compute and hosting, and our own observability (logs, traces, and model traces), until 2026-11-15 |
