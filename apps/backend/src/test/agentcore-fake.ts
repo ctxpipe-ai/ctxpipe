@@ -81,7 +81,11 @@ function fakeAgentCoreServer(microVm: MicroVm) {
     []
   /** The text of each command, as AgentCore writes it to its log group. */
   const commandTexts: string[] = []
-  /** The shim answers that the client closed before their end. */
+  /**
+   * The actions of the shim answers (`put`, `http`) that closed, and of those
+   * that the client closed before their end.
+   */
+  const closedInvocations: string[] = []
   const cutInvocations: string[] = []
   let invocationEndDelayMs = 0
   let failNext: "platform" | "exception" | undefined
@@ -122,6 +126,7 @@ function fakeAgentCoreServer(microVm: MicroVm) {
       freshMicroVm(sessionId)
       if (api === "invocations") {
         // The microVM's port 8080: the real shim of the image.
+        const { action } = JSON.parse(body.toString()) as { action: string }
         const { answer, close } = microVm.invoke(body)
         response.writeHead(200, { "content-type": "text/event-stream" })
         // The end of an answer can reach the client after its last event.
@@ -130,7 +135,8 @@ function fakeAgentCoreServer(microVm: MicroVm) {
           setTimeout(() => response.end(), invocationEndDelayMs),
         )
         response.on("close", () => {
-          if (!response.writableFinished) cutInvocations.push(sessionId)
+          closedInvocations.push(action)
+          if (!response.writableFinished) cutInvocations.push(action)
           close()
         })
         return
@@ -188,6 +194,7 @@ function fakeAgentCoreServer(microVm: MicroVm) {
     server,
     calls,
     commandTexts,
+    closedInvocations,
     cutInvocations,
     running,
     failNextCommand: (kind: "platform" | "exception") => (failNext = kind),

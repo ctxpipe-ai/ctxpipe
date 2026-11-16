@@ -3,7 +3,7 @@ import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import {
   listen,
@@ -272,10 +272,16 @@ describe("agentCoreSandboxProvider", () => {
     try {
       const handle = await provider.create({})
       const before = fake.cutInvocations.length
+      const closedBefore = fake.closedInvocations.length
       expect((await handle.process.exec("echo hi")).stdout).toBe("hi\n")
       await handle.fs.write("staged.txt", "content")
       const channel = await handle.ports.connect(port)
       expect(await (await fetch(`${channel.url}/`)).text()).toBe("ok")
+      // The port answer reaches its client before the end of its shim answer:
+      // wait until that shim answer has closed.
+      await vi.waitFor(() =>
+        expect(fake.closedInvocations.slice(closedBefore)).toContain("http"),
+      )
       expect(fake.cutInvocations.slice(before)).toEqual([])
       await provider.destroy({ id: handle.id })
     } finally {

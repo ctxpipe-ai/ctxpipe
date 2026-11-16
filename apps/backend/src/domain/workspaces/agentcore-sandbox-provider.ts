@@ -828,8 +828,19 @@ async function forward(
   }
   route.usedAt = Date.now()
   const aborted = new AbortController()
-  response.on("close", () => aborted.abort())
   let ended = false
+  // A client that leaves before the end stops the call. `end()` also closes
+  // the response: then the call reads on to the end of the shim answer.
+  response.on("close", () => {
+    if (!ended) aborted.abort()
+  })
+  // A failed write to the client stops this request, never the process.
+  response.on("error", (error) =>
+    log.warn({
+      step: "agentcore-port-bridge",
+      message: `The port bridge could not answer its client: ${error.message}`,
+    }),
+  )
   try {
     // Inside the try: a client that leaves during its upload ends here.
     const chunks: Buffer[] = []
@@ -851,6 +862,8 @@ async function forward(
       },
       aborted.signal,
     )) {
+      // Nothing after the end reaches the client.
+      if (ended) continue
       if (event.type === "head") response.writeHead(event.status, event.headers)
       else if (event.type === "body")
         response.write(Buffer.from(event.data, "base64"))
@@ -858,8 +871,8 @@ async function forward(
         throw new Error(`The sandbox port did not answer: ${event.message}`)
       // Read on to the end of the answer, which follows at once, as in `stage`.
       else if (event.type === "end") {
-        response.end()
         ended = true
+        response.end()
       }
     }
     if (!ended) throw new Error("The shim answer ended early")
