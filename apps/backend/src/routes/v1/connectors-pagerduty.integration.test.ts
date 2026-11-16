@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
 import type { Env } from "../../config/env.js"
 import { encryptConnectionSecret } from "../../lib/connection-secrets.js"
+import { createLogger, withLogger } from "../../observability/logger.js"
 import { closeOpenWorkflowClient } from "../../openworkflow/client.js"
 import {
   createPagerdutyOAuthState,
@@ -37,9 +38,6 @@ const mocks = vi.hoisted(() => ({
   loadConfig: vi.fn(),
 }))
 
-vi.mock("../../observability/logger.js", () => ({
-  getLogger: () => ({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
-}))
 vi.mock("../../auth/withAuth.js", () => ({
   hasOrgAdminOrOwnerRole: mocks.hasAdminRole,
 }))
@@ -110,7 +108,7 @@ function appWithVariables(runtimeEnv: Env = env) {
     } as unknown as AppEnv["Variables"]["session"])
     c.set("orgId", "org_1")
     c.set("orgSlug", "acme")
-    await next()
+    await withLogger(createLogger({}), next)
   })
 }
 
