@@ -16,7 +16,12 @@ import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { parse } from "yaml"
 
-import { images, planImages, uncoveredSources } from "../ci/deploy-images.mjs"
+import {
+  images,
+  planImages,
+  TURBO,
+  uncoveredSources,
+} from "../ci/deploy-images.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 
@@ -171,8 +176,12 @@ function github({ base, runs, prereleases = [], notices = {} }) {
   ]
 }
 
-const plan = (dir, event = "push") =>
-  planImages({ root: dir, event, repo, token: "t" })
+// No test runs turbo: a prune that fails counts as a changed lockfile.
+const noPrune = () => {
+  throw new Error("no turbo in the tests")
+}
+const plan = (dir, event = "push", prune = noPrune) =>
+  planImages({ root: dir, event, repo, token: "t", prune })
 const built = (result) => result.build.map(({ image }) => image)
 
 test("a merge that changes no image input builds no image and reuses each digest", async () => {
@@ -227,6 +236,28 @@ test("a change to the lockfile or the chat sandbox files builds the images that 
   const shim = repository({ "scripts/chat-sandbox/agentcore-shim.mjs": "x\n" })
   server.use(...github({ base: shim.base }))
   assert.deepEqual(built(await plan(shim.dir)), ["chat-sandbox-agentcore"])
+})
+
+test("a lockfile change builds only the images whose pruned lockfile changed", async () => {
+  const { dir, base } = repository({ "pnpm-lock.yaml": "x\n" })
+  server.use(...github({ base }))
+  // The pruned lockfile of codesearch differs between the base and this commit;
+  // the others' are the same.
+  const prune = (checkout, packages) =>
+    packages.includes("@ctxpipe/codesearch") ? checkout : "the same"
+  const result = await plan(dir, "push", prune)
+  assert.deepEqual(built(result), ["codesearch"])
+  assert.equal(
+    result.reasons.codesearch,
+    `pnpm-lock.yaml changed since ${base.slice(0, 7)}`,
+  )
+  assert.equal(result.reuse.backend, digestOf("backend"))
+})
+
+test("the plan's turbo is the version that the lockfile resolves", () => {
+  const lockfile = readFileSync(join(root, "pnpm-lock.yaml"), "utf8")
+  const locked = /^ {2}turbo@(\d+\.\d+\.\d+):$/m.exec(lockfile)?.[1]
+  assert.equal(TURBO, `turbo@${locked}`)
 })
 
 test("a change to the deploy workflow or to this plan builds every image", async () => {

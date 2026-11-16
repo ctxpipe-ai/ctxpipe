@@ -1,5 +1,7 @@
 import { execFileSync } from "node:child_process"
-import { appendFileSync, readFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { appendFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
@@ -50,6 +52,7 @@ export const images = [
   {
     image: "backend",
     dockerfile: "apps/backend/Dockerfile",
+    packages: ["@ctxpipe/backend"],
     inputs: [
       ...backend,
       "apps/backend/public",
@@ -62,11 +65,13 @@ export const images = [
   {
     image: "worker",
     dockerfile: "apps/backend/Dockerfile.worker",
+    packages: ["@ctxpipe/backend"],
     inputs: backend,
   },
   {
     image: "ui",
     dockerfile: "apps/ui/Dockerfile",
+    packages: ["@ctxpipe/ui", "@ctxpipe/backend"],
     inputs: [
       ...workspace,
       "shared",
@@ -78,6 +83,7 @@ export const images = [
   {
     image: "codesearch",
     dockerfile: "apps/codesearch/Dockerfile",
+    packages: ["@ctxpipe/codesearch"],
     inputs: [
       ...workspace,
       "shared",
@@ -110,6 +116,31 @@ export const images = [
     ],
   },
 ]
+
+// The lockfile is an input of each image that installs packages, but most of a
+// change to it is about other apps. So a change to pnpm-lock.yaml counts for an
+// image only when the pruned lockfile of its `packages` changed: the lockfile
+// that `turbo prune <packages> --docker` writes, which holds exactly what the
+// image's install reads. The turbo version is the one that the lockfile
+// resolves (a test keeps them equal).
+export const TURBO = "turbo@2.10.11"
+
+/** The SHA-256 of the pruned lockfile of `packages` in the checkout `dir`. */
+export function prunedLockfile(dir, packages) {
+  const out = mkdtempSync(join(tmpdir(), "prune-"))
+  try {
+    execFileSync(
+      "npx",
+      ["--yes", TURBO, "prune", ...packages, "--docker", "--out-dir", out],
+      { cwd: dir, stdio: "ignore" },
+    )
+    return createHash("sha256")
+      .update(readFileSync(join(out, "json", "pnpm-lock.yaml")))
+      .digest("hex")
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+}
 
 const inputsOf = ({ dockerfile, context = ".", inputs }) => [
   dockerfile,
@@ -353,14 +384,20 @@ async function baseDigests({ repo, jobs, token }) {
 }
 
 // The matrix entry of an image: the image without its inputs.
-const matrixEntry = ({ inputs, ...matrix }) => matrix
+const matrixEntry = ({ inputs, packages, ...matrix }) => matrix
 
 /**
  * Which images this run builds, and the digest of the base run for each
  * other image: `{ build: [matrix entry], reuse: { image: digest },
  * reasons: { image: text } }`.
  */
-export async function planImages({ root, event, repo, token }) {
+export async function planImages({
+  root,
+  event,
+  repo,
+  token,
+  prune = prunedLockfile,
+}) {
   const everything = (reason) => ({
     build: images.map(matrixEntry),
     reuse: {},
@@ -431,9 +468,16 @@ export async function planImages({ root, event, repo, token }) {
   if (everyImageChange) return everything(`${everyImageChange} changed`)
   const result = { build: [], reuse: {}, reasons: {} }
   const short = base.head_sha.slice(0, 7)
+  const lockfile = changed.includes("pnpm-lock.yaml")
+    ? lockfileChanges(root, base.head_sha, prune)
+    : () => true
   for (const image of images) {
     const uncovered = uncoveredSources(root, image)
-    const touched = changed.find((path) => covers(inputsOf(image), path))
+    const touched = changed.find(
+      (path) =>
+        covers(inputsOf(image), path) &&
+        (path !== "pnpm-lock.yaml" || lockfile(image)),
+    )
     const { digest, reason } = digests[image.image]
     const why = uncovered.length
       ? `its Dockerfile reads paths that its inputs do not cover: ${uncovered.join(", ")}`
@@ -450,6 +494,45 @@ export async function planImages({ root, event, repo, token }) {
     }
   }
   return result
+}
+
+/**
+ * Whether an image's pruned lockfile changed since the base commit: a function
+ * of the image. An image without `packages`, or a prune that fails, counts as
+ * changed, so it builds.
+ */
+function lockfileChanges(root, baseSha, prune) {
+  const baseDir = mkdtempSync(join(tmpdir(), "deploy-base-"))
+  const cache = new Map()
+  try {
+    execFileSync("git", ["worktree", "add", "--detach", baseDir, baseSha], {
+      cwd: root,
+      stdio: "ignore",
+    })
+  } catch {
+    return () => true
+  }
+  const pruned = (dir, packages) => {
+    const key = `${dir}\0${packages.join(",")}`
+    if (!cache.has(key)) cache.set(key, prune(dir, packages))
+    return cache.get(key)
+  }
+  const changedFor = ({ packages }) => {
+    if (!packages) return true
+    try {
+      return pruned(baseDir, packages) !== pruned(root, packages)
+    } catch {
+      return true
+    }
+  }
+  const results = new Map(
+    images.map((image) => [image.image, changedFor(image)]),
+  )
+  execFileSync("git", ["worktree", "remove", "--force", baseDir], {
+    cwd: root,
+    stdio: "ignore",
+  })
+  return (image) => results.get(image.image)
 }
 
 if (
