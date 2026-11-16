@@ -1,0 +1,133 @@
+# One-time cleanup, second pass (CTX-1313). The Railway PR previews tagged
+# each PR-head image as `pr-<N>-<sha>` and also as `<sha>`. The first pass
+# deleted the versions with only PR tags. This pass deletes a version of
+# backend, worker, ui or codesearch only when:
+#
+# - it has at least one tag `pr-<N>-*`, and
+# - each other tag is a 40-character commit sha, and
+# - the GitHub compare API says that each of these commits is not reachable
+#   from main (status `ahead` or `diverged`).
+#
+# It keeps each version with `latest`, with another tag, with a sha that is
+# on main (`identical` or `behind`), or with a sha that the API does not know.
+# An API error also keeps the version; the summary counts it apart.
+#
+# - `dry_run` (default true) deletes nothing. It writes the id and the tags of
+#   each version to delete to the log, and the counts to the summary.
+# - The job waits for the rate limit reset when few API calls are left.
+# - Remove this file after the cleanup.
+name: GHCR prune PR preview sha versions
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: List and count only; delete nothing.
+        type: boolean
+        default: true
+
+permissions: {}
+
+jobs:
+  prune:
+    timeout-minutes: 330
+    permissions:
+      contents: read
+      packages: write
+    # github-hosted: only API calls; it waits for the rate limit reset for hours (ADR-065)
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Delete the PR preview versions whose sha tags are not on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ORG: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          pr_tag='^pr-[0-9]+-'
+          sha_tag='^[0-9a-f]{40}$'
+          calls=0
+          wait_for_reset() {
+            local remaining reset
+            read -r remaining reset < <(gh api rate_limit --jq '.resources.core | "\(.remaining) \(.reset)"')
+            if (( remaining < 50 )); then
+              echo "Rate limit: $remaining calls left; waiting until $(date -u -d "@$reset")"
+              sleep $(( reset - $(date +%s) + 5 ))
+            fi
+          }
+          # Checks the rate limit before each 25th API call.
+          count_call() {
+            calls=$(( calls + 1 ))
+            if (( calls % 25 == 0 )); then wait_for_reset; fi
+          }
+          # Prints "off-main" when the commit is not reachable from main,
+          # "on-main" when it is, "unknown" when the API does not know the
+          # commit (HTTP 404 or 422), and "api-error" for another failure.
+          main_state() {
+            local status error
+            if ! status=$(gh api "/repos/$REPO/compare/main...$1?per_page=1" --jq '.status' 2> "$RUNNER_TEMP/compare.err"); then
+              error=$(cat "$RUNNER_TEMP/compare.err")
+              if [[ $error =~ HTTP\ (404|422) ]]; then echo unknown; else echo api-error; fi
+              return
+            fi
+            case "$status" in
+              ahead | diverged) echo off-main ;;
+              identical | behind) echo on-main ;;
+              *) echo api-error ;;
+            esac
+          }
+          {
+            echo "| Package | Candidates | To delete | Kept: sha on main | Kept: sha unknown | Kept: API error | Deleted |"
+            echo "| --- | --- | --- | --- | --- | --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for package in backend worker ui codesearch; do
+            versions="$RUNNER_TEMP/$package.json"
+            wait_for_reset
+            gh api --paginate "/orgs/$ORG/packages/container/$package/versions?per_page=100" \
+              --jq '.[] | {id, tags: .metadata.container.tags}' > "$versions"
+            # Candidates: a PR tag, at least one full sha, and no other tag.
+            jq -c --arg pr "$pr_tag" --arg sha "$sha_tag" '
+              select(any(.tags[]; test($pr)) and any(.tags[]; test($sha))
+                and all(.tags[]; test($pr) or test($sha)))
+              | {id, tags, shas: [.tags[] | select(test($sha))]}' \
+              "$versions" > "$RUNNER_TEMP/$package.candidates"
+            candidates=$(wc -l < "$RUNNER_TEMP/$package.candidates")
+            : > "$RUNNER_TEMP/$package.delete"
+            on_main=0
+            unknown=0
+            api_error=0
+            while read -r version; do
+              # A version is deleted only when each of its shas is off main.
+              verdict=off-main
+              for sha in $(jq -r '.shas[]' <<< "$version"); do
+                count_call
+                state=$(main_state "$sha")
+                if [[ $state != off-main ]]; then
+                  verdict=$state
+                  break
+                fi
+              done
+              case "$verdict" in
+                off-main) echo "$version" >> "$RUNNER_TEMP/$package.delete" ;;
+                on-main) on_main=$(( on_main + 1 )) ;;
+                unknown) unknown=$(( unknown + 1 )) ;;
+                *) api_error=$(( api_error + 1 )) ;;
+              esac
+            done < "$RUNNER_TEMP/$package.candidates"
+            to_delete=$(wc -l < "$RUNNER_TEMP/$package.delete")
+            echo "::group::$package: $to_delete versions to delete"
+            jq -r '"\(.id) \(.tags | join(","))"' "$RUNNER_TEMP/$package.delete"
+            echo "::endgroup::"
+            deleted=0
+            if [[ $DRY_RUN != true ]]; then
+              while read -r id; do
+                count_call
+                gh api --silent -X DELETE "/orgs/$ORG/packages/container/$package/versions/$id"
+                # Stay below the secondary rate limit of GitHub.
+                sleep 1
+                deleted=$(( deleted + 1 ))
+              done < <(jq -r '.id' "$RUNNER_TEMP/$package.delete")
+            fi
+            echo "| $package | $candidates | $to_delete | $on_main | $unknown | $api_error | $deleted |" >> "$GITHUB_STEP_SUMMARY"
+          done
