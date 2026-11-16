@@ -20,6 +20,11 @@ import type { Workspace } from "./types"
 
 type GithubWorkspaceDestinationProps = {
   variant?: "page" | "onboarding"
+  /**
+   * GitHub came back after a change of repository access, not after the
+   * first install. The page says that access changed and is not a wizard.
+   */
+  accessUpdated?: boolean
   status: "loading" | "error" | "ready"
   workspaces: Workspace[]
   onCreateWorkspace: () => void
@@ -37,6 +42,7 @@ function workspaceRepoLine(workspace: Workspace): string {
 
 export function GithubWorkspaceDestination({
   variant = "page",
+  accessUpdated = false,
   status,
   workspaces,
   onCreateWorkspace,
@@ -48,6 +54,7 @@ export function GithubWorkspaceDestination({
   const empty = status === "ready" && workspaces.length === 0
 
   const loading = useSkeletonHold(status === "loading")
+  const closeLabel = accessUpdated ? "Close" : "Close wizard"
   return (
     <div className={cn("w-full", onboarding && "mx-auto max-w-2xl text-left")}>
       <h1
@@ -57,12 +64,16 @@ export function GithubWorkspaceDestination({
             : "text-xl font-medium tracking-tight text-foreground"
         }
       >
-        GitHub is connected
+        {accessUpdated ? "GitHub access updated" : "GitHub is connected"}
       </h1>
       <p className="mt-3 max-w-prose text-sm leading-relaxed text-muted-foreground">
-        {empty
-          ? "Create a workspace to add repositories, or close the wizard."
-          : "Create a new workspace, add repositories to an existing one, or close the wizard."}
+        {accessUpdated
+          ? empty
+            ? "ctxpipe can read the repositories that you selected on GitHub. Create a workspace to add them."
+            : "ctxpipe can read the repositories that you selected on GitHub. To add one to a workspace, select the workspace, then select Add repositories."
+          : empty
+            ? "Create a workspace to add repositories, or close the wizard."
+            : "Create a new workspace, add repositories to an existing one, or close the wizard."}
       </p>
 
       {loading ? (
@@ -93,7 +104,7 @@ export function GithubWorkspaceDestination({
             </div>
           </div>
           <Button variant="quiet" onPress={onClose}>
-            Close wizard
+            {closeLabel}
           </Button>
         </div>
       ) : null}
@@ -119,7 +130,7 @@ export function GithubWorkspaceDestination({
             sidebar.
           </InlineAlert>
           <Button variant="quiet" onPress={onClose}>
-            Close wizard
+            {closeLabel}
           </Button>
         </div>
       ) : null}
@@ -131,7 +142,7 @@ export function GithubWorkspaceDestination({
             Create workspace
           </Button>
           <Button variant="quiet" onPress={onClose}>
-            Close wizard
+            {closeLabel}
           </Button>
         </div>
       ) : null}
@@ -178,7 +189,7 @@ export function GithubWorkspaceDestination({
           </ul>
 
           <Button variant="quiet" onPress={onClose}>
-            Close wizard
+            {closeLabel}
           </Button>
         </div>
       ) : null}
@@ -189,12 +200,19 @@ export function GithubWorkspaceDestination({
 export function GithubWorkspaceDestinationFromApi(props: {
   orgSlug: string
   variant?: "page" | "onboarding"
+  accessUpdated?: boolean
   onCreateWorkspace: () => void
   onSelectWorkspace: (workspace: Workspace) => void
   onClose: () => void
 }) {
-  const { orgSlug, variant, onCreateWorkspace, onSelectWorkspace, onClose } =
-    props
+  const {
+    orgSlug,
+    variant,
+    accessUpdated,
+    onCreateWorkspace,
+    onSelectWorkspace,
+    onClose,
+  } = props
   const listQuery = useQuery(workspaceListOptions(orgSlug))
 
   const status = listQuery.isError
@@ -206,6 +224,7 @@ export function GithubWorkspaceDestinationFromApi(props: {
   return (
     <GithubWorkspaceDestination
       variant={variant}
+      accessUpdated={accessUpdated}
       status={status}
       workspaces={listQuery.data?.items ?? []}
       onCreateWorkspace={onCreateWorkspace}

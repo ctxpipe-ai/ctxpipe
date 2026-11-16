@@ -43,6 +43,10 @@ export function GitHubSetupPageContent({ orgSlug }: { orgSlug: string }) {
     () => returnToFromSearch(location.search),
     [location.search],
   )
+  // GitHub came back after a change of repository access (CTX-1118).
+  const accessUpdated =
+    (location.search as { setup_action?: unknown }).setup_action === "update"
+  const closeLabel = accessUpdated ? "Close" : "Close wizard"
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const redirect = `/${orgSlug}/github/setup${
@@ -95,7 +99,7 @@ export function GitHubSetupPageContent({ orgSlug }: { orgSlug: string }) {
         </div>
         <div className="mt-6">
           <Button variant="quiet" onPress={goBack}>
-            Close wizard
+            {closeLabel}
           </Button>
         </div>
       </main>
@@ -127,7 +131,7 @@ export function GitHubSetupPageContent({ orgSlug }: { orgSlug: string }) {
         </InlineAlert>
         <div className="mt-6">
           <Button variant="quiet" onPress={goBack}>
-            Close wizard
+            {closeLabel}
           </Button>
         </div>
       </main>
@@ -146,7 +150,7 @@ export function GitHubSetupPageContent({ orgSlug }: { orgSlug: string }) {
         </p>
         <div className="mt-8">
           <Button variant="quiet" onPress={goBack}>
-            Close wizard
+            {closeLabel}
           </Button>
         </div>
       </main>
@@ -157,6 +161,7 @@ export function GitHubSetupPageContent({ orgSlug }: { orgSlug: string }) {
     <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
       <GithubWorkspaceDestinationFromApi
         orgSlug={orgSlug}
+        accessUpdated={accessUpdated}
         onCreateWorkspace={goCreate}
         onSelectWorkspace={(workspace) => {
           void navigate({

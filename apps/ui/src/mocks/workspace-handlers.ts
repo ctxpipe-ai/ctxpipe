@@ -461,6 +461,7 @@ export function githubInstallationReposHandler(
     clone_url: string
     id?: number
     full_name?: string
+    pushed_at?: string
   }[],
   options?: {
     repositorySelection?: string
