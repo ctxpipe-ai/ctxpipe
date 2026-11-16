@@ -34,7 +34,7 @@ describe("linear rows", () => {
         return subscription({ type: "business_yearly", seats: 7, seatsMinimum: null, seatsMaximum: null })
       }),
     )
-    const price = linearUsdPerSeatMonth.business ?? Number.NaN
+    const price = linearUsdPerSeatMonth.business_yearly ?? Number.NaN
     await expect(rows(DAYS)).resolves.toEqual([
       { day: "2026-02-28", provider: "linear", sku: "business_yearly", scope: "workspace", usage: 7, unit: "seats", costUsd: (7 * price) / 28, source: "derived" },
       { day: "2026-03-01", provider: "linear", sku: "business_yearly", scope: "workspace", usage: 7, unit: "seats", costUsd: (7 * price) / 31, source: "derived" },
@@ -42,14 +42,16 @@ describe("linear rows", () => {
     expect(query).toContain("subscription { type seats seatsMinimum seatsMaximum }")
   })
 
-  test("bills the seat minimum and the seat maximum, at the plan's price for each billing variant", async () => {
-    const price = linearUsdPerSeatMonth.basic ?? Number.NaN
-    server.use(http.post(LINEAR, () => subscription({ type: "basic_monthly", seats: 2, seatsMinimum: 3, seatsMaximum: null })))
-    expect((await rows(["2026-03-01"]))[0]).toMatchObject({ usage: 3, costUsd: (3 * price) / 31 })
+  test("bills the seat minimum and the seat maximum, at the price of the billing variant", async () => {
+    const monthly = linearUsdPerSeatMonth.basic_monthly ?? Number.NaN
+    const yearly = linearUsdPerSeatMonth.basic_yearly ?? Number.NaN
+    expect(monthly).toBeGreaterThan(yearly)
+    server.use(http.post(LINEAR, () => subscription({ type: "basic_monthly_12", seats: 2, seatsMinimum: 3, seatsMaximum: null })))
+    expect((await rows(["2026-03-01"]))[0]).toMatchObject({ sku: "basic_monthly_12", usage: 3, costUsd: (3 * monthly) / 31 })
     server.resetHandlers()
     // An older schema names only the plan.
     server.use(http.post(LINEAR, () => subscription({ type: "basic", seats: 12, seatsMinimum: null, seatsMaximum: 10 })))
-    expect((await rows(["2026-03-01"]))[0]).toMatchObject({ usage: 10, costUsd: (10 * price) / 31 })
+    expect((await rows(["2026-03-01"]))[0]).toMatchObject({ usage: 10, costUsd: (10 * yearly) / 31 })
   })
 
   test("gives no rows without a paid subscription", async () => {
@@ -57,9 +59,9 @@ describe("linear rows", () => {
     await expect(rows(DAYS)).resolves.toEqual([])
   })
 
-  test("throws on a plan without a committed price", async () => {
+  test("throws on a subscription type without a committed price", async () => {
     server.use(http.post(LINEAR, () => subscription({ type: "enterprise_yearly", seats: 7, seatsMinimum: null, seatsMaximum: null })))
-    await expect(rows(DAYS)).rejects.toThrow("no committed seat price for Linear plan enterprise")
+    await expect(rows(DAYS)).rejects.toThrow("no committed seat price for Linear subscription type enterprise_yearly")
   })
 
   test("throws on GraphQL errors, a missing organization and missing seats", async () => {
