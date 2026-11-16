@@ -359,7 +359,7 @@ test("each planned check goes to the job that runs it, and a job without one doe
   ])
   // A lint or policy check runs in the Lint and format job. The stored pass
   // of the agent covers the only lint check, so that job does not start.
-  // Evals and the Terraform plan run in their own workflows.
+  // Evals run in their own workflow.
   assert.deepEqual(placeOf(lint), { job: "lint" })
   assert.equal(planned.outputs.lint, undefined)
   // Without the stored pass, the lint job runs only that check.
@@ -374,12 +374,6 @@ test("each planned check goes to the job that runs it, and a job without one doe
   assert.equal(missed.outputs.lint, "1")
   assert.deepEqual(missed.jobs.lint, { ids: [lint], rerun: [] })
   assert.match(placeOf(evalCase).workflow, /mcp-evals\.yaml/)
-  // The Terraform plan runs in its own workflow, not in the Lint and format
-  // job that runs the other policy checks.
-  assert.match(
-    placeOf("policy:terraform-plan:infra/main.tf").workflow,
-    /terraform-plan-pr\.yaml/,
-  )
   // Every Storybook play runs in the plays shards, after the build.
   const stories = planOf({
     files: {
@@ -783,7 +777,6 @@ const decide = (options = {}) => {
     needs: {
       ...needs,
       lint: { result: options.lint ?? "success" },
-      "terraform-validate": { result: "success" },
       migrate: { result: options.migrate ?? "success" },
     },
     jobs: jobs(options.jobs ?? {}),
@@ -926,13 +919,13 @@ test("the verdict line names each failed check and always-run job in full", () =
       ...decision.gatedRun,
       verdict: "fail",
       failedChecks: ["lint:oxlint:.oxlintrc.json", "test:vitest:apps/ui"],
-      failedAlwaysRun: ["migrate", "terraform-validate"],
+      failedAlwaysRun: ["migrate", "packages"],
     },
   }
   const text = gateText(failed, "https://example.test/run")
   assert.ok(
     text.includes(
-      "**Verdict:** fail (failed checks: `lint:oxlint:.oxlintrc.json`, `test:vitest:apps/ui`) (failed always-run jobs: `migrate`, `terraform-validate`).",
+      "**Verdict:** fail (failed checks: `lint:oxlint:.oxlintrc.json`, `test:vitest:apps/ui`) (failed always-run jobs: `migrate`, `packages`).",
     ),
     text,
   )
@@ -1182,68 +1175,6 @@ test("each job of the plan needs the plan job, starts only with its output, and 
   assert.match(gate, /\n {4}name: Merge gate\n/)
   assert.doesNotMatch(gate, /\n {4}continue-on-error:/)
   assert.match(gate, /\n {4}if: \|\n {6}always\(\) && /)
-  // The Terraform plan workflow has no pull_request trigger: the merge gate
-  // calls it as a reusable workflow, so the PR author stays the actor. It
-  // does so for a same-repository PR that changes a file under infra/,
-  // whatever the mode or the selection. The critics job looks for the
-  // change: it starts with the run and runs no repository code, so the step
-  // gets the token that reads the PR files in a job of the same trust.
-  const changes = job("merge-gate-critics")
-  assert.doesNotMatch(changes, /\n {4}needs:/)
-  assert.doesNotMatch(changes, /merge-gate-plan/)
-  assert.ok(changes.includes("head.repo.full_name == github.repository"))
-  const { jobs } = parseYaml(workflow)
-  const lookup = jobs["merge-gate-critics"].steps.find(
-    (step) => step.id === "changes",
-  )
-  assert.equal(lookup.name, "Look for a change under infra/")
-  assert.ok(lookup.if.includes("!cancelled()"))
-  assert.ok(lookup.if.includes("github.event.action != 'ready_for_review'"))
-  assert.equal(
-    jobs["merge-gate-critics"].outputs.plan,
-    "${{ steps.changes.outputs.plan }}",
-  )
-  assert.match(changes, /\n {6}pull-requests: read\n/)
-  // No repository code: no package manager, no runtime, no local action,
-  // and no repository script.
-  assert.doesNotMatch(
-    changes
-      .split("\n")
-      .filter((line) => !line.trim().startsWith("#"))
-      .join("\n"),
-    /\b(pnpm|npm|npx|node|bun|tsx)\b|uses: \.\/|\b(bash|sh) [\w./-]*scripts\//,
-  )
-  const terraform = job("merge-gate-terraform-plan")
-  assert.match(terraform, /\n {4}needs: merge-gate-critics\n/)
-  // A failed step of the critics job does not stop the plan.
-  assert.ok(
-    terraform.includes(
-      "!cancelled() && needs.merge-gate-critics.outputs.plan == 'true'",
-    ),
-  )
-  assert.match(
-    terraform,
-    /\n {4}uses: \.\/\.github\/workflows\/terraform-plan-pr\.yaml\n/,
-  )
-  assert.doesNotMatch(terraform, /merge-gate-plan/)
-  const terraformWorkflow = readFileSync(
-    join(root, ".github/workflows/terraform-plan-pr.yaml"),
-    "utf8",
-  )
-  assert.doesNotMatch(terraformWorkflow, /^ {2}pull_request:/m)
-  assert.match(terraformWorkflow, /^ {2}workflow_call:/m)
-  // The plan job takes the code by artifact id: a reusable workflow shares the
-  // artifact names of the run, and other jobs of the run execute PR code.
-  assert.match(
-    terraformWorkflow,
-    /artifact-ids: \$\{\{ needs\.resolve\.outputs\.artifact_id \}\}/,
-  )
-  assert.match(terraformWorkflow, /artifact_id != ''/)
-  assert.doesNotMatch(
-    terraformWorkflow,
-    /download-artifact[^\n]*\n\s+with:\n\s+name:/,
-  )
-  assert.match(terraformWorkflow, /^ {2}workflow_dispatch:/m)
 })
 
 test("a gated step has the setup of its full-run step and of the prerequisites of its checks", () => {

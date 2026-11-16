@@ -230,9 +230,7 @@ test("the manifest matches its schema and lists each check of each family", asyn
     )
     assert.equal(
       check.cacheable ?? true,
-      !(
-        check.lane === "terraform-plan" || check.lane.startsWith("image-")
-      ),
+      !check.lane.startsWith("image-"),
       check.id,
     )
   }
@@ -887,17 +885,10 @@ test("the manifest lists a check for each job of the other pull request workflow
   ])
     assert.ok(plugin.inputs.includes(input), input)
   assert.deepEqual(placeOf(plugin.id), { job: "lint" })
-  // The Terraform plan: not cacheable, selected by the files of infra.
-  const plan = checks.get("policy:terraform-plan:infra/main.tf")
-  assert.ok(plan)
-  assert.equal(plan.cacheable, false)
-  assert.ok(plan.inputs.includes("infra/**"))
-  assert.deepEqual(plan.prerequisites, ["terraform-plan"])
-  assert.ok(plan.intent)
   // Each check that is not stochastic has a job that gives its result in a
-  // full run. The Terraform plan has its own workflow.
+  // full run.
   for (const check of checks.values()) {
-    if (check.stochastic || check === plan) continue
+    if (check.stochastic) continue
     assert.ok(runsInOf(check.id), check.id)
   }
   // mcp-evals.yaml runs the eval cases; a model call is stochastic.
@@ -1087,9 +1078,16 @@ test("the project check times job selects the typecheck, lint and policy checks 
         c.cacheable !== false,
     )
     .map((c) => c.id)
-  assert.ok(
-    manifest.checks.some((c) => c.cacheable === false && c.family === "policy"),
-  )
+  // No policy check of the manifest is uncacheable, so a made-up one shows
+  // that the filter leaves such a check out.
+  const uncacheable = spawnSync("jq", ["-r", filter[1]], {
+    input: JSON.stringify({
+      checks: [{ id: "policy:remote:x.mjs", family: "policy", cacheable: false }],
+    }),
+    encoding: "utf8",
+  })
+  assert.equal(uncacheable.status, 0, uncacheable.stderr)
+  assert.equal(uncacheable.stdout, "")
   for (const family of ["typecheck", "lint", "policy"])
     assert.ok(
       ids.some((id) => id.startsWith(`${family}:`)),
@@ -1123,7 +1121,7 @@ test("the Lint and format job runs each lint and policy check of CI through the 
       command,
     )
   // In a full run, the jq filter of the runner step selects each lint and
-  // policy check that this job runs (not the Terraform plan).
+  // policy check that this job runs.
   const filter = runners
     .find((command) => command.includes("run.mjs"))
     .match(/jq -r '([^']*)'/)
