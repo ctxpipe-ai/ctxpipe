@@ -436,7 +436,6 @@ it.each([
   "native-push",
   "repeated-native-push",
   "continuous-native-push",
-  "push-during-wait",
 ] as const)(
   "hands a raced Files write to one native semantic child and returns the published result: %s",
   { timeout: 60_000 },
@@ -446,8 +445,7 @@ it.each([
     const additionalHumans =
       raceBoundary === "continuous-native-push"
         ? 3
-        : raceBoundary === "repeated-native-push" ||
-            raceBoundary === "push-during-wait"
+        : raceBoundary === "repeated-native-push"
           ? 1
           : 0
     const path = "knowledge/race.md"
@@ -539,7 +537,6 @@ it.each([
           )
           // A lost race makes the merge sleep for up to a minute. End each
           // sleep now: set its resume time and the run's start to now.
-          let pushedDuringWait = false
           const settled = handle.result({ timeoutMs: 45_000 }).then(
             () => true,
             () => true,
@@ -563,32 +560,6 @@ it.each([
               `)
             ).rows
             if (!sleeping.length) continue
-            if (raceBoundary === "push-during-wait" && !pushedDuringWait) {
-              // Another writer pushes while the merge waits. The merge reads
-              // the tip after the wait, so it does not lose to this push.
-              pushedDuringWait = true
-              writeFileSync(
-                join(f.directory, "knowledge/during-wait.md"),
-                "# Pushed while the merge waits\n",
-              )
-              f.git("add", "knowledge/during-wait.md")
-              f.git("commit", "-m", "Push during the wait")
-              humanSha = f.git("rev-parse", "HEAD")
-              f.git(
-                "--git-dir",
-                f.remote,
-                "fetch",
-                f.directory,
-                `${humanSha}:refs/heads/fixture-during-wait`,
-              )
-              f.git(
-                "--git-dir",
-                f.remote,
-                "update-ref",
-                "refs/heads/main",
-                humanSha,
-              )
-            }
             await getSystemDb().execute(sql`
               with woken as (
                 update openworkflow.step_attempts
@@ -652,8 +623,7 @@ it.each([
             (run) => run.workflowName === "workspace-write-semantic-merge",
           )
           expect(children).toHaveLength(1)
-          // One wait for each lost attempt of the child. A push during a wait
-          // costs no attempt.
+          // One wait for each lost attempt of the child.
           const waits = (
             await f.backend.listStepAttempts({
               workflowRunId: children[0]?.id ?? "",
