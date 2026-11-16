@@ -36,6 +36,15 @@ The product owner decided this on 2026-11-10 ([CTX-1246](https://linear.app/ctxp
 - **Only keyed checks.** A check with `cacheable: false` or a stochastic check has no key; an incremental nightly run does not run it, and the selection picks it by its static layers. Thus an incremental run builds no image; a full run (by hand, or each 7 days) builds every image.
 - The `ci` class stores only what the nightly run ran.
 
+### Revision 2026-11-16: a pull request job outside the gate states its reason
+
+The product owner decided this on 2026-11-16. A workflow (PR #679) built the preview images on each push of each pull request, outside the merge gate, for about $7 a day. No rule stopped it. Thus [`scripts/ci/check-ci-jobs.mjs`](../../../scripts/ci/check-ci-jobs.mjs), a cacheable check that the Merge gate job also runs on each pull request ([`scripts/checks/README.md`](../../../scripts/checks/README.md), Jobs outside the merge gate), enforces these rules:
+
+- A job that starts on a pull request runs only when the plan selects it, or it has a stated reason (`# outside-gate:`). A job in the gate runs its checks through the manifest, or states why not (`# outside-manifest:`).
+- Each CI script check has a cache key: no computed `import()` in its closure. A check without a cache, and a check that is not portable, states its reason.
+
+The owner chose plain rules and no cost projection: the critics and a person judge the cost of a stated reason.
+
 ## Consequences
 
 - A fault that only the combination of two merged pull requests causes stays on `main` until the next nightly run, at most one day. The nightly run reports it in a Triage ticket, and the fix is a new pull request.

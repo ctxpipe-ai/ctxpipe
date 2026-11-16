@@ -34,9 +34,12 @@ export async function listChecks() {
   ])
   // The checks that the nightly audit found not portable: their result
   // differed between platforms (the factory store report, NOT PORTABLE).
+  // Each entry gives its reason.
   const denied = new Set(
-    JSON.parse(
-      readFileSync(new URL("non-portable.json", import.meta.url), "utf8"),
+    Object.keys(
+      JSON.parse(
+        readFileSync(new URL("non-portable.json", import.meta.url), "utf8"),
+      ),
     ),
   )
   const checks = markPortable(lists.flat(), denied).map((check) =>

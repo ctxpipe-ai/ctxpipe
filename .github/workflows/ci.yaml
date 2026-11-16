@@ -197,6 +197,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: ignore
 
+  # outside-manifest: it builds the chat sandbox image, a prerequisite of the backend lanes, from the layer cache of main
   test-shards:
     # The runner's own limit (scripts/ci/test-suite.mjs) is 30 min for backend
     # and 45 min for contracts. The job limit adds 15 min for setup, so the
@@ -454,6 +455,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
 
+  # outside-manifest: only in a full run, never in gate mode: it checks that the shard reports cover each full inventory (scripts/ci/test-suite.mjs)
   test:
     timeout-minutes: 10
     # Keeps the single "Tests" check: it passes only when every shard and
@@ -655,6 +657,7 @@ jobs:
             ${{ runner.temp }}/project-trace/rerun/
           if-no-files-found: ignore
 
+  # outside-manifest: each matrix job is the check build:image-<name>; the merge gate takes the job result as its result (stepResults in gate.mjs)
   production-builds:
     timeout-minutes: 45
     name: Production build (${{ matrix.name }})
@@ -764,6 +767,7 @@ jobs:
           cache-from: type=registry,ref=${{ matrix.cache }}
           cache-to: type=registry,ref=${{ matrix.cache }},mode=max,ignore-error=true
 
+  # outside-manifest: the typecheck of the self-host example runs only in a full run; it is also the check typecheck:self-host of the Typecheck job
   packages:
     timeout-minutes: 20
     name: Runnable packages and examples
@@ -824,6 +828,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: ignore
 
+  # outside-manifest: it builds the static Storybook, the prerequisite storybook-build of the play and screenshot checks
   storybook-build:
     timeout-minutes: 20
     name: Storybook build
@@ -857,6 +862,7 @@ jobs:
           path: apps/ui/storybook-static
           if-no-files-found: error
 
+  # outside-manifest: only in a full run, never in gate mode: in gate mode the Storybook plays job runs the required stories through selected.mjs
   storybook-required:
     timeout-minutes: 30
     name: Storybook required plays
@@ -1125,6 +1131,7 @@ jobs:
           ID: ${{ steps.preserve.outputs.artifact-id }}
         run: echo "artifact-${SHARD}=${ID}" >> "$GITHUB_OUTPUT"
 
+  # outside-manifest: the timeout proof of the download script (apps/codesearch/scripts/fetch-releases.test.mjs) is no check of the manifest yet
   codesearch:
     timeout-minutes: 30
     name: Codesearch real toolchain contracts
@@ -1220,6 +1227,7 @@ jobs:
           path: ${{ runner.temp }}/codesearch-trace/trace.json.gz
           if-no-files-found: ignore
 
+  # outside-gate: always runs in gate mode (scripts/checks/README.md, Gate mode): no check of the manifest applies the migrations to an empty database
   migrate:
     timeout-minutes: 20
     name: Migrations (fresh schema)
@@ -1422,6 +1430,7 @@ jobs:
   # select job and for the nightly Results writer. It has the setup of the
   # test jobs (Node, pnpm, Bun) and sets none of the lane variables, so its
   # toolchain record is theirs: the same pinned git, zoekt and ast-grep.
+  # outside-gate: the merge gate itself: it decides the mode and lists the checks
   merge-gate-manifest:
     timeout-minutes: 10
     name: Merge gate manifest
@@ -1752,6 +1761,7 @@ jobs:
   # A lookup of 16 hunks and 4 critics took 5 s.
   # The timeout is large, because a large diff (a lockfile) has many hunks
   # and so many store keys.
+  # outside-gate: the merge gate itself: the verdicts of the review critics
   merge-gate-critics:
     timeout-minutes: 25
     name: Merge gate critics
@@ -2092,6 +2102,7 @@ jobs:
   # the PR: only a run of this PR writes there (the merge gate job).
   # On a nightly run of main, it puts the checks of the nightly plan into the
   # jobs of the run (gate.mjs nightly) in the same way.
+  # outside-gate: the merge gate itself: the plan that starts each check job
   merge-gate-plan:
     timeout-minutes: 5
     name: Merge gate plan
@@ -2232,6 +2243,7 @@ jobs:
   # what a gated run would decide from the same results, and the agreement
   # record (scripts/checks/README.md). It runs only the public gate.mjs,
   # with no package.
+  # outside-gate: the merge gate itself: the verdict, the required status and the workflow guards
   merge-gate:
     timeout-minutes: 15
     # A fixed name: this job is the required status, also when the plan job
@@ -2433,7 +2445,7 @@ jobs:
         if: always()
         run: |
           code=0
-          for script in workflow-credentials secret-jobs workflow-inputs runners unstable-list; do
+          for script in workflow-credentials secret-jobs workflow-inputs runners ci-jobs unstable-list; do
             node "scripts/ci/check-$script.mjs" || code=1
           done
           exit "$code"
@@ -2702,7 +2714,9 @@ jobs:
           else
             git switch -q -c "$branch"
           fi
-          jq --argjson ids "$IDS" '. + $ids | unique' "$list" > "$RUNNER_TEMP/list.json"
+          # Each entry states its reason (scripts/ci/check-ci-jobs.mjs).
+          jq --argjson ids "$IDS" 'reduce $ids[] as $id (.; .[$id] //= "the nightly audit: it failed in CI and in its rerun, and each stored pass of its key came from another platform")' \
+            "$list" > "$RUNNER_TEMP/list.json"
           mv "$RUNNER_TEMP/list.json" "$list"
           if git diff --quiet; then
             echo "The denylist already holds ${IDS}."

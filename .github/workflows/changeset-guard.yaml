@@ -23,6 +23,7 @@ permissions:
   contents: read
 
 jobs:
+  # outside-gate: it reads the diff against the base branch, which is no input of a check (scripts/checks/README.md, Other pull request workflows)
   require_changesets:
     timeout-minutes: 10
     name: Require changesets for apps and packages

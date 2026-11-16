@@ -30,6 +30,7 @@ permissions:
   contents: read
 
 jobs:
+  # outside-gate: only with the mcp-evals label, because each run calls paid models (scripts/checks/README.md, Other pull request workflows)
   evals:
     name: MCPJam evals
     if: |
