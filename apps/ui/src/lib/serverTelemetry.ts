@@ -24,8 +24,8 @@ import {
   NodeTracerProvider,
 } from "@opentelemetry/sdk-trace-node"
 
-import { scrubTelemetryString } from "./otelBrowserScrub"
 import { deploymentName } from "./otelEnv"
+import { scrubTelemetryString } from "./otelScrub"
 
 /**
  * OpenTelemetry for the UI server (SSR, server functions, server routes).
@@ -228,7 +228,7 @@ function reportError(span: Span | undefined, error: unknown, label = ""): void {
  * message gives no frames.
  */
 function scrubbedError(error: Error): Error {
-  const name = error.name || "Error"
+  const name = /^[\w.$-]{1,64}$/.test(error.name) ? error.name : "Error"
   const message = scrubServerErrorText(error.message)
   const copy = new Error(message)
   copy.name = name
@@ -249,24 +249,41 @@ function scrubbedError(error: Error): Error {
 }
 
 /**
- * The head of an error text: the part that names the failure, such as
- * "Unauthorized" or "Error in renderToReadableStream". It is the first line
- * up to the first ": ", with each quoted part replaced, after credential
- * scrubbing. The detail after the head (a value, a request body, or a
- * prompt that the error repeats) is not exported. The exception type and
- * the stack frames give the rest of the diagnosis.
+ * The exported form of an error text. Only a head that matches a known
+ * diagnostic shape leaves the server; any other text, such as a value, a
+ * request body, or a prompt that an error repeats, becomes "{redacted}".
+ * The head is the first line up to the first ": ", after credential
+ * scrubbing and with each quoted part replaced. The exception type and the
+ * stack frames give the rest of the diagnosis.
  */
 export function scrubServerErrorText(text: string): string {
-  const unquoted = scrubCredentials(text).replace(
-    /"[^"]*"?|'[^']*'?|`[^`]*`?/g,
-    "{redacted}",
-  )
-  return (unquoted.split(/\r?\n|:(?:\s|$)/, 1)[0] ?? "").trim().slice(0, 120)
+  const head = (
+    scrubCredentials(text)
+      .replace(/"[^"]*"?|'[^']*'?|`[^`]*`?/g, "{redacted}")
+      .split(/\r?\n|:(?:\s|$)/, 1)[0] ?? ""
+  ).trim()
+  if (!head) return ""
+  const react = /^Minified React error #\d+/.exec(head)
+  if (react) return react[0]
+  const diagnostic = [
+    // One code: Unauthorized, ECONNRESET, INSUFFICIENT_API_KEY_PERMISSIONS.
+    /^[\w.$#-]{1,64}$/,
+    // The SSR label of TanStack Start: Error in renderToReadableStream.
+    /^Error in [\w.]{1,64}$/,
+    // The fixed fallback texts of the UI API client.
+    /^(Failed to|Could not|Unable to) [a-z]+( [\w-]+){0,4}$/,
+    /^Request failed \(\d{3}\)$/,
+    // Runtime errors that name code, not data.
+    /^Cannot read properties of (undefined|null) \(reading \{redacted\}\)$/,
+    /^[\w.$]{1,64} is not (a function|defined|iterable|a constructor)$/,
+    /^(fetch failed|signal timed out|Network request failed|The operation (was aborted|timed out)\.?)$/,
+  ]
+  return diagnostic.some((shape) => shape.test(head)) ? head : "{redacted}"
 }
 
 /**
  * URL queries and fragments, token path segments and emails
- * (`otelBrowserScrub`), the values of `cookie` and `authorization` headers,
+ * (`otelScrub`), the values of `cookie` and `authorization` headers,
  * of keys that end in token, secret, password or API key, and bearer or
  * basic credentials.
  */

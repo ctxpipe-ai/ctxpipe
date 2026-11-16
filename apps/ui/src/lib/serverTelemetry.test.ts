@@ -129,52 +129,35 @@ describe("serverTelemetryEndpoints", () => {
 
 describe("scrubServerErrorText", () => {
   it.each([
+    ["Unauthorized", "Unauthorized"],
+    ["Error in renderToReadableStream:", "Error in renderToReadableStream"],
+    ["Failed to load Workspaces", "Failed to load Workspaces"],
+    ["Request failed (404)", "Request failed (404)"],
+    ["ECONNRESET: The socket connection was closed unexpectedly", "ECONNRESET"],
     [
-      "request to https://api.test/v1/x?token=abc#frag failed for jane@example.test",
-      "request to https://api.test/v1/x failed for {email}",
+      "Cannot read properties of undefined (reading 'name')",
+      "Cannot read properties of undefined (reading {redacted})",
     ],
     [
-      "better-auth.session_token=s3cr3t rejected",
-      "better-auth.session_token={redacted} rejected",
+      "Minified React error #418; visit https://react.dev/errors/418?args[]=s3cr3t for the full message",
+      "Minified React error #418",
     ],
-    [
-      "password=hunter2 and x-api-key=k3y rejected",
-      "password={redacted} and x-api-key={redacted} rejected",
-    ],
-    ["sent Bearer eyJhbGciOi.payload.sig", "sent Bearer {redacted}"],
-    ["cookie=s3cr3t; theme=dark", "cookie={redacted}"],
-    [
-      "/reset-password/rst-token not found",
-      "/reset-password/{token} not found",
-    ],
-  ])(
-    "removes credentials, URL queries, token paths, and emails: %s",
-    (text, scrubbed) => {
-      expect(scrubServerErrorText(text)).toBe(scrubbed)
-    },
-  )
+    ["prompt: confidential question", "prompt"],
+  ])("keeps the head of a known diagnostic shape: %s", (text, head) => {
+    expect(scrubServerErrorText(text)).toBe(head)
+  })
 
   it.each([
-    ["prompt: confidential question", "prompt"],
-    ["Unexpected input: tell me the secret plan", "Unexpected input"],
-    [
-      "Unexpected token 'h', \"here is my secret plan\" is not valid JSON",
-      "Unexpected token {redacted}, {redacted} is not valid JSON",
-    ],
-    [
-      "Parse error on line 2:\nthe secret plan diagram",
-      "Parse error on line 2",
-    ],
-    ["Error in renderToReadableStream:", "Error in renderToReadableStream"],
-  ])(
-    "keeps only the head of the text, with no quoted part: %s",
-    (text, head) => {
-      expect(scrubServerErrorText(text)).toBe(head)
-    },
-  )
-
-  it("cuts a long head", () => {
-    expect(scrubServerErrorText("a".repeat(5_000))).toHaveLength(120)
+    "Invalid prompt confidential question",
+    "confidential question",
+    "Unexpected token 'h', \"here is my secret plan\" is not valid JSON",
+    "Parse error on line 2:\nthe secret plan diagram",
+    "request to https://api.test/v1/x?token=abc failed for jane@example.test",
+    "better-auth.session_token=s3cr3t",
+    "sent Bearer eyJhbGciOi.payload.sig",
+    "a".repeat(5_000),
+  ])("replaces any other text: %s", (text) => {
+    expect(scrubServerErrorText(text)).toBe("{redacted}")
   })
 })
 
@@ -246,9 +229,9 @@ describe("startServerTelemetry", () => {
     // A handler that rejects.
     await expect(
       traceServerRequest(new Request("http://ui.test/rejected"), async () => {
-        throw new RangeError("out of range: s3cr3t")
+        throw new RangeError("ECONNRESET: s3cr3t")
       }),
-    ).rejects.toThrow("out of range")
+    ).rejects.toThrow("ECONNRESET")
 
     await traceServerRequest(
       new Request("http://ui.test/.otel/v1/traces", { method: "POST" }),
@@ -291,8 +274,8 @@ describe("startServerTelemetry", () => {
     })
 
     for (const [path, type, message] of [
-      ["/streamed", "TypeError", "stream broke"],
-      ["/rejected", "RangeError", "out of range"],
+      ["/streamed", "TypeError", "{redacted}"],
+      ["/rejected", "RangeError", "ECONNRESET"],
     ] as const) {
       const span = spanAt(path)
       expect(span.status.code).toBe(2)
