@@ -32,18 +32,22 @@ import {
   type SandboxInstanceRecord,
 } from "../../models/workspace-sandboxes.js"
 import { sweepConversationSandboxes } from "./conversation-sandbox-lifecycle.js"
+import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 
 const API = "https://vercel.com/api/v2/sandboxes"
 const TOKEN = "test-vercel-token"
 
 /**
  * A Vercel project that holds sandboxes and their snapshots, and applies
- * deletes. `failDelete` answers 503 to the delete of those sandboxes.
+ * deletes. `failDelete` answers 503 to the delete of those sandboxes, and
+ * `failList` answers 404 to the snapshot list of those sandboxes. Every
+ * other request (for example a command in a sandbox) gets a 503.
  */
 function vercelProject(input: {
   sandboxes: string[]
   snapshots: Record<string, string>
-  failDelete: Set<string>
+  failDelete?: Set<string>
+  failList?: Set<string>
 }) {
   const sandboxes = new Set(input.sandboxes)
   // Snapshot id -> the sandbox it was taken from.
@@ -69,6 +73,8 @@ function vercelProject(input: {
   const handlers = [
     http.get(`${API}/snapshots`, ({ request }) => {
       const name = new URL(request.url).searchParams.get("name")
+      if (name && input.failList?.has(name))
+        return HttpResponse.json({}, { status: 404 })
       return HttpResponse.json({
         snapshots: [...snapshots]
           .filter(([, owner]) => owner === name)
@@ -109,7 +115,7 @@ function vercelProject(input: {
     }),
     http.delete(`${API}/:name`, ({ params }) => {
       const name = String(params.name)
-      if (input.failDelete.has(name))
+      if (input.failDelete?.has(name))
         return HttpResponse.json(
           { error: { message: `unavailable ${name}` } },
           { status: 503 },
@@ -117,6 +123,7 @@ function vercelProject(input: {
       if (!sandboxes.delete(name)) return HttpResponse.json({}, { status: 404 })
       return HttpResponse.json({ sandbox: sandboxBody(name) })
     }),
+    http.all(`${API}/*`, () => HttpResponse.json({}, { status: 503 })),
   ]
   return { handlers, sandboxes, snapshots }
 }
@@ -236,11 +243,14 @@ describe("the sweep retires Vercel sandboxes (Postgres)", () => {
       failDelete: new Set([name("chat-fail")]),
     })
     server.use(...project.handlers)
+    // Past its retention and with no conversation: the regular sweep would
+    // delete it too, and it must not.
     const failing = row({
       kind: "chat",
       provider: "vercel",
-      conversationId,
+      conversationId: generateObjectId("conv"),
       providerSandboxId: name("chat-fail"),
+      lastHeartbeatAt: new Date(Date.now() - 40 * 24 * 60 * 60_000),
     })
     const docker = row({
       kind: "base",
@@ -295,7 +305,10 @@ describe("the sweep retires Vercel sandboxes (Postgres)", () => {
     const first = await sweepConversationSandboxes(orgId, now)
     expect([...project.sandboxes]).toEqual([name("chat-fail")])
     expect(project.snapshots.size).toBe(0)
-    expect((await vercelRows()).map((item) => item.id)).toEqual([failing.id])
+    // The regular sweep skipped it: it is not marked `destroy_failed`.
+    expect((await vercelRows()).map((item) => [item.id, item.state])).toEqual([
+      [failing.id, "stopped"],
+    ])
     // The failed row brings the next sweep to the retry, not to the docker
     // base's retention end.
     expect(first.nextSweepAt?.getTime()).toBeLessThanOrEqual(
@@ -322,8 +335,8 @@ describe("the sweep retires Vercel sandboxes (Postgres)", () => {
     // id, no token, and no error text.
     expect(events.map((event) => event.message)).toEqual([
       "Retiring a Vercel sandbox failed (kind chat)",
-      "Retired 6 Vercel sandboxes, 1 failed",
-      "Retired 1 Vercel sandboxes, 0 failed",
+      "Retired 6 Vercel sandboxes; 0 kept, 1 failed",
+      "Retired 1 Vercel sandboxes; 0 kept, 0 failed",
     ])
     expect(events[0]).toMatchObject({ kind: "chat", status: 503 })
     for (const event of events) {
@@ -331,6 +344,88 @@ describe("the sweep retires Vercel sandboxes (Postgres)", () => {
       for (const secret of [orgId, workspaceId, TOKEN, "unavailable", "snap_"])
         expect(text).not.toContain(secret)
     }
+  })
+
+  it("keeps a row when the snapshot list of its sandbox fails, also with a 404", async () => {
+    vi.stubEnv("SANDBOX_PROVIDER", "agentcore")
+    const project = vercelProject({
+      sandboxes: [name("listed")],
+      snapshots: { [`snap_listed_${orgId}`]: name("listed") },
+      failList: new Set([name("listed")]),
+    })
+    server.use(...project.handlers)
+    const kept = row({
+      kind: "job",
+      provider: "vercel",
+      providerSandboxId: name("listed"),
+    })
+    await persistSandboxInstance(kept)
+    const result = await sweepConversationSandboxes(orgId, new Date())
+    expect((await vercelRows()).map((item) => item.id)).toEqual([kept.id])
+    expect(project.snapshots.size).toBe(1)
+    expect(result.nextSweepAt).not.toBeNull()
+  })
+
+  it("pushes a conversation sandbox first: it stays while the push must retry, until its retention ends", async () => {
+    vi.stubEnv("SANDBOX_PROVIDER", "agentcore")
+    const project = vercelProject({
+      sandboxes: [name("recent"), name("old")],
+      snapshots: {},
+    })
+    server.use(...project.handlers)
+    const revision = {
+      workspaceId,
+      remote: { url: "https://example.test/context.git", connectionId: null },
+      sha: "a".repeat(40),
+      generation: 1,
+      defaultBranch: "main",
+      access: "read" as const,
+    }
+    const recent = row({
+      kind: "chat",
+      provider: "vercel",
+      conversationId,
+      providerSandboxId: name("recent"),
+      revision,
+    })
+    const old = row({
+      kind: "chat",
+      provider: "vercel",
+      conversationId,
+      providerSandboxId: name("old"),
+      revision,
+      lastHeartbeatAt: new Date(Date.now() - 40 * 24 * 60 * 60_000),
+    })
+    for (const record of [recent, old]) await persistSandboxInstance(record)
+    // The push starts the sandbox and runs Git in it; Vercel fails the
+    // command, so the push must retry.
+    const result = await sweepConversationSandboxes(orgId, new Date())
+    expect((await vercelRows()).map((item) => item.id)).toEqual([recent.id])
+    expect([...project.sandboxes]).toEqual([name("recent")])
+    expect(result.nextSweepAt?.getTime()).toBeLessThanOrEqual(
+      Date.now() + 5 * 60_000,
+    )
+  })
+
+  it("keeps a conversation sandbox while a turn holds the conversation", async () => {
+    vi.stubEnv("SANDBOX_PROVIDER", "agentcore")
+    const project = vercelProject({ sandboxes: [name("busy")], snapshots: {} })
+    server.use(...project.handlers)
+    const busy = row({
+      kind: "chat",
+      provider: "vercel",
+      conversationId,
+      providerSandboxId: name("busy"),
+    })
+    await persistSandboxInstance(busy)
+    await postgresSandboxLocks(orgId).withLock(
+      `chat-thread:${conversationId}`,
+      () => sweepConversationSandboxes(orgId, new Date()),
+    )
+    expect((await vercelRows()).map((item) => item.id)).toEqual([busy.id])
+    expect([...project.sandboxes]).toEqual([name("busy")])
+    await sweepConversationSandboxes(orgId, new Date())
+    expect(await vercelRows()).toEqual([])
   })
 
   it("does nothing while the deployment runs Vercel sandboxes (a rollback)", async () => {
