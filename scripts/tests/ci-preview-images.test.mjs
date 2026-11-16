@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { execFileSync } from "node:child_process"
+import { execFileSync, spawnSync } from "node:child_process"
 import {
   copyFileSync,
   mkdirSync,
@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url"
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 
-import { images, writePlan } from "../ci/deploy-images.mjs"
+import { images } from "../ci/deploy-images.mjs"
 import { planPreviewImages } from "../ci/preview-images.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -198,31 +198,27 @@ test("no workflow builds or pushes a preview image", () => {
   }
 })
 
-// The plan as the factory CLI reads it: stdout, without $GITHUB_OUTPUT. The
-// table goes to stderr then.
-function printedPlan(t, result, names) {
-  const log = t.mock.method(console, "log", () => {})
-  const error = t.mock.method(console, "error", () => {})
+// The plan as the factory CLI reads it: the stdout of a node process without
+// $GITHUB_OUTPUT. The table goes to its stderr then.
+function printedPlan(result, names) {
   const env = { ...process.env }
-  delete process.env.GITHUB_OUTPUT
-  delete process.env.GITHUB_STEP_SUMMARY
-  try {
-    writePlan(
-      result,
-      images.filter(({ image }) => names.includes(image)),
-    )
-  } finally {
-    Object.assign(process.env, env)
-    log.mock.restore()
-    error.mock.restore()
-  }
-  const text = (mock) => mock.mock.calls.map((c) => c.arguments[0]).join("\n")
-  return { stdout: text(log), stderr: text(error) }
+  delete env.GITHUB_OUTPUT
+  delete env.GITHUB_STEP_SUMMARY
+  const script = `
+    import { images, writePlan } from ${JSON.stringify(new URL("../ci/deploy-images.mjs", import.meta.url).href)}
+    const names = ${JSON.stringify(names)}
+    writePlan(${JSON.stringify(result)}, images.filter(({ image }) => names.includes(image)))
+  `
+  const run = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    env,
+    encoding: "utf8",
+  })
+  assert.equal(run.status, 0, run.stderr)
+  return { stdout: run.stdout.trimEnd(), stderr: run.stderr.trimEnd() }
 }
 
-test("the plan goes to stdout, and a changed path with a newline cannot forge a line of it", (t) => {
+test("the plan goes to stdout, and a changed path with a newline cannot forge a line of it", () => {
   const { stdout: printed, stderr: table } = printedPlan(
-    t,
     {
       build: [{ image: "ui" }],
       reuse: { backend: digestOf("backend") },
@@ -239,7 +235,6 @@ test("the plan goes to stdout, and a changed path with a newline cannot forge a 
   )
   for (const separator of ["\n", "\r", "\u0085", "\u2028", "\u2029"]) {
     const { stdout, stderr } = printedPlan(
-      t,
       {
         build: [{ image: "ui" }],
         reuse: {},
