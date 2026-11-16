@@ -1,9 +1,13 @@
+import { defineSandbox } from "@tanstack/ai-sandbox"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { startContainerAgentCore } from "../../test/agentcore-fake.js"
 import { agentCoreRootExec } from "../ingestion/ingest-root.js"
 import { agentCoreSandboxProvider } from "./agentcore-sandbox-provider.js"
 import { workspaceChatDockerImage } from "./chat-runtime.js"
+import { parseSandboxLifecycleMarks } from "./sandbox-lifecycle-timing.js"
+import { withSessionOnlyEnv } from "./sandbox-provider.js"
+import { conversationSandboxWorkspace } from "./tanstack-workspace-chat.js"
 
 /*
  * The AgentCore provider against the chat sandbox image in Docker, with the
@@ -102,4 +106,62 @@ describe("the AgentCore provider in the chat sandbox image", () => {
     expect(left.stdout).toBe("checked\n")
     await provider.destroy({ id: handle.id })
   })
+
+  it("sets up a new chat sandbox with one command for its setup steps, and no lock-file probes", async () => {
+    // Each AgentCore command is a round trip of 150-800 ms (production).
+    const source = await provider.create({})
+    const made = await source.process.exec(
+      `rm -rf /tmp/src && git init -q -b main /tmp/src && cd /tmp/src && echo hi > README.md && git add . && git -c user.name=t -c user.email=t@t commit -qm init && git rev-parse HEAD`,
+    )
+    expect(made.exitCode).toBe(0)
+    const sha = made.stdout.trim()
+    const sandbox = defineSandbox({
+      id: "chat",
+      // As production: the setup env goes on the session, not the create.
+      provider: withSessionOnlyEnv(provider),
+      workspace: conversationSandboxWorkspace({
+        isolation: "agentcore",
+        input: {
+          conversationId: "conv_setup",
+          orgId: "org_setup",
+          workspaceId: "ws_setup",
+          prompt: "prepare",
+          desiredSha: sha,
+          defaultBranch: "main",
+          writeStatus: "read_only",
+        },
+        cloneToken: "",
+        desiredUrl: "/tmp/src",
+        proxyUrl: "http://127.0.0.1:9/model",
+        modelBase: "http://127.0.0.1:9/v1",
+      }),
+    })
+    const before = fake.commandTexts.length
+    const handle = await sandbox.ensure({ threadId: "conv_setup", runId: "r1" })
+    const commands = fake.commandTexts.slice(before)
+    const checkout = await handle.process.exec(
+      "git rev-parse HEAD; git branch --show-current; cat /tmp/ctxpipe-sandbox-lifecycle.jsonl",
+    )
+    const [head, branch, ...marks] = checkout.stdout.trim().split("\n")
+    expect([head, branch]).toEqual([sha, "main"])
+    // Every setup step ran, in order.
+    expect(
+      parseSandboxLifecycleMarks(marks.join("\n")).map((mark) => mark.phase),
+    ).toEqual([
+      "setup-opencode",
+      "setup-git-exclude",
+      "setup-checkout",
+      "setup-opencode-json",
+      "setup-size-cap",
+    ])
+    expect(
+      commands.filter((text) =>
+        /pnpm-lock|yarn\.lock|bun\.lockb|package-lock/.test(text),
+      ),
+    ).toEqual([])
+    // The session start, the clone and its checks, one setup command.
+    expect(commands.length).toBeLessThanOrEqual(6)
+    await provider.destroy({ id: handle.id })
+    await provider.destroy({ id: source.id })
+  }, 120_000)
 })
