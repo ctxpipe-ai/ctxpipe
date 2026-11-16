@@ -911,6 +911,44 @@ test("the PR comment shows the selection, the hits, the LLM decisions and the mi
     assert.ok(text.includes(part), part)
 })
 
+test("the PR comment counts by family the selected checks that no store had a pass for", () => {
+  const text = (decision) => gateText(decision, undefined, { comment: true })
+  const { decision } = decide()
+  // ui and contract have a key and no stored pass; the image build has no
+  // key, so it is not a miss.
+  assert.deepEqual(decision.noStoredPass, { vitest: 2 })
+  assert.ok(
+    text(decision).includes(
+      "**No stored pass:** vitest 2. The author's `factory check` did not store a pass with the key of CI for these selected checks with a cache key, so CI ran them.",
+    ),
+    text(decision),
+  )
+  // A pass of an earlier run of this PR is a stored pass.
+  const prPass = (id, n) => ({
+    id,
+    key: key(n),
+    run: "41",
+    createdAt: "2026-10-28T09:00:00Z",
+  })
+  const one = decide({ store: store([prPass(ui, 5)]) }).decision
+  assert.deepEqual(one.noStoredPass, { vitest: 1 })
+  const none = decide({ store: store([prPass(ui, 5), prPass(contract, 8)]) })
+    .decision
+  assert.deepEqual(none.noStoredPass, {})
+  assert.ok(!text(none).includes("No stored pass"), text(none))
+  // Without the shared store, the author's run is not the cause.
+  const offline = {
+    ...decision,
+    selection: { ...decision.selection, shared: false },
+  }
+  assert.ok(
+    text(offline).includes(
+      "**No stored pass:** vitest 2. The shared result store did not answer, so CI ran these selected checks with a cache key.",
+    ),
+    text(offline),
+  )
+})
+
 test("the verdict line names each failed check and always-run job in full", () => {
   const { decision } = decide()
   const failed = {

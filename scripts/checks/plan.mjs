@@ -139,6 +139,12 @@ export function combine(select, llm, llmCause) {
   }
 }
 
+// A miss whose key has a stored pass that this run does not accept: a check
+// of a job-scoped ci.yaml change (withJobChecks) or a quarantined key
+// (withStoreHits).
+export const storedMiss = (miss) =>
+  ["jobs", "quarantined"].includes(miss.mode)
+
 // The PR store: the passes of the earlier runs of this PR (the `pr` class).
 // The merge gate job writes it to the GitHub Actions cache of the PR, and the
 // plan job reads it. Only the runs of this PR can write that cache scope.
@@ -452,7 +458,7 @@ export function plan({ config, inputs, needs, store }) {
   const stored = new Set([
     ...(selection.cache?.hits ?? []).map((hit) => hit.id),
     ...(selection.cache?.misses ?? [])
-      .filter((miss) => ["jobs", "quarantined"].includes(miss.mode))
+      .filter(storedMiss)
       .map((miss) => miss.id),
   ])
   const rerun = new Set(ran.filter((id) => stored.has(id)))
