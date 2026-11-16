@@ -1,6 +1,8 @@
 # ADR-039: Production image deploys stay on one Railway environment
 
-**Status:** Accepted | **Date:** 2026-09-28 | **Tags:** infra, railway, terraform
+**Status:** Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) | **Date:** 2026-09-28 | **Tags:** infra, railway, terraform
+
+> **Superseded (AWS cutover).** Production images deploy to AWS by digest through the factory repo ([ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md), decision 5). CTX-1220 removes the Railway environment and the Railway Terraform provider together with the Railway production deploy.
 
 ## Context
 

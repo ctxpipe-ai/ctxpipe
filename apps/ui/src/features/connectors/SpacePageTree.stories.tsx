@@ -27,6 +27,7 @@ const meta = {
       pattern: "orgIndex",
       orgSlug,
     } satisfies StoryRouteParams,
+    review: { kind: "component" },
   },
 } satisfies Meta<typeof SpacePageTree>
 
@@ -49,6 +50,10 @@ function SpacePageTreeHarness() {
 export const List: Story = {
   render: () => <SpacePageTreeHarness />,
   parameters: {
+    review: {
+      purpose:
+        "Tree where the user picks the Confluence spaces and pages to import: two spaces loaded, none selected yet.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -83,6 +88,10 @@ export const List: Story = {
 export const Loading: Story = {
   render: () => <SpacePageTreeHarness />,
   parameters: {
+    review: {
+      purpose:
+        "Tree where the user picks the Confluence spaces and pages to import: the space list is still loading.",
+    },
     msw: {
       handlers: {
         page: [
@@ -114,6 +123,10 @@ export const ErrorState: Story = {
   name: "Error",
   render: () => <SpacePageTreeHarness />,
   parameters: {
+    review: {
+      purpose:
+        "Tree where the user picks the Confluence spaces and pages to import: the space list request failed.",
+    },
     msw: {
       handlers: {
         page: [

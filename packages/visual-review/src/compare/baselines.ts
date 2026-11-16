@@ -11,6 +11,7 @@ import { join, posix } from "node:path"
 
 import { decode, encode } from "@blazediff/codec-png-native"
 
+import type { StoryKind } from "../story-tags.ts"
 import { diff } from "./diff.ts"
 import { writeStoryImages } from "./images.ts"
 import {
@@ -34,6 +35,12 @@ export type IndexStory = {
   tags?: string[]
   /** The screenshot options of the story (`parameters.visual`). */
   visual?: VisualOptions
+  /**
+   * What the critic knows about the story (`parameters.review`, read by
+   * `storiesOf` in story-tags.ts): its Storybook name, its kind and its
+   * purpose. A story with no kind is a `component` in the manifest.
+   */
+  review?: { name: string; kind: StoryKind | null; purpose: string | null }
 }
 
 /**
@@ -47,8 +54,7 @@ export type VisualOptions = {
   viewports?: Viewport[]
   /** The names of the named snapshots of the play. */
   snapshots?: string[]
-  /** The capture applies these; the compare does not read them. */
-  fullPage?: boolean
+  /** The capture applies it; the compare does not read it. */
   masks?: string[]
   /** The layout rules that the story accepts, each with its reason. */
   allow?: Partial<Record<Exclude<LayoutProblem["rule"], "error">, string>>
@@ -78,7 +84,6 @@ export type Capture = (
 type Shot = {
   story: IndexStory
   storyFile: string
-  scope: "page" | "component"
   viewport: Viewport
   snapshot: string | null
   maxDiffPixels: number
@@ -199,7 +204,6 @@ export async function runVisual({
       [null, ...(story.visual?.snapshots ?? [])].map((snapshot) => ({
         story,
         storyFile,
-        scope: page ? "page" : "component",
         viewport,
         snapshot,
         maxDiffPixels: story.visual?.maxDiffPixels ?? maxDiffPixels,
@@ -393,7 +397,9 @@ async function compareShot(
     id: shot.story.id,
     title: shot.story.title,
     componentFile: shot.storyFile,
-    scope: shot.scope,
+    scope: shot.story.review?.kind ?? "component",
+    ...(shot.story.review && { name: shot.story.review.name }),
+    ...(shot.story.review?.purpose && { purpose: shot.story.review.purpose }),
     viewport: shot.viewport,
     snapshot: shot.snapshot,
     baseline: shot.baseline,

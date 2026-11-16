@@ -21,6 +21,7 @@ const meta = {
       pattern: "flat",
       path: "/.auth/account/connected-apps",
     } satisfies StoryRouteParams,
+    review: { kind: "component" },
   },
 } satisfies Meta<typeof ConnectedAppsCard>
 
@@ -68,6 +69,10 @@ export const SkeletonRowMatchesLoadedRow: Story = {
           ),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Connected apps card, where a user sees and revokes the clients that can reach ctxpipe: the list loaded one app after its skeleton.",
     },
   },
   play: async ({ canvasElement }) => {

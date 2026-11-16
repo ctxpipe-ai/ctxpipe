@@ -60,6 +60,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -83,6 +84,10 @@ type Story = StoryObj<typeof meta>
 
 export const Loading: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Choose Workspaces step of a connector setup, where the user adds a source to Workspaces: the Workspace list still loads.",
+    },
     msw: {
       handlers: {
         page: [
@@ -101,6 +106,12 @@ export const Loading: Story = {
 }
 
 export const ShowsHint: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Choose Workspaces step of a connector setup, where the user adds a source to Workspaces: the Workspace list loaded, nothing is picked yet, and the hint is visible.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("checkbox", { name: docsWorkspace.displayName })
@@ -111,6 +122,10 @@ export const ShowsHint: Story = {
 
 export const NoWorkspaces: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Choose Workspaces step of a connector setup, where the user adds a source to Workspaces: the org has no Workspaces yet, so the step offers to create one.",
+    },
     msw: { handlers: { page: [workspaceListHandler([])] } },
   },
   play: async ({ canvasElement }) => {
@@ -126,6 +141,12 @@ export const NoWorkspaces: Story = {
 }
 
 export const SingleWorkspace: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Choose Workspaces step of a connector setup, where the user adds a source to Workspaces: the user picks one Workspace and one Linear team, so the step is ready.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -142,6 +163,10 @@ export const SingleWorkspace: Story = {
 
 export const ChooseWorkspacesMulti: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Choose Workspaces step of a connector setup, where the user adds a source to Workspaces: two Workspaces are picked, with a choice between one Linear scope for both and a scope for each.",
+    },
     intent:
       "Catches a multi-workspace connector step that mixes the shared and per-workspace scope. Same scope shows one picker, different scope shows one for each workspace. Not for connector sign-in.",
   },
@@ -191,6 +216,10 @@ const docsAndHandbook = workspaceListHandler([docsWorkspace, readOnlyWorkspace])
  */
 export const OneWorkspaceNeedsUpgrade: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Choose Workspaces step of a connector setup, where the user adds a source to Workspaces: one Workspace needs the format upgrade first, so its row is off and links to the upgrade.",
+    },
     msw: {
       handlers: {
         pendingUpgrades: [
@@ -235,6 +264,10 @@ export const OneWorkspaceNeedsUpgrade: Story = {
 /** Each Workspace needs the upgrade: the step says so, and no row can be chosen. */
 export const AllWorkspacesNeedUpgrade: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Choose Workspaces step of a connector setup, where the user adds a source to Workspaces: each Workspace needs the format upgrade, so no row can be picked and a member must ask an admin.",
+    },
     msw: {
       handlers: {
         pendingUpgrades: [
@@ -272,6 +305,10 @@ export const AllWorkspacesNeedUpgrade: Story = {
  */
 export const BelowFormatWithNoUpgradeRowYet: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Choose Workspaces step of a connector setup, where the user adds a source to Workspaces: one Workspace is below the newest format with no upgrade item yet, so its row is off.",
+    },
     msw: {
       handlers: {
         pendingUpgrades: [
@@ -313,6 +350,10 @@ export const BelowFormatWithNoUpgradeRowYet: Story = {
  */
 export const NoRowsWhileFormatCheckLoads: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Choose Workspaces step of a connector setup, where the user adds a source to Workspaces: the format check still loads, so a skeleton shows and no rows.",
+    },
     msw: {
       handlers: {
         pendingUpgrades: [
@@ -336,6 +377,10 @@ export const NoRowsWhileFormatCheckLoads: Story = {
 /** The read fails: the rows stay off, and the step says why, with Retry. */
 export const FormatCheckFailed: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Choose Workspaces step of a connector setup, where the user adds a source to Workspaces: the format check failed, so the rows are off and an error with Retry shows.",
+    },
     msw: {
       handlers: {
         pendingUpgrades: [

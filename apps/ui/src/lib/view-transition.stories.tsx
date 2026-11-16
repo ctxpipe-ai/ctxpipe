@@ -48,6 +48,13 @@ type Story = StoryObj<typeof meta>
  * update still happens.
  */
 export const SkippedTransitionRejectsNothingUnhandled: Story = {
+  parameters: {
+    review: {
+      kind: "component",
+      purpose:
+        "Test fixture that proves a skipped view transition causes no unhandled error: the user pressed Reveal, and the block shows.",
+    },
+  },
   play: async ({ canvasElement }) => {
     expect(typeof document.startViewTransition).toBe("function")
     const unhandled: string[] = []

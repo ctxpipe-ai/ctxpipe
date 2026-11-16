@@ -55,6 +55,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgWorkspace",
@@ -94,6 +95,10 @@ function threadArgs(
 export const ThreadShort: Story = {
   args: threadArgs(docsConversationDetail.messages),
   parameters: {
+    review: {
+      purpose:
+        "Chat session of a Workspace, where a member asks about the code: a short thread with one question and one answer.",
+    },
     storyRoute: threadRoute,
   },
 }
@@ -101,6 +106,10 @@ export const ThreadShort: Story = {
 export const ThreadLong: Story = {
   args: threadArgs(longThreadMessages),
   parameters: {
+    review: {
+      purpose:
+        "Chat session of a Workspace, where a member asks about the code: a long thread with many turns that scrolls to the latest answer.",
+    },
     storyRoute: threadRoute,
   },
 }
@@ -108,6 +117,10 @@ export const ThreadLong: Story = {
 export const MarkdownAnswer: Story = {
   args: threadArgs(markdownAnswerMessages, "Auth"),
   parameters: {
+    review: {
+      purpose:
+        "Chat session of a Workspace, where a member asks about the code: the answer has Markdown headings, lists, and links.",
+    },
     storyRoute: threadRoute,
   },
 }
@@ -115,6 +128,10 @@ export const MarkdownAnswer: Story = {
 export const CodeAnswer: Story = {
   args: threadArgs(codeAnswerMessages, "Session helper"),
   parameters: {
+    review: {
+      purpose:
+        "Chat session of a Workspace, where a member asks about the code: the answer has a TypeScript code block with syntax colors.",
+    },
     storyRoute: threadRoute,
   },
   play: async ({ canvasElement }) => {
@@ -140,6 +157,10 @@ export const CodeAnswer: Story = {
 export const Reasoning: Story = {
   args: threadArgs(reasoningMessages, "Ledger"),
   parameters: {
+    review: {
+      purpose:
+        "Chat session of a Workspace, where a member asks about the code: the answer has a finished reasoning block before the text.",
+    },
     storyRoute: threadRoute,
   },
 }
@@ -147,6 +168,10 @@ export const Reasoning: Story = {
 export const ReasoningStreaming: Story = {
   args: threadArgs(streamingReasoningMessages, "Ledger"),
   parameters: {
+    review: {
+      purpose:
+        "Chat session of a Workspace, where a member asks about the code: the agent still streams its reasoning block.",
+    },
     storyRoute: threadRoute,
   },
 }
@@ -154,6 +179,10 @@ export const ReasoningStreaming: Story = {
 export const ToolUse: Story = {
   args: threadArgs(oneToolMessages, "Login"),
   parameters: {
+    review: {
+      purpose:
+        "Chat session of a Workspace, where a member asks about the code: the answer has one finished tool call.",
+    },
     storyRoute: threadRoute,
   },
 }
@@ -161,6 +190,10 @@ export const ToolUse: Story = {
 export const ToolUseMany: Story = {
   args: threadArgs(manyToolMessages, "Billing"),
   parameters: {
+    review: {
+      purpose:
+        "Chat session of a Workspace, where a member asks about the code: the answer has many finished tool calls.",
+    },
     storyRoute: threadRoute,
   },
 }
@@ -168,6 +201,10 @@ export const ToolUseMany: Story = {
 export const ToolUseStreaming: Story = {
   args: threadArgs(streamingToolMessages, "Repo"),
   parameters: {
+    review: {
+      purpose:
+        "Chat session of a Workspace, where a member asks about the code: a tool call still runs while the answer streams.",
+    },
     storyRoute: threadRoute,
   },
 }
@@ -175,6 +212,10 @@ export const ToolUseStreaming: Story = {
 export const ReasoningAndTools: Story = {
   args: threadArgs(reasoningAndToolsMessages, "Ledger"),
   parameters: {
+    review: {
+      purpose:
+        "Chat session of a Workspace, where a member asks about the code: the answer has reasoning and tool calls, all finished.",
+    },
     storyRoute: threadRoute,
   },
 }
@@ -182,6 +223,10 @@ export const ReasoningAndTools: Story = {
 export const ReasoningAndToolsStreaming: Story = {
   args: threadArgs(streamingReasoningAndToolsMessages, "Ledger"),
   parameters: {
+    review: {
+      purpose:
+        "Chat session of a Workspace, where a member asks about the code: reasoning and tool calls still stream.",
+    },
     storyRoute: threadRoute,
   },
 }
@@ -189,6 +234,10 @@ export const ReasoningAndToolsStreaming: Story = {
 export const SourceLinks: Story = {
   args: threadArgs(sourceLinkMessages, "Payments API"),
   parameters: {
+    review: {
+      purpose:
+        "Chat session of a Workspace, where a member asks about the code: the answer links to source files.",
+    },
     storyRoute: threadRoute,
   },
 }
@@ -199,6 +248,10 @@ export const ReadOnly: Story = {
     workspace: readOnlyWorkspace,
   },
   parameters: {
+    review: {
+      purpose:
+        "Chat session of a Workspace, where a member asks about the code: the Workspace is read-only, so the member cannot send a message.",
+    },
     storyRoute: {
       ...threadRoute,
       workspaceSlug: "handbook",
@@ -211,6 +264,10 @@ export const Waiting: Story = {
   // The socket takes the run and answers nothing.
   beforeEach: () => installAguiWebSocket(() => []).restore,
   parameters: {
+    review: {
+      purpose:
+        "Chat session of a Workspace, where a member asks about the code: the member sent a question and the sandbox is still in setup.",
+    },
     storyRoute: threadRoute,
     msw: {
       handlers: {
@@ -246,6 +303,10 @@ export const Streaming: Story = {
       }),
     ).restore,
   parameters: {
+    review: {
+      purpose:
+        "Chat session of a Workspace, where a member asks about the code: the member sent a question and the answer streams in.",
+    },
     storyRoute: threadRoute,
     msw: {
       handlers: {
@@ -269,6 +330,10 @@ export const Streaming: Story = {
 export const PrepareAtCapacity: Story = {
   args: threadArgs(docsConversationDetail.messages),
   parameters: {
+    review: {
+      purpose:
+        "Chat session of a Workspace, where a member asks about the code: the organization is at its chat limit, so an alert tells the member to try again later.",
+    },
     storyRoute: threadRoute,
     msw: {
       handlers: {
@@ -307,6 +372,10 @@ export const SendError: Story = {
       { type: "RUN_ERROR", runId, message: "The chat sandbox is gone." },
     ]).restore,
   parameters: {
+    review: {
+      purpose:
+        "Chat session of a Workspace, where a member asks about the code: the run failed after a send, and an alert shows the error.",
+    },
     storyRoute: threadRoute,
     msw: {
       handlers: {
@@ -356,6 +425,10 @@ export const StoppedBeforeFirstAnswer: Story = {
     return retrySocket.restore
   },
   parameters: {
+    review: {
+      purpose:
+        "Chat session of a Workspace, where a member asks about the code: the turn stopped before an answer, and Retry got the answer.",
+    },
     storyRoute: threadRoute,
     msw: {
       handlers: {
@@ -473,6 +546,13 @@ async function startTurn(canvasElement: HTMLElement) {
  * and sends no abort frame, so the turn continues on the server.
  */
 export const LeaveDuringTurn: Story = {
+  parameters: {
+    ...runningTurn.parameters,
+    review: {
+      purpose:
+        "Chat session of a Workspace, where a member asks about the code: the member left during a turn, so the chat closed and the turn continues.",
+    },
+  },
   ...runningTurn,
   play: async ({ canvasElement }) => {
     await startTurn(canvasElement)
@@ -495,6 +575,13 @@ export const LeaveDuringTurn: Story = {
 
 /** Stop during a turn sends the abort frame of the turn. */
 export const StopDuringTurn: Story = {
+  parameters: {
+    ...runningTurn.parameters,
+    review: {
+      purpose:
+        "Chat session of a Workspace, where a member asks about the code: the member clicked Stop during a running turn.",
+    },
+  },
   ...runningTurn,
   play: async ({ canvasElement }) => {
     const stop = await startTurn(canvasElement)

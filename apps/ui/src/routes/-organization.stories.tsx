@@ -31,6 +31,7 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
+    review: { kind: "component" },
   },
   args: {
     orgSlug: "acme",
@@ -51,6 +52,11 @@ export const Settings: Story = {
   },
   decorators: orgPageDecorators,
   parameters: {
+    review: {
+      kind: "page",
+      purpose:
+        "Organization settings page with the org shell, where an admin manages the organization: the Settings view is open.",
+    },
     route: "/$orgSlug/organization/$organizationView",
     msw: {
       handlers: {
@@ -72,6 +78,10 @@ export const Settings: Story = {
 
 export const ApiKeysEmpty: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Body of the organization settings page, where an admin manages the org API keys: the org has no API keys yet.",
+    },
     msw: {
       handlers: {
         page: [
@@ -97,6 +107,10 @@ export const ApiKeysEmpty: Story = {
 
 export const ApiKeysPopulated: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Body of the organization settings page, where an admin manages the org API keys: the org has a list of API keys.",
+    },
     msw: {
       handlers: {
         page: [
@@ -111,6 +125,10 @@ export const ApiKeysPopulated: Story = {
 
 export const ApiKeysMemberForbidden: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Body of the organization settings page, where an admin manages the org API keys: the user is a member and may not see the keys.",
+    },
     msw: {
       handlers: {
         page: [
@@ -160,6 +178,10 @@ function expectSharedFrame(canvasElement: HTMLElement) {
 /** Moves between sub-pages with the real sub-menu. The frame stays the same. */
 export const SubPagesKeepOnePosition: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Body of the organization settings page, with a sub-menu for each view: the user moves from Settings to Members to API Keys and the frame stays in place.",
+    },
     storyRoute: {
       pattern: "orgOrganizationView",
       orgSlug: "acme",
@@ -224,6 +246,12 @@ export const SubPagesKeepOnePosition: Story = {
 
 /** The loading state uses the same frame as the loaded sub-pages. */
 export const LoadingKeepsFrame: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Frame of the organization settings page, with the title and the sub-menu: the Members view is still loading and shows a skeleton.",
+    },
+  },
   args: { organizationView: "members" },
   render: (args) => (
     <OrganizationSettingsShell

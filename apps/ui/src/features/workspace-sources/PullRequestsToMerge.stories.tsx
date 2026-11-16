@@ -44,6 +44,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -82,6 +83,10 @@ let scopeMerged = false
  */
 export const RemoveAndScopeChange: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Merge step at the end of a Slack connector setup, which lists the pull requests to merge: one of two pull requests is merged first, then both are merged.",
+    },
     msw: {
       handlers: {
         page: [

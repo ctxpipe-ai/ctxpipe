@@ -38,6 +38,7 @@ const meta = {
       orgSlug: "acme",
       workspaceSlug: "docs",
     } satisfies StoryRouteParams,
+    review: { kind: "component" },
   },
   args: {
     orgSlug: "acme",
@@ -57,6 +58,10 @@ export const ComposeEmpty: Story = {
         page: workspaceShellHandlers(),
       },
     },
+    review: {
+      purpose:
+        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: no conversation is open, so the empty composer for a new conversation shows.",
+    },
   },
 }
 
@@ -74,6 +79,10 @@ export const ConversationLoading: Story = {
         page: [conversationDetailLoadingHandler(), ...workspaceShellHandlers()],
       },
     },
+    review: {
+      purpose:
+        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the conversation detail is still loading.",
+    },
   },
 }
 
@@ -90,6 +99,10 @@ export const ConversationMissing: Story = {
       handlers: {
         page: [conversationDetailHandler(null), ...workspaceShellHandlers()],
       },
+    },
+    review: {
+      purpose:
+        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the conversation does not exist, so a not found heading shows and no composer.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -121,6 +134,10 @@ export const ConversationForeignWorkspace: Story = {
         page: [conversationDetailHandler(null), ...workspaceShellHandlers()],
       },
     },
+    review: {
+      purpose:
+        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the conversation belongs to another Workspace, so a not found heading shows.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -145,6 +162,10 @@ export const ConversationReady: Story = {
       handlers: {
         page: workspaceShellHandlers(),
       },
+    },
+    review: {
+      purpose:
+        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: a stored conversation loaded, with its messages and the follow-up composer.",
     },
   },
 }
@@ -178,6 +199,10 @@ export const RenameConversation: Story = {
           ...workspaceShellHandlers(),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the user renames the conversation in the header title input.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -271,6 +296,10 @@ export const RenameBeatsAutomaticTitle: Story = {
           ...workspaceShellHandlers(),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the user renamed the conversation, and the later automatic title does not replace that name.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -386,6 +415,10 @@ export const SocketCleansUpOnLeave: Story = {
         page: workspaceShellHandlers(),
       },
     },
+    review: {
+      purpose:
+        "Chat panel of a Workspace in a test harness with a leave button: the user left the conversation, and a Left conversation text replaces the chat.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -497,6 +530,10 @@ export const ReloadReconnects: Story = {
       handlers: {
         page: workspaceShellHandlers(),
       },
+    },
+    review: {
+      purpose:
+        "Chat panel of a Workspace in a test harness with a reload button: the conversation reloaded, opened a new socket, and shows the stored messages again.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -654,6 +691,10 @@ export const RapidRouteChanges: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Chat panel of a Workspace in a test harness that switches conversations fast: the last route wins, so the ready conversation shows its follow-up composer.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -774,6 +815,10 @@ export const LateErrorDoesNotClobberSuccess: Story = {
           ...workspaceShellHandlers(),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: a later send failed, the first answer stays, and the error shows as an alert.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -917,6 +962,10 @@ export const FirstTurnStreamsLive: Story = {
         ],
       },
     },
+    review: {
+      purpose:
+        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the first turn streams live with sandbox setup, thinking, a tool call, and the answer.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1031,6 +1080,10 @@ export const FollowUpShowsSandboxSetupFirst: Story = {
     ...FirstTurnStreamsLive.parameters,
     intent:
       "Catches a follow-up turn that shows Thinking before the sandbox is ready. The status line shows Setting up sandbox first, with no other label before it. Not for the first turn.",
+    review: {
+      purpose:
+        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: a follow-up turn shows Setting up sandbox first, then Thinking.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1137,6 +1190,10 @@ export const LogKeepsStreamOrder: Story = {
     ...FirstTurnStreamsLive.parameters,
     intent:
       "Catches an activity log that reorders thoughts and tool calls. Rows follow the stream order, also when a thought comes after a tool call. Not for spacing or the closed log.",
+    review: {
+      purpose:
+        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the activity log lists thoughts and tool calls in stream order, each tool row with its detail.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1184,6 +1241,10 @@ export const FirstTurnFailureRestoresDraft: Story = {
     ...FirstTurnStreamsLive.parameters,
     intent:
       "Catches a failed first turn that loses the user's message. The error shows and the composer holds the message again to send. Not for successful turns.",
+    review: {
+      purpose:
+        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the first turn failed at chat capacity, the error shows, and the composer holds the message again.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1255,6 +1316,10 @@ export const ComposeOpenPreparesSandbox: Story = {
           ...workspaceShellHandlers(),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the new conversation composer is open and the sandbox prepares before the first message.",
     },
   },
   play: async ({ canvasElement }) => {

@@ -44,6 +44,7 @@ const meta = {
   parameters: {
     layout: "fullscreen",
     storyRoute: { pattern: "orgIndex", orgSlug } satisfies StoryRouteParams,
+    review: { kind: "component" },
   },
   args: {},
 } satisfies Meta<typeof Dialog>
@@ -73,6 +74,10 @@ async function visible(element: HTMLElement) {
 
 export const ConnectWithToken: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the user enters a slug and token and moves on to the webhook step.",
+    },
     msw: {
       handlers: {
         page: [
@@ -124,6 +129,10 @@ export const ConnectWithToken: Story = {
 
 export const TokenRefused: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the connect step shows an error because the token lacks a scope.",
+    },
     msw: {
       handlers: {
         page: [
@@ -190,7 +199,13 @@ function webhookHandlers() {
 
 export const SaveWebhookToken: Story = {
   args: { connectionId },
-  parameters: { msw: { handlers: { page: webhookHandlers() } } },
+  parameters: {
+    review: {
+      purpose:
+        "Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the user saves the webhook token and moves on to the Workspaces step.",
+    },
+    msw: { handlers: { page: webhookHandlers() } },
+  },
   play: async ({ canvasElement }) => {
     webhookCalls.length = 0
     const body = within(canvasElement.ownerDocument.body)
@@ -233,6 +248,10 @@ export const SaveWebhookToken: Story = {
 export const ReplaceWebhookToken: Story = {
   args: { connectionId, replaceWebhook: true },
   parameters: {
+    review: {
+      purpose:
+        "Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the webhook step opens with an empty field to replace the saved token.",
+    },
     msw: {
       handlers: {
         page: [
@@ -258,6 +277,10 @@ export const AddToWorkspaces: Story = {
   name: "Add Buildkite to Workspaces",
   args: { connectionId },
   parameters: {
+    review: {
+      purpose:
+        "Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the user adds a pipeline to a Workspace and reaches the merge step.",
+    },
     msw: {
       handlers: {
         page: [
@@ -313,6 +336,10 @@ export const AddToWorkspaces: Story = {
 export const Reconnect: Story = {
   args: { connectionId },
   parameters: {
+    review: {
+      purpose:
+        "Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the saved token was revoked and the user enters a new token.",
+    },
     msw: {
       handlers: {
         page: [

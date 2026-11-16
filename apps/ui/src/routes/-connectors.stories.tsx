@@ -31,6 +31,7 @@ const meta = {
   decorators: orgPageDecorators,
   parameters: {
     layout: "fullscreen",
+    review: { kind: "page" },
     route: "/$orgSlug/connectors",
   },
 } satisfies Meta
@@ -42,6 +43,10 @@ type Story = StoryObj<typeof meta>
 export const Empty: Story = {
   render: () => <ConnectorsPageContent orgSlug={orgSlug} />,
   parameters: {
+    review: {
+      purpose:
+        "Connectors page, where an admin adds and manages the sources of the org: the org has no connections yet.",
+    },
     storyRoute: {
       pattern: "orgConnectors",
       orgSlug,
@@ -77,6 +82,10 @@ export const Loading: Story = {
     expect(canvas.getByText("Loading connectors")).toBeInTheDocument()
   },
   parameters: {
+    review: {
+      purpose:
+        "Connectors page, where an admin adds and manages the sources of the org: the connection list is still loading.",
+    },
     storyRoute: {
       pattern: "orgConnectors",
       orgSlug,
@@ -390,19 +399,25 @@ const pageRender = () => <ConnectorsPageContent orgSlug={orgSlug} />
 
 export const Full: Story = {
   render: pageRender,
-  parameters: pageHandlers([
-    connectorsListHandler(),
-    atlassianStatusHandler(atlassianStatusComplete),
-    orgAtlassianOauthHandler,
-    notionStatusHandler(notionStatusComplete),
-    githubInstallationHandler(githubInstallationComplete),
-    linearStatusHandler(linearStatusComplete),
-    slackStatusHandler(slackStatusComplete),
-    pagerdutyStatusHandler(pagerdutyStatusComplete),
-    // An expanded card reads "Used in" and the Workspace list.
-    connectionUsageHandler([]),
-    workspaceListHandler([]),
-  ]),
+  parameters: {
+    ...pageHandlers([
+      connectorsListHandler(),
+      atlassianStatusHandler(atlassianStatusComplete),
+      orgAtlassianOauthHandler,
+      notionStatusHandler(notionStatusComplete),
+      githubInstallationHandler(githubInstallationComplete),
+      linearStatusHandler(linearStatusComplete),
+      slackStatusHandler(slackStatusComplete),
+      pagerdutyStatusHandler(pagerdutyStatusComplete),
+      // An expanded card reads "Used in" and the Workspace list.
+      connectionUsageHandler([]),
+      workspaceListHandler([]),
+    ]),
+    review: {
+      purpose:
+        "Connectors page, where an admin adds and manages the sources of the org: every connector is set up, and the user opens each card to see its account.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("button", { name: "Notion" })
@@ -428,22 +443,28 @@ export const Full: Story = {
  */
 export const NeedsFormatUpgrade: Story = {
   render: pageRender,
-  parameters: pageHandlers(
-    [
-      connectorsListHandler(),
-      atlassianStatusHandler(atlassianStatusComplete),
-      orgAtlassianOauthHandler,
-      notionStatusHandler(notionStatusComplete),
-      githubInstallationHandler(githubInstallationComplete),
-      linearStatusHandler(linearStatusComplete),
-      slackStatusHandler(slackStatusComplete),
-      pagerdutyStatusHandler(pagerdutyStatusComplete),
-      connectionUsageHandler([]),
-      workspaceListHandler([docsWorkspace]),
-      activeMemberRoleHandler("owner"),
-    ],
-    pendingWorkspaceUpgradesHandler({ docs: [upgradeItemFixture()] }),
-  ),
+  parameters: {
+    ...pageHandlers(
+      [
+        connectorsListHandler(),
+        atlassianStatusHandler(atlassianStatusComplete),
+        orgAtlassianOauthHandler,
+        notionStatusHandler(notionStatusComplete),
+        githubInstallationHandler(githubInstallationComplete),
+        linearStatusHandler(linearStatusComplete),
+        slackStatusHandler(slackStatusComplete),
+        pagerdutyStatusHandler(pagerdutyStatusComplete),
+        connectionUsageHandler([]),
+        workspaceListHandler([docsWorkspace]),
+        activeMemberRoleHandler("owner"),
+      ],
+      pendingWorkspaceUpgradesHandler({ docs: [upgradeItemFixture()] }),
+    ),
+    review: {
+      purpose:
+        "Connectors page, where an admin adds and manages the sources of the org: each Workspace needs a format upgrade, so the page links to the upgrade and turns off Add connection.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Upgrade a Workspace before you add a source")
@@ -462,24 +483,30 @@ export const NeedsFormatUpgrade: Story = {
  */
 export const NeedsFormatUpgradeNoRowYet: Story = {
   render: pageRender,
-  parameters: pageHandlers(
-    [
-      connectorsListHandler(),
-      atlassianStatusHandler(atlassianStatusComplete),
-      orgAtlassianOauthHandler,
-      notionStatusHandler(notionStatusComplete),
-      githubInstallationHandler(githubInstallationComplete),
-      linearStatusHandler(linearStatusComplete),
-      slackStatusHandler(slackStatusComplete),
-      pagerdutyStatusHandler(pagerdutyStatusComplete),
-      connectionUsageHandler([]),
-      workspaceListHandler([docsWorkspace]),
-      activeMemberRoleHandler("owner"),
-    ],
-    pendingWorkspaceUpgradesHandler({}, undefined, {
-      formats: { docs: 0 },
-    }),
-  ),
+  parameters: {
+    ...pageHandlers(
+      [
+        connectorsListHandler(),
+        atlassianStatusHandler(atlassianStatusComplete),
+        orgAtlassianOauthHandler,
+        notionStatusHandler(notionStatusComplete),
+        githubInstallationHandler(githubInstallationComplete),
+        linearStatusHandler(linearStatusComplete),
+        slackStatusHandler(slackStatusComplete),
+        pagerdutyStatusHandler(pagerdutyStatusComplete),
+        connectionUsageHandler([]),
+        workspaceListHandler([docsWorkspace]),
+        activeMemberRoleHandler("owner"),
+      ],
+      pendingWorkspaceUpgradesHandler({}, undefined, {
+        formats: { docs: 0 },
+      }),
+    ),
+    review: {
+      purpose:
+        "Connectors page, where an admin adds and manages the sources of the org: the Workspace is below the newest format and has no upgrade row yet, so Add connection is off.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Upgrade a Workspace before you add a source")
@@ -492,18 +519,24 @@ export const NeedsFormatUpgradeNoRowYet: Story = {
 /** With no connection yet, the empty state offers no start either. */
 export const NeedsFormatUpgradeNoConnections: Story = {
   render: pageRender,
-  parameters: pageHandlers(
-    [
-      http.get(
-        ({ request }) =>
-          new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
-        () => HttpResponse.json({ items: [] }),
-      ),
-      workspaceListHandler([docsWorkspace]),
-      activeMemberRoleHandler("member"),
-    ],
-    pendingWorkspaceUpgradesHandler({ docs: [upgradeItemFixture()] }),
-  ),
+  parameters: {
+    ...pageHandlers(
+      [
+        http.get(
+          ({ request }) =>
+            new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
+          () => HttpResponse.json({ items: [] }),
+        ),
+        workspaceListHandler([docsWorkspace]),
+        activeMemberRoleHandler("member"),
+      ],
+      pendingWorkspaceUpgradesHandler({ docs: [upgradeItemFixture()] }),
+    ),
+    review: {
+      purpose:
+        "Connectors page, where an admin adds and manages the sources of the org: no connections and a Workspace that needs an upgrade, so a member sees Ask an admin and no start.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Upgrade a Workspace before you add a source")
@@ -569,6 +602,10 @@ export const InProgress: Story = {
         pendingConfigPullUrl: "https://github.com/acme/ingest/pull/43",
       }),
     ]),
+    review: {
+      purpose:
+        "Connectors page, where an admin adds and manages the sources of the org: several connectors have an unfinished setup or wait for a pull request merge.",
+    },
   },
 }
 
@@ -603,21 +640,31 @@ export const MixedHealth: Story = {
         setupPhase: "sync_failed",
       }),
     ]),
+    review: {
+      purpose:
+        "Connectors page, where an admin adds and manages the sources of the org: some connections are healthy, some failed to sync or to save the config.",
+    },
   },
 }
 
 export const CouldntLoad: Story = {
   render: pageRender,
-  parameters: pageHandlers([
-    connectorsListHandler(),
-    orgAtlassianOauthHandler,
-    statusFailed("/api/v1/github/installation", githubId),
-    statusFailed("/api/v1/connectors/atlassian/status", forgeId),
-    statusFailed("/api/v1/connectors/linear/status", linearId),
-    statusFailed("/api/v1/connectors/notion/status", notionId),
-    statusFailed("/api/v1/connectors/slack/status", slackId),
-    statusFailed("/api/v1/connectors/pagerduty/status", pagerdutyId),
-  ]),
+  parameters: {
+    ...pageHandlers([
+      connectorsListHandler(),
+      orgAtlassianOauthHandler,
+      statusFailed("/api/v1/github/installation", githubId),
+      statusFailed("/api/v1/connectors/atlassian/status", forgeId),
+      statusFailed("/api/v1/connectors/linear/status", linearId),
+      statusFailed("/api/v1/connectors/notion/status", notionId),
+      statusFailed("/api/v1/connectors/slack/status", slackId),
+      statusFailed("/api/v1/connectors/pagerduty/status", pagerdutyId),
+    ]),
+    review: {
+      purpose:
+        "Connectors page, where an admin adds and manages the sources of the org: the status of each connector failed to load.",
+    },
+  },
 }
 
 /** The Atlassian account link returns here and opens the wizard again. */
@@ -655,6 +702,10 @@ export const ReopensConfluenceWizardAfterAccountLink: Story = {
     )
   },
   parameters: {
+    review: {
+      purpose:
+        "Connectors page, where an admin adds and manages the sources of the org: the Atlassian link comes back, the Confluence setup opens again, and its install link failed to load.",
+    },
     storyRoute: {
       pattern: "orgConnectors",
       orgSlug,
@@ -697,28 +748,34 @@ export const ReopensConfluenceWizardAfterAccountLink: Story = {
 /** A Buildkite row shows its own card, and the catalog adds another one. */
 export const BuildkiteFromCatalog: Story = {
   render: pageRender,
-  parameters: pageHandlers([
-    http.get(
-      ({ request }) =>
-        new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
-      () =>
-        HttpResponse.json({
-          items: [
-            {
-              id: "conn_buildkite_1",
-              type: "buildkite",
-              displayName: "acme",
-              status: "connected",
-              createdAt: "2025-01-01T00:00:00.000Z",
-              updatedAt: "2025-01-02T00:00:00.000Z",
-            },
-          ],
-        }),
-    ),
-    buildkiteStatusHandler(buildkiteStoryStatus({ webhookConfigured: true })),
-    // The org shell lists the Workspaces.
-    workspaceListHandler([]),
-  ]),
+  parameters: {
+    ...pageHandlers([
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
+        () =>
+          HttpResponse.json({
+            items: [
+              {
+                id: "conn_buildkite_1",
+                type: "buildkite",
+                displayName: "acme",
+                status: "connected",
+                createdAt: "2025-01-01T00:00:00.000Z",
+                updatedAt: "2025-01-02T00:00:00.000Z",
+              },
+            ],
+          }),
+      ),
+      buildkiteStatusHandler(buildkiteStoryStatus({ webhookConfigured: true })),
+      // The org shell lists the Workspaces.
+      workspaceListHandler([]),
+    ]),
+    review: {
+      purpose:
+        "Connectors page, where an admin adds and manages the sources of the org: one Buildkite connection exists, and the catalog opens the setup of a second one.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
     await waitFor(() =>
@@ -745,28 +802,34 @@ export const BuildkiteFromCatalog: Story = {
 /** A Plain row shows its own card, and the catalog adds another one. */
 export const PlainFromCatalog: Story = {
   render: pageRender,
-  parameters: pageHandlers([
-    http.get(
-      ({ request }) =>
-        new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
-      () =>
-        HttpResponse.json({
-          items: [
-            {
-              id: "conn_plain_1",
-              type: "plain",
-              displayName: "Acme Support",
-              status: "connected",
-              createdAt: "2025-01-01T00:00:00.000Z",
-              updatedAt: "2025-01-02T00:00:00.000Z",
-            },
-          ],
-        }),
-    ),
-    plainStatusHandler(plainStoryStatus()),
-    // The org shell lists the Workspaces.
-    workspaceListHandler([]),
-  ]),
+  parameters: {
+    ...pageHandlers([
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
+        () =>
+          HttpResponse.json({
+            items: [
+              {
+                id: "conn_plain_1",
+                type: "plain",
+                displayName: "Acme Support",
+                status: "connected",
+                createdAt: "2025-01-01T00:00:00.000Z",
+                updatedAt: "2025-01-02T00:00:00.000Z",
+              },
+            ],
+          }),
+      ),
+      plainStatusHandler(plainStoryStatus()),
+      // The org shell lists the Workspaces.
+      workspaceListHandler([]),
+    ]),
+    review: {
+      purpose:
+        "Connectors page, where an admin adds and manages the sources of the org: one Plain connection exists, and the catalog opens the setup of a second one.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
     await waitFor(() =>
@@ -811,61 +874,67 @@ function linearStatusFor(connectionId: string, status: object) {
  */
 export const FixFromCatalog: Story = {
   render: pageRender,
-  parameters: pageHandlers([
-    http.get(
-      ({ request }) =>
-        new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
-      () =>
-        HttpResponse.json({
-          items: [
-            {
-              id: githubId,
-              type: "github",
-              displayName: "acme-corp",
-              status: "connected",
-              createdAt: "2025-01-01T00:00:00.000Z",
-              updatedAt: "2025-01-02T00:00:00.000Z",
-            },
-            {
-              id: linearDraftId,
-              type: "linear",
-              displayName: null,
-              status: "setup_pending",
-              createdAt: "2025-01-02T00:00:00.000Z",
-              updatedAt: "2025-01-02T00:00:00.000Z",
-            },
-            {
-              id: linearRevokedId,
-              type: "linear",
-              displayName: "Acme Platform",
-              status: "needs_reconnect",
-              createdAt: "2025-01-03T00:00:00.000Z",
-              updatedAt: "2025-01-03T00:00:00.000Z",
-            },
-          ],
-        }),
-    ),
-    githubInstallationHandler(githubInstallationComplete),
-    linearStatusFor(linearRevokedId, {
-      ...linearStatusComplete,
-      isInstalled: false,
-      installationStatus: "revoked",
-      workspaceName: "Acme Platform",
-    }),
-    linearStatusFor(linearDraftId, {
-      isInstalled: false,
-      installationStatus: null,
-      workspaceName: null,
-      isGithubLinked: true,
-      selectedScopeCount: 0,
-      setupPhase: "draft",
-      pendingConfigPullUrl: null,
-      pendingConfigPrCreating: false,
-      syncTarget: null,
-    }),
-    connectionUsageHandler([]),
-    workspaceListHandler([]),
-  ]),
+  parameters: {
+    ...pageHandlers([
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
+        () =>
+          HttpResponse.json({
+            items: [
+              {
+                id: githubId,
+                type: "github",
+                displayName: "acme-corp",
+                status: "connected",
+                createdAt: "2025-01-01T00:00:00.000Z",
+                updatedAt: "2025-01-02T00:00:00.000Z",
+              },
+              {
+                id: linearDraftId,
+                type: "linear",
+                displayName: null,
+                status: "setup_pending",
+                createdAt: "2025-01-02T00:00:00.000Z",
+                updatedAt: "2025-01-02T00:00:00.000Z",
+              },
+              {
+                id: linearRevokedId,
+                type: "linear",
+                displayName: "Acme Platform",
+                status: "needs_reconnect",
+                createdAt: "2025-01-03T00:00:00.000Z",
+                updatedAt: "2025-01-03T00:00:00.000Z",
+              },
+            ],
+          }),
+      ),
+      githubInstallationHandler(githubInstallationComplete),
+      linearStatusFor(linearRevokedId, {
+        ...linearStatusComplete,
+        isInstalled: false,
+        installationStatus: "revoked",
+        workspaceName: "Acme Platform",
+      }),
+      linearStatusFor(linearDraftId, {
+        isInstalled: false,
+        installationStatus: null,
+        workspaceName: null,
+        isGithubLinked: true,
+        selectedScopeCount: 0,
+        setupPhase: "draft",
+        pendingConfigPullUrl: null,
+        pendingConfigPrCreating: false,
+        syncTarget: null,
+      }),
+      connectionUsageHandler([]),
+      workspaceListHandler([]),
+    ]),
+    review: {
+      purpose:
+        "Connectors page, where an admin adds and manages the sources of the org: a Linear connection needs a reconnect, and Fix in the catalog moves the focus to its card.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
     await waitFor(() =>

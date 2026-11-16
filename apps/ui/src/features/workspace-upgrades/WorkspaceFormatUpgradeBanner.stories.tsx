@@ -57,6 +57,7 @@ const meta = {
       orgSlug: "acme",
     } satisfies StoryRouteParams,
     ...handlers("owner", upgradesFixture([upgradeItemFixture()])),
+    review: { kind: "component" },
   },
   args: { orgSlug: "acme", workspaceSlug: "docs" },
 } satisfies Meta<typeof WorkspaceFormatUpgradeBanner>
@@ -69,6 +70,12 @@ const title = "This Workspace needs the format upgrade"
 
 /** An owner or admin starts the upgrade or opens Upgrades from the banner (CTX-932). */
 export const OwnerCanStart: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Format upgrade banner of a Workspace, for an owner: the Workspace needs the upgrade and the owner can start it or review it.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText(title)
@@ -92,7 +99,13 @@ export const OwnerCanStart: Story = {
 
 /** A member sees "Ask an admin" and no Start button. */
 export const MemberAsksAdmin: Story = {
-  parameters: handlers("member", upgradesFixture([upgradeItemFixture()])),
+  parameters: {
+    ...handlers("member", upgradesFixture([upgradeItemFixture()])),
+    review: {
+      purpose:
+        "Format upgrade banner of a Workspace, for a member: the Workspace needs the upgrade and the member must ask an admin.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText(title)
@@ -107,7 +120,13 @@ export const MemberAsksAdmin: Story = {
 
 /** The format was never read and no upgrade item exists yet: Upgrades can check again. */
 export const NoItemYet: Story = {
-  parameters: handlers("owner", upgradesFixture([], { formatVersion: 0 })),
+  parameters: {
+    ...handlers("owner", upgradesFixture([], { formatVersion: 0 })),
+    review: {
+      purpose:
+        "Format upgrade banner of a Workspace: ctxpipe never read the format and has no upgrade item yet, so there is no Start button.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText(title)
@@ -120,10 +139,16 @@ export const NoItemYet: Story = {
 }
 
 export const Running: Story = {
-  parameters: handlers(
-    "owner",
-    upgradesFixture([upgradeItemFixture({ status: "running" })]),
-  ),
+  parameters: {
+    ...handlers(
+      "owner",
+      upgradesFixture([upgradeItemFixture({ status: "running" })]),
+    ),
+    review: {
+      purpose:
+        "Format upgrade banner of a Workspace: ctxpipe prepares the upgrade pull request now.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText(title)
@@ -137,18 +162,24 @@ export const Running: Story = {
 }
 
 export const PullRequestOpen: Story = {
-  parameters: handlers(
-    "owner",
-    upgradesFixture([
-      upgradeItemFixture({
-        status: "pr_open",
-        pullRequest: {
-          number: 52,
-          url: "https://github.com/acme/docs/pull/52",
-        },
-      }),
-    ]),
-  ),
+  parameters: {
+    ...handlers(
+      "owner",
+      upgradesFixture([
+        upgradeItemFixture({
+          status: "pr_open",
+          pullRequest: {
+            number: 52,
+            url: "https://github.com/acme/docs/pull/52",
+          },
+        }),
+      ]),
+    ),
+    review: {
+      purpose:
+        "Format upgrade banner of a Workspace: the upgrade pull request is open and the banner links to it.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText(title)
@@ -161,21 +192,27 @@ export const PullRequestOpen: Story = {
 
 /** A failed upgrade shows its cause and the next step, not a blind Start. */
 export const Failed: Story = {
-  parameters: handlers(
-    "owner",
-    upgradesFixture([
-      upgradeItemFixture({
-        status: "failed",
-        failureReason: "stdout maxBuffer length exceeded",
-        failure: {
-          code: "unknown",
-          step: null,
-          repository: null,
-          summary: "stdout maxBuffer length exceeded",
-        },
-      }),
-    ]),
-  ),
+  parameters: {
+    ...handlers(
+      "owner",
+      upgradesFixture([
+        upgradeItemFixture({
+          status: "failed",
+          failureReason: "stdout maxBuffer length exceeded",
+          failure: {
+            code: "unknown",
+            step: null,
+            repository: null,
+            summary: "stdout maxBuffer length exceeded",
+          },
+        }),
+      ]),
+    ),
+    review: {
+      purpose:
+        "Format upgrade banner of a Workspace: the upgrade failed, and the banner gives the cause and the next step.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("The format upgrade failed")
@@ -188,16 +225,22 @@ export const Failed: Story = {
 }
 
 export const Blocked: Story = {
-  parameters: handlers(
-    "owner",
-    upgradesFixture([
-      upgradeItemFixture({
-        status: "blocked",
-        blockedReason: "write_access",
-        note: "The GitHub App cannot write to this repository.",
-      }),
-    ]),
-  ),
+  parameters: {
+    ...handlers(
+      "owner",
+      upgradesFixture([
+        upgradeItemFixture({
+          status: "blocked",
+          blockedReason: "write_access",
+          note: "The GitHub App cannot write to this repository.",
+        }),
+      ]),
+    ),
+    review: {
+      purpose:
+        "Format upgrade banner of a Workspace: the upgrade is blocked because the GitHub App cannot write to the repository.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText(title)
@@ -210,12 +253,18 @@ export const Blocked: Story = {
 
 /** At the newest format the banner shows nothing. */
 export const UpToDate: Story = {
-  parameters: handlers(
-    "owner",
-    upgradesFixture([upgradeItemFixture({ status: "completed" })], {
-      formatVersion: 3,
-    }),
-  ),
+  parameters: {
+    ...handlers(
+      "owner",
+      upgradesFixture([upgradeItemFixture({ status: "completed" })], {
+        formatVersion: 3,
+      }),
+    ),
+    review: {
+      purpose:
+        "Format upgrade banner of a Workspace at the newest format: the banner renders nothing.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // The read must be answered before the check, or it passes too early.

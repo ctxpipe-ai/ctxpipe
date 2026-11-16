@@ -26,6 +26,7 @@ const meta = {
     pending: false,
   },
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -39,6 +40,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const EmptyProjection: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Knowledge graph pane of a Workspace, where a member explores how the knowledge links: the graph has no nodes yet.",
+    },
+  },
   args: {
     pending: false,
     graph: {
@@ -57,10 +64,22 @@ export const EmptyProjection: Story = {
 }
 
 export const Loading: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Knowledge graph pane of a Workspace, where a member explores how the knowledge links: the graph still loads.",
+    },
+  },
   args: { graph: undefined, pending: true },
 }
 
 export const Populated: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Knowledge graph pane of a Workspace, where a member explores how the knowledge links: a full graph with nodes and edges.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(canvas.queryByText(/but no edges yet/)).toBeNull() // play-timing: ok the pane draws this note from props, with no request
@@ -72,6 +91,12 @@ export const Populated: Story = {
 }
 
 export const NarrowPane: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Knowledge graph pane of a Workspace, where a member explores how the knowledge links: a full graph in a narrow pane.",
+    },
+  },
   args: {
     pending: false,
     graph: docsWorkspaceGraph,
@@ -80,6 +105,12 @@ export const NarrowPane: Story = {
 }
 
 export const WidePane: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Knowledge graph pane of a Workspace, where a member explores how the knowledge links: a full graph in a wide pane.",
+    },
+  },
   args: {
     pending: false,
     graph: docsWorkspaceGraph,
@@ -89,6 +120,10 @@ export const WidePane: Story = {
 
 export const NodesWithoutRelationships: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Knowledge graph pane of a Workspace, where a member explores how the knowledge links: the graph has nodes but no edges, and a note says so.",
+    },
     intent:
       "Catches a graph with nodes but no edges that shows a blank pane. It says how many nodes it has and that it has no edges yet. Not for graphs with edges.",
   },
@@ -123,6 +158,10 @@ export const ClosingTipsIsRemembered: Story = {
     graph: docsWorkspaceGraph,
   },
   parameters: {
+    review: {
+      purpose:
+        "Knowledge graph pane of a Workspace, where a member explores how the knowledge links: the member closed the tips, and the browser keeps that choice.",
+    },
     visual: {
       skip: "The end state is the graph without the tips panel, as in TipsClosedEarlier.",
     },
@@ -164,6 +203,10 @@ export const TipsClosedEarlier: Story = {
     graph: docsWorkspaceGraph,
   },
   parameters: {
+    review: {
+      purpose:
+        "Knowledge graph pane of a Workspace, where a member explores how the knowledge links: the tips were closed on an earlier visit, so they do not open.",
+    },
     visual: {
       skip: "Without the tips panel, the graph labels still move when the play ends. The play checks the behavior.",
     },

@@ -50,6 +50,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -65,6 +66,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const SelectPipelines: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Buildkite scope editor, where the user picks the pipelines of a Workspace source: nothing is picked at first, then the user picks two pipelines.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
     await waitFor(() => expect(canvas.getByText("Not ready")).toBeVisible())
@@ -82,6 +89,12 @@ export const SelectPipelines: Story = {
 }
 
 export const FilterKeepsTheSelection: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Buildkite scope editor, where the user picks the pipelines of a Workspace source: a filter hides a selected pipeline, but it stays in the list and stays selected.",
+    },
+  },
   args: { label: "CI", initialScope: { pipelines: ["web-app"] } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -113,6 +126,12 @@ export const FilterKeepsTheSelection: Story = {
 }
 
 export const RemovedPipelineCanBeCleared: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Buildkite scope editor, where the user picks the pipelines of a Workspace source: a selected pipeline that Buildkite no longer lists shows by its slug, and the user clears it.",
+    },
+  },
   args: { initialScope: { pipelines: ["old-pipeline", "api"] } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -127,6 +146,12 @@ export const RemovedPipelineCanBeCleared: Story = {
 }
 
 export const OverThePipelineLimit: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Buildkite scope editor, where the user picks the pipelines of a Workspace source: the selection goes above the pipeline limit, so an error shows and the scope is not ready.",
+    },
+  },
   args: {
     // A full selection: one more pipeline goes above the cap.
     initialScope: {
@@ -157,6 +182,10 @@ export const OverThePipelineLimit: Story = {
 
 export const Loading: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Buildkite scope editor, where the user picks the pipelines of a Workspace source: the pipeline list still loads.",
+    },
     msw: {
       handlers: {
         page: [
@@ -180,6 +209,10 @@ export const Loading: Story = {
 
 export const LoadError: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Buildkite scope editor, where the user picks the pipelines of a Workspace source: Buildkite refuses the access token, so an error asks the user to reconnect Buildkite.",
+    },
     msw: {
       handlers: {
         page: [

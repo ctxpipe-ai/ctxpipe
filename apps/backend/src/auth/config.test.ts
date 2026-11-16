@@ -19,6 +19,8 @@ vi.mock("../domain/repositoryDeletion.js", () => ({
   purgeOrgDataBeforeAuthDelete: purgeOrgDataBeforeAuthDeleteMock,
 }))
 
+import { getIp } from "better-auth/api"
+
 import { createBetterAuth } from "./config.js"
 
 type OAuthProviderOptions = {
@@ -239,5 +241,42 @@ describe("createBetterAuth", () => {
 
     vi.stubEnv("BETTER_AUTH_API_KEY", "test-dash-key")
     expect(getPlugin(createAuth(), "dash")).toBeDefined()
+  })
+})
+
+describe("client IP for the auth rate limit", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  // The address that Better Auth keys the rate limit and the session on.
+  function clientIp(headers: Record<string, string>) {
+    return getIp(
+      new Request("http://localhost:3000/.auth/api/v1/auth/sign-in/email", {
+        headers,
+      }),
+      createAuth().options,
+    )
+  }
+
+  it("takes the address that Cloudflare appended, also when the client sends its own X-Forwarded-For and X-Real-IP", () => {
+    expect(
+      clientIp({
+        "x-forwarded-for": "198.51.100.66, 203.0.113.10",
+        "x-real-ip": "198.51.100.77",
+        "cf-connecting-ip": "203.0.113.10",
+      }),
+    ).toBe("203.0.113.10")
+  })
+
+  it("skips the loopback hop that a proxy in the same task appends", () => {
+    expect(clientIp({ "x-forwarded-for": "203.0.113.10, 127.0.0.1" })).toBe(
+      "203.0.113.10",
+    )
+  })
+
+  it("keeps the address of a self-hosted proxy that sets one X-Forwarded-For or X-Real-IP", () => {
+    expect(clientIp({ "x-forwarded-for": "203.0.113.10" })).toBe("203.0.113.10")
+    expect(clientIp({ "x-real-ip": "203.0.113.11" })).toBe("203.0.113.11")
   })
 })
