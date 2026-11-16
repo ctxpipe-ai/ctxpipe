@@ -1534,6 +1534,9 @@ export const CheckingEndsAfterAMinute: Story = {
   // An own Workspace: the minute counts from the first sight of this item.
   args: { workspaceSlug: "docs-clock" },
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the state of Upgrades/Progress, Checking Format Times Out Admin.",
+    },
     ...withUpgrades(
       workspaceUpgradesHandler(
         upgradesFixture(

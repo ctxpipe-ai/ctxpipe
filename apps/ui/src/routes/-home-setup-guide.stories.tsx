@@ -1079,6 +1079,9 @@ const loadingGate = responseGate()
  */
 export const GuideReservesNoSpaceWhileLoading: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as FadesInAfterOnboarding.",
+    },
     review: {
       purpose:
         "Org home page with the setup guide, which leads a new org through its first steps: a guide signal still loads, so the guide holds no space until it appears.",
