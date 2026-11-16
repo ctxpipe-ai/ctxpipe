@@ -1,10 +1,12 @@
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
 
+import { sql } from "drizzle-orm"
 import { expect, it } from "vitest"
 
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
+import { getSystemDb } from "../../db/client.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
@@ -434,11 +436,20 @@ it.each([
   "native-push",
   "repeated-native-push",
   "continuous-native-push",
+  "push-during-wait",
 ] as const)(
   "hands a raced Files write to one native semantic child and returns the published result: %s",
-  // The continuous race waits about 15 s between its attempts.
-  { timeout: 120_000 },
+  { timeout: 60_000 },
   async (raceBoundary) => {
+    // The race moves main at the parent's push and at this many attempts of
+    // the merge child. Each lost attempt waits before the next (CTX-1304).
+    const additionalHumans =
+      raceBoundary === "continuous-native-push"
+        ? 3
+        : raceBoundary === "repeated-native-push" ||
+            raceBoundary === "push-during-wait"
+          ? 1
+          : 0
     const path = "knowledge/race.md"
     const original =
       "# Race\n\nHuman: original\n\nOne\nTwo\nThree\nFour\nFive\n\nJob: original\n"
@@ -477,12 +488,6 @@ it.each([
             // Materialize the human commit without advancing main. Git's native
             // update hook advances it only after the broker's final tip check.
             const humanTips = [humanSha]
-            const additionalHumans =
-              raceBoundary === "continuous-native-push"
-                ? 3
-                : raceBoundary === "repeated-native-push"
-                  ? 1
-                  : 0
             for (let index = 0; index < additionalHumans; index++) {
               const path = `knowledge/human-${index}.md`
               writeFileSync(join(f.directory, path), "# Another human update\n")
@@ -532,8 +537,88 @@ it.each([
             workspaceFileEdit.spec,
             command,
           )
-          const result = await handle.result({ timeoutMs: 90_000 })
+          // A lost race makes the merge sleep for up to a minute. End each
+          // sleep now: set its resume time and the run's start to now.
+          let pushedDuringWait = false
+          const settled = handle.result({ timeoutMs: 45_000 }).then(
+            () => true,
+            () => true,
+          )
+          for (;;) {
+            const done = await Promise.race([
+              settled,
+              new Promise<false>((resolve) => setTimeout(resolve, 500, false)),
+            ])
+            if (done) break
+            const sleeping = (
+              await getSystemDb().execute<{ workflow_run_id: string }>(sql`
+                select workflow_run_id from openworkflow.step_attempts
+                where namespace_id = ${openWorkflowNamespaceId()}
+                  and kind = 'sleep' and status = 'running'
+                  and workflow_run_id in (
+                    select id from openworkflow.workflow_runs
+                    where namespace_id = ${openWorkflowNamespaceId()}
+                      and workflow_name = 'workspace-write-semantic-merge'
+                      and input->>'workspaceId' = ${f.workspaceId})
+              `)
+            ).rows
+            if (!sleeping.length) continue
+            if (raceBoundary === "push-during-wait" && !pushedDuringWait) {
+              // Another writer pushes while the merge waits. The merge reads
+              // the tip after the wait, so it does not lose to this push.
+              pushedDuringWait = true
+              writeFileSync(
+                join(f.directory, "knowledge/during-wait.md"),
+                "# Pushed while the merge waits\n",
+              )
+              f.git("add", "knowledge/during-wait.md")
+              f.git("commit", "-m", "Push during the wait")
+              humanSha = f.git("rev-parse", "HEAD")
+              f.git(
+                "--git-dir",
+                f.remote,
+                "fetch",
+                f.directory,
+                `${humanSha}:refs/heads/fixture-during-wait`,
+              )
+              f.git(
+                "--git-dir",
+                f.remote,
+                "update-ref",
+                "refs/heads/main",
+                humanSha,
+              )
+            }
+            await getSystemDb().execute(sql`
+              with woken as (
+                update openworkflow.step_attempts
+                set context = jsonb_set(context, '{resumeAt}',
+                  to_jsonb(to_char((now() - interval '1 second') at time zone 'utc',
+                    'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')))
+                where namespace_id = ${openWorkflowNamespaceId()}
+                  and kind = 'sleep' and status = 'running'
+                  and workflow_run_id in (${sql.join(
+                    sleeping.map((row) => sql`${row.workflow_run_id}`),
+                    sql`, `,
+                  )})
+                returning workflow_run_id)
+              update openworkflow.workflow_runs set available_at = now()
+              where namespace_id = ${openWorkflowNamespaceId()}
+                and id in (select workflow_run_id from woken)
+            `)
+          }
+          const result = await handle.result({ timeoutMs: 1_000 })
           expect(result).toMatchObject({ committed: true })
+          // No human commit is lost: main holds the last one.
+          expect(
+            f.git(
+              "--git-dir",
+              f.remote,
+              "rev-list",
+              "--count",
+              `main..${humanSha}`,
+            ),
+          ).toBe("0")
           expect(f.git("--git-dir", f.remote, "show", `main:${path}`)).toBe(
             original
               .replace("Human: original", "Human: updated")
@@ -567,21 +652,14 @@ it.each([
             (run) => run.workflowName === "workspace-write-semantic-merge",
           )
           expect(children).toHaveLength(1)
-          // A child that loses the push race waits longer before each new
-          // attempt, so that a burst of other writes ends first (CTX-1304).
-          // The continuous race moves the branch at three of its attempts.
+          // One wait for each lost attempt of the child. A push during a wait
+          // costs no attempt.
           const waits = (
             await f.backend.listStepAttempts({
               workflowRunId: children[0]?.id ?? "",
             })
           ).data.filter((step) => step.kind === "sleep")
-          expect(waits).toHaveLength(
-            raceBoundary === "continuous-native-push"
-              ? 3
-              : raceBoundary === "repeated-native-push"
-                ? 1
-                : 0,
-          )
+          expect(waits).toHaveLength(additionalHumans)
           // The child input names the candidate commit on its job ref, not
           // its files (CTX-1239).
           expect(children[0]?.input).toMatchObject({

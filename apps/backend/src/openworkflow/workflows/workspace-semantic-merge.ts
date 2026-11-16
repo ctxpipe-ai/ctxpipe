@@ -128,12 +128,13 @@ const MERGE_ATTEMPTS = 8
 
 /**
  * The wait after attempt `attempt` (from 0) lost the push race to another
- * writer: 1 s, then twice as long each time, up to 64 s. A hash of the job id
- * adds up to the same time again, so writers that lost together do not try
- * again together. The waits of a merge are at most about 4 minutes.
+ * writer: 1 s, then twice as long each time (64 s before the last of the
+ * `MERGE_ATTEMPTS`). A hash of the job id adds up to the same time again, so
+ * writers that lost together do not try again together. The waits of a
+ * merge are at most about 4 minutes.
  */
 function raceBackoff(jobId: string, attempt: number): `${number}s` {
-  const base = 2 ** Math.min(attempt, 6)
+  const base = 2 ** attempt
   const spread =
     createHash("sha256").update(`${jobId}:${attempt}`).digest().readUInt8(0) /
     256
@@ -335,18 +336,19 @@ export const workspaceSemanticMerge = defineWorkflow(
             await step.run({ name: "discard-unpublished-candidate" }, () =>
               discardWriteJobPreparedCommit(input.jobId, committed.sha),
             )
-            revision = await step.run({ name: "refresh-raced-revision" }, () =>
-              refreshWorkspaceWriteRevision(input, revision, env),
-            )
             // Another writer (a connector mirror, ingestion) moved the
-            // default branch. Each attempt merges onto the new tip, but an
-            // attempt at once loses again while the other writer pushes in a
-            // burst. Wait longer before each new attempt (CTX-1304).
+            // default branch. An attempt at once loses again while the other
+            // writer pushes in a burst, so wait longer before each new
+            // attempt. Read the tip after the wait: the next attempt merges
+            // onto the pushes of the wait too (CTX-1304).
             if (refreshAttempt < MERGE_ATTEMPTS - 1)
               await step.sleep(
                 "await-quiet-default-branch",
                 raceBackoff(input.jobId, refreshAttempt),
               )
+            revision = await step.run({ name: "refresh-raced-revision" }, () =>
+              refreshWorkspaceWriteRevision(input, revision, env),
+            )
             continue
           }
           const published = await step.run({ name: "publish-result" }, () =>
