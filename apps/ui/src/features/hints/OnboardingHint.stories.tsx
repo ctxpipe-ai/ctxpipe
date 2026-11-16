@@ -18,6 +18,7 @@ import { WorkspaceNavList } from "@/features/workspaces/WorkspaceNavList"
 import { WorkspacePaneTriggers } from "@/features/workspaces/WorkspacePane"
 import { workspaceCreatedFlag } from "@/lib/session-flags"
 import {
+  organizationFullWithOrgHandler,
   authConfigHandler,
   githubAppInstalledHandlers,
   organizationListWithOrgHandler,
@@ -29,6 +30,7 @@ import {
   workspaceDetailHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
+import { workspaceIngestionHandlers } from "@/mocks/workspace-ingestion-handlers"
 import {
   activeMemberRoleHandler,
   orgConnectionsHandler,
@@ -40,7 +42,6 @@ import {
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 
 const PREFERENCES_KEY = "ctxpipe:userPreferences"
@@ -54,6 +55,7 @@ const newUserDefaults = [
     onboardingCompletedAt: new Date(Date.now() - 86_400_000).toISOString(),
   }),
   organizationListWithOrgHandler,
+  organizationFullWithOrgHandler,
 ]
 
 function seedHintsSeen(hintsSeen: string[]) {
@@ -81,15 +83,21 @@ async function findHint(canvasElement: HTMLElement, text: string) {
 
 const meta = {
   title: "Components/Onboarding/Hints",
-  decorators: entryPageInnerDecorators,
   parameters: {
+    app: "root",
+    queryClient: true,
     layout: "centered",
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
       workspaceSlug: "docs",
     } satisfies StoryRouteParams,
-    msw: { handlers: { defaults: newUserDefaults } },
+    msw: {
+      handlers: {
+        session: newUserDefaults,
+        ingestion: workspaceIngestionHandlers({}),
+      },
+    },
     review: { kind: "component" },
   },
 } satisfies Meta

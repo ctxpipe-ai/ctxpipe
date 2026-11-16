@@ -7,16 +7,18 @@ import { expect, userEvent, within } from "storybook/test"
 import {
   organizationCreateSuccessHandler,
   organizationSetActiveHandler,
+  signedInHandlers,
 } from "@/mocks/handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { SideNavOrganizationCreateDialog } from "./SideNavOrganizationCreateDialog"
 
 const meta = {
   title: "App/SideNav/Create organization",
-  decorators: entryPageInnerDecorators,
   parameters: {
+    msw: { handlers: { session: signedInHandlers } },
+    app: "root",
+    queryClient: true,
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",

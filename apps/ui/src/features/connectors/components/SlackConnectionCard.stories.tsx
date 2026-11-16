@@ -3,12 +3,13 @@ import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
 import { expect, waitFor, within } from "storybook/test"
 
+import { signedInHandlers } from "@/mocks/handlers"
 import {
   connectionUsageHandler,
   connectionUsageItem,
 } from "@/mocks/workspace-sources-handlers"
+import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { SlackConnectionCard } from "./SlackConnectionCard"
 
@@ -33,11 +34,14 @@ const meta = {
   title: "Components/Connections/Slack/ConnectionCard",
   component: SlackConnectionCard,
   args: { orgSlug, connectionId },
-  decorators: entryPageInnerDecorators,
   parameters: {
+    app: "root",
+    queryClient: true,
     review: { kind: "component" },
     msw: {
       handlers: {
+        session: signedInHandlers,
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
         usage: [
           connectionUsageHandler([
             connectionUsageItem({

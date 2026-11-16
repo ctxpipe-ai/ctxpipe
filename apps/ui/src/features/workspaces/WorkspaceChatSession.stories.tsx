@@ -7,12 +7,12 @@ import {
   conversationAguiTextEvents,
   installAguiWebSocket,
 } from "@/mocks/conversation-agui"
+import { signedInHandlers } from "@/mocks/handlers"
 import {
   conversationChatHandler,
   workspaceShellHandlers,
 } from "@/mocks/workspace-handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import {
   codeAnswerMessages,
@@ -55,9 +55,10 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    app: "root",
+    queryClient: true,
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
@@ -67,6 +68,7 @@ const meta = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
+        session: signedInHandlers,
         page: workspaceShellHandlers(),
       },
     },

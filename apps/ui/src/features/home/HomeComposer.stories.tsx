@@ -7,17 +7,25 @@ import {
   readOnlyWorkspace,
   readOnlyWorkspaceDetail,
 } from "@/features/workspaces/workspace-fixtures"
+import { signedInHandlers } from "@/mocks/handlers"
 import { workspaceDetailHandler } from "@/mocks/workspace-handlers"
+import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { HomeComposer } from "./HomeComposer"
 
 const meta = {
   title: "Components/Home/Composer",
   component: HomeComposer,
-  decorators: entryPageInnerDecorators,
   parameters: {
+    msw: {
+      handlers: {
+        session: signedInHandlers,
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
+      },
+    },
+    app: "root",
+    queryClient: true,
     review: { kind: "component" },
     layout: "padded",
     storyRoute: {

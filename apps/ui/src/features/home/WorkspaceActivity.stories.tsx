@@ -9,8 +9,8 @@ import {
   docsWorkspaceActivity,
   docsWorkspaceActivityRecent,
 } from "@/features/workspaces/workspace-fixtures"
+import { signedInHandlers } from "@/mocks/handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { utcDayBefore } from "./activity-search"
 import { WorkspaceActivity } from "./WorkspaceActivity"
@@ -124,16 +124,19 @@ const meta = {
         <UrlProbe />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    app: "root",
+    queryClient: true,
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    msw: { handlers: { page: activityByDayHandlers } },
+    msw: {
+      handlers: { session: signedInHandlers, page: activityByDayHandlers },
+    },
   },
   args: {
     orgSlug: "acme",

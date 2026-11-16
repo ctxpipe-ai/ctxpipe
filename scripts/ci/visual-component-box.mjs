@@ -6,16 +6,16 @@
 //
 // The area is the union of the boxes of what the story paints, with a
 // padding of 16 px, in the full page at the width of the viewport:
-// - The story: the content of the decorator of preview.tsx (the first child
-//   of `#storybook-root`). That decorator is as high as the viewport
-//   (`min-h-screen`), so the capture looks into it.
+// - The story: the content of `#storybook-root`. A global decorator of
+//   preview.tsx adds no element, so the children of the root are the
+//   elements of the story and of the decorators of its file.
 // - The overlays: each element outside `#storybook-root` in the body (the
 //   portal of a dialog, a popover, a menu or a toast). The dim underlay of a
 //   modal paints the viewport, so a story with an open modal shows the full
 //   page. The underlay of a popover is transparent, so it adds nothing.
 // An element paints its box when it has a background, a border or a shadow,
 // and when it is an image, a canvas, an SVG or a form control. A background
-// of the same color as the decorator does not count: a wrapper with
+// of the same color as the page (the body) does not count: a wrapper with
 // `min-h-screen bg-background` shows nothing. A text paints the box of its
 // characters. The walk does not count what is hidden: an element with
 // `display: none`, `opacity: 0` or `visibility: hidden`, a box of 1 px or
@@ -31,10 +31,7 @@ const padding = 16
 // overlays paint, in page coordinates (`{ x, y, width, height }`).
 export function storyBoxes() {
   const root = document.getElementById("storybook-root")
-  const decorator = root?.firstElementChild
-  const decoratorBackground = decorator
-    ? getComputedStyle(decorator).backgroundColor
-    : "rgba(0, 0, 0, 0)"
+  const pageBackground = getComputedStyle(document.body).backgroundColor
   const transparent = (color) => /^rgba\(.*, 0\)$|^transparent$/.test(color)
   const replaced = /^(IMG|SVG|CANVAS|VIDEO|INPUT|TEXTAREA|SELECT|IFRAME|PROGRESS|METER)$/i
   const boxes = []
@@ -59,7 +56,7 @@ export function storyBoxes() {
   const paints = (element, style) =>
     replaced.test(element.tagName) ||
     (!transparent(style.backgroundColor) &&
-      style.backgroundColor !== decoratorBackground) ||
+      style.backgroundColor !== pageBackground) ||
     style.backgroundImage !== "none" ||
     style.boxShadow !== "none" ||
     ["Top", "Right", "Bottom", "Left"].some(
@@ -95,7 +92,7 @@ export function storyBoxes() {
         add(range.getBoundingClientRect(), inner)
       } else if (node.nodeType === Node.ELEMENT_NODE) visit(node, inner)
   }
-  for (const child of decorator?.children ?? []) visit(child, null)
+  for (const child of root?.children ?? []) visit(child, null)
   for (const child of document.body.children)
     if (child !== root) visit(child, null)
   return boxes

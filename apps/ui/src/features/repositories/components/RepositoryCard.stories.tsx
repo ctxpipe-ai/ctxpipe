@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, within } from "storybook/test"
 
-import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
+import { signedInHandlers } from "@/mocks/handlers"
+
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { RepositoryCard } from "./RepositoryCard"
 
@@ -44,9 +45,11 @@ const meta = {
         </ul>
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    msw: { handlers: { session: signedInHandlers } },
+    app: "root",
+    queryClient: true,
     layout: "centered",
     storyRoute: {
       pattern: "orgIndex",

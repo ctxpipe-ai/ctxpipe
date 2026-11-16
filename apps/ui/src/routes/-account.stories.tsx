@@ -3,26 +3,32 @@ import { HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { sideNavHandlers } from "@/mocks/workspace-handlers"
+import { workspaceIngestionHandlers } from "@/mocks/workspace-ingestion-handlers"
 
-import {
-  entryPageInnerDecorators,
-  orgPageDecorators,
-} from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import {
+  organizationFullWithOrgHandler,
   authConfigHandler,
   organizationListHandler,
   organizationSetActiveHandler,
   sessionSignedInHandler,
   userInvitationsEmptyHandler,
+  signedInHandlers,
 } from "../mocks/handlers"
 import { AccountSettingsBody } from "./[.]auth.account.$accountView"
 
 const meta = {
   title: "Pages/User account",
   component: AccountSettingsBody,
-  decorators: entryPageInnerDecorators,
   parameters: {
+    msw: {
+      handlers: {
+        session: signedInHandlers,
+        ingestion: workspaceIngestionHandlers({}),
+      },
+    },
+    app: "root",
+    queryClient: true,
     layout: "fullscreen",
     storyRoute: {
       pattern: "flat",
@@ -82,8 +88,8 @@ export const ApiKeysEmpty: Story = {
 export const Settings: Story = {
   tags: ["page"],
   args: { accountView: "settings" },
-  decorators: orgPageDecorators,
   parameters: {
+    app: "org",
     review: {
       kind: "page",
       purpose:
@@ -116,8 +122,8 @@ export const Settings: Story = {
 export const OrganizationsView: Story = {
   tags: ["page"],
   args: { accountView: "organizations" },
-  decorators: orgPageDecorators,
   parameters: {
+    app: "org",
     review: {
       kind: "page",
       purpose:
@@ -177,7 +183,7 @@ const storyOrganizations = [
 /**
  * A stateful msw backend: PUT and DELETE change the list. `reset` runs
  * before each story render. The handlers replace the default org list, so
- * they go in `defaults` with the session handlers. `failRevoke` makes
+ * they go in `session` with the session handlers. `failRevoke` makes
  * DELETE fail with 500.
  */
 function connectedAppsHandlers(options: { failRevoke?: boolean } = {}) {
@@ -197,6 +203,7 @@ function connectedAppsHandlers(options: { failRevoke?: boolean } = {}) {
         onboardingCompletedAt: "2025-01-01T00:00:00.000Z",
       }),
       organizationListHandler(storyOrganizations),
+      organizationFullWithOrgHandler,
       http.get("*/api/v1/me/connected-apps", () => HttpResponse.json({ apps })),
       http.put(
         "*/api/v1/me/connected-apps/:id/organizations",
@@ -248,7 +255,7 @@ export const ConnectedAppsEditOrgs: Story = {
       pattern: "flat",
       path: "/.auth/account/connected-apps",
     } satisfies StoryRouteParams,
-    msw: { handlers: { defaults: editBackend.handlers } },
+    msw: { handlers: { session: editBackend.handlers } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -304,7 +311,7 @@ export const ConnectedAppsRevoke: Story = {
       pattern: "flat",
       path: "/.auth/account/connected-apps",
     } satisfies StoryRouteParams,
-    msw: { handlers: { defaults: revokeBackend.handlers } },
+    msw: { handlers: { session: revokeBackend.handlers } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -339,7 +346,7 @@ export const ConnectedAppsRevokeError: Story = {
       pattern: "flat",
       path: "/.auth/account/connected-apps",
     } satisfies StoryRouteParams,
-    msw: { handlers: { defaults: failingRevokeBackend.handlers } },
+    msw: { handlers: { session: failingRevokeBackend.handlers } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -440,6 +447,7 @@ function personalKeysHandlers() {
         onboardingCompletedAt: "2025-01-01T00:00:00.000Z",
       }),
       organizationListHandler(storyOrganizations),
+      organizationFullWithOrgHandler,
       http.get("*/.auth/api/v1/auth/api-key/list", () =>
         HttpResponse.json({ apiKeys: keys, total: keys.length }),
       ),
@@ -504,7 +512,7 @@ export const ApiKeysCreateWithOrganizations: Story = {
       purpose:
         "Body of the user account API keys view: the user creates a personal key in a dialog, picks one organization, and sees the new key once.",
     },
-    msw: { handlers: { defaults: createKeyBackend.handlers } },
+    msw: { handlers: { session: createKeyBackend.handlers } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -557,7 +565,7 @@ export const ApiKeysEditOrganizations: Story = {
       purpose:
         "Body of the user account API keys view: the user changes the organizations of a key in a dialog, and an old key reaches all organizations.",
     },
-    msw: { handlers: { defaults: editKeyBackend.handlers } },
+    msw: { handlers: { session: editKeyBackend.handlers } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -618,6 +626,7 @@ function deletedOrganizationBackend(
         onboardingCompletedAt: "2025-01-01T00:00:00.000Z",
       }),
       organizationListHandler(organizations),
+      organizationFullWithOrgHandler,
     ],
     page: [
       http.get("*/:orgSlug/api/v1/workspaces", ({ params }) => {
@@ -646,9 +655,9 @@ const staleSelectionBackend = deletedOrganizationBackend([
 export const OrganizationDeletedStaleSelection: Story = {
   tags: ["required"],
   args: { accountView: "organizations" },
-  decorators: orgPageDecorators,
   beforeEach: staleSelectionBackend.reset,
   parameters: {
+    app: "org",
     review: {
       kind: "page",
       purpose:
@@ -662,7 +671,7 @@ export const OrganizationDeletedStaleSelection: Story = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        defaults: staleSelectionBackend.handlers,
+        session: staleSelectionBackend.handlers,
         page: staleSelectionBackend.page,
       },
     },
@@ -692,9 +701,9 @@ const lastOrganizationBackend = deletedOrganizationBackend([])
 export const LastOrganizationDeleted: Story = {
   tags: ["required"],
   args: { accountView: "organizations" },
-  decorators: orgPageDecorators,
   beforeEach: lastOrganizationBackend.reset,
   parameters: {
+    app: "org",
     visual: {
       skip: "Behavior test: it ends on a story route marker, which the product does not render.",
     },
@@ -710,7 +719,7 @@ export const LastOrganizationDeleted: Story = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        defaults: lastOrganizationBackend.handlers,
+        session: lastOrganizationBackend.handlers,
         page: lastOrganizationBackend.page,
       },
     },

@@ -1,23 +1,20 @@
 import type { Preview } from "@storybook/react-vite"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { HttpResponse, isCommonAssetRequest, WebSocketHandler, ws } from "msw"
 import { getWorker, initialize, mswLoader } from "msw-storybook-addon"
-import { type ReactElement, Suspense, useMemo } from "react"
 
 import { layoutProblems } from "../src/lib/layout-checks"
-import {
-  authConfigHandler,
-  organizationFullWithOrgHandler,
-  organizationListWithOrgHandler,
-  sessionSignedInHandler,
-} from "../src/mocks/handlers"
-import { workspaceIngestionHandlers } from "../src/mocks/workspace-ingestion-handlers"
-import { activeMemberRoleHandler } from "../src/mocks/workspace-sources-handlers"
-import { pendingWorkspaceUpgradesHandler } from "../src/mocks/workspace-upgrades-handlers"
-import { storyRouteLoader } from "./decorators/with-story-route"
+import { optIn } from "./decorators/opt-in"
+import { withApp } from "./decorators/with-app"
+import { withQueryClient } from "./decorators/with-query-client"
+import { storyRouteLoader, withStoryRoute } from "./decorators/with-story-route"
 
 import "../src/styles.css"
 
+// The globals of this file add nothing to the DOM of a story and change no
+// behavior that a story sees (the storybook skill, "No globals"). Each mock
+// and each wrapper is in the story file: in its meta or in a story.
+// `scripts/ci/check-storybook-globals.mjs` enforces this.
+//
 // A story must mock each request of its page (the storybook skill, "Mock
 // every request"). A request that no handler answers fails with a network
 // error, and the play runner (scripts/ci/storybook-play.mjs) fails the story
@@ -25,16 +22,13 @@ import "../src/styles.css"
 // WebAssembly module) of the Storybook server or of a CDN goes to the
 // network. An API path (`/api/`) is never an asset, also when it ends in
 // `.md` or `.json`.
-//
-// The initial handlers answer the org of the signed-in story user. Each page
-// under `/$orgSlug` reads them. Any handler of a story, in any key, comes
-// before them.
 const unhandledRequests: string[] = []
 // MSW calls `onUnhandledRequest` for a WebSocket only when no `ws` handler
 // exists. When a story has one, MSW gives each socket to the `ws` handlers,
 // also a socket that no handler matches. So this handler matches each
 // socket. It records a socket that no other `ws` handler matches, and
-// closes it with an error.
+// closes it with an error. It is the only initial handler: it answers no
+// socket, and it does nothing to a socket that a story handler matches.
 const unhandledSocketHandler = ws
   .link(/.*/)
   .addEventListener("connection", ({ client }) => {
@@ -66,11 +60,7 @@ initialize(
       throw HttpResponse.error()
     },
   },
-  [
-    organizationFullWithOrgHandler,
-    activeMemberRoleHandler("admin"),
-    unhandledSocketHandler,
-  ],
+  [unhandledSocketHandler],
 )
 
 // The check runner (scripts/checks/README.md) records which MSW handlers
@@ -88,48 +78,6 @@ Object.assign(window, {
       ),
 })
 
-const storybookDefaultMswHandlers = {
-  defaults: [
-    authConfigHandler,
-    sessionSignedInHandler({
-      id: "user_storybook",
-      onboardingCompletedAt: "2025-01-01T00:00:00.000Z",
-    }),
-    organizationListWithOrgHandler,
-  ],
-  // No Workspace has a pending upgrade. The connect flows read it before
-  // they offer a Workspace (CTX-935); a story sets this key to change it.
-  pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
-  // No Workspace ingests now: the sidebar shows no pulse. A story sets this
-  // key to change it (CTX-959).
-  ingestion: workspaceIngestionHandlers({}),
-}
-
-function StorybookQueryBoundary({ children }: { children: React.ReactNode }) {
-  const client = useMemo(() => {
-    const client = new QueryClient({
-      defaultOptions: {
-        queries: {
-          staleTime: 0,
-          gcTime: 0,
-          /** MSW error stories should reflect `delay()` timing, not exponential backoff (≈1s+2s+4s). */
-          retry: false,
-        },
-        mutations: {
-          retry: false,
-        },
-      },
-    })
-    // The first message of a new conversation waits in the cache until its
-    // session mounts. A zero gcTime would drop it first; production keeps the default.
-    client.setQueryDefaults(["conversation-start"], {
-      gcTime: Number.POSITIVE_INFINITY,
-    })
-    return client
-  }, [])
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>
-}
-
 const preview: Preview = {
   // One browser runs every story, so stored UI state would leak to the next
   // story. The user preferences hold the SideNav width and collapse, the
@@ -144,21 +92,15 @@ const preview: Preview = {
       unhandledRequests.length = 0
     }
   },
+  // `mswLoader` applies the handlers of the story (`parameters.msw`).
+  // `storyRouteLoader` builds the router of `parameters.storyRoute`.
   loaders: [mswLoader, storyRouteLoader],
+  // Each decorator is a no-op until the story file sets its parameter. The
+  // first decorator is the innermost.
   decorators: [
-    (Story, { id }): ReactElement => (
-      <div className="min-h-screen bg-background font-sans text-foreground antialiased">
-        <StorybookQueryBoundary key={id}>
-          <Suspense
-            fallback={
-              <p className="p-4 text-sm text-muted-foreground">Loading…</p>
-            }
-          >
-            <Story />
-          </Suspense>
-        </StorybookQueryBoundary>
-      </div>
-    ),
+    optIn("app", withApp),
+    optIn("storyRoute", withStoryRoute),
+    optIn("queryClient", withQueryClient),
   ],
   parameters: {
     controls: {
@@ -166,9 +108,6 @@ const preview: Preview = {
         color: /(background|color)$/i,
         date: /Date$/i,
       },
-    },
-    msw: {
-      handlers: storybookDefaultMswHandlers,
     },
   },
 }

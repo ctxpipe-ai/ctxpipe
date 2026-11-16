@@ -12,13 +12,11 @@ import {
   organizationListWithOrgHandler,
   organizationMembersHandler,
   organizationPermissionHandler,
+  signedInHandlers,
 } from "@/mocks/handlers"
 import { sideNavHandlers } from "@/mocks/workspace-handlers"
+import { workspaceIngestionHandlers } from "@/mocks/workspace-ingestion-handlers"
 
-import {
-  entryPageInnerDecorators,
-  orgPageDecorators,
-} from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import {
   OrganizationSettingsBody,
@@ -28,8 +26,15 @@ import {
 const meta = {
   title: "Pages/Organization settings",
   component: OrganizationSettingsBody,
-  decorators: entryPageInnerDecorators,
   parameters: {
+    msw: {
+      handlers: {
+        session: signedInHandlers,
+        ingestion: workspaceIngestionHandlers({}),
+      },
+    },
+    app: "root",
+    queryClient: true,
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -54,8 +59,8 @@ export const Settings: Story = {
   args: {
     organizationView: "settings",
   },
-  decorators: orgPageDecorators,
   parameters: {
+    app: "org",
     review: {
       kind: "page",
       purpose:

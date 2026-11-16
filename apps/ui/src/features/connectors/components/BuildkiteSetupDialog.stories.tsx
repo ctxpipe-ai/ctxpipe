@@ -8,13 +8,14 @@ import {
   buildkiteStatusHandler,
   buildkiteStoryStatus,
 } from "@/mocks/buildkite-handlers"
+import { signedInHandlers } from "@/mocks/handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
   connectionUsageHandler,
   workspaceSourceAddHandlers,
 } from "@/mocks/workspace-sources-handlers"
+import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { docsWorkspace } from "../../workspaces/workspace-fixtures"
 import { BuildkiteSetupDialog } from "./BuildkiteSetupDialog"
@@ -40,8 +41,15 @@ function Dialog(props: { connectionId?: string; replaceWebhook?: boolean }) {
 const meta = {
   title: "Components/Connections/BuildkiteSetupDialog",
   component: Dialog,
-  decorators: entryPageInnerDecorators,
   parameters: {
+    msw: {
+      handlers: {
+        session: signedInHandlers,
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
+      },
+    },
+    app: "root",
+    queryClient: true,
     layout: "fullscreen",
     storyRoute: { pattern: "orgIndex", orgSlug } satisfies StoryRouteParams,
     review: { kind: "component" },

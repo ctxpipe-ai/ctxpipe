@@ -3,6 +3,7 @@ import { HttpResponse, http } from "msw"
 import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import { signedInHandlers } from "@/mocks/handlers"
 import {
   plainCatalogHandler,
   plainStatusHandler,
@@ -13,8 +14,8 @@ import {
   connectionUsageHandler,
   workspaceSourceAddHandlers,
 } from "@/mocks/workspace-sources-handlers"
+import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { docsWorkspace } from "../../workspaces/workspace-fixtures"
 import { PlainSetupDialog } from "./PlainSetupDialog"
@@ -40,8 +41,15 @@ function Dialog(props: { connectionId?: string; reconnect?: boolean }) {
 const meta = {
   title: "Components/Connections/PlainSetupDialog",
   component: Dialog,
-  decorators: entryPageInnerDecorators,
   parameters: {
+    msw: {
+      handlers: {
+        session: signedInHandlers,
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
+      },
+    },
+    app: "root",
+    queryClient: true,
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: { pattern: "orgIndex", orgSlug } satisfies StoryRouteParams,

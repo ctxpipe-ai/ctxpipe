@@ -7,12 +7,14 @@ import {
   buildkiteStatusHandler,
   buildkiteStoryStatus,
 } from "@/mocks/buildkite-handlers"
+import { signedInHandlers } from "@/mocks/handlers"
 import {
   connectionUsageHandler,
   connectionUsageItem,
+  activeMemberRoleHandler,
 } from "@/mocks/workspace-sources-handlers"
+import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { BuildkiteConnectionCard } from "./BuildkiteConnectionCard"
 
@@ -24,11 +26,15 @@ const meta = {
   title: "Components/Connections/BuildkiteCard",
   component: BuildkiteConnectionCard,
   args: { orgSlug, connectionId, onOpenSetup },
-  decorators: entryPageInnerDecorators,
   parameters: {
+    app: "root",
+    queryClient: true,
     review: { kind: "component" },
     msw: {
       handlers: {
+        session: signedInHandlers,
+        role: [activeMemberRoleHandler("admin")],
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
         usage: [
           connectionUsageHandler([
             connectionUsageItem({

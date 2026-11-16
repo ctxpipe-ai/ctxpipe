@@ -34,7 +34,7 @@ Every route that renders a page has a page story. Tag it `page` and name its rou
 - The contract is `tags: ["page"]` and `parameters: { route: "<TanStack route id>" }`. The route id is a key of `FileRoutesById` in `apps/ui/src/routeTree.gen.ts` (for example `/$orgSlug/connectors`). The route must be a string literal.
 - Put both in the `meta` when every story of the file renders the page. Put them in one story when only that story does. A story `route` replaces the `route` of the `meta`, so one file can cover a layout route and its child routes. A story that shows only a part of the page, or that ends on another page, removes the inherited tag with `tags: ["!page"]`.
 - A page story may render the feature component and not import the route file. This is why the route id is explicit.
-- A story that shows only a part of a page (a dialog, a card, a page without its shell) is not a page story. Do not tag it. A page story renders the whole page as the route does: with the org shell for a route under `/$orgSlug` (`orgPageDecorators`).
+- A story that shows only a part of a page (a dialog, a card, a page without its shell) is not a page story. Do not tag it. A page story renders the whole page as the route does: with the org shell for a route under `/$orgSlug` (`parameters.app: "org"`).
 - A route that does not render a page (a layout, a redirect relay, an API route) needs an entry with a reason in [`scripts/ci/page-story-exemptions.json`](../../../scripts/ci/page-story-exemptions.json). A page that is too costly to story gets the reason `backfill: <why>`. Do not exempt a real page to save work.
 - **Guard:** `node scripts/ci/check-page-stories.mjs` runs in CI (the lint job, as the policy check `page-stories`). It fails when a route has no page story and no exemption, a page story has no route or names a route that does not exist, or an exemption has no reason, names an unknown route, or names a route that has a page story.
 - The `page` tag says that the story renders a route: route coverage, and a mobile screenshot. The visual critic does not read it. It reads the kind (see Review annotations).
@@ -85,7 +85,7 @@ Each story shows a state that a user can see in the real product. A screenshot o
 - Do not write a story for an empty frame: a shell, a layout or a page frame with a placeholder child ("Slide placeholder", "Main content"). Put a real child in it, or write a story for the page that renders it.
 - Do not give a component a context that the product never gives it. For example, the SideNav is always in the shell layout: its story wraps it in `ShellLayoutProvider`, or the nav has no org and no items.
 - The end state of a play is the screenshot. A play that ends on a test harness (a test panel with load buttons, a story route marker such as "Story route: /acme", "Landed on …" or "Home page", an empty page after a navigation) keeps its play and skips its screenshot: `visual: { skip: "Behavior test: it ends on a story route marker, which the product does not render." }`.
-- MSW: the preview `defaults` (the signed-in session, the org list, the auth config) answer before a story's `page` handlers. A story that changes the session or the org list puts its handlers in `defaults`. Else the story shows the default user, or "Not Found" after a redirect.
+- MSW: the handlers of the meta come before the handlers of a story in another key. A story that changes the session or the org list replaces the `session` key of the meta. Else the story shows the user of the meta, or "Not Found" after a redirect.
 - Look at each new or changed screenshot. If it does not show the state of the purpose, the story is wrong.
 
 ## One story for each state
@@ -103,17 +103,35 @@ Each UI state has one story. Two stories of one state give two screenshots to re
 ## Colocation and naming
 
 - **Component stories**: colocate with the component; `title` uses **`Components/...`** (or **`App/...`** for app shell) — see existing stories under `src/components/` and feature folders.
-- **Full-page / route stories**: `title` under **`Pages/...`**, e.g. `Pages/Connections` for a connectors page story. Org product pages (Home, Connectors, Workspace, new workspace) use **`orgPageDecorators`** (`AppShell` + `entryPageInnerDecorators`) so the shell matches production `/$orgSlug`. Isolated feature stories keep **`entryPageInnerDecorators`**. See `parameters.storyRoute` and **`layout: "fullscreen"`**.
+- **Full-page / route stories**: `title` under **`Pages/...`**, e.g. `Pages/Connections` for a connectors page story. Org product pages (Home, Connectors, Workspace, new workspace) set **`app: "org"`** (the app providers and the `AppShell`) so the shell matches production `/$orgSlug`. Isolated feature stories set **`app: "root"`**. See No globals, `parameters.storyRoute` and **`layout: "fullscreen"`**.
 - **Route file naming**: use **`-` prefix** for story files next to routes (e.g. `-connectors.stories.tsx`) so they are not picked up as route modules.
 - **Story export names (CSF)**: **Do not** name a story export `Default`. Each export should describe the **visible state or scenario** (e.g. `Empty`, `Loading`, `WelcomeAnimation`, `ValidationError`, `Installed`). If the surface fetches, export **`Loading`** (or `Checking` / `Hydrating` when that is the real wait). If you need a particular story first in the sidebar, use **`parameters` / story sort** (or Storybook’s ordering options)—not a `Default` name.
 
 ## Render real components; mock data, not components
 
 - **Do not** replace production components with “story-only” fakes. Stories should import and render the **same** components the app uses so visuals and types stay honest.
-- **Do** use **MSW** for API, auth-adjacent, and other network boundaries. The addon is **`msw-storybook-addon`**; preview wires **`mswLoader`** and default handlers. Project defaults live in [apps/ui/.storybook/preview.tsx](../../../apps/ui/.storybook/preview.tsx). MSW paints chrome; it is not _proof_ that a server listing is correct. See [tdd/mocking.md](../tdd/mocking.md). Each request of the page needs a mock (see Mock every request).
+- **Do** use **MSW** for API, auth-adjacent, and other network boundaries. The addon is **`msw-storybook-addon`**; the preview ([apps/ui/.storybook/preview.tsx](../../../apps/ui/.storybook/preview.tsx)) wires **`mswLoader`**, which applies the handlers of the story file. The preview has no handler of its own (see No globals). MSW paints chrome; it is not _proof_ that a server listing is correct. See [tdd/mocking.md](../tdd/mocking.md). Each request of the page needs a mock (see Mock every request).
 - **In-page nav:** a delayed region (conversation, blob) must skeleton **only** that region. Sibling chrome (files pane, `AppShell`) stays populated. Play functions that click compose ↔ thread should assert the sibling pane is still there and the page is not `"Loading workspace"`.
 - **Org page enter:** delayed Home / Connectors / Workspace detail must skeleton **only the main column**. SideNav stays (assert `navigation` named `Main navigation`). Do not remount `AppShell` inside the story component.
 - **Handlers**: use **`http.get` / `http.post`**, **`HttpResponse.json`**, and path/query checks consistent with the real API (see existing stories for org-scoped paths like `/:orgSlug/api/...`).
+
+## No globals
+
+The mocks and the wrappers of a story are in its story file: in its meta or in its stories, never above. The globals of [`preview.tsx`](../../../apps/ui/.storybook/preview.tsx) add no mock, add nothing to the DOM and change no behavior that a story sees.
+
+- **Opt-in decorators.** Each global decorator is `optIn("<parameter>", decorator)`: it does nothing until the story file sets the parameter. Set it in the meta, or in a story.
+  - `queryClient: true`: a new Query client for the story. Set it when the story reads TanStack Query.
+  - `storyRoute: { ... }`: the in-memory router that renders the story at a route ([`with-story-route.tsx`](../../../apps/ui/.storybook/decorators/with-story-route.tsx)).
+  - `app: "root"`: the providers of `__root.tsx` (auth, HyperDX off, the React Aria router). `app: "org"`: the same, and the `AppShell` of `/$orgSlug`. The providers read the router and the Query client, so set `storyRoute` and `queryClient` too, and mock the session (`signedInHandlers`).
+- A wrapper that only one story file needs (a frame with a width, a `Toaster`) is a decorator in that file.
+- **The globals that stay** add nothing that a story sees:
+  - The MSW worker start (`initialize`) with the record of the unmocked requests (see Mock every request). Its one initial handler, `unhandledSocketHandler`, answers no socket: it closes a socket that no story handler matches, as a request with no mock fails. It does nothing to a socket that a story handler matches.
+  - `mswLoader` applies the handlers of the story file. `storyRouteLoader` builds the router of `parameters.storyRoute` and does nothing without it.
+  - `beforeEach` clears the local and session storage, so each story starts as in a new browser.
+  - The test hooks on `window` for the play runner and the capture (`__ctxpipeLayoutProblems`, `__ctxpipeUnhandledRequests`, `__ctxpipeMswHandlers`).
+  - The app stylesheet (`src/styles.css`) and the dark theme of `preview-head.html`: production loads both on each page (`__root.tsx`).
+  - The `controls` parameter, which only the Storybook UI reads.
+- **Guard:** `node scripts/ci/check-storybook-globals.mjs` runs in CI (the policy check `storybook-globals`). It fails when `preview.tsx` sets `parameters.msw`, or when `initialize()` gets a handler other than `unhandledSocketHandler`. It fails when a file of `.storybook` imports `src/mocks`, makes an MSW handler or adds one to the worker. It fails when a global decorator is not `optIn(...)`. The story Testing/Preview globals ([`preview-globals.stories.tsx`](../../../apps/ui/src/lib/preview-globals.stories.tsx)) proves in the browser that a story with no opt-in gets no wrapper, no Query client and no mock.
 
 ## Mock every request
 
@@ -123,19 +141,20 @@ A story mocks each network request of its page. A request that no MSW handler an
 - **Give each request a state that fits the purpose of the story**: the data of a success, `"loading"` (the request does not end) or `"error"`. Use the state that `parameters.review.purpose` names. A story about a list shows the list; a story about a failed load shows the error of that request.
 - **Use the shared handlers.** They are in [`apps/ui/src/mocks/`](../../../apps/ui/src/mocks/), one module for each API area: `handlers.ts` (session, org, GitHub App), `workspace-handlers.ts` (Workspaces, files, conversations), `workspace-sources-handlers.ts` (sources, connections, member role), `workspace-upgrades-handlers.ts`, `workspace-ingestion-handlers.ts`, `setup-guide-handlers.ts`, and one module for each connector (`linear-handlers.ts` and others). Most take a `MockState<T>` from [`mock-state.ts`](../../../apps/ui/src/mocks/mock-state.ts): the data, `"loading"` or `"error"`. Do not copy a handler into a story. When a second story file needs a request contract, move its handler into the area module. A handler that only one story needs (a request counter, a reply that changes after a click) can stay in the story.
 - **Compositions** mock a whole surface:
+  - `signedInHandlers`: the signed-in story user, an admin of the org `acme`: the auth config, the session, the org list and the full org. The app providers (`parameters.app`) read them on each page.
   - `workspaceShellHandlers()`: the Workspace page with a conversation (the list, the detail, the files, the graph, the chat transcript, the turns, the pull request, the chat socket and the upgrades).
   - `setupGuideHandlers()`: the setup guide reads of an admin on the org home.
   - `githubAppInstalledHandlers`: the GitHub App bootstrap and installation that a repository picker reads.
   - `sideNavHandlers()`: the Workspaces and chats of the side nav on an org page.
-- **Defaults of the preview.** The `defaults` key answers the session, the auth config and the org list. The `pendingUpgrades` and `ingestion` keys answer no pending upgrade and no ingestion. The initial handlers of the worker answer the full org and the member role `admin`. A handler of a story, in any key, comes before an initial handler. To change the session or the org list, set `parameters.msw.handlers.defaults` in the story.
-- **Order.** The addon flattens `Object.values(parameters.msw.handlers)` in key order into one `worker.use(...)` call, and the first handler that matches wins. The keys come in this order: the keys of the preview, then the keys of the meta, then the other keys of the story. A story value for a key replaces the value of the meta at the same place. Thus put a story handler before a composition in the same array. When a meta sets defaults that a story `page` must win over, start the meta handlers with `page: []`.
+- **Handlers of the meta.** No handler comes from the preview. The meta of a story file sets the handlers that its stories share, and a story adds or replaces keys. Use the same key names in each file: `session` (`signedInHandlers`, or the session of the story), `role` (`activeMemberRoleHandler(...)`), `pendingUpgrades` (`[pendingWorkspaceUpgradesHandler({})]`: no pending upgrade), `ingestion` (`workspaceIngestionHandlers({})`: no ingestion) and `page` (the reads of the story). A page with the `AppShell` reads the ingestion. A connect flow reads the pending upgrades.
+- **Order.** The addon flattens `Object.values(parameters.msw.handlers)` in key order into one `worker.use(...)` call, and the first handler that matches wins. The keys come in this order: the keys of the meta, then the other keys of the story. A story value for a key replaces the value of the meta at the same place. Thus a story that changes a handler of the meta sets the same key (for example `role: [activeMemberRoleHandler("member")]`), not a handler in `page`. Put a story handler before a composition in the same array. When a meta sets handlers that a story `page` must win over, start the meta handlers with `page: []`.
 - **A chat socket** is a request too. `workspaceShellHandlers()` has an MSW `ws.link` handler that opens the socket and sends nothing. A story that streams a run replaces `window.WebSocket` with `installAguiWebSocket`.
 - **Never add a catch-all handler** (`http.all("*")`, or a path pattern that answers requests of more than one endpoint) to make the check pass. It hides the requests that the story must show.
 - **To find the requests of a story**, run its play or its screenshot. The failure lists each request that has no handler.
 
 ## TanStack Start + React Aria in Storybook
 
-- Page-level stories use the decorator stack in [apps/ui/.storybook/decorators/entry-page-decorators.ts](../../../apps/ui/.storybook/decorators/entry-page-decorators.ts) (`withReactAriaRouter`, auth, `withStoryRoute`, etc.) so `useRouter` and org routes behave.
+- Page-level stories set `parameters.app` and `parameters.storyRoute` (see No globals), so that `useRouter`, the React Aria router and org routes behave.
 - **Do not** import the **`storybook-addon-tanstack-start` package entry** from story files; it can pull the Vite plugin into the browser bundle. The preset is only registered in [apps/ui/.storybook/main.ts](../../../apps/ui/.storybook/main.ts).
 
 ## Testing in Storybook
@@ -217,8 +236,8 @@ Each screenshot of a page story shows the full page at the width of its viewport
 
 A story with the kind `component` (see Review annotations) shows only its component, as Chromatic does. The capture crops the full page to the union of the boxes that the story paints, with a padding of 16 px ([`visual-component-box.mjs`](../../../scripts/ci/visual-component-box.mjs)). A story with the kind `page` keeps the full page.
 
-- The capture looks at the content of the decorator of `preview.tsx`, and at each overlay outside `#storybook-root` (the portal of a dialog, a popover, a menu or a toast). Thus an open menu or a toast is in the shot.
-- An element paints when it has a background, a border or a shadow, when it is an image, an SVG, a canvas or a form control, and where it has text. A background of the same color as the decorator does not count, and neither does a transparent popover underlay. The dim underlay of an open modal paints the viewport, so that story shows the full page.
+- The capture looks at the content of `#storybook-root`, and at each overlay outside it (the portal of a dialog, a popover, a menu or a toast). Thus an open menu or a toast is in the shot.
+- An element paints when it has a background, a border or a shadow, when it is an image, an SVG, a canvas or a form control, and where it has text. A background of the same color as the page (the body) does not count, and neither does a transparent popover underlay. The dim underlay of an open modal paints the viewport, so that story shows the full page.
 - Hidden content does not count: `display: none`, `opacity: 0`, `visibility: hidden`, a box of 1 px or less (a visually hidden label), and content that an ancestor clips (`overflow` is not `visible`). A masked element counts, so the shot keeps its place.
 - The capture measures the area again for each shot. A layout that still moves gives another area, and the shot is not steady.
 

@@ -3,7 +3,8 @@ import { HttpResponse, http } from "msw"
 import { useEffect, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
+import { signedInHandlers } from "@/mocks/handlers"
+
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { ConversationTitleButton } from "./ConversationTitleButton"
 
@@ -32,11 +33,12 @@ function Harness() {
 const meta = {
   title: "Components/Workspaces/ConversationTitleButton",
   component: Harness,
-  decorators: [...entryPageInnerDecorators],
   beforeEach: () => {
     patches.length = 0
   },
   parameters: {
+    app: "root",
+    queryClient: true,
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -44,6 +46,7 @@ const meta = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
+        session: signedInHandlers,
         page: [
           http.patch(
             ({ request }) =>

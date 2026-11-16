@@ -3,8 +3,8 @@ import { type ComponentProps, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { Button } from "@/components/ui/Button"
+import { signedInHandlers } from "@/mocks/handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { docsWorkspaceGitTree } from "./workspace-fixtures"
 import { WorkspaceFileTree } from "./WorkspaceFileTree"
@@ -38,9 +38,11 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    msw: { handlers: { session: signedInHandlers } },
+    app: "root",
+    queryClient: true,
     review: { kind: "component" },
     layout: "centered",
     storyRoute: {

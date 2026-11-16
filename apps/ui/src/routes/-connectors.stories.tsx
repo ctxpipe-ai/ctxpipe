@@ -12,13 +12,14 @@ import {
   buildkiteStatusHandler,
   buildkiteStoryStatus,
 } from "@/mocks/buildkite-handlers"
-import { githubAppInstalledHandlers } from "@/mocks/handlers"
+import { githubAppInstalledHandlers, signedInHandlers } from "@/mocks/handlers"
 import { linearOauthAppHandler } from "@/mocks/linear-handlers"
 import { plainStatusHandler, plainStoryStatus } from "@/mocks/plain-handlers"
 import {
   sideNavHandlers,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
+import { workspaceIngestionHandlers } from "@/mocks/workspace-ingestion-handlers"
 import {
   activeMemberRoleHandler,
   connectionUsageHandler,
@@ -28,7 +29,6 @@ import {
   upgradeItemFixture,
 } from "@/mocks/workspace-upgrades-handlers"
 
-import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { ConnectorsPageContent } from "./$orgSlug.connectors"
 
@@ -37,13 +37,18 @@ const orgSlug = "acme"
 const meta = {
   title: "Pages/Connections",
   tags: ["page"],
-  decorators: orgPageDecorators,
   parameters: {
+    app: "org",
+    queryClient: true,
     layout: "fullscreen",
     review: { kind: "page" },
     route: "/$orgSlug/connectors",
     msw: {
       handlers: {
+        session: signedInHandlers,
+        role: [activeMemberRoleHandler("admin")],
+        ingestion: workspaceIngestionHandlers({}),
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
         // A story sets `page`. It comes first, so it wins over `shared`.
         page: [],
         // The reads that most stories share: the Workspaces of the side
@@ -384,6 +389,7 @@ function statusFailed(pathnameSuffix: string, connectionId: string) {
 function pageHandlers(
   handlers: ReturnType<typeof http.get>[],
   pendingUpgrades?: ReturnType<typeof pendingWorkspaceUpgradesHandler>,
+  role?: "owner" | "member",
 ) {
   return {
     storyRoute: {
@@ -392,8 +398,10 @@ function pageHandlers(
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
+        // The meta answers an admin and "no pending upgrade"; these keys
+        // replace them.
+        ...(role ? { role: [activeMemberRoleHandler(role)] } : {}),
         page: handlers,
-        // The global default answers "no pending upgrade"; this key replaces it.
         ...(pendingUpgrades ? { pendingUpgrades: [pendingUpgrades] } : {}),
       },
     },
@@ -461,9 +469,9 @@ export const NeedsFormatUpgrade: Story = {
         pagerdutyStatusHandler(pagerdutyStatusComplete),
         connectionUsageHandler([]),
         workspaceListHandler([docsWorkspace]),
-        activeMemberRoleHandler("owner"),
       ],
       pendingWorkspaceUpgradesHandler({ docs: [upgradeItemFixture()] }),
+      "owner",
     ),
     review: {
       purpose:
@@ -504,11 +512,11 @@ export const NeedsFormatUpgradeNoRowYet: Story = {
         pagerdutyStatusHandler(pagerdutyStatusComplete),
         connectionUsageHandler([]),
         workspaceListHandler([docsWorkspace]),
-        activeMemberRoleHandler("owner"),
       ],
       pendingWorkspaceUpgradesHandler({}, undefined, {
         formats: { docs: 0 },
       }),
+      "owner",
     ),
     review: {
       purpose:
@@ -536,9 +544,9 @@ export const NeedsFormatUpgradeNoConnections: Story = {
           () => HttpResponse.json({ items: [] }),
         ),
         workspaceListHandler([docsWorkspace]),
-        activeMemberRoleHandler("member"),
       ],
       pendingWorkspaceUpgradesHandler({ docs: [upgradeItemFixture()] }),
+      "member",
     ),
     review: {
       purpose:

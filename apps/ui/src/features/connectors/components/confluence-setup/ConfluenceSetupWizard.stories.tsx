@@ -8,6 +8,7 @@ import {
   atlassianOauthSaveHandler,
 } from "@/mocks/atlassian-handlers"
 import { confluenceTreeHandlers } from "@/mocks/confluence-handlers"
+import { signedInHandlers } from "@/mocks/handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
   connectionUsageHandler,
@@ -17,8 +18,8 @@ import {
   workspaceSourceList,
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
+import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../../.storybook/decorators/with-story-route"
 import { docsWorkspace } from "../../../workspaces/workspace-fixtures"
 import type { AtlassianConnectorStatus } from "../../types"
@@ -113,7 +114,6 @@ const wizard = (extra?: {
 const meta = {
   title: "Components/Connections/Atlassian/SetupWizard",
   component: ConfluenceSetupWizard,
-  decorators: entryPageInnerDecorators,
   args: {
     orgSlug,
     atlassianConnectionId,
@@ -121,6 +121,14 @@ const meta = {
     onOpenChange: () => {},
   },
   parameters: {
+    msw: {
+      handlers: {
+        session: signedInHandlers,
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
+      },
+    },
+    app: "root",
+    queryClient: true,
     layout: "fullscreen",
     docs: {
       description: {

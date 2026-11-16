@@ -6,6 +6,7 @@ import { type ComponentProps, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { Button } from "@/components/ui/Button"
+import { signedInHandlers } from "@/mocks/handlers"
 import {
   conversationFilePutHandler,
   conversationGitBlobHandler,
@@ -27,8 +28,9 @@ import {
   workspaceListHandler,
   workspaceSettingsHandlers,
 } from "@/mocks/workspace-handlers"
+import { workspaceIngestionHandlers } from "@/mocks/workspace-ingestion-handlers"
+import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import {
   clearAllConversationGitTreeSnapshots,
@@ -268,9 +270,10 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    app: "root",
+    queryClient: true,
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgWorkspace",
@@ -281,6 +284,9 @@ const meta = {
     review: { kind: "component" },
     msw: {
       handlers: {
+        session: signedInHandlers,
+        role: [activeMemberRoleHandler("admin")],
+        ingestion: workspaceIngestionHandlers({}),
         // A story sets `page`. It comes first, so it wins over the default.
         page: [],
         // The conversation has no pull request yet.

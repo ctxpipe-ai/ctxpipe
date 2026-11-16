@@ -4,8 +4,8 @@ import {
   atlassianOauthHandler,
   atlassianOauthSaveHandler,
 } from "@/mocks/atlassian-handlers"
+import { signedInHandlers } from "@/mocks/handlers"
 
-import { entryPageInnerDecorators } from "../../../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../../../.storybook/decorators/with-story-route"
 import { LinkAtlassianStep } from "./LinkAtlassianStep"
 
@@ -21,9 +21,11 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    msw: { handlers: { session: signedInHandlers } },
+    app: "root",
+    queryClient: true,
     layout: "centered",
     storyRoute: {
       pattern: "orgIndex",

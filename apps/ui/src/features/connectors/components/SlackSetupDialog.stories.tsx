@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button"
 import { CHOOSE_WORKSPACES_HINT } from "@/features/workspace-sources/ChooseWorkspacesStep"
 import { workspaceSourcesOptions } from "@/features/workspace-sources/queries"
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
-import { githubAppMissingHandlers } from "@/mocks/handlers"
+import { githubAppMissingHandlers, signedInHandlers } from "@/mocks/handlers"
 import { slackChannelsHandler } from "@/mocks/slack-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
@@ -20,8 +20,8 @@ import {
   workspaceSourceList,
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
+import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { SlackSetupDialog } from "./SlackSetupDialog"
 
@@ -54,7 +54,6 @@ function statusHandler(body: unknown) {
 const meta = {
   title: "Components/Connections/Slack/SetupDialog",
   component: SlackSetupDialog,
-  decorators: entryPageInnerDecorators,
   args: {
     orgSlug,
     connectionId,
@@ -62,6 +61,14 @@ const meta = {
     onOpenChange: () => {},
   },
   parameters: {
+    msw: {
+      handlers: {
+        session: signedInHandlers,
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
+      },
+    },
+    app: "root",
+    queryClient: true,
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {

@@ -10,13 +10,14 @@ import {
   docsWorkspace,
   readOnlyWorkspace,
 } from "@/features/workspaces/workspace-fixtures"
+import { signedInHandlers } from "@/mocks/handlers"
 import {
   conversationsListHandler,
   githubInstallationReposHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
+import { workspaceIngestionHandlers } from "@/mocks/workspace-ingestion-handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 
 const meta = {
@@ -32,9 +33,16 @@ const meta = {
         </div>
       </ShellLayoutProvider>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    msw: {
+      handlers: {
+        session: signedInHandlers,
+        ingestion: workspaceIngestionHandlers({}),
+      },
+    },
+    app: "root",
+    queryClient: true,
     layout: "fullscreen",
     review: { kind: "component" },
   },

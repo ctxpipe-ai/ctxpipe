@@ -200,6 +200,11 @@ const definitions = () => [
       "Catches a story with no review kind (page or component) or no purpose sentence for the visual critic. Run it when a story under apps/ui/src changes; never for a change outside it.",
     ],
     [
+      "storybook-globals",
+      ["apps/ui/.storybook/**"],
+      "Catches a mock or a wrapper above the story file: MSW handlers in the Storybook preview, or a global decorator that is not an opt-in. Run it when a file under apps/ui/.storybook changes; never for a change outside it.",
+    ],
+    [
       "duplicate-screenshots",
       [
         "apps/ui/src/**",

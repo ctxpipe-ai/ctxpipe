@@ -3,8 +3,7 @@ import { expect, fn, within } from "storybook/test"
 
 import { OnboardingHowItWorksSlide } from "@/components/onboarding/OnboardingHowItWorksSlide"
 import { OnboardingPageShell } from "@/components/onboarding/OnboardingPageShell"
-
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
+import { signedInHandlers } from "@/mocks/handlers"
 
 // The onboarding page story (Pages/Onboarding) owns the frame with a loaded
 // scene. This file has only the state that the page story cannot reach: the
@@ -12,8 +11,10 @@ import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-p
 const meta = {
   title: "Components/Onboarding/PageShell",
   component: OnboardingPageShell,
-  decorators: [...entryPageInnerDecorators],
   parameters: {
+    msw: { handlers: { session: signedInHandlers } },
+    app: "root",
+    queryClient: true,
     layout: "fullscreen",
     storyRoute: { pattern: "flat", path: "/onboarding" },
     review: { kind: "page" },

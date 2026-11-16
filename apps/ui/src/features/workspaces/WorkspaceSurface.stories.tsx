@@ -7,6 +7,7 @@ import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { responseGate } from "@/components/ui/skeletonMatchStory"
 import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
+import { signedInHandlers } from "@/mocks/handlers"
 import {
   conversationDetailLoadingHandler,
   conversationGitDiffHandler,
@@ -32,7 +33,6 @@ import {
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
 
-import { orgPageDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import type { IngestionItem } from "./ingestion"
 import {
@@ -56,8 +56,16 @@ const meta = {
   title: "Pages/Workspaces",
   tags: ["page"],
   component: WorkspaceSurface,
-  decorators: [...orgPageDecorators],
   parameters: {
+    msw: {
+      handlers: {
+        session: signedInHandlers,
+        role: [activeMemberRoleHandler("admin")],
+        ingestion: workspaceIngestionHandlers({}),
+      },
+    },
+    app: "org",
+    queryClient: true,
     layout: "fullscreen",
     route: "/$orgSlug/ws/$workspaceSlug",
     review: { kind: "page" },
@@ -368,9 +376,9 @@ export const ComposeNeedsFormatUpgrade: Story = {
     storyRoute: workspaceRoute(),
     msw: {
       handlers: {
+        role: [activeMemberRoleHandler("owner")],
         page: [
           workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
-          activeMemberRoleHandler("owner"),
           ...workspaceShellHandlers(),
         ],
       },
@@ -402,9 +410,9 @@ export const ConversationNeedsFormatUpgrade: Story = {
     storyRoute: workspaceRoute({ conversationId: "conv_1" }),
     msw: {
       handlers: {
+        role: [activeMemberRoleHandler("member")],
         page: [
           workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
-          activeMemberRoleHandler("member"),
           ...workspaceShellHandlers(),
         ],
       },
@@ -2328,11 +2336,11 @@ export const IngestingDemo: Story = {
     storyRoute: workspaceRoute(),
     msw: {
       handlers: {
+        role: [activeMemberRoleHandler("owner")],
         page: [
           workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
           workspaceSourcesHandler(workspaceSourceList()),
           orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
-          activeMemberRoleHandler("owner"),
           githubInstallationReposHandler(),
           ...workspaceShellHandlers(),
         ],

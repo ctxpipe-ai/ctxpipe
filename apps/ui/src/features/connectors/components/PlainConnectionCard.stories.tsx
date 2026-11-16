@@ -3,13 +3,15 @@ import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
+import { signedInHandlers } from "@/mocks/handlers"
 import { plainStatusHandler, plainStoryStatus } from "@/mocks/plain-handlers"
 import {
   connectionUsageHandler,
   connectionUsageItem,
+  activeMemberRoleHandler,
 } from "@/mocks/workspace-sources-handlers"
+import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { PlainConnectionCard } from "./PlainConnectionCard"
 
@@ -21,11 +23,15 @@ const meta = {
   title: "Components/Connections/PlainCard",
   component: PlainConnectionCard,
   args: { orgSlug, connectionId, onOpenSetup },
-  decorators: entryPageInnerDecorators,
   parameters: {
+    app: "root",
+    queryClient: true,
     review: { kind: "component" },
     msw: {
       handlers: {
+        session: signedInHandlers,
+        role: [activeMemberRoleHandler("admin")],
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
         usage: [
           connectionUsageHandler([
             connectionUsageItem({

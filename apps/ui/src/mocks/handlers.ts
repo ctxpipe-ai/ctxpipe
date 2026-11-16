@@ -191,6 +191,21 @@ export const organizationFullWithOrgHandler = organizationFullHandler({
 })
 
 /**
+ * The signed-in story user, an admin of the org `acme`, who completed
+ * onboarding: the auth config, the session, the org list and the full org.
+ * The app providers (`parameters.app`) read them on each page.
+ */
+export const signedInHandlers = [
+  authConfigHandler,
+  sessionSignedInHandler({
+    id: "user_storybook",
+    onboardingCompletedAt: "2025-01-01T00:00:00.000Z",
+  }),
+  organizationListWithOrgHandler,
+  organizationFullWithOrgHandler,
+]
+
+/**
  * `GET .../organization/list-members` in the Better Auth response shape:
  * the story user is the owner, and `count - 1` members follow.
  */

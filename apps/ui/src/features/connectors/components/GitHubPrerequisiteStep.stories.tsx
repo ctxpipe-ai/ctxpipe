@@ -1,8 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 
-import { githubAppMissingHandlers } from "@/mocks/handlers"
+import { githubAppMissingHandlers, signedInHandlers } from "@/mocks/handlers"
 
-import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { GitHubPrerequisiteStep } from "./GitHubPrerequisiteStep"
 
@@ -11,15 +10,18 @@ const orgSlug = "acme"
 const meta = {
   title: "Components/Connections/GitHubPrerequisiteStep",
   component: GitHubPrerequisiteStep,
-  decorators: entryPageInnerDecorators,
   parameters: {
+    app: "root",
+    queryClient: true,
     layout: "centered",
     storyRoute: {
       pattern: "orgIndex",
       orgSlug,
     } satisfies StoryRouteParams,
     review: { kind: "component" },
-    msw: { handlers: { github: githubAppMissingHandlers } },
+    msw: {
+      handlers: { session: signedInHandlers, github: githubAppMissingHandlers },
+    },
   },
 } satisfies Meta<typeof GitHubPrerequisiteStep>
 

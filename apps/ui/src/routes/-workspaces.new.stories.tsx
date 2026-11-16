@@ -8,16 +8,19 @@ import {
   createdWritableWorkspaceDetail,
 } from "@/features/workspaces/workspace-fixtures"
 import {
+  organizationFullWithOrgHandler,
   authConfigHandler,
   githubAppInstalledHandlers,
   organizationListWithOrgHandler,
   sessionSignedInHandler,
+  signedInHandlers,
 } from "@/mocks/handlers"
 import {
   githubInstallationReposHandler,
   workspaceDetailHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
+import { workspaceIngestionHandlers } from "@/mocks/workspace-ingestion-handlers"
 import {
   activeMemberRoleHandler,
   orgConnectionsHandler,
@@ -29,7 +32,6 @@ import {
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
 
-import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import {
   NewWorkspaceGate,
@@ -42,8 +44,9 @@ const orgSlug = "acme"
 const meta = {
   title: "Pages/Workspaces/New",
   tags: ["page"],
-  decorators: orgPageDecorators,
   parameters: {
+    app: "org",
+    queryClient: true,
     layout: "fullscreen",
     review: { kind: "page" },
     route: "/$orgSlug/workspaces/new",
@@ -53,6 +56,8 @@ const meta = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
+        session: signedInHandlers,
+        ingestion: workspaceIngestionHandlers({}),
         // Only an owner or admin sees the repository pickers.
         role: [activeMemberRoleHandler("owner")],
         page: [
@@ -184,6 +189,7 @@ const slowSessionDefaults = [
     onboardingCompletedAt: "2025-01-01T00:00:00.000Z",
   }),
   organizationListWithOrgHandler,
+  organizationFullWithOrgHandler,
 ]
 
 /** Opened at the URL that Add Workspace uses once the Workspace exists. */
@@ -312,7 +318,7 @@ export const LoadingStepTwo: Story = {
       search: "?workspace=handbook",
     } satisfies StoryRouteParams,
     msw: {
-      handlers: { defaults: slowSessionDefaults, page: stepTwoHandlers },
+      handlers: { session: slowSessionDefaults, page: stepTwoHandlers },
     },
   },
   render: () => <NewWorkspaceGate orgSlug={orgSlug} />,
@@ -550,7 +556,7 @@ export const KeepsPlaceBetweenSteps: Story = {
       "Catches layout shift between the loading skeleton and the loaded steps of the new workspace page. The step keeps its place while data loads. Not for step content.",
     msw: {
       handlers: {
-        defaults: slowSessionDefaults,
+        session: slowSessionDefaults,
         page: [
           // The repository list and the new Workspace load slowly.
           slowAnswer(

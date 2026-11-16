@@ -6,22 +6,24 @@ import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
 import {
   githubInstallationLinkedHandler,
   githubInstallationNoneHandler,
+  signedInHandlers,
 } from "@/mocks/handlers"
 import {
   sideNavHandlers,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
+import { workspaceIngestionHandlers } from "@/mocks/workspace-ingestion-handlers"
 
-import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { GitHubSetupPageContent } from "./$orgSlug.github.setup"
 
 const meta = {
   title: "Pages/Org GitHub setup",
   tags: ["page"],
-  decorators: orgPageDecorators,
   render: () => <GitHubSetupPageContent orgSlug="acme" />,
   parameters: {
+    app: "org",
+    queryClient: true,
     layout: "fullscreen",
     route: "/$orgSlug/github/setup",
     storyRoute: {
@@ -32,6 +34,8 @@ const meta = {
     review: { kind: "page" },
     msw: {
       handlers: {
+        session: signedInHandlers,
+        ingestion: workspaceIngestionHandlers({}),
         // A story sets `page`. It comes first, so it wins over `shell`.
         page: [],
         // The side nav lists the Workspaces of the org and their chats.

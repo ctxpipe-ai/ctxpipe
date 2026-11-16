@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
-import { githubAppInstalledHandlers } from "@/mocks/handlers"
+import { githubAppInstalledHandlers, signedInHandlers } from "@/mocks/handlers"
 import {
   conversationsListHandler,
   githubInstallationReposHandler,
@@ -10,6 +10,7 @@ import {
   workspaceDetailHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
+import { workspaceIngestionHandlers } from "@/mocks/workspace-ingestion-handlers"
 import {
   activeMemberRoleHandler,
   orgConnectionsHandler,
@@ -21,7 +22,6 @@ import {
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import {
   createdWorkspace,
@@ -41,9 +41,17 @@ const meta = {
         <Story />
       </ul>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    msw: {
+      handlers: {
+        session: signedInHandlers,
+        role: [activeMemberRoleHandler("admin")],
+        ingestion: workspaceIngestionHandlers({}),
+      },
+    },
+    app: "root",
+    queryClient: true,
     review: { kind: "component" },
     layout: "centered",
     storyRoute: {
@@ -268,9 +276,9 @@ export const AddWorkspaceThenRepositories: Story = {
     },
     msw: {
       handlers: {
+        // Only an owner or admin sees the repository picker.
+        role: [activeMemberRoleHandler("owner")],
         page: [
-          // Only an owner or admin sees the repository picker.
-          activeMemberRoleHandler("owner"),
           workspaceListHandler([docsWorkspace]),
           conversationsListHandler(docsConversations),
           orgConnectionsHandler([

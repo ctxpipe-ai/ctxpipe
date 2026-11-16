@@ -8,6 +8,7 @@ import {
   responseGate,
 } from "@/components/ui/skeletonMatchStory"
 import type { ConversationLastTurn } from "@/features/chat/types"
+import { signedInHandlers } from "@/mocks/handlers"
 import {
   conversationDetailHandler,
   conversationGitTreeHandler,
@@ -15,7 +16,6 @@ import {
   conversationsListLoadingHandler,
 } from "@/mocks/workspace-handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import {
   docsConversationDetail,
@@ -33,9 +33,11 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    msw: { handlers: { session: signedInHandlers } },
+    app: "root",
+    queryClient: true,
     review: { kind: "component" },
     layout: "centered",
     storyRoute: {

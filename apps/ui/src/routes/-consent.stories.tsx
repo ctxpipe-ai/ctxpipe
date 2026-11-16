@@ -2,9 +2,12 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
-import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
-import { authConfigHandler, organizationListHandler } from "../mocks/handlers"
+import {
+  organizationFullWithOrgHandler,
+  authConfigHandler,
+  organizationListHandler,
+} from "../mocks/handlers"
 import { ConsentPage } from "./[.]auth.consent"
 
 /** The headers of each consent request that the page sends. */
@@ -14,8 +17,9 @@ const meta = {
   title: "Pages/OAuth consent",
   tags: ["page"],
   component: ConsentPage,
-  decorators: entryPageInnerDecorators,
   parameters: {
+    app: "root",
+    queryClient: true,
     layout: "fullscreen",
     route: "/.auth/consent",
     storyRoute: {
@@ -26,7 +30,7 @@ const meta = {
     review: { kind: "page" },
     msw: {
       handlers: {
-        defaults: [
+        session: [
           authConfigHandler,
           http.get("*/.auth/api/v1/auth/get-session", () =>
             HttpResponse.json({
@@ -49,6 +53,7 @@ const meta = {
             { id: "org_north", name: "North Labs", slug: "north-labs" },
             { id: "org_south", name: "South Works", slug: "south-works" },
           ]),
+          organizationFullWithOrgHandler,
           http.post("*/oauth2/consent", async ({ request }) => {
             consentRequests.push({
               organizations: request.headers.get(
