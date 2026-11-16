@@ -9,9 +9,8 @@ values as production secrets.
 
 ## What a deployment needs
 
-- A [deployment path](/docs/self-hosting#choose-a-deployment-path): Docker Compose, AWS CDK,
-  or the Terraform stack for Railway and Neon.
-- PostgreSQL with pgvector. Compose and Terraform use PostgreSQL 17. AWS CDK
+- A [deployment path](/docs/self-hosting#choose-a-deployment-path): Docker Compose or AWS CDK.
+- PostgreSQL with pgvector. Compose uses PostgreSQL 17. AWS CDK
   uses Aurora PostgreSQL 16.
 - A graph database. FalkorDB is in the Compose stack.
 - A model provider: OpenRouter, Azure OpenAI, Amazon Bedrock, or another
@@ -342,15 +341,10 @@ endpoint is unset returns `204`.
 |---|---|
 | `AUTH_ISSUER` | Override the OAuth issuer claim. Defaults to `AUTH_BASE_URL`. |
 | `AUTH_ALLOWED_ORIGINS` | Comma-separated list of allowed CORS origins for auth endpoints. |
-| `OPENWORKFLOW_CONCURRENCY` | In-flight OpenWorkflow runs per worker process. Default `4` when unset. Compose sets `6`. AWS CDK and Terraform set a value for each size. |
+| `OPENWORKFLOW_CONCURRENCY` | In-flight OpenWorkflow runs per worker process. Default `4` when unset. Compose sets `6`. AWS CDK sets a value for each size. |
 | `AUTH_TOKEN_AUDIENCE_CODESEARCH` | Optional. The audience of the tokens that the backend sends to codesearch. If you set it, set the same value on the backend, the worker, and codesearch. |
 | `CODESEARCH_INDEXER_CONCURRENCY` | Max concurrent Zoekt/SCIP child processes on codesearch, and SCIP HTTP batch size on the worker. Default `2`. |
 | `CODESEARCH_INDEX_PIPELINE_CONCURRENCY` | Max distinct repos with in-flight OpenWorkflow index-phase HTTP (clone included). Default `2`. Codesearch returns 429 when full. |
-
-## Railway
-
-To run ctxpipe on Railway with the prebuilt images, start from the
-[Terraform](/docs/self-hosting/deployment/terraform) stack.
 
 ## Related pages
 

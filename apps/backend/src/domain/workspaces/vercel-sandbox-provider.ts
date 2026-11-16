@@ -44,8 +44,8 @@ export const GIT_TOKEN_ROTATE_MS = 10 * 60_000
 const GIT_TOKEN_REVOKE_GRACE_MS = 30_000
 
 /**
- * Tags on every hosted chat sandbox. `environment` is the Railway environment
- * name, so a closed PR preview's sandboxes can be found and deleted.
+ * Tags on every hosted chat sandbox. `environment` is the deployment
+ * environment name, so the sandboxes of one environment can be listed.
  * `environment` is the first tag because `listTaggedSandboxes` filters on the
  * first tag: one environment has fewer chats than all environments.
  */
@@ -57,8 +57,9 @@ export function conversationSandboxTags(
 
 /**
  * Tags on the sandbox that builds a Workspace base. Snapshots carry no tags,
- * so the stopped builder is kept as the base snapshot's owner: the PR-close
- * cleanup finds it by environment and deletes its snapshots with it.
+ * so the stopped builder is kept as the base snapshot's owner. A preview's
+ * base snapshots expire after 30 days, and the account step that ends Vercel
+ * Sandbox deletes what is left (ADR-048).
  */
 export function workspaceBaseTags(environment: string): Record<string, string> {
   return { ctxpipe: "workspace-base", environment }
@@ -376,9 +377,9 @@ export function conversationFirewall(
 }
 
 /**
- * Builder snapshots on a PR preview expire after 30 days, so a PR-close
- * cleanup that misses a builder leaves a bounded leftover. Production ones
- * have no expiry; they are deleted from their rows (bases) or when another
+ * Builder snapshots on a PR preview expire after 30 days, and the account
+ * step that ends Vercel Sandbox deletes what is left. Production ones have
+ * no expiry; they are deleted from their rows (bases) or when another
  * OpenCode version replaces them (agent snapshots).
  */
 export function builderSnapshotExpiration(environment: string): number {
@@ -722,9 +723,9 @@ type SandboxTarget = {
   credentials: VercelCredentials
   name: string
   /**
-   * Where the sandbox's GitHub token is kept, so it can be revoked. PR-close
-   * cleanup has none: the preview's database is deleted with the preview, and
-   * a token that is not revoked expires within an hour.
+   * Where the sandbox's GitHub token is kept, so it can be revoked.
+   * `deleteLateSandbox` has none: no row records that sandbox, and a token
+   * that is not revoked expires within an hour.
    */
   tokens?: SandboxGitTokenStore
   revoke?: (token: string) => Promise<void>

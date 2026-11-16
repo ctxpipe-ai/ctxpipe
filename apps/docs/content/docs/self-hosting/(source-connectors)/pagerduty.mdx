@@ -13,7 +13,7 @@ ctxpipe then creates one v3 webhook subscription for each connection. Operators
 do not paste a shared webhook signing secret.
 
 Deployment environment variables (`PAGERDUTY_CLIENT_ID` /
-`PAGERDUTY_CLIENT_SECRET`) are an optional shortcut, as on hosted ctxpipe. You do not need to restart Compose, Railway,
+`PAGERDUTY_CLIENT_SECRET`) are an optional shortcut, as on hosted ctxpipe. You do not need to restart Compose
 or CDK to finish first-time setup.
 
 ## What you need
@@ -91,14 +91,6 @@ PAGERDUTY_CLIENT_ID=...
 PAGERDUTY_CLIENT_SECRET=...
 pnpm start
 ```
-
-### Railway
-
-Set the OAuth variables on the production backend and worker. The repository's
-Terraform module passes provided `PAGERDUTY_*` values to both services. For
-the root Terraform stack, the corresponding inputs are
-`TF_VAR_pagerduty_client_id`, `TF_VAR_pagerduty_client_secret`, and
-`TF_VAR_pagerduty_redirect_uri`.
 
 ### AWS CDK
 

@@ -42,7 +42,8 @@ export async function hostedSandboxAccess(input: {
   const credentials = await vercelCredentials().catch(() => null)
   if (!credentials)
     return unavailable("Hosted chat sandboxes are not configured")
-  // On Railway, an untagged sandbox would escape the PR-close cleanup.
+  // On Railway, each sandbox gets the environment tag, so the sandboxes of
+  // one environment stay listable.
   const environment = deploymentEnvironment(process.env)
   if (!environment && process.env.RAILWAY_PROJECT_ID?.trim())
     return unavailable("Hosted chat needs the Railway environment name")

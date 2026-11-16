@@ -549,16 +549,10 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Source:** repository owner, after PR 280 CI took 45 minutes (ticket 18)
 
 ### Vercel sandbox tokens live only in GitHub environments
-- **Rule:** The production Vercel token is a secret of the GitHub `Production` environment, which only protected branches can use. Previews and CI use the separate Vercel project `ctxpipe-previews`, and its tokens are secrets of the `Preview` environment (deploy jobs) and the `workbench` environment (live contracts). There is no repository-level `VERCEL_ACCESS_TOKEN`. A workflow job that needs a token declares `environment: Preview` or `environment: workbench` (or `production` on `main`), and a pull request job never gets the production token.
+- **Rule:** The production Vercel token is a secret of the GitHub `Production` environment, which only protected branches can use. CI uses the separate Vercel project `ctxpipe-previews`, and its tokens are secrets of the `workbench` environment (live contracts). There is no repository-level `VERCEL_ACCESS_TOKEN`. A workflow job that needs a token declares `environment: workbench` (or `production` on `main`), and a pull request job never gets the production token.
 - **Category:** convention
 - **Date:** 2026-10-07
 - **Source:** repository owner, after a security audit found one Vercel token shared by production, previews and CI
-
-### Preview GitHub App comes from the Preview environment
-- **Rule:** A Railway preview is a duplicate of production, so it starts with the production GitHub App. The PR deploy writes the preview App from the `Preview` GitHub environment secrets `GH_*` (`scripts/preview-github-app-vars.sh`) and fails when one is empty. A missing `Preview` secret falls back to a repository secret with the same name, so keep production App secrets out of the repository level. Do not let a preview keep the production GitHub App or the production Vercel token. Other production secrets in a preview are still shared.
-- **Category:** convention
-- **Date:** 2026-10-10
-- **Source:** team lead, after a failed PR deploy deleted a live preview and re-created it with the production GitHub App
 
 ### New test files cannot spy on owned code
 - **Rule:** CI (`scripts/ci/check-test-policy.mjs`, in the lint job) treats each new test file as proof. A proof must not call `vi.mock`, `vi.doMock` or `vi.spyOn` on code of this repository, and that includes a spy on a request logger. `vi.spyOn` is permitted only on `Date`, `Math`, `globalThis` and `console`. Under the backend Vitest setup, the context of an evlog `createLogger()` stays empty, so a log event is not a usable end point either. Assert a real result: a database row, a git commit, or an HTTP call that msw records. Before you push a new test, run `git fetch origin 7dfa6b93a5baedc3eb2c86dd1056662e89cace00 --no-tags && node scripts/ci/check-test-policy.mjs`.
@@ -581,7 +575,7 @@ Read this when you set up or change a deployment: Railway production or previews
 
 
 ### CI secrets use plain names in GitHub environments
-- **Rule:** A CI secret keeps its plain name (for example `MODEL_PROVIDER_API_KEY`). Never add a prefix such as `PREVIEW_`. The GitHub environment decides which value a job reads. `Preview` is only for the Railway PR preview deploy, roll and cleanup jobs. `workbench` is for checks, evals, proofs and live contracts that call outside services; it holds only spend-capped or test-scoped keys. `Production` is the production deploy. Do not add a new environment without a stated need. `scripts/ci/check-secret-jobs.mjs` enforces the rules.
+- **Rule:** A CI secret keeps its plain name (for example `MODEL_PROVIDER_API_KEY`). Never add a prefix such as `PREVIEW_`. The GitHub environment decides which value a job reads. `workbench` is for checks, evals, proofs and live contracts that call outside services; it holds only spend-capped or test-scoped keys. `Production` is the production deploy. Do not add a new environment without a stated need. `scripts/ci/check-secret-jobs.mjs` enforces the rules.
 - **Category:** tooling
 - **Date:** 2026-10-18
 - **Source:** CTO decision for the PR preview secrets work

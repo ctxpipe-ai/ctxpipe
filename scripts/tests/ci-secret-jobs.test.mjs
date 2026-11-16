@@ -340,13 +340,8 @@ test("rejects an account token in a job that runs any untrusted code, even in a 
     )
 })
 
-const secretJob = (
-  secret,
-  environment,
-  file = "mcp-evals.yaml",
-  job = "evals",
-) => ({
-  [`.github/workflows/${file}`]: `on: pull_request\njobs:\n  ${job}:\n${environment}    steps:\n${install}      - env:\n          ${secret}: \${{ secrets.${secret} }}\n        run: bun evals/run.ts\n`,
+const secretJob = (secret, environment) => ({
+  ".github/workflows/mcp-evals.yaml": `on: pull_request\njobs:\n  evals:\n${environment}    steps:\n${install}      - env:\n          ${secret}: \${{ secrets.${secret} }}\n        run: bun evals/run.ts\n`,
 })
 
 test("rejects an outside-service secret in a job with untrusted code outside workbench", () => {
@@ -365,20 +360,6 @@ test("rejects an outside-service secret in a job with untrusted code outside wor
     const result = check(secretJob(secret, "    environment: workbench\n"))
     assert.doesNotMatch(result.stderr, /environment: workbench/)
   }
-})
-
-test("keeps the preview sandbox cleanup in Preview", () => {
-  const cleanup = (environment) =>
-    secretJob(
-      "VERCEL_ACCESS_TOKEN",
-      environment,
-      "pr-preview-teardown.yaml",
-      "cleanup_pr_sandboxes",
-    )
-  const result = check(cleanup("    environment: Preview\n"))
-  assert.equal(result.stderr, "")
-  assert.equal(result.status, 0)
-  rejects(cleanup(""), /does not use .environment: workbench/)
 })
 
 test("rejects the Railway and Neon keys in the workbench environment", () => {

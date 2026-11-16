@@ -97,16 +97,6 @@ NOTION_WEBHOOK_SECRET=...
 pnpm start
 ```
 
-### Terraform
-
-Pass the matching sensitive variables through your CI secret store:
-
-```bash
-TF_VAR_notion_client_id=...
-TF_VAR_notion_client_secret=...
-TF_VAR_notion_webhook_secret=...
-```
-
 ### AWS CDK
 
 Pass `notionClientId`, `notionClientSecret`, and `notionWebhookSecret` through

@@ -961,8 +961,8 @@ describe("agent snapshot and Workspace base", testLimit, () => {
     report(`[vercel] base snapshot ${Date.now() - started}ms`)
     expect(revoked).toEqual([token])
 
-    // PR-close cleanup finds the stopped builder by its tags, and a crash
-    // before the id was recorded still finds the snapshot under its builder.
+    // The tags list the stopped builder, and a crash before the id was
+    // recorded still finds the snapshot under its builder.
     expect(
       (
         await listTaggedSandboxes(credentials, workspaceBaseTags(environment))
