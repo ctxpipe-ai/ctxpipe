@@ -20,6 +20,7 @@ import {
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
 import { enqueueWorkspaceTipCheck } from "../../../openworkflow/enqueue-workspace-tip-check.js"
+import { startLostAccessRebuilds } from "../../../openworkflow/workflows/codesearch-checkout-gc.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 import {
@@ -97,6 +98,7 @@ async function registerInstallationFromConnectionWebhook(
   connectionId: string,
   installationId: number,
   ctx: GithubWebhookContext,
+  access?: { repoFullNames?: string[]; deliveryId?: string },
 ) {
   const row = await getGithubConnectionRowByConnectionId(connectionId)
   if (!row) {
@@ -130,6 +132,11 @@ async function registerInstallationFromConnectionWebhook(
     connectionId,
     env: ctx.env,
     log: ctx.log,
+  })
+  await startLostAccessRebuilds({
+    orgId: row.orgId,
+    githubConnectionId: connectionId,
+    ...access,
   })
 }
 
@@ -329,6 +336,7 @@ async function processInstallationEvent(
   connectionId: string | undefined,
   payload: unknown,
   ctx: GithubWebhookContext,
+  deliveryId: string | undefined,
 ) {
   if (!connectionId) return
   const parsed = z
@@ -344,6 +352,7 @@ async function processInstallationEvent(
     connectionId,
     parsed.data.installation.id,
     ctx,
+    { deliveryId },
   )
 }
 
@@ -351,6 +360,7 @@ async function processInstallationRepositoriesEvent(
   connectionId: string | undefined,
   payload: unknown,
   ctx: GithubWebhookContext,
+  deliveryId: string | undefined,
 ) {
   const parsed = z
     .object({
@@ -378,7 +388,7 @@ async function processInstallationRepositoriesEvent(
       undefined,
       ctx.env,
     )
-    for (const installation of installations)
+    for (const installation of installations) {
       await rebindUnboundWorkspaces({
         orgId: installation.orgId,
         connectionId: installation.id,
@@ -386,6 +396,14 @@ async function processInstallationRepositoriesEvent(
         log: ctx.log,
         repoFullNames,
       })
+      // A repository that lost access indexes again now that it is back.
+      await startLostAccessRebuilds({
+        orgId: installation.orgId,
+        githubConnectionId: installation.id,
+        repoFullNames,
+        deliveryId,
+      })
+    }
     return
   }
 
@@ -393,6 +411,12 @@ async function processInstallationRepositoriesEvent(
     connectionId,
     parsed.data.installation.id,
     ctx,
+    {
+      repoFullNames: (parsed.data.repositories_added ?? []).map(
+        (repository) => repository.full_name,
+      ),
+      deliveryId,
+    },
   )
 }
 
@@ -412,7 +436,12 @@ export async function processGithubWebhookPayload(
       await processRepositoryEvent(payload, ctx, opts?.connectionId)
       return
     case "installation":
-      await processInstallationEvent(opts?.connectionId, payload, ctx)
+      await processInstallationEvent(
+        opts?.connectionId,
+        payload,
+        ctx,
+        opts?.deliveryId,
+      )
       await maybeEnqueueGithubIssueBackfillsOnPermissionsAccepted({
         payload,
         githubConnectionId: opts?.connectionId,
@@ -424,6 +453,7 @@ export async function processGithubWebhookPayload(
         opts?.connectionId,
         payload,
         ctx,
+        opts?.deliveryId,
       )
       return
     case "pull_request":

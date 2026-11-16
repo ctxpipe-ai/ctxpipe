@@ -17,8 +17,10 @@ import {
   userFacingIndexingError,
 } from "../../lib/memoryFitError.js"
 import {
+  clearRepositoryLostAccess,
   ensureRepositoryRevisionCheckout,
   getRepositoryReadBinding,
+  markRepositoryLostAccess,
   repositoryIndexAlreadyPublished,
   setRepositoryIndexingStep,
 } from "../../models/repositories.js"
@@ -27,6 +29,7 @@ import {
   captureRepositoryIngestionRequest,
 } from "../../models/repository-ingestion-requests.js"
 import { flushWorkflowLog, getLogger } from "../../observability/logger.js"
+import { GitRemoteAccessError } from "../../services/git/clone-tree.js"
 import { checkedPlainGitRemote } from "../../services/git/plain-git-remote.js"
 import { parseIndexerConcurrency } from "../codesearchCapacity.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
@@ -304,7 +307,19 @@ export const repositoryIndex = defineWorkflow(
             input.githubConnectionId ?? repository.githubConnectionId,
         },
       }),
-    )
+    ).catch(async (error: unknown) => {
+      // A rebuild owns no request, so no ingestion records the failure. The
+      // refusal is permanent until the installation gets the repository
+      // back: record it, so that the hourly sweep stops the rebuilds and
+      // the UI tells the user what to fix (CTX-1297).
+      if (input.rebuild && error instanceof GitRemoteAccessError)
+        await markRepositoryLostAccess({
+          orgId: input.orgId,
+          repositoryId: input.repositoryId,
+          error,
+        })
+      throw error
+    })
 
     const checkout = await runIndexPhaseWithAdmissionRetry(
       indexStep,
@@ -331,6 +346,11 @@ export const repositoryIndex = defineWorkflow(
       targetHash: checkout.targetHash,
       ingestMode: checkout.ingestMode,
     })
+    if (input.rebuild)
+      await clearRepositoryLostAccess({
+        orgId: input.orgId,
+        repositoryId: input.repositoryId,
+      })
 
     const zoektResult = optionalIndexStepResult(
       await runIndexPhaseWithAdmissionRetry(

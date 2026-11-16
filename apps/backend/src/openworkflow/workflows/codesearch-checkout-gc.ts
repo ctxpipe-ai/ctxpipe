@@ -4,6 +4,8 @@ import {
   collectAllCheckouts,
   type PublishedRebuild,
 } from "../../domain/codesearchCheckoutGc.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
+import { listLostAccessRepositories } from "../../models/repositories.js"
 import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { repositoryIndex } from "./repository-index.js"
@@ -62,6 +64,40 @@ export async function startPublishedRebuilds(
         idempotencyKey: `repository-index-rebuild:${repositoryId}:${sha}:${hour}`,
       },
     )
+}
+
+/**
+ * Queues a codesearch-only index of each published repository of a GitHub
+ * connection that lost access, when the installation gets it back: all of
+ * them, or only `repoFullNames` (`owner/name`). A successful index ends the
+ * lost-access state (CTX-1297). `deliveryId` keys the runs, so a redelivered
+ * webhook queues no second run.
+ */
+export async function startLostAccessRebuilds(input: {
+  orgId: string
+  githubConnectionId: string
+  repoFullNames?: string[]
+  deliveryId?: string
+}): Promise<void> {
+  const wanted = input.repoFullNames?.map((name) => name.toLowerCase())
+  for (const repository of await listLostAccessRepositories(input)) {
+    const fullName = githubRepoFullNameFromWorkspaceUrl(repository.gitUrl)
+    if (wanted && !(fullName && wanted.includes(fullName.toLowerCase())))
+      continue
+    await enqueueWorkflow(
+      repositoryIndex.spec,
+      {
+        orgId: input.orgId,
+        repositoryId: repository.id,
+        targetHash: repository.sha,
+        ingestionV2: true,
+        rebuild: true,
+      },
+      {
+        idempotencyKey: `repository-index-access:${repository.id}:${repository.sha}:${input.deliveryId ?? new Date().toISOString()}`,
+      },
+    )
+  }
 }
 
 /** Queue the run of the UTC hour of `at`, to start at `at`. */

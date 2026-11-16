@@ -1,4 +1,4 @@
-import { eq, type SQL, sql } from "drizzle-orm"
+import { and, eq, not, type SQL, sql } from "drizzle-orm"
 import { z } from "zod"
 
 import { repositoryRevisionCheckoutKey } from "../../../../shared/workspace-checkout.js"
@@ -13,6 +13,7 @@ import { organizations } from "../db/schema/auth.js"
 import { repositories } from "../db/schema/repositories.js"
 import { formatUnknownError } from "../db/transientDbRetry.js"
 import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
+import { repositoryLostAccessCondition } from "../models/repositories.js"
 import { log } from "../observability/logger.js"
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 import {
@@ -398,8 +399,9 @@ export type PublishedRebuild = {
 }
 
 /**
- * The published revision of a repository, when it is not in `liveShas`: no
- * unfinished run indexes it now.
+ * The published revision of a repository, when it is not in `liveShas` (no
+ * unfinished run indexes it now) and the Git host did not refuse ctxpipe
+ * access to it (an index cannot read it until the access comes back).
  */
 async function publishedShaToRebuild(
   orgId: string,
@@ -410,7 +412,12 @@ async function publishedShaToRebuild(
     db
       .select({ sha: repositories.lastIngestedHash })
       .from(repositories)
-      .where(eq(repositories.id, repositoryId))
+      .where(
+        and(
+          eq(repositories.id, repositoryId),
+          not(repositoryLostAccessCondition()),
+        ),
+      )
       .limit(1),
   )
   const sha = row?.sha ?? undefined
