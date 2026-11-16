@@ -36,5 +36,8 @@ export function getServerApiHeaders(): HeadersInit {
  */
 export function hasSessionCredential(headers: HeadersInit): boolean {
   const forwarded = new Headers(headers)
-  return forwarded.has("authorization") || getSessionCookie(forwarded) !== null
+  return (
+    /^Bearer \S/i.test(forwarded.get("authorization") ?? "") ||
+    getSessionCookie(forwarded) !== null
+  )
 }
