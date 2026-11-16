@@ -216,9 +216,14 @@ function readStaged(layout: SessionLayout, id: string): string {
 /**
  * Shell text that reads a staged script once and runs it with `sh`. The
  * script deletes its own file first (see {@link stagedScript}).
+ *
+ * The script reads stdin from `/dev/null`, as a Docker exec without stdin
+ * does. In production, AgentCore kept a command's stdin open and sent
+ * nothing on it, and `opencode run` reads stdin to its end before its first
+ * request: each ingest model step waited until its time limit (CTX-1219).
  */
 function runStaged(layout: SessionLayout, id: string): string {
-  return `f=$(mktemp) && ${readStaged(layout, id)} > "$f" && exec sh "$f"`
+  return `f=$(mktemp) && ${readStaged(layout, id)} > "$f" && exec sh "$f" < /dev/null`
 }
 
 function stagedScript(script: string): Buffer {

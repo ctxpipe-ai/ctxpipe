@@ -9,7 +9,9 @@ export const withTestRequestLogger: MiddlewareHandler<AppEnv> = async (
   c,
   next,
 ) => {
-  c.set("log", createLogger({ test: true }) as AppEnv["Variables"]["log"])
+  // A test that mounts the real evlog middleware keeps its logger.
+  if (!c.get("log"))
+    c.set("log", createLogger({ test: true }) as AppEnv["Variables"]["log"])
   await next()
 }
 

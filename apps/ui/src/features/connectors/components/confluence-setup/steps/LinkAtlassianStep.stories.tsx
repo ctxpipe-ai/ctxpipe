@@ -25,6 +25,7 @@ const meta = {
       pattern: "orgIndex",
       orgSlug,
     } satisfies StoryRouteParams,
+    review: { kind: "component" },
   },
 } satisfies Meta<typeof LinkAtlassianStep>
 
@@ -79,6 +80,10 @@ export const LinkAtlassian: Story = {
   name: "Ready to sign in (3LO saved)",
   render: step,
   parameters: {
+    review: {
+      purpose:
+        "Step of the Confluence setup where the user links an Atlassian account: the org OAuth app is saved, so the user can sign in.",
+    },
     msw: {
       handlers: {
         page: [orgOauthHandler(true, false), orgOauthPut],
@@ -91,6 +96,10 @@ export const GlobalEnvOAuth: Story = {
   name: "Global env OAuth only",
   render: step,
   parameters: {
+    review: {
+      purpose:
+        "Step of the Confluence setup where the user links an Atlassian account: the deployment OAuth app is used, with no org app.",
+    },
     msw: {
       handlers: {
         page: [orgOauthHandler(false, true)],
@@ -103,6 +112,10 @@ export const UnsavedSelfHostedReminder: Story = {
   name: "Self-hosted 3LO not saved (wizard orphan edge)",
   render: step,
   parameters: {
+    review: {
+      purpose:
+        "Step of the Confluence setup where the user links an Atlassian account: no OAuth app is saved, so the step reminds the user to register one.",
+    },
     msw: {
       handlers: {
         page: [orgOauthHandler(false, false)],

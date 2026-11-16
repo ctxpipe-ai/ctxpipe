@@ -11,6 +11,7 @@ const meta = {
   component: InviteAcceptErrorNotice,
   parameters: {
     layout: "centered",
+    review: { kind: "component" },
   },
   args: {
     error: { kind: "failed" },
@@ -35,6 +36,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const AccountExists: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Error notice on the accept invitation card: the invited email already has an account, so the user must sign in.",
+    },
+  },
   args: { error: { kind: "account-exists" } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -49,6 +56,12 @@ export const AccountExists: Story = {
 }
 
 export const InvitationUnavailable: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Error notice on the accept invitation card: the invitation is not available, so the user must ask an admin.",
+    },
+  },
   args: { error: { kind: "invitation-unavailable" } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -65,6 +78,12 @@ export const InvitationUnavailable: Story = {
 }
 
 export const WrongRecipient: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Error notice on the accept invitation card: the user is signed in with another email and must sign out to go on.",
+    },
+  },
   args: {
     error: { kind: "wrong-recipient" },
     sessionEmail: "other@example.com",
@@ -82,6 +101,12 @@ export const WrongRecipient: Story = {
 }
 
 export const Refused: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Error notice on the accept invitation card: the server refused the invitation, and there is no retry.",
+    },
+  },
   args: { error: { kind: "refused" } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -99,6 +124,12 @@ export const Refused: Story = {
 }
 
 export const Failed: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Error notice on the accept invitation card: the accept request failed, and the user can try again.",
+    },
+  },
   args: { error: { kind: "failed" } },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)

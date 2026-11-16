@@ -29,6 +29,9 @@ const meta = {
     ),
   ],
   args: { sync: base },
+  parameters: {
+    review: { kind: "component" },
+  },
 } satisfies Meta<typeof ConversationSyncEntry>
 
 export default meta
@@ -48,6 +51,10 @@ export const SyncEntry: Story = {
   parameters: {
     intent:
       "Catches a sync entry in the conversation whose text or branch link is wrong. It names the file count and links the branch to its tree. Not for pull requests or agent pushes.",
+    review: {
+      purpose:
+        "Sync entry in a conversation thread, which records a push to GitHub: the user synced 3 files to the conversation branch.",
+    },
   },
   tags: ["required"],
   play: async ({ canvasElement }) => {
@@ -62,6 +69,10 @@ export const CreatePrEntry: Story = {
   parameters: {
     intent:
       "Catches a push entry that does not show the opened pull request. It names the branch and PR number and links both. Not for an existing PR or a push with no PR.",
+    review: {
+      purpose:
+        "Sync entry in a conversation thread, which records a push to GitHub: the push opened a new pull request, and the entry links it.",
+    },
   },
   tags: ["required"],
   args: {
@@ -84,6 +95,10 @@ export const ExistingPrEntry: Story = {
   parameters: {
     intent:
       "Catches a push entry that says a pull request opened when one already exists. The text says the push is for that PR and links it. Not for a new PR.",
+    review: {
+      purpose:
+        "Sync entry in a conversation thread, which records a push to GitHub: the push went to a pull request that was already open.",
+    },
   },
   tags: ["required"],
   args: {
@@ -107,6 +122,10 @@ export const CreatePrWithoutPrEntry: Story = {
   parameters: {
     intent:
       "Catches a push entry that shows a pull request link when GitHub did not open one. Only the branch link shows. Not for a successful PR.",
+    review: {
+      purpose:
+        "Sync entry in a conversation thread, which records a push to GitHub: the push succeeded, but GitHub did not open the pull request.",
+    },
   },
   tags: ["required"],
   args: { sync: { ...base, trigger: "create_pr" } },
@@ -123,6 +142,10 @@ export const AgentPushEntry: Story = {
   parameters: {
     intent:
       "Catches a push by the agent that shows the wrong actor text. The entry says the agent pushed the files and links the branch. Not for user or sweep pushes.",
+    review: {
+      purpose:
+        "Sync entry in a conversation thread, which records a push to GitHub: the agent pushed the files.",
+    },
   },
   tags: ["required"],
   args: { sync: { ...base, trigger: "agent" } },
@@ -138,6 +161,10 @@ export const SweepPushEntry: Story = {
   parameters: {
     intent:
       "Catches an automatic sweep push that shows the wrong actor text. The entry says ctxpipe pushed the files and links the branch. Not for agent or user pushes.",
+    review: {
+      purpose:
+        "Sync entry in a conversation thread, which records a push to GitHub: an automatic ctxpipe sweep pushed the files.",
+    },
   },
   tags: ["required"],
   args: { sync: { ...base, trigger: "sweep", files: 2 } },

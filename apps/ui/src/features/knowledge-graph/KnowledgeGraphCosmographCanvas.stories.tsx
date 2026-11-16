@@ -21,7 +21,7 @@ const meta = {
       </div>
     ),
   ],
-  parameters: { layout: "fullscreen" },
+  parameters: { layout: "fullscreen", review: { kind: "component" } },
   args: {
     onPointClick: fn(),
     onBackgroundClick: fn(),
@@ -127,9 +127,22 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const NativeLegends: Story = {}
+export const NativeLegends: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Graph canvas of the knowledge graph, where a user explores how the files of a Workspace link: six nodes with the legends in a wide frame.",
+    },
+  },
+}
 
 export const PaneNarrow: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Graph canvas of the knowledge graph, where a user explores how the files of a Workspace link: the canvas in a narrow pane.",
+    },
+  },
   decorators: [
     (Story) => (
       <div className="relative h-[32rem] w-96 overflow-hidden bg-zinc-950">
@@ -140,6 +153,12 @@ export const PaneNarrow: Story = {
 }
 
 export const PaneWide: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Graph canvas of the knowledge graph, where a user explores how the files of a Workspace link: the canvas in a wide pane.",
+    },
+  },
   decorators: [
     (Story) => (
       <div className="relative h-[32rem] w-full max-w-5xl overflow-hidden bg-zinc-950">
@@ -157,6 +176,10 @@ export const DrawerOpenDimsOverlays: Story = {
   // of Cosmograph move with it. The capture hides both.
   parameters: {
     visual: { masks: ["canvas", ".css-label--labels-container"] },
+    review: {
+      purpose:
+        "Graph canvas of the knowledge graph, where a user explores how the files of a Workspace link: the node drawer is open, so the search and the timeline dim.",
+    },
   },
   play: async ({ canvasElement }) => {
     const search = await within(canvasElement).findByLabelText(
@@ -181,7 +204,13 @@ const timelineSelections =
 export const TimelinePlaysWithoutRange: Story = {
   args: { onSelectionChange: timelineSelections },
   // The WebGL canvas draws a new frame at each shot, so the capture hides it.
-  parameters: { visual: { masks: ["canvas"] } },
+  parameters: {
+    visual: { masks: ["canvas"] },
+    review: {
+      purpose:
+        "Graph canvas of the knowledge graph, where a user explores how the files of a Workspace link: the timeline played the history with no range and is paused.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const playButton = await canvas.findByRole(
@@ -220,6 +249,10 @@ export const NoWebGL: Story = {
   parameters: {
     intent:
       "Catches a graph canvas that fails with no message when the browser has no WebGL 2. It must show that the browser cannot show the graph. Not for graph data or layout.",
+    review: {
+      purpose:
+        "Graph canvas of the knowledge graph, where a user explores how the files of a Workspace link: the browser has no WebGL 2, so a message shows.",
+    },
   },
   tags: ["required"],
   beforeEach: () => {

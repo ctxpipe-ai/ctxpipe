@@ -200,8 +200,16 @@ export function createBetterAuth() {
       updateAge: 60 * 60 * 24,
     },
     advanced: {
+      // The rate limit and the session use this address. Cloudflare, an AWS
+      // load balancer and nginx append the address of their peer to
+      // X-Forwarded-For, so a client can add entries only on the left. With
+      // trustedProxies, Better Auth reads the list from the right. It skips
+      // the loopback hop of a proxy in the same task (the preview router
+      // behind cloudflared). A self-hosted proxy that sets one address still
+      // works.
       ipAddress: {
         ipAddressHeaders: ["x-forwarded-for", "x-real-ip"],
+        trustedProxies: ["127.0.0.0/8", "::1"],
       },
       database: {
         generateId: ({ model }) => generateObjectId(toTypeSlug(model)),

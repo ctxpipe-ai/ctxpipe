@@ -58,6 +58,13 @@ type Story = StoryObj<typeof meta>
  * and React Aria then waits for it without end.
  */
 export const LeavesWhenThePageGrowsDuringExit: Story = {
+  parameters: {
+    review: {
+      kind: "component",
+      purpose:
+        "Modal dialog over a tall test page: the user closed it while the page grew, and the modal is gone.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
     const dialog = await body.findByRole("dialog", { name: "Page grows" })

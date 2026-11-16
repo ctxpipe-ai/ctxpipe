@@ -406,6 +406,8 @@ export async function visualReview(
         id: `${key}.${story.viewport}`,
         key,
         scope: story.scope,
+        ...(story.name ? { name: story.name } : {}),
+        ...(story.purpose ? { purpose: story.purpose } : {}),
         image: { path: file, size },
       })
     }
@@ -629,12 +631,11 @@ type Screenshot = {
 
 /**
  * One new screenshot: the id of its verdict, the key of its story (the id
- * without the viewport), its scope, and its head image.
+ * without the viewport), its scope, name and purpose, and its head image.
  */
-type NewShot = {
+type NewShot = Pick<StoryInput, "scope" | "name" | "purpose"> & {
   id: string
   key: string
-  scope: StoryInput["scope"]
   image: NewStoryInput["images"][number]
 }
 
@@ -661,6 +662,8 @@ async function judgeNewScreenshots(
     const verdict = await judge({
       storyId: first.id,
       scope: first.scope,
+      ...(first.name ? { name: first.name } : {}),
+      ...(first.purpose ? { purpose: first.purpose } : {}),
       images: [first, ...rest].map(({ image }) => image),
       ...(brief === undefined ? {} : { brief }),
       rubric,
@@ -685,15 +688,17 @@ async function judgeNewScreenshots(
 }
 
 /**
- * The scope of the screenshot `path`
- * (`<dir>/screenshots/<story file>.<story>[@<snapshot>].<viewport>.screenshot.png`):
- * `page` when its story in `<dir>/<story file>.stories.tsx` of the current
- * folder (the merge-base tree) has the page tag. When that story is not
- * there, the scope is `component`, with a note that says so.
+ * What the critic knows about the story of the screenshot `path`
+ * (`<dir>/screenshots/<story file>.<story>[@<snapshot>].<viewport>.screenshot.png`),
+ * from its story in `<dir>/<story file>.stories.tsx` of the current folder
+ * (the merge-base tree): the scope from `parameters.review.kind`, the
+ * Storybook name, and the purpose. When that story is not there, or has no
+ * kind (a merge base from before the story review check), the scope is
+ * `component`, with a note that says so.
  */
-async function scopeOf(
+async function aboutStory(
   path: string,
-): Promise<{ scope: StoryInput["scope"]; note?: string }> {
+): Promise<Pick<StoryInput, "scope" | "name" | "purpose"> & { note?: string }> {
   const name = /^(.+)\.(?:desktop|mobile)\.screenshot\.png$/.exec(
     posix.basename(path),
   )?.[1]
@@ -717,12 +722,17 @@ async function scopeOf(
         storiesOf(loadCsf, file, code).find(({ name }) => name === story),
       )
       .catch(() => undefined)
-    if (found) return { scope: found.page ? "page" : "component" }
+    if (found?.kind)
+      return {
+        scope: found.kind,
+        name: found.storybookName,
+        ...(found.purpose ? { purpose: found.purpose } : {}),
+      }
   }
   const files = candidates.map(({ file }) => file).join(" or ")
   return {
     scope: "component",
-    note: `The scope is component: the story of this screenshot is not in ${files || "a story file"} at the merge base, so the page-only qualities were not judged.`,
+    note: `The scope is component: the story of this screenshot, with its kind, is not in ${files || "a story file"} at the merge base, so the critic had no kind or purpose of the story, and the page-only qualities were not judged.`,
   }
 }
 
@@ -783,21 +793,11 @@ async function compareImages(
         const head = join(work, `${index}-new.png`)
         await writeFile(head, after)
         const key = path.replace(/\.(?:desktop|mobile)\.screenshot\.png$/, "")
-        const found = await scopeOf(path)
-        // A new story is not in the merge-base tree. Only a page story has a
-        // mobile screenshot (see `runVisual` in compare/baselines.ts), so a new mobile
-        // screenshot of the story makes its scope page.
-        const { scope, note } =
-          found.note && paths.includes(`${key}.mobile.screenshot.png`)
-            ? {
-                scope: "page" as const,
-                note: "The scope is page: the story of this screenshot is not at the merge base, and it has a mobile screenshot, which only a page story has.",
-              }
-            : found
+        const { note, ...about } = await aboutStory(path)
         screenshots.push({
           path,
           ...(note ? { note } : {}),
-          fresh: { id: path, key, scope, image: { path: head, size } },
+          fresh: { id: path, key, ...about, image: { path: head, size } },
         })
         continue
       }
@@ -830,13 +830,13 @@ async function compareImages(
         comparison.status === "size-changed"
           ? { size: comparison.after, regions: [], signature: null }
           : comparison
-      const { scope, note } = await scopeOf(path)
+      const { note, ...about } = await aboutStory(path)
       screenshots.push({
         path,
         ...(note ? { note } : {}),
         story: storyInput({
           storyId: path,
-          scope,
+          ...about,
           viewport: measured.size,
           size: measured.size,
           regions: measured.regions,

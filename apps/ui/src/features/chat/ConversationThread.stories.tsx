@@ -31,6 +31,7 @@ const meta = {
     ),
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
   },
   args: {
@@ -58,10 +59,23 @@ const progressCounters = "Read 1 file, 2 searches, Used 1 tool, 3 thoughts"
 const inventedLabel =
   /Contextualizing|Analyzing|Traversing|Reading knowledge|Checking sources/
 
-export const ReplyOnly: Story = {}
+export const ReplyOnly: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Chat thread of a Workspace conversation: a finished billing question and its plain text answer, with no tool calls.",
+    },
+  },
+}
 
 /** While the agent works, the counters show and one line names the current thought. */
 export const WorkingWithThought: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Chat thread while the agent works: the closed activity log shows counters and one status line names the current thought.",
+    },
+  },
   args: {
     messages: progressWorkingMessages,
     status: "streaming",
@@ -85,6 +99,12 @@ export const WorkingWithThought: Story = {
 
 /** Before any activity, the line shows the real sandbox state. */
 export const SettingUpSandbox: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Chat thread right after the user asks: the status line says that ctxpipe sets up the sandbox.",
+    },
+  },
   args: {
     messages: askOnly,
     status: "submitted",
@@ -102,6 +122,12 @@ export const SettingUpSandbox: Story = {
 
 /** With no thought and no system state, the line shows "Thinking". */
 export const ThinkingFallback: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Chat thread right after the user asks: no thought or system state yet, so the status line says Thinking.",
+    },
+  },
   args: {
     messages: askOnly,
     status: "submitted",
@@ -117,6 +143,12 @@ export const ThinkingFallback: Story = {
 
 /** Tool calls without a thought also fall back to "Thinking". */
 export const ThinkingFallbackWithTools: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Chat thread while tools run without a thought: the log counts the file read and search, and the status line says Thinking.",
+    },
+  },
   args: {
     messages: streamingToolMessages,
     status: "streaming",
@@ -162,6 +194,12 @@ const interimTextMessages: ChatMessage[] = [
 
 /** Text in the middle of a run does not end it: the status line stays. */
 export const InterimTextKeepsStatus: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Chat thread while the agent works: interim reply text shows and the status line still names the current thought.",
+    },
+  },
   args: {
     messages: interimTextMessages,
     status: "streaming",
@@ -179,6 +217,12 @@ export const InterimTextKeepsStatus: Story = {
 
 /** The next turn gets its own status line; the done turn shows none. */
 export const NextTurnShowsStatus: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Chat thread with a finished turn and a new working turn: only the new turn has a status line.",
+    },
+  },
   args: {
     messages: [
       ...progressDoneMessages,
@@ -212,6 +256,10 @@ export const NextTurnShowsStatus: Story = {
 /** After the reply, the current thought hides. The counters and the log stay. */
 export const ChatProgressDone: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Chat thread after the reply: the activity log stays closed with its counters, no status line, and the answer shows.",
+    },
     intent:
       "Catches a finished chat turn that shows a live status or an open activity log. The log stays closed with counts and the answer is visible. Not for log entries.",
   },
@@ -237,6 +285,10 @@ export const ChatProgressDone: Story = {
 /** The open log lists each thought and each tool call with its details. */
 export const ChatProgressLogExpanded: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Chat thread of a finished turn with the activity log open: each thought and tool call is a row with its details.",
+    },
     intent:
       "Catches an open activity log that misses a thought or tool call, or shows raw markdown. Each entry shows its details. Not for spacing or the closed state.",
   },
@@ -282,6 +334,10 @@ function gapBetween(upper: Element, lower: Element) {
  */
 export const ChatProgressSpacing: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Chat thread while the agent works, with the activity log open: the log button, rows and status line have equal gaps.",
+    },
     intent:
       "Catches uneven gaps between the activity log button, its rows, and the live status. Tool names must stay bolder than their details. Not for log content.",
   },
@@ -339,6 +395,10 @@ const earlierTurns: ChatMessage[] = Array.from({ length: 4 }, (_, index) => [
  */
 export const OpeningLogKeepsScroll: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Long chat thread scrolled to the bottom of a working turn: the user opened the activity log and the log button kept its place.",
+    },
     intent:
       "Catches an activity log that moves the chat when the user opens it. The thread stays at the bottom and the log button keeps its place. Not for log content.",
   },
@@ -379,6 +439,12 @@ export const OpeningLogKeepsScroll: Story = {
 }
 
 export const ReasoningCollapsed: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Chat thread with an answer after one thought: the activity log is closed and the thought text is hidden.",
+    },
+  },
   args: {
     messages: reasoningMessages,
   },
@@ -392,6 +458,12 @@ export const ReasoningCollapsed: Story = {
 }
 
 export const ThoughtsBetweenTools: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Chat thread of a turn with thoughts between tool calls: the open activity log lists the five entries in order.",
+    },
+  },
   args: {
     messages: thoughtsBetweenToolsMessages,
   },
@@ -414,18 +486,36 @@ export const ThoughtsBetweenTools: Story = {
 }
 
 export const ToolUse: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Chat thread of a turn where the agent used one tool before it answered.",
+    },
+  },
   args: {
     messages: oneToolMessages,
   },
 }
 
 export const ToolUseMany: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Chat thread of a turn where the agent used many tools before it answered.",
+    },
+  },
   args: {
     messages: manyToolMessages,
   },
 }
 
 export const ReasoningAndTools: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Chat thread of a turn with thoughts and tool calls before the answer.",
+    },
+  },
   args: {
     messages: reasoningAndToolsMessages,
   },
@@ -433,6 +523,12 @@ export const ReasoningAndTools: Story = {
 
 /** A reopened conversation: the turn arrives as two assistant messages and must render as one. */
 export const ReasoningAndToolsHydrated: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Chat thread of a reopened conversation: a turn stored as two assistant messages shows as one turn with one activity log.",
+    },
+  },
   args: {
     messages: hydratedReasoningAndToolsMessages,
   },
@@ -477,6 +573,12 @@ const answerLinkMessages: ChatMessage[] = [
 
 /** In a workspace, file paths open the file. Text that is not clearly a path stays as code. */
 export const AnswerLinksInWorkspace: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Chat answer in a Workspace: file paths are buttons that open the file, a web link has an icon, and other code stays as code.",
+    },
+  },
   args: {
     messages: answerLinkMessages,
     fileLinks: {
@@ -543,6 +645,12 @@ export const AnswerLinksInWorkspace: Story = {
 
 /** Outside a workspace there is no file to open, so paths stay as code. */
 export const AnswerLinksOutsideWorkspace: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Chat answer outside a Workspace: file paths stay as code because there is no file to open.",
+    },
+  },
   args: {
     messages: answerLinkMessages,
   },
@@ -560,6 +668,12 @@ export const AnswerLinksOutsideWorkspace: Story = {
 
 /** The user's bubble shows the typed text as it is: no link is blocked or rewritten. */
 export const UserBubbleShowsTypedText: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Chat thread with one user message: the bubble keeps the typed Markdown text as it is, with no link change.",
+    },
+  },
   args: {
     messages: [
       {
@@ -586,6 +700,10 @@ export const UserBubbleShowsTypedText: Story = {
 /** A turn ends with the changed-files card, then a push entry. The entry sits under the card and its long branch truncates. */
 export const PushEntryUnderCard: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Chat turn in a narrow frame: the changed-files card, and under it the push entry whose long branch name truncates.",
+    },
     intent:
       "Catches a push entry that sits beside or outside the changes card, or whose long branch name does not truncate. Not for card content or push data.",
   },
@@ -672,6 +790,12 @@ export const PushEntryUnderCard: Story = {
 
 /** With the git tree, a bare file name opens the one tree file; a name not in the tree stays text. */
 export const AnswerLinksWithTree: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Chat answer in a Workspace with its file tree: a bare file name in the tree opens the file, and an unknown name stays text.",
+    },
+  },
   args: {
     messages: [
       {

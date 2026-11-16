@@ -11,6 +11,7 @@ import {
   updateWorkspace,
   type WorkspaceRecord,
 } from "../../models/workspaces.js"
+import { detachedErrorLog } from "../../observability/logger.js"
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
@@ -79,15 +80,19 @@ export async function createWorkspaceLifecycle(input: {
     githubConnectionId: created.githubConnectionId,
     log: input.log,
   })
+  // The jobs are queued after the response, so each gets a log of its own.
   void enqueueWorkspaceHydrate(
     { orgId: created.orgId, workspaceId: created.id },
-    input.log,
+    detachedErrorLog("workspace.hydrate.enqueue"),
   )
   void enqueueWorkspaceWriteCommit(
     { orgId: created.orgId, workspaceId: created.id, kind: "bootstrap" },
-    input.log,
+    detachedErrorLog("workspace.write_commit.enqueue"),
   )
-  void enqueueWorkspaceTipCheck(created.orgId, input.log)
+  void enqueueWorkspaceTipCheck(
+    created.orgId,
+    detachedErrorLog("workspace.tip_check.enqueue"),
+  )
   return created
 }
 
@@ -232,10 +237,14 @@ async function startRelinkedWorkspace(
     githubConnectionId: workspace.githubConnectionId,
     log,
   })
-  void enqueueWorkspaceTipCheck(workspace.orgId, log)
+  // The jobs are queued after the response, so each gets a log of its own.
+  void enqueueWorkspaceTipCheck(
+    workspace.orgId,
+    detachedErrorLog("workspace.tip_check.enqueue"),
+  )
   void enqueueWorkspaceHydrate(
     { orgId: workspace.orgId, workspaceId: workspace.id },
-    log,
+    detachedErrorLog("workspace.hydrate.enqueue"),
   )
   void enqueueWorkspaceWriteCommit(
     {
@@ -243,6 +252,6 @@ async function startRelinkedWorkspace(
       workspaceId: workspace.id,
       kind: "bootstrap",
     },
-    log,
+    detachedErrorLog("workspace.write_commit.enqueue"),
   )
 }

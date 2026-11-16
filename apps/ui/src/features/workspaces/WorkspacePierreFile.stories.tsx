@@ -26,7 +26,7 @@ const meta = {
       </div>
     ),
   ],
-  parameters: { layout: "centered" },
+  parameters: { review: { kind: "component" }, layout: "centered" },
   args: {
     path: "knowledge/billing/ledger.md",
     body: docsWorkspaceGitBlobs["knowledge/billing/ledger.md"] ?? "",
@@ -40,12 +40,20 @@ type Story = StoryObj<typeof meta>
 
 export const Markdown: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File preview of a Workspace, where a member reads a file: a Markdown file.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
 }
 
 export const TypeScript: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File preview of a Workspace, where a member reads a file: a short TypeScript file with syntax colors.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
@@ -57,6 +65,10 @@ export const TypeScript: Story = {
 
 export const DiffVsHead: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File preview of a Workspace, where a member reads a file: a local edit shows as a diff against the head version.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
@@ -68,6 +80,12 @@ export const DiffVsHead: Story = {
 }
 
 export const Editable: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "File preview of a Workspace, where a member reads and edits a file: the file is open for edits.",
+    },
+  },
   args: {
     path: "AGENTS.md",
     body: docsWorkspaceGitBlobs["AGENTS.md"] ?? "",
@@ -81,6 +99,10 @@ const longLine =
 
 export const ShortFile: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File preview of a Workspace, where a member reads a file: a file of three lines that does not fill the pane.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
@@ -92,6 +114,10 @@ export const ShortFile: Story = {
 
 export const LongFile: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File preview of a Workspace, where a member reads a file: a long file with a wide last line, so the pane scrolls both ways.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
@@ -157,6 +183,10 @@ async function expectView(canvasElement: HTMLElement, view: "diff" | "file") {
 /** A draft opens as a diff; with no change left, it is a plain file again. */
 export const DraftSavedShowsFile: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File preview of a Workspace, where a member edits a file: the member saved a draft, so the diff view changed back to the file view.",
+    },
     intent:
       "Catches a saved draft that stays in the diff view. After Save draft, the file view must show. Not for reverted drafts.",
   },
@@ -173,6 +203,10 @@ export const DraftSavedShowsFile: Story = {
 
 export const DraftRevertedShowsFile: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File preview of a Workspace, where a member edits a file: the member reverted a draft, so the diff view changed back to the file view.",
+    },
     intent:
       "Catches a reverted draft that stays in the diff view. After Revert draft, the file view must show. Not for saved drafts.",
   },

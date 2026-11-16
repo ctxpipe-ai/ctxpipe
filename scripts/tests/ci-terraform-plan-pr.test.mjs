@@ -99,7 +99,6 @@ const steps = {
     "merge-gate-critics",
     "Look for a change under infra/",
   ],
-  "start-pr-deploy": ["merge-gate-deploy", "Start PR Deploy on the PR branch"],
   "post-comment": ["merge-gate", "Post or update the PR comment"],
   "jobs-of-the-run": ["merge-gate", "The jobs of this run"],
 }
@@ -479,29 +478,10 @@ test("the plan is not called when the branch is gone, and the step fails on anot
   assert.deepEqual(broken.outputs, ["plan=false"])
 })
 
-test("both dispatch steps look up a branch with a slash by its encoded name", () => {
-  const branch = "jakub/ctx-1-topic"
-  const encoded = `repos/${repo}/branches/jakub%2Fctx-1-topic`
-  const terraform = start(infraChange, {}, branch)
+test("the Terraform changes step looks up a branch with a slash by its encoded name", () => {
+  const terraform = start(infraChange, {}, "jakub/ctx-1-topic")
   assert.equal(terraform.status, 0, terraform.stderr)
   assert.equal(terraform.outputs.at(-1), "plan=true")
-  const deploy = run("start-pr-deploy", setup({ api: { [encoded]: {} } }), {
-    REPO: repo,
-    PR: "7",
-    BRANCH: branch,
-  })
-  assert.equal(deploy.status, 0, deploy.stderr)
-  assert.deepEqual(deploy.calls, [
-    `workflow run pr-deploy.yaml --repo ${repo} --ref ${branch} -f pr_number=7`,
-  ])
-  // A missing branch is a definite 404: no deploy.
-  const gone = run(
-    "start-pr-deploy",
-    setup({ errors: { [encoded]: "gh: Not Found (HTTP 404)" } }),
-    { REPO: repo, PR: "7", BRANCH: branch },
-  )
-  assert.equal(gone.status, 0)
-  assert.deepEqual(gone.calls, [])
 })
 
 const remind = ({ change, labels }) => {

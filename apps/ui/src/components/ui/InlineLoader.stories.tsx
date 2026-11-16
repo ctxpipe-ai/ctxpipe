@@ -7,6 +7,7 @@ const meta = {
   component: InlineLoader,
   parameters: {
     layout: "centered",
+    review: { kind: "component" },
   },
 } satisfies Meta<typeof InlineLoader>
 
@@ -15,6 +16,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Indeterminate: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Small inline loader that tells the user that a part of the page loads: no known progress, with a label.",
+    },
+  },
   args: {
     label: "Loading repositories",
   },
@@ -23,6 +30,10 @@ export const Indeterminate: Story = {
 export const Determinate: Story = {
   parameters: {
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    review: {
+      purpose:
+        "Small inline loader that tells the user that a part of the page loads: a progress bar at 32 percent with a count of 7 of 22.",
+    },
   },
   render: () => (
     <ProgressLoader label="Indexing" sublabel="7 / 22" progress={32} />

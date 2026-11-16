@@ -15,5 +15,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Mark: Story = {
+  parameters: {
+    review: {
+      kind: "component",
+      purpose:
+        "Confluence logo mark that labels the Atlassian connector: the mark alone at a large size.",
+    },
+  },
   render: () => <ConfluenceMark className="size-16" />,
 }

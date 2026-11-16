@@ -45,46 +45,6 @@ export const SERVICE_VARIABLES = {
   },
   ui: {"OTEL_EXPORTER_OTLP_HEADERS": "OBSERVABILITY_OTLP_HEADERS"},
   falkordb: {"FALKORDB_PASSWORD": "FALKORDB_PASSWORD"},
-  // Observability project (GitHub Environment `observability`).
-  clickhouse: {
-    "CLICKHOUSE_OTEL_PASSWORD": "CLICKHOUSE_OTEL_PASSWORD",
-    "CLICKHOUSE_LANGFUSE_PASSWORD": "CLICKHOUSE_LANGFUSE_PASSWORD",
-  },
-  // The workflow makes LANGFUSE_AUTH_STRING from the Langfuse project keys.
-  collector: {
-    "HYPERDX_API_KEY": "HYPERDX_API_KEY",
-    "LANGFUSE_AUTH_STRING": "LANGFUSE_AUTH_STRING",
-  },
-  // langfuse-worker refers to the database URLs, SALT and ENCRYPTION_KEY of
-  // langfuse-web.
-  "langfuse-web": {
-    "DATABASE_URL": "LANGFUSE_DATABASE_URL",
-    "DIRECT_URL": "LANGFUSE_DIRECT_URL",
-    "NEXTAUTH_SECRET": "LANGFUSE_NEXTAUTH_SECRET",
-    "SALT": "LANGFUSE_SALT",
-    "ENCRYPTION_KEY": "LANGFUSE_ENCRYPTION_KEY",
-    "LANGFUSE_INIT_PROJECT_PUBLIC_KEY": "LANGFUSE_PUBLIC_KEY",
-    "LANGFUSE_INIT_PROJECT_SECRET_KEY": "LANGFUSE_SECRET_KEY",
-  },
-  // No secret of their own: they refer to the values above, so they only
-  // redeploy (--redeploy) after a change.
-  hyperdx: {},
-  "langfuse-worker": {},
-  // Both telemetry services read Railway with the same workspace token.
-  "cost-telemetry": {
-    "OPENROUTER_MANAGEMENT_KEY": "COST_TELEMETRY_OPENROUTER_MANAGEMENT_KEY",
-    "GITHUB_BILLING_TOKEN": "COST_TELEMETRY_GITHUB_BILLING_TOKEN",
-    "BLACKSMITH_TOKEN": "COST_TELEMETRY_BLACKSMITH_TOKEN",
-    "NEON_API_KEY": "COST_TELEMETRY_NEON_API_KEY",
-    "NEON_ORG_ID": "COST_TELEMETRY_NEON_ORG_ID",
-    "CLOUDFLARE_API_TOKEN": "COST_TELEMETRY_CLOUDFLARE_API_TOKEN",
-    "CLOUDFLARE_ACCOUNT_ID": "COST_TELEMETRY_CLOUDFLARE_ACCOUNT_ID",
-    "RAILWAY_API_TOKEN": "TELEMETRY_RAILWAY_WORKSPACE_TOKEN",
-    "AWS_ACCESS_KEY_ID": "COST_TELEMETRY_AWS_ACCESS_KEY_ID",
-    "AWS_SECRET_ACCESS_KEY": "COST_TELEMETRY_AWS_SECRET_ACCESS_KEY",
-    "AWS_SESSION_TOKEN": "COST_TELEMETRY_AWS_SESSION_TOKEN",
-  },
-  "railway-telemetry": {"RAILWAY_API_TOKEN": "TELEMETRY_RAILWAY_WORKSPACE_TOKEN"},
 }
 // Secrets that may be empty. An empty one is deleted from the service, so the
 // service turns that integration off and an old value does not stay live.
@@ -97,7 +57,6 @@ const OPTIONAL = new Set([
   "LINEAR_WEBHOOK_SECRET",
   "PAGERDUTY_CLIENT_ID",
   "PAGERDUTY_CLIENT_SECRET",
-  "COST_TELEMETRY_AWS_SESSION_TOKEN",
   "BETTER_AUTH_API_KEY",
   "CONFLUENCE_FORGE_INSTALL_URL",
   // Optional for now: production has no value yet. Without it, the backend
@@ -106,33 +65,10 @@ const OPTIONAL = new Set([
 ])
 // Variables that no code uses any more. The sync deletes them from each
 // service it writes.
-// Langfuse uses LANGFUSE_INIT_USER_* only on an empty database, to make the
-// first user. Our Langfuse has that user.
-const RETIRED = new Set([
-  "BETTER_STACK_TOKEN",
-  "LANGFUSE_INIT_USER_EMAIL",
-  "LANGFUSE_INIT_USER_PASSWORD",
-])
-// A Railway PR preview starts as a copy of the production variables. With
-// --preview, the values come from the GitHub Environment `Preview`, and each
-// empty one is deleted, so no production value stays. The preview scripts own
-// these names (a value made for each preview, the preview GitHub App, the
-// preview Vercel project, the OTLP header):
-const PREVIEW_OWNED = new Set([
-  "AUTH_SECRET",
-  "CONNECTION_SECRETS_ENCRYPTION_KEY",
-  "GITHUB_PRIVATE_KEY",
-  "GITHUB_CLIENT_SECRET",
-  "GITHUB_WEBHOOK_SECRET",
-  "VERCEL_TOKEN",
-  "OTEL_EXPORTER_OTLP_HEADERS",
-])
-// A preview cannot start without these.
-const PREVIEW_REQUIRED = new Set(["MODEL_PROVIDER_API_KEY", "FALKORDB_PASSWORD"])
+const RETIRED = new Set(["BETTER_STACK_TOKEN"])
 // Checked before any write, so a bad value never reaches a service.
 const FORMATS = {
   CONNECTION_SECRETS_ENCRYPTION_KEY: /^[0-9a-fA-F]{64}$/,
-  LANGFUSE_ENCRYPTION_KEY: /^[0-9a-fA-F]{64}$/,
 }
 
 async function graphql(query, variables, token) {
@@ -194,7 +130,6 @@ export async function main(
       service: { type: "string" },
       // Appends the service name to this file when a value changed.
       "changed-file": { type: "string" },
-      preview: { type: "boolean" },
     },
   })
   if (!args.service) {
@@ -206,22 +141,13 @@ export async function main(
     )
   }
   const service = args.service
-  let variables = SERVICE_VARIABLES[service]
-  let optional = OPTIONAL
-  if (args.preview) {
-    variables = Object.fromEntries(
-      Object.entries(variables).filter(([name]) => !PREVIEW_OWNED.has(name)),
-    )
-    optional = new Set(
-      Object.values(variables).filter((source) => !PREVIEW_REQUIRED.has(source)),
-    )
-  }
+  const variables = SERVICE_VARIABLES[service]
 
   const required = [
     "PROJECT_ID",
     "ENVIRONMENT_ID",
     "SERVICE_ID",
-    ...Object.values(variables).filter((source) => !optional.has(source)),
+    ...Object.values(variables).filter((source) => !OPTIONAL.has(source)),
   ]
   const missing = required.filter((name) => !env[name])
   const token = env.RAILWAY_TOKEN || env.RAILWAY_API_TOKEN
@@ -276,8 +202,7 @@ export async function main(
   }
   // variableDelete has no skipDeploys, so a delete can redeploy the service
   // on its current image. It happens when an optional connector is turned
-  // off, and on a new preview for each production value that Preview does
-  // not set. The service then starts without it.
+  // off. The service then starts without it.
   for (const name of removed) {
     await graphql(
       "mutation variableDelete($input: VariableDeleteInput!) { variableDelete(input: $input) }",

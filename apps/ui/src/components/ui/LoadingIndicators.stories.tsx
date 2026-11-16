@@ -9,6 +9,7 @@ const meta = {
   title: "Components/Loading indicators",
   parameters: {
     layout: "centered",
+    review: { kind: "component" },
   },
 } satisfies Meta
 
@@ -30,6 +31,10 @@ export const LoadingUnderReducedMotion: Story = {
   parameters: {
     intent:
       "Catches loading indicators that stop looping when the user prefers reduced motion. The spinner, progress bar, and skeleton must keep a visible loop. Not for color or size.",
+    review: {
+      purpose:
+        "Spinner, progress bar and skeleton that show a load in progress: the user prefers reduced motion, and each one still loops.",
+    },
   },
   tags: ["required", "reduced-motion"],
   render: () => (

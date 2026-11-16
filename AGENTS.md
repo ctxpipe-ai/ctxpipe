@@ -8,7 +8,7 @@ This file holds repo-wide rules. In an app or package, also read that folder's `
 - **apps/ui**: [apps/ui/AGENTS.md](apps/ui/AGENTS.md) — TanStack Start frontend, React Aria, Tailwind, Storybook, Vitest; **[React skill](.agents/skills/react/)** when building or editing components; **[product-ui skill](.agents/skills/product-ui/)** and [DESIGN.md](apps/ui/DESIGN.md) when building or restyling product screens.
 - **apps/docs**: [apps/docs/AGENTS.md](apps/docs/AGENTS.md) — Fumadocs documentation site (Next.js 15, Shiki, forced-dark, deploys to docs.ctxpipe.ai).
 - **examples/**: runnable consumer examples for ctxpipe packages (manual e2e tests against real infra). See [examples/README.md](examples/README.md).
-- **ops/observability**: [USING.md](ops/observability/USING.md) and the old Railway stack. The stack runs on AWS (factory `machines/observability`).
+- **ops/observability**: [USING.md](ops/observability/USING.md) and `cost-telemetry`. The stack runs on AWS (factory `machines/observability`).
 - **plugins/ctxpipe**: Claude plugin for the hosted product MCP. See [ADR-026](.ai/memory/decisions/ADR-026-claude-plugin-mcp-distribution.md).
 
 **Agent harness layout:** Shared agent content lives in `AGENTS.md` and `.agents/` (`.agents/skills/`, `.agents/hooks/`). `.claude/`, `.codex/`, `.cursor/`, and `opencode.json` are thin adapters that point at it. Put a new skill or hook in `.agents/`. Keep this file under 24 KiB, because Codex reads only the first 32 KiB of all `AGENTS.md` files together. CI runs [`scripts/ci/check-agent-harness.mjs`](scripts/ci/check-agent-harness.mjs) to check the sizes, MCP parity, and skill symlinks. See [ADR-055](.ai/memory/decisions/ADR-055-harness-agnostic-agent-setup.md).

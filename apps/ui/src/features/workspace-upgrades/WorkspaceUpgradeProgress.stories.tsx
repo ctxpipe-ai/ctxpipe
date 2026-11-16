@@ -44,6 +44,7 @@ const meta = {
     state.checked = false
   },
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -83,11 +84,17 @@ function withUpgrades(
 
 /** A queued run: it has not started a stage. The card says that the user can leave. */
 export const Queued: Story = {
-  parameters: withUpgrades(
-    upgradesFixture([
-      upgradeItemFixture({ status: "queued", approvedAt: minutesAgo(0.2) }),
-    ]),
-  ),
+  parameters: {
+    ...withUpgrades(
+      upgradesFixture([
+        upgradeItemFixture({ status: "queued", approvedAt: minutesAgo(0.2) }),
+      ]),
+    ),
+    review: {
+      purpose:
+        "Progress card of a Workspace format upgrade: the run is queued and has not started a stage.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const progress = await canvas.findByRole("region", {
@@ -107,15 +114,21 @@ export const Queued: Story = {
 
 /** The run is in its second stage: the step, the bar, the time so far, and the leave note. */
 export const RunningStage: Story = {
-  parameters: withUpgrades(
-    upgradesFixture([
-      upgradeItemFixture({
-        status: "running",
-        approvedAt: minutesAgo(1.3),
-        runStage: { name: "build", since: minutesAgo(1) },
-      }),
-    ]),
-  ),
+  parameters: {
+    ...withUpgrades(
+      upgradesFixture([
+        upgradeItemFixture({
+          status: "running",
+          approvedAt: minutesAgo(1.3),
+          runStage: { name: "build", since: minutesAgo(1) },
+        }),
+      ]),
+    ),
+    review: {
+      purpose:
+        "Progress card of a Workspace format upgrade: the run is in its second stage, with the step, bar and elapsed time.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const progress = await canvas.findByRole("region", {
@@ -137,29 +150,35 @@ export const RunningStage: Story = {
 
 /** A re-ingestion shows how many source repositories are done, and the one that it reads now. */
 export const ReingestProgress: Story = {
-  parameters: withUpgrades(
-    upgradesFixture([
-      upgradeItemFixture({
-        kind: "reingest",
-        title: "Fresh re-ingestion of the source repositories",
-        status: "running",
-        approvedAt: minutesAgo(7),
-        repositories: [
-          ["acme/api", "done"],
-          ["acme/web", "pending"],
-          ["acme/docs", "pending"],
-        ].map(([repository, status]) => ({
-          repository: repository as string,
-          status: status as "done" | "pending",
-          sha: null,
-          runId: null,
-          report: [],
-          spendUsd: null,
-          spendUnknown: false,
-        })),
-      }),
-    ]),
-  ),
+  parameters: {
+    ...withUpgrades(
+      upgradesFixture([
+        upgradeItemFixture({
+          kind: "reingest",
+          title: "Fresh re-ingestion of the source repositories",
+          status: "running",
+          approvedAt: minutesAgo(7),
+          repositories: [
+            ["acme/api", "done"],
+            ["acme/web", "pending"],
+            ["acme/docs", "pending"],
+          ].map(([repository, status]) => ({
+            repository: repository as string,
+            status: status as "done" | "pending",
+            sha: null,
+            runId: null,
+            report: [],
+            spendUsd: null,
+            spendUnknown: false,
+          })),
+        }),
+      ]),
+    ),
+    review: {
+      purpose:
+        "Progress card of a Workspace re-ingestion: one of three source repositories is done.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const progress = await canvas.findByRole("region", {
@@ -180,16 +199,22 @@ export const ReingestProgress: Story = {
 
 /** A re-ingestion that plans its run has no count yet: the bar pulses. */
 export const ReingestPlanning: Story = {
-  parameters: withUpgrades(
-    upgradesFixture([
-      upgradeItemFixture({
-        kind: "reingest",
-        title: "Fresh re-ingestion of the source repositories",
-        status: "running",
-        approvedAt: minutesAgo(0.1),
-      }),
-    ]),
-  ),
+  parameters: {
+    ...withUpgrades(
+      upgradesFixture([
+        upgradeItemFixture({
+          kind: "reingest",
+          title: "Fresh re-ingestion of the source repositories",
+          status: "running",
+          approvedAt: minutesAgo(0.1),
+        }),
+      ]),
+    ),
+    review: {
+      purpose:
+        "Progress card of a Workspace re-ingestion while it plans the run: no count yet, so the bar pulses.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () =>
@@ -202,6 +227,10 @@ export const ReingestPlanning: Story = {
 /** ctxpipe saw the merge. The card says what it reads now and what comes next. */
 export const MergedReadingFormat: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Progress card of a Workspace format upgrade: the pull request merged and ctxpipe reads the new format.",
+    },
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
     msw: {
       handlers: {
@@ -270,6 +299,10 @@ export const CheckAgainStillOpen: Story = {
       ),
     ),
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
+    review: {
+      purpose:
+        "Progress card of a Workspace format upgrade: the user pressed Check again and the pull request is still open.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -311,6 +344,10 @@ export const CheckAgainFindsMerge: Story = {
       ),
     ),
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
+    review: {
+      purpose:
+        "Progress card of a Workspace format upgrade: the user pressed Check again and it found the merge.",
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -335,6 +372,10 @@ export const CheckAgainFindsMerge: Story = {
 /** A failed check shows its cause and the next step. */
 export const CheckAgainFails: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Progress card of a Workspace format upgrade: the user pressed Check again and the check failed, with the cause and next step.",
+    },
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
     msw: {
       handlers: {
@@ -428,8 +469,24 @@ function checkingFormatTimesOut(role: "owner" | "member"): Story {
   }
 }
 
-export const CheckingFormatTimesOutAdmin: Story =
-  checkingFormatTimesOut("owner")
+export const CheckingFormatTimesOutAdmin: Story = {
+  ...checkingFormatTimesOut("owner"),
+  parameters: {
+    ...checkingFormatTimesOut("owner").parameters,
+    review: {
+      purpose:
+        "Re-ingestion card in the Upgrades section, for an owner: the format check timed out, so the blocked line and Check again come back.",
+    },
+  },
+}
 
-export const CheckingFormatTimesOutMember: Story =
-  checkingFormatTimesOut("member")
+export const CheckingFormatTimesOutMember: Story = {
+  ...checkingFormatTimesOut("member"),
+  parameters: {
+    ...checkingFormatTimesOut("member").parameters,
+    review: {
+      purpose:
+        "Re-ingestion card in the Upgrades section, for a member: the format check timed out, so the blocked line comes back with no Check again.",
+    },
+  },
+}

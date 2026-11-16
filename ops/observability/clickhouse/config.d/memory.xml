@@ -1,5 +1,0 @@
-<clickhouse>
-  <!-- Cap RAM so a single-node Railway replica cannot grow into tens of GB.
-       4 GiB leaves room for HyperDX Product usage scans; Railway bills used RAM. -->
-  <max_server_memory_usage>4294967296</max_server_memory_usage>
-</clickhouse>

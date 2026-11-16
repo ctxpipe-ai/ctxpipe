@@ -15,7 +15,6 @@ This file holds only the build craft that `DESIGN.md` and the steps of the skill
 
 | Check | Yes looks like |
 |-------|----------------|
-| One gap for a cluster | The items of one horizontal cluster share one gap |
 | Chrome width | AppShell sidebar stays fixed; do not percentage-size chrome |
 | Independent scales | Type in rem/px; button padding is its own scale (tighter when the control is small). No `em`-tied padding |
 | Overlap | Only if the nearby anchor screen already overlaps |

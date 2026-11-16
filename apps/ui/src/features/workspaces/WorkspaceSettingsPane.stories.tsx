@@ -55,6 +55,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -87,7 +88,14 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Settings: Story = {}
+export const Settings: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace, where an owner manages its repository, sources, and upgrades: the default Workspace with one GitHub source.",
+    },
+  },
+}
 
 /**
  * One card for each part, in this order: Upgrades, Sources, Knowledge graph,
@@ -96,6 +104,10 @@ export const Settings: Story = {}
  */
 export const Populated: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace, where an owner manages its repository, sources, and upgrades: every card is filled, and the Sources card has three providers.",
+    },
     msw: {
       handlers: {
         sources: [
@@ -190,6 +202,12 @@ export const Populated: Story = {
  * changes it.
  */
 export const SkippedFiles: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace: the Knowledge graph card lists the files that the load skipped, and a legacy overlay file shows its cause with no fix button.",
+    },
+  },
   args: {
     workspace: skippedFilesWorkspaceDetail,
     onFixWithAgent: fn(),
@@ -244,6 +262,10 @@ export const SkippedFiles: Story = {
 /** A link with the upgrades hash lands on the Upgrades card: it gets the focus. */
 export const LandsOnUpgrades: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace, where an owner manages its repository, sources, and upgrades: a link with the upgrades hash put focus on the Upgrades card.",
+    },
     storyRoute: {
       pattern: "orgIndex",
       orgSlug: "acme",
@@ -260,6 +282,12 @@ export const LandsOnUpgrades: Story = {
 }
 
 export const ReadOnly: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace, where an owner manages its repository, sources, and upgrades: the Workspace repository is read-only.",
+    },
+  },
   args: {
     workspace: readOnlyWorkspaceDetail,
   },
@@ -267,6 +295,12 @@ export const ReadOnly: Story = {
 
 /** A protected default branch: a neutral note, no warning and no "fix it". */
 export const ProtectedDefaultBranch: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace: the default branch is protected, so a neutral note says changes go by pull request, with no warning.",
+    },
+  },
   args: {
     workspace: {
       ...readOnlyWorkspaceDetail,
@@ -292,6 +326,12 @@ export const ProtectedDefaultBranch: Story = {
  * again" opens the context repository dialog, where Select GitHub binds it.
  */
 export const ReadOnlyWithoutConnection: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace: no GitHub connection reads the repository, and the context repository dialog is open to select it again.",
+    },
+  },
   args: {
     workspace: {
       ...readOnlyWorkspaceDetail,
@@ -318,6 +358,12 @@ export const ReadOnlyWithoutConnection: Story = {
 }
 
 export const ProjectionLag: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace: a new repository still loads, so a note says answers still come from the old one.",
+    },
+  },
   args: {
     workspace: projectionLagWorkspaceDetail,
   },
@@ -331,12 +377,24 @@ export const ProjectionLag: Story = {
 }
 
 export const EmptyLinkedRepos: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace, where an owner manages its repository, sources, and upgrades: the Workspace has no linked repositories.",
+    },
+  },
   args: {
     workspace: emptyLinkedWorkspaceDetail,
   },
 }
 
 export const LinkedRepositoryWithIssues: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace: a linked repository was indexed with issues, because one of six projects could not be indexed.",
+    },
+  },
   args: {
     workspace: {
       ...docsWorkspaceDetail,
@@ -370,6 +428,10 @@ export const AddRepositories: Story = {
     workspace: emptyLinkedWorkspaceDetail,
   },
   parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace: the owner opened the context repository picker and then the Add repositories dialog, which lists the repositories.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     // Only an owner or admin sees the repository pickers. The Add
     // repositories dialog reads the Workspace and its format (2 or higher).
@@ -409,6 +471,12 @@ export const AddRepositories: Story = {
 }
 
 export const Hydrating: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace, where an owner manages its repository, sources, and upgrades: the knowledge graph still loads.",
+    },
+  },
   args: {
     workspace: hydratingWorkspaceDetail,
   },
@@ -416,6 +484,12 @@ export const Hydrating: Story = {
 
 /** A hydrate that failed: the Knowledge graph card says it, with the reason. */
 export const HydrateFailed: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace: the knowledge graph did not load, so the Knowledge graph card gives the reason and the summary links to it.",
+    },
+  },
   args: {
     workspace: failedHydrateWorkspaceDetail,
   },
@@ -519,6 +593,10 @@ const busyIngestion = workspaceIngestionHandlers({
  */
 export const LiveWorkInSources: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace: each source shows its live runs in its own row, with the runs of one source open, and the Knowledge graph card shows its work.",
+    },
     msw: {
       handlers: {
         sources: [
@@ -567,6 +645,10 @@ export const LiveWorkInSources: Story = {
  */
 export const SourceProblemsNeedYou: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace: a source has a problem while its sync runs, and the summary counts the sources that need the owner.",
+    },
     msw: {
       handlers: {
         sources: [
@@ -624,6 +706,10 @@ const longHistory = Array.from({ length: 12 }, (_, index) =>
  */
 export const LongUpgradeHistory: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace: the member opened the long Upgrades history, showed all 12 rows, and opened the newest row.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -682,6 +768,10 @@ export const RootFolder: Story = {
     ),
   ],
   parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace that lives in a folder of a larger repository: the owner saved a new root folder after a path outside was refused.",
+    },
     msw: {
       handlers: {
         page: [
@@ -745,6 +835,10 @@ export const RootFolder: Story = {
 
 export const RelinkError: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace: the context repository dialog could not save a pasted git URL, so an error shows.",
+    },
     msw: {
       handlers: {
         page: [
@@ -802,6 +896,10 @@ export const RenameRefused: Story = {
     ),
   ],
   parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace: the server refused a rename, so a message gives the reason and the URL name stays the same.",
+    },
     msw: {
       handlers: {
         page: [
@@ -844,6 +942,10 @@ export const RenameRefused: Story = {
 
 export const DeleteConfirmOpen: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace: the owner typed the Workspace name in the delete dialog and confirmed, so the dialog closed.",
+    },
     msw: {
       handlers: {
         page: [
@@ -891,6 +993,10 @@ export const DeleteConfirmOpen: Story = {
 
 export const DeleteConfirmPending: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace: the owner confirmed the delete dialog, and the delete request still runs, so the button shows a spinner.",
+    },
     msw: {
       handlers: {
         page: [
@@ -941,6 +1047,10 @@ export const DeleteLastWorkspaceEmptiesHome: Story = {
     </>
   ),
   parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace above the org home body: the owner deleted the only Workspace, and Home shows zero Workspaces at once.",
+    },
     msw: {
       handlers: {
         page: (() => {
