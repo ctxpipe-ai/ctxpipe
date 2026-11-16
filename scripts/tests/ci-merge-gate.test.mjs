@@ -80,30 +80,23 @@ function closureOf(starts) {
   return [...seen]
 }
 
-// The files that the listing or a runner reads and that stay lane inputs:
-// the key of each check that runs one holds it, so a change misses the stored
-// pass of that check.
-const keyedRunFiles = new Map([
-  [
-    "scripts/ci/check-test-report.mjs",
-    "an input of each lane whose runner checks its report with it",
-  ],
-  [
-    "packages/aws-cdk/scripts/stamp-image-tag.mjs",
-    "an input of each aws-cdk check that needs the image tag",
-  ],
-  [
-    "apps/backend/evals/mcp/baseline.json",
-    "the evals are stochastic: the store keeps no pass of them",
-  ],
-])
-
 test("a change to a file that lists, defines or runs checks gives a full run, which reuses no stored pass", () => {
   const files = closureOf([
     "scripts/checks/list.mjs",
     "scripts/checks/run.mjs",
     "scripts/checks/selected.mjs",
   ]).filter((file) => /\.(?:mjs|ts|json)$/.test(file))
+  // The files that the listing or a runner reads and that stay lane inputs:
+  // the key of each check that runs one holds it, so a change misses the
+  // stored pass of that check.
+  const keyed = new Set([
+    // An input of each lane whose runner checks its report with it.
+    "scripts/ci/check-test-report.mjs",
+    // An input of each aws-cdk check that needs the image tag.
+    "packages/aws-cdk/scripts/stamp-image-tag.mjs",
+    // The evals are stochastic: the store keeps no pass of them.
+    "apps/backend/evals/mcp/baseline.json",
+  ])
   // The walk finds the known files, so a broken walk cannot pass.
   for (const known of [
     "scripts/checks/families.mjs",
@@ -118,14 +111,14 @@ test("a change to a file that lists, defines or runs checks gives a full run, wh
     "apps/backend/evals/mcp/cases.ts",
     "apps/ui/.storybook/check-modules.mjs",
     "apps/codesearch/scripts/run-vitest-contracts.mjs",
-    ...keyedRunFiles.keys(),
+    ...keyed,
   ])
     assert.ok(files.includes(known), `walk reaches ${known}`)
   // A package file is a lane input of each check of its package
   // (scripts/checks/README.md, Lanes).
   for (const file of [
     ...files.filter(
-      (file) => !keyedRunFiles.has(file) && !file.endsWith("package.json"),
+      (file) => !keyed.has(file) && !file.endsWith("package.json"),
     ),
     ".npmrc",
   ])
@@ -190,15 +183,17 @@ test("a data file that only its own check reads is a lane input; one that the li
     const gated = readers.filter(gateInput)
     assert.equal(gateInput(path), gated.length > 0, `${path}: ${gated}`)
     if (gated.length) continue
-    // Else each check that reads it holds it in its key, so a change
+    // Else each reader is a check that holds it in its key, so a change
     // selects that check and misses its stored pass.
-    const own = checks.filter((check) => readers.includes(check.file))
-    assert.ok(own.length, `${path}: a check reads it`)
-    for (const check of own)
-      assert.ok(
-        check.inputs.some((input) => matchesGlob(path, input)),
-        `${check.id} holds ${path} in its key`,
-      )
+    for (const reader of readers) {
+      const own = checks.filter((check) => check.file === reader)
+      assert.ok(own.length, `${path}: ${reader} is a check`)
+      for (const check of own)
+        assert.ok(
+          check.inputs.some((input) => matchesGlob(path, input)),
+          `${check.id} holds ${path} in its key`,
+        )
+    }
   }
 })
 
@@ -493,20 +488,18 @@ function ciYamlMode(head, changed = [ciYaml]) {
 }
 
 test("a ci.yaml change only in the steps of check jobs runs the selector with those jobs", () => {
-  const path = ciYaml
-  const base = readFileSync(join(root, path), "utf8")
-  const mode = ciYamlMode
+  const base = readFileSync(join(root, ciYaml), "utf8")
   const lintStep = base.replace(
     "      - name: Lint and policy output\n",
     "      - run: pnpm lint:extra\n      - name: Lint and policy output\n",
   )
-  assert.deepEqual(mode(lintStep), {
+  assert.deepEqual(ciYamlMode(lintStep), {
     mode: "select",
     reason: "shadow",
     jobs: ["lint"],
   })
   assert.deepEqual(
-    mode(
+    ciYamlMode(
       lintStep.replace(
         "run: node --test apps/codesearch/scripts/fetch-releases.test.mjs",
         "run: node --test apps/codesearch/scripts/*.test.mjs",
@@ -514,26 +507,29 @@ test("a ci.yaml change only in the steps of check jobs runs the selector with th
     ).jobs,
     ["codesearch", "lint"],
   )
-  const full = { mode: "full", reason: `gate inputs changed: ${path}` }
+  const full = { mode: "full", reason: `gate inputs changed: ${ciYaml}` }
   // A hunk before `jobs:`.
-  assert.deepEqual(mode(base.replace("name: CI\n", "name: CI checks\n")), full)
+  assert.deepEqual(
+    ciYamlMode(base.replace("name: CI\n", "name: CI checks\n")),
+    full,
+  )
   // A merge gate job.
   assert.deepEqual(
-    mode(base.replace("did not finish in 3 minutes", "did not finish")),
+    ciYamlMode(base.replace("did not finish in 3 minutes", "did not finish")),
     full,
   )
   // A job that runs no check, and a job `name`.
   assert.deepEqual(
-    mode(base.replace('echo "Test shards:', 'echo "Shards:')),
+    ciYamlMode(base.replace('echo "Test shards:', 'echo "Shards:')),
     full,
   )
   assert.deepEqual(
-    mode(base.replace("name: Lint and format\n", "name: Lint\n")),
+    ciYamlMode(base.replace("name: Lint and format\n", "name: Lint\n")),
     full,
   )
   // A `needs` line of a check job.
   assert.deepEqual(
-    mode(
+    ciYamlMode(
       base.replace(
         "    needs: [merge-gate-plan, storybook-build]\n",
         "    needs: [merge-gate-plan, storybook-build, lint]\n",
@@ -560,10 +556,10 @@ test("a ci.yaml change only in the steps of check jobs runs the selector with th
       "      - name: UI tests\n        timeout-minutes: 20\n",
     ),
   ])
-    assert.deepEqual(mode(head), full)
+    assert.deepEqual(ciYamlMode(head), full)
   const requiredJob = workflowJob(base, "storybook-required")
   assert.deepEqual(
-    mode(
+    ciYamlMode(
       base.replace(
         requiredJob,
         requiredJob.replace(/\n {6}- /, "\n      - run: true\n      - "),
@@ -573,7 +569,7 @@ test("a ci.yaml change only in the steps of check jobs runs the selector with th
   )
   // The gated step of the same job stays scoped.
   assert.deepEqual(
-    mode(
+    ciYamlMode(
       once(
         "      - name: Selected UI, CLI and CDK tests (merge gate)\n",
         "      - name: Selected UI, CLI and CDK tests (merge gate)\n        timeout-minutes: 20\n",
@@ -582,17 +578,20 @@ test("a ci.yaml change only in the steps of check jobs runs the selector with th
     ["package-tests"],
   )
   // A gate input that the base revision decides keeps the rule.
-  assert.deepEqual(mode(lintStep, [path, "scripts/checks/gate.mjs"]), {
+  assert.deepEqual(ciYamlMode(lintStep, [ciYaml, "scripts/checks/gate.mjs"]), {
     mode: "select",
     reason: "shadow",
     jobs: ["lint"],
     gateInputs: ["scripts/checks/gate.mjs"],
   })
   // A changed action is a gate input of its own.
-  assert.deepEqual(mode(lintStep, [path, ".github/actions/a/action.yml"]), {
-    mode: "full",
-    reason: `gate inputs changed: ${path}, .github/actions/a/action.yml`,
-  })
+  assert.deepEqual(
+    ciYamlMode(lintStep, [ciYaml, ".github/actions/a/action.yml"]),
+    {
+      mode: "full",
+      reason: `gate inputs changed: ${ciYaml}, .github/actions/a/action.yml`,
+    },
+  )
 })
 
 test("a ci.yaml change in the steps of Migrations or of a job that no pull_request runs keeps the selector", () => {
@@ -618,11 +617,14 @@ test("a ci.yaml change in the steps of Migrations or of a job that no pull_reque
       job,
     )
   // With a step of a check job, the checks of that job run without hits.
-  assert.deepEqual(ciYamlMode(withStep(withStep(base, "results-writer"), "lint")), {
-    mode: "select",
-    reason: "shadow",
-    jobs: ["lint"],
-  })
+  assert.deepEqual(
+    ciYamlMode(withStep(withStep(base, "results-writer"), "lint")),
+    {
+      mode: "select",
+      reason: "shadow",
+      jobs: ["lint"],
+    },
+  )
   const full = { mode: "full", reason: `gate inputs changed: ${ciYaml}` }
   // Another key of such a job: its `if:` decides whether a PR runs it.
   const writer = workflowJob(base, "results-writer")
@@ -661,7 +663,7 @@ function runsOnPullRequest(condition) {
   return Function(`return (${expression})`)()
 }
 
-test("a job whose steps a change may touch without a full run runs no check, and runs on no pull_request or alike in each mode", () => {
+test("a job whose steps a change may touch without a full run runs no check, and runs on no pull_request, or runs in the same way in each mode", () => {
   const workflow = readFileSync(join(root, ciYaml), "utf8")
   const { jobs } = parseYaml(workflow)
   // The evaluator reads each form of these conditions.
@@ -676,11 +678,7 @@ test("a job whose steps a change may touch without a full run runs no check, and
     assert.ok(!checkJobs.has(job), job)
     assert.equal(runsOnPullRequest(jobs[job].if), true, job)
     // No step or condition depends on the mode or a lane of the gate.
-    assert.doesNotMatch(
-      workflowJob(workflow, job),
-      /merge-gate|matrix\./,
-      job,
-    )
+    assert.doesNotMatch(workflowJob(workflow, job), /merge-gate|matrix\./, job)
   }
 })
 
@@ -1351,7 +1349,11 @@ test("a gated run packs its checks into the fewest shards that hold the target, 
   // A screenshot check counts 2 seconds, not the play time that the trace
   // holds for it.
   assert.equal(
-    estimate("storybook:visual:a#x", new Map([["storybook:visual:a#x", 0.2]]), {}),
+    estimate(
+      "storybook:visual:a#x",
+      new Map([["storybook:visual:a#x", 0.2]]),
+      {},
+    ),
     2,
   )
   // Two short screenshot checks fit in one shard; the shards need the
@@ -1374,8 +1376,9 @@ test("a gated run packs its checks into the fewest shards that hold the target, 
   )
   assert.equal(
     shardMinutes({ visual: [{ ids: [], seconds: 60 }] }),
-    Math.round((profiles.visual.setupMinutes + 1 + storybookBuildMinutes) * 10) /
-      10,
+    Math.round(
+      (profiles.visual.setupMinutes + 1 + storybookBuildMinutes) * 10,
+    ) / 10,
   )
   assert.equal(
     estimate("vitest:backend:apps/backend/src/x.test.ts", new Map(), {
@@ -1892,7 +1895,8 @@ test("each dismissed finding shows its reason, writer and commit; none is silent
         {
           critic: "critic:spec",
           status: "carried",
-          reason: "2 passes (2 held findings dismissed by a person with a reason)",
+          reason:
+            "2 passes (2 held findings dismissed by a person with a reason)",
           dismissals: [
             {
               finding: "f:0123abcd",

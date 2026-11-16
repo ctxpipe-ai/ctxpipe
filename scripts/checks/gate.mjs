@@ -106,12 +106,12 @@ export const offPullRequestJobs = new Set([
 export const sameInEachRunJobs = new Set(["migrate"])
 
 // The job of line i of ci.yaml when the line is in the `steps` of a job that
-// a manifest check runs in (or in the Storybook build job, which they need);
-// null for a blank or comment line, or for a line in the `steps` of a job
-// without checks above; else undefined. A step or a job that
-// only a full run uses (its `if:` needs `mode != 'gate'` or a matrix lane
-// other than `selected`) is undefined too: a gated run does not run it, so
-// only a full run can prove its change. It reads the indents of the
+// a manifest check runs in (or in the Storybook build job, which they need).
+// Null for a blank or comment line, or for a line in the `steps` of a job of
+// `offPullRequestJobs` or `sameInEachRunJobs`. Else undefined. A step or a
+// job that only a full run uses (its `if:` needs `mode != 'gate'` or a matrix
+// lane other than `selected`) is undefined too: a gated run does not run it,
+// so only a full run can prove its change. It reads the indents of the
 // workflow, not its YAML.
 function jobOf(lines, i) {
   if (/^\s*(?:#|$)/.test(lines[i])) return null
@@ -127,8 +127,7 @@ function jobOf(lines, i) {
       header ??= j
     } else if (indent.length === 0) {
       if (name !== "jobs" || !job || key !== "steps") return undefined
-      if (offPullRequestJobs.has(job) || sameInEachRunJobs.has(job))
-        return null
+      if (offPullRequestJobs.has(job) || sameInEachRunJobs.has(job)) return null
       if (!(checkJobs.has(job) || job === "storybook-build")) return undefined
       break
     }
@@ -188,11 +187,11 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
   // list complete). Package files and the lockfile are lane inputs that the
   // selector reads, not gate inputs. Other workflows, Markdown files and
   // .node-version are lane inputs too, and the toolchain is part of each key.
-  // A data file in scripts/ci is a gate input only when the listing, a runner
-  // or a prerequisite reads it. Else only its own check reads it, and the key
-  // of that check holds it (a test keeps both true).
+  // A data file in scripts/ci is a gate input, except a file that only its
+  // own check reads and whose key holds it (a test keeps the list true).
   // The run is full, except for the inputs that the base revision decides
-  // and a ci.yaml change in the steps of check jobs.
+  // and a ci.yaml change only in the steps of check jobs, of
+  // `offPullRequestJobs` and of `sameInEachRunJobs`.
   let inputs = changed.filter((path) =>
     [
       /^\.github\/workflows\/ci\.yaml$/,
@@ -200,7 +199,7 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
       /^\.github\/merge-gate\.json$/,
       /^scripts\/checks\/(?:schema\/[^/]+\.json|[^/]+\.(?:mjs|json))$/,
       /^scripts\/ci\/(?:vitest-launch|test-suite|graph-ready|prerequisites|storybook-play)\.mjs$/,
-      /^scripts\/ci\/(?:contracts|projects|service-pins|test-weights|visual-container|visual-unstable-stories)\.json$/,
+      /^scripts\/ci\/(?!(?:module-scope-values-baseline|page-story-exemptions)\.json$)[^/]+\.json$/,
       /^\.npmrc$/,
       /^patches\//,
       /^apps\/backend\/evals\/mcp\/(?:cases|gate)\.ts$/,
@@ -221,8 +220,9 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
     ].some((input) => input.test(path)),
   )
   inputs = inputs.filter((path) => !decided.includes(path))
-  // A change to ci.yaml only in the `steps` of check jobs runs
-  // the selector; the shadow job then runs each check of those jobs.
+  // A change to ci.yaml only in the `steps` of check jobs, of
+  // `offPullRequestJobs` and of `sameInEachRunJobs` runs the selector; the
+  // plan then runs each check of those check jobs.
   let jobs = []
   const scoped =
     inputs.join() === ".github/workflows/ci.yaml" &&
@@ -302,12 +302,7 @@ export function fullVerdict(needs) {
 // What a gated run would decide on the same results. Each selected check needs
 // one accepted result: an accepted hit, or its result in the full run (the
 // gated run would run it).
-export function gatedVerdict({
-  selection,
-  config,
-  result,
-  needs,
-}) {
+export function gatedVerdict({ selection, config, result, needs }) {
   const hits = new Map(
     (selection.cache?.hits ?? []).map((hit) => [hit.id, hit]),
   )
@@ -332,11 +327,9 @@ export function gatedVerdict({
       })
   }
   // The jobs that run whatever the selection is.
-  const failedAlwaysRun = [
-    "production-builds",
-    "packages",
-    "migrate",
-  ].filter((job) => ["failure", "cancelled"].includes(needs[job]?.result))
+  const failedAlwaysRun = ["production-builds", "packages", "migrate"].filter(
+    (job) => ["failure", "cancelled"].includes(needs[job]?.result),
+  )
   const failedChecks = ran.some(
     (item) =>
       ["failed", "error"].includes(item.result) ||
@@ -814,15 +807,7 @@ export function flakyJobs(jobs, earlier) {
   ].sort()
 }
 
-export function shadow({
-  config,
-  inputs,
-  records,
-  needs,
-  jobs,
-  earlier,
-  run,
-}) {
+export function shadow({ config, inputs, records, needs, jobs, earlier, run }) {
   const full = fullVerdict(needs)
   const steps = stepResults(jobs)
   const result = fullRunResults(records, needs, steps)
