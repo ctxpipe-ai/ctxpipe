@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url"
 const script = fileURLToPath(
   new URL("../ci/check-duplicate-screenshots.mjs", import.meta.url),
 )
-const { encode } = createRequire(
+const { decode, encode } = createRequire(
   new URL("../../packages/visual-review/package.json", import.meta.url),
 )("@blazediff/codec-png-native")
 
@@ -99,4 +99,31 @@ test("a baseline with no story file is left to the orphan check", () => {
     "x/screenshots/Gone.Empty.desktop.screenshot.png": png(10),
   })
   assert.equal(result.status, 0, result.stderr)
+})
+
+test("the same pixels in another PNG encoding are a duplicate, and the same color at another size is not", () => {
+  const recompressed = encode(decode(png(10)), {
+    compression: 1,
+    filter: "paeth",
+  })
+  assert.notDeepEqual(Buffer.from(recompressed), Buffer.from(png(10)))
+  const same = check({
+    "x/Card.stories.tsx": storyFile("export const A = {}\nexport const B = {}"),
+    "x/screenshots/Card.A.desktop.screenshot.png": png(10),
+    "x/screenshots/Card.B.desktop.screenshot.png": recompressed,
+  })
+  assert.equal(same.status, 1)
+  const wide = encode({
+    data: new Uint8Array(8 * 2 * 4).map((_, index) =>
+      index % 4 === 3 ? 255 : 10,
+    ),
+    width: 8,
+    height: 2,
+  })
+  const otherSize = check({
+    "x/Card.stories.tsx": storyFile("export const A = {}\nexport const B = {}"),
+    "x/screenshots/Card.A.desktop.screenshot.png": png(10),
+    "x/screenshots/Card.B.desktop.screenshot.png": wide,
+  })
+  assert.equal(otherSize.status, 0, otherSize.stderr)
 })

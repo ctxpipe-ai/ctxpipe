@@ -10,18 +10,23 @@
 //
 // Usage: node scripts/ci/check-duplicate-screenshots.mjs [repo root]   (default: this repo)
 
+import { createHash } from "node:crypto"
 import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { createRequire } from "node:module"
 import { join, posix, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { csfTools } from "../../apps/ui/.storybook/check-modules.mjs"
-import { duplicateBaselines } from "../../packages/visual-review/src/compare/duplicates.ts"
 import { visualOptions } from "../checks/visual.mjs"
 
 const root = resolve(
   process.argv[2] ?? fileURLToPath(new URL("../..", import.meta.url)),
 )
 const { loadCsf } = await csfTools()
+// The PNG codec of the compare engine, from the package that depends on it.
+const { decode } = createRequire(
+  new URL("../../packages/visual-review/package.json", import.meta.url),
+)("@blazediff/codec-png-native")
 
 /** Each baseline under `dir` (from the repository root), with its story. */
 function baselines(dir) {
@@ -59,17 +64,32 @@ const entries = [
 const options = visualOptions(entries, loadCsf, (file) =>
   readFileSync(join(root, file), "utf8"),
 )
-const groups = duplicateBaselines(
-  found.map(({ path, file, exportName }) => {
-    const story = `${file}#${exportName}`
-    return {
-      path,
-      story,
-      png: readFileSync(join(root, path)),
-      duplicate: options.get(story)?.duplicate,
-    }
-  }),
-)
+// The baselines of each set of pixels (the size and the color of each pixel,
+// so another PNG encoding of the same pixels is the same). A set fails when
+// two or more of its stories have no duplicate reason. Two baselines of one
+// story (a named snapshot and the end state) are not a duplicate.
+const bySame = new Map()
+for (const { path, file, exportName } of found) {
+  const { data, width, height } = decode(readFileSync(join(root, path)))
+  const key = createHash("sha256")
+    .update(`${width}x${height}:`)
+    .update(data)
+    .digest("hex")
+  bySame.set(key, [
+    ...(bySame.get(key) ?? []),
+    { path, story: `${file}#${exportName}` },
+  ])
+}
+const groups = [...bySame.values()]
+  .filter(
+    (group) =>
+      new Set(
+        group
+          .filter(({ story }) => !options.get(story)?.duplicate)
+          .map(({ story }) => story),
+      ).size > 1,
+  )
+  .map((group) => group.map(({ path }) => path).sort())
 for (const group of groups)
   console.error(
     `These screenshots of different stories have the same pixels:\n${group.map((path) => `  ${path}`).join("\n")}\nKeep one story for each UI state (Storybook skill, "One story for each state"). Delete a story that repeats another. Give a behavior test that ends in the same state parameters.visual.skip with a reason. Only when two stories must look the same, give the second one parameters.visual.duplicate with a reason.`,

@@ -204,7 +204,6 @@ const definitions = () => [
         "apps/ui/src/**",
         "apps/ui/.storybook/check-modules.mjs",
         "scripts/checks/visual.mjs",
-        "packages/visual-review/src/compare/duplicates.ts",
       ],
       "Catches two stories whose committed screenshots have the same pixels, so one UI state has two stories. Run it when a story or a baseline under apps/ui/src changes; never for a change outside it.",
     ],
