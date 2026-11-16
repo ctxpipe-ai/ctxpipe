@@ -37,10 +37,22 @@ The threat is the threat of this ADR: a fault, or an agent that wants its PR to 
   - the list-time files outside `scripts/checks/`, with the Storybook `main.ts`.
 - **The key of each check that a definition can change holds it.** A Vitest or Storybook key holds `run.mjs` and its import closure, which has each family module. A project key holds `projects.mjs`. A data file is an input of its readers. Thus a pass of the old definition misses. A pass that the author stored with the new definition is a hit.
 - **The base revision lists the same tree.** A PR could drop a check from its listing. It could also leave an input out of an entry, so that the key equals an old one. Thus the job Merge gate base listing lists the merge tree with the code and the dependencies of the base revision. Before any step runs a program of the checkout, the base versions replace the list-time files and each file that decides the tools and the install. The install uses a new store and no cache. The files of the PR are only data. The job uploads the listing with its artifact id as an output.
-- **The plan compares the two listings.** The run is full when only the base listing gives a check, when a listing gives an id twice, or when the own inputs of a check changed. A check whose entry differs in a field other than `intent`, has fewer inputs, or that only the PR listing gives, runs without a stored pass. More inputs only widen a key, so they keep the hit. The LLM stage does not decide such a run.
+- **The plan compares the two listings.** The run is full in these cases:
+  - Only the base listing gives a check.
+  - A listing gives an id twice.
+  - The own inputs of a check changed.
+  - A check whose definition changed is in no selection, for example because the PR made it stochastic.
+- **A check whose definition changed runs without a stored pass.** This is a check whose entry differs in a field other than `intent` and `inputs`, a check with fewer inputs, or a check that only the PR listing gives. More inputs only widen a key, so they keep the hit.
+- **The LLM stage does not decide such a run.** The plan keeps the selection of the select job.
 - **A data file of one check is a lane input.** Examples are `module-scope-values-baseline.json` and `page-story-exemptions.json`. Only the script of its own check reads it, and the key of that check holds it. `gate.mjs` names these files, so a new data file is a gate input until a person adds it.
 - **Some `ci.yaml` steps of jobs without checks keep the selector.** No pull_request runs the nightly, trace, Results writer and layer cache jobs, so no PR run proves their steps. Each PR run runs the steps of Migrations in the same way. A change to another key of these jobs, such as `if:`, gives the full run.
-- **These inputs keep the full run.** `run.mjs`, `families.mjs`, `scripts/checks/prerequisites.mjs`, `scripts/ci/vitest-launch.mjs`, `scripts/ci/graph-ready.mjs` and `scripts/ci/prerequisites.mjs` run the checks of every family. A project key does not hold them. Each check that runs in CI runs through `selected.mjs` and `rerun-failed.mjs`. The record of `toolchain.mjs` is part of each key. The manifest job installs with `.npmrc` and `patches/` before it lists. Node loads a package from a committed `node_modules/` folder, also in the base listing. `.github/actions/**` and the other `ci.yaml` changes set up jobs in a way that no key holds.
+- **These inputs keep the full run.**
+  - `run.mjs`, `families.mjs`, `scripts/checks/prerequisites.mjs`, `scripts/ci/vitest-launch.mjs`, `scripts/ci/graph-ready.mjs` and `scripts/ci/prerequisites.mjs` run the checks of every family. A project key does not hold them.
+  - Each check that runs in CI runs through `selected.mjs` and `rerun-failed.mjs`.
+  - The record of `toolchain.mjs` is part of each key.
+  - The manifest job installs with `.npmrc` and `patches/` before it lists.
+  - Node loads a package from a committed `node_modules/` folder.
+  - `.github/actions/**` and the other `ci.yaml` changes set up jobs in a way that no key holds.
 
 ### Consequences of the revision
 

@@ -541,8 +541,17 @@ export function plan({ config, inputs, needs, store }) {
   // its `pr` hit too.
   selection = withStoreHits(selection, store)
   if (mode.jobs?.length) selection = withJobChecks(selection, mode.jobs)
-  if (changes)
+  if (changes) {
     selection = withDefinitionChecks(selection, changes.changed, definitions)
+    // The selector lists a stochastic check in no list, so a check that the
+    // PR made stochastic is in no selection: the plan cannot run it.
+    const selected = new Set(selection.selected.map((check) => check.id))
+    const lost = changes.changed.filter((id) => !selected.has(id))
+    if (lost.length)
+      return full(
+        `definitions of checks changed, and ${lost.length} ${lost.length === 1 ? "check" : "checks"} whose definition changed ${lost.length === 1 ? "is" : "are"} in no selection: ${lost.slice(0, 3).join(", ")}`,
+      )
+  }
   const gateInputs = mode.gateInputs ?? []
   if (gateInputs.length) selection = withGateTests(selection, gateInputs)
   const selected = new Set(selection.selected.map((check) => check.id))

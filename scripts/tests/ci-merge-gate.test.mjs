@@ -181,7 +181,10 @@ test("the base listing job runs no code of the PR, and the plan reads its listin
   const { jobs } = parseYaml(readFileSync(join(root, ciYaml), "utf8"))
   const job = jobs["merge-gate-base-listing"]
   assert.equal(job.needs, "merge-gate-manifest")
-  assert.match(job.if, /needs\.merge-gate-manifest\.outputs\.definitions == 'true'/)
+  assert.match(
+    job.if,
+    /needs\.merge-gate-manifest\.outputs\.definitions == 'true'/,
+  )
   assert.deepEqual(job.permissions, { contents: "read" })
   const [checkout, overlay, node, listing, upload] = job.steps
   assert.equal(job.steps.length, 5)
@@ -270,7 +273,10 @@ test("the base listing job runs no code of the PR, and the plan reads its listin
     )
   // The plan reads the listing only by the artifact id of its job, and the
   // manifest that the selector keyed from the select job.
-  assert.equal(job.outputs["artifact-id"], "${{ steps.preserve.outputs.artifact-id }}")
+  assert.equal(
+    job.outputs["artifact-id"],
+    "${{ steps.preserve.outputs.artifact-id }}",
+  )
   assert.ok(
     jobs["merge-gate-plan"].steps.some(
       (step) =>

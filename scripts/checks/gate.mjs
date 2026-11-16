@@ -232,10 +232,11 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
   // read it. Thus a change misses each stored pass of the old definition.
   // The job Merge gate base listing lists the same tree with the code and
   // the dependencies of the base revision, and runs no PR code. The plan
-  // compares the two listings (definitionChanges in plan.mjs). The files that run the checks
-  // of every family stay full-run inputs: the runner and its host pins, the
-  // prerequisites, the CI runner steps, and toolchain.mjs, whose record is
-  // part of each key. A project key does not hold them.
+  // compares the two listings (definitionChanges in plan.mjs). The files
+  // that run the checks of every family stay full-run inputs: the runner and
+  // its host pins, the prerequisites, the CI runner steps, and
+  // toolchain.mjs, whose record is part of each key. A project key does not
+  // hold them.
   const definitions = inputs.filter(
     (path) =>
       !/(?:^|\/)node_modules(?:\/|$)/.test(path) &&

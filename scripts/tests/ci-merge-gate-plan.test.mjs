@@ -724,6 +724,32 @@ test("a PR cannot redefine a check to reuse a pass of the old definition", () =>
     owned.reason,
     `definitions of checks changed, and the own inputs of a check changed: ${lint}`,
   )
+  // A check that the PR makes stochastic leaves the selection of the
+  // selector, so the plan cannot run it, and the run is full.
+  const keyed = selectRecord()
+  const stochastic = planOf({
+    files: {
+      "mode.json": definitions,
+      "selection.json": {
+        ...keyed,
+        selected: keyed.selected.filter((item) => item.id !== backend),
+        cache: {
+          ...keyed.cache,
+          misses: keyed.cache.misses.filter((miss) => miss.id !== backend),
+        },
+      },
+      "manifest.json": manifestOf(
+        listed().map((item) =>
+          item.id === backend ? { ...item, stochastic: true } : item,
+        ),
+      ),
+      "base-manifest.json": manifestOf(listed()),
+    },
+  })
+  assert.equal(
+    stochastic.reason,
+    `definitions of checks changed, and 1 check whose definition changed is in no selection: ${backend}`,
+  )
   // A dropped eval case has no key, but it is dropped too.
   const evals = planOf({
     files: {

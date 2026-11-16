@@ -319,6 +319,7 @@ For a change to one of the first two kinds, the plan also runs every test of the
   - The base listing gives a check that the PR listing does not. This includes an eval case.
   - A listing gives a check id twice.
   - The `ownInputs` of a check changed. Own inputs keep a change from selecting other checks.
+  - A check whose definition changed is in no selection, for example because the PR made it stochastic.
 - A check with a key runs without a stored pass (reason `definition`) in these cases:
   - Its entry differs in a field other than `intent` and `inputs`.
   - It has fewer inputs.
