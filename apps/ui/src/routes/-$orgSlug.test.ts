@@ -91,6 +91,34 @@ describe("resolveOrgGate", () => {
     expect(isRedirect(outcome) && outcome.options.to).toBe("/.auth/sign-in")
   })
 
+  // Both gate calls go through the same Better Auth rate limit for the
+  // client address: in the scanner burst, each got 429 (378 times). A 429
+  // on either one would otherwise give the 500 error screen.
+  it("sends the request to sign-in when only the organization list is rate-limited", async () => {
+    server.use(
+      http.get("http://localhost:3000/.auth/api/v1/auth/get-session", () =>
+        HttpResponse.json({
+          session: { id: "ses_1", userId: "usr_1" },
+          user: { id: "usr_1", onboardingCompletedAt: "2026-01-01T00:00:00Z" },
+        }),
+      ),
+      http.get(
+        "http://localhost:3000/.auth/api/v1/auth/organization/list",
+        () =>
+          HttpResponse.json({ message: "Too many requests" }, { status: 429 }),
+      ),
+    )
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+
+    const outcome = await duringServerRequest(signedInHeaders, () =>
+      resolveOrgGate(queryClient, "acme"),
+    ).catch((error: unknown) => error)
+
+    expect(isRedirect(outcome) && outcome.options.to).toBe("/.auth/sign-in")
+  })
+
   it("sends an anonymous scanner path to sign-in without a backend call", async () => {
     // No handlers: msw fails the test on any backend call.
     const queryClient = new QueryClient({
