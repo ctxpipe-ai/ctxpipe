@@ -6,7 +6,6 @@ import { type Span, SpanStatusCode, trace } from "@opentelemetry/api"
 
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 import { mergeScipShardFiles } from "../graph/scipProto.js"
-import { getIndexerProcessConcurrency } from "./capacityEnv.js"
 import type { ScipIndexerId } from "./detectLanguages.js"
 import { withIndexerGoLimits } from "./indexerChildEnv.js"
 import { withScipIndexerSlot } from "./indexerProcessSemaphore.js"
@@ -328,14 +327,14 @@ export async function runScipIndexer(input: {
 
 /**
  * The V8 heap of a Node-based indexer (scip-typescript, scip-python). The
- * default heap follows host memory (2 GB in an 8 GB container), which a large
- * project outgrows; give the indexer 3/4 of its process slot's share of the
- * container. A fixed cap also keeps the indexer inside that share.
+ * default heap follows host memory (about 2 GB), which a large project
+ * outgrows. Only one SCIP indexer runs at a time (`withScipIndexerSlot`), so
+ * it gets half of the container. The other half is for the service, Zoekt and
+ * the page cache. The cap also keeps the indexer inside its half.
  */
 function nodeIndexerHeapMb(): number {
-  const shareMb =
-    process.constrainedMemory() / 1024 / 1024 / getIndexerProcessConcurrency()
-  return Math.min(8192, Math.floor(shareMb * 0.75)) || 4096
+  const containerMb = process.constrainedMemory() / 1024 / 1024
+  return Math.min(8192, Math.floor(containerMb / 2)) || 4096
 }
 
 type ProjectOutcome =

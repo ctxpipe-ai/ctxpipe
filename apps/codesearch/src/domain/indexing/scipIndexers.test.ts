@@ -150,13 +150,14 @@ describe("runScipIndexer", () => {
     }
   })
 
-  it("caps the Node heap of scip-python like scip-typescript", async () => {
+  it("gives the one SCIP indexer half of the container as its Node heap", async () => {
     const directory = await mkdtemp(join(tmpdir(), "scip-indexers-"))
     const checkoutPath = join(directory, "checkout")
     await mkdir(checkoutPath)
     writeFileSync(join(checkoutPath, "tsconfig.json"), "{}")
-    // A 6 GiB container with two indexer process slots.
-    vi.stubEnv("CODESEARCH_INDEXER_CONCURRENCY", "2")
+    // A 6 GiB container. One SCIP indexer runs at a time, so the number of
+    // indexer process slots does not divide its heap.
+    vi.stubEnv("CODESEARCH_INDEXER_CONCURRENCY", "4")
     vi.spyOn(process, "constrainedMemory").mockReturnValue(6 * 1024 ** 3)
     const spawn = vi.fn((argv: string[], _options?: object) => {
       writeFileSync(outputOf(argv), "index")
@@ -178,8 +179,8 @@ describe("runScipIndexer", () => {
           (options as { env: Record<string, string> }).env.NODE_OPTIONS,
         ]),
       ).toEqual([
-        ["scip-python", "--max-old-space-size=2304"],
-        ["scip-typescript", "--max-old-space-size=2304"],
+        ["scip-python", "--max-old-space-size=3072"],
+        ["scip-typescript", "--max-old-space-size=3072"],
       ])
     } finally {
       vi.restoreAllMocks()
