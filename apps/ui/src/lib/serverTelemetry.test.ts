@@ -95,7 +95,7 @@ function spanAt(path: string): OtlpSpan {
   return span
 }
 
-function logIn(span: OtlpSpan): OtlpLog {
+function errorLogOf(span: OtlpSpan): OtlpLog {
   const record = records.find((candidate) => candidate.traceId === span.traceId)
   if (!record) throw new Error("no log in the trace of the span")
   return record
@@ -131,30 +131,29 @@ describe("scrubServerErrorText", () => {
   it.each([
     ["Unauthorized", "Unauthorized"],
     ["Error in renderToReadableStream:", "Error in renderToReadableStream"],
-    ["Failed to load Workspaces", "Failed to load Workspaces"],
     ["Request failed (404)", "Request failed (404)"],
     ["ECONNRESET: The socket connection was closed unexpectedly", "ECONNRESET"],
-    [
-      "Cannot read properties of undefined (reading 'name')",
-      "Cannot read properties of undefined (reading {redacted})",
-    ],
     [
       "Minified React error #418; visit https://react.dev/errors/418?args[]=s3cr3t for the full message",
       "Minified React error #418",
     ],
-    ["prompt: confidential question", "prompt"],
-  ])("keeps the head of a known diagnostic shape: %s", (text, head) => {
+    ["Forbidden: you are not a member of acme", "Forbidden"],
+  ])("keeps an approved head: %s", (text, head) => {
     expect(scrubServerErrorText(text)).toBe(head)
   })
 
   it.each([
+    "prompt: confidential question",
     "Invalid prompt confidential question",
-    "confidential question",
+    "Failed to summarize confidential acquisition plan",
+    "Could not stop thinking about the plan",
+    "Hello",
+    "sk_test_privatevalue",
+    "EXCELLENT",
     "Unexpected token 'h', \"here is my secret plan\" is not valid JSON",
     "Parse error on line 2:\nthe secret plan diagram",
+    "Cannot read properties of undefined (reading 'name')",
     "request to https://api.test/v1/x?token=abc failed for jane@example.test",
-    "better-auth.session_token=s3cr3t",
-    "sent Bearer eyJhbGciOi.payload.sig",
     "a".repeat(5_000),
   ])("replaces any other text: %s", (text) => {
     expect(scrubServerErrorText(text)).toBe("{redacted}")
@@ -229,9 +228,13 @@ describe("startServerTelemetry", () => {
     // A handler that rejects.
     await expect(
       traceServerRequest(new Request("http://ui.test/rejected"), async () => {
-        throw new RangeError("ECONNRESET: s3cr3t")
+        // An ApiError of the UI API client, with a fixed text.
+        throw Object.assign(new Error("Failed to load s3cr3t"), {
+          name: "ApiError",
+          status: 404,
+        })
       }),
-    ).rejects.toThrow("ECONNRESET")
+    ).rejects.toThrow("Failed to load")
 
     await traceServerRequest(
       new Request("http://ui.test/.otel/v1/traces", { method: "POST" }),
@@ -262,7 +265,7 @@ describe("startServerTelemetry", () => {
       "deployment.environment": "pr-7",
       "telemetry.sdk.language": "nodejs",
     })
-    const renderLog = logIn(renderSpan)
+    const renderLog = errorLogOf(renderSpan)
     expect(renderLog.severityNumber).toBe(17)
     expect(renderLog.severityText).toBe("ERROR")
     expect(renderLog.body.stringValue).toBe(
@@ -275,7 +278,7 @@ describe("startServerTelemetry", () => {
 
     for (const [path, type, message] of [
       ["/streamed", "TypeError", "{redacted}"],
-      ["/rejected", "RangeError", "ECONNRESET"],
+      ["/rejected", "ApiError", "Request failed (404)"],
     ] as const) {
       const span = spanAt(path)
       expect(span.status.code).toBe(2)
@@ -283,7 +286,7 @@ describe("startServerTelemetry", () => {
         "exception.type": type,
         "exception.message": message,
       })
-      expect(logIn(span).body.stringValue).toBe(`${type}: ${message}`)
+      expect(errorLogOf(span).body.stringValue).toBe(`${type}: ${message}`)
     }
     expect(records).toHaveLength(3)
 

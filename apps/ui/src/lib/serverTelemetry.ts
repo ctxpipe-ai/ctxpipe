@@ -77,32 +77,43 @@ export function startServerTelemetry(): boolean {
         "deployment.environment": deploymentName(),
       }),
     )
+  const providers: { shutdown(): Promise<void> }[] = []
   if (endpoints.traces) {
     const exporter = new OTLPTraceExporter({
       url: endpoints.traces,
       timeoutMillis: 2_000,
     })
-    new NodeTracerProvider({
+    const tracerProvider = new NodeTracerProvider({
       resource,
       spanProcessors: [
         new BatchSpanProcessor(exporter, { exportTimeoutMillis: 2_000 }),
       ],
-    }).register()
+    })
+    tracerProvider.register()
+    providers.push(tracerProvider)
   }
   if (endpoints.logs) {
     const exporter = new OTLPLogExporter({
       url: endpoints.logs,
       timeoutMillis: 2_000,
     })
-    logs.setGlobalLoggerProvider(
-      new LoggerProvider({
-        resource,
-        processors: [
-          new BatchLogRecordProcessor(exporter, { exportTimeoutMillis: 2_000 }),
-        ],
-      }),
-    )
+    const loggerProvider = new LoggerProvider({
+      resource,
+      processors: [
+        new BatchLogRecordProcessor(exporter, { exportTimeoutMillis: 2_000 }),
+      ],
+    })
+    logs.setGlobalLoggerProvider(loggerProvider)
+    providers.push(loggerProvider)
   }
+  // The Bun preset of Nitro has no shutdown hook. On SIGTERM (an ECS task
+  // stop), send the queued spans and logs, then stop as the default action
+  // of the signal does.
+  process.once("SIGTERM", () => {
+    void Promise.allSettled(
+      providers.map((provider) => provider.shutdown()),
+    ).finally(() => process.kill(process.pid, "SIGTERM"))
+  })
   const consoleError = console.error.bind(console)
   console.error = (...args: unknown[]) => {
     consoleError(...args)
@@ -229,7 +240,13 @@ function reportError(span: Span | undefined, error: unknown, label = ""): void {
  */
 function scrubbedError(error: Error): Error {
   const name = /^[\w.$-]{1,64}$/.test(error.name) ? error.name : "Error"
-  const message = scrubServerErrorText(error.message)
+  // An API error that has no approved text still gives its HTTP status.
+  const status = (error as { status?: unknown }).status
+  const text = scrubServerErrorText(error.message)
+  const message =
+    text === "{redacted}" && typeof status === "number" && status > 0
+      ? `Request failed (${status})`
+      : text
   const copy = new Error(message)
   copy.name = name
   const stack = error.stack ?? ""
@@ -249,36 +266,50 @@ function scrubbedError(error: Error): Error {
 }
 
 /**
- * The exported form of an error text. Only a head that matches a known
- * diagnostic shape leaves the server; any other text, such as a value, a
- * request body, or a prompt that an error repeats, becomes "{redacted}".
- * The head is the first line up to the first ": ", after credential
- * scrubbing and with each quoted part replaced. The exception type and the
- * stack frames give the rest of the diagnosis.
+ * The exported form of an error text: its head when that is an approved
+ * diagnostic text, else "{redacted}". The head is the first line up to the
+ * first ": ". Any other text, such as a value, a request body, or a prompt
+ * that an error repeats, does not leave the server. The exception type and
+ * the stack frames give the rest of the diagnosis.
  */
 export function scrubServerErrorText(text: string): string {
-  const head = (
-    scrubCredentials(text)
-      .replace(/"[^"]*"?|'[^']*'?|`[^`]*`?/g, "{redacted}")
-      .split(/\r?\n|:(?:\s|$)/, 1)[0] ?? ""
-  ).trim()
+  const head = (text.split(/\r?\n|:(?:\s|$)/, 1)[0] ?? "").trim()
   if (!head) return ""
-  const react = /^Minified React error #\d+/.exec(head)
-  if (react) return react[0]
-  const diagnostic = [
-    // One code: Unauthorized, ECONNRESET, INSUFFICIENT_API_KEY_PERMISSIONS.
-    /^[\w.$#-]{1,64}$/,
-    // The SSR label of TanStack Start: Error in renderToReadableStream.
-    /^Error in [\w.]{1,64}$/,
-    // The fixed fallback texts of the UI API client.
-    /^(Failed to|Could not|Unable to) [a-z]+( [\w-]+){0,4}$/,
-    /^Request failed \(\d{3}\)$/,
-    // Runtime errors that name code, not data.
-    /^Cannot read properties of (undefined|null) \(reading \{redacted\}\)$/,
-    /^[\w.$]{1,64} is not (a function|defined|iterable|a constructor)$/,
-    /^(fetch failed|signal timed out|Network request failed|The operation (was aborted|timed out)\.?)$/,
-  ]
-  return diagnostic.some((shape) => shape.test(head)) ? head : "{redacted}"
+  const approved = new Set([
+    // The SSR labels of TanStack Start.
+    "Error in renderToReadableStream",
+    "Error in renderToPipeableStream",
+    // HTTP reasons that the backend and Better Auth send as `error`.
+    "Bad Request",
+    "Unauthorized",
+    "Forbidden",
+    "Not Found",
+    "Conflict",
+    "Too Many Requests",
+    "Internal Server Error",
+    "Bad gateway",
+    "Bad Gateway",
+    "Service Unavailable",
+    "Gateway Timeout",
+    // Network and abort errors of fetch in Bun and Node.
+    "ECONNRESET",
+    "ECONNREFUSED",
+    "ECONNABORTED",
+    "ETIMEDOUT",
+    "ENOTFOUND",
+    "EAI_AGAIN",
+    "EPIPE",
+    "fetch failed",
+    "signal timed out",
+    "Network request failed",
+    "The operation was aborted.",
+    "The operation timed out.",
+  ])
+  if (approved.has(head)) return head
+  const shaped = /^(Request failed \(\d{3}\)|Minified React error #\d+)/.exec(
+    head,
+  )
+  return shaped?.[0] ?? "{redacted}"
 }
 
 /**
