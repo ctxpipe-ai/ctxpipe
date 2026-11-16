@@ -340,13 +340,8 @@ test("rejects an account token in a job that runs any untrusted code, even in a 
     )
 })
 
-const secretJob = (
-  secret,
-  environment,
-  file = "mcp-evals.yaml",
-  job = "evals",
-) => ({
-  [`.github/workflows/${file}`]: `on: pull_request\njobs:\n  ${job}:\n${environment}    steps:\n${install}      - env:\n          ${secret}: \${{ secrets.${secret} }}\n        run: bun evals/run.ts\n`,
+const secretJob = (secret, environment) => ({
+  ".github/workflows/mcp-evals.yaml": `on: pull_request\njobs:\n  evals:\n${environment}    steps:\n${install}      - env:\n          ${secret}: \${{ secrets.${secret} }}\n        run: bun evals/run.ts\n`,
 })
 
 test("rejects an outside-service secret in a job with untrusted code outside workbench", () => {

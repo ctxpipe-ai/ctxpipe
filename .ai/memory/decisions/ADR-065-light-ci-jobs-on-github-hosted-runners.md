@@ -1,6 +1,6 @@
 # ADR-065: Light CI jobs run on GitHub-hosted arm runners; heavy and Docker jobs stay on Blacksmith
 
-**Status:** Accepted (amended: the Terraform jobs and the job that started PR Deploy are gone with the Railway deploy, CTX-1220) | **Date:** 2026-11-14 | **Tags:** ci, cost, factory
+**Status:** Accepted (amended: the Terraform jobs and the job that started PR Deploy are gone with the Railway deploy, [CTX-1220](https://linear.app/ctxpipe/issue/CTX-1220)) | **Date:** 2026-11-14 | **Tags:** ci, cost, factory
 
 ## Context
 

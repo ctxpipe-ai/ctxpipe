@@ -916,9 +916,8 @@ export function shadow({
 // The decision of a PR run in gate mode: the gated run gates. Each check of
 // the plan ran in its job of this run, and each other selected check has an
 // accepted hit. A check that another workflow runs (the MCP evals) has the
-// status of that workflow and is not
-// part of this verdict. `reruns` are the records of the one rerun of each
-// failed check whose key has a stored pass.
+// status of that workflow and is not part of this verdict. `reruns` are the
+// records of the one rerun of each failed check whose key has a stored pass.
 export function gateDecision({
   config,
   planned,
