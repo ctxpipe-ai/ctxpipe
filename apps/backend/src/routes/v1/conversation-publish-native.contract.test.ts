@@ -364,8 +364,8 @@ done
             })
           }
           if (scenario.startsWith("provider_unavailable")) {
-            process.env.SANDBOX_PROVIDER = "vercel"
-            delete process.env.VERCEL_TOKEN
+            process.env.SANDBOX_PROVIDER = "agentcore"
+            delete process.env.AGENTCORE_RUNTIME_ARN
             if (scenario === "provider_unavailable") {
               for (const path of [
                 "tree",
@@ -382,7 +382,8 @@ done
                 }).toEqual({
                   status: 503,
                   body: {
-                    error: "Hosted chat sandboxes are not configured",
+                    error:
+                      "AgentCore sandboxes are unavailable: AGENTCORE_RUNTIME_ARN is not set",
                   },
                 })
               }

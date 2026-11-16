@@ -74,42 +74,6 @@ it(
 )
 
 it(
-  "fails closed for hosted Vercel without credentials",
-  { timeout: 30_000 },
-  async () => {
-    await withNativeChatFixture(async (f) => {
-      process.env.SANDBOX_PROVIDER = "vercel"
-      delete process.env.VERCEL_TOKEN
-      const result = await warmTanstackWorkspaceChat({
-        conversationId: f.conversationId,
-        orgId: f.orgId,
-        orgSlug: f.orgSlug,
-        workspaceId: f.workspaceId,
-        desiredUrl: f.directory,
-        desiredSha: f.sha,
-        defaultBranch: "main",
-        writeStatus: "read_only",
-        prompt: "prepare",
-      })
-      expect(result).toEqual({
-        ok: false,
-        status: 503,
-        error: "Hosted chat sandboxes are not configured",
-      })
-      expect(f.modelRequests).toHaveLength(0)
-      expect(
-        await withOrgDbContext(f.orgId, () =>
-          listSandboxInstances({
-            conversationId: f.conversationId,
-            kind: "chat",
-          }),
-        ),
-      ).toEqual([])
-    })
-  },
-)
-
-it(
   "fails closed on AgentCore for a Workspace repository that is not on GitHub",
   { timeout: 30_000 },
   async () => {
@@ -153,51 +117,7 @@ it(
   },
 )
 
-it(
-  "fails closed on Railway when the environment name is missing",
-  { timeout: 30_000 },
-  async () => {
-    await withNativeChatFixture(async (f) => {
-      process.env.SANDBOX_PROVIDER = "vercel"
-      // Ids, so the credentials resolve without a Vercel call.
-      vi.stubEnv("VERCEL_TOKEN", "test-token")
-      vi.stubEnv("VERCEL_TEAM_ID", "team_test")
-      vi.stubEnv("VERCEL_PROJECT_ID", "prj_test")
-      vi.stubEnv("RAILWAY_PROJECT_ID", "railway-project")
-      vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", undefined)
-      try {
-        const result = await warmTanstackWorkspaceChat({
-          conversationId: f.conversationId,
-          orgId: f.orgId,
-          orgSlug: f.orgSlug,
-          workspaceId: f.workspaceId,
-          desiredUrl: f.directory,
-          desiredSha: f.sha,
-          defaultBranch: "main",
-          writeStatus: "read_only",
-          prompt: "prepare",
-        })
-        expect(result).toEqual({
-          ok: false,
-          status: 503,
-          error: "Hosted chat needs the Railway environment name",
-        })
-        expect(
-          await withOrgDbContext(f.orgId, () =>
-            listSandboxInstances({
-              conversationId: f.conversationId,
-              kind: "chat",
-            }),
-          ),
-        ).toEqual([])
-      } finally {
-        vi.unstubAllEnvs()
-      }
-    })
-  },
-)
-
-it.each(["vercel", "docker"] as const)(
+it.each(["agentcore", "docker"] as const)(
   "fails closed for unavailable locked %s without sandbox allocation",
   { timeout: 30_000 },
   async (provider) => {

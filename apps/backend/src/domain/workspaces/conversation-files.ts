@@ -135,7 +135,6 @@ export async function attachTurnSandboxForRead(input: {
       ? await localProcessSandbox().resume({ id: row.providerSandboxId })
       : isRunningSandboxProvider(row.provider)
         ? await attachProviderSandbox({
-            orgId: input.orgId,
             provider: row.provider,
             providerSandboxId: row.providerSandboxId,
             onlyRunning: true,
@@ -388,7 +387,7 @@ export async function writeConversationSandboxFile(input: {
 }): Promise<void> {
   await assertConversationPathWritable(input.handle, input.path)
   const parent = input.path.split("/").slice(0, -1).join("/")
-  // The Docker and Vercel handles build `mkdir -p` and the write from the
+  // The Docker handle builds `mkdir -p` and the write from the
   // path: without a slash before the name, `mkdir -p` makes a directory with
   // the file's name, and a leading "-" reads as an option. "./" stops both.
   if (parent) await input.handle.fs.mkdir(`./${parent}`)

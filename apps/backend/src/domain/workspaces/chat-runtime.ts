@@ -4,11 +4,7 @@ import {
   judgeChatToolWithFastModel,
 } from "./chat-sandbox-policy.js"
 import { CONVERSATION_SANDBOX_GIT_EXCLUDE_LINES } from "./conversation-files.js"
-import {
-  VERCEL_AGENT_ROOT,
-  VERCEL_SANDBOX,
-  WORKSPACE_CHAT_OPENCODE_CLI,
-} from "./workspace-chat-opencode-contract.js"
+import { WORKSPACE_CHAT_OPENCODE_CLI } from "./workspace-chat-opencode-contract.js"
 
 /** Locked product chat path: TanStack `chat()` + `withSandbox` + `opencodeText`. */
 export const WORKSPACE_CHAT_RUNTIME = {
@@ -71,58 +67,8 @@ fi`
 }
 
 /**
- * The pinned tools of a hosted ingest sandbox (ADR-052): OpenCode, ast-grep
- * and ripgrep. OpenCode and ast-grep have the versions of the Docker chat
- * image. The ripgrep package holds a static binary, so the snapshot builder
- * needs only the npm registry.
- */
-export const VERCEL_INGEST_TOOLS = {
-  opencode: WORKSPACE_CHAT_OPENCODE_CLI,
-  astGrep: "@ast-grep/cli@0.45.0",
-  ripgrep: "@vscode/ripgrep-linux-x64@1.18.0",
-} as const
-
-/**
- * Where the agent snapshot keeps the ingest tools. Root owns it, and each
- * user can read and run it: the ingest agent user (`ctxpipe-agent`) does not
- * get the home of the sandbox's default user.
- */
-export const VERCEL_INGEST_TOOLS_ROOT = "/opt/ctxpipe-ingest"
-
-/**
- * The PATH of the ingest agent in a hosted sandbox: the pinned tools, the
- * Node runtime of the agent snapshot, and the sandbox's Git in /opt/git, the
- * Git that root uses. Its system config holds the `safe.directory` entry of
- * each sealed checkout; another Git on the PATH refuses the checkouts.
- */
-export const VERCEL_INGEST_AGENT_PATH = `${VERCEL_INGEST_TOOLS_ROOT}/bin:/vercel/runtimes/${VERCEL_SANDBOX.runtime}/bin:/opt/git/bin:/usr/local/bin:/usr/bin:/bin`
-
-/**
- * The Vercel Node runtime has no OpenCode, and its user cannot write the
- * global npm prefix, so the CLI goes under the user's home. Then root
- * installs the ingest tools in {@link VERCEL_INGEST_TOOLS_ROOT}; the ripgrep
- * package has no `bin` entry, so a link puts `rg` on the PATH. Only the
- * agent snapshot's builder runs this, with egress to the npm registry alone;
- * every conversation and ingest sandbox starts from that snapshot (or a
- * Workspace base made from it) and never reaches npm.
- */
-export const WORKSPACE_CHAT_VERCEL_AGENT_INSTALL = [
-  `npm install -g --prefix "${VERCEL_AGENT_ROOT}/.local" ${WORKSPACE_CHAT_OPENCODE_CLI}`,
-  `sudo env "PATH=$PATH" npm install -g --prefix ${VERCEL_INGEST_TOOLS_ROOT} ${Object.values(VERCEL_INGEST_TOOLS).join(" ")}`,
-  `sudo ln -sf ${VERCEL_INGEST_TOOLS_ROOT}/lib/node_modules/@vscode/ripgrep-linux-x64/bin/rg ${VERCEL_INGEST_TOOLS_ROOT}/bin/rg`,
-  `sudo chown -R root:root ${VERCEL_INGEST_TOOLS_ROOT}`,
-  `sudo chmod -R go-w,a+rX ${VERCEL_INGEST_TOOLS_ROOT}`,
-].join(" && ")
-
-/** Vercel sandboxes find OpenCode from the agent snapshot; nothing is installed. */
-export const WORKSPACE_CHAT_VERCEL_SETUP = [
-  `PATH="${VERCEL_AGENT_ROOT}/.local/bin:$PATH"; command -v opencode >/dev/null 2>&1`,
-  ...WORKSPACE_CHAT_SANDBOX_SETUP.slice(1),
-] as const
-
-/**
- * `git` with the sandbox's read credential (the clone token, empty on Vercel
- * where the firewall adds it). It can never push. The empty helper first
+ * `git` with the sandbox's read credential (the clone token; empty where
+ * Agent Vault adds it). It can never push. The empty helper first
  * removes the other helpers, so no keychain stores or prompts for the token.
  */
 export const SANDBOX_READ_GIT = `git -c credential.helper= -c credential.helper='!f() { echo username=x-access-token; echo password=\${CTXPIPE_CLONE_TOKEN}; }; f'`

@@ -38,7 +38,6 @@ it(
       await container.start()
       const attach = (onlyRunning: boolean) =>
         attachProviderSandbox({
-          orgId: "org_attach_contract",
           provider: "docker",
           providerSandboxId: container.id,
           onlyRunning,

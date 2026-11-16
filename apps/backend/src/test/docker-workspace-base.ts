@@ -78,7 +78,7 @@ export function dockerChat(f: Fixture, remoteUrl: string) {
     )
   const agent = async () => ({
     provider: "docker" as const,
-    image: await sandboxAgentImage("docker"),
+    image: await sandboxAgentImage(),
   })
   const builder = async (): Promise<WorkspaceBaseBuilder> =>
     dockerWorkspaceBaseBuilder({

@@ -36,17 +36,13 @@ const INGEST_STEP_OUTPUT = `${INGEST_ROOT}/step-output.tar`
 type Sandbox = Pick<SandboxHandle, "fs" | "process">
 
 /**
- * Ingest runs only in a Docker, Vercel or AgentCore sandbox. Unsandboxed
+ * Ingest runs only in a Docker or AgentCore sandbox. Unsandboxed
  * mode runs the agent on the backend host, so ingest refuses it.
  */
 export function assertIngestProvider(provider: string): void {
-  if (
-    provider !== "docker" &&
-    provider !== "vercel" &&
-    provider !== "agentcore"
-  )
+  if (provider !== "docker" && provider !== "agentcore")
     throw new Error(
-      `Ingest needs a Docker, Vercel or AgentCore sandbox. The ${provider} provider runs the agent on the backend host.`,
+      `Ingest needs a Docker or AgentCore sandbox. The ${provider} provider runs the agent on the backend host.`,
     )
 }
 
@@ -245,8 +241,7 @@ export async function sealIngestCheckout(
       `chmod -R u=rwX,go=rX ${next}`,
       `rm -rf ${target}`,
       `mv ${next} ${target}`,
-      // A Vercel sandbox's Git (under /opt/git) has no folder for its
-      // system config yet.
+      // A Git can have no folder for its system config yet.
       'sys=$(git var GIT_CONFIG_SYSTEM 2>/dev/null || true); if [ -n "$sys" ]; then mkdir -p "$(dirname "$sys")"; fi',
       `git config --system --get-all safe.directory | grep -qxF ${target} || git config --system --add safe.directory ${target}`,
     ].join("\n"),

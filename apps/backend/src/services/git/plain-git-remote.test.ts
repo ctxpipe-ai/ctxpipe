@@ -21,7 +21,6 @@ import {
   vi,
 } from "vitest"
 
-import { plainGitUrlPolicy } from "../../domain/workspace-sources/providers/git.js"
 import {
   isMetadataAddress,
   isPublicAddress,
@@ -270,7 +269,7 @@ describe("the plain git policy of the deployment mode (SANDBOX_PROVIDER)", () =>
   })
 
   it.each([
-    ["vercel", "vercel"],
+    ["agentcore", "agentcore"],
     ["unset", undefined],
   ])(
     "%s: refuses a private host and http, and never allows http in git",
@@ -299,17 +298,6 @@ describe("the plain git policy of the deployment mode (SANDBOX_PROVIDER)", () =>
       ).not.toContain("protocol.http.allow")
     },
   )
-
-  it("docker: the hosted policy, as the hosted egress proxy gives it, stays strict", async () => {
-    vi.stubEnv("SANDBOX_PROVIDER", "docker")
-    await expect(
-      resolvePlainGitRemote(
-        "https://private.example.org/team/app.git",
-        lookup,
-        plainGitUrlPolicy("hosted"),
-      ),
-    ).rejects.toMatchObject({ rule: "private_address" })
-  })
 })
 
 describe("a self-host plain git read over http with real git", () => {
@@ -355,7 +343,7 @@ describe("a self-host plain git read over http with real git", () => {
   })
 
   it("does not connect in hosted mode", async () => {
-    vi.stubEnv("SANDBOX_PROVIDER", "vercel")
+    vi.stubEnv("SANDBOX_PROVIDER", "agentcore")
     const before = requests.length
     await expect(
       resolvePlainGitTip(`http://127.0.0.1:${port}/team/app.git`),

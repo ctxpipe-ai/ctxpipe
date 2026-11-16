@@ -333,9 +333,8 @@ export const workspaceSandboxInstances = pgTable.withRLS(
 )
 
 /**
- * Each hosted sandbox's current GitHub read token, encrypted. The firewall
- * rule carries the token and Vercel redacts it, so this is the only copy we
- * can rotate after 10 minutes and revoke on replace, stop and delete.
+ * The GitHub read tokens of sandbox runs (conversation turns and ingest
+ * shards), encrypted, so that the turn end or the sweep can revoke each.
  */
 export const workspaceSandboxGitTokens = pgTable.withRLS(
   "workspace_sandbox_git_tokens",

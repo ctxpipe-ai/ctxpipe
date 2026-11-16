@@ -17,21 +17,6 @@ import type {
   ModelTier,
 } from "../../retrieval/services/providers/providerTypes.js"
 
-/** Home of the Vercel sandbox user; the agent CLI and its home live under it. */
-export const VERCEL_AGENT_ROOT = "/home/vercel-sandbox"
-
-/**
- * The runtime and size of each Vercel sandbox we create. Vercel gives 2048 MB
- * of memory for each vCPU, so 1 vCPU gives 2 GB. A sandbox from a snapshot
- * keeps the runtime of that snapshot, so only the agent snapshot's builder
- * names the runtime. The agent snapshot and the Workspace bases are keyed by
- * it, so a new runtime builds them again once.
- */
-export const VERCEL_SANDBOX = {
-  runtime: "node26",
-  resources: { vcpus: 1 },
-} as const
-
 export const WORKSPACE_CHAT_OPENCODE_PROVIDER_ID = "ctxpipe" as const
 
 const DEFAULT_OPENROUTER_BASE = "https://openrouter.ai/api/v1"
@@ -153,11 +138,11 @@ export const WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV =
   "{env:CTXPIPE_MODEL_PROXY_URL}" as const
 
 /**
- * What a hosted or Docker sandbox sends where a credential goes (the model
- * key, the tool-bridge token, the GitHub CLI token). The Vercel firewall or
- * Agent Vault replaces the Authorization header outside the sandbox.
+ * What a Docker or AgentCore sandbox sends where a credential goes (the
+ * model key, the tool-bridge token, the GitHub CLI token). Agent Vault
+ * replaces the Authorization header outside the sandbox.
  */
-export const WORKSPACE_CHAT_FIREWALL_PLACEHOLDER = "ctxpipe-firewall" as const
+export const WORKSPACE_CHAT_CREDENTIAL_PLACEHOLDER = "ctxpipe-firewall" as const
 
 export const WORKSPACE_CHAT_OPENCODE_JSON_SECRET =
   "CTXPIPE_OPENCODE_JSON" as const
@@ -228,15 +213,13 @@ export function workspaceChatOpenCodeHomeEnv(
 export function writeWorkspaceChatOpenCodeConfig(input: {
   conversationId: string
   modelBase: string
-  isolation?: "docker" | "unsandboxed" | "vercel" | "agentcore"
+  isolation?: "docker" | "unsandboxed" | "agentcore"
 }): { homeEnv: Record<string, string>; configJson: string } {
   const configJson = `${JSON.stringify(
     workspaceChatOpenCodeConfig({
       modelBase: input.modelBase,
       proxyAddsCredentials:
-        input.isolation === "vercel" ||
-        input.isolation === "docker" ||
-        input.isolation === "agentcore",
+        input.isolation === "docker" || input.isolation === "agentcore",
     }),
     null,
     2,
@@ -245,8 +228,7 @@ export function writeWorkspaceChatOpenCodeConfig(input: {
     // Container paths belong to its nonroot user, never the backend host's
     // temporary directory or PATH. Native thread setup writes this config.
     const slug = workspaceChatOpenCodeHomeSlug(input.conversationId)
-    const user = input.isolation === "vercel" ? VERCEL_AGENT_ROOT : "/home/node"
-    const home = `${user}/ctxpipe-opencode/${slug}`
+    const home = `/home/node/ctxpipe-opencode/${slug}`
     return {
       configJson,
       homeEnv: {
@@ -257,11 +239,7 @@ export function writeWorkspaceChatOpenCodeConfig(input: {
         XDG_CACHE_HOME: `${home}/cache`,
         OPENCODE_CONFIG: `${home}/opencode.json`,
         ...WORKSPACE_CHAT_OPENCODE_START_ENV,
-        PATH:
-          input.isolation === "vercel"
-            ? // The runtime image keeps Node and npm under /vercel/runtimes.
-              `${VERCEL_AGENT_ROOT}/.local/bin:/vercel/runtimes/${VERCEL_SANDBOX.runtime}/bin:/usr/local/bin:/usr/bin:/bin`
-            : "/usr/local/bin:/usr/bin:/bin",
+        PATH: "/usr/local/bin:/usr/bin:/bin",
       },
     }
   }
@@ -302,8 +280,8 @@ export const WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT = [
 
 /**
  * The model provider block of an OpenCode config: the ctxpipe model proxy,
- * and the run token or the placeholder that the firewall or Agent Vault
- * replaces. Chat and ingest use the same block.
+ * and the run token or the placeholder that Agent Vault replaces. Chat and
+ * ingest use the same block.
  */
 export function workspaceChatOpenCodeProvider(input: {
   modelBase: string
@@ -318,7 +296,7 @@ export function workspaceChatOpenCodeProvider(input: {
         options: {
           baseURL: WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV,
           apiKey: input.proxyAddsCredentials
-            ? WORKSPACE_CHAT_FIREWALL_PLACEHOLDER
+            ? WORKSPACE_CHAT_CREDENTIAL_PLACEHOLDER
             : ("{env:CTXPIPE_OPENCODE_RUN_TOKEN}" as const),
         },
         models: {
@@ -334,9 +312,11 @@ export function workspaceChatOpenCodeConfig(input: {
   modelBase: string
   mcp?: { name: string; url: string; token: string }
   /**
-   * Hosted and Docker sandboxes: the Vercel firewall or Agent Vault adds the
-   * key outside the sandbox. Their network holds no credential and reaches
-   * no private address but the backend, so the agent may read web pages.
+   * Docker and AgentCore sandboxes: Agent Vault adds the key outside the
+   * sandbox, and their network holds no credential. A Docker sandbox
+   * reaches no private address but the backend, so its agent may read web
+   * pages. An AgentCore sandbox has a closed network: its vault refuses
+   * each host that no rule names, so a web read fails there.
    */
   proxyAddsCredentials?: boolean
 }): {
@@ -350,7 +330,7 @@ export function workspaceChatOpenCodeConfig(input: {
         baseURL: typeof WORKSPACE_CHAT_OPENCODE_PROXY_URL_ENV
         apiKey:
           | "{env:CTXPIPE_OPENCODE_RUN_TOKEN}"
-          | typeof WORKSPACE_CHAT_FIREWALL_PLACEHOLDER
+          | typeof WORKSPACE_CHAT_CREDENTIAL_PLACEHOLDER
       }
       models: Record<string, { name: string }>
     }
@@ -386,9 +366,10 @@ export function workspaceChatOpenCodeConfig(input: {
     // turn records its changes with Git (`snapshotConversationTurn`).
     snapshot: false,
     // Subagents burn TTFT. Web search uses OpenCode's own search service,
-    // not ours, so it stays off. A hosted or Docker agent may read web
-    // pages: its network is open and holds no credential. An unsandboxed
-    // agent shares the backend's network, so web reads stay off.
+    // not ours, so it stays off. A Docker agent may read web pages: its
+    // network holds no credential. On AgentCore the tool is on too, but the
+    // closed network refuses each other host. An unsandboxed agent shares
+    // the backend's network, so web reads stay off.
     //
     // OpenCode's default "ask" rules stay: doom_loop, a path outside the
     // Workspace repository (external_directory), and a read of a .env file.

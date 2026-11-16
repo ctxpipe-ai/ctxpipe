@@ -16,9 +16,8 @@ import {
 /*
  * Root commands for an ingest sandbox. Only root prepares /ctxpipe and starts
  * agent commands (as the agent user, through `runuser`). Docker runs an exec
- * as uid 0 in the container; Vercel uses the SDK's `sudo` option; AgentCore
- * runs each command as the image user, which is root. All run the same
- * scripts.
+ * as uid 0 in the container; AgentCore runs each command as the image user,
+ * which is root. Both run the same scripts.
  */
 
 /**
@@ -98,8 +97,8 @@ function signalledRootExec(exec: RootCommand): RootExec {
       // seconds to do it. Dash's `kill` refuses `--`, so the group id comes
       // directly after the signal. PID 1 of the sandbox does not reap
       // orphans, so a zombie of the group does not count as alive. The
-      // group and state of each process come from /proc, because a Vercel
-      // sandbox has no `ps`: in /proc/<pid>/stat, after the last ") ", the
+      // group and state of each process come from /proc, because a sandbox
+      // image can have no `ps`: in /proc/<pid>/stat, after the last ") ", the
       // first field is the state and the third field is the group id.
       // Then stop each process of the agent user: an agent process can
       // leave the group (`setsid`, a double fork).
@@ -160,32 +159,6 @@ export function dockerRootExec(
     })
     const { ExitCode } = await exec.inspect()
     return { ...output.result(), exitCode: ExitCode ?? -1 }
-  })
-}
-
-type VercelCommandSandbox = {
-  runCommand: (input: {
-    cmd: string
-    args: string[]
-    sudo: boolean
-  }) => Promise<{
-    exitCode: number | null
-    logs: () => AsyncIterable<{ stream: "stdout" | "stderr"; data: string }>
-  }>
-}
-
-/**
- * Root through the Vercel SDK's `sudo` option; the same scripts as Docker.
- * The SDK's `output()` keeps the full stdout, the full stderr, and both
- * together in the heap. A command that writes much can fill the worker heap
- * (CTX-971), so this reads the log stream and keeps only the bounded part.
- */
-export function vercelRootExec(sandbox: VercelCommandSandbox): RootExec {
-  return signalledRootExec(async ([cmd = "sh", ...args]) => {
-    const finished = await sandbox.runCommand({ cmd, args, sudo: true })
-    const output = boundedRootOutput()
-    for await (const line of finished.logs()) output.add(line.stream, line.data)
-    return { ...output.result(), exitCode: finished.exitCode ?? -1 }
   })
 }
 

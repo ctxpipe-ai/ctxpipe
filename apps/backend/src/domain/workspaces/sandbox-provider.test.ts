@@ -21,12 +21,14 @@ vi.mock("dockerode", () => ({
 
 describe("lockedSandboxProvider", () => {
   it("locks a known provider and fail-closes on an unknown lock", () => {
-    expect(lockedSandboxProvider({ SANDBOX_PROVIDER: "vercel" })).toBe("vercel")
+    expect(lockedSandboxProvider({ SANDBOX_PROVIDER: "agentcore" })).toBe(
+      "agentcore",
+    )
     expect(lockedSandboxProvider({ SANDBOX_PROVIDER: " docker " })).toBe(
       "docker",
     )
     expect(lockedSandboxProvider({})).toBeUndefined()
-    for (const retired of ["sbx", "railway", "heroku"])
+    for (const retired of ["sbx", "railway", "heroku", "vercel"])
       expect(() =>
         lockedSandboxProvider({ SANDBOX_PROVIDER: retired }),
       ).toThrow(/Unknown SANDBOX_PROVIDER/)

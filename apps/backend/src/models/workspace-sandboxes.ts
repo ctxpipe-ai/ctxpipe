@@ -10,7 +10,13 @@ import {
   sql,
 } from "drizzle-orm"
 
-import { getOrgDb, tryGetOrgDbOrgId, withOrgDbContext } from "../db/client.js"
+import {
+  getOrgDb,
+  getSystemDb,
+  tryGetOrgDbOrgId,
+  withOrgDbContext,
+} from "../db/client.js"
+import { organizations } from "../db/schema/auth.js"
 import { workspaceSandboxInstances } from "../db/schema/workspaces.js"
 import type { WorkspaceRevision } from "../domain/workspaces/revision.js"
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
@@ -303,11 +309,7 @@ export async function listSandboxInstances(input: {
  * Providers whose sandboxes keep running (and cost) until they are stopped.
  * Unsandboxed runs have no sandbox.
  */
-export const RUNNING_SANDBOX_PROVIDERS = [
-  "docker",
-  "vercel",
-  "agentcore",
-] as const
+export const RUNNING_SANDBOX_PROVIDERS = ["docker", "agentcore"] as const
 
 export type RunningSandboxProvider = (typeof RUNNING_SANDBOX_PROVIDERS)[number]
 
@@ -333,6 +335,37 @@ export function isRunningSandboxProvider(
   return (
     RUNNING_SANDBOX_PROVIDERS as readonly (string | null | undefined)[]
   ).includes(provider)
+}
+
+/**
+ * The number of sandbox rows of the removed Vercel provider, in the orgs
+ * (default: every org). Row-level security shows the rows of an org only in
+ * its own context, so the count reads each org in turn.
+ */
+export async function countVercelSandboxRows(
+  orgIds?: readonly string[],
+): Promise<number> {
+  const ids =
+    orgIds ??
+    (
+      await getSystemDb().select({ id: organizations.id }).from(organizations)
+    ).map((org) => org.id)
+  let total = 0
+  for (const orgId of ids) {
+    const [row] = await withOrgDbContext(orgId, (db) =>
+      db
+        .select({ rows: count() })
+        .from(workspaceSandboxInstances)
+        .where(
+          and(
+            eq(workspaceSandboxInstances.orgId, orgId),
+            eq(workspaceSandboxInstances.provider, "vercel"),
+          ),
+        ),
+    )
+    total += row?.rows ?? 0
+  }
+  return total
 }
 
 /**

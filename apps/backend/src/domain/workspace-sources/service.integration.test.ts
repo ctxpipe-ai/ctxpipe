@@ -1356,7 +1356,7 @@ it(
     const pullRequests: unknown[] = []
     // The hosted policy, and the test's own DNS answers: one public host,
     // one private host.
-    vi.stubEnv("SANDBOX_PROVIDER", "vercel")
+    vi.stubEnv("SANDBOX_PROVIDER", "agentcore")
     const restore = usePlainGitNetwork({
       lookup: async (host) => [
         {

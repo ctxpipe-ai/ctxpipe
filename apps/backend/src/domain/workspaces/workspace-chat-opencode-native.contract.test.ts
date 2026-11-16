@@ -33,8 +33,8 @@ import { expect, it, vi } from "vitest"
 import { createWorkspaceChatPermissionHandler } from "./chat-sandbox-policy.js"
 import { timedSandboxProvider } from "./sandbox-lifecycle-timing.js"
 import { withOpencodeServeRetry } from "./sandbox-process-guards.js"
+import { turnAgentPassword } from "./sandbox-provider.js"
 import { conversationSandboxProvider } from "./tanstack-workspace-chat.js"
-import { turnAgentPassword } from "./vercel-sandbox-provider.js"
 import {
   WORKSPACE_CHAT_OPENCODE_START_ENV,
   workspaceChatOpenCodeConfig,

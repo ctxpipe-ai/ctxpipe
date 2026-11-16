@@ -8,7 +8,6 @@ import { describe, expect, it } from "vitest"
 
 import {
   agentCoreSizeCapCommand,
-  VERCEL_INGEST_TOOLS,
   WORKSPACE_CHAT_OPENCODE_PORT,
   WORKSPACE_CHAT_RUNTIME,
   WORKSPACE_CHAT_SANDBOX_SETUP,
@@ -41,18 +40,21 @@ describe("workspace chat runtime", () => {
   // The checks run the OpenCode and the ast-grep of the root devDependencies
   // (pnpm install), so they must be the versions of the sandbox images.
   it("pins the host tools of the checks at the versions of the sandbox", () => {
+    const repoRoot = join(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../../..",
+    )
     const root = JSON.parse(
-      readFileSync(
-        join(
-          dirname(fileURLToPath(import.meta.url)),
-          "../../../../../package.json",
-        ),
-        "utf8",
-      ),
+      readFileSync(join(repoRoot, "package.json"), "utf8"),
     ) as { devDependencies: Record<string, string> }
     const pinned = (name: string) => `${name}@${root.devDependencies[name]}`
+    const sandboxImage = readFileSync(
+      join(repoRoot, "scripts/chat-sandbox/Dockerfile"),
+      "utf8",
+    )
     expect(pinned("opencode-ai")).toBe(WORKSPACE_CHAT_OPENCODE_CLI)
-    expect(pinned("@ast-grep/cli")).toBe(VERCEL_INGEST_TOOLS.astGrep)
+    expect(sandboxImage).toContain(` ${pinned("opencode-ai")} `)
+    expect(sandboxImage).toContain(` ${pinned("@ast-grep/cli")} `)
   })
 
   it("writes OpenCode config under HOME and excludes harness paths from git", () => {

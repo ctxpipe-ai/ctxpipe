@@ -15,7 +15,6 @@ import {
 } from "./chat-lifecycle.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import { destroyDetachedProviderSandbox } from "./sandbox-provider.js"
-import { retiresVercelRow } from "./vercel-sandbox-retirement.js"
 import {
   deleteWorkspaceBaseArtifacts,
   type SandboxAgent,
@@ -26,18 +25,11 @@ import { readyBases } from "./workspace-sandbox-base.js"
  * Delete the Workspace's bases no new sandbox will start from. The current
  * base is the newest ready one for the deployment's agent image and the
  * Workspace binding.
- * - Builds past their lease, and failed deletes (on Vercel, with the same
- *   in-use check as below).
- * - Docker: every other base at once (a stopped container restarts without
- *   its image, measured; the daemon refuses while a running one uses it, and
+ * - Builds past their lease, and failed deletes.
+ * - Every other base at once (a stopped container restarts without its
+ *   image, measured; the daemon refuses while a running one uses it, and
  *   the row waits for a later sweep), and the current one once no sandbox
  *   started from it for 30 days.
- * - Vercel: the same, but only once no Vercel conversation sandbox of the
- *   Workspace was created before the base was superseded, that is before a
- *   newer base was published (or before now, for the current one). Whether a
- *   sandbox survives deletion of its source snapshot has not been measured,
- *   so a base is kept while a sandbox that could have started from it
- *   exists; conversation sandboxes are deleted 30 days after last use.
  * Runs under the Workspace lock, which new sandboxes take to choose their
  * base. `agent` is the deployment's provider and agent image; the caller
  * skips cleanup when it cannot be read (a daemon blip never deletes the base
@@ -58,26 +50,17 @@ export async function collectUnusedWorkspaceBases(input: {
         rows: await listSandboxInstances({ workspaceId }),
         desired: await getDesiredWorkspaceRevision(workspaceId, "read", orgId),
       }))
-      // The Vercel retirement deletes the `vercel` bases.
-      const bases = rows.filter(
-        (row) => row.kind === "base" && !retiresVercelRow(row),
-      )
+      const bases = rows.filter((row) => row.kind === "base")
       const ready = desired ? readyBases(bases, current, desired) : []
       const at = now.getTime()
-      const mayBeInUse = (base: SandboxInstanceRecord) =>
-        workspaceBaseHeldUntil(base, rows) !== null
       let deleted = 0
       for (const base of bases) {
         const due =
           (base.state === "building" && !base.leaseHeld) ||
-          // A Vercel base marked failed may still be the source of a
-          // sandbox that started from it before it failed.
-          (base.state === "destroy_failed" && !mayBeInUse(base)) ||
+          base.state === "destroy_failed" ||
           (base.state === "live" &&
             (base.id !== ready[0]?.id ||
-              at - base.lastHeartbeatAt.getTime() >=
-                CHAT_SANDBOX_RETENTION_MS) &&
-            !mayBeInUse(base))
+              at - base.lastHeartbeatAt.getTime() >= CHAT_SANDBOX_RETENTION_MS))
         if (!due) continue
         signal.throwIfAborted()
         if ((await destroyWorkspaceSandboxUnderFence(base.id, orgId)) === true)
@@ -86,42 +69,6 @@ export async function collectUnusedWorkspaceBases(input: {
       return deleted
     },
   )
-}
-
-/**
- * Vercel: when the last conversation sandbox that may have started from this
- * base expires, or null when none can use it. A sandbox created before the
- * base was superseded may use it. A live base's `created_at` is its publish
- * time, so a sandbox started while the next base was still building counts.
- * A base with no snapshot (a failed build) is the source of no sandbox.
- * `rows` are the Workspace's sandbox rows, bases and conversation sandboxes.
- */
-export function workspaceBaseHeldUntil(
-  base: SandboxInstanceRecord,
-  rows: SandboxInstanceRecord[],
-): number | null {
-  if (base.provider !== "vercel" || !base.latestSnapshotId) return null
-  const created = base.createdAt?.getTime() ?? 0
-  const supersededAt =
-    rows
-      .filter(
-        (other) =>
-          other.kind === "base" &&
-          other.state === "live" &&
-          (other.createdAt?.getTime() ?? 0) > created,
-      )
-      .map((other) => other.createdAt?.getTime() ?? Number.POSITIVE_INFINITY)
-      .sort((a, b) => a - b)[0] ?? Number.POSITIVE_INFINITY
-  const expiries = rows
-    .filter(
-      (row) =>
-        row.kind === "chat" &&
-        row.provider === "vercel" &&
-        row.workspaceId === base.workspaceId &&
-        (row.createdAt?.getTime() ?? 0) < supersededAt,
-    )
-    .map((row) => row.lastHeartbeatAt.getTime() + CHAT_SANDBOX_RETENTION_MS)
-  return expiries.length ? Math.max(...expiries) : null
 }
 
 /** Share allocation's workspace fence, including idle and direct cleanup calls. */
@@ -203,50 +150,26 @@ async function destroyWorkspaceSandboxUnderFence(
         await deleteSandboxInstance(id, stored.orgId, ownershipOf(stored))
         return true
       }
-      const destroyOwned = async () => {
-        signal.throwIfAborted()
-        try {
-          const snapshotOwners = stored.latestSnapshotId
-            ? await withOrgDbContext(stored.orgId, () =>
-                listSandboxInstances({ workspaceId: stored.workspaceId }),
-              )
-            : []
-          const lastSnapshotOwner =
-            stored.latestSnapshotId &&
-            !snapshotOwners.some(
-              (row) =>
-                row.id !== stored.id &&
-                row.latestSnapshotId === stored.latestSnapshotId,
-            )
-          if (stored.providerSandboxId)
-            await destroyDetachedProviderSandbox({
-              orgId: stored.orgId,
-              provider: stored.provider,
-              providerSandboxId: stored.providerSandboxId,
-              snapshotId: lastSnapshotOwner
-                ? (stored.latestSnapshotId ?? undefined)
-                : undefined,
-            })
-        } catch (error) {
-          signal.throwIfAborted()
-          await persistSandboxInstance({ ...stored, state: "destroy_failed" })
-          log.error({
-            step: "destroy-native-workspace-sandbox",
-            sandboxId: id,
-            error: error instanceof Error ? error.message : String(error),
+      signal.throwIfAborted()
+      try {
+        if (stored.providerSandboxId)
+          await destroyDetachedProviderSandbox({
+            provider: stored.provider,
+            providerSandboxId: stored.providerSandboxId,
           })
-          return false
-        }
+      } catch (error) {
         signal.throwIfAborted()
-        await deleteSandboxInstance(id, stored.orgId, ownershipOf(stored))
-        return true
+        await persistSandboxInstance({ ...stored, state: "destroy_failed" })
+        log.error({
+          step: "destroy-native-workspace-sandbox",
+          sandboxId: id,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        return false
       }
-      return stored.latestSnapshotId
-        ? postgresSandboxLocks(stored.orgId).withLock(
-            `sandbox-snapshot:${stored.latestSnapshotId}`,
-            destroyOwned,
-          )
-        : destroyOwned()
+      signal.throwIfAborted()
+      await deleteSandboxInstance(id, stored.orgId, ownershipOf(stored))
+      return true
     },
   )
 }

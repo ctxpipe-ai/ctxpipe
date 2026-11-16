@@ -12,6 +12,8 @@ import { ingestOpenCodeConfig } from "./ingest-opencode.js"
 import { collectIngestStep } from "./ingest-prepare.js"
 import {
   dockerRootExec,
+  ROOT_STDERR_MAX_BYTES,
+  ROOT_STDOUT_EVENT_MAX_BYTES,
   ROOT_STDOUT_MAX_BYTES,
   runAsRoot,
 } from "./ingest-root.js"
@@ -355,6 +357,33 @@ describe("ingest shard commands in a Docker sandbox", () => {
         expect(noisy.exitCode).toBe(0)
         expect(noisy.stdoutTruncated).toBe(true)
         expect(Buffer.byteLength(noisy.stdout)).toBe(ROOT_STDOUT_MAX_BYTES)
+
+        // `opencode run` that writes far more than the caps: 1 MiB tool
+        // lines, with a `step_finish` line after each. The worker keeps
+        // every usage line, the last error line, and the end of stderr.
+        const finish = (i: number) =>
+          JSON.stringify({
+            type: "step_finish",
+            part: { tokens: { input: i, output: 1 } },
+          })
+        const tool = "head -c 1048575 /dev/zero | tr '\\0' x; echo"
+        const run = await root(
+          `i=0; while [ $i -lt 32 ]; do ${tool}; printf '{"type":"step_finish","part":{"tokens":{"input":%d,"output":1}}}\\n' $i; { printf '%d:' $i; ${tool}; } >&2; i=$((i+1)); done; printf '{"type":"error","error":{"name":"APIError"}}'; printf 'the last error' >&2`,
+        )
+        expect(run.exitCode).toBe(0)
+        expect(run.stdoutTruncated).toBe(true)
+        expect(Buffer.byteLength(run.stdout)).toBeLessThanOrEqual(
+          ROOT_STDOUT_MAX_BYTES + ROOT_STDOUT_EVENT_MAX_BYTES,
+        )
+        const lines = run.stdout.split("\n")
+        expect(
+          lines.filter((line) => line.startsWith('{"type":"step_finish"')),
+        ).toEqual(Array.from({ length: 32 }, (_, i) => finish(i)))
+        expect(lines.at(-1)).toBe(
+          '{"type":"error","error":{"name":"APIError"}}',
+        )
+        expect(Buffer.byteLength(run.stderr)).toBe(ROOT_STDERR_MAX_BYTES)
+        expect(run.stderr.endsWith("the last error")).toBe(true)
       } finally {
         await provider.destroy({ id: handle.id })
       }

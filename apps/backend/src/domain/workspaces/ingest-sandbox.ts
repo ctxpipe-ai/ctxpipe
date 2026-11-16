@@ -26,7 +26,7 @@ import type { SandboxProvider as SandboxProviderName } from "./sandbox-provider.
  * The sandbox of one ingest shard (ADR-052): the second stock definition
  * beside chat, `workspace-ingest:<image>`, on the chat store and locks.
  * `provider` is the ingest provider (T03) for the deployment's `isolation`.
- * Docker and Vercel sandboxes take the org's slots (at most 40 ingest of the
+ * Docker and AgentCore sandboxes take the org's slots (at most 40 ingest of the
  * 50). An unsandboxed run, which only an operator can select, takes none.
  * Waiters have no order: a start takes the first slot it sees free. The
  * 60-minute shard limit bounds each wait.

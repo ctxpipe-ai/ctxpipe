@@ -283,7 +283,6 @@
     {
       "files": [
         "apps/backend/src/retrieval/services/code-search-projection.contract.test.ts",
-        "apps/backend/src/routes/sandbox-egress.test.ts",
         "apps/backend/src/services/confluence/converter.ts"
       ],
       "rules": {
@@ -361,14 +360,6 @@
       "files": ["apps/ui/src/components/ui/ToastStack.tsx"],
       "rules": {
         "oxc/no-accumulating-spread": "off"
-      }
-    },
-    {
-      "files": [
-        "apps/backend/src/domain/workspaces/vercel-sandbox-provider.ts"
-      ],
-      "rules": {
-        "promise/no-nesting": "off"
       }
     },
     {

@@ -158,8 +158,8 @@ true`
 /**
  * Stop every process that the agent user started in an earlier turn: a
  * process can leave its server's process group and session (`setsid`,
- * `nohup`), and it would then send requests during the next turn, when the
- * firewall adds that turn's credentials.
+ * `nohup`), and it would then send requests during the next turn, when
+ * Agent Vault adds that turn's credentials.
  *
  * A process is stopped when all of these are true:
  * - The agent user (the user that runs this command) owns it. Root daemons

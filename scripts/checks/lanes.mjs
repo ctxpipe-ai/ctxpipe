@@ -126,17 +126,6 @@ const lanes = {
     portable: true,
     programs: ["git", "bun", "zoekt", "ast-grep", "container-platform"],
   },
-  vercel: {
-    directory: "apps/backend",
-    runtime: "node",
-    inputs: backendInputs,
-    traceInputs: backendTraceInputs,
-    env: [...backendEnv, { name: "VERCEL_TOKEN", mode: "presence" }],
-    // The Vercel contracts do not use the graph, and the CI job has no
-    // FalkorDB.
-    prerequisites: ["postgres", "migrations"],
-    portable: true,
-  },
   // The files that do not end in `.test.ts` have their own Vitest config,
   // so the PR suite never runs them. Wall-clock bounds vary on shared
   // runners, so a latency result is stochastic.
@@ -287,7 +276,6 @@ export async function listVitest() {
   const suites = [
     "backend",
     "contracts",
-    "vercel",
     "ui",
     "cli",
     "aws-cdk",

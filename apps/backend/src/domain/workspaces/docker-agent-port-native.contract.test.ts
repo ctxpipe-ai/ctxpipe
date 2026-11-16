@@ -9,9 +9,8 @@ import {
   WORKSPACE_CHAT_OPENCODE_PORT,
   workspaceChatDockerImage,
 } from "./chat-runtime.js"
-import { withDockerAgentPort } from "./sandbox-provider.js"
+import { turnAgentPassword, withDockerAgentPort } from "./sandbox-provider.js"
 import { conversationSandboxProvider } from "./tanstack-workspace-chat.js"
-import { turnAgentPassword } from "./vercel-sandbox-provider.js"
 
 /** The stock local Docker daemon: `DOCKER_HOST`, else the default socket. */
 function dockerEndpoint():

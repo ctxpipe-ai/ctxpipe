@@ -407,8 +407,7 @@ export class IngestStepCommandError extends Error {
 /**
  * The agent's environment: the OpenCode isolation flags, the stage helpers
  * on PATH, and the sandbox's egress proxy settings. `env -i` gives the agent
- * nothing else. `path` replaces the sandbox's own PATH (hosted: the pinned
- * tools of the agent snapshot).
+ * nothing else.
  *
  * The proxy settings come from the root command's own environment: a Docker
  * exec gets the container's environment, where the vault session is. Root
@@ -419,7 +418,7 @@ export class IngestStepCommandError extends Error {
  */
 export async function ingestAgentEnv(
   root: RootExec,
-  input: { modelProxyUrl: string; path?: string },
+  input: { modelProxyUrl: string },
 ): Promise<Record<string, string>> {
   const result = await root(
     "{ env -0; cat /proc/1/environ 2>/dev/null; } | tr '\\0' '\\n'",
@@ -438,7 +437,7 @@ export async function ingestAgentEnv(
   const { PATH: path = "/usr/local/bin:/usr/bin:/bin", ...proxy } = sandbox
   return {
     ...proxy,
-    ...ingestOpenCodeEnv({ path: input.path ?? path }),
+    ...ingestOpenCodeEnv({ path }),
     CTXPIPE_MODEL_PROXY_URL: input.modelProxyUrl,
   }
 }

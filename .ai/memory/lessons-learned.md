@@ -548,12 +548,6 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Date:** 2026-10-07
 - **Source:** repository owner, after PR 280 CI took 45 minutes (ticket 18)
 
-### Vercel sandbox tokens live only in GitHub environments
-- **Rule:** The production Vercel token is a secret of the GitHub `Production` environment, which only protected branches can use. CI uses the separate Vercel project `ctxpipe-previews`, and its tokens are secrets of the `workbench` environment (live contracts). There is no repository-level `VERCEL_ACCESS_TOKEN`. A workflow job that needs a token declares `environment: workbench` (or `production` on `main`), and a pull request job never gets the production token.
-- **Category:** convention
-- **Date:** 2026-10-07
-- **Source:** repository owner, after a security audit found one Vercel token shared by production, previews and CI
-
 ### New test files cannot spy on owned code
 - **Rule:** CI (`scripts/ci/check-test-policy.mjs`, in the lint job) treats each new test file as proof. A proof must not call `vi.mock`, `vi.doMock` or `vi.spyOn` on code of this repository, and that includes a spy on a request logger. `vi.spyOn` is permitted only on `Date`, `Math`, `globalThis` and `console`. Under the backend Vitest setup, the context of an evlog `createLogger()` stays empty, so a log event is not a usable end point either. Assert a real result: a database row, a git commit, or an HTTP call that msw records. Before you push a new test, run `git fetch origin 7dfa6b93a5baedc3eb2c86dd1056662e89cace00 --no-tags && node scripts/ci/check-test-policy.mjs`.
 - **Category:** testing

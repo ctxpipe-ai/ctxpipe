@@ -17,7 +17,6 @@ const root = fileURLToPath(new URL("../../", import.meta.url))
 const packages = {
   backend: "apps/backend",
   contracts: "apps/backend",
-  vercel: "apps/backend",
   ui: "apps/ui",
   cli: "packages/cli",
   "aws-cdk": "packages/aws-cdk",
@@ -49,7 +48,7 @@ try {
     (listOnly && trace)
   )
     throw new Error(
-      "Usage: test-suite.mjs backend|contracts|vercel|ui|cli|aws-cdk|visual-review [--list | --trace]\n" +
+      "Usage: test-suite.mjs backend|contracts|ui|cli|aws-cdk|visual-review [--list | --trace]\n" +
         "       test-suite.mjs backend|contracts [--shard=i/N] [--list | --trace] | --merge",
     )
   const cwd = join(root, packages[name])
@@ -73,20 +72,13 @@ try {
     .filter((file) => /\.test\.[cm]?[jt]sx?$/.test(file))
   if (!files.length) throw new Error(`No required tests found for ${name}`)
   let selection = []
-  if (name === "backend" || name === "contracts" || name === "vercel") {
+  if (name === "backend" || name === "contracts") {
     const lanes = JSON.parse(
       readFileSync(join(root, "scripts/ci/contracts.json"), "utf8"),
     )
-    // Real Vercel sandboxes need the deploy credentials, so that lane runs in
-    // its own job; the other suites never select it.
-    const hosted = new Set(lanes["hosted sandbox (Vercel)"] ?? [])
     const contracts = new Set(Object.values(lanes).flat())
     for (const [lane, required] of Object.entries(lanes)) {
-      if (
-        !listOnly &&
-        name === "contracts" &&
-        !required.some((file) => hosted.has(file))
-      )
+      if (!listOnly && name === "contracts")
         process.stdout.write(`CONTRACT ${lane}: ${required.join(", ")}\n`)
       for (const file of required)
         if (!files.includes(file))
@@ -94,10 +86,8 @@ try {
     }
     // CI runs both lanes. Keep the full discovered inventory, but execute each
     // file once; the contract lane retains its stricter zero-failure baseline.
-    selection = files.filter((file) =>
-      name === "vercel"
-        ? hosted.has(file)
-        : !hosted.has(file) && contracts.has(file) === (name === "contracts"),
+    selection = files.filter(
+      (file) => contracts.has(file) === (name === "contracts"),
     )
     files = selection
   }

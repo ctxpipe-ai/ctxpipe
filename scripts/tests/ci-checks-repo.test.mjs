@@ -106,7 +106,6 @@ test("the manifest matches its schema and lists each check of each family", asyn
   for (const lane of [
     "backend",
     "contracts",
-    "vercel",
     "ui",
     "cli",
     "aws-cdk",
@@ -257,7 +256,6 @@ test("the manifest matches its schema and lists each check of each family", asyn
   assert.equal(mode("backend", "MODEL_PROVIDER"), "value")
   assert.equal(mode("backend", "GITHUB_TOKEN"), "presence")
   assert.equal(mode("backend", "AUTH_BASE_URL"), "presence")
-  assert.equal(mode("vercel", "VERCEL_TOKEN"), "presence")
   assert.equal(env("ui"), undefined)
 })
 
@@ -388,7 +386,6 @@ test("the manifest marks exactly the platform-independent checks portable", () =
   )
   for (const lane of [
     "vitest:backend",
-    "vitest:vercel",
     "vitest:upgrade",
     "vitest:ui",
     "vitest:cli",
