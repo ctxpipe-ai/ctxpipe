@@ -5,7 +5,6 @@ import { AppShell } from "@/components/AppShell"
 import { OrgGateError } from "@/features/org/OrgGateError"
 import { isWorkspaceConversationDocument } from "@/features/workspaces/ensure-route-data"
 import { workspaceListOptions } from "@/features/workspaces/queries"
-import { ApiError } from "@/lib/api-result"
 import { orgGateOptions, peekOrgGate } from "@/lib/org-gate"
 import { useHyperDxScreenError } from "@/providers/HyperDxProvider"
 
@@ -34,23 +33,8 @@ export async function resolveOrgGate(
   orgSlug: string,
   options?: { awaitWorkspaceList?: boolean },
 ) {
-  const gate = await queryClient
-    .ensureQueryData(orgGateOptions(orgSlug))
-    .catch((error: unknown) => {
-      // In a server render, a 429 on the session check comes from a scanner
-      // with a fake or expired cookie, and the error screen would answer 500.
-      // Treat the request as signed out. In the browser, keep the error
-      // screen, so that a signed-in user is not sent to sign-in.
-      if (
-        import.meta.env.SSR &&
-        error instanceof ApiError &&
-        error.status === 429
-      ) {
-        return null
-      }
-      throw error
-    })
-  if (!gate?.session) {
+  const gate = await queryClient.ensureQueryData(orgGateOptions(orgSlug))
+  if (!gate.session) {
     throw redirect({ to: "/.auth/sign-in" })
   }
 

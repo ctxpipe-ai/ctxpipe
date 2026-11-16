@@ -91,10 +91,7 @@ describe("resolveOrgGate", () => {
     expect(isRedirect(outcome) && outcome.options.to).toBe("/.auth/sign-in")
   })
 
-  // Both gate calls go through the same Better Auth rate limit for the
-  // client address: in the scanner burst, each got 429 (378 times). A 429
-  // on either one would otherwise give the 500 error screen.
-  it("sends the request to sign-in when only the organization list is rate-limited", async () => {
+  it("keeps a rate-limited organization list an error when the session is valid", async () => {
     server.use(
       http.get("http://localhost:3000/.auth/api/v1/auth/get-session", () =>
         HttpResponse.json({
@@ -116,7 +113,7 @@ describe("resolveOrgGate", () => {
       resolveOrgGate(queryClient, "acme"),
     ).catch((error: unknown) => error)
 
-    expect(isRedirect(outcome) && outcome.options.to).toBe("/.auth/sign-in")
+    expect(outcome).toMatchObject({ status: 429 })
   })
 
   it("sends an anonymous scanner path to sign-in without a backend call", async () => {

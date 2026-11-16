@@ -27,10 +27,17 @@ export function orgGateOptions(orgSlug: string) {
     // (an explicit `retry: undefined` would replace it).
     ...(import.meta.env.SSR ? { retry: false } : {}),
     queryFn: async (): Promise<OrgGate> => {
-      const [session, organizations] = await Promise.all([
+      const [session, organizations] = await Promise.allSettled([
         fetchSsrSession(),
         fetchSsrOrganizations(),
-      ])
+      ]).then(([session, organizations]) => {
+        if (session.status === "rejected") throw session.reason
+        // With no session, the loader sends the request to sign-in, so a
+        // failed organization list does not matter.
+        if (!session.value) return [null, []] as const
+        if (organizations.status === "rejected") throw organizations.reason
+        return [session.value, organizations.value] as const
+      })
       return {
         session,
         organizations,

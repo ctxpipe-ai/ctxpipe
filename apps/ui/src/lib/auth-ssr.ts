@@ -45,9 +45,11 @@ async function authFetchInit(): Promise<RequestInit | null> {
 /**
  * Session for route loaders — works on SSR with forwarded cookies.
  * Returns null when the request carries no session credential, or when the
- * backend says there is no session. A network error, a timeout, or a server
- * error throws `ApiError`: the loader must not send a signed-in user to
- * sign-in because one call failed.
+ * backend says there is no session. In a server render, a rate-limited check
+ * (429) also returns null: it comes from a scanner with a fake or expired
+ * cookie, and the error screen would answer 500. A network error, a timeout,
+ * or a server error throws `ApiError`: the loader must not send a signed-in
+ * user to sign-in because one call failed.
  */
 export async function fetchSsrSession(): Promise<SsrSession> {
   const init = await authFetchInit()
@@ -58,7 +60,7 @@ export async function fetchSsrSession(): Promise<SsrSession> {
   )
   // TODO: Better Auth routes are outside the Hono client, so the body is unknown.
   const data = (await readApiJson(res, {
-    emptyOn: [401],
+    emptyOn: import.meta.env.SSR ? [401, 429] : [401],
     empty: null,
     message: "Session check failed",
   })) as SsrSession | null
