@@ -126,7 +126,11 @@ const result = await runVisual({
   capture: async (viewport, group) => {
     const dir = join(root, ".ci-results/visual-capture", viewport)
     const shots = await captureInContainer(
-      group.map((story) => ({ ...story.visual, id: story.id })),
+      group.map((story) => ({
+        ...story.visual,
+        kind: story.review?.kind,
+        id: story.id,
+      })),
       dir,
       viewport,
     )

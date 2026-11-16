@@ -33,6 +33,7 @@ const inputs = [
   "scripts/ci/storybook-play.mjs",
   "scripts/ci/visual.mjs",
   "scripts/ci/visual-capture.mjs",
+  "scripts/ci/visual-component-box.mjs",
   "scripts/ci/visual-full-page.mjs",
   "scripts/ci/visual-container.json",
   "scripts/ci/visual-unstable-stories.json",

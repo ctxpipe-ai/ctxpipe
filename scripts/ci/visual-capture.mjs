@@ -12,6 +12,7 @@ import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { csfTools } from "../../apps/ui/.storybook/check-modules.mjs"
+import { storiesOf } from "../../packages/visual-review/src/story-tags.ts"
 import { prepare } from "../checks/prerequisites.mjs"
 import { visualOptions } from "../checks/visual.mjs"
 import {
@@ -20,6 +21,7 @@ import {
   staticDir,
   waitFor,
 } from "./storybook-play.mjs"
+import { componentClip, storyBoxes } from "./visual-component-box.mjs"
 import { growToContent, maxHeight } from "./visual-full-page.mjs"
 import pin from "./visual-container.json" with { type: "json" }
 
@@ -30,8 +32,11 @@ import pin from "./visual-container.json" with { type: "json" }
 // It runs the play runner (storybook-play.mjs) against the static Storybook
 // build (apps/ui/storybook-static). The runner pins the page (origin, clock,
 // Math.random) and settles it after the play (no animation or caret, the web
-// fonts loaded). The screenshot is the full page at the width of the
-// viewport (`desktop` 1440x900 or `mobile` 390x844) and a pixel ratio of 1,
+// fonts loaded). The screenshot of a page story is the full page at the
+// width of the viewport (`desktop` 1440x900 or `mobile` 390x844). The
+// screenshot of a component story (`parameters.review.kind: "component"`) is
+// only the area of the component and its overlays in that full page
+// (visual-component-box.mjs). Each shot has a pixel ratio of 1. It is
 // taken after the play ends (or, for a story without a play function, after
 // Storybook completes the render). For the shot, the viewport grows to the
 // height of the content, also of a pane that scrolls inside
@@ -87,7 +92,7 @@ export const shotKey = (id, snapshot) => (snapshot ? `${id}@${snapshot}` : id)
 // shows the background. A box of Playwright's `mask` option is drawn over
 // all content, so it also hides a control that is drawn over a masked canvas.
 // Returns the status of the shot: captured, unstable or capture-failed.
-async function takeShot(page, { masks = [] }, out, key) {
+async function takeShot(page, { masks = [], kind }, out, key) {
   try {
     // The viewport grows to the height of the content for the shot, and gets
     // its size and scroll positions again before the play or the layout
@@ -95,13 +100,16 @@ async function takeShot(page, { masks = [] }, out, key) {
     const restore = await growToContent(page)
     const style = maskStyle(masks)
     const { steady, png } = await shootUntilSteady(
-      () =>
+      async () =>
         page.screenshot({
           type: "png",
           fullPage: true,
           // The full page keeps the width of the viewport: content that runs
-          // out at the side stays out of the shot, as in the viewport.
-          clip: {
+          // out at the side stays out of the shot, as in the viewport. A
+          // component story shows only its component (visual-component-box.mjs).
+          // The area is measured again for each shot, so a layout that still
+          // moves gives a shot that differs.
+          clip: (kind === "component" && (await componentArea(page))) || {
             x: 0,
             y: 0,
             width: page.viewportSize().width,
@@ -122,6 +130,18 @@ async function takeShot(page, { masks = [] }, out, key) {
     return { status: "capture-failed", error: String(shotError.message) }
   }
 }
+
+// The area of a component story in the page: the union of the boxes of its
+// visible elements and overlays, with a padding (visual-component-box.mjs).
+// Null when it has no visible element.
+const componentArea = async (page) =>
+  componentClip(await page.evaluate(storyBoxes), {
+    width: page.viewportSize().width,
+    height: Math.min(
+      await page.evaluate(() => document.documentElement.scrollHeight),
+      maxHeight,
+    ),
+  })
 
 // The style sheet that hides the masked elements of a story.
 const maskStyle = (masks) =>
@@ -158,7 +178,7 @@ async function checkLayout(page, { allow = {}, masks = [] }) {
 
 // Runs inside the container: /work is the repo, /out the folder of the PNGs.
 // `plan` holds the screenshot options of each story
-// (`{ id, masks, snapshots, allow }`).
+// (`{ id, kind, masks, snapshots, allow }`).
 async function captureHere(plan, out, viewport) {
   mkdirSync(out, { recursive: true })
   const server = await serveStatic(staticDir, 0)
@@ -328,8 +348,20 @@ export async function capturePlan(ids) {
   const stories = Object.values(index.entries).filter((entry) =>
     ids.includes(entry.id),
   )
-  const options = visualOptions(stories, (await csfTools()).loadCsf)
-  return ids.map((id) => ({ ...options.get(id), id }))
+  const { loadCsf } = await csfTools()
+  const options = visualOptions(stories, loadCsf)
+  // The kind of each story (parameters.review.kind), by story id.
+  const kinds = new Map()
+  for (const importPath of new Set(stories.map((story) => story.importPath))) {
+    const file = join("apps/ui", importPath)
+    const tags = storiesOf(loadCsf, file, readFileSync(join(root, file), "utf8"))
+    for (const story of stories.filter((entry) => entry.importPath === importPath))
+      kinds.set(
+        story.id,
+        tags.find((tag) => tag.name === story.exportName)?.kind,
+      )
+  }
+  return ids.map((id) => ({ ...options.get(id), kind: kinds.get(id), id }))
 }
 
 // The number of capture containers that run at the same time. One container
@@ -351,7 +383,7 @@ export const splitPlan = (plan, workers) =>
     plan.filter((_, position) => position % workers === part),
   )
 
-// Captures the stories of `plan` (`{ id, masks, snapshots }` for
+// Captures the stories of `plan` (`{ id, kind, masks, snapshots }` for
 // each story) in the pinned container, and copies the PNGs and capture.json
 // into `out` (the old PNGs and capture.json of it are removed first).
 // Returns one entry for each shot (the end state of each story, and each
