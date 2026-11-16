@@ -85,8 +85,8 @@ function fakeAgentCoreServer(microVm: MicroVm) {
    * The actions of the shim answers (`put`, `http`) that closed, and of those
    * that the client closed before their end.
    */
-  const closedInvocations: string[] = []
-  const cutInvocations: string[] = []
+  const closedActions: string[] = []
+  const cutActions: string[] = []
   let invocationEndDelayMs = 0
   let failNext: "platform" | "exception" | undefined
   const freshMicroVm = (sessionId: string) => {
@@ -135,8 +135,8 @@ function fakeAgentCoreServer(microVm: MicroVm) {
           setTimeout(() => response.end(), invocationEndDelayMs),
         )
         response.on("close", () => {
-          closedInvocations.push(action)
-          if (!response.writableFinished) cutInvocations.push(action)
+          closedActions.push(action)
+          if (!response.writableFinished) cutActions.push(action)
           close()
         })
         return
@@ -194,8 +194,8 @@ function fakeAgentCoreServer(microVm: MicroVm) {
     server,
     calls,
     commandTexts,
-    closedInvocations,
-    cutInvocations,
+    closedActions,
+    cutActions,
     running,
     failNextCommand: (kind: "platform" | "exception") => (failNext = kind),
     delayInvocationEnds: (ms: number) => (invocationEndDelayMs = ms),

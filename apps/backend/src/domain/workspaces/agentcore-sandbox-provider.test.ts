@@ -271,18 +271,25 @@ describe("agentCoreSandboxProvider", () => {
     const port = await listen(upstream)
     try {
       const handle = await provider.create({})
-      const before = fake.cutInvocations.length
-      const closedBefore = fake.closedInvocations.length
+      const before = fake.cutActions.length
+      const closedBefore = fake.closedActions.length
       expect((await handle.process.exec("echo hi")).stdout).toBe("hi\n")
       await handle.fs.write("staged.txt", "content")
       const channel = await handle.ports.connect(port)
       expect(await (await fetch(`${channel.url}/`)).text()).toBe("ok")
-      // The port answer reaches its client before the end of its shim answer:
-      // wait until that shim answer has closed.
+      // An error answer (no process on the port) is also read to its end.
+      const gone = createServer()
+      const closedPort = await handle.ports.connect(await listen(gone))
+      await new Promise((resolve) => gone.close(resolve))
+      expect((await fetch(`${closedPort.url}/`)).status).toBe(502)
+      // A port answer reaches its client before the end of its shim answer:
+      // wait until both shim answers have closed.
       await vi.waitFor(() =>
-        expect(fake.closedInvocations.slice(closedBefore)).toContain("http"),
+        expect(
+          fake.closedActions.slice(closedBefore).filter((a) => a === "http"),
+        ).toHaveLength(2),
       )
-      expect(fake.cutInvocations.slice(before)).toEqual([])
+      expect(fake.cutActions.slice(before)).toEqual([])
       await provider.destroy({ id: handle.id })
     } finally {
       fake.delayInvocationEnds(0)
@@ -292,21 +299,25 @@ describe("agentCoreSandboxProvider", () => {
 
   it("stops reading a shim answer 2 s after its last event, so an answer with no end holds no call open", async () => {
     // A process in the sandbox can replace the shim: it must not keep backend calls open.
+    const handle = await provider.create({})
     fake.delayInvocationEnds(60_000)
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     try {
-      const handle = await provider.create({})
-      const before = fake.cutInvocations.length
-      const started = Date.now()
-      expect((await handle.process.exec("echo hi")).stdout).toBe("hi\n")
-      expect(Date.now() - started).toBeLessThan(10_000)
-      await vi.waitFor(() =>
-        expect(fake.cutInvocations.slice(before)).toEqual(["put"]),
-      )
-      await provider.destroy({ id: handle.id })
+      const before = fake.cutActions.length
+      const running = handle.process.exec("echo hi")
+      // The 2 s start when the staged script's answer has its last event.
+      await vi.waitFor(async () => {
+        await vi.advanceTimersByTimeAsync(500)
+        expect(fake.cutActions.slice(before)).toEqual(["put"])
+      })
+      vi.useRealTimers()
+      expect((await running).stdout).toBe("hi\n")
     } finally {
+      vi.useRealTimers()
       fake.delayInvocationEnds(0)
+      await provider.destroy({ id: handle.id })
     }
-  }, 20_000)
+  })
 
   it("reaches a sandbox port through the shim and streams its answer", async () => {
     const handle = await provider.create({})

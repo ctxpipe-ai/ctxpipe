@@ -157,7 +157,7 @@ async function* shimEvents(
   payload: ShimRequest,
   signal?: AbortSignal,
 ): AsyncGenerator<ShimEvent> {
-  const cut = new AbortController()
+  const stopRead = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     const output = await runtime.client.send(
@@ -171,8 +171,8 @@ async function* shimEvents(
       }),
       {
         abortSignal: signal
-          ? AbortSignal.any([signal, cut.signal])
-          : cut.signal,
+          ? AbortSignal.any([signal, stopRead.signal])
+          : stopRead.signal,
       },
     )
     let buffer = ""
@@ -191,13 +191,13 @@ async function* shimEvents(
           JSON.parse(block.slice("data: ".length)),
         )
         if (event.type !== "head" && event.type !== "body")
-          timer ??= setTimeout(() => cut.abort(), 2_000)
+          timer ??= setTimeout(() => stopRead.abort(), 2_000)
         yield event
       }
     }
   } catch (error) {
     // The answer had its last event and did not end: it is complete.
-    if (!cut.signal.aborted) throw error
+    if (!stopRead.signal.aborted) throw error
   } finally {
     clearTimeout(timer)
   }
@@ -218,17 +218,19 @@ async function stage(
 ): Promise<string> {
   const id = randomBytes(16).toString("hex")
   let stored = false
-  // Read to the end of the answer, which follows `stored` at once: a return
-  // in the loop closes the call early, and its HTTP span is an error.
+  let failure: string | undefined
+  // Read to the end of the answer (see `shimEvents`): a return or a throw in
+  // the loop closes the call early, and its HTTP span is an error.
   for await (const event of shimEvents(runtime, sessionId, {
     action: "put",
     id,
     data: data.toString("base64"),
   })) {
     if (event.type === "stored") stored = true
-    if (event.type === "error")
-      throw new Error(`Sending data to the sandbox failed: ${event.message}`)
+    if (event.type === "error") failure = event.message
   }
+  if (failure !== undefined)
+    throw new Error(`Sending data to the sandbox failed: ${failure}`)
   if (!stored) throw new Error("The shim did not store the data")
   return id
 }
@@ -853,8 +855,9 @@ async function forward(
   route.usedAt = Date.now()
   const aborted = new AbortController()
   let ended = false
+  let failure: string | undefined
   // A client that leaves before the end stops the call. `end()` also closes
-  // the response: then the call reads on to the end of the shim answer.
+  // the response: then the call continues to read to the end of the answer.
   response.on("close", () => {
     if (!ended) aborted.abort()
   })
@@ -891,14 +894,15 @@ async function forward(
       if (event.type === "head") response.writeHead(event.status, event.headers)
       else if (event.type === "body")
         response.write(Buffer.from(event.data, "base64"))
-      else if (event.type === "error")
-        throw new Error(`The sandbox port did not answer: ${event.message}`)
-      // Read on to the end of the answer, which follows at once, as in `stage`.
+      // As in `stage`, the loop continues to the end of the answer.
+      else if (event.type === "error") failure = event.message
       else if (event.type === "end") {
         ended = true
         response.end()
       }
     }
+    if (failure !== undefined)
+      throw new Error(`The sandbox port did not answer: ${failure}`)
     if (!ended) throw new Error("The shim answer ended early")
   } catch (error) {
     if (!response.headersSent)
