@@ -4,14 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
 import type { Env } from "../../config/env.js"
 import { encryptConnectionSecret } from "../../lib/connection-secrets.js"
-import { createLogger, withLogger } from "../../observability/logger.js"
-import { closeOpenWorkflowClient } from "../../openworkflow/client.js"
 import {
   createPagerdutyOAuthState,
   PAGERDUTY_PKCE_COOKIE,
   serializePagerdutyPkceCookie,
 } from "../../services/pagerduty/oauth-state.js"
-import { takeQueuedWorkflowRuns } from "../../test/open-workflow-runs.js"
 import {
   pagerdutyConnectorRoutes,
   pagerdutyOauthCallbackRoutes,
@@ -35,9 +32,13 @@ const mocks = vi.hoisted(() => ({
   patchConfig: vi.fn(),
   claimConfig: vi.fn(),
   transitionTarget: vi.fn(),
+  runWorkflow: vi.fn(),
   loadConfig: vi.fn(),
 }))
 
+vi.mock("../../observability/logger.js", () => ({
+  getLogger: () => ({ error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
+}))
 vi.mock("../../auth/withAuth.js", () => ({
   hasOrgAdminOrOwnerRole: mocks.hasAdminRole,
 }))
@@ -70,6 +71,9 @@ vi.mock("../../models/pagerduty-connector.js", () => ({
 }))
 vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
   enqueueRepositoryIngestionWorkflow: vi.fn(),
+}))
+vi.mock("../../openworkflow/client.js", () => ({
+  enqueueWorkflow: mocks.runWorkflow,
 }))
 vi.mock("../../openworkflow/workflows/pagerduty-sync-config.js", () => ({
   pagerdutySyncConfig: { spec: { name: "pagerduty-sync-config" } },
@@ -108,13 +112,12 @@ function appWithVariables(runtimeEnv: Env = env) {
     } as unknown as AppEnv["Variables"]["session"])
     c.set("orgId", "org_1")
     c.set("orgSlug", "acme")
-    await withLogger(createLogger({}), next)
+    await next()
   })
 }
 
-beforeEach(async () => {
+beforeEach(() => {
   vi.clearAllMocks()
-  await takeQueuedWorkflowRuns()
   mocks.hasAdminRole.mockResolvedValue(true)
   mocks.exchangeCode.mockResolvedValue({
     accessToken: "access-token",
@@ -156,6 +159,7 @@ beforeEach(async () => {
     pendingConfigPullUrl: null,
     setupPhase: "draft",
   })
+  mocks.runWorkflow.mockResolvedValue({ workflowRun: { id: "run_1" } })
   mocks.getConnection.mockResolvedValue({
     id: "con_pd",
     accountId: "pending:con_pd",
@@ -609,15 +613,13 @@ describe("PagerDuty connector routes", () => {
       },
     )
     expect(response.status).toBe(200)
-    expect(await takeQueuedWorkflowRuns()).toEqual([
+    expect(mocks.runWorkflow).toHaveBeenCalledWith(
+      { name: "pagerduty-sync-config" },
       expect.objectContaining({
-        workflowName: "pagerduty-sync-config",
-        input: expect.objectContaining({
-          connectionId: "con_pd",
-          services: [{ id: "PSVC", name: "checkout" }],
-        }),
+        connectionId: "con_pd",
+        services: [{ id: "PSVC", name: "checkout" }],
       }),
-    ])
+    )
   })
 
   it("continues a rebound draft when the target config already matches", async () => {
@@ -648,16 +650,44 @@ describe("PagerDuty connector routes", () => {
       pendingConfigPrCreating: false,
       setupPhase: "initial_sync",
     })
-    expect(await takeQueuedWorkflowRuns()).toEqual([
-      expect.objectContaining({
-        workflowName: "pagerduty-sync-content",
-        input: expect.objectContaining({
-          orgId: "org_1",
-          connectionId: "con_pd",
-        }),
-      }),
-    ])
+    expect(mocks.runWorkflow).toHaveBeenCalledWith(
+      { name: "pagerduty-sync-content" },
+      {
+        orgId: "org_1",
+        connectionId: "con_pd",
+      },
+    )
     expect(await response.json()).toMatchObject({ configPrEnqueued: false })
+  })
+
+  it("marks a rebound draft failed when initial sync cannot be enqueued", async () => {
+    const services = [{ id: "PSVC", name: "checkout" }]
+    mocks.loadConfig.mockResolvedValue({ services })
+    mocks.runWorkflow.mockRejectedValueOnce(new Error("worker unavailable"))
+    const app = appWithVariables().route(
+      "/acme/api/v1/connectors/pagerduty",
+      pagerdutyConnectorRoutes,
+    )
+    const response = await app.request(
+      "/acme/api/v1/connectors/pagerduty/config?connectionId=con_pd",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ services }),
+      },
+    )
+    expect(response.status).toBe(503)
+    expect(mocks.transitionTarget).toHaveBeenLastCalledWith({
+      orgId: "org_1",
+      connectionId: "con_pd",
+      expectedSetupPhase: "initial_sync",
+      expectedPendingConfigPrCreating: false,
+      repositoryId: "repo_1",
+      branch: "main",
+      pendingConfigPullUrl: null,
+      pendingConfigPrCreating: false,
+      setupPhase: "sync_failed",
+    })
   })
 
   it("removes the PagerDuty subscription before deleting the connection", async () => {
@@ -692,38 +722,5 @@ describe("PagerDuty connector routes", () => {
       mocks.deleteConnection.mock.invocationCallOrder[0] ??
         Number.POSITIVE_INFINITY,
     )
-  })
-
-  // This test stops the shared OpenWorkflow client, so it is the last test
-  // of the file.
-  it("marks a rebound draft failed when initial sync cannot be enqueued", async () => {
-    const services = [{ id: "PSVC", name: "checkout" }]
-    mocks.loadConfig.mockResolvedValue({ services })
-    // The queue refuses each new run after the client stops.
-    await closeOpenWorkflowClient()
-    const app = appWithVariables().route(
-      "/acme/api/v1/connectors/pagerduty",
-      pagerdutyConnectorRoutes,
-    )
-    const response = await app.request(
-      "/acme/api/v1/connectors/pagerduty/config?connectionId=con_pd",
-      {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ services }),
-      },
-    )
-    expect(response.status).toBe(503)
-    expect(mocks.transitionTarget).toHaveBeenLastCalledWith({
-      orgId: "org_1",
-      connectionId: "con_pd",
-      expectedSetupPhase: "initial_sync",
-      expectedPendingConfigPrCreating: false,
-      repositoryId: "repo_1",
-      branch: "main",
-      pendingConfigPullUrl: null,
-      pendingConfigPrCreating: false,
-      setupPhase: "sync_failed",
-    })
   })
 })
