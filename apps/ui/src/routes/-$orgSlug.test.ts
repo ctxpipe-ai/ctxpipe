@@ -1,16 +1,7 @@
 import { QueryClient } from "@tanstack/react-query"
-import { isRedirect } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 
 import { isWorkspaceConversationDocument } from "@/features/workspaces/ensure-route-data"
 import { workspaceListOptions } from "@/features/workspaces/queries"
@@ -89,20 +80,6 @@ describe("resolveOrgGate", () => {
     ).toBe("error")
   })
 
-  // A fake or expired cookie in a scanner burst: the backend rate limit
-  // answers the session check with 429. The error screen would answer 500.
-  it("sends the request to sign-in when the backend rate-limits the session check", async () => {
-    server.use(
-      http.get("http://localhost:3000/.auth/api/v1/auth/*", () =>
-        HttpResponse.json({ message: "Too many requests" }, { status: 429 }),
-      ),
-    )
-    const outcome = await gateOutcome(signedInHeaders)
-
-    expect(isRedirect(outcome)).toBe(true)
-    expect(isRedirect(outcome) && outcome.options.to).toBe("/.auth/sign-in")
-  })
-
   it("keeps a rate-limited organization list an error when the session is valid", async () => {
     server.use(
       http.get("http://localhost:3000/.auth/api/v1/auth/get-session", () =>
@@ -120,20 +97,6 @@ describe("resolveOrgGate", () => {
     const outcome = await gateOutcome(signedInHeaders)
 
     expect(outcome).toMatchObject({ status: 429 })
-  })
-
-  it("sends an anonymous scanner path to sign-in without a backend call", async () => {
-    // No handlers: msw fails the test on any backend call.
-    const logged = vi.spyOn(console, "error")
-
-    const outcome = await gateOutcome(
-      { cookie: "theme=dark", "x-forwarded-for": "203.0.113.10" },
-      "sendform.zip",
-    )
-
-    expect(isRedirect(outcome) && outcome.options.to).toBe("/.auth/sign-in")
-    expect(logged).not.toHaveBeenCalled()
-    logged.mockRestore()
   })
 
   it("keeps a real backend failure an error, so the error screen shows and it logs", async () => {

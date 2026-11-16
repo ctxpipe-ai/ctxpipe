@@ -19,7 +19,11 @@ import {
   orgGateOptions,
   peekOrgGate,
 } from "./org-gate"
-import { duringServerRequest, signedInHeaders } from "./server-request-test"
+import {
+  duringServerRequest,
+  scannerHeaders,
+  signedInHeaders,
+} from "./server-request-test"
 
 const memberGate: OrgGate = {
   session: {
@@ -92,9 +96,7 @@ describe("orgGateOptions against the backend", () => {
         )
       }),
     )
-    await expect(
-      fetchGate({ cookie: "theme=dark", "x-forwarded-for": "203.0.113.10" }),
-    ).resolves.toEqual({
+    await expect(fetchGate(scannerHeaders)).resolves.toEqual({
       session: null,
       organizations: [],
       orgAccessDenied: true,

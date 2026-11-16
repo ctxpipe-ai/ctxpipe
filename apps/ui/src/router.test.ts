@@ -1,5 +1,4 @@
-import { QueryClient } from "@tanstack/react-query"
-import { createMemoryHistory, createRouter } from "@tanstack/react-router"
+import { createMemoryHistory, isRedirect } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import {
@@ -13,9 +12,8 @@ import {
 } from "vitest"
 
 import { retryQuery } from "./lib/api-result"
-import { duringServerRequest } from "./lib/server-request-test"
+import { duringServerRequest, scannerHeaders } from "./lib/server-request-test"
 import { getRouter } from "./router"
-import { routeTree } from "./routeTree.gen"
 
 describe("getRouter", () => {
   it("uses retryQuery as the QueryClient default", () => {
@@ -32,18 +30,15 @@ describe("getRouter", () => {
  */
 function serverLoad(headers: Record<string, string>, path: string) {
   return duringServerRequest(headers, async () => {
-    const router = createRouter({
-      routeTree,
-      context: { queryClient: new QueryClient() },
+    const router = getRouter()
+    router.update({
+      ...router.options,
       isServer: true,
       history: createMemoryHistory({ initialEntries: [path] }),
     })
     await router.load()
-    // The Start handler reads this private field to answer with the redirect.
-    const { _serverResult } = router as unknown as {
-      _serverResult?: { type: string; redirect?: Response }
-    }
-    return _serverResult
+    // The Start handler answers with this redirect before it renders.
+    return router._serverResult
   })
 }
 
@@ -62,14 +57,12 @@ describe("server render of a scanner path", () => {
     // No handlers: msw fails the test on any backend call.
     const logged = vi.spyOn(console, "error")
 
-    const result = await serverLoad(
-      { cookie: "theme=dark", "x-forwarded-for": "203.0.113.10" },
-      "/sendform.zip",
-    )
+    const result = await serverLoad(scannerHeaders, "/sendform.zip")
 
     expect(result?.type).toBe("redirect")
-    expect(result?.redirect?.status).toBe(307)
-    expect(result?.redirect?.headers.get("location")).toBe("/.auth/sign-in")
+    const redirect = result?.type === "redirect" ? result.redirect : undefined
+    expect(isRedirect(redirect) && redirect.status).toBe(307)
+    expect(redirect?.headers.get("location")).toBe("/.auth/sign-in")
     expect(logged).not.toHaveBeenCalled()
   })
 
@@ -86,8 +79,9 @@ describe("server render of a scanner path", () => {
       "/school.zip",
     )
 
-    expect(result?.redirect?.status).toBe(307)
-    expect(result?.redirect?.headers.get("location")).toBe("/.auth/sign-in")
+    const redirect = result?.type === "redirect" ? result.redirect : undefined
+    expect(isRedirect(redirect) && redirect.status).toBe(307)
+    expect(redirect?.headers.get("location")).toBe("/.auth/sign-in")
     expect(logged).not.toHaveBeenCalled()
   })
 })
