@@ -1,6 +1,11 @@
 import assert from "node:assert/strict"
+import { spawnSync } from "node:child_process"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
 import { test } from "node:test"
 
+import { inputs as playInputs } from "../checks/storybook.mjs"
 import {
   listVisual,
   visualOptions,
@@ -452,4 +457,84 @@ test("a screenshot with a layout problem fails its record, and the message names
   // The pixels are unchanged, so a new baseline does not fix it.
   assert.doesNotMatch(record.message, /visual:update/)
   assert.match(record.message, /parameters\.visual\.allow/)
+})
+
+// The ids of the checks that the selector picks for a working-tree change of
+// `files` in a small git repo, with `checks` as the manifest. The selector is
+// the factory CLI. Without it on PATH, this gives null.
+function factorySelect(checks, files) {
+  const repo = mkdtempSync(join(tmpdir(), "ctxpipe-visual-select-"))
+  const git = (...args) =>
+    spawnSync(
+      "git",
+      ["-c", "user.name=t", "-c", "user.email=t@example.com", ...args],
+      { cwd: repo },
+    )
+  const write = (path, text) => {
+    mkdirSync(dirname(join(repo, path)), { recursive: true })
+    writeFileSync(join(repo, path), text)
+  }
+  try {
+    write("package.json", '{"scripts":{"tool":"one"}}\n')
+    write("apps/ui/package.json", '{"scripts":{"tool":"one"}}\n')
+    write("apps/ui/src/features/card/Card.stories.tsx", "export default {}\n")
+    write("pnpm-lock.yaml", "lockfileVersion: '9.0'\n")
+    write("manifest.json", JSON.stringify({ schemaVersion: 1, checks }))
+    git("init", "-q", "-b", "main")
+    git("add", "-A")
+    git("commit", "-q", "-m", "fixture")
+    for (const path of files) write(path, '{"scripts":{"tool":"two"}}\n')
+    const result = spawnSync(
+      "factory",
+      [
+        "check",
+        "--repo",
+        repo,
+        "--manifest",
+        join(repo, "manifest.json"),
+        "--base",
+        "HEAD",
+        "--dry-run",
+        "--json",
+        "--llm-provider",
+        "none",
+      ],
+      { encoding: "utf8" },
+    )
+    if (result.error?.code === "ENOENT") return null
+    assert.equal(result.status, 0, result.stderr)
+    return JSON.parse(result.stdout.split("\n")[0]).selected.map(({ id }) => id)
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+}
+
+test("a change to the root scripts selects no Storybook check, and a change to the UI package file selects each one", () => {
+  const story = { ...card, tags: ["dev", "play-fn"] }
+  const checks = [
+    ...listVisual([story], []),
+    {
+      id: "storybook:plays:apps/ui/src/features/card/Card.stories.tsx#features-card--plain",
+      family: "storybook",
+      lane: "plays",
+      root: "apps/ui",
+      file: "apps/ui/src/features/card/Card.stories.tsx",
+      inputs: playInputs,
+      prerequisites: [],
+    },
+  ]
+  // The contract: the root package.json is no input of a Storybook check, and
+  // the UI package file is.
+  for (const check of checks) {
+    assert.ok(!check.inputs.includes("package.json"), check.id)
+    assert.ok(check.inputs.includes("apps/ui/package.json"), check.id)
+  }
+  // The selector, when this host has it.
+  const root = factorySelect(checks, ["package.json"])
+  if (root === null) return
+  assert.deepEqual(root, [])
+  assert.deepEqual(
+    factorySelect(checks, ["apps/ui/package.json"]).sort(),
+    checks.map(({ id }) => id).sort(),
+  )
 })
