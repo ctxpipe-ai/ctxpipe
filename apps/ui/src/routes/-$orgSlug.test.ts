@@ -1,4 +1,5 @@
 import { QueryClient } from "@tanstack/react-query"
+import { isRedirect } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
@@ -6,6 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { isWorkspaceConversationDocument } from "@/features/workspaces/ensure-route-data"
 import { workspaceListOptions } from "@/features/workspaces/queries"
 import { installRelativeFetch } from "@/features/workspaces/relative-fetch-test"
+import { ApiError } from "@/lib/api-result"
 import { duringServerRequest, signedInHeaders } from "@/lib/server-request-test"
 
 import { resolveOrgGate } from "./$orgSlug"
@@ -67,5 +69,57 @@ describe("resolveOrgGate", () => {
     expect(
       queryClient.getQueryState(workspaceListOptions("acme").queryKey)?.status,
     ).toBe("error")
+  })
+
+  // A fake or expired cookie in a scanner burst: the backend rate limit
+  // answers the session check with 429. The error screen would answer 500.
+  it("sends the request to sign-in when the backend rate-limits the session check", async () => {
+    server.use(
+      http.get("http://localhost:3000/.auth/api/v1/auth/*", () =>
+        HttpResponse.json({ message: "Too many requests" }, { status: 429 }),
+      ),
+    )
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+
+    const outcome = await duringServerRequest(signedInHeaders, () =>
+      resolveOrgGate(queryClient, "acme"),
+    ).catch((error: unknown) => error)
+
+    expect(isRedirect(outcome)).toBe(true)
+    expect(isRedirect(outcome) && outcome.options.to).toBe("/.auth/sign-in")
+  })
+
+  it("sends an anonymous scanner path to sign-in without a backend call", async () => {
+    // No handlers: msw fails the test on any backend call.
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+
+    const outcome = await duringServerRequest(
+      { "x-forwarded-for": "203.0.113.10" },
+      () => resolveOrgGate(queryClient, "sendform.zip"),
+    ).catch((error: unknown) => error)
+
+    expect(isRedirect(outcome) && outcome.options.to).toBe("/.auth/sign-in")
+  })
+
+  it("keeps a real backend failure an error, so the error screen shows and it logs", async () => {
+    server.use(
+      http.get("http://localhost:3000/.auth/api/v1/auth/*", () =>
+        HttpResponse.json({ message: "Bad gateway" }, { status: 502 }),
+      ),
+    )
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+
+    const outcome = await duringServerRequest(signedInHeaders, () =>
+      resolveOrgGate(queryClient, "acme"),
+    ).catch((error: unknown) => error)
+
+    expect(outcome).toBeInstanceOf(ApiError)
+    expect(outcome).toMatchObject({ status: 502 })
   })
 })

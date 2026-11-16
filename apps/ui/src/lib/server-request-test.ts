@@ -13,17 +13,19 @@ export async function duringServerRequest<T>(
   headers: Record<string, string>,
   read: () => Promise<T>,
 ): Promise<T> {
-  let outcome: { value: T } | { error: unknown } = {
-    error: new Error("The request handler did not run"),
-  }
+  const outcomes: Array<{ value: T } | { error: unknown }> = []
   const handle = requestHandler(async () => {
-    outcome = await read().then(
-      (value) => ({ value }),
-      (error: unknown) => ({ error }),
+    outcomes.push(
+      await read().then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error }),
+      ),
     )
     return new Response(null, { status: 204 })
   })
   await handle(new Request("http://ui.test/acme", { headers }), {})
+  const outcome = outcomes[0]
+  if (!outcome) throw new Error("The request handler did not run")
   if ("error" in outcome) throw outcome.error
   return outcome.value
 }

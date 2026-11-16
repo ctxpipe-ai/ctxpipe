@@ -5,6 +5,7 @@ import { AppShell } from "@/components/AppShell"
 import { OrgGateError } from "@/features/org/OrgGateError"
 import { isWorkspaceConversationDocument } from "@/features/workspaces/ensure-route-data"
 import { workspaceListOptions } from "@/features/workspaces/queries"
+import { ApiError } from "@/lib/api-result"
 import { orgGateOptions, peekOrgGate } from "@/lib/org-gate"
 import { useHyperDxScreenError } from "@/providers/HyperDxProvider"
 
@@ -33,7 +34,17 @@ export async function resolveOrgGate(
   orgSlug: string,
   options?: { awaitWorkspaceList?: boolean },
 ) {
-  const gate = await queryClient.ensureQueryData(orgGateOptions(orgSlug))
+  const gate = await queryClient
+    .ensureQueryData(orgGateOptions(orgSlug))
+    .catch((error: unknown) => {
+      // The backend rate limit refused the session check: a scanner with a
+      // fake or expired cookie. The error screen would answer 500, so treat
+      // the request as signed out.
+      if (error instanceof ApiError && error.status === 429) {
+        throw redirect({ to: "/.auth/sign-in" })
+      }
+      throw error
+    })
   if (!gate.session) {
     throw redirect({ to: "/.auth/sign-in" })
   }

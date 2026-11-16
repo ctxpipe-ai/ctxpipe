@@ -45,9 +45,9 @@ async function authFetchInit(): Promise<RequestInit | null> {
 /**
  * Session for route loaders — works on SSR with forwarded cookies.
  * Returns null when the request carries no session credential, or when the
- * backend says there is no session. A network
- * error, a timeout, or a server error throws `ApiError`: the loader must not
- * send a signed-in user to sign-in because one call failed.
+ * backend says there is no session. A network error, a timeout, or a server
+ * error throws `ApiError`: the loader must not send a signed-in user to
+ * sign-in because one call failed.
  */
 export async function fetchSsrSession(): Promise<SsrSession> {
   const init = await authFetchInit()
@@ -68,8 +68,8 @@ export async function fetchSsrSession(): Promise<SsrSession> {
 
 /**
  * Org membership list for route loaders. Returns [] only for a signed-out
- * request (no session credential, or 401). Other failures throw `ApiError`, so that a failed call does
- * not send the user to onboarding.
+ * request (no session credential, or 401). Other failures throw `ApiError`,
+ * so that a failed call does not send the user to onboarding.
  */
 export async function fetchSsrOrganizations(): Promise<SsrOrganization[]> {
   const init = await authFetchInit()

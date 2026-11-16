@@ -1,21 +1,10 @@
-import { requestHandler } from "@tanstack/react-start/server"
 import { describe, expect, it } from "vitest"
 
 import { getServerApiHeaders } from "./api-headers.server"
+import { duringServerRequest } from "./server-request-test"
 
-async function headersDuring(
-  incoming: Record<string, string>,
-): Promise<HeadersInit> {
-  const handle = requestHandler(() =>
-    Response.json(getServerApiHeaders() as Record<string, string>),
-  )
-  const response = await handle(
-    new Request("http://ui.railway.internal:3002/onboarding", {
-      headers: incoming,
-    }),
-    {},
-  )
-  return (await response.json()) as HeadersInit
+function headersDuring(incoming: Record<string, string>): Promise<HeadersInit> {
+  return duringServerRequest(incoming, async () => getServerApiHeaders())
 }
 
 describe("getServerApiHeaders", () => {
