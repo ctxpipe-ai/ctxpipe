@@ -86,3 +86,7 @@ These instructions supplement the repository-root `AGENTS.md`.
   no OOM kill, hot empty), but the cgroup peak reached the 5670m ceiling
   (page cache counts), so it gives no new calibration. The ceiling stays
   provisional.
+- Re-run of 2026-11-17 (the SCIP heap of half the container, CTX-1348): the
+  gate passed (exit 0, no OOM kill, hot empty). The cgroup peak again reached
+  the 5670m ceiling (5945430016 bytes). Kubernetes detects only Go, so this
+  gate does not run a Node indexer and does not test that heap.
