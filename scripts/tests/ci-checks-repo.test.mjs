@@ -850,9 +850,6 @@ test("every check has the root toolchain files among its inputs, and a Storybook
       family === "storybook" ? "apps/ui/package.json" : "package.json",
     ])
       assert.ok(inputs.includes(file), `${id} lacks input ${file}`)
-    // A root script or a root devDependency for CI tooling changes no play
-    // and no screenshot, so a change to the root package.json alone selects
-    // no Storybook check.
     if (family === "storybook")
       assert.ok(
         !inputs.includes("package.json"),
