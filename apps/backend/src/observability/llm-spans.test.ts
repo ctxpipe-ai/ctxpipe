@@ -72,6 +72,25 @@ describe("withLlmGeneration", () => {
     expect(span?.status.code).toBe(SpanStatusCode.UNSET)
   })
 
+  it("masks credentials in the prompt and the answer, and caps their size", async () => {
+    const token = `ghp_${"a".repeat(36)}`
+    await withLlmGeneration(
+      {
+        name: "modelProvider.chat",
+        operation: "chat",
+        input: { messages: [{ role: "user", content: `use ${token}` }] },
+        summarizeOutput: () => ({ text: "x".repeat(200_000) }),
+      },
+      async () => "ok",
+    )
+    const span = generation("modelProvider.chat")
+    const input = String(span?.attributes["gen_ai.input.messages"])
+    const output = String(span?.attributes["gen_ai.output.messages"])
+    expect(input).toContain("[masked]")
+    expect(input).not.toContain(token)
+    expect(output.length).toBeLessThanOrEqual(64 * 1024)
+  })
+
   it("puts the gateway cost and the tokens on the span, under the gen_ai keys", async () => {
     await withLlmGeneration(
       {

@@ -12,8 +12,8 @@ import {
   readAttribution,
   sanitizeAttribution,
 } from "../../observability/attribution.js"
+import { llmContent } from "../../observability/llm-spans.js"
 import { log } from "../../observability/logger.js"
-import { maskCredentialsDeep } from "./mask-credentials.js"
 import type { WorkspaceChatCompletionUsage } from "./workspace-chat-model-proxy.js"
 
 type WorkspaceChatGenerationRecord = {
@@ -188,48 +188,6 @@ export function markWorkspaceChatFirstShownToken(turnId: string): void {
   const state = turns.get(turnId)
   if (!state || state.firstShownTokenAt != null) return
   state.firstShownTokenAt = Date.now()
-}
-
-/** The size limit of the prompt or output JSON on a span. */
-const MAX_LLM_CONTENT = 64 * 1024
-
-/**
- * JSON for `gen_ai.input.messages` or `gen_ai.output.messages`, at most
- * `MAX_LLM_CONTENT` characters. Credentials are masked first. A message list
- * keeps its newest whole messages; a text that is still too long keeps its
- * end.
- */
-function llmContent(value: unknown): string {
-  let masked = maskCredentialsDeep(value)
-  if (Array.isArray(masked)) {
-    let size = JSON.stringify(masked).length
-    let start = 0
-    while (size > MAX_LLM_CONTENT && start < masked.length - 1) {
-      size -= JSON.stringify(masked[start]).length + 1
-      start += 1
-    }
-    masked = masked.slice(start)
-  }
-  let json = JSON.stringify(masked)
-  // One message or answer is still too long: keep the end of its text.
-  const last = Array.isArray(masked) ? masked.at(-1) : masked
-  while (
-    json.length > MAX_LLM_CONTENT &&
-    last &&
-    typeof last === "object" &&
-    typeof (last as { content?: unknown }).content === "string"
-  ) {
-    const item = last as { content: string }
-    const keep = item.content.length - (json.length - MAX_LLM_CONTENT) - 32
-    if (keep <= 0) {
-      item.content = "[truncated]"
-      json = JSON.stringify(masked)
-      break
-    }
-    item.content = `[truncated]${item.content.slice(-keep)}`
-    json = JSON.stringify(masked)
-  }
-  return json.length <= MAX_LLM_CONTENT ? json : JSON.stringify("[truncated]")
 }
 
 export function beginWorkspaceChatProxyGeneration(
