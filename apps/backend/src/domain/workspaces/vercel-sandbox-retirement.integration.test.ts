@@ -168,7 +168,6 @@ beforeAll(async () => {
   initLogger({
     env: { service: "ctxpipe-backend-test" },
     pretty: false,
-    silent: true,
     drain: (ctx) => {
       events.push(ctx.event as Record<string, unknown>)
     },
