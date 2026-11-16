@@ -35,6 +35,7 @@ const meta = {
       pattern: "flat",
       path: "/onboarding",
     } satisfies StoryRouteParams,
+    review: { kind: "component" },
   },
   args: {
     onFinish: fn(),
@@ -52,6 +53,10 @@ export const Empty: Story = {
         page: createOrgBaseMsw,
       },
     },
+    review: {
+      purpose:
+        "Onboarding slide where a new user creates the first organization: the form is empty.",
+    },
   },
 }
 
@@ -61,6 +66,10 @@ export const ValidationError: Story = {
       handlers: {
         page: createOrgBaseMsw,
       },
+    },
+    review: {
+      purpose:
+        "Onboarding slide where a new user creates the first organization: the user submitted with no name, and the form asks for one.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -83,6 +92,10 @@ export const InvalidSlug: Story = {
       handlers: {
         page: createOrgBaseMsw,
       },
+    },
+    review: {
+      purpose:
+        "Onboarding slide where a new user creates the first organization: the slug starts with a hyphen, and the create button is disabled.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -116,6 +129,10 @@ export const CreateFailed: Story = {
       handlers: {
         page: [...createOrgBaseMsw, organizationCreateErrorHandler()],
       },
+    },
+    review: {
+      purpose:
+        "Onboarding slide where a new user creates the first organization: the create request failed, and an error shows.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -162,6 +179,10 @@ export const CreatingOrganization: Story = {
           'Create uses MSW `delay("real")`, then returns success — run **Interactions** to see `onFinish` after submit.',
       },
     },
+    review: {
+      purpose:
+        "Onboarding slide where a new user creates the first organization: the slow create request succeeded and the slide finished.",
+    },
   },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
@@ -192,6 +213,10 @@ export const PrefilledFromWorkEmail: Story = {
       handlers: {
         page: createOrgBaseMsw,
       },
+    },
+    review: {
+      purpose:
+        "Onboarding slide where a new user creates the first organization: a work email filled the name, and the user then edited the slug.",
     },
   },
   play: async ({ canvasElement }) => {

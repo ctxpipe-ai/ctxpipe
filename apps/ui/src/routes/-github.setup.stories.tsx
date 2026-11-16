@@ -24,6 +24,7 @@ const meta = {
       path: "/.github/setup",
       search: "?installation_id=42&orgSlug=acme",
     } satisfies StoryRouteParams,
+    review: { kind: "page" },
   },
 } satisfies Meta
 
@@ -40,6 +41,10 @@ export const RegistrationRefused: Story = {
     <ConnectGithubView installationId={42} selectedOrganizationSlug="acme" />
   ),
   parameters: {
+    review: {
+      purpose:
+        "GitHub setup screen after the App install, which registers the installation: the linked GitHub account cannot access the installation.",
+    },
     msw: {
       handlers: {
         page: [
@@ -91,6 +96,10 @@ export const NotLinkedShowsLinkError: Story = {
     />
   ),
   parameters: {
+    review: {
+      purpose:
+        "GitHub setup screen after the App install, which asks the user to link GitHub: the last link failed because the account belongs to another user.",
+    },
     msw: {
       handlers: {
         // Replaces the preview's config, which has no social providers.

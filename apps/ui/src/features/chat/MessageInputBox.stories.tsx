@@ -32,6 +32,7 @@ const meta = {
   component: MessageInputBox,
   render: (args) => <RemountHarness {...args} />,
   parameters: {
+    review: { kind: "component" },
     layout: "padded",
   },
   args: {
@@ -47,6 +48,12 @@ type Story = StoryObj<typeof meta>
 
 /** Typed text survives a remount under the same draft key, and a send clears it. */
 export const DraftSurvivesRemount: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Chat message composer with a saved draft: typed text stays after a remount and the send clears it.",
+    },
+  },
   beforeEach: () => {
     writeChatDraft(draftKey, "")
   },
@@ -74,6 +81,10 @@ export const DraftSurvivesRemount: Story = {
 /** Picking a suggested prompt fills the composer and focuses it. It does not send. */
 export const SuggestionFillsComposer: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Chat message composer with suggested prompts: the user opened the list and picked one, which fills the composer.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   beforeEach: () => {
@@ -101,6 +112,12 @@ export const SuggestionFillsComposer: Story = {
 
 /** No draft key: the composer starts empty every time. */
 export const Thread: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Chat message composer under a conversation thread: no saved draft, so it starts empty.",
+    },
+  },
   args: {
     layout: "thread",
     draftKey: undefined,
@@ -109,6 +126,12 @@ export const Thread: Story = {
 
 /** While a turn streams the composer is locked, but Stop stays enabled and cancels the turn. */
 export const StopDuringStreamedTurn: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Chat message composer under a thread while a reply streams: the text box is locked and the Stop button stays active.",
+    },
+  },
   args: {
     layout: "thread",
     draftKey: undefined,

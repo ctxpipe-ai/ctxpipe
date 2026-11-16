@@ -2,6 +2,8 @@
 
 **Status:** Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) | **Date:** 2026-09-13 | **Tags:** infra, railway, neon, latency
 
+> **Superseded (AWS cutover).** Hosted compute and the database run in AWS us-west-2 in one VPC ([ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md), decisions 3 and 8). No Railway region and no Neon pooler remain.
+
 ## Context
 
 Hosted product SQL uses Neon’s transaction-mode pooler in `aws-us-east-1`. Every org query is a short `BEGIN` + `SET LOCAL app.organization_id` + work + `COMMIT`. Railway production and every `pr-*` environment duplicated from it ran in `asia-southeast1-eqsg3a` (Singapore). That ~200ms RTT made each hop ~1s.

@@ -4,16 +4,12 @@ import { rows as awsRows } from "./providers/aws"
 import { rows as blacksmithRows } from "./providers/blacksmith"
 import { rows as cloudflareRows } from "./providers/cloudflare"
 import { rows as githubRows } from "./providers/github"
-import { rows as neonRows } from "./providers/neon"
 import { rows as openRouterRows } from "./providers/openrouter"
-import { rows as railwayRows } from "./providers/railway"
 import { mapRowsToOtlp, utcDays, type CostRow, type OtlpMetricsRequest } from "./rows"
 
 const PROVIDERS: { name: string; rows: (days: string[]) => Promise<CostRow[]> }[] = [
   { name: "openrouter", rows: openRouterRows },
   { name: "github", rows: githubRows },
-  { name: "railway", rows: railwayRows },
-  ...(process.env.NEON_API_KEY ? [{ name: "neon", rows: neonRows }] : []),
   { name: "blacksmith", rows: blacksmithRows },
   { name: "cloudflare", rows: cloudflareRows },
   { name: "aws", rows: awsRows },

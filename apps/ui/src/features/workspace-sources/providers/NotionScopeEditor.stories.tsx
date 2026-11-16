@@ -47,6 +47,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -62,6 +63,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const SelectAPageAndADatabase: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Notion scope editor, where the user picks the pages and databases of a Workspace source: nothing is picked at first, then the user picks a page and a database.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
     await waitFor(() => expect(canvas.getByText("Not ready")).toBeVisible())
@@ -86,6 +93,12 @@ export const SelectAPageAndADatabase: Story = {
 }
 
 export const SearchKeepsTheSelection: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Notion scope editor, where the user picks the pages and databases of a Workspace source: a search hides a selected page, but it stays in the list and stays selected.",
+    },
+  },
   args: {
     label: "Docs",
     initialScope: { pages: [{ id: HANDBOOK, title: "Engineering handbook" }] },
@@ -127,6 +140,12 @@ export const SearchKeepsTheSelection: Story = {
 }
 
 export const RemoveTheLastRoot: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Notion scope editor, where the user picks the pages and databases of a Workspace source: the user clears the last database, so the scope is not ready.",
+    },
+  },
   args: {
     initialScope: { databases: [{ id: INCIDENTS, title: "Incident log" }] },
   },
@@ -144,6 +163,10 @@ export const RemoveTheLastRoot: Story = {
 
 export const SearchFails: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Notion scope editor, where the user picks the pages and databases of a Workspace source: the Notion search failed, so an error shows.",
+    },
     msw: {
       handlers: {
         page: [

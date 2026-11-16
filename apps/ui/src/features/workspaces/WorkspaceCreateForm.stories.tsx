@@ -42,6 +42,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -92,6 +93,12 @@ async function createFromGithub(canvasElement: HTMLElement) {
 }
 
 export const ZeroWorkspaces: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Create form for a Workspace, where an owner picks the Workspace repository: the org has no Workspaces, and step 1 is current.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText(/saves this Workspace’s knowledge/)
@@ -103,6 +110,12 @@ export const ZeroWorkspaces: Story = {
 }
 
 export const SelectGitHub: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Create form for a Workspace, where an owner picks the Workspace repository: the list of GitHub repositories to choose from.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("list", { name: /repositories/i })
@@ -110,6 +123,12 @@ export const SelectGitHub: Story = {
 }
 
 export const CreateOnGitHub: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Create form for a Workspace, where an owner picks the Workspace repository: the Create on GitHub tab is open to make a new repository.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -120,6 +139,10 @@ export const CreateOnGitHub: Story = {
 
 export const SaveError: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Create form for a Workspace, where an owner picks the Workspace repository: the create request failed, so an error says it could not save.",
+    },
     msw: {
       handlers: {
         page: [
@@ -154,6 +177,10 @@ export const SaveError: Story = {
 
 export const AddSourcesAfterCreate: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Create form for a Workspace: the Workspace was created, and step 2 asks the owner to add source repositories.",
+    },
     msw: {
       handlers: {
         page: [
@@ -195,6 +222,10 @@ export const AddSourcesAfterCreate: Story = {
 
 export const WaitsForWriteAccessCheck: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Create form for a Workspace: the Workspace was created, and the write access check finished, so the owner can add repositories.",
+    },
     msw: {
       handlers: {
         page: [
@@ -234,6 +265,10 @@ export const WaitsForWriteAccessCheck: Story = {
 
 export const ReadOnlyRepository: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Create form for a Workspace: the GitHub App cannot write to the new Workspace repository, so it is read-only and only Open Workspace shows.",
+    },
     msw: {
       handlers: {
         page: [
@@ -291,6 +326,10 @@ function LeavablePage(props: { orgSlug: string }) {
  */
 export const LeaveWhileCreating: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Create form for a Workspace: the owner left the page while the create request ran, and the form did not call back after it.",
+    },
     msw: {
       handlers: {
         page: [

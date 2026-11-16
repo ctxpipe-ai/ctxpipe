@@ -23,6 +23,7 @@ const meta = {
   args: { orgSlug, connectionId, onOpenSetup },
   decorators: entryPageInnerDecorators,
   parameters: {
+    review: { kind: "component" },
     msw: {
       handlers: {
         usage: [
@@ -57,6 +58,10 @@ const card = () =>
 export const Connected: Story = {
   render: card,
   parameters: {
+    review: {
+      purpose:
+        "Plain connection card on the Connectors page: the Plain workspace is connected and the admin opens Manage from the card menu.",
+    },
     msw: { handlers: { page: [plainStatusHandler(plainStoryStatus())] } },
   },
   play: async ({ canvasElement }) => {
@@ -80,6 +85,10 @@ export const WebhookMissing: Story = {
   name: "No webhook, a reconnect adds it",
   render: card,
   parameters: {
+    review: {
+      purpose:
+        "Plain connection card on the Connectors page: Plain did not accept the webhook, so threads sync once a day and the card offers a reconnect.",
+    },
     msw: {
       handlers: {
         page: [
@@ -111,6 +120,10 @@ export const RevokedOpensReconnect: Story = {
   name: "Revoked, reconnect opens setup",
   render: card,
   parameters: {
+    review: {
+      purpose:
+        "Plain connection card on the Connectors page: Plain no longer accepts the saved key, so the card shows Needs reconnect.",
+    },
     msw: {
       handlers: {
         page: [plainStatusHandler(plainStoryStatus({ status: "revoked" }))],
@@ -139,6 +152,10 @@ const deleted = fn()
 export const Remove: Story = {
   render: card,
   parameters: {
+    review: {
+      purpose:
+        "Plain connection card on the Connectors page: the admin removes the connector and confirms in the remove dialog.",
+    },
     msw: {
       handlers: {
         page: [
@@ -185,6 +202,10 @@ export const Remove: Story = {
 export const Checking: Story = {
   render: card,
   parameters: {
+    review: {
+      purpose:
+        "Plain connection card on the Connectors page: the status request is still loading.",
+    },
     msw: {
       handlers: {
         page: [

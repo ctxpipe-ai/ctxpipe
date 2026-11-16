@@ -47,6 +47,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -62,6 +63,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const SelectHelpCentersAndLabels: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Plain scope editor, where the user picks the Help Centers and labels of a Workspace source: nothing is picked at first, with notes on limits and personal data, then the user picks two items.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
     await waitFor(() => expect(canvas.getByText("Not ready")).toBeVisible())
@@ -83,6 +90,12 @@ export const SelectHelpCentersAndLabels: Story = {
 }
 
 export const FilterKeepsTheSelection: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Plain scope editor, where the user picks the Help Centers and labels of a Workspace source: a filter hides a selected Help Center, but it stays in the list and stays selected.",
+    },
+  },
   args: { label: "Support", initialScope: { helpCenters: ["hc_docs"] } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -114,6 +127,12 @@ export const FilterKeepsTheSelection: Story = {
 }
 
 export const RemovedItemCanBeCleared: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Plain scope editor, where the user picks the Help Centers and labels of a Workspace source: a selected label that Plain no longer lists shows by its id, and the user clears it.",
+    },
+  },
   args: { initialScope: { labels: ["lt_gone", "lt_bug"] } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -129,6 +148,10 @@ export const RemovedItemCanBeCleared: Story = {
 
 export const Loading: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Plain scope editor, where the user picks the Help Centers and labels of a Workspace source: the Help Centers and labels still load.",
+    },
     msw: {
       handlers: {
         page: [
@@ -150,6 +173,10 @@ export const Loading: Story = {
 
 export const LoadError: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Plain scope editor, where the user picks the Help Centers and labels of a Workspace source: Plain refuses the API key, so an error asks the user to reconnect Plain.",
+    },
     msw: {
       handlers: {
         page: [

@@ -2,6 +2,8 @@
 
 **Status:** Superseded by [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) for hosted infrastructure | **Date:** 2026-03-17 | **Tags:** infra, pulumi, terraform, railway, neon
 
+> **Superseded (AWS cutover).** Hosted ctxpipe runs on AWS, and Pulumi in the factory repo manages it ([ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md), decision 5). CTX-1220 deletes the Railway and Neon Terraform in `infra/` together with the Railway production deploy. Self-host uses `@ctxpipe/aws-cdk` (CDK), not the Terraform of this ADR.
+
 ## Context
 
 We experimented with Pulumi as our IAC which had great DX and supports all Terraform providers. However, our goal is to make it very easy for consumers to self-host whether it is on Railway, AWS, GCP and Azure - it should also fit into their existings setup. Due to this reason, we picked Terraform instead as this is the industry standard. For customers using Pulumi, they can use our Terraform modules seamlessly.

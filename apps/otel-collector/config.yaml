@@ -1,6 +1,6 @@
 # Contributor laptop collector (Compose profile `infra` / `pnpm dev:infra`).
-# Prints OTLP to stdout. No upstream token. Hosted ingest is
-# ops/observability/collector/config.yaml (ADR-038).
+# Prints OTLP to stdout. No upstream token. Hosted ingest is the ClickStack
+# collector of the observability stack in the factory repo (ADR-061).
 
 receivers:
   otlp:

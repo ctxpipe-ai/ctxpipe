@@ -41,6 +41,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "centered",
     storyRoute: {
       pattern: "orgIndex",
@@ -63,12 +64,20 @@ type Story = StoryObj<typeof meta>
 
 export const Nested: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File tree of a Workspace, where a member browses and opens files: nested folders with one file selected.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
 }
 
 export const SearchOpen: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File tree of a Workspace, where a member browses and opens files: the file search field is open.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   play: async ({ canvasElement }) => {
@@ -80,6 +89,10 @@ export const SearchOpen: Story = {
 
 export const LongNames: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File tree of a Workspace, where a member browses and opens files: long file names in a narrow tree are cut with an ellipsis.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   decorators: [
@@ -99,11 +112,21 @@ export const LongNames: Story = {
 }
 
 export const EmptyProjection: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "File tree of a Workspace, where a member browses and opens files: the Workspace has no files yet.",
+    },
+  },
   args: { paths: [], selectedPath: null },
 }
 
 export const SelectedFile: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File tree of a Workspace, where a member browses and opens files: a file deep in a folder is selected, so its folders are open.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
@@ -113,6 +136,10 @@ export const SelectedFile: Story = {
 
 export const GitShaped: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File tree of a Workspace, where a member browses and opens files: the tree of a real git repository with AGENTS.md selected.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
@@ -123,6 +150,10 @@ export const GitShaped: Story = {
 
 export const GitStatus: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File tree of a Workspace, where a member browses and opens files: added and modified files show change markers and line counts.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   decorators: [
@@ -155,6 +186,10 @@ export const GitStatus: Story = {
 
 export const ReadOnly: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File tree of a Workspace, where a member browses and opens files: the Workspace is read-only, so no edit controls show.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
@@ -166,6 +201,10 @@ export const ReadOnly: Story = {
 
 export const LargeTree: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File tree of a Workspace, where a member browses and opens files: a very large tree with many folders and files.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
@@ -203,6 +242,10 @@ function PierreKeyboardFocusHarness(
 
 export const PierreKeyboardFocus: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File tree of a Workspace, where a member browses and opens files: a keyboard search selected a file, and Escape put focus back on that row.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a file tree search that loses keyboard focus. Typing then Enter selects a file, and Escape returns focus to the selected row. Not for the file list content.",
@@ -277,6 +320,10 @@ export const PierreKeyboardFocus: Story = {
 
 export const DeletedFile: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File tree of a Workspace, where a member browses and opens files: a file deleted in this conversation shows as a struck-through row.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
@@ -290,6 +337,10 @@ export const DeletedFile: Story = {
 
 export const DeletedFolder: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File tree of a Workspace, where a member browses and opens files: all files of a folder were deleted, so the folder shows as deleted.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
@@ -304,6 +355,10 @@ export const DeletedFolder: Story = {
 
 export const MixedAddedModifiedDeleted: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File tree of a Workspace, where a member browses and opens files: one added, one modified, and one deleted file in one folder.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   decorators: [
@@ -340,6 +395,10 @@ export const MixedAddedModifiedDeleted: Story = {
 
 export const DeletedLongNestedName: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File tree of a Workspace, where a member browses and opens files: a deleted file with a long name deep in folders, in a narrow tree.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   decorators: [
@@ -378,6 +437,10 @@ const deletedRowSelector = "button[data-item-path='old-pricing.md']"
 
 export const DeletedFileStaysUntilMerged: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File tree of a Workspace, where a member browses and opens files: the change was merged into the base branch, so the deleted file row is gone.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a deleted file that vanishes from the tree or can be selected. It stays as a struck-through row with a text summary and is not selectable. Not for other markers.",
@@ -432,6 +495,10 @@ export const DeletedFileStaysUntilMerged: Story = {
 
 export const ChangeMarkers: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File tree of a Workspace, where a member browses and opens files: each added, modified, and deleted file has its marker, and folders mark a change inside.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches file tree rows that miss their change markers. Added, modified, and deleted files show the right marker and counts. Not for folder expansion.",
@@ -521,6 +588,10 @@ function NewPathsHarness(props: ComponentProps<typeof WorkspaceFileTree>) {
 /** A new path list (for example the sandbox tree) keeps the open folders. */
 export const NewPathsKeepExpandedFolders: Story = {
   parameters: {
+    review: {
+      purpose:
+        "File tree of a Workspace, where a member browses and opens files: new paths loaded, and the folder that the member opened stays open.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a path reload that collapses folders the user opened. New paths appear and open folders stay open. Not for the first load.",

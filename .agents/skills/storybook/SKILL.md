@@ -37,7 +37,31 @@ Every route that renders a page has a page story. Tag it `page` and name its rou
 - A story that shows only a part of a page (a dialog, a card, a page without its shell) is not a page story. Do not tag it. A page story renders the whole page as the route does: with the org shell for a route under `/$orgSlug` (`orgPageDecorators`).
 - A route that does not render a page (a layout, a redirect relay, an API route) needs an entry with a reason in [`scripts/ci/page-story-exemptions.json`](../../../scripts/ci/page-story-exemptions.json). A page that is too costly to story gets the reason `backfill: <why>`. Do not exempt a real page to save work.
 - **Guard:** `node scripts/ci/check-page-stories.mjs` runs in CI (the lint job, as the policy check `page-stories`). It fails when a route has no page story and no exemption, a page story has no route or names a route that does not exist, or an exemption has no reason, names an unknown route, or names a route that has a page story.
-- To tell a page from a part, the visual review reads the `page` tag. Do not tag a part.
+- The `page` tag says that the story renders a route: route coverage, and a mobile screenshot. The visual critic does not read it. It reads the kind (see Review annotations).
+
+## Review annotations
+
+Each story says what it shows, so that the visual critic knows what it looks at. Put `parameters.review` in each story:
+
+```ts
+export const LinkedToAnotherUser: Story = {
+  parameters: {
+    review: {
+      kind: "component",
+      purpose:
+        "Popup step of the GitHub account link: the account is already linked to another ctxpipe user.",
+    },
+  },
+}
+```
+
+- `kind` is `"page"` or `"component"`. A `page` is a whole screen that a user lands on: a page with its shell, or a full popup or onboarding screen. A component, a dialog, a step of a flow, or a part of a page is a `component`. Put `kind` in the `meta` when it is the same for all stories of the file; a story's own `kind` wins.
+- Most stories with the `page` tag have the kind `page`. A page story that shows only one small step of its route (a popup step with a title and a paragraph) has the kind `component`. A story with the kind `page` needs no `page` tag (for example, a full screen that no route renders alone).
+- `purpose` is one sentence in the story itself, at most 200 characters: what the UI is for, and the state that the story shows. For example: "Org home page of a member with no Workspaces yet." Do not start with "Shows".
+- Both values are string literals: the check and the critic read the story file with the CSF parser, and the build does not run.
+- The critic gets the Storybook name (`<title> / <name>`), the kind and the purpose with each screenshot. The kind gives the scope: the page-only qualities apply only to a `page`. The purpose goes into the prompt as data in a `<data>` block. It tells the critic what it looks at. It does not explain a change: that is the job of the brief.
+- `visual:review` reads the story file at the merge base (`--images`, the factory critic), or the manifest of `pnpm visual:check`. A new story that is not at the merge base has no kind or purpose there: its scope is `component`, and the verdict says so.
+- **Guard:** `node scripts/ci/check-story-review.mjs` runs in CI (the policy check `story-review`). It fails for each story with no valid `kind` or no `purpose` of its own.
 
 ## Colocation and naming
 
@@ -130,6 +154,14 @@ Mac and Linux render text differently (81 of 86 sample stories differed). So eac
 
 Each story has a committed baseline PNG beside its story file: `<story file dir>/screenshots/<storyfile>.<storyname>.<viewport>.screenshot.png`. A named snapshot adds `@<name>` to `<storyname>` (see Screenshot options). `<storyfile>` is the story file name without `.stories.tsx`, `<storyname>` is the export name, and `<viewport>` is `desktop` (1440x900) or `mobile` (390x844). Every story has a `desktop` baseline. A page story (the `page` tag) also has a `mobile` baseline.
 
+Each screenshot shows the full page at the width of its viewport, so the reviewer and the visual critic see all of the content. Playwright's `fullPage` alone takes only the scroll height of the document. A workspace page has the height of the viewport (`h-svh`), and its panes scroll inside, so their content below the fold would stay hidden. Thus, for each shot, the capture makes the viewport higher until each pane shows all of its content ([`visual-full-page.mjs`](../../../scripts/ci/visual-full-page.mjs)). A pane in a higher viewport is higher, so this needs no change to a story or to the CSS of the app. After the shot, the viewport gets its first size and the scroll positions again, before the play continues or the layout checks run. Thus the layout checks see the same page as before the shot.
+
+- A scroll container whose height does not change with the viewport (for example a list with `max-h-64`, or a list in a dialog with a fixed height) keeps its scroll: the screenshot shows only its visible part. The capture finds such a container with a first step of 8 px and does not grow the viewport for it. To show all of its content, give the story fixture data that fits, or take a named snapshot after the play scrolls the list.
+- The overlay of a React Aria modal has the height of the page (`--page-height`), and that height includes the overlay. While the capture changes the viewport, the overlay has no height and clips its content, so the page measures its real height and keeps no empty space.
+- The width of the screenshot is the width of the viewport. Content that runs out at the side is not in the screenshot, as before.
+- The viewport and the screenshot are at most 10,000 px high. Content below that limit is not in the screenshot.
+- An element that has the viewport height (`h-screen`, a dialog in the center) is as high as the full page in the screenshot. For example, the SideNav goes down to the end of the page.
+
 - `pnpm visual:check` builds Storybook, captures every story in the pinned container ([`scripts/ci/visual.mjs`](../../../scripts/ci/visual.mjs)) and compares each screenshot with its baseline. The capture runs one container for each 3 free CPUs of Docker at the same time. Each container gets a part of the stories. It writes `.ci-results/visual/manifest.json` and the images of each story that is not unchanged (`<story id>/<viewport>/`). It never writes a baseline. It fails on each status that is not `unchanged`: `new` (no baseline), `changed`, `removed` (an orphan baseline), `unstable`, `play-failed` or `size-changed`. It also fails on each layout problem (see Layout checks).
 - The compare ([`diff.ts`](../../../packages/visual-review/src/compare/diff.ts)) counts a pixel as changed when its color delta is above the threshold 0.1 (pixelmatch scale). It also finds a faint change: a delta above 0.02 (about 5 gray levels) that fills a full 32 × 32 square, for example a surface that changes from rgb(10,10,10) to rgb(18,18,21). Anti-aliasing at edges and a shift of 1 or 2 levels in a gradient do not fill a square. The rule does not see a faint change in a part less than 32 px high or wide (for example, a row 24 px high). For a faint change, the diff image, the pixel count and the regions use 0.02, and the summary starts with "A faint color change".
 - `pnpm visual:update` writes the baselines (recompressed without loss) and deletes the orphan baselines. `--only <id>,<id>` accepts only those stories. `--failed` accepts only the stories that the last `visual:check` failed. Look at each changed image before you accept it: the baseline is what a reviewer compares with.
@@ -143,7 +175,6 @@ Each story has a committed baseline PNG beside its story file: `<story file dir>
 A story controls its screenshots with `parameters: { visual: { ... } }`, in the story or in the meta of its file. The value of the story wins over the meta, key by key. Each value must be a literal: `checks:list` and `pnpm visual:check` read the story file with the Storybook CSF parser. A value that is not valid stops both commands.
 
 - `skip: "<reason>"`: the story has no screenshot. A reason is necessary.
-- `fullPage: true`: the screenshot holds the full scroll height, not only the viewport.
 - `maxDiffPixels: <n>`: the count of pixels that may differ (default 10). Do not raise it to hide noise.
 - `viewports: ["desktop"]` or `["desktop", "mobile"]`: this list replaces the default viewports (desktop, and mobile for a `page` story). For example, a page story whose play asserts the desktop layout uses `["desktop"]`.
 - `masks: ["<CSS selector>"]`: the capture hides each element that a selector finds. Use it only when you cannot change the source of the element (for example, a library canvas).

@@ -12,7 +12,7 @@ import {
   type WorkspaceCommitProjectionRecord,
 } from "../../models/workspace-commits.js"
 import { getWorkspaceBySlug } from "../../models/workspaces.js"
-import { getLogger } from "../../observability/logger.js"
+import { detachedErrorLog } from "../../observability/logger.js"
 import { enqueueWorkspaceCommitProjection } from "../../openworkflow/enqueue-workspace-commit-projection.js"
 import {
   ErrorResponseSchema,
@@ -174,7 +174,7 @@ function enqueueProjectionOncePerWindow(
   const state = `${workspace.desiredSha ?? "none"}:${projection?.backfillStatus ?? "none"}`
   void enqueueWorkspaceCommitProjection(
     { orgId: workspace.orgId, workspaceId: workspace.id },
-    { error: (err) => getLogger().error(err, { step }) },
+    detachedErrorLog(step),
     {
       idempotencyKey: `activity-projection:${workspace.id}:${state}:${Math.floor(Date.now() / 300_000)}`,
     },
