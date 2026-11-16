@@ -37,15 +37,20 @@ export async function resolveOrgGate(
   const gate = await queryClient
     .ensureQueryData(orgGateOptions(orgSlug))
     .catch((error: unknown) => {
-      // The backend rate limit refused the session check: a scanner with a
-      // fake or expired cookie. The error screen would answer 500, so treat
-      // the request as signed out.
-      if (error instanceof ApiError && error.status === 429) {
-        throw redirect({ to: "/.auth/sign-in" })
+      // In a server render, a 429 on the session check comes from a scanner
+      // with a fake or expired cookie, and the error screen would answer 500.
+      // Treat the request as signed out. In the browser, keep the error
+      // screen, so that a signed-in user is not sent to sign-in.
+      if (
+        import.meta.env.SSR &&
+        error instanceof ApiError &&
+        error.status === 429
+      ) {
+        return null
       }
       throw error
     })
-  if (!gate.session) {
+  if (!gate?.session) {
     throw redirect({ to: "/.auth/sign-in" })
   }
 

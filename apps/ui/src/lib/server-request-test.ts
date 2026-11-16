@@ -6,17 +6,17 @@ export const signedInHeaders = {
 }
 
 /**
- * Runs `read` inside a real Start server request with these incoming
+ * Runs `work` inside a real Start server request with these incoming
  * headers, as a server render does, and returns its result.
  */
 export async function duringServerRequest<T>(
   headers: Record<string, string>,
-  read: () => Promise<T>,
+  work: () => Promise<T>,
 ): Promise<T> {
   const outcomes: Array<{ value: T } | { error: unknown }> = []
   const handle = requestHandler(async () => {
     outcomes.push(
-      await read().then(
+      await work().then(
         (value) => ({ value }),
         (error: unknown) => ({ error }),
       ),
