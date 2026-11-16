@@ -8,9 +8,9 @@ import {
   organizationListEmptyHandler,
   organizationSetActiveHandler,
   sessionSignedInOnboardingHandler,
+  signedInHandlers,
 } from "@/mocks/handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 
 const createOrgBaseMsw = [
@@ -27,9 +27,10 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    msw: { handlers: { session: signedInHandlers } },
+    app: "root",
     layout: "centered",
     storyRoute: {
       pattern: "flat",

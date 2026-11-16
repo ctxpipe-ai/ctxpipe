@@ -5,8 +5,8 @@ import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { buildkitePipelinesHandler } from "@/mocks/buildkite-handlers"
+import { signedInHandlers } from "@/mocks/handlers"
 
-import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { BuildkiteScopeEditor } from "./buildkite"
 
@@ -47,16 +47,21 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    msw: { handlers: { page: [buildkitePipelinesHandler] } },
+    msw: {
+      handlers: {
+        session: signedInHandlers,
+        page: [buildkitePipelinesHandler],
+      },
+    },
   },
   args: { initialScope: {} },
 } satisfies Meta<typeof EditorWithOutput>

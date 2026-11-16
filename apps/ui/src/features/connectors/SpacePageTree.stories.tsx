@@ -2,7 +2,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { useState } from "react"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
+import { signedInHandlers } from "@/mocks/handlers"
+
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { SpacePageTree } from "./SpacePageTree"
 import type { SpaceScopeItem } from "./types"
@@ -19,9 +20,10 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    msw: { handlers: { session: signedInHandlers } },
+    app: "root",
     layout: "centered",
     storyRoute: {
       pattern: "orgIndex",

@@ -1,8 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 
+import { signedInHandlers } from "@/mocks/handlers"
 import { linearOauthAppHandler } from "@/mocks/linear-handlers"
 
-import { entryPageInnerDecorators } from "../../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../../.storybook/decorators/with-story-route"
 import { RegisterLinearOauthStep } from "./RegisterLinearOauthStep"
 
@@ -12,9 +12,10 @@ const connectionId = "linear_story"
 const meta = {
   title: "Components/Connections/Linear/RegisterOauthStep",
   component: RegisterLinearOauthStep,
-  decorators: entryPageInnerDecorators,
   args: { orgSlug, connectionId },
   parameters: {
+    msw: { handlers: { session: signedInHandlers } },
+    app: "root",
     layout: "padded",
     review: { kind: "component" },
     storyRoute: {

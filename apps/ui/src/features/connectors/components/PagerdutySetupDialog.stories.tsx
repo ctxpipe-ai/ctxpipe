@@ -2,14 +2,15 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
+import { signedInHandlers } from "@/mocks/handlers"
 import { pagerdutyServicesHandler } from "@/mocks/pagerduty-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
   connectionUsageHandler,
   workspaceSourceAddHandlers,
 } from "@/mocks/workspace-sources-handlers"
+import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { docsWorkspace } from "../../workspaces/workspace-fixtures"
 import { PagerdutySetupDialog } from "./PagerdutySetupDialog"
@@ -34,8 +35,14 @@ const meta = {
     onOpenChange: () => {},
     onConnectionIdChange: () => {},
   },
-  decorators: entryPageInnerDecorators,
   parameters: {
+    msw: {
+      handlers: {
+        session: signedInHandlers,
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
+      },
+    },
+    app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {

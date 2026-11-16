@@ -10,6 +10,7 @@ import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { emptyLinkedWorkspaceDetail } from "@/features/workspaces/workspace-fixtures"
+import { signedInHandlers } from "@/mocks/handlers"
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 import {
   githubInstallationReposHandler,
@@ -30,7 +31,6 @@ import {
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceSources } from "./WorkspaceSources"
 
@@ -44,9 +44,9 @@ const meta = {
         <Toaster />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
@@ -58,6 +58,7 @@ const meta = {
     // story that needs another answer sets `detail` or `upgrades`.
     msw: {
       handlers: {
+        session: signedInHandlers,
         role: [activeMemberRoleHandler("owner")],
         detail: [workspaceDetailHandler(emptyLinkedWorkspaceDetail)],
         upgrades: [

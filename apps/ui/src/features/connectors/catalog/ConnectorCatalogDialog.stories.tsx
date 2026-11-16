@@ -3,7 +3,8 @@ import { HttpResponse, http } from "msw"
 import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
-import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
+import { signedInHandlers } from "@/mocks/handlers"
+
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { githubConnectorBootstrapHandler } from "../mocks/github-bootstrap-msw"
 import type { OrgConnectionListItem } from "../queries/org-connections"
@@ -37,14 +38,15 @@ const meta = {
         <Toaster richColors position="top-center" />
       </>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    app: "root",
     layout: "fullscreen",
     storyRoute: { pattern: "orgIndex", orgSlug } satisfies StoryRouteParams,
     review: { kind: "component" },
     msw: {
       handlers: {
+        session: signedInHandlers,
         // The GitHub row reads the org's installation and the deployment's App.
         page: [
           http.get(

@@ -3,8 +3,8 @@ import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { atlassianCapabilitiesHandler } from "@/mocks/atlassian-handlers"
+import { signedInHandlers } from "@/mocks/handlers"
 
-import { entryPageInnerDecorators } from "../../../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../../../.storybook/decorators/with-story-route"
 import { InstallForgeStep } from "./InstallForgeStep"
 
@@ -60,9 +60,10 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    msw: { handlers: { session: signedInHandlers } },
+    app: "root",
     layout: "centered",
     storyRoute: {
       pattern: "orgIndex",

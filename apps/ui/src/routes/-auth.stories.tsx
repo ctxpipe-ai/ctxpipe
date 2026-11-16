@@ -4,15 +4,16 @@ import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import {
+  organizationFullWithOrgHandler,
   authConfigHandler,
   organizationListEmptyHandler,
   organizationListHandler,
   organizationListWithOrgHandler,
   sessionSignedInHandler,
   sessionSignedOutHandler,
+  signedInHandlers,
 } from "@/mocks/handlers"
 
-import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { InviteAcceptSignUp } from "./[.]auth.$authView"
 import { DeviceAuthorizationPage } from "./[.]auth.device"
@@ -22,8 +23,9 @@ import { SignInRoutePage } from "./[.]auth.sign-in"
 
 const meta = {
   title: "Pages/Auth",
-  decorators: entryPageInnerDecorators,
   parameters: {
+    msw: { handlers: { session: signedInHandlers } },
+    app: "root",
     layout: "fullscreen",
     review: { kind: "page" },
   },
@@ -48,10 +50,10 @@ export const DeviceLoading: Story = {
       search: "?user_code=ABCD-1234",
     } satisfies StoryRouteParams,
     msw: {
-      // The preview defaults answer the session first, so this story
-      // replaces them.
+      // This story replaces the `session` handlers of the meta: the
+      // session never loads.
       handlers: {
-        defaults: [
+        session: [
           authConfigHandler,
           http.get("*/.auth/api/v1/auth/get-session", async () => {
             await delay("infinite")
@@ -64,6 +66,7 @@ export const DeviceLoading: Story = {
           }),
           // The org list of the user can load while the session loads.
           organizationListWithOrgHandler,
+          organizationFullWithOrgHandler,
         ],
       },
     },
@@ -123,6 +126,7 @@ export const SignInUnverifiedEmail: Story = {
         page: [
           sessionSignedOutHandler,
           organizationListEmptyHandler,
+          organizationFullWithOrgHandler,
           http.post("*/.auth/api/v1/auth/sign-in/email", () =>
             HttpResponse.json(
               { code: "EMAIL_NOT_VERIFIED", message: "Email not verified" },
@@ -180,11 +184,12 @@ export const InviteAcceptAccountExists: Story = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        // Replaces the preview's signed-in session: the invitee is new here.
-        defaults: [
+        // Replaces the signed-in session of the meta: the invitee is new here.
+        session: [
           authConfigHandler,
           sessionSignedOutHandler,
           organizationListEmptyHandler,
+          organizationFullWithOrgHandler,
         ],
         page: [
           http.get("*/.auth/api/v1/public/invitations/:id", () =>
@@ -256,11 +261,12 @@ export const ResetPassword: Story = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        // Replaces the preview's signed-in session: the user follows an email link.
-        defaults: [
+        // Replaces the signed-in session of the meta: the user follows an email link.
+        session: [
           authConfigHandler,
           sessionSignedOutHandler,
           organizationListEmptyHandler,
+          organizationFullWithOrgHandler,
         ],
       },
     },
@@ -290,7 +296,7 @@ export const SelectOrganization: Story = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        defaults: [
+        session: [
           authConfigHandler,
           sessionSignedInHandler({
             id: "user_storybook",
@@ -300,6 +306,7 @@ export const SelectOrganization: Story = {
             { id: "org_north", name: "North Labs", slug: "north-labs" },
             { id: "org_south", name: "South Works", slug: "south-works" },
           ]),
+          organizationFullWithOrgHandler,
         ],
       },
     },

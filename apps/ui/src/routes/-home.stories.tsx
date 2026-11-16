@@ -6,6 +6,7 @@ import { emptyWorkspaceActivity } from "@/features/workspaces/workspace-fixtures
 import {
   authConfigHandler,
   organizationListWithOrgHandler,
+  signedInHandlers,
 } from "@/mocks/handlers"
 import {
   orgActivityHandler,
@@ -14,22 +15,30 @@ import {
   workspaceListHandler,
   workspaceShellHandlers,
 } from "@/mocks/workspace-handlers"
+import { workspaceIngestionHandlers } from "@/mocks/workspace-ingestion-handlers"
 import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
+import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
-import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { OrgHomePageContent } from "./$orgSlug.index"
 
 const meta = {
   title: "Pages/Home",
   tags: ["page"],
-  decorators: orgPageDecorators,
   parameters: {
+    app: "org",
     layout: "fullscreen",
     review: { kind: "page" },
     route: "/$orgSlug/",
     // The user is a member, so the setup guide of an admin does not load.
-    msw: { handlers: { role: [activeMemberRoleHandler("member")] } },
+    msw: {
+      handlers: {
+        session: signedInHandlers,
+        role: [activeMemberRoleHandler("member")],
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
+        ingestion: workspaceIngestionHandlers({}),
+      },
+    },
   },
 } satisfies Meta
 
@@ -71,8 +80,8 @@ export const Loading: Story = {
     storyRoute: homeRoute,
     msw: {
       handlers: {
-        // Replaces the preview's signed-in user so the session request hangs.
-        defaults: [
+        // Replaces the signed-in user of the meta so the session request hangs.
+        session: [
           authConfigHandler,
           http.get("*/.auth/api/v1/auth/get-session", async () => {
             await delay("infinite")

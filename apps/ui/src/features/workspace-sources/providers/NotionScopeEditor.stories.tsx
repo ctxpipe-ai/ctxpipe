@@ -3,9 +3,9 @@ import { HttpResponse, http } from "msw"
 import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import { signedInHandlers } from "@/mocks/handlers"
 import { notionResourcesHandler } from "@/mocks/notion-handlers"
 
-import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { NotionScopeEditor } from "./notion"
 
@@ -44,16 +44,18 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    msw: { handlers: { page: [notionResourcesHandler] } },
+    msw: {
+      handlers: { session: signedInHandlers, page: [notionResourcesHandler] },
+    },
   },
   args: { initialScope: {} },
 } satisfies Meta<typeof EditorWithOutput>

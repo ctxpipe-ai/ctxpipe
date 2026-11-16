@@ -1,13 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import { signedInHandlers } from "@/mocks/handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
   connectionUsageHandler,
   connectionUsageItem,
 } from "@/mocks/workspace-sources-handlers"
+import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import {
   docsWorkspace,
@@ -25,9 +26,15 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    msw: {
+      handlers: {
+        session: signedInHandlers,
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
+      },
+    },
+    app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {

@@ -3,12 +3,14 @@ import { delay, HttpResponse, http } from "msw"
 import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test"
 
 import { atlassianOauthHandler } from "@/mocks/atlassian-handlers"
+import { signedInHandlers } from "@/mocks/handlers"
 import {
   connectionUsageHandler,
   connectionUsageItem,
+  activeMemberRoleHandler,
 } from "@/mocks/workspace-sources-handlers"
+import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { ConfluenceConnectionCard } from "./ConfluenceConnectionCard"
 
@@ -75,11 +77,14 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    app: "root",
     msw: {
       handlers: {
+        session: signedInHandlers,
+        role: [activeMemberRoleHandler("admin")],
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
         usage: [
           connectionUsageHandler([
             connectionUsageItem({

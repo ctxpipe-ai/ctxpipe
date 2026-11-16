@@ -8,9 +8,9 @@ import {
   orgApiKeysListForbiddenHandler,
   orgApiKeysListPopulatedHandler,
   orgApiKeysUpdateHandler,
+  signedInHandlers,
 } from "@/mocks/handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { OrganizationApiKeysCard } from "./OrganizationApiKeysCard"
 
@@ -23,9 +23,10 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    msw: { handlers: { session: signedInHandlers } },
+    app: "root",
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",

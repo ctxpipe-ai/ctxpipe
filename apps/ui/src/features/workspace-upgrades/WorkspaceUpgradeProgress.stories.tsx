@@ -3,6 +3,7 @@ import { HttpResponse, delay, http } from "msw"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import { signedInHandlers } from "@/mocks/handlers"
 import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 import {
   upgradeItemFixture,
@@ -12,7 +13,6 @@ import {
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { checkingFormatExpired } from "./checking-format-clock"
 import { WorkspaceUpgrades } from "./WorkspaceUpgrades"
@@ -38,13 +38,13 @@ const meta = {
         <Toaster />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   beforeEach: () => {
     checkRequests.length = 0
     state.checked = false
   },
   parameters: {
+    app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
@@ -52,7 +52,12 @@ const meta = {
       orgSlug: "acme",
     } satisfies StoryRouteParams,
     // Upgrades wait for a start by hand.
-    msw: { handlers: { automatic: workspaceUpgradeAutomaticHandlers() } },
+    msw: {
+      handlers: {
+        session: signedInHandlers,
+        automatic: workspaceUpgradeAutomaticHandlers(),
+      },
+    },
   },
   args: { orgSlug: "acme", workspaceSlug: "docs" },
 } satisfies Meta<typeof WorkspaceUpgrades>

@@ -2,12 +2,12 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { type ComponentProps, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import { signedInHandlers } from "@/mocks/handlers"
 import {
   slackChannelsHandler,
   slackStoryChannels,
 } from "@/mocks/slack-handlers"
 
-import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { SlackScopeEditor } from "./slack"
 
@@ -40,16 +40,18 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    msw: { handlers: { page: [slackChannelsHandler()] } },
+    msw: {
+      handlers: { session: signedInHandlers, page: [slackChannelsHandler()] },
+    },
   },
   args: {
     orgSlug: "acme",

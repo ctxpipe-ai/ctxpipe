@@ -2,12 +2,12 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, waitFor, within } from "storybook/test"
 
-import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import {
   organizationFullWithOrgHandler,
   organizationListWithOrgHandler,
   sessionSignedInHandler,
+  signedInHandlers,
 } from "../mocks/handlers"
 import { workspaceListHandler } from "../mocks/workspace-handlers"
 import { ConnectGithubView } from "./[.]github.setup"
@@ -15,8 +15,9 @@ import { ConnectGithubView } from "./[.]github.setup"
 const meta = {
   title: "Pages/GitHub setup",
   tags: ["page"],
-  decorators: entryPageInnerDecorators,
   parameters: {
+    msw: { handlers: { session: signedInHandlers } },
+    app: "root",
     layout: "fullscreen",
     route: "/.github/setup",
     storyRoute: {
@@ -102,8 +103,8 @@ export const NotLinkedShowsLinkError: Story = {
     },
     msw: {
       handlers: {
-        // Replaces the preview's config, which has no social providers.
-        defaults: [
+        // Replaces the auth config of signedInHandlers, which has no social providers.
+        session: [
           http.get("*/.auth/api/config", () =>
             HttpResponse.json({ providers: ["github"] }),
           ),

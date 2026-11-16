@@ -7,17 +7,18 @@ import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
 import { onboardingHandOffFlag } from "@/lib/session-flags"
 import {
+  organizationFullWithOrgHandler,
   authConfigHandler,
   organizationFullHandler,
   organizationListEmptyHandler,
   organizationListWithOrgHandler,
   organizationSetActiveHandler,
   sessionSignedInOnboardingHandler,
+  signedInHandlers,
 } from "@/mocks/handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 
-import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { IndexRoutePage } from "./index"
 import { OnboardingPageContent } from "./onboarding"
@@ -25,8 +26,9 @@ import { OnboardingPageContent } from "./onboarding"
 const meta = {
   title: "Pages/Onboarding",
   tags: ["page"],
-  decorators: entryPageInnerDecorators,
   parameters: {
+    msw: { handlers: { session: signedInHandlers } },
+    app: "root",
     layout: "fullscreen",
     review: { kind: "page" },
     route: "/onboarding",
@@ -49,10 +51,10 @@ export const Loading: Story = {
         "Onboarding screen, where a new user learns ctxpipe and an admin creates the organization: the session and the organizations are still loading.",
     },
     msw: {
-      // The preview defaults answer the session and the organizations
-      // first, so this story replaces them.
+      // This story replaces the `session` handlers of the meta: the
+      // session and the organizations never load.
       handlers: {
-        defaults: [
+        session: [
           authConfigHandler,
           http.get("*/.auth/api/v1/auth/get-session", async () => {
             await delay("infinite")
@@ -78,10 +80,11 @@ export const AdminFlowHowItWorks: Story = {
     },
     msw: {
       handlers: {
-        defaults: [
+        session: [
           authConfigHandler,
           sessionSignedInOnboardingHandler,
           organizationListEmptyHandler,
+          organizationFullWithOrgHandler,
         ],
       },
     },
@@ -175,10 +178,11 @@ export const JoinerFinishLandsInApp: Story = {
     storyRoute: onboardingJourneyRoute,
     msw: {
       handlers: {
-        defaults: [
+        session: [
           authConfigHandler,
           ...joinerSession.handlers({ completes: true }),
           organizationListWithOrgHandler,
+          organizationFullWithOrgHandler,
           workspaceListHandler([docsWorkspace]),
         ],
       },
@@ -217,10 +221,11 @@ export const JoinerFinishStaysWhenSessionIsStale: Story = {
     storyRoute: onboardingJourneyRoute,
     msw: {
       handlers: {
-        defaults: [
+        session: [
           authConfigHandler,
           ...staleSession.handlers({ completes: false }),
           organizationListWithOrgHandler,
+          organizationFullWithOrgHandler,
           workspaceListHandler([docsWorkspace]),
         ],
       },
@@ -313,7 +318,7 @@ export const AdminFlowCreateOrgLandsOnHome: Story = {
     storyRoute: onboardingJourneyRoute,
     msw: {
       handlers: {
-        defaults: creatorHandlers(creatorSession, creatorState, [
+        session: creatorHandlers(creatorSession, creatorState, [
           workspaceListHandler([]),
         ]),
       },
@@ -388,7 +393,7 @@ export const AdminFinishFailureContinues: Story = {
     storyRoute: onboardingJourneyRoute,
     msw: {
       handlers: {
-        defaults: [
+        session: [
           http.post(
             "*/api/v1/onboarding/user/complete",
             () => HttpResponse.json({ error: "failed" }, { status: 500 }),
@@ -461,10 +466,11 @@ export const DoubleClickMovesOneSlide: Story = {
       "Catches a fast double click on Next that skips a slide or creates an organization. One double click moves one slide and sends no create request. Not for the slide content.",
     msw: {
       handlers: {
-        defaults: [
+        session: [
           authConfigHandler,
           sessionSignedInOnboardingHandler,
           organizationListEmptyHandler,
+          organizationFullWithOrgHandler,
           http.post("*/.auth/api/v1/auth/organization/create", () => {
             doubleClickCreate()
             return HttpResponse.json({ error: "not expected" }, { status: 500 })

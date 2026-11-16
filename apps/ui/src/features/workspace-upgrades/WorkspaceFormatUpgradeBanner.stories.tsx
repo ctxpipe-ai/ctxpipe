@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import { signedInHandlers } from "@/mocks/handlers"
 import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 import {
   upgradeItemFixture,
@@ -10,7 +11,6 @@ import {
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceFormatUpgradeBanner } from "./WorkspaceFormatUpgradeBanner"
 
@@ -24,6 +24,7 @@ function handlers(
   return {
     msw: {
       handlers: {
+        session: signedInHandlers,
         page: [
           activeMemberRoleHandler(role),
           workspaceUpgradesHandler(upgrades, undefined, answered),
@@ -44,13 +45,13 @@ const meta = {
         <Toaster />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   beforeEach: () => {
     startRequests.length = 0
     answered.length = 0
   },
   parameters: {
+    app: "root",
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",

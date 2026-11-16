@@ -9,6 +9,7 @@ import {
   conversationAguiTextEvents,
   installAguiWebSocket,
 } from "@/mocks/conversation-agui"
+import { signedInHandlers } from "@/mocks/handlers"
 import {
   conversationChatHandler,
   conversationDetailHandler,
@@ -16,7 +17,6 @@ import {
   workspaceShellHandlers,
 } from "@/mocks/workspace-handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { docsConversationDetail, docsWorkspace } from "./workspace-fixtures"
 import { WorkspaceChat } from "./WorkspaceChat"
@@ -30,9 +30,10 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    msw: { handlers: { session: signedInHandlers } },
+    app: "root",
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgWorkspace",

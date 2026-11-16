@@ -1,7 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
+import { signedInHandlers } from "@/mocks/handlers"
+
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { OAuthConsent } from "./OAuthConsent"
 
@@ -13,8 +14,9 @@ const organizations = [
 const meta = {
   title: "Components/Auth/OAuth Consent",
   component: OAuthConsent,
-  decorators: entryPageInnerDecorators,
   parameters: {
+    msw: { handlers: { session: signedInHandlers } },
+    app: "root",
     layout: "fullscreen",
     storyRoute: {
       pattern: "flat",

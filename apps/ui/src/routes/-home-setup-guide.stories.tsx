@@ -17,10 +17,12 @@ import {
 } from "@/features/workspaces/workspace-fixtures"
 import { onboardingHandOffFlag } from "@/lib/session-flags"
 import {
+  organizationFullWithOrgHandler,
   authConfigHandler,
   githubInstallationLinkedHandler,
   organizationListHandler,
   sessionSignedInHandler,
+  signedInHandlers,
 } from "@/mocks/handlers"
 import { setupGuideHandlers } from "@/mocks/setup-guide-handlers"
 import {
@@ -30,6 +32,7 @@ import {
   workspaceListHandler,
   workspaceShellHandlers,
 } from "@/mocks/workspace-handlers"
+import { workspaceIngestionHandlers } from "@/mocks/workspace-ingestion-handlers"
 import {
   activeMemberRoleHandler,
   orgConnectionsHandler,
@@ -39,9 +42,9 @@ import {
 import {
   upgradesFixture,
   workspaceUpgradesHandler,
+  pendingWorkspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
 
-import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { OrgHomePageContent } from "./$orgSlug.index"
 
@@ -71,6 +74,7 @@ function sessionDefaults(daysAgo: number, orgDaysAgo = 365) {
         createdAt: new Date(Date.now() - orgDaysAgo * DAY_MS).toISOString(),
       },
     ]),
+    organizationFullWithOrgHandler,
   ]
 }
 
@@ -123,10 +127,17 @@ function clearPreferences() {
 const meta = {
   title: "Pages/Home/Setup guide",
   tags: ["page"],
-  decorators: orgPageDecorators,
   beforeEach: clearPreferences,
   render: () => <OrgHomePageContent orgSlug="acme" />,
   parameters: {
+    msw: {
+      handlers: {
+        session: signedInHandlers,
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
+        ingestion: workspaceIngestionHandlers({}),
+      },
+    },
+    app: "org",
     layout: "fullscreen",
     review: { kind: "page" },
     route: "/$orgSlug/",
@@ -170,7 +181,7 @@ export const GuideAdminNewOrg: Story = {
       "Catches a setup guide for a new organization that shows the wrong progress or action. It shows zero of six done and one Connect GitHub action. Not for later steps.",
     msw: {
       handlers: {
-        defaults: sessionDefaults(1),
+        session: sessionDefaults(1),
         page: [
           ...adminGuide({}),
           workspaceListHandler([]),
@@ -210,7 +221,7 @@ export const GuideEditorStepCopiesCommand: Story = {
     },
     msw: {
       handlers: {
-        defaults: sessionDefaults(1),
+        session: sessionDefaults(1),
         page: [
           ...adminGuide({}),
           workspaceListHandler([]),
@@ -267,7 +278,7 @@ export const GuideAdminWorkspaceBuilding: Story = {
     },
     msw: {
       handlers: {
-        defaults: sessionDefaults(1),
+        session: sessionDefaults(1),
         page: homeHandlers(
           adminGuide({
             github: githubInstallationLinkedHandler,
@@ -314,7 +325,7 @@ export const GuideAdminWorkspaceReadingRepository: Story = {
     },
     msw: {
       handlers: {
-        defaults: sessionDefaults(1),
+        session: sessionDefaults(1),
         page: homeHandlers(
           adminGuide({
             github: githubInstallationLinkedHandler,
@@ -350,7 +361,7 @@ export const GuideAdminWorkspaceBuildFailed: Story = {
     visual: { allow: { overflow: "A layout defect on main (CTX-1279)." } },
     msw: {
       handlers: {
-        defaults: sessionDefaults(1),
+        session: sessionDefaults(1),
         page: homeHandlers(
           adminGuide({
             github: githubInstallationLinkedHandler,
@@ -448,7 +459,7 @@ export const GuideAdminCreatesWorkspaceOnHome: Story = {
       "Catches a first workspace creation on the home page that does not update the guide and home. Create must add the workspace and move the guide forward. Not for the guide copy.",
     msw: {
       handlers: {
-        defaults: sessionDefaults(1),
+        session: sessionDefaults(1),
         page: [
           http.get(workspacesPath, () =>
             HttpResponse.json({
@@ -570,7 +581,7 @@ export const GuideAdminLinksRepositoriesOnHome: Story = {
     },
     msw: {
       handlers: {
-        defaults: sessionDefaults(1),
+        session: sessionDefaults(1),
         page: [
           ...adminGuide({
             github: githubInstallationLinkedHandler,
@@ -726,7 +737,7 @@ export const GuideRepositoriesReadOnlyShowsReason: Story = {
     },
     msw: {
       handlers: {
-        defaults: sessionDefaults(1),
+        session: sessionDefaults(1),
         page: repositoriesGateHandlers({
           detail: readOnlyWorkspaceDetail,
           canEdit: false,
@@ -762,7 +773,7 @@ export const GuideRepositoriesNeedUpgradeFirst: Story = {
     },
     msw: {
       handlers: {
-        defaults: sessionDefaults(1),
+        session: sessionDefaults(1),
         page: repositoriesGateHandlers({
           detail: emptyLinkedWorkspaceDetail,
           canEdit: true,
@@ -798,7 +809,7 @@ export const GuideRepositoriesWithoutConnectionLinksToConnectors: Story = {
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
-        defaults: sessionDefaults(1),
+        session: sessionDefaults(1),
         page: repositoriesGateHandlers({
           detail: emptyLinkedWorkspaceDetail,
           canEdit: true,
@@ -837,7 +848,7 @@ export const GuideRepositoriesConnectionsFailedShowsRetry: Story = {
     },
     msw: {
       handlers: {
-        defaults: sessionDefaults(1),
+        session: sessionDefaults(1),
         page: [
           // The guide reads the list first and gets no connection. The
           // dialog reads it again and the read fails.
@@ -882,7 +893,7 @@ export const GuideAdminAfterFirstQuestion: Story = {
       "Catches a guide after the first question that shows the wrong progress or ignores the user's collapse choice. It starts collapsed and keeps the choice. Not for new organizations.",
     msw: {
       handlers: {
-        defaults: sessionDefaults(2),
+        session: sessionDefaults(2),
         page: homeHandlers(
           adminGuide({
             github: githubInstallationLinkedHandler,
@@ -930,7 +941,7 @@ export const GuideMemberView: Story = {
       "Catches a member guide that shows admin steps. A member sees only the two member steps, and Ask fills and focuses the composer each time. Not for admin guides.",
     msw: {
       handlers: {
-        defaults: sessionDefaults(1),
+        session: sessionDefaults(1),
         page: homeHandlers(
           [activeMemberRoleHandler("member")],
           [quietWorkspace],
@@ -977,7 +988,7 @@ export const GuideAllDone: Story = {
     },
     msw: {
       handlers: {
-        defaults: sessionDefaults(3),
+        session: sessionDefaults(3),
         page: homeHandlers(
           adminGuide({
             github: githubInstallationLinkedHandler,
@@ -1020,7 +1031,7 @@ export const GuideDismissRemovesIt: Story = {
       "Catches a dismissed guide that stays on the home page. Dismiss removes the guide and shows the workspace selector. Not for guide progress.",
     msw: {
       handlers: {
-        defaults: sessionDefaults(1),
+        session: sessionDefaults(1),
         page: homeHandlers(adminGuide({}), [quietWorkspace]),
       },
     },
@@ -1050,7 +1061,7 @@ export const GuideSignalFailureKeepsHome: Story = {
       "Catches a failed guide signal query that breaks the home page. A failed signal counts as not done and home still works. Not for loaded signals.",
     msw: {
       handlers: {
-        defaults: sessionDefaults(1),
+        session: sessionDefaults(1),
         page: homeHandlers(
           adminGuide({
             github: failed("/api/v1/github/installation"),
@@ -1088,7 +1099,7 @@ export const GuideReservesNoSpaceWhileLoading: Story = {
     },
     msw: {
       handlers: {
-        defaults: sessionDefaults(1),
+        session: sessionDefaults(1),
         page: [
           http.get(
             ({ request }) =>
@@ -1137,7 +1148,7 @@ export const FadesInAfterOnboarding: Story = {
     },
     msw: {
       handlers: {
-        defaults: sessionDefaults(0),
+        session: sessionDefaults(0),
         page: [
           http.get(
             ({ request }) =>
@@ -1193,7 +1204,7 @@ export const HandOffShowsHomeWhenDataIsSlow: Story = {
     },
     msw: {
       handlers: {
-        defaults: sessionDefaults(0),
+        session: sessionDefaults(0),
         page: [
           http.get(
             ({ request }) =>
@@ -1238,7 +1249,7 @@ export const HandOffShowsHomeWhenReadFails: Story = {
     },
     msw: {
       handlers: {
-        defaults: sessionDefaults(0),
+        session: sessionDefaults(0),
         page: [
           ...adminGuide({}),
           failed("/api/v1/workspaces"),
@@ -1268,7 +1279,7 @@ export const GuideRoleFailureHidesIt: Story = {
     },
     msw: {
       handlers: {
-        defaults: sessionDefaults(1),
+        session: sessionDefaults(1),
         page: homeHandlers([activeMemberRoleHandler("error")], [docsWorkspace]),
       },
     },
@@ -1297,7 +1308,7 @@ export const GuideEstablishedUserHidden: Story = {
       "Catches a guide that shows for an established user in an old organization. It stays hidden with no skeleton. Not for new organizations or empty ones.",
     msw: {
       handlers: {
-        defaults: sessionDefaults(30),
+        session: sessionDefaults(30),
         page: homeHandlers(adminGuide({}), [quietWorkspace]),
       },
     },
@@ -1330,7 +1341,7 @@ export const GuideEstablishedUserNewOrg: Story = {
       "Catches a guide that hides for an established user in a new organization. It shows for the first 14 days, also after the first workspace. Not for old organizations.",
     msw: {
       handlers: {
-        defaults: sessionDefaults(30, 2),
+        session: sessionDefaults(30, 2),
         page: homeHandlers(
           adminGuide({
             github: githubInstallationLinkedHandler,
@@ -1367,7 +1378,7 @@ export const GuideEstablishedUserEmptyOrg: Story = {
       "Catches a guide that hides in an old organization with no workspace. The guide shows with the empty activity below it. Not for organizations with workspaces.",
     msw: {
       handlers: {
-        defaults: sessionDefaults(30),
+        session: sessionDefaults(30),
         page: [
           ...adminGuide({}),
           workspaceListHandler([]),
@@ -1402,7 +1413,7 @@ export const GuideStaysAfterFirstWorkspace: Story = {
       "Catches a guide that disappears when an old organization makes its first workspace in the last 14 days. It stays during the setup. Not for older workspaces.",
     msw: {
       handlers: {
-        defaults: sessionDefaults(30),
+        session: sessionDefaults(30),
         page: homeHandlers(
           adminGuide({
             github: githubInstallationLinkedHandler,
@@ -1433,7 +1444,7 @@ export const GuideMemberNoWorkspace: Story = {
     },
     msw: {
       handlers: {
-        defaults: sessionDefaults(1),
+        session: sessionDefaults(1),
         page: homeHandlers([activeMemberRoleHandler("member")], []),
       },
     },
@@ -1482,7 +1493,7 @@ export const GuideConnectGithubOpensLinkPopup: Story = {
     },
     msw: {
       handlers: {
-        defaults: [
+        session: [
           http.get("*/.auth/api/config", () =>
             HttpResponse.json({ providers: ["github"] }),
           ),

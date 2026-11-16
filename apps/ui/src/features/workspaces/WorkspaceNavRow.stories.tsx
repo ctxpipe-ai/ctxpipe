@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
+import { signedInHandlers } from "@/mocks/handlers"
 import {
   conversationDetailHandler,
   conversationGitTreeHandler,
@@ -12,7 +13,6 @@ import {
   workspaceIngestionHandlers,
 } from "@/mocks/workspace-ingestion-handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import {
   docsConversationDetail,
@@ -32,9 +32,15 @@ const meta = {
         <Story />
       </ul>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    msw: {
+      handlers: {
+        session: signedInHandlers,
+        ingestion: workspaceIngestionHandlers({}),
+      },
+    },
+    app: "root",
     review: { kind: "component" },
     layout: "centered",
     storyRoute: {

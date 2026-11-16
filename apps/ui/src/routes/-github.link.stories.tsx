@@ -3,16 +3,17 @@ import { delay, HttpResponse, http } from "msw"
 import { expect, fn, waitFor, within } from "storybook/test"
 
 import { GITHUB_POPUP_FLOW_KEY, GITHUB_SETUP_RESULT_KEY } from "@/lib/popup"
+import { signedInHandlers } from "@/mocks/handlers"
 
-import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { GithubLinkStep } from "./[.]github.link"
 
 const meta = {
   title: "Pages/GitHub link",
   tags: ["page"],
-  decorators: entryPageInnerDecorators,
   parameters: {
+    msw: { handlers: { session: signedInHandlers } },
+    app: "root",
     layout: "fullscreen",
     route: "/.github/link",
     storyRoute: {

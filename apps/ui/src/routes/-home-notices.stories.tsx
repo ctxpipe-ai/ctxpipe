@@ -8,9 +8,13 @@ import {
   docsWorkspaceDetail,
   legacyOverlaySkippedFile,
 } from "@/features/workspaces/workspace-fixtures"
-import { githubInstallationLinkedHandler } from "@/mocks/handlers"
+import {
+  githubInstallationLinkedHandler,
+  signedInHandlers,
+} from "@/mocks/handlers"
 import { setupGuideHandlers } from "@/mocks/setup-guide-handlers"
 import { workspaceShellHandlers } from "@/mocks/workspace-handlers"
+import { workspaceIngestionHandlers } from "@/mocks/workspace-ingestion-handlers"
 import { orgConnectionsHandler } from "@/mocks/workspace-sources-handlers"
 import {
   pendingWorkspaceUpgradesHandler,
@@ -19,7 +23,6 @@ import {
   workspaceUpgradeStartHandler,
 } from "@/mocks/workspace-upgrades-handlers"
 
-import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { OrgHomePageContent } from "./$orgSlug.index"
 
@@ -37,7 +40,6 @@ const requests: string[] = []
 const meta = {
   title: "Pages/Home/Notices",
   tags: ["page"],
-  decorators: orgPageDecorators,
   render: () => <OrgHomePageContent orgSlug="acme" />,
   beforeEach: () => {
     answered.length = 0
@@ -47,6 +49,13 @@ const meta = {
     window.localStorage.removeItem("ctxpipe:userPreferences")
   },
   parameters: {
+    msw: {
+      handlers: {
+        session: signedInHandlers,
+        ingestion: workspaceIngestionHandlers({}),
+      },
+    },
+    app: "org",
     layout: "fullscreen",
     review: { kind: "page" },
     route: "/$orgSlug/",

@@ -50,6 +50,7 @@ const meta = {
   ],
   args: { changes, onOpenDiff: fn() },
   parameters: {
+    queryClient: true,
     review: { kind: "component" },
   },
 } satisfies Meta<typeof ConversationTurnChangesCard>

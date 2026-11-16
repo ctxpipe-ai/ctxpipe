@@ -61,7 +61,11 @@ const meta = {
       </div>
     ),
   ],
-  parameters: { review: { kind: "component" }, layout: "fullscreen" },
+  parameters: {
+    queryClient: true,
+    review: { kind: "component" },
+    layout: "fullscreen",
+  },
   args: { orgSlug: "acme", conversationId: "conv_diff" },
 } satisfies Meta<typeof WorkspaceConversationDiffPane>
 

@@ -3,12 +3,14 @@ import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
 import { expect, fn, userEvent, within } from "storybook/test"
 
+import { signedInHandlers } from "@/mocks/handlers"
 import {
   connectionUsageHandler,
   connectionUsageItem,
+  activeMemberRoleHandler,
 } from "@/mocks/workspace-sources-handlers"
+import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import {
   pendingSetupHandlers,
@@ -63,11 +65,14 @@ const meta = {
     connectionId,
     onOpenSetup: () => {},
   },
-  decorators: entryPageInnerDecorators,
   parameters: {
+    app: "root",
     review: { kind: "component" },
     msw: {
       handlers: {
+        session: signedInHandlers,
+        role: [activeMemberRoleHandler("admin")],
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
         usage: [
           connectionUsageHandler([
             connectionUsageItem({

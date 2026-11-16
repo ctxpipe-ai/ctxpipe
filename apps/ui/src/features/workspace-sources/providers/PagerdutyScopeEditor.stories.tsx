@@ -4,9 +4,9 @@ import { HttpResponse, http } from "msw"
 import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import { signedInHandlers } from "@/mocks/handlers"
 import { pagerdutyServicesHandler } from "@/mocks/pagerduty-handlers"
 
-import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { PagerdutyScopeEditor } from "./pagerduty"
 
@@ -42,16 +42,18 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    msw: { handlers: { page: [pagerdutyServicesHandler] } },
+    msw: {
+      handlers: { session: signedInHandlers, page: [pagerdutyServicesHandler] },
+    },
   },
   args: { initialScope: {} },
 } satisfies Meta<typeof EditorWithOutput>

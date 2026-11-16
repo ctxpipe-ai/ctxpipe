@@ -3,9 +3,6 @@ import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { OnboardingHowItWorksSlide } from "@/components/onboarding/OnboardingHowItWorksSlide"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
-import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-
 const meta = {
   title: "Components/Onboarding/Slides/HowItWorks",
   component: OnboardingHowItWorksSlide,
@@ -15,14 +12,9 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
     layout: "centered",
-    storyRoute: {
-      pattern: "flat",
-      path: "/onboarding",
-    } satisfies StoryRouteParams,
     review: { kind: "component" },
   },
   args: {

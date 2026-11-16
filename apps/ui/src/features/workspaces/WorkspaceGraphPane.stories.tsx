@@ -2,8 +2,8 @@ import type { Decorator, Meta, StoryObj } from "@storybook/react-vite"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { knowledgeGraphIntroStorageKey } from "@/features/knowledge-graph/knowledgeGraphIntroStorage"
+import { signedInHandlers } from "@/mocks/handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { docsWorkspaceGraph } from "./workspace-fixtures"
 import { WorkspaceGraphPane } from "./WorkspaceGraphPane"
@@ -19,13 +19,15 @@ function paneFrame(widthClass: string): Decorator {
 const meta = {
   title: "Components/Workspaces/GraphPane",
   component: WorkspaceGraphPane,
-  decorators: [paneFrame("w-full"), ...entryPageInnerDecorators],
+  decorators: [paneFrame("w-full")],
   args: {
     orgSlug: "acme",
     workspaceSlug: "docs",
     pending: false,
   },
   parameters: {
+    msw: { handlers: { session: signedInHandlers } },
+    app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {

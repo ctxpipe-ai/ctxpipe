@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button"
 import { CHOOSE_WORKSPACES_HINT } from "@/features/workspace-sources/ChooseWorkspacesStep"
 import { workspaceSourcesOptions } from "@/features/workspace-sources/queries"
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
+import { signedInHandlers } from "@/mocks/handlers"
 import {
   linearAvailableScopesHandler,
   linearOauthAppHandler,
@@ -22,8 +23,8 @@ import {
   workspaceSourceList,
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
+import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../../.storybook/decorators/with-story-route"
 import type { LinearConnectorStatus } from "../../queries/linear-connector"
 import { LinearSetupWizard } from "./LinearSetupWizard"
@@ -45,7 +46,6 @@ function statusHandler(status: LinearConnectorStatus) {
 const meta = {
   title: "Components/Connections/Linear/SetupWizard",
   component: LinearSetupWizard,
-  decorators: entryPageInnerDecorators,
   args: {
     orgSlug,
     connectionId,
@@ -54,6 +54,13 @@ const meta = {
     onConnectionIdChange: fn(),
   },
   parameters: {
+    msw: {
+      handlers: {
+        session: signedInHandlers,
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
+      },
+    },
+    app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {

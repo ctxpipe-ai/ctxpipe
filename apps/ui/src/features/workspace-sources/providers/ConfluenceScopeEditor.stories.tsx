@@ -3,8 +3,8 @@ import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { confluenceTreeHandlers } from "@/mocks/confluence-handlers"
+import { signedInHandlers } from "@/mocks/handlers"
 
-import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { ConfluenceScopeEditor } from "./confluence"
 
@@ -42,16 +42,18 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    msw: { handlers: { page: confluenceTreeHandlers } },
+    msw: {
+      handlers: { session: signedInHandlers, page: confluenceTreeHandlers },
+    },
   },
   args: { initialScope: {} },
 } satisfies Meta<typeof EditorWithOutput>

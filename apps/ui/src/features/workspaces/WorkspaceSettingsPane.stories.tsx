@@ -6,6 +6,7 @@ import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import {
   githubInstallationLinkedHandler,
   githubInstallationNoneHandler,
+  signedInHandlers,
 } from "@/mocks/handlers"
 import { setupGuideHandlers } from "@/mocks/setup-guide-handlers"
 import {
@@ -31,10 +32,10 @@ import {
   upgradesFixture,
   workspaceUpgradeAutomaticHandlers,
   workspaceUpgradesHandler,
+  pendingWorkspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
 import { OrgHomePageContent } from "@/routes/$orgSlug.index"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import {
   docsWorkspace,
@@ -58,9 +59,9 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
@@ -69,6 +70,10 @@ const meta = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
+        session: signedInHandlers,
+        role: [activeMemberRoleHandler("admin")],
+        ingestion: workspaceIngestionHandlers({}),
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
         page: [
           workspaceListHandler([docsWorkspace]),
           githubInstallationReposHandler(),

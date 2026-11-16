@@ -7,6 +7,7 @@ import {
   SkeletonMatchFrame,
 } from "@/components/ui/skeletonMatchStory"
 import type { IngestionItem } from "@/features/workspaces/ingestion"
+import { signedInHandlers } from "@/mocks/handlers"
 import {
   ingestionItemFixture,
   workspaceIngestionHandlers,
@@ -21,7 +22,6 @@ import {
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import type { WorkspaceUpgradeItem } from "./queries"
 import { WorkspaceUpgrades } from "./WorkspaceUpgrades"
@@ -80,7 +80,6 @@ const meta = {
         <Toaster />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   beforeEach: () => {
     startRequests.length = 0
@@ -95,6 +94,7 @@ const meta = {
     }
   },
   parameters: {
+    app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
@@ -103,6 +103,7 @@ const meta = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
+        session: signedInHandlers,
         page: [
           activeMemberRoleHandler("owner"),
           workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),

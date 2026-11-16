@@ -5,12 +5,12 @@ import { type ComponentProps, useState } from "react"
 import { flushSync } from "react-dom"
 import { expect, fn, screen, userEvent, waitFor, within } from "storybook/test"
 
+import { signedInHandlers } from "@/mocks/handlers"
 import {
   workspaceDetailHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import {
   docsWorkspace,
@@ -63,9 +63,9 @@ function PaletteHarness(
 const meta = {
   title: "Components/Workspaces/CommandPalette",
   component: WorkspaceCommandPalette,
-  decorators: entryPageInnerDecorators,
   render: (args) => <PaletteHarness {...args} />,
   parameters: {
+    app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
@@ -76,6 +76,7 @@ const meta = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
+        session: signedInHandlers,
         page: [
           workspaceListHandler([
             docsWorkspace,

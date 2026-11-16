@@ -3,12 +3,12 @@ import { HttpResponse, http } from "msw"
 import { expect, waitFor, within } from "storybook/test"
 
 import { ConnectorSetupStepper } from "@/features/connectors/components/ConnectorSetupStepper"
+import { signedInHandlers } from "@/mocks/handlers"
 import {
   workspaceSourceFixture,
   workspaceSourceList,
 } from "@/mocks/workspace-sources-handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import type { OpenedPullRequest } from "./useAddToWorkspaces"
 
@@ -41,9 +41,10 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    msw: { handlers: { session: signedInHandlers } },
+    app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {

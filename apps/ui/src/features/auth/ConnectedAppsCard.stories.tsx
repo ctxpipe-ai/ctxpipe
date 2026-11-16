@@ -4,19 +4,16 @@ import { expect, within } from "storybook/test"
 
 import { responseGate } from "@/components/ui/skeletonMatchStory"
 
-import {
-  type StoryRouteParams,
-  withStoryRoute,
-} from "../../../.storybook/decorators/with-story-route"
+import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { ConnectedAppsCard } from "./ConnectedAppsCard"
 
 const meta = {
   title: "Components/Auth/Connected Apps Card",
   component: ConnectedAppsCard,
-  // The card reports a load error with `useHyperDxScreenError`, which needs a router.
-  decorators: [withStoryRoute],
   parameters: {
+    queryClient: true,
     layout: "padded",
+    // The card reports a load error with `useHyperDxScreenError`, which needs a router.
     storyRoute: {
       pattern: "flat",
       path: "/.auth/account/connected-apps",

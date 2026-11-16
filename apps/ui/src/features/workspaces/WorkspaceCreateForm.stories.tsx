@@ -4,7 +4,7 @@ import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { Button } from "@/components/ui/Button"
-import { githubAppInstalledHandlers } from "@/mocks/handlers"
+import { githubAppInstalledHandlers, signedInHandlers } from "@/mocks/handlers"
 import {
   githubInstallationReposHandler,
   workspaceCreateHandler,
@@ -22,7 +22,6 @@ import {
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import {
   createdWorkspace,
@@ -39,9 +38,9 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
@@ -50,6 +49,7 @@ const meta = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
+        session: signedInHandlers,
         // Only an owner or admin sees the repository pickers.
         role: [activeMemberRoleHandler("owner")],
         page: [

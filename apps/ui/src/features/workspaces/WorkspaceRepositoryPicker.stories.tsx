@@ -6,6 +6,7 @@ import {
   githubAppInstalledHandlers,
   githubAppMissingHandlers,
   githubInstallationLinkedHandler,
+  signedInHandlers,
 } from "@/mocks/handlers"
 import {
   githubInstallationReposHandler,
@@ -16,7 +17,6 @@ import {
   orgConnectionsHandler,
 } from "@/mocks/workspace-sources-handlers"
 
-import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { docsWorkspace } from "./workspace-fixtures"
 import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
@@ -30,9 +30,9 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    app: "root",
     review: { kind: "component" },
     layout: "centered",
     storyRoute: {
@@ -41,6 +41,7 @@ const meta = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
+        session: signedInHandlers,
         // Only an owner or admin sees the repository pickers.
         role: [activeMemberRoleHandler("owner")],
         page: [

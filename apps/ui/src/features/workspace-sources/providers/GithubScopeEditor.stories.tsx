@@ -3,9 +3,9 @@ import { delay, http } from "msw"
 import { type ComponentProps, useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import { signedInHandlers } from "@/mocks/handlers"
 import { githubInstallationReposHandler } from "@/mocks/workspace-handlers"
 
-import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { GithubScopeEditor } from "./github"
 
@@ -48,16 +48,21 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   parameters: {
+    app: "root",
     review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
-    msw: { handlers: { page: [githubInstallationReposHandler(repos)] } },
+    msw: {
+      handlers: {
+        session: signedInHandlers,
+        page: [githubInstallationReposHandler(repos)],
+      },
+    },
   },
   args: {
     orgSlug: "acme",

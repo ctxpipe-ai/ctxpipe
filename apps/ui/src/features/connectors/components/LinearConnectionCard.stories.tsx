@@ -3,6 +3,7 @@ import { delay, HttpResponse, http } from "msw"
 import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
+import { signedInHandlers } from "@/mocks/handlers"
 import { linearOauthAppHandler } from "@/mocks/linear-handlers"
 import {
   activeMemberRoleHandler,
@@ -13,8 +14,8 @@ import {
   workspaceSourceList,
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
+import { pendingWorkspaceUpgradesHandler } from "@/mocks/workspace-upgrades-handlers"
 
-import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import {
   pendingSetupHandlers,
@@ -49,7 +50,6 @@ const meta = {
         <Story />
       </div>
     ),
-    ...entryPageInnerDecorators,
   ],
   args: {
     orgSlug,
@@ -57,8 +57,12 @@ const meta = {
     onOpenWizard,
   },
   parameters: {
+    app: "root",
     msw: {
       handlers: {
+        session: signedInHandlers,
+        role: [activeMemberRoleHandler("admin")],
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
         oauthApp: [linearOauthAppHandler()],
         // The Docs Workspace has the Linear source of the usage below.
         sources: [
@@ -267,9 +271,9 @@ export const SyncNowFromMenu: Story = {
     },
     msw: {
       handlers: {
+        role: [activeMemberRoleHandler("admin")],
         page: [
           statusHandler(connected),
-          activeMemberRoleHandler("admin"),
           connectionSyncHandler({ requests: syncRequests }),
         ],
       },
@@ -304,9 +308,9 @@ export const SyncNowFails: Story = {
     },
     msw: {
       handlers: {
+        role: [activeMemberRoleHandler("owner")],
         page: [
           statusHandler(connected),
-          activeMemberRoleHandler("owner"),
           connectionSyncHandler({ status: 404 }),
         ],
       },
@@ -331,7 +335,8 @@ export const SyncNowHiddenForMember: Story = {
     },
     msw: {
       handlers: {
-        page: [statusHandler(connected), activeMemberRoleHandler("member")],
+        role: [activeMemberRoleHandler("member")],
+        page: [statusHandler(connected)],
       },
     },
   },
@@ -375,7 +380,8 @@ export const SyncNowHiddenWhileAwaitingMerge: Story = {
             }),
           ]),
         ],
-        page: [statusHandler(connected), activeMemberRoleHandler("admin")],
+        role: [activeMemberRoleHandler("admin")],
+        page: [statusHandler(connected)],
       },
     },
   },
