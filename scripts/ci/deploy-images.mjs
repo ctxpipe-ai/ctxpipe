@@ -652,6 +652,12 @@ async function lockfileChangedFor(root, baseSha, list) {
  * $GITHUB_OUTPUT (else stdout), and a table of the plan to stdout and to
  * $GITHUB_STEP_SUMMARY.
  */
+// A reason can name a changed path, which can hold a newline or another
+// control character. A reason stays on its one table row, so that no line of
+// the summary reads as `build=` or `reuse=` to the factory CLI, which reads
+// the plan from stdout.
+const oneLine = (text) => String(text).replace(/[\u0000-\u001f\u007f]/g, " ")
+
 export function writePlan(result, list, extra = []) {
   const env = process.env
   const lines = [
@@ -664,7 +670,7 @@ export function writePlan(result, list, extra = []) {
     "| --- | --- |",
     ...list.map(
       ({ image }) =>
-        `| ${image} | ${image in result.reuse ? "reuse" : "build"}: ${result.reasons[image]} |`,
+        `| ${image} | ${image in result.reuse ? "reuse" : "build"}: ${oneLine(result.reasons[image])} |`,
     ),
   ]
   console.log(summary.join("\n"))

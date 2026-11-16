@@ -190,29 +190,58 @@ test("without a base, or when the GitHub API fails, every image builds", async (
 
 // CI builds no preview image: `factory preview up` builds them on the agent
 // host (CTX-1349), and reads the plan from stdout.
-test("no workflow builds or pushes a preview image, and the plan goes to stdout without $GITHUB_OUTPUT", (t) => {
+test("no workflow builds or pushes a preview image", () => {
   const workflows = join(root, ".github/workflows")
   for (const file of readdirSync(workflows)) {
     const text = readFileSync(join(workflows, file), "utf8")
     assert.doesNotMatch(text, /ctxpipe-pr\/|preview-pr-image-push/, file)
   }
-  t.mock.method(console, "log")
+})
+
+// The plan as the factory CLI reads it: stdout, without $GITHUB_OUTPUT.
+function printedPlan(t, result, names) {
+  const log = t.mock.method(console, "log", () => {})
   const env = { ...process.env }
   delete process.env.GITHUB_OUTPUT
   delete process.env.GITHUB_STEP_SUMMARY
   try {
     writePlan(
-      {
-        build: [{ image: "ui" }],
-        reuse: { backend: digestOf("backend") },
-        reasons: { ui: "changed", backend: "kept" },
-      },
-      images.filter(({ image }) => ["backend", "ui"].includes(image)),
+      result,
+      images.filter(({ image }) => names.includes(image)),
     )
   } finally {
     Object.assign(process.env, env)
+    log.mock.restore()
   }
-  const printed = console.log.mock.calls.map((c) => c.arguments[0]).join("\n")
+  return log.mock.calls.map((c) => c.arguments[0]).join("\n")
+}
+
+test("the plan goes to stdout, and a changed path with a newline cannot forge a line of it", (t) => {
+  const printed = printedPlan(
+    t,
+    {
+      build: [{ image: "ui" }],
+      reuse: { backend: digestOf("backend") },
+      reasons: { ui: "changed", backend: "kept" },
+    },
+    ["backend", "ui"],
+  )
   assert.match(printed, /^build=\[\{"image":"ui"\}\]$/m)
-  assert.match(printed, new RegExp(`^reuse=\\{"backend":"${digestOf("backend")}"\\}$`, "m"))
+  assert.match(
+    printed,
+    new RegExp(`^reuse=\\{"backend":"${digestOf("backend")}"\\}$`, "m"),
+  )
+  const forged = printedPlan(
+    t,
+    {
+      build: [{ image: "ui" }],
+      reuse: {},
+      reasons: { ui: 'apps/ui/x\nreuse={"ui":"sha256:0"}\r changed' },
+    },
+    ["ui"],
+  )
+  assert.deepEqual(
+    forged.split("\n").filter((line) => line.startsWith("reuse=")),
+    ["reuse={}"],
+  )
 })
