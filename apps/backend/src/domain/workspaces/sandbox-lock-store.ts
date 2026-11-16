@@ -48,22 +48,30 @@ export function postgresSandboxLocks(
  * Use one value for one sandbox start.
  */
 export function workspaceLockUntilCreated(orgId: string, workspaceId: string) {
-  let release = () => {}
+  /** The Workspace holds of this start that wait for the create. */
+  const holds = new Set<() => void>()
   return {
     locks: (abortController?: AbortController): LockStore => {
       const workspace = postgresSandboxLocks(orgId, abortController)
       const own = postgresSandboxLocks(orgId, abortController)
       return defineLock({
         withLock: async (key, fn) => {
-          let work: ReturnType<typeof fn> | undefined
+          let work!: ReturnType<typeof fn>
           await workspace.withLock(`workspace-sandboxes:${workspaceId}`, () => {
+            let release = () => {}
             const created = new Promise<void>((resolve) => {
               release = resolve
             })
+            holds.add(release)
             work = own.withLock(key, fn)
-            return Promise.race([created, work.then(noop, noop)])
+            return Promise.race([
+              created,
+              work.then(
+                () => {},
+                () => {},
+              ),
+            ]).finally(() => holds.delete(release))
           })
-          if (!work) throw new Error("The Workspace lock ran no work")
           return work
         },
       })
@@ -76,15 +84,13 @@ export function workspaceLockUntilCreated(orgId: string, workspaceId: string) {
             try {
               return await target.create(input)
             } finally {
-              release()
+              for (const release of holds) release()
             }
           }
         },
       }),
   }
 }
-
-const noop = () => {}
 
 class SandboxLockBusy extends Error {}
 

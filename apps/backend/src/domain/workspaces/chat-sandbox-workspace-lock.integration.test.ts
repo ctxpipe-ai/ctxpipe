@@ -14,6 +14,7 @@ import {
   vi,
 } from "vitest"
 
+import { withOrgIdContext } from "../../auth/withAuth.js"
 import {
   closeDb,
   getSystemDb,
@@ -22,6 +23,7 @@ import {
 } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { conversations } from "../../db/schema/conversations.js"
+import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
 import {
   workspaceSandboxInstances,
   workspaces,
@@ -33,7 +35,10 @@ import { agentCoreSandboxProvider } from "./agentcore-sandbox-provider.js"
 import { withConversationSandboxSlots } from "./conversation-sandbox-lifecycle.js"
 import { postgresSandboxInstanceStore } from "./sandbox-instance-store.js"
 import { workspaceLockUntilCreated } from "./sandbox-lock-store.js"
-import { withDestroyedWorkspaceSandboxes } from "./workspace-sandbox-cleanup.js"
+import {
+  destroySandboxesForWorkspace,
+  withDestroyedWorkspaceSandboxes,
+} from "./workspace-sandbox-cleanup.js"
 
 /*
  * Chat sandbox starts in one Workspace, against Postgres and the AgentCore
@@ -161,45 +166,72 @@ describe("the Workspace lock of a chat sandbox start (Postgres)", () => {
           timeout: 20_000,
         },
       )
+      let timer: ReturnType<typeof setTimeout> | undefined
       const second = await Promise.race([
         startChatSandbox(ids, ["true"]).then(() => "started"),
-        new Promise((resolve) => setTimeout(resolve, 15_000, "waited")),
-      ])
+        new Promise((resolve) => {
+          timer = setTimeout(resolve, 15_000, "waited")
+        }),
+      ]).finally(() => clearTimeout(timer))
       writeFileSync(join(dir, "go"), "")
       await first
       expect(second).toBe("started")
     })
   }, 60_000)
 
-  it("a Workspace delete during the first setup destroys that sandbox after its setup", async () => {
-    await withWorkspace(async (ids) => {
-      const first = startChatSandbox(ids, blockedSetup())
-      await vi.waitFor(
-        () => expect(existsSync(join(dir, "started"))).toBe(true),
-        {
-          timeout: 20_000,
-        },
-      )
-      let deleted = false
-      const deleting = withDestroyedWorkspaceSandboxes(
-        ids,
-        async (remaining) => {
-          deleted = true
-          return remaining
-        },
-      )
-      // The delete waits for the sandbox's own lock, which the setup holds.
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      expect(deleted).toBe(false)
-      writeFileSync(join(dir, "go"), "")
-      const handle = await first
-      expect(await deleting).toEqual([])
-      expect(
-        await withOrgDbContext(ids.orgId, () =>
-          listSandboxInstances({ workspaceId: ids.workspaceId }),
-        ),
-      ).toEqual([])
-      expect(fake.running.has(handle.id)).toBe(false)
-    })
-  }, 60_000)
+  it.each(["delete", "relink"] as const)(
+    "a Workspace %s during the first setup destroys that sandbox after its setup",
+    async (cleanup) => {
+      await withWorkspace(async (ids) => {
+        const first = startChatSandbox(ids, blockedSetup())
+        await vi.waitFor(
+          () => expect(existsSync(join(dir, "started"))).toBe(true),
+          { timeout: 20_000 },
+        )
+        let done = false
+        // Delete: lists and destroys under the Workspace lock. Relink:
+        // lists first, then destroys each row under the Workspace lock.
+        const cleaning = (
+          cleanup === "delete"
+            ? withDestroyedWorkspaceSandboxes(ids, async () => {})
+            : // As the relink of a request, in its org.
+              withOrgIdContext({ id: ids.orgId, slug: ids.orgId }, () =>
+                destroySandboxesForWorkspace(ids.workspaceId),
+              )
+        ).finally(() => {
+          done = true
+        })
+        // The cleanup holds the Workspace lock and waits for the sandbox's
+        // own lock, which the setup holds.
+        await vi.waitFor(
+          async () =>
+            expect(
+              await withOrgDbContext(ids.orgId, (db) =>
+                db
+                  .select({ key: sandboxLocks.key })
+                  .from(sandboxLocks)
+                  .where(
+                    eq(
+                      sandboxLocks.key,
+                      `workspace-sandboxes:${ids.workspaceId}`,
+                    ),
+                  ),
+              ),
+            ).toHaveLength(1),
+          { timeout: 20_000 },
+        )
+        expect(done).toBe(false)
+        writeFileSync(join(dir, "go"), "")
+        const handle = await first
+        await cleaning
+        expect(
+          await withOrgDbContext(ids.orgId, () =>
+            listSandboxInstances({ workspaceId: ids.workspaceId }),
+          ),
+        ).toEqual([])
+        expect(fake.running.has(handle.id)).toBe(false)
+      })
+    },
+    60_000,
+  )
 })
