@@ -434,6 +434,8 @@ it(
 it.each([
   "credential",
   "native-push",
+  // The remote moves main and then declines the push: not a stale tip.
+  "declined-native-push",
   "repeated-native-push",
   "continuous-native-push",
   "endless-native-push",
@@ -508,7 +510,7 @@ it.each([
             const cases = humanTips
               .map(
                 (sha, index) =>
-                  `${index ? humanTips[index - 1] : f.sha}) git update-ref "$1" ${sha} "$2" ;;`,
+                  `${index ? humanTips[index - 1] : f.sha}) git update-ref "$1" ${sha} "$2"${raceBoundary === "declined-native-push" ? "; exit 1" : ""} ;;`,
               )
               .join("\n")
             // The hook acts only on the default branch: a job ref push
@@ -622,7 +624,11 @@ it.each([
                   step.stepName === "broker-push" && step.status === "failed",
               ),
             )
-          expect(pushFailures).toEqual([])
+          // A declined push stays a failure; its retry then finds the moved
+          // tip before its push.
+          expect(pushFailures).toHaveLength(
+            raceBoundary === "declined-native-push" ? 1 : 0,
+          )
           // No human commit is lost: main holds the last one.
           expect(
             f.git(

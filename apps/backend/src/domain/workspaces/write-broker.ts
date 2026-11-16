@@ -67,6 +67,14 @@ import {
   WRITE_STATUS_REASONS,
 } from "./write-status.js"
 
+/**
+ * Git's reason for a rejected push whose old tip is stale (the rejected refs
+ * of `push --porcelain`, in the error of `nativeGit`): another writer moved
+ * the branch. Git checks it before the push, GitHub when it updates the ref.
+ */
+const STALE_TIP_REJECTION =
+  /\[rejected\] \((fetch first|non-fast-forward)\)|\[remote rejected\] \((failed to update ref|cannot lock ref|incorrect old value)/
+
 class WorkspaceTipAdvancedError extends Error {
   constructor() {
     super("Default branch advanced; semantic merge is required")
@@ -216,9 +224,9 @@ export async function pushWorkspaceCommit(
       } catch (error) {
         const reason = writeAccessDenialReason(error)
         if (reason) throw new WorkspaceWriteAccessUnavailableError(reason)
-        // Another writer can push between the tip check and this push, and
-        // the remote then rejects it: that is a lost race, which the caller
-        // merges again, not a failed step (CTX-1355).
+        // Another writer can push between the tip check and this push. Then
+        // the remote rejects this push because its old tip is stale. That is
+        // a lost race: the caller merges again (CTX-1355).
         let after: Awaited<ReturnType<typeof resolveGitRemoteTip>> | undefined
         try {
           after = await resolveGitRemoteTip({ url: revision.remote.url, token })
@@ -227,7 +235,12 @@ export async function pushWorkspaceCommit(
         }
         if (after?.branch === revision.defaultBranch) {
           if (after.sha === committed.sha) return
-          if (after.sha !== revision.sha) throw new WorkspaceTipAdvancedError()
+          if (
+            after.sha !== revision.sha &&
+            error instanceof Error &&
+            STALE_TIP_REJECTION.test(error.message)
+          )
+            throw new WorkspaceTipAdvancedError()
         }
         throw error
       }
