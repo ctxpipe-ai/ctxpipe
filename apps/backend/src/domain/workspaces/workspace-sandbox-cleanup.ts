@@ -15,6 +15,7 @@ import {
 } from "./chat-lifecycle.js"
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import { destroyDetachedProviderSandbox } from "./sandbox-provider.js"
+import { retiresVercelRow } from "./vercel-sandbox-retirement.js"
 import {
   deleteWorkspaceBaseArtifacts,
   type SandboxAgent,
@@ -57,7 +58,10 @@ export async function collectUnusedWorkspaceBases(input: {
         rows: await listSandboxInstances({ workspaceId }),
         desired: await getDesiredWorkspaceRevision(workspaceId, "read", orgId),
       }))
-      const bases = rows.filter((row) => row.kind === "base")
+      // The Vercel retirement deletes the `vercel` bases.
+      const bases = rows.filter(
+        (row) => row.kind === "base" && !retiresVercelRow(row),
+      )
       const ready = desired ? readyBases(bases, current, desired) : []
       const at = now.getTime()
       const mayBeInUse = (base: SandboxInstanceRecord) =>
