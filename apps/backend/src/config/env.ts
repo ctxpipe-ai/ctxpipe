@@ -114,6 +114,15 @@ const envSchema = z.object({
   /** See {@link sandboxProxyHostSchema}. */
   AGENT_VAULT_SANDBOX_PROXY_HOST: sandboxProxyHostSchema,
 
+  /**
+   * The S3 bucket where the Vercel sandbox retirement saves commits that the
+   * push refused because of what they change, as Git bundles under
+   * `retired-sandboxes/`. It uses the credentials and the region of the
+   * process (an ECS task role). Hosted ctxpipe on AWS sets it. Unset, such a
+   * sandbox stays.
+   */
+  RETIRED_SANDBOX_BUCKET: z.string().min(1).optional(),
+
   /** Prebuilt image in the selected Docker daemon; resolved to an immutable ID. */
   SANDBOX_CHAT_IMAGE: z.preprocess(
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
