@@ -35,8 +35,8 @@ test("stories with a kind (own or of the meta) and their own purpose pass", () =
   const result = check({
     "Card.stories.tsx": storyFile(
       `{ review: { kind: "component" } }`,
-      `export const Empty = { parameters: { review: { purpose: "Workspace card, where a member opens a Workspace: the Workspace has no sources yet." } } }
-export const Page = { parameters: { review: { kind: "page", purpose: "Org home page, where a member picks up recent work: the member opened Home and has two Workspaces." } } }`,
+      `export const Empty = { parameters: { review: { purpose: "Workspace card that a member opens to read its sources, before anyone added a source." } } }
+export const Page = { parameters: { review: { kind: "page", purpose: "Org home page of a member with two Workspaces, right after sign-in." } } }`,
     ),
   })
   assert.equal(result.status, 0, result.stderr)
@@ -47,7 +47,7 @@ test("a story with no kind, or with no purpose of its own, fails", () => {
   const result = check({
     "Card.stories.tsx": storyFile(
       `{ review: { purpose: "A purpose of the meta does not count." } }`,
-      `export const Empty = { parameters: { review: { purpose: "Workspace card, where a member opens a Workspace: the Workspace has no sources yet." } } }
+      `export const Empty = { parameters: { review: { purpose: "Workspace card that a member opens to read its sources, before anyone added a source." } } }
 export const Loading = { parameters: { review: { kind: "component" } } }`,
     ),
   })

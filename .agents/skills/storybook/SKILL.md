@@ -75,7 +75,6 @@ The visual critic reports story data that no real user sees as a defect of the s
 
 - Mock data is realistic: real-looking names, values and text, never random values or lorem ipsum. Give a fixture the counts and mixes that a real org has. Do not use a run of generated ids (`ITEM001` to `ITEM100`) to reach a limit. Use the smallest real case that shows the state.
 - Do not render debug output, such as the serialized value of a control, in the canvas. A play reads the result through the visible UI, a recorded msw request, or an `fn()` spy on a callback.
-- A made-up org or user name is fine when it looks real.
 
 ## Colocation and naming
 

@@ -603,7 +603,7 @@ export const GermanLocale: Story = {
   parameters: {
     review: {
       purpose:
-        "Date range field of the Workspace activity section, where a member filters the activity by date: the browser locale is German, and the member opened the calendar.",
+        "Date range field and calendar of the Workspace activity section in a German browser locale.",
     },
     storyRoute: {
       pattern: "orgIndex",

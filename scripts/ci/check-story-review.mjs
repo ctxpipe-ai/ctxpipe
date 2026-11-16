@@ -30,12 +30,6 @@ const root = resolve(
 )
 const { loadCsf } = await csfTools()
 
-const validPurpose = (purpose) =>
-  purpose.length >= 40 &&
-  purpose.length <= 240 &&
-  !purpose.includes("\n") &&
-  !/^(Shows|Displays|Renders)\b/i.test(purpose)
-
 const errors = []
 let count = 0
 for (const path of storyFiles(join(root, "apps/ui/src"))) {
@@ -51,7 +45,12 @@ for (const path of storyFiles(join(root, "apps/ui/src"))) {
       errors.push(
         `${where} has no parameters.review.purpose. Write one sentence (a string literal) in the story: what the UI is for, how the user uses it, and the state that the story shows.`,
       )
-    else if (!validPurpose(story.purpose))
+    else if (
+      story.purpose.length < 40 ||
+      story.purpose.length > 240 ||
+      story.purpose.includes("\n") ||
+      /^(Shows|Displays|Renders)\b/i.test(story.purpose)
+    )
       errors.push(
         `${where}: parameters.review.purpose must be one line of 40 to 240 characters that does not start with "Shows", "Displays" or "Renders". Say what the UI is for, how the user uses it, and the state that the story shows.`,
       )

@@ -489,7 +489,7 @@ export const ToolUse: Story = {
   parameters: {
     review: {
       purpose:
-        "Chat thread, where a member reads the answer of the agent: the member asked a question, and the agent used one tool before it answered.",
+        "Chat thread of a turn where the agent used one tool before it answered.",
     },
   },
   args: {
@@ -501,7 +501,7 @@ export const ToolUseMany: Story = {
   parameters: {
     review: {
       purpose:
-        "Chat thread, where a member reads the answer of the agent: the member asked a question, and the agent used many tools before it answered.",
+        "Chat thread of a turn where the agent used many tools before it answered.",
     },
   },
   args: {
@@ -513,7 +513,7 @@ export const ReasoningAndTools: Story = {
   parameters: {
     review: {
       purpose:
-        "Chat thread, where a member reads the answer of the agent: the member asked a question, and the turn has thoughts and tool calls before the answer.",
+        "Chat thread of a turn with thoughts and tool calls before the answer.",
     },
   },
   args: {
