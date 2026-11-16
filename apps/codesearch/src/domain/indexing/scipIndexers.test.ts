@@ -102,7 +102,7 @@ describe("SCIP_INDEXER_ARGV", () => {
 })
 
 describe("runScipIndexer", () => {
-  it("writes overlapping direct-output runs to their own shards", async () => {
+  it("writes each direct-output run to its own shard", async () => {
     const directory = await mkdtemp(join(tmpdir(), "scip-indexers-"))
     const checkoutPath = join(directory, "checkout")
     const goShard = join(directory, "shards", "go.scip")

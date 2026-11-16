@@ -85,7 +85,7 @@ while [ ! -f ${quote(join(f.directory, "release"))} ] && [ ! -f ${quote(join(f.d
           .poll(async () => (await started()).length, { timeout: 5_000 })
           .toBe(count)
         // The running indexer has no free slot to share.
-        await new Promise((resolve) => setTimeout(resolve, 100))
+        await new Promise((resolve) => setTimeout(resolve, 50))
         const running = (await started()).filter(
           (name) => !released.includes(name),
         )
