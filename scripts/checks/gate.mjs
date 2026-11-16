@@ -247,17 +247,6 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
       ),
   )
   inputs = inputs.filter((path) => !definitions.includes(path))
-  // The listing of the base revision loads the dependencies that the
-  // manifest job installs from the files of the PR. With a change to one of
-  // those files, that listing could run code of the PR, so the run is full.
-  const installed = definitions.length
-    ? changed.filter((path) =>
-        /(?:^|\/)package\.json$|^pnpm-lock\.yaml$|^pnpm-workspace\.yaml$/.test(
-          path,
-        ),
-      )
-    : []
-  if (installed.length) inputs.push(...definitions, ...installed)
   // A change to ci.yaml only in the `steps` of check jobs, of
   // `offPullRequestJobs` and of `sameInEachRunJobs` runs the selector; the
   // plan then runs each check of those check jobs.
@@ -287,7 +276,7 @@ export function decideMode({ config, event, fork, changed, read, diff }) {
     reason: config.mode,
     ...(jobs.length && { jobs }),
     ...(decided.length && { gateInputs: decided }),
-    ...(definitions.length && !installed.length && { definitions }),
+    ...(definitions.length && { definitions }),
   }
 }
 

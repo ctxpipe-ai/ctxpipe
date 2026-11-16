@@ -1435,11 +1435,6 @@ jobs:
       mode: ${{ steps.mode.outputs.mode }}
       record: ${{ steps.mode.outputs.record }}
       definitions: ${{ steps.mode.outputs.definitions }}
-      base-listing: ${{ steps.base-listing.outputs.artifact-id }}
-    env:
-      # The files that the listing of the checks executes, apart from the
-      # dependencies: the base revision lists with its own versions of them.
-      LIST_TIME_PATHS: scripts/checks scripts/ci apps/backend/evals/mcp apps/ui/.storybook apps/codesearch/scripts/run-vitest-contracts.mjs
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1500,44 +1495,8 @@ jobs:
       # scripts/checks/list.mjs loads: the root, and apps/ui for Storybook
       # (apps/ui/.storybook/check-modules.mjs). The listing is the same as
       # with the full install.
-      # No lifecycle script runs, so no code of the PR runs before the
-      # listing of the base revision.
-      - run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile --filter @ctxpipe-dev/root --filter @ctxpipe/ui
+      - run: pnpm install --frozen-lockfile --filter @ctxpipe-dev/root --filter @ctxpipe/ui
         if: steps.mode.outputs.mode == 'select' || github.event_name != 'pull_request'
-      # A change to a definition of checks (`definitions` in the mode record):
-      # the code of the base revision lists the same tree before any code of
-      # the PR runs, and the plan compares that listing with the manifest of
-      # the PR (scripts/checks/README.md, A change to a definition of checks).
-      # The base versions of the files that list checks replace those of the
-      # PR for this step only: the PR files there are removed first. The
-      # dependencies come from the install above; gate.mjs gives a full run
-      # when the PR changes a package file or the lockfile. The upload gives
-      # its artifact id as an output, so a later step cannot replace the
-      # listing.
-      - name: The listing of the base revision
-        id: base
-        if: steps.mode.outputs.definitions == 'true'
-        continue-on-error: true
-        run: |
-          set -o pipefail
-          mkdir -p "$RUNNER_TEMP/base-listing"
-          rm -rf $LIST_TIME_PATHS
-          git archive HEAD^1 $LIST_TIME_PATHS | tar -x
-          node scripts/checks/list.mjs > "$RUNNER_TEMP/base-listing/base-manifest.json"
-      - name: The files of the PR again
-        if: steps.mode.outputs.definitions == 'true'
-        run: |
-          rm -rf $LIST_TIME_PATHS
-          git ls-tree -r -z --name-only HEAD -- $LIST_TIME_PATHS | xargs -0 git checkout HEAD --
-          test -z "$(git status --porcelain -- $LIST_TIME_PATHS)"
-      - name: Preserve the listing of the base revision
-        id: base-listing
-        if: steps.base.outcome == 'success'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: merge-gate-base-listing
-          path: ${{ runner.temp }}/base-listing/base-manifest.json
-          if-no-files-found: error
       # The toolchain record holds the versions of the host programs that a
       # check declares (scripts/checks/toolchain.mjs), so this job has the
       # same zoekt and ast-grep as the test jobs: the build of scripts/zoekt
@@ -1585,6 +1544,68 @@ jobs:
           name: merge-gate-inputs
           path: ${{ runner.temp }}/merge-gate/
           if-no-files-found: ignore
+
+  # The listing of the checks that the code of the base revision makes of the
+  # merge tree, for a change to a definition of checks (`definitions` in the
+  # mode record; scripts/checks/README.md, A change to a definition of
+  # checks). The plan compares it with the manifest of the PR. No code of the
+  # PR runs in this job: before any step runs a program of the checkout, the
+  # base versions replace each file that the listing runs (LIST_TIME_PATHS)
+  # and each file that decides the tools and the dependencies. The install
+  # uses a new store and no cache, and the files of the PR are only data. The
+  # plan downloads the listing by the artifact id that this job gives.
+  merge-gate-base-listing:
+    timeout-minutes: 10
+    name: Merge gate base listing
+    needs: merge-gate-manifest
+    if: |
+      !cancelled() &&
+      needs.merge-gate-manifest.outputs.definitions == 'true'
+    continue-on-error: true
+    # github-hosted: a short job without Docker (ADR-065)
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    outputs:
+      artifact-id: ${{ steps.preserve.outputs.artifact-id }}
+    env:
+      LIST_TIME_PATHS: scripts/checks scripts/ci apps/backend/evals/mcp apps/ui/.storybook apps/codesearch/scripts/run-vitest-contracts.mjs
+      # The files that decide the tools and the dependencies of the install.
+      INSTALL_FILES: (^|/)(package\.json|\.npmrc|\.pnpmfile\.cjs|\.corepack\.env)$|(^|/)node_modules(/|$)|^(pnpm-lock\.yaml|pnpm-workspace\.yaml|\.node-version)$|^patches/
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: The files of the base revision that the listing runs
+        run: |
+          set -euo pipefail
+          rm -rf $LIST_TIME_PATHS
+          git ls-files -z | { grep -zE "$INSTALL_FILES" || true; } | xargs -0 -r rm -rf
+          git ls-tree -r -z --name-only HEAD^1 | { grep -zE "$INSTALL_FILES" || true; } > "$RUNNER_TEMP/install-files"
+          git archive HEAD^1 $LIST_TIME_PATHS | tar -x
+          xargs -0 -r git archive HEAD^1 -- < "$RUNNER_TEMP/install-files" | tar -x
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .node-version
+      - name: The listing of the base revision
+        env:
+          # Corepack reads no .corepack.env of the checkout.
+          COREPACK_ENV_FILE: "0"
+        run: |
+          set -o pipefail
+          corepack enable
+          pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile --store-dir "$RUNNER_TEMP/pnpm-store" \
+            --filter @ctxpipe-dev/root --filter @ctxpipe/ui
+          mkdir -p "$RUNNER_TEMP/out"
+          node scripts/checks/list.mjs > "$RUNNER_TEMP/out/base-manifest.json"
+      - name: Preserve the listing of the base revision
+        id: preserve
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: merge-gate-base-listing
+          path: ${{ runner.temp }}/out/base-manifest.json
+          if-no-files-found: error
 
   # Selects the checks of a same-repo PR and looks up their stored results.
   # It holds a read-only OIDC role of the factory account, which trusts only
@@ -2072,7 +2093,14 @@ jobs:
   merge-gate-plan:
     timeout-minutes: 5
     name: Merge gate plan
-    needs: [merge-gate-manifest, merge-gate-select, merge-gate-llm, nightly-plan]
+    needs:
+      [
+        merge-gate-manifest,
+        merge-gate-select,
+        merge-gate-llm,
+        merge-gate-base-listing,
+        nightly-plan,
+      ]
     if: |
       !cancelled() &&
       (github.event_name == 'pull_request' || needs.nightly-plan.result == 'success')
@@ -2137,13 +2165,12 @@ jobs:
           artifact-ids: ${{ needs.merge-gate-llm.outputs.artifact-id }}
           merge-multiple: true
           path: ${{ runner.temp }}/inputs
-      # The manifest job uploads the listing of the base revision before any
-      # code of the PR runs, and gives its artifact id.
+      # The listing of the base revision, by the artifact id of its job.
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        if: github.event_name == 'pull_request' && needs.merge-gate-manifest.outputs.base-listing != ''
+        if: github.event_name == 'pull_request' && needs.merge-gate-base-listing.outputs.artifact-id != ''
         continue-on-error: true
         with:
-          artifact-ids: ${{ needs.merge-gate-manifest.outputs.base-listing }}
+          artifact-ids: ${{ needs.merge-gate-base-listing.outputs.artifact-id }}
           merge-multiple: true
           path: ${{ runner.temp }}/inputs
       - name: The mode of the manifest job
