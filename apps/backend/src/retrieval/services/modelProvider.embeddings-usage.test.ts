@@ -89,10 +89,8 @@ describe("generateEmbeddings span usage", () => {
       "gen_ai.operation.name": "embeddings",
       "gen_ai.request.model": "openai/text-embedding-3-large",
       "gen_ai.provider.name": "openai-like",
-      "gen_ai.input.messages": JSON.stringify({
-        textCount: 1,
-        totalCharacters: 5,
-      }),
+      "ctxpipe.embeddings.text_count": 1,
+      "ctxpipe.embeddings.total_characters": 5,
       "gen_ai.usage.cost": 0.0002,
       "gen_ai.usage.input_tokens": 8,
     })

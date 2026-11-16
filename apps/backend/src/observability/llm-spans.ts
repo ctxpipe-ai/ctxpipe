@@ -25,8 +25,13 @@ export function withLlmGeneration<T>(
     operation: "chat" | "embeddings"
     model?: string
     provider?: string
-    input: Record<string, unknown>
-    summarizeOutput: (result: T) => Record<string, unknown>
+    /** The prompt of a chat call: `gen_ai.input.messages`. */
+    input?: Record<string, unknown>
+    /** The answer of a chat call: `gen_ai.output.messages`. */
+    summarizeOutput?: (result: T) => Record<string, unknown>
+    /** Plain span attributes, for example the counts of an embeddings batch. */
+    attributes?: Record<string, number | string>
+    resultAttributes?: (result: T) => Record<string, number | string>
     usageFromResult?: (result: T) => LlmUsage | undefined
     /**
      * The usage of the calls made so far. Recorded also when the operation
@@ -44,7 +49,10 @@ export function withLlmGeneration<T>(
         "gen_ai.operation.name": attrs.operation,
         ...(attrs.model ? { "gen_ai.request.model": attrs.model } : {}),
         ...(attrs.provider ? { "gen_ai.provider.name": attrs.provider } : {}),
-        "gen_ai.input.messages": JSON.stringify(attrs.input),
+        ...(attrs.input
+          ? { "gen_ai.input.messages": JSON.stringify(attrs.input) }
+          : {}),
+        ...attrs.attributes,
       },
     },
     async (span) => {
@@ -63,10 +71,13 @@ export function withLlmGeneration<T>(
       }
       try {
         const result = await fn()
-        span.setAttribute(
-          "gen_ai.output.messages",
-          JSON.stringify(attrs.summarizeOutput(result)),
-        )
+        if (attrs.summarizeOutput)
+          span.setAttribute(
+            "gen_ai.output.messages",
+            JSON.stringify(attrs.summarizeOutput(result)),
+          )
+        if (attrs.resultAttributes)
+          span.setAttributes(attrs.resultAttributes(result))
         recordUsage(attrs.usageFromResult?.(result) ?? attrs.usageSoFar?.())
         return result
       } catch (err) {

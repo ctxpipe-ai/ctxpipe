@@ -288,13 +288,16 @@ export async function generateEmbeddings(
       operation: "embeddings",
       model: embeddingModel,
       provider: env.MODEL_PROVIDER,
-      input: {
-        textCount: texts.length,
-        totalCharacters: texts.reduce((sum, text) => sum + text.length, 0),
+      attributes: {
+        "ctxpipe.embeddings.text_count": texts.length,
+        "ctxpipe.embeddings.total_characters": texts.reduce(
+          (sum, text) => sum + text.length,
+          0,
+        ),
       },
-      summarizeOutput: (embeddings) => ({
-        embeddingCount: embeddings.length,
-        dimensions: EMBEDDING_DIMENSIONS,
+      resultAttributes: (embeddings) => ({
+        "ctxpipe.embeddings.count": embeddings.length,
+        "ctxpipe.embeddings.dimensions": EMBEDDING_DIMENSIONS,
       }),
       // Also when a later batch fails: the batches before it were paid for.
       usageSoFar: () => usage,

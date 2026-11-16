@@ -47,8 +47,11 @@ describe("withLlmGeneration", () => {
         operation: "embeddings",
         model: "openai/text-embedding-3-large",
         provider: "openai-like",
-        input: { textCount: 2, totalCharacters: 2 },
-        summarizeOutput: () => ({ embeddingCount: 2 }),
+        attributes: {
+          "ctxpipe.embeddings.text_count": 2,
+          "ctxpipe.embeddings.total_characters": 2,
+        },
+        resultAttributes: () => ({ "ctxpipe.embeddings.count": 2 }),
       },
       async () => [0.1, 0.2],
     )
@@ -58,12 +61,13 @@ describe("withLlmGeneration", () => {
       "gen_ai.request.model": "openai/text-embedding-3-large",
       "gen_ai.provider.name": "openai-like",
     })
-    expect(
-      JSON.parse(String(span?.attributes["gen_ai.input.messages"])),
-    ).toEqual({ textCount: 2, totalCharacters: 2 })
-    expect(
-      JSON.parse(String(span?.attributes["gen_ai.output.messages"])),
-    ).toEqual({ embeddingCount: 2 })
+    expect(span?.attributes).toMatchObject({
+      "ctxpipe.embeddings.text_count": 2,
+      "ctxpipe.embeddings.total_characters": 2,
+      "ctxpipe.embeddings.count": 2,
+    })
+    expect(span?.attributes["gen_ai.input.messages"]).toBeUndefined()
+    expect(span?.attributes["gen_ai.output.messages"]).toBeUndefined()
     expect(span?.attributes["gen_ai.usage.cost"]).toBeUndefined()
     expect(span?.status.code).toBe(SpanStatusCode.UNSET)
   })
@@ -94,8 +98,7 @@ describe("withLlmGeneration", () => {
         {
           name: "modelProvider.generateEmbeddings",
           operation: "embeddings",
-          input: { textCount: 3 },
-          summarizeOutput: () => ({}),
+          attributes: { "ctxpipe.embeddings.text_count": 3 },
           usageSoFar: () => ({ input: 7, cost: 0.002 }),
         },
         async () => {
@@ -125,8 +128,7 @@ describe("withLlmGeneration", () => {
         {
           name: "modelProvider.generateEmbeddings",
           operation: "embeddings",
-          input: { textCount: 1 },
-          summarizeOutput: () => ({ embeddingCount: 1 }),
+          attributes: { "ctxpipe.embeddings.text_count": 1 },
         },
         async () => {
           trace.getTracer("test").startSpan("POST /embeddings").end()
