@@ -61,6 +61,12 @@ export type IngestRuntimeStep = {
   /** The root-to-file map (`--roots`); every step gets it (ADR-052 section 6). */
   rootMap: IngestRootMap
   signal: AbortSignal
+  /**
+   * Before the step limit (`ingestStepCheckpoint`): a model step then stops
+   * its model and keeps the files that it staged as a page with `more`, so
+   * that the next page continues from them (CTX-1312).
+   */
+  checkpoint?: AbortSignal
 }
 
 /**
