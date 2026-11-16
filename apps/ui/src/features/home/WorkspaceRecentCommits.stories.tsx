@@ -29,6 +29,7 @@ const meta = {
   title: "Components/Home/Recent commits",
   component: WorkspaceRecentCommits,
   parameters: {
+    review: { kind: "component" },
     layout: "padded",
   },
 } satisfies Meta<typeof WorkspaceRecentCommits>
@@ -38,6 +39,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Populated: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Recent commits list of a Workspace on the org home: a few commits, each with author, message, time and hash.",
+    },
+  },
   args: {
     commits: docsWorkspaceActivityRecent,
   },
@@ -48,6 +55,12 @@ export const Populated: Story = {
  * shows on hover and on keyboard focus, together with the focus ring.
  */
 export const OpensInNewTab: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Recent commits list of a Workspace: the short hash of a commit has keyboard focus and its link opens GitHub in a new tab.",
+    },
+  },
   args: {
     commits: docsWorkspaceActivityRecent,
   },
@@ -117,6 +130,10 @@ const longCommit = {
  */
 export const CompactRowTruncates: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Recent commits list of a Workspace in a narrow box: a long commit message truncates and its row stays on one line.",
+    },
     intent:
       "Catches a long commit message that wraps or pushes the time and hash to a second line. The message truncates and the row stays on one line. Not for avatar images.",
   },
@@ -161,6 +178,12 @@ export const CompactRowTruncates: Story = {
 
 /** The time ago tells the full local date and time in a tooltip. */
 export const TimeTooltip: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Recent commits list of a Workspace: the tooltip on a commit time gives the full local date and time.",
+    },
+  },
   args: {
     commits: docsWorkspaceActivityRecent,
   },
@@ -189,6 +212,10 @@ export const TimeTooltip: Story = {
  */
 export const CommitLineAligns: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Recent commits list across Workspaces, with a tall row: the commit line joins from row to row and each node is centered.",
+    },
     intent:
       "Catches a commit timeline line that does not span its row, or whose node does not align with the row content. Not for commit text or the workspace label.",
   },
@@ -258,6 +285,10 @@ export const AvatarAndInitialFallback: Story = {
     ],
   },
   parameters: {
+    review: {
+      purpose:
+        "Recent commits list of a Workspace: one author has a GitHub avatar, and two authors fall back to their initial.",
+    },
     intent:
       "Catches a commit author without a loadable avatar that shows a broken image. It must fall back to an initial. A known author shows the image. Not for commit text.",
     msw: {
@@ -319,12 +350,24 @@ export const AvatarAndInitialFallback: Story = {
 }
 
 export const NoHistory: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Recent commits list of a Workspace on the org home: the Workspace has no commits yet.",
+    },
+  },
   args: {
     commits: [],
   },
 }
 
 export const Loading: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Recent commits list of a Workspace on the org home: the skeleton with three fading rows while the commits load.",
+    },
+  },
   args: {
     commits: [],
   },
@@ -344,6 +387,10 @@ export const Loading: Story = {
 /** The skeleton has the same box as three loaded commits. */
 export const RecentCommitsSkeletonMatches: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Recent commits list of a Workspace: the loading skeleton and three loaded commits side by side, at the same size.",
+    },
     intent:
       "Catches a recent commits skeleton whose size differs from the loaded list. This causes layout shift. Not for commit data or row content.",
   },

@@ -35,6 +35,7 @@ const meta = {
   args: { orgSlug, connectionId },
   decorators: entryPageInnerDecorators,
   parameters: {
+    review: { kind: "component" },
     msw: {
       handlers: {
         usage: [
@@ -78,6 +79,10 @@ export const Connected: Story = {
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
     ),
   parameters: {
+    review: {
+      purpose:
+        "Slack connection card on the Connectors page: the Slack workspace is connected and captures to a context repository.",
+    },
     msw: { handlers: { page: [statusHandler(statusLive)] } },
   },
 }
@@ -89,6 +94,10 @@ export const ConnectedWithoutCaptureRepository: Story = {
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
     ),
   parameters: {
+    review: {
+      purpose:
+        "Slack connection card on the Connectors page: Slack is installed without a capture repository, and the connection is ready for Workspace sources.",
+    },
     msw: {
       handlers: {
         page: [
@@ -119,6 +128,10 @@ export const Revoked: Story = {
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
     ),
   parameters: {
+    review: {
+      purpose:
+        "Slack connection card on the Connectors page: Slack revoked the access, so the card shows Needs reconnect.",
+    },
     msw: {
       handlers: {
         page: [
@@ -147,6 +160,10 @@ export const StatusError: Story = {
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
     ),
   parameters: {
+    review: {
+      purpose:
+        "Slack connection card on the Connectors page: the status request failed with a server error.",
+    },
     msw: {
       handlers: {
         page: [
@@ -169,6 +186,10 @@ export const Loading: Story = {
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
     ),
   parameters: {
+    review: {
+      purpose:
+        "Slack connection card on the Connectors page: the status request is still loading.",
+    },
     msw: {
       handlers: {
         page: [

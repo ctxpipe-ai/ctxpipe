@@ -6,7 +6,10 @@ import { DateRangeMenu } from "./WorkspaceActivity"
 const meta = {
   title: "Components/Home/Date range menu",
   component: DateRangeMenu,
-  parameters: { layout: "fullscreen" },
+  parameters: {
+    review: { kind: "component" },
+    layout: "fullscreen",
+  },
   args: { since: undefined, until: undefined, onRangeChange: () => {} },
 } satisfies Meta<typeof DateRangeMenu>
 
@@ -48,6 +51,10 @@ function AtHeight(props: { fromBottom: number }) {
 /** The trigger is far from the bottom: the menu opens below. */
 export const TriggerHigh: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Date range menu that filters recent commits: the trigger is far from the bottom, so the open menu is below it.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   render: () => <AtHeight fromBottom={400} />,
@@ -57,6 +64,10 @@ export const TriggerHigh: Story = {
 /** Not enough room below for the whole menu: it opens above. */
 export const TriggerNearBottom: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Date range menu that filters recent commits: the trigger is near the bottom, so the open menu is above it.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   render: () => <AtHeight fromBottom={200} />,
@@ -66,6 +77,10 @@ export const TriggerNearBottom: Story = {
 /** A little higher than that: still not enough room below. */
 export const TriggerNearBottomHigher: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Date range menu that filters recent commits: the trigger is a bit higher but still lacks room below, so the menu is above it.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   render: () => <AtHeight fromBottom={225} />,
@@ -75,6 +90,10 @@ export const TriggerNearBottomHigher: Story = {
 /** Little room below and plenty above. */
 export const TriggerWellInsideBottom: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Date range menu that filters recent commits: the trigger is very near the bottom, so the menu is above it in full.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   render: () => <AtHeight fromBottom={150} />,
@@ -83,6 +102,12 @@ export const TriggerWellInsideBottom: Story = {
 
 /** The user chose a start date and has not chosen the end date yet. */
 export const StartChosenEndPending: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Date range menu with its calendar open: the user chose a start day and has not chosen the end day yet.",
+    },
+  },
   render: () => <AtHeight fromBottom={400} />,
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)

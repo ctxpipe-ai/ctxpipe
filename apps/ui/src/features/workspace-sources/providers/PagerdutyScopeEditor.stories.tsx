@@ -45,6 +45,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -60,6 +61,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const SelectServices: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "PagerDuty scope editor, where the user picks the services of a Workspace source: the user picks two services, one from the second page of the list.",
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
     await waitFor(() => expect(canvas.getByText("Not ready")).toBeVisible())
@@ -84,6 +91,12 @@ export const SelectServices: Story = {
 }
 
 export const SearchKeepsTheSelection: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "PagerDuty scope editor, where the user picks the services of a Workspace source: a search hides a selected service, but it stays in the selected list with its name.",
+    },
+  },
   args: { label: "On-call", initialScope: { services: ["PSVC001"] } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -122,6 +135,10 @@ export const SearchKeepsTheSelection: Story = {
 
 export const RemoveTheLastService: Story = {
   parameters: {
+    review: {
+      purpose:
+        "PagerDuty scope editor, where the user picks the services of a Workspace source: the user removes the last selected service, so the scope is not ready.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: { initialScope: { services: ["PSVC002"] } },
@@ -141,6 +158,10 @@ export const RemoveTheLastService: Story = {
 
 export const ServiceListFails: Story = {
   parameters: {
+    review: {
+      purpose:
+        "PagerDuty scope editor, where the user picks the services of a Workspace source: the service list did not load, so an error shows.",
+    },
     msw: {
       handlers: {
         page: [
@@ -167,6 +188,10 @@ export const ServiceListFails: Story = {
 
 export const OverTheServiceLimit: Story = {
   parameters: {
+    review: {
+      purpose:
+        "PagerDuty scope editor, where the user picks the services of a Workspace source: the selection goes above the service limit, so an error shows and the scope is not ready.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {

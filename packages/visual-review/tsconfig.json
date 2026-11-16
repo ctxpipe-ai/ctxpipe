@@ -15,5 +15,7 @@
     "verbatimModuleSyntax": true,
     "types": ["node"]
   },
+  // The factory puts its eval harness into evals/critic of an export and
+  // checks its types with this file (ADR-063 rule 17).
   "include": ["src/**/*.ts", "evals/**/*.ts"]
 }

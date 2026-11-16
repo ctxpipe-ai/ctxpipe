@@ -109,10 +109,6 @@ const exceptions = new Map(
     // The job uses the workbench environment: its model key is the
     // spend-capped CI key, not the production key.
     "mcp-evals.yaml:evals": ["MODEL_PROVIDER_API_KEY"],
-    // Runs the visual critic bake-off with real models. The job uses the
-    // workbench environment: its model key is the spend-capped key of the
-    // bake-off, not the production key.
-    "visual-bakeoff.yaml:run": ["MODEL_PROVIDER_API_KEY"],
     // Ingests real repositories with a real model and the preview GitHub App.
     // INGEST_PROOF_* hold the private test repository URLs, no credential:
     // a secret keeps them out of the public log.
@@ -130,10 +126,6 @@ const exceptions = new Map(
 // form `permissions: { id-token: write }`, at workflow or job level.
 const oidcToken =
   /^\s+id-token:\s*["']?write["']?(?![\w-])|^\s*permissions:\s*(?:["']?write-all["']?(?![\w-])|\{[^}]*\bid-token:\s*["']?write["']?(?![\w-]))/
-
-// Jobs that run only for main, as deploy.yaml does. The check keeps their
-// `if:` limited to refs/heads/main.
-const mainOnly = new Set(["observability.yaml:apply"])
 
 const secretUse =
   /(?<![\w./-])secrets\s*(\.\s*(?!GITHUB_TOKEN\b)\w+|\[)|toJSON\(\s*secrets\s*\)|^\s*secrets:\s*inherit\b/
@@ -494,17 +486,6 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
       continue
     }
 
-    if (mainOnly.has(`${name}:${job.name}`)) {
-      if (
-        !job.lines.some(({ text }) =>
-          /^ {4}if:.*github\.ref == 'refs\/heads\/main'/.test(text),
-        )
-      )
-        failures.push(
-          `${file}: job ${job.name} is a main-only job, but its if: does not limit it to refs/heads/main.`,
-        )
-      continue
-    }
     if (!holdsSecret) continue
     const where = (number) =>
       `${file}:${number}: job ${job.name} holds a secret or an OIDC token and`

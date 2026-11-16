@@ -28,6 +28,7 @@ const meta = {
   },
   decorators: entryPageInnerDecorators,
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -78,6 +79,10 @@ export const RegisterNotionOauth: Story = {
   name: "Register Notion OAuth app (self-hosted)",
   render: () => dialog(),
   parameters: {
+    review: {
+      purpose:
+        "Notion setup dialog on a self-hosted install: the admin saves a private OAuth app, and the dialog moves on to wait for the webhook token.",
+    },
     msw: {
       handlers: {
         page: [
@@ -154,6 +159,10 @@ export const AddNotionWebhookWaiting: Story = {
   name: "Add the webhook (waiting for token)",
   render: () => dialog(),
   parameters: {
+    review: {
+      purpose:
+        "Notion setup dialog at the webhook step: the OAuth app is saved and ctxpipe waits for Notion to send the verification token.",
+    },
     msw: {
       handlers: {
         page: [
@@ -182,6 +191,10 @@ export const AddNotionWebhookToken: Story = {
   name: "Add the webhook (verification token received)",
   render: () => dialog(),
   parameters: {
+    review: {
+      purpose:
+        "Notion setup dialog at the webhook step: the verification token arrived and shows for the admin to paste in Notion.",
+    },
     msw: {
       handlers: {
         page: [
@@ -205,6 +218,10 @@ export const ConnectNotionAfterWebhook: Story = {
   name: "Connect Notion after webhook",
   render: () => dialog(),
   parameters: {
+    review: {
+      purpose:
+        "Notion setup dialog after the webhook step: the admin continues and the dialog offers the Connect Notion button.",
+    },
     msw: {
       handlers: {
         page: [
@@ -237,6 +254,10 @@ export const ConnectNotionGlobalEnv: Story = {
   name: "Connect Notion (hosted env OAuth)",
   render: () => dialog(),
   parameters: {
+    review: {
+      purpose:
+        "Notion setup dialog on the hosted product, where ctxpipe supplies the OAuth app: the dialog starts at the Connect Notion step.",
+    },
     msw: {
       handlers: {
         page: [
@@ -284,7 +305,13 @@ const installedHandlers = [
 export const AddToWorkspaces: Story = {
   name: "Add Notion to Workspaces",
   render: () => dialog(),
-  parameters: { msw: { handlers: { page: installedHandlers } } },
+  parameters: {
+    review: {
+      purpose:
+        "Notion setup dialog after the connect: the admin adds Notion pages to a Workspace, and the dialog links the pull request to merge.",
+    },
+    msw: { handlers: { page: installedHandlers } },
+  },
   play: async ({ canvasElement }) => {
     addCalls.length = 0
     const body = within(canvasElement.ownerDocument.body)
@@ -338,6 +365,10 @@ export const ReplacedSetup: Story = {
   name: "Replaced setup with a config pull request",
   render: () => dialog(),
   parameters: {
+    review: {
+      purpose:
+        "Notion setup dialog for a connection that is already installed: a newer setup replaced this one and a config pull request waits for a merge.",
+    },
     msw: {
       handlers: {
         page: [

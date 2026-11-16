@@ -39,14 +39,14 @@ User words are jobs, not HTML tags. For each chunk of UI, name:
 
 ## 4. Hierarchy + layout pass
 
-After the pattern, before code, name these against DESIGN.md **Hierarchy and grouping** and **Alignment and spacing**:
+After the pattern, before code, name these against DESIGN.md **Hierarchy and grouping** (with its **Gestalt lens**) and **Alignment and spacing**:
 
 - **Primary / secondary / tertiary** on this surface (one primary action)
 - **How hierarchy is made**, and the strong signals that the screen spends
-- **Groups and containment** — what holds each group, and the treatment of each level
+- **Groups** — the region that holds each group
 - **Width** — `max-w-*` for forms/prose, or full-bleed data surface?
 
-**Done when:** those four are written, there is one primary action, and the plan does not use `text-3xl` on a product title, stretch a form to the nav, or box every row.
+**Done when:** those four are written, there is one primary action, and the plan does not use `text-3xl` on a product title or stretch a form to the nav.
 
 ## 5. Observe a nearby screen
 

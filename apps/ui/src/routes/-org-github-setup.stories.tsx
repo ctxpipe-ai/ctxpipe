@@ -26,6 +26,7 @@ const meta = {
       path: "/acme/github/setup",
       search: "?returnTo=connectors",
     } satisfies StoryRouteParams,
+    review: { kind: "page" },
   },
 } satisfies Meta
 
@@ -36,6 +37,10 @@ type Story = StoryObj<typeof meta>
 /** The installation check is still running. */
 export const Checking: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Org GitHub setup page, where the user picks a Workspace for the GitHub App: the installation check is still loading.",
+    },
     msw: {
       handlers: {
         page: [
@@ -66,6 +71,10 @@ export const Checking: Story = {
 /** The GitHub App is not installed: the page sends the user back to Connectors. */
 export const NotInstalled: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Org GitHub setup page, where the user picks a Workspace for the GitHub App: the App is not installed, so the page asks to finish the connection.",
+    },
     msw: { handlers: { page: [githubInstallationNoneHandler] } },
   },
   play: async ({ canvasElement }) => {
@@ -81,6 +90,10 @@ export const NotInstalled: Story = {
 /** The check fails: the page offers a retry. */
 export const CheckFails: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Org GitHub setup page, where the user picks a Workspace for the GitHub App: the installation check failed and the page offers a retry.",
+    },
     msw: {
       handlers: {
         page: [
@@ -116,6 +129,10 @@ export const CheckFails: Story = {
 /** The App is installed: the user picks a Workspace destination. */
 export const ChooseWorkspace: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Org GitHub setup page, where the user picks a Workspace for the GitHub App: the App is installed and the user picks an existing Workspace.",
+    },
     msw: {
       handlers: {
         page: [

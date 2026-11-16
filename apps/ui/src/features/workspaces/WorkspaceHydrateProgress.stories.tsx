@@ -23,6 +23,7 @@ const meta = {
     ...entryPageInnerDecorators,
   ],
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -38,6 +39,10 @@ type Story = StoryObj<typeof meta>
 
 export const PrepareReadingKnowledge: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Prepare panel of a new Workspace, which shows the setup steps: the repository was fetched, and Reading knowledge is the current step.",
+    },
     intent:
       "Catches a prepare panel that shows the wrong step. It lists fetch then read, marks Reading knowledge as current, and avoids the word hydrate. Not for errors.",
   },
@@ -59,6 +64,10 @@ export const PrepareReadingKnowledge: Story = {
 
 export const PrepareWaitingForTip: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Prepare panel of a new Workspace, which shows the setup steps: the latest commit is not known yet, so Try again shows.",
+    },
     intent:
       "Catches a prepare panel with no known commit that gives no next step. It explains the latest commit is unknown and offers Try again. Not for a known commit.",
   },
@@ -83,6 +92,10 @@ export const PrepareWaitingForTip: Story = {
 
 export const PrepareFailed: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Prepare panel of a new Workspace, which shows the setup steps: the prepare failed, so the error, a settings hint, and Try again show.",
+    },
     intent:
       "Catches a failed prepare that shows no cause or retry. It shows the error, a settings hint, and Try again, with no step list. Not for a prepare in progress.",
   },
@@ -110,6 +123,10 @@ export const PrepareFailed: Story = {
 /** A pending row that already has an error shows the failed panel. */
 export const PreparePendingWithError: Story = {
   parameters: {
+    review: {
+      purpose:
+        "Prepare panel of a new Workspace, which shows the setup steps: the prepare is pending but has a stored error, so the failed panel shows.",
+    },
     intent:
       "Catches a pending workspace with a stored error that shows the step list. The failed panel must show the error and Try again. Not for a clean pending state.",
   },
@@ -140,6 +157,12 @@ export const PreparePendingWithError: Story = {
 
 /** A Workspace that ctxpipe cannot read links to Connectors to fix the access. */
 export const PrepareNoAccess: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Prepare panel of a new Workspace, which shows the setup steps: ctxpipe has no access to the repository, so a link opens Connectors.",
+    },
+  },
   args: {
     workspace: {
       ...failedHydrateWorkspace,

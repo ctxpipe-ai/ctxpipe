@@ -19,6 +19,7 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
+    review: { kind: "component" },
   },
 } satisfies Meta
 
@@ -69,6 +70,10 @@ export const CreateOpensHome: Story = {
           }),
         ],
       },
+    },
+    review: {
+      purpose:
+        "Dialog where a signed-in user creates another organization: the user edits the slug, creates the org, and the app opens its Home.",
     },
   },
   play: async ({ canvasElement }) => {

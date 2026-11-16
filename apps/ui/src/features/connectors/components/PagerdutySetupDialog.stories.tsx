@@ -36,6 +36,7 @@ const meta = {
   },
   decorators: entryPageInnerDecorators,
   parameters: {
+    review: { kind: "component" },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -59,6 +60,10 @@ export const RegisterOAuthApp: Story = {
     />
   ),
   parameters: {
+    review: {
+      purpose:
+        "PagerDuty setup dialog on a self-hosted install: the admin saves a private OAuth app, and the secret field clears after the save.",
+    },
     msw: {
       handlers: {
         page: [
@@ -130,6 +135,10 @@ export const ConnectAccount: Story = {
     />
   ),
   parameters: {
+    review: {
+      purpose:
+        "PagerDuty setup dialog for a new connection on the hosted product: the first step, with the Connect PagerDuty button and the step list.",
+    },
     msw: {
       handlers: {
         page: [
@@ -211,7 +220,13 @@ const installedHandlers = [
 export const AddToWorkspaces: Story = {
   name: "Add PagerDuty to Workspaces",
   render: () => dialog(),
-  parameters: { msw: { handlers: { page: installedHandlers } } },
+  parameters: {
+    review: {
+      purpose:
+        "PagerDuty setup dialog after the connect: the admin adds a PagerDuty service to a Workspace, and the dialog links the pull request to merge.",
+    },
+    msw: { handlers: { page: installedHandlers } },
+  },
   play: async ({ canvasElement }) => {
     addCalls.length = 0
     const body = within(canvasElement.ownerDocument.body)
@@ -261,6 +276,10 @@ export const ReplacedSetup: Story = {
   name: "Replaced setup with a config pull request",
   render: () => dialog(),
   parameters: {
+    review: {
+      purpose:
+        "PagerDuty setup dialog for a connected account: a newer setup replaced this one and a config pull request waits for a merge.",
+    },
     msw: {
       handlers: {
         page: [

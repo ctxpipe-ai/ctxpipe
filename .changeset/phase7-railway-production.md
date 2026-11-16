@@ -1,4 +1,4 @@
 ---
 ---
 
-The main branch no longer deploys Railway and Neon, because the factory repo deploys AWS by image digest from the ECR (merge after the AWS cutover).
+Remove the Railway and Neon Terraform in `infra/`, the Terraform plan of a PR, and the Railway scripts. Hosted ctxpipe runs on AWS, and the factory repo deploys it.

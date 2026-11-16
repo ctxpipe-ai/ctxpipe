@@ -65,6 +65,7 @@ const meta = {
   },
   decorators: entryPageInnerDecorators,
   parameters: {
+    review: { kind: "component" },
     msw: {
       handlers: {
         usage: [
@@ -106,6 +107,10 @@ function card() {
 export const Connected: Story = {
   render: () => shell(card()),
   parameters: {
+    review: {
+      purpose:
+        "PagerDuty connection card on the Connectors page: the PagerDuty account is connected and syncs two services to a context repository.",
+    },
     msw: { handlers: { page: [pagerdutyStatus(statusComplete)] } },
   },
 }
@@ -113,6 +118,10 @@ export const Connected: Story = {
 export const Checking: Story = {
   render: () => shell(card()),
   parameters: {
+    review: {
+      purpose:
+        "PagerDuty connection card on the Connectors page: the status request is still loading.",
+    },
     msw: {
       handlers: {
         page: [
@@ -135,6 +144,10 @@ export const Checking: Story = {
 export const CouldntLoad: Story = {
   render: () => shell(card()),
   parameters: {
+    review: {
+      purpose:
+        "PagerDuty connection card on the Connectors page: the status request failed, so the card cannot show the connection.",
+    },
     msw: {
       handlers: {
         page: [
@@ -157,6 +170,10 @@ const deleted = fn()
 export const PendingSetup: Story = {
   render: () => shell(card()),
   parameters: {
+    review: {
+      purpose:
+        "PagerDuty connection card on the Connectors page: the setup is not complete, so the card offers to continue or delete the draft.",
+    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
@@ -198,6 +215,10 @@ export const PendingSetup: Story = {
 export const RevokedLive: Story = {
   render: () => shell(card()),
   parameters: {
+    review: {
+      purpose:
+        "PagerDuty connection card on the Connectors page: PagerDuty revoked the access, so the card shows Needs reconnect instead of Connected.",
+    },
     msw: {
       handlers: {
         page: [
@@ -224,6 +245,10 @@ export const ConnectedWithoutSyncRepository: Story = {
   name: "Connected, scope set in each Workspace",
   render: () => shell(card()),
   parameters: {
+    review: {
+      purpose:
+        "PagerDuty connection card on the Connectors page: auth is done and each Workspace sets its own scope, so the card shows no scope.",
+    },
     msw: {
       handlers: {
         page: [
@@ -257,6 +282,10 @@ export const RevokedOpensReconnect: Story = {
   name: "Revoked, reconnect opens setup",
   render: () => shell(card()),
   parameters: {
+    review: {
+      purpose:
+        "PagerDuty connection card on the Connectors page: the access is revoked, and the admin opens the menu to pick Reconnect PagerDuty.",
+    },
     msw: {
       handlers: {
         page: [
