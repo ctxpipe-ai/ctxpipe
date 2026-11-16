@@ -164,4 +164,63 @@ describe("the AgentCore provider in the chat sandbox image", () => {
     await provider.destroy({ id: handle.id })
     await provider.destroy({ id: source.id })
   }, 120_000)
+
+  it("sets up a new conversation in a pool session from its fill's clone, with no clone and no create", async () => {
+    const source = await provider.create({})
+    const made = await source.process.exec(
+      `rm -rf /tmp/src && git init -q -b main /tmp/src && cd /tmp/src && echo hi > README.md && git add . && git -c user.name=t -c user.email=t@t commit -qm init && git rev-parse HEAD`,
+    )
+    expect(made.exitCode).toBe(0)
+    const sha = made.stdout.trim()
+    // The fill (`fillChatSandboxPool`): a new session clones as node, as the
+    // stock bootstrap does, and waits.
+    const pooled = await provider.create({})
+    await pooled.git.clone({
+      url: "/tmp/src",
+      ref: "main",
+      auth: { token: "" },
+    })
+    // The claim (`withPoolClaim`): the conversation resumes that session.
+    const sandbox = defineSandbox({
+      id: "chat",
+      provider: withSessionOnlyEnv({
+        ...provider,
+        create: async () => {
+          const claimed = await provider.resume({ id: pooled.id })
+          if (!claimed) throw new Error("The pool session is gone")
+          return claimed
+        },
+      }),
+      workspace: conversationSandboxWorkspace({
+        isolation: "agentcore",
+        input: {
+          conversationId: "conv_pool",
+          orgId: "org_pool",
+          workspaceId: "ws_pool",
+          prompt: "prepare",
+          desiredSha: sha,
+          defaultBranch: "main",
+          writeStatus: "read_only",
+        },
+        cloneToken: "",
+        desiredUrl: "/tmp/src",
+        proxyUrl: "http://127.0.0.1:9/model",
+        modelBase: "http://127.0.0.1:9/v1",
+      }),
+    })
+    const before = fake.commandTexts.length
+    const handle = await sandbox.ensure({ threadId: "conv_pool", runId: "r1" })
+    const commands = fake.commandTexts.slice(before)
+    expect(handle.id).toBe(pooled.id)
+    const checkout = await handle.process.exec(
+      "git rev-parse HEAD; git branch --show-current; stat -c %U .git",
+    )
+    expect(checkout.stdout.trim().split("\n")).toEqual([sha, "main", "node"])
+    // The marker check, the clone check, one setup command: no session
+    // start and no clone (three commands fewer than a new sandbox).
+    expect(commands.length).toBeLessThanOrEqual(3)
+    expect(commands.filter((text) => text.includes("clone"))).toEqual([])
+    await provider.destroy({ id: handle.id })
+    await provider.destroy({ id: source.id })
+  }, 120_000)
 })

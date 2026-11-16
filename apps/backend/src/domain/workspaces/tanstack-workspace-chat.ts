@@ -55,6 +55,10 @@ import {
   workspaceChatDockerImage,
   workspaceChatRuntimeConfig,
 } from "./chat-runtime.js"
+import {
+  requestChatSandboxPoolFill,
+  withPoolClaim,
+} from "./chat-sandbox-pool.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
 import {
   conversationTurnFiles,
@@ -219,6 +223,8 @@ function conversationSandboxDefinition(input: {
   image: string
   revision: WorkspaceRevision
   conversationId: string
+  /** Runs after the sandbox is ready; it must not throw. */
+  onReady?: () => void
 }) {
   const definition = defineSandbox({
     // A relinked Workspace (new generation or connection) gets new sandboxes.
@@ -241,6 +247,7 @@ function conversationSandboxDefinition(input: {
           conversationId: input.conversationId,
           sandboxId: ready.id,
         })
+        input.onReady?.()
       },
     },
   })
@@ -269,18 +276,26 @@ export function conversationSandboxProvider(
   baseImage: () => Promise<string | undefined>,
   /** Docker: the run's proxy CA, written into each sandbox before its clone. */
   proxyCaPem?: string,
+  /** AgentCore: the Workspace whose warm pool a new sandbox claims from. */
+  pool?: Parameters<typeof withPoolClaim>[1],
 ): SandboxProvider {
   // AgentCore: as Docker, the run's Agent Vault adds each credential. A new
-  // session starts from git (no Workspace base, ADR-061 decision 18).
-  if (isolation === "agentcore")
+  // session claims a pool session that holds the clone, or starts from git
+  // (no Workspace base, ADR-061 decision 18).
+  if (isolation === "agentcore") {
+    const agentCore = configuredAgentCoreProvider()
     return withSingleOpencodeServer(
       withProxyCa(
         withSessionOnlyEnv(
-          withDockerAgentPort(configuredAgentCoreProvider(), { agentPassword }),
+          withDockerAgentPort(
+            pool ? withPoolClaim(agentCore, pool) : agentCore,
+            { agentPassword },
+          ),
         ),
         proxyCaPem,
       ),
     )
+  }
   if (isolation === "unsandboxed")
     return withOpencodeServeRetry(
       withOwnerWatchdog(
@@ -1359,11 +1374,17 @@ async function buildWorkspaceChatSandbox(
     input.orgId,
     input.workspaceId,
   )
+  const pool = {
+    orgId: input.orgId,
+    workspaceId: input.workspaceId,
+    revision: revision.data,
+  }
   const provider = conversationSandboxProvider(
     selectedProvider,
     agentPassword,
     baseImage,
     vault?.caPem,
+    pool,
   )
   return {
     ok: true as const,
@@ -1400,6 +1421,26 @@ async function buildWorkspaceChatSandbox(
       image,
       revision: revision.data,
       conversationId: input.conversationId,
+      // AgentCore: chat use keeps a warm session ready for the Workspace's
+      // next new conversation. A Files read (no label) fills nothing.
+      ...(selectedProvider === "agentcore" && cloneLabel
+        ? {
+            onReady: () =>
+              requestChatSandboxPoolFill({
+                ...pool,
+                provider: (caPem) =>
+                  withProxyCa(configuredAgentCoreProvider(), caPem),
+                openVault: (runKey) =>
+                  openDockerRunVault({
+                    orgId: input.orgId,
+                    conversationId: runKey,
+                    label: "pool",
+                    revision: revision.data,
+                    unmatchedHosts: "deny",
+                  }),
+              }),
+          }
+        : {}),
     }),
     contract,
     session,

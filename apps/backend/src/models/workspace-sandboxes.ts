@@ -1,11 +1,15 @@
 import {
   and,
   count,
+  desc,
   eq,
   getTableColumns,
+  gt,
   inArray,
+  isNotNull,
   isNull,
   ne,
+  notInArray,
   or,
   sql,
 } from "drizzle-orm"
@@ -30,8 +34,14 @@ import { orgSql } from "./workspace-sql.js"
  * `ingest`: one shard of an ingestion run (ADR-052). Its `conversationId`
  * holds the ingest thread (`ingest:<runId>:<shard>`), and `latestRunId` holds
  * the OpenWorkflow run id.
+ *
+ * `pool`: an AgentCore session that holds the clone of its Workspace
+ * repository and waits for a new conversation (CTX-1323). It has no
+ * conversation and no credentials. `building` while it fills, `live` when it
+ * is ready. A claim deletes the row, and the session becomes the
+ * conversation's sandbox.
  */
-export type SandboxInstanceKind = "chat" | "job" | "base" | "ingest"
+export type SandboxInstanceKind = "chat" | "job" | "base" | "ingest" | "pool"
 
 export type SandboxInstanceRecord = {
   id: string
@@ -130,7 +140,8 @@ function toSandboxInstanceRecord(
     row.kind !== "chat" &&
     row.kind !== "job" &&
     row.kind !== "base" &&
-    row.kind !== "ingest"
+    row.kind !== "ingest" &&
+    row.kind !== "pool"
   )
     return null
   if (
@@ -373,7 +384,9 @@ export async function countVercelSandboxRows(
  * running provider, including slots reserved for a create in progress, and
  * Workspace base builds whose lease holds (their builder runs). A finished
  * base is an image or a snapshot and runs nothing, and a lapsed build is
- * being cleaned up, so neither counts. `excludingId` leaves out the sandbox
+ * being cleaned up, so neither counts. Pool sessions have their own limit
+ * (`ORG_POOL_LIMIT`), and a claim moves one into a conversation's slot, so
+ * they do not count. `excludingId` leaves out the sandbox
  * about to start, so starting it again never counts twice. `kind` counts
  * only the running sandboxes of that kind.
  */
@@ -392,7 +405,7 @@ export async function countRunningSandboxes(
           or(
             and(
               eq(workspaceSandboxInstances.state, "live"),
-              ne(workspaceSandboxInstances.kind, "base"),
+              notInArray(workspaceSandboxInstances.kind, ["base", "pool"]),
             ),
             baseLeaseHeld,
           ),
@@ -590,5 +603,50 @@ export async function updateBuildingBase(input: {
       )
       .returning({ id: workspaceSandboxInstances.id })
     return updated.length === 1
+  })
+}
+
+/**
+ * Take one ready pool session of the Workspace for a new conversation, and
+ * give its provider session id, or null when none is ready. The row goes in
+ * the same statement, and `skip locked` passes over a row that a parallel
+ * claim holds, so two claims never get the same session. Only a session of
+ * the same repository, generation and connection, made after `readySince`,
+ * matches.
+ */
+export async function claimPoolSession(input: {
+  orgId: string
+  workspaceId: string
+  revision: Pick<WorkspaceRevision, "remote" | "generation">
+  readySince: Date
+}): Promise<string | null> {
+  const t = workspaceSandboxInstances
+  return withSandboxInstanceDb(input.orgId, async () => {
+    const ready = getOrgDb()
+      .select({ id: t.id })
+      .from(t)
+      .where(
+        and(
+          eq(t.orgId, input.orgId),
+          eq(t.workspaceId, input.workspaceId),
+          eq(t.kind, "pool"),
+          eq(t.state, "live"),
+          isNotNull(t.providerSandboxId),
+          gt(t.lastHeartbeatAt, input.readySince),
+          sql`${t.revision}->'remote'->>'url' = ${input.revision.remote.url}`,
+          sql`coalesce(${t.revision}->'remote'->>'connectionId', '') = ${input.revision.remote.connectionId ?? ""}`,
+          sql`(${t.revision}->>'generation')::int = ${input.revision.generation}`,
+        ),
+      )
+      .orderBy(desc(t.lastHeartbeatAt))
+      .limit(1)
+      .for("update", { skipLocked: true })
+    const [claimed] = await getOrgDb()
+      .delete(t)
+      // A scalar subquery runs once: `in (...)` may run it again for each
+      // row and lock a row that the delete then misses.
+      .where(eq(t.id, sql`(${ready})`))
+      .returning({ providerSandboxId: t.providerSandboxId })
+    return claimed?.providerSandboxId ?? null
   })
 }
