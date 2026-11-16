@@ -1,12 +1,20 @@
 import { syncBuiltinESMExports } from "node:module"
 
-import { trace } from "@opentelemetry/api"
+import { type ProxyTracerProvider, trace } from "@opentelemetry/api"
 import { logs } from "@opentelemetry/api-logs"
 import type { LoggerProvider } from "@opentelemetry/sdk-logs"
 import type { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 
 import {
   scrubServerErrorText,
@@ -74,11 +82,23 @@ function attributes(list: KeyValue[]): Record<string, unknown> {
 }
 
 async function flush(): Promise<void> {
-  const tracer = trace.getTracerProvider() as unknown as {
-    getDelegate(): NodeTracerProvider
-  }
-  await tracer.getDelegate().forceFlush()
+  const tracer = trace.getTracerProvider() as ProxyTracerProvider
+  await (tracer.getDelegate() as NodeTracerProvider).forceFlush()
   await (logs.getLoggerProvider() as LoggerProvider).forceFlush()
+}
+
+function spanAt(path: string): OtlpSpan {
+  const span = spans.find(
+    (candidate) => attributes(candidate.attributes)["url.path"] === path,
+  )
+  if (!span) throw new Error(`no span for ${path}`)
+  return span
+}
+
+function logIn(span: OtlpSpan): OtlpLog {
+  const record = records.find((candidate) => candidate.traceId === span.traceId)
+  if (!record) throw new Error("no log in the trace of the span")
+  return record
 }
 
 describe("serverTelemetryEndpoints", () => {
@@ -108,36 +128,53 @@ describe("serverTelemetryEndpoints", () => {
 })
 
 describe("scrubServerErrorText", () => {
-  it("removes credentials, URL queries, token paths, and emails", () => {
-    const text = scrubServerErrorText(
-      [
-        "fetch https://api.test/v1/x?token=abc#frag failed for jane@example.test",
-        "cookie: better-auth.session_token=s3cr3t; theme=dark",
-        '{"authorization":"Bearer abc.def"}',
-        "x-api-key=k3y",
-        "sent Bearer eyJhbGciOi.payload.sig",
-        "/reset-password/rst-token",
-      ].join("\n"),
-    )
-    for (const secret of [
-      "token=abc",
-      "frag",
-      "jane@example.test",
-      "s3cr3t",
-      "dark",
-      "abc.def",
-      "k3y",
-      "eyJhbGciOi",
-      "rst-token",
-    ]) {
-      expect(text).not.toContain(secret)
-    }
-    expect(text).toContain("https://api.test/v1/x")
-    expect(text).toContain("/reset-password/{token}")
-  })
+  it.each([
+    [
+      "request to https://api.test/v1/x?token=abc#frag failed for jane@example.test",
+      "request to https://api.test/v1/x failed for {email}",
+    ],
+    [
+      "better-auth.session_token=s3cr3t rejected",
+      "better-auth.session_token={redacted} rejected",
+    ],
+    [
+      "password=hunter2 and x-api-key=k3y rejected",
+      "password={redacted} and x-api-key={redacted} rejected",
+    ],
+    ["sent Bearer eyJhbGciOi.payload.sig", "sent Bearer {redacted}"],
+    ["cookie=s3cr3t; theme=dark", "cookie={redacted}"],
+    [
+      "/reset-password/rst-token not found",
+      "/reset-password/{token} not found",
+    ],
+  ])(
+    "removes credentials, URL queries, token paths, and emails: %s",
+    (text, scrubbed) => {
+      expect(scrubServerErrorText(text)).toBe(scrubbed)
+    },
+  )
 
-  it("cuts long text, such as a prompt that an error repeats", () => {
-    expect(scrubServerErrorText("a".repeat(5_000))).toHaveLength(300)
+  it.each([
+    ["prompt: confidential question", "prompt"],
+    ["Unexpected input: tell me the secret plan", "Unexpected input"],
+    [
+      "Unexpected token 'h', \"here is my secret plan\" is not valid JSON",
+      "Unexpected token {redacted}, {redacted} is not valid JSON",
+    ],
+    [
+      "Parse error on line 2:\nthe secret plan diagram",
+      "Parse error on line 2",
+    ],
+    ["Error in renderToReadableStream:", "Error in renderToReadableStream"],
+  ])(
+    "keeps only the head of the text, with no quoted part: %s",
+    (text, head) => {
+      expect(scrubServerErrorText(text)).toBe(head)
+    },
+  )
+
+  it("cuts a long head", () => {
+    expect(scrubServerErrorText("a".repeat(5_000))).toHaveLength(120)
   })
 })
 
@@ -153,6 +190,10 @@ describe("startServerTelemetry", () => {
     server.close()
     syncBuiltinESMExports()
   })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
 
   it("does not start and leaves console.error as it is without an endpoint", () => {
     vi.stubEnv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "")
@@ -160,10 +201,9 @@ describe("startServerTelemetry", () => {
     const before = console.error
     expect(startServerTelemetry()).toBe(false)
     expect(console.error).toBe(before)
-    vi.unstubAllEnvs()
   })
 
-  it("exports a render error as an Error span with an exception event and as an ERROR log", async () => {
+  it("exports each server error as an Error span with an exception event and as an ERROR log in its trace", async () => {
     vi.stubEnv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", `${collector}/v1/traces`)
     vi.stubEnv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", `${collector}/v1/logs`)
     vi.stubEnv("OTEL_SERVICE_NAME", "ui")
@@ -171,44 +211,67 @@ describe("startServerTelemetry", () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
     expect(startServerTelemetry()).toBe(true)
 
-    const request = new Request("http://ui.test/missing-page?invite=abc#frag", {
-      headers: { cookie: "session=s3cr3t" },
-    })
-    const response = await traceServerRequest(request, async () => {
-      const error = new Error(
-        "Unauthorized: cookie: session=s3cr3t for jane@example.test",
-      )
-      error.name = "ApiError"
-      console.error("Error in renderToReadableStream:", error, {
-        componentStack: "\n    at OrgScopedLayout",
-      })
-      return new Response("<html>error</html>", { status: 500 })
-    })
-    expect(await response.text()).toBe("<html>error</html>")
+    // A render error that React reports with console.error.
+    const render = await traceServerRequest(
+      new Request("http://ui.test/missing-page?invite=abc#frag", {
+        headers: { cookie: "session=s3cr3t" },
+      }),
+      async () => {
+        const error = new Error(
+          "Unauthorized: the prompt text for jane@example.test\n    at cookie: session=s3cr3t",
+        )
+        error.name = "ApiError"
+        console.error("Error in renderToReadableStream:", error, {
+          componentStack: "\n    at OrgScopedLayout",
+        })
+        return new Response("<html>error</html>", { status: 500 })
+      },
+    )
+    expect(await render.text()).toBe("<html>error</html>")
+
+    // A stream that fails after the response started.
+    const streamed = await traceServerRequest(
+      new Request("http://ui.test/streamed"),
+      async () =>
+        new Response(
+          new ReadableStream({
+            pull(controller) {
+              controller.error(new TypeError("stream broke: s3cr3t"))
+            },
+          }),
+        ),
+    )
+    await expect(streamed.text()).rejects.toThrow("stream broke")
+
+    // A handler that rejects.
+    await expect(
+      traceServerRequest(new Request("http://ui.test/rejected"), async () => {
+        throw new RangeError("out of range: s3cr3t")
+      }),
+    ).rejects.toThrow("out of range")
+
     await traceServerRequest(
       new Request("http://ui.test/.otel/v1/traces", { method: "POST" }),
       async () => new Response(null, { status: 204 }),
     )
     await flush()
 
-    expect(spans).toHaveLength(1)
-    const [span] = spans
-    expect(span?.name).toBe("GET")
-    expect(span?.kind).toBe(2)
-    expect(span?.status.code).toBe(2)
-    expect(attributes(span?.attributes ?? [])).toEqual({
+    expect(spans).toHaveLength(3)
+    const renderSpan = spanAt("/missing-page")
+    expect(renderSpan.name).toBe("GET")
+    expect(renderSpan.kind).toBe(2)
+    expect(renderSpan.status.code).toBe(2)
+    expect(attributes(renderSpan.attributes)).toEqual({
       "http.request.method": "GET",
       "url.path": "/missing-page",
       "http.response.status_code": 500,
     })
-    expect(span?.events.map((event) => event.name)).toEqual(["exception"])
-    const exception = attributes(span?.events[0]?.attributes ?? [])
+    expect(renderSpan.events.map((event) => event.name)).toEqual(["exception"])
+    const exception = attributes(renderSpan.events[0]?.attributes ?? [])
     expect(exception["exception.type"]).toBe("ApiError")
-    expect(exception["exception.message"]).toBe(
-      "Unauthorized: cookie: {redacted}",
-    )
+    expect(exception["exception.message"]).toBe("Unauthorized")
     expect(String(exception["exception.stacktrace"])).toMatch(
-      /^ApiError: Unauthorized: cookie: \{redacted\}\n\s+at /,
+      /^ApiError: Unauthorized\n\s+at /,
     )
     expect(attributes(resources[0] ?? [])).toMatchObject({
       "service.name": "ui",
@@ -216,22 +279,39 @@ describe("startServerTelemetry", () => {
       "deployment.environment": "pr-7",
       "telemetry.sdk.language": "nodejs",
     })
-
-    expect(records).toHaveLength(1)
-    const [record] = records
-    expect(record?.severityNumber).toBe(17)
-    expect(record?.severityText).toBe("ERROR")
-    expect(record?.traceId).toBe(span?.traceId)
-    expect(record?.body.stringValue).toBe(
-      "Error in renderToReadableStream: ApiError: Unauthorized: cookie: {redacted}",
+    const renderLog = logIn(renderSpan)
+    expect(renderLog.severityNumber).toBe(17)
+    expect(renderLog.severityText).toBe("ERROR")
+    expect(renderLog.body.stringValue).toBe(
+      "Error in renderToReadableStream: ApiError: Unauthorized",
     )
-    expect(attributes(record?.attributes ?? [])).toMatchObject({
+    expect(attributes(renderLog.attributes)).toMatchObject({
       "exception.type": "ApiError",
-      "exception.message": "Unauthorized: cookie: {redacted}",
+      "exception.message": "Unauthorized",
     })
 
+    for (const [path, type, message] of [
+      ["/streamed", "TypeError", "stream broke"],
+      ["/rejected", "RangeError", "out of range"],
+    ] as const) {
+      const span = spanAt(path)
+      expect(span.status.code).toBe(2)
+      expect(attributes(span.events[0]?.attributes ?? [])).toMatchObject({
+        "exception.type": type,
+        "exception.message": message,
+      })
+      expect(logIn(span).body.stringValue).toBe(`${type}: ${message}`)
+    }
+    expect(records).toHaveLength(3)
+
     const exported = JSON.stringify({ spans, records })
-    for (const secret of ["s3cr3t", "invite=abc", "frag", "jane@example"]) {
+    for (const secret of [
+      "s3cr3t",
+      "prompt text",
+      "invite=abc",
+      "frag",
+      "jane@example",
+    ]) {
       expect(exported).not.toContain(secret)
     }
   })

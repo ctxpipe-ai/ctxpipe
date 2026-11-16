@@ -43,7 +43,6 @@ import { deploymentName } from "./otelEnv"
  */
 
 const SCOPE = "ctxpipe-ui-server"
-const MAX_MESSAGE = 300
 
 type ServerTelemetryEndpoints = { traces?: string; logs?: string }
 
@@ -142,8 +141,7 @@ export async function traceServerRequest(
     try {
       response = await handle()
     } catch (error) {
-      if (error instanceof Error) span.recordException(scrubbedError(error))
-      span.setStatus({ code: SpanStatusCode.ERROR })
+      reportError(span, error)
       span.end()
       throw error
     }
@@ -171,7 +169,7 @@ function endSpanAfterBody(response: Response, span: Span): Response {
         span.end()
         controller.close()
       } catch (error) {
-        span.setStatus({ code: SpanStatusCode.ERROR })
+        reportError(span, error)
         span.end()
         controller.error(error)
       }
@@ -184,22 +182,34 @@ function endSpanAfterBody(response: Response, span: Span): Response {
   return new Response(stream, response)
 }
 
+/** A `console.error` call: the error goes to the active request span. */
 function reportServerError(args: unknown[]): void {
-  const error = args.find((arg): arg is Error => arg instanceof Error)
-  const exception = error ? scrubbedError(error) : undefined
-  const text = args.filter((arg) => typeof arg === "string").join(" ")
-  const body = scrubServerErrorText(
-    exception ? `${text} ${exception.name}: ${exception.message}` : text,
-  )
-  const span = trace.getActiveSpan()
+  const error = args.find((arg) => arg instanceof Error)
+  const label = args.filter((arg) => typeof arg === "string").join(" ")
+  reportError(trace.getActiveSpan(), error, label)
+}
+
+/**
+ * Set the span to Error with an exception event, and write an ERROR log in
+ * the trace of the span.
+ */
+function reportError(span: Span | undefined, error: unknown, label = ""): void {
+  const exception = error instanceof Error ? scrubbedError(error) : undefined
   if (span) {
     if (exception) span.recordException(exception)
     span.setStatus({ code: SpanStatusCode.ERROR })
   }
+  const body = [
+    scrubServerErrorText(label),
+    exception && `${exception.name}: ${exception.message}`,
+  ]
+    .filter(Boolean)
+    .join(": ")
   logs.getLogger(SCOPE).emit({
     severityNumber: SeverityNumber.ERROR,
     severityText: "ERROR",
-    body,
+    body: body || "Server error",
+    context: span ? trace.setSpan(context.active(), span) : undefined,
     attributes: exception
       ? {
           "exception.type": exception.name,
@@ -212,35 +222,63 @@ function reportServerError(args: unknown[]): void {
 
 /**
  * Name, scrubbed message, and stack frames only. The copy drops the other
- * fields of the error (a response body, a request, a cause), and the stack
- * gets the scrubbed message in place of the original one.
+ * fields of the error (a response body, a request, a cause). The stack
+ * starts with the original message, which can have more than one line, so
+ * the frames are the lines after it. A stack that does not contain the
+ * message gives no frames.
  */
 function scrubbedError(error: Error): Error {
+  const name = error.name || "Error"
   const message = scrubServerErrorText(error.message)
   const copy = new Error(message)
-  copy.name = error.name || "Error"
-  const frames = (error.stack ?? "")
-    .split("\n")
-    .filter((line) => /^\s+at\s/.test(line))
-    .map(scrubTelemetryString)
-  copy.stack = [`${copy.name}: ${message}`, ...frames].join("\n")
+  copy.name = name
+  const stack = error.stack ?? ""
+  const start = error.message
+    ? stack.indexOf(error.message)
+    : stack.indexOf("\n")
+  const frames =
+    start < 0
+      ? []
+      : stack
+          .slice(start + error.message.length)
+          .split("\n")
+          .filter((line) => /^\s+at\s/.test(line))
+          .map(scrubCredentials)
+  copy.stack = [`${name}: ${message}`, ...frames].join("\n")
   return copy
 }
 
 /**
- * Remove credentials and personal data from error text before export: URL
- * queries and fragments, token path segments, emails (`otelBrowserScrub`),
- * header values of `cookie`, `authorization` and API keys, and bearer or
- * basic tokens. The length limit keeps long user input, such as a prompt
- * that an error message repeats, out of the telemetry.
+ * The head of an error text: the part that names the failure, such as
+ * "Unauthorized" or "Error in renderToReadableStream". It is the first line
+ * up to the first ": ", with each quoted part replaced, after credential
+ * scrubbing. The detail after the head (a value, a request body, or a
+ * prompt that the error repeats) is not exported. The exception type and
+ * the stack frames give the rest of the diagnosis.
  */
 export function scrubServerErrorText(text: string): string {
+  const unquoted = scrubCredentials(text).replace(
+    /"[^"]*"?|'[^']*'?|`[^`]*`?/g,
+    "{redacted}",
+  )
+  return (unquoted.split(/\r?\n|:(?:\s|$)/, 1)[0] ?? "").trim().slice(0, 120)
+}
+
+/**
+ * URL queries and fragments, token path segments and emails
+ * (`otelBrowserScrub`), the values of `cookie` and `authorization` headers,
+ * of keys that end in token, secret, password or API key, and bearer or
+ * basic credentials.
+ */
+function scrubCredentials(text: string): string {
   return scrubTelemetryString(text)
     .replace(
-      /\b(set-cookie|cookie|authorization|x-api-key)(["']?\s*[:=]\s*["']?)[^\r\n"']*/gi,
+      /\b(set-cookie|cookie|proxy-authorization|authorization)(["']?\s*[:=]\s*["']?)[^\r\n"']*/gi,
+      "$1$2{redacted}",
+    )
+    .replace(
+      /\b([\w.-]*(?:token|secret|password|passwd|api[_-]?key))(["']?\s*[:=]\s*["']?)[^\s"'&;,}]+/gi,
       "$1$2{redacted}",
     )
     .replace(/\b(bearer|basic)\s+[\w.~+/=-]+/gi, "$1 {redacted}")
-    .trim()
-    .slice(0, MAX_MESSAGE)
 }
