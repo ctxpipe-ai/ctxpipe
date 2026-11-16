@@ -3,6 +3,15 @@ import { HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import {
+  docsConversations,
+  docsWorkspace,
+} from "@/features/workspaces/workspace-fixtures"
+import {
+  conversationsListHandler,
+  workspaceListHandler,
+} from "@/mocks/workspace-handlers"
+
+import {
   entryPageInnerDecorators,
   orgPageDecorators,
 } from "../../.storybook/decorators/entry-page-decorators"
@@ -10,7 +19,9 @@ import type { StoryRouteParams } from "../../.storybook/decorators/with-story-ro
 import {
   authConfigHandler,
   organizationListHandler,
+  organizationSetActiveHandler,
   sessionSignedInHandler,
+  userInvitationsEmptyHandler,
 } from "../mocks/handlers"
 import { AccountSettingsBody } from "./[.]auth.account.$accountView"
 
@@ -46,6 +57,9 @@ export const ApiKeysEmpty: Story = {
         page: [
           http.get("*/.auth/api/v1/auth/api-key/list", () =>
             HttpResponse.json({ apiKeys: [], total: 0 }),
+          ),
+          http.get("*/api/v1/me/api-keys", () =>
+            HttpResponse.json({ keys: [] }),
           ),
         ],
       },
@@ -87,6 +101,17 @@ export const Settings: Story = {
       pattern: "flat",
       path: "/.auth/account",
     } satisfies StoryRouteParams,
+    // The app shell lists the Workspaces of the org. The user has no
+    // invitation.
+    msw: {
+      handlers: {
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          conversationsListHandler(docsConversations),
+          userInvitationsEmptyHandler,
+        ],
+      },
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -114,6 +139,17 @@ export const OrganizationsView: Story = {
       pattern: "flat",
       path: "/.auth/account/organizations",
     } satisfies StoryRouteParams,
+    // The app shell lists the Workspaces of the org. The user has no
+    // invitation.
+    msw: {
+      handlers: {
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          conversationsListHandler(docsConversations),
+          userInvitationsEmptyHandler,
+        ],
+      },
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -606,6 +642,9 @@ function deletedOrganizationBackend(
         }
         return HttpResponse.json({ items: [], lastUsedWorkspaceId: null })
       }),
+      userInvitationsEmptyHandler,
+      // The shell makes the first org active in place of the deleted one.
+      organizationSetActiveHandler(),
     ],
   }
 }

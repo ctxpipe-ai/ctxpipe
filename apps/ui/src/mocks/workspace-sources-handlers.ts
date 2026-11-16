@@ -8,6 +8,8 @@ import type {
   WorkspaceSourceListResponse,
 } from "@/features/workspace-sources/queries"
 
+import { type MockState, mockResponse } from "./mock-state"
+
 /** Story fixtures and msw handlers for the Workspace sources contract. */
 
 function pathnameOf(request: Request) {
@@ -49,17 +51,12 @@ export function workspaceSourceList(
 }
 
 export function workspaceSourcesHandler(
-  response: WorkspaceSourceListResponse | "loading" | "error",
+  response: MockState<WorkspaceSourceListResponse>,
 ) {
   return http.get(
     ({ request }) =>
       /\/api\/v1\/workspaces\/[^/]+\/sources$/.test(pathnameOf(request)),
-    async () => {
-      if (response === "loading") await delay("infinite")
-      if (response === "error" || response === "loading")
-        return HttpResponse.json({ error: "Server error" }, { status: 500 })
-      return HttpResponse.json(response)
-    },
+    () => mockResponse(response),
   )
 }
 
@@ -127,23 +124,20 @@ export function workspaceSourceChangeHandlers(
 }
 
 export function connectionUsageHandler(
-  items: ConnectionUsageItem[] | "loading",
+  items: MockState<ConnectionUsageItem[]>,
 ) {
   return http.get(
     ({ request }) =>
       /\/api\/v1\/connectors\/[^/]+\/workspaces$/.test(pathnameOf(request)),
-    async () => {
-      if (items === "loading") await delay("infinite")
-      return HttpResponse.json({ items: items === "loading" ? [] : items })
-    },
+    () => mockResponse(items, (items) => HttpResponse.json({ items })),
   )
 }
 
 /** The org role of the story user (`get-active-member-role`). */
-export function activeMemberRoleHandler(role: string) {
+export function activeMemberRoleHandler(role: MockState<string>) {
   return http.get(
     "*/.auth/api/v1/auth/organization/get-active-member-role",
-    () => HttpResponse.json({ role }),
+    () => mockResponse(role, (value) => HttpResponse.json({ role: value })),
   )
 }
 

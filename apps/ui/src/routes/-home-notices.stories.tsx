@@ -8,8 +8,10 @@ import {
   docsWorkspaceDetail,
   legacyOverlaySkippedFile,
 } from "@/features/workspaces/workspace-fixtures"
+import { githubInstallationLinkedHandler } from "@/mocks/handlers"
+import { setupGuideHandlers } from "@/mocks/setup-guide-handlers"
 import { workspaceShellHandlers } from "@/mocks/workspace-handlers"
-import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
+import { orgConnectionsHandler } from "@/mocks/workspace-sources-handlers"
 import {
   pendingWorkspaceUpgradesHandler,
   upgradeItemFixture,
@@ -80,7 +82,14 @@ function homeHandlers(
         // The global default answers "no pending upgrade"; this key replaces it.
         pendingUpgrades: [pendingWorkspaceUpgradesHandler(items, answered)],
         page: [
-          activeMemberRoleHandler(role),
+          // The setup guide reads of the org: GitHub is linked and connected.
+          ...setupGuideHandlers({
+            role,
+            github: githubInstallationLinkedHandler,
+            connectors: orgConnectionsHandler([
+              { id: "con_gh", type: "github" },
+            ]),
+          }),
           // The detail of each Workspace, with its skipped files.
           http.get(/\/api\/v1\/workspaces\/([^/]+)$/, ({ request }) => {
             const slug = new URL(request.url).pathname.split("/").pop() ?? ""
@@ -95,7 +104,6 @@ function homeHandlers(
               skippedFiles: skippedFiles[slug] ?? [],
             })
           }),
-          ...workspaceShellHandlers({ workspaces: [docsWorkspace, handbook] }),
           workspaceUpgradeStartHandler({ requests }),
           ...workspaceUpgradeAutomaticHandlers({
             requests,
@@ -106,6 +114,7 @@ function homeHandlers(
             perWorkspaceReads.push("upgrades")
             return HttpResponse.json({ error: "Not expected" }, { status: 500 })
           }),
+          ...workspaceShellHandlers({ workspaces: [docsWorkspace, handbook] }),
         ],
       },
     },

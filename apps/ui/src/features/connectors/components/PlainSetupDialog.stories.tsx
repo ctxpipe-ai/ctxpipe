@@ -12,6 +12,8 @@ import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
   connectionUsageHandler,
   workspaceSourceChangeHandlers,
+  workspaceSourceList,
+  workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
 
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
@@ -173,6 +175,8 @@ export const AddToWorkspaces: Story = {
       handlers: {
         page: [
           ...workspacesHandlers,
+          // The Workspace has no source before the add.
+          workspaceSourcesHandler(workspaceSourceList()),
           ...workspaceSourceChangeHandlers(addCalls),
         ],
       },

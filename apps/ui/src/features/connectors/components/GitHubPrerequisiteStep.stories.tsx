@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 
+import { githubAppMissingHandlers } from "@/mocks/handlers"
+
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { GitHubPrerequisiteStep } from "./GitHubPrerequisiteStep"
@@ -17,6 +19,7 @@ const meta = {
       orgSlug,
     } satisfies StoryRouteParams,
     review: { kind: "component" },
+    msw: { handlers: { github: githubAppMissingHandlers } },
   },
 } satisfies Meta<typeof GitHubPrerequisiteStep>
 

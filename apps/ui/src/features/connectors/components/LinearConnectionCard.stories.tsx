@@ -3,11 +3,15 @@ import { delay, HttpResponse, http } from "msw"
 import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
+import { linearOauthAppHandler } from "@/mocks/linear-handlers"
 import {
   activeMemberRoleHandler,
   connectionSyncHandler,
   connectionUsageHandler,
   connectionUsageItem,
+  workspaceSourceFixture,
+  workspaceSourceList,
+  workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
 
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
@@ -55,6 +59,23 @@ const meta = {
   parameters: {
     msw: {
       handlers: {
+        oauthApp: [linearOauthAppHandler()],
+        // The Docs Workspace has the Linear source of the usage below.
+        sources: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                workspaceSourceFixture({
+                  path: "sources/linear/eng.md",
+                  provider: "linear",
+                  connectionId,
+                  connectionName: "Acme Product",
+                  scopeSummary: "1 Linear team",
+                }),
+              ],
+            }),
+          ),
+        ],
         usage: [
           connectionUsageHandler([
             connectionUsageItem({

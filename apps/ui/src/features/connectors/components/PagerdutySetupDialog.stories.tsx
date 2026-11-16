@@ -7,6 +7,8 @@ import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
   connectionUsageHandler,
   workspaceSourceChangeHandlers,
+  workspaceSourceList,
+  workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
 
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
@@ -213,6 +215,8 @@ const installedHandlers = [
   pagerdutyStatus(installedStatus),
   workspaceListHandler([docsWorkspace]),
   pagerdutyServicesHandler,
+  // The Workspace has no source before the add.
+  workspaceSourcesHandler(workspaceSourceList()),
   ...workspaceSourceChangeHandlers(addCalls),
   connectionUsageHandler([]),
 ]

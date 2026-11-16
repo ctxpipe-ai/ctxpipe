@@ -2,8 +2,11 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
-import { githubConnectorBootstrapHandler } from "@/features/connectors/mocks/github-bootstrap-msw"
-import { githubInstallationLinkedHandler } from "@/mocks/handlers"
+import {
+  githubAppInstalledHandlers,
+  githubAppMissingHandlers,
+  githubInstallationLinkedHandler,
+} from "@/mocks/handlers"
 import {
   githubInstallationReposHandler,
   orgGithubConnectionsHandler,
@@ -43,6 +46,7 @@ const meta = {
           orgGithubConnectionsHandler(),
           githubInstallationReposHandler(),
         ],
+        github: githubAppInstalledHandlers,
       },
     },
   },
@@ -146,11 +150,7 @@ export const NoGithubConnection: Story = {
         page: [
           workspaceListHandler([docsWorkspace]),
           orgGithubConnectionsHandler([]),
-          githubConnectorBootstrapHandler({
-            orgSlug: "acme",
-            hostedDefaultAppInstallUrl:
-              "https://github.com/apps/ctxpipe/installations/new",
-          }),
+          ...githubAppMissingHandlers,
         ],
       },
     },
@@ -294,11 +294,7 @@ export const CreateOnGitHubNoConnection: Story = {
         page: [
           workspaceListHandler([docsWorkspace]),
           orgGithubConnectionsHandler([]),
-          githubConnectorBootstrapHandler({
-            orgSlug: "acme",
-            hostedDefaultAppInstallUrl:
-              "https://github.com/apps/ctxpipe/installations/new",
-          }),
+          ...githubAppMissingHandlers,
         ],
       },
     },

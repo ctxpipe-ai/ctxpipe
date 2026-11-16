@@ -2,6 +2,10 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import {
+  atlassianCapabilitiesHandler,
+  atlassianOauthHandler,
+} from "@/mocks/atlassian-handlers"
 import { confluenceTreeHandlers } from "@/mocks/confluence-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
@@ -50,32 +54,6 @@ const statusUnscoped = (s: AtlassianConnectorStatus) =>
     () => HttpResponse.json(s),
   )
 
-function orgAtlassianOauthGet(
-  oauthAppSaved: boolean,
-  globalAtlassianOAuthConfigured = false,
-) {
-  return http.get(
-    ({ request }) => {
-      const u = new URL(request.url)
-      return (
-        u.pathname === `/${orgSlug}/api/v1/org/atlassian-oauth` &&
-        u.searchParams.get("connectionId") === atlassianConnectionId
-      )
-    },
-    ({ request }) =>
-      HttpResponse.json({
-        oauthAppSaved,
-        atlassianOAuthClientId: oauthAppSaved
-          ? "atlassian-oauth-client-id-story"
-          : null,
-        globalAtlassianOAuthConfigured,
-        oauthCallbackUrl: `${new URL(request.url).origin}/api/v1/integrations/atlassian/callback`,
-        atlassianCreateUrl:
-          "https://developer.atlassian.com/cloud/oauth-2-3lo-apps",
-      }),
-  )
-}
-
 const orgAtlassianOauthPut = http.put(
   ({ request }) => {
     const u = new URL(request.url)
@@ -85,21 +63,6 @@ const orgAtlassianOauthPut = http.put(
     )
   },
   () => new HttpResponse(null, { status: 204 }),
-)
-
-const capabilitiesHosted = http.get(
-  ({ request }) => {
-    const u = new URL(request.url)
-    return (
-      u.pathname === `/${orgSlug}/api/v1/capabilities` &&
-      u.searchParams.get("connectionId") === atlassianConnectionId
-    )
-  },
-  () =>
-    HttpResponse.json({
-      confluenceForgeInstallUrl:
-        "https://marketplace.atlassian.com/apps/123/ctxpipe",
-    }),
 )
 
 const installationPost = http.post(
@@ -216,7 +179,7 @@ export const Loading: Story = {
               return HttpResponse.json(s0)
             },
           ),
-          orgAtlassianOauthGet(false, false),
+          atlassianOauthHandler({ oauthAppSaved: false }),
         ],
       },
     },
@@ -239,7 +202,7 @@ export const StatusError: Story = {
             ({ request }) => statusUrlMatches(request, atlassianConnectionId),
             () => new HttpResponse(null, { status: 500 }),
           ),
-          orgAtlassianOauthGet(false, false),
+          atlassianOauthHandler({ oauthAppSaved: false }),
         ],
       },
     },
@@ -256,7 +219,11 @@ export const RegisterAtlassianOauth: Story = {
     },
     msw: {
       handlers: {
-        page: [status(s0), orgAtlassianOauthGet(false), orgAtlassianOauthPut],
+        page: [
+          status(s0),
+          atlassianOauthHandler({ oauthAppSaved: false }),
+          orgAtlassianOauthPut,
+        ],
       },
     },
   },
@@ -274,7 +241,7 @@ export const LinkAtlassianSignIn: Story = {
       handlers: {
         page: [
           status(s0),
-          orgAtlassianOauthGet(true, false),
+          atlassianOauthHandler({ oauthAppSaved: true }),
           orgAtlassianOauthPut,
         ],
       },
@@ -292,7 +259,13 @@ export const LinkAtlassianGlobalEnv: Story = {
     },
     msw: {
       handlers: {
-        page: [status(s0), orgAtlassianOauthGet(false, true)],
+        page: [
+          status(s0),
+          atlassianOauthHandler({
+            oauthAppSaved: false,
+            globalAtlassianOAuthConfigured: true,
+          }),
+        ],
       },
     },
   },
@@ -310,9 +283,11 @@ export const InstallForge: Story = {
       handlers: {
         page: [
           status(sInstall),
-          capabilitiesHosted,
+          atlassianCapabilitiesHandler(
+            "https://marketplace.atlassian.com/apps/123/ctxpipe",
+          ),
           installationPost,
-          orgAtlassianOauthGet(true, false),
+          atlassianOauthHandler({ oauthAppSaved: true }),
         ],
       },
     },
@@ -331,9 +306,11 @@ export const WaitForInstall: Story = {
       handlers: {
         page: [
           status(sInstall),
-          capabilitiesHosted,
+          atlassianCapabilitiesHandler(
+            "https://marketplace.atlassian.com/apps/123/ctxpipe",
+          ),
           installationPost,
-          orgAtlassianOauthGet(true, false),
+          atlassianOauthHandler({ oauthAppSaved: true }),
         ],
       },
     },
@@ -366,10 +343,12 @@ const installationPostRecorded = http.post(
 )
 const installHandlers = [
   status(sInstall),
-  capabilitiesHosted,
+  atlassianCapabilitiesHandler(
+    "https://marketplace.atlassian.com/apps/123/ctxpipe",
+  ),
   installationPostRecorded,
   installationDelete,
-  orgAtlassianOauthGet(true, false),
+  atlassianOauthHandler({ oauthAppSaved: true }),
 ]
 
 /** Close: ask the server to delete the draft while it is empty. */
@@ -431,10 +410,12 @@ export const AddToWorkspaces: Story = {
       handlers: {
         page: [
           status(sInstalled),
-          orgAtlassianOauthGet(true, false),
+          atlassianOauthHandler({ oauthAppSaved: true }),
           workspaceListHandler([docsWorkspace]),
           ...confluenceTreeHandlers,
           connectionUsageHandler([]),
+          // The Workspace has no source before the add.
+          workspaceSourcesHandler(workspaceSourceList()),
           ...workspaceSourceChangeHandlers(addCalls),
         ],
       },
@@ -500,7 +481,7 @@ export const ManageKeepsTheCurrentScope: Story = {
       handlers: {
         page: [
           status(sInstalled),
-          orgAtlassianOauthGet(true, false),
+          atlassianOauthHandler({ oauthAppSaved: true }),
           workspaceListHandler([docsWorkspace]),
           ...confluenceTreeHandlers,
           connectionUsageHandler([
@@ -565,7 +546,7 @@ export const ReplacedSetup: Story = {
             setupPhase: "awaiting_merge",
             pendingConfigPullUrl: "https://github.com/acme/wiki/pull/12",
           }),
-          orgAtlassianOauthGet(true, false),
+          atlassianOauthHandler({ oauthAppSaved: true }),
           workspaceListHandler([docsWorkspace]),
           ...confluenceTreeHandlers,
           connectionUsageHandler([]),

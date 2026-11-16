@@ -1,6 +1,7 @@
-import { delay, HttpResponse, http } from "msw"
+import { delay, HttpResponse, http, ws } from "msw"
 
 import type {
+  ChatMessage,
   ConversationDetail,
   ConversationListItem,
   PageInfo,
@@ -8,6 +9,8 @@ import type {
 import type {
   ConversationGitDiffResponse,
   ConversationGitStatusResponse,
+  ConversationPullRequestResponse,
+  ConversationTurnChangesResponse,
   Workspace,
   WorkspaceActivityResponse,
   WorkspaceDetail,
@@ -33,6 +36,18 @@ import {
   readOnlyWorkspace,
 } from "@/features/workspaces/workspace-fixtures"
 
+import { type MockState, mockResponse } from "./mock-state"
+import {
+  orgConnectionsHandler,
+  workspaceSourceList,
+  workspaceSourcesHandler,
+} from "./workspace-sources-handlers"
+import {
+  upgradesFixture,
+  workspaceUpgradeAutomaticHandlers,
+  workspaceUpgradesHandler,
+} from "./workspace-upgrades-handlers"
+
 function pathnameOf(request: Request) {
   return new URL(request.url).pathname
 }
@@ -44,19 +59,42 @@ const emptyPageInfo: PageInfo = {
   endCursor: null,
 }
 
+/**
+ * `GET /workspaces`: the Workspaces of the org. The last used Workspace is
+ * the first one, unless `lastUsedWorkspaceId` names another (or null).
+ */
 export function workspaceListHandler(
-  items: Workspace[],
-  lastUsedWorkspaceId: string | null = items[0]?.id ?? null,
+  items: MockState<Workspace[]>,
+  lastUsedWorkspaceId?: string | null,
 ) {
   return http.get(
     ({ request }) => /\/api\/v1\/workspaces$/.test(pathnameOf(request)),
-    () => HttpResponse.json({ items, lastUsedWorkspaceId }),
+    () =>
+      mockResponse(items, (items) =>
+        HttpResponse.json({
+          items,
+          lastUsedWorkspaceId:
+            lastUsedWorkspaceId === undefined
+              ? (items[0]?.id ?? null)
+              : lastUsedWorkspaceId,
+        }),
+      ),
   )
 }
 
-export function workspaceDetailHandler(detail: WorkspaceDetail | null) {
+/**
+ * `GET /workspaces/:slug`: the detail of a Workspace, or 404 for null. With
+ * `workspaceSlug`, it answers only that Workspace.
+ */
+export function workspaceDetailHandler(
+  detail: WorkspaceDetail | null,
+  workspaceSlug?: string,
+) {
   return http.get(
-    ({ request }) => /\/api\/v1\/workspaces\/[^/]+$/.test(pathnameOf(request)),
+    ({ request }) =>
+      workspaceSlug
+        ? pathnameOf(request).endsWith(`/api/v1/workspaces/${workspaceSlug}`)
+        : /\/api\/v1\/workspaces\/[^/]+$/.test(pathnameOf(request)),
     () => {
       if (!detail) {
         return HttpResponse.json({ error: "not found" }, { status: 404 })
@@ -203,12 +241,13 @@ export function workspaceActivityHandler(
 }
 
 /** `GET /{orgSlug}/api/v1/activity`: the activity of every Workspace. */
+/** `GET /activity`: the activity of the org (none by default). */
 export function orgActivityHandler(
-  activity: WorkspaceActivityResponse = emptyWorkspaceActivity,
+  activity: MockState<WorkspaceActivityResponse> = emptyWorkspaceActivity,
 ) {
   return http.get(
     ({ request }) => /\/api\/v1\/activity$/.test(pathnameOf(request)),
-    () => HttpResponse.json(activity),
+    () => mockResponse(activity),
   )
 }
 
@@ -341,7 +380,7 @@ export function conversationGitBlobHandler(
 }
 
 export function conversationGitStatusHandler(
-  status: ConversationGitStatusResponse = {
+  status: MockState<ConversationGitStatusResponse> = {
     source: "sandbox",
     branch: "main",
     dirty: true,
@@ -359,7 +398,7 @@ export function conversationGitStatusHandler(
       /\/api\/v1\/conversations\/[^/]+\/files\/status$/.test(
         pathnameOf(request),
       ),
-    () => HttpResponse.json(status),
+    () => mockResponse(status),
   )
 }
 
@@ -426,6 +465,84 @@ export function conversationFilePutHandler() {
   )
 }
 
+/**
+ * `GET /conversations/:id/chat`: the transcript that the chat session loads
+ * when it opens. `activeRunId` is a run that still streams.
+ */
+export function conversationChatHandler(
+  messages: MockState<ChatMessage[]>,
+  activeRunId?: string,
+) {
+  return http.get(
+    ({ request }) =>
+      /\/api\/v1\/conversations\/[^/]+\/chat$/.test(pathnameOf(request)),
+    () =>
+      mockResponse(messages, (messages) =>
+        HttpResponse.json({
+          messages,
+          activeRun: activeRunId ? { runId: activeRunId } : null,
+          interrupts: null,
+        }),
+      ),
+  )
+}
+
+/** `GET /conversations/:id/turns`: the files that each turn changed. */
+function conversationTurnsHandler(
+  turns: MockState<ConversationTurnChangesResponse> = { items: [], syncs: [] },
+) {
+  return http.get(
+    ({ request }) =>
+      /\/api\/v1\/conversations\/[^/]+\/turns$/.test(pathnameOf(request)),
+    () => mockResponse(turns),
+  )
+}
+
+/**
+ * `GET /conversations/:id/pull-request`: the pull request of the session
+ * branch. `null` answers 404: the conversation has no pull request.
+ */
+export function conversationPullRequestHandler(
+  pullRequest: MockState<ConversationPullRequestResponse | null>,
+) {
+  return http.get(
+    ({ request }) =>
+      /\/api\/v1\/conversations\/[^/]+\/pull-request$/.test(
+        pathnameOf(request),
+      ),
+    () =>
+      mockResponse(pullRequest, (pullRequest) =>
+        pullRequest
+          ? HttpResponse.json(pullRequest)
+          : HttpResponse.json({ error: "not found" }, { status: 404 }),
+      ),
+  )
+}
+
+/** The pull request that a conversation detail names, or null. */
+function pullRequestOf(
+  detail: ConversationDetail | null,
+): ConversationPullRequestResponse | null {
+  const conversation = detail?.conversation
+  if (!conversation?.lastChatPrNumber || !conversation.lastChatPrUrl)
+    return null
+  return {
+    branch: conversation.lastBranch ?? "",
+    prNumber: conversation.lastChatPrNumber,
+    pullUrl: conversation.lastChatPrUrl,
+    prState: conversation.prState ?? "open",
+  }
+}
+
+/**
+ * The chat socket of a conversation (`/conversations/:id`). It opens and
+ * sends nothing: no run streams. A story that streams a run replaces
+ * `window.WebSocket` (`installAguiWebSocket`).
+ */
+const conversationSocketHandler = ws
+  .link(/\/api\/v1\/conversations\/[^/]+(\?.*)?$/)
+  .addEventListener("connection", () => {})
+
 export function conversationDetailLoadingHandler() {
   return http.get(
     ({ request }) =>
@@ -440,19 +557,7 @@ export function conversationDetailLoadingHandler() {
 export function orgGithubConnectionsHandler(
   items: Array<{ id: string }> = [{ id: "con_gh" }],
 ) {
-  return http.get(
-    ({ request }) => pathnameOf(request).endsWith("/api/v1/connectors"),
-    () =>
-      HttpResponse.json({
-        items: items.map((item) => ({
-          id: item.id,
-          type: "github",
-          status: "connected",
-          createdAt: "2026-08-15T10:00:00.000Z",
-          updatedAt: "2026-08-15T10:00:00.000Z",
-        })),
-      }),
-  )
+  return orgConnectionsHandler(items.map(({ id }) => ({ id, type: "github" })))
 }
 
 export function githubInstallationReposHandler(
@@ -486,6 +591,20 @@ export function githubInstallationReposHandler(
   )
 }
 
+/**
+ * The reads of the Settings pane of a Workspace: its sources (none), the
+ * connections of the org (GitHub), its upgrades (none) and the automatic
+ * upgrades setting (manual).
+ */
+export function workspaceSettingsHandlers() {
+  return [
+    workspaceSourcesHandler(workspaceSourceList()),
+    orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
+    workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+    ...workspaceUpgradeAutomaticHandlers(),
+  ]
+}
+
 export function workspaceShellHandlers(input?: {
   workspaces?: Workspace[]
   detail?: WorkspaceDetail | null
@@ -499,16 +618,16 @@ export function workspaceShellHandlers(input?: {
 }) {
   const workspaces = input?.workspaces ?? [docsWorkspace, readOnlyWorkspace]
   const detail = input && "detail" in input ? input.detail : docsWorkspaceDetail
+  const conversation =
+    input && "conversation" in input
+      ? (input.conversation ?? null)
+      : docsConversationDetail
   return [
     workspaceListHandler(workspaces),
     workspaceDetailHandler(detail ?? null),
     workspaceTouchHandler,
     conversationsListHandler(input?.conversations ?? docsConversations),
-    conversationDetailHandler(
-      input && "conversation" in input
-        ? (input.conversation ?? null)
-        : docsConversationDetail,
-    ),
+    conversationDetailHandler(conversation),
     workspaceGitTreeHandler(input?.gitTree ?? docsWorkspaceGitTree),
     workspaceGitBlobHandler(input?.gitBlobs ?? docsWorkspaceGitBlobs),
     workspaceGitStatusHandler(input?.gitStatus),
@@ -520,5 +639,10 @@ export function workspaceShellHandlers(input?: {
     conversationGitTreeHandler(input?.gitTree ?? docsWorkspaceGitTree),
     conversationGitBlobHandler(input?.gitBlobs ?? docsWorkspaceGitBlobs),
     conversationGitStatusHandler(),
+    conversationChatHandler(conversation?.messages ?? []),
+    conversationTurnsHandler(),
+    conversationPullRequestHandler(pullRequestOf(conversation)),
+    conversationSocketHandler,
+    ...workspaceSettingsHandlers(),
   ]
 }

@@ -5,6 +5,7 @@ import {
   expectSkeletonMatchesLoaded,
   SkeletonMatchFrame,
 } from "@/components/ui/skeletonMatchStory"
+import { workspaceListHandler } from "@/mocks/workspace-handlers"
 
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -51,6 +52,8 @@ export const Empty: Story = {
     workspaces: [],
   },
   parameters: {
+    // The app shell lists the same Workspaces as the page.
+    msw: { handlers: { page: [workspaceListHandler([])] } },
     review: {
       purpose:
         "GitHub destination page in the app shell, where a member picks or creates a Workspace: the org has no Workspaces yet.",
@@ -64,6 +67,8 @@ export const Loading: Story = {
     workspaces: [],
   },
   parameters: {
+    // The app shell lists the same Workspaces as the page.
+    msw: { handlers: { page: [workspaceListHandler("loading")] } },
     review: {
       purpose:
         "GitHub destination page in the app shell, where a member picks or creates a Workspace: the Workspace list is loading.",
@@ -77,6 +82,8 @@ export const LoadError: Story = {
     workspaces: [],
   },
   parameters: {
+    // The app shell lists the same Workspaces as the page.
+    msw: { handlers: { page: [workspaceListHandler("error")] } },
     review: {
       purpose:
         "GitHub destination page in the app shell, where a member picks or creates a Workspace: the Workspace list did not load.",
@@ -90,6 +97,12 @@ export const Populated: Story = {
     workspaces: [docsWorkspace, readOnlyWorkspace],
   },
   parameters: {
+    // The app shell lists the same Workspaces as the page.
+    msw: {
+      handlers: {
+        page: [workspaceListHandler([docsWorkspace, readOnlyWorkspace])],
+      },
+    },
     review: {
       purpose:
         "GitHub destination page in the app shell, where a member picks or creates a Workspace: the org has two Workspaces, and one is read-only.",
@@ -104,6 +117,8 @@ export const OnboardingEmpty: Story = {
     workspaces: [],
   },
   parameters: {
+    // The app shell lists the same Workspaces as the page.
+    msw: { handlers: { page: [workspaceListHandler([])] } },
     review: {
       purpose:
         "GitHub destination in the onboarding layout, where a new member creates a first Workspace: the org has no Workspaces yet.",
@@ -117,6 +132,8 @@ export const OnboardingEmpty: Story = {
  */
 export const LoadingSkeletonMatches: Story = {
   parameters: {
+    // The app shell lists the same Workspaces as the page.
+    msw: { handlers: { page: [workspaceListHandler("loading")] } },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a workspace destination skeleton whose size differs from the loaded list. This causes layout shift. Not for workspace data or selection.",

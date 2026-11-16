@@ -1,7 +1,10 @@
-import type { HttpHandler, RequestHandler } from "msw"
+import type { HttpHandler, RequestHandler, WebSocketHandler } from "msw"
 
-/** MSW `http.*` returns `HttpHandler`; tests/stories use it alongside `RequestHandler`. */
-type MswHandlers = RequestHandler | HttpHandler
+/**
+ * MSW `http.*` returns `HttpHandler` and `ws.link(...).addEventListener`
+ * returns `WebSocketHandler`; tests/stories use them alongside `RequestHandler`.
+ */
+type MswHandlers = RequestHandler | HttpHandler | WebSocketHandler
 
 declare module "@storybook/react-vite" {
   interface Parameters {

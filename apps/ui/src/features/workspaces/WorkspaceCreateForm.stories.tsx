@@ -4,6 +4,7 @@ import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { Button } from "@/components/ui/Button"
+import { githubAppInstalledHandlers } from "@/mocks/handlers"
 import {
   githubInstallationReposHandler,
   orgGithubConnectionsHandler,
@@ -57,6 +58,7 @@ const meta = {
           orgGithubConnectionsHandler(),
           githubInstallationReposHandler(),
         ],
+        github: githubAppInstalledHandlers,
       },
     },
   },
@@ -147,6 +149,7 @@ export const SaveError: Story = {
       handlers: {
         page: [
           workspaceListHandler([]),
+          orgGithubConnectionsHandler(),
           githubInstallationReposHandler(),
           http.post(
             ({ request }) =>

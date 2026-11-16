@@ -333,7 +333,7 @@ export async function playStories(
         .then((handle) => handle.jsonValue())
         .catch((error) => ({ ok: false, error: String(error.message) }))
       const durationMs = Math.round(performance.now() - started)
-      const error =
+      const storyError =
         result.ok === false
           ? result.error
           : pageErrors[0]
@@ -341,6 +341,20 @@ export async function playStories(
             : await page
                 .evaluate(settle)
                 .catch((settleError) => String(settleError.message))
+      // A request that no MSW handler answered fails the story
+      // (apps/ui/.storybook/preview.tsx). It is often the cause of a play
+      // error too, so the message names both.
+      const unhandled = await page
+        .evaluate(() => window.__ctxpipeUnhandledRequests ?? [])
+        .catch(() => [])
+      const error = unhandled.length
+        ? [
+            `The story made requests that no MSW handler answers. Mock each request of the page (the storybook skill, "Mock every request"):\n${[...new Set(unhandled)].map((request) => `  ${request}`).join("\n")}`,
+            storyError,
+          ]
+            .filter(Boolean)
+            .join("\n")
+        : storyError
       await afterPlay?.(page, story, error)
       let mocks
       let coverage

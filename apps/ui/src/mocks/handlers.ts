@@ -1,5 +1,9 @@
 import { delay, HttpResponse, http } from "msw"
 
+import { githubConnectorBootstrapHandler } from "@/features/connectors/mocks/github-bootstrap-msw"
+
+import { type MockState, mockResponse } from "./mock-state"
+
 const authBase = "*/.auth/api/v1/auth"
 
 /** UI server exposes Better Auth config for social providers list. */
@@ -134,27 +138,48 @@ export const githubInstallationLinkedHandler = http.get(
     }),
 )
 
-export function organizationFullHandler(organization: {
-  id: string
-  name: string
-  slug: string
-}) {
+const hostedGithubAppBootstrapHandler = githubConnectorBootstrapHandler({
+  orgSlug: "acme",
+  hostedDefaultAppInstallUrl:
+    "https://github.com/apps/ctxpipe/installations/new",
+})
+
+/**
+ * The org has the GitHub App installed: the connector bootstrap (with the
+ * hosted App) and the installation. A repository picker reads both.
+ */
+export const githubAppInstalledHandlers = [
+  hostedGithubAppBootstrapHandler,
+  githubInstallationLinkedHandler,
+]
+
+/** The org has no GitHub App installation yet; the hosted App can install. */
+export const githubAppMissingHandlers = [
+  hostedGithubAppBootstrapHandler,
+  githubInstallationNoneHandler,
+]
+
+export function organizationFullHandler(
+  organization: MockState<{ id: string; name: string; slug: string }>,
+) {
   return http.get(`${authBase}/organization/get-full-organization`, () =>
-    HttpResponse.json({
-      ...organization,
-      createdAt: "2026-01-01T00:00:00.000Z",
-      metadata: null,
-      logo: null,
-      members: [
-        {
-          id: "mem_storybook",
-          userId: "user_storybook",
-          organizationId: organization.id,
-          role: "admin",
-          createdAt: "2026-01-01T00:00:00.000Z",
-        },
-      ],
-    }),
+    mockResponse(organization, (organization) =>
+      HttpResponse.json({
+        ...organization,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        metadata: null,
+        logo: null,
+        members: [
+          {
+            id: "mem_storybook",
+            userId: "user_storybook",
+            organizationId: organization.id,
+            role: "admin",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      }),
+    ),
   )
 }
 
@@ -163,6 +188,82 @@ export const organizationFullWithOrgHandler = organizationFullHandler({
   name: "Storybook Org",
   slug: "acme",
 })
+
+/**
+ * `GET .../organization/list-members` in the Better Auth response shape:
+ * the story user is the owner, and `count - 1` members follow.
+ */
+export function organizationMembersHandler(count: MockState<number>) {
+  return http.get(`${authBase}/organization/list-members`, () =>
+    mockResponse(count, (count) =>
+      HttpResponse.json({
+        members: Array.from({ length: count }, (_, index) => ({
+          id: `mem_story_${index}`,
+          organizationId: "org_storybook",
+          userId: index === 0 ? "user_storybook" : `user_story_${index}`,
+          role: index === 0 ? "owner" : "member",
+          createdAt: "2026-10-01T00:00:00.000Z",
+          user: {
+            id: index === 0 ? "user_storybook" : `user_story_${index}`,
+            name: "Storybook User",
+            email: `member${index}@story.example`,
+            image: null,
+          },
+        })),
+        total: count,
+      }),
+    ),
+  )
+}
+
+/** `GET .../organization/list-invitations`: one invitation for each status. */
+export function organizationInvitationsHandler(statuses: MockState<string[]>) {
+  return http.get(`${authBase}/organization/list-invitations`, () =>
+    mockResponse(statuses, (statuses) =>
+      HttpResponse.json(
+        statuses.map((status, index) => ({
+          id: `inv_story_${index}`,
+          organizationId: "org_storybook",
+          email: `teammate${index}@story.example`,
+          role: "member",
+          status,
+          inviterId: "user_storybook",
+          expiresAt: "2026-12-01T00:00:00.000Z",
+          createdAt: "2026-10-01T00:00:00.000Z",
+        })),
+      ),
+    ),
+  )
+}
+
+/**
+ * `POST .../organization/has-permission`: whether the story user may do the
+ * asked action in the org (an admin may).
+ */
+export function organizationPermissionHandler(allowed: MockState<boolean>) {
+  return http.post(`${authBase}/organization/has-permission`, () =>
+    mockResponse(allowed, (success) =>
+      HttpResponse.json({ success, error: null }),
+    ),
+  )
+}
+
+/**
+ * `POST .../organization/set-active`: the server makes the org active. Each
+ * call runs `onSetActive`, so a play can count the calls.
+ */
+export function organizationSetActiveHandler(onSetActive?: () => void) {
+  return http.post(`${authBase}/organization/set-active`, () => {
+    onSetActive?.()
+    return HttpResponse.json({})
+  })
+}
+
+/** `GET .../organization/list-user-invitations`: the invitations of the user. */
+export const userInvitationsEmptyHandler = http.get(
+  `${authBase}/organization/list-user-invitations`,
+  () => HttpResponse.json([]),
+)
 
 type StoryOrgApiKey = {
   id: string

@@ -17,6 +17,7 @@ import { ConversationCtaActions } from "@/features/workspaces/WorkspaceChatChrom
 import { WorkspaceNavList } from "@/features/workspaces/WorkspaceNavList"
 import { WorkspacePaneTriggers } from "@/features/workspaces/WorkspacePane"
 import { workspaceCreatedFlag } from "@/lib/session-flags"
+import { githubAppInstalledHandlers } from "@/mocks/handlers"
 import {
   authConfigHandler,
   organizationListWithOrgHandler,
@@ -227,6 +228,7 @@ export const AddWorkspaceHintSkippedAfterCreating: Story = {
           orgConnectionsHandler([
             { id: "con_gh", type: "github", displayName: "acme" },
           ]),
+          ...githubAppInstalledHandlers,
           githubInstallationReposHandler(),
           workspaceDetailHandler(createdWritableWorkspaceDetail),
           workspaceSourcesHandler(workspaceSourceList()),

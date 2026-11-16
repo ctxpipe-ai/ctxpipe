@@ -4,7 +4,10 @@ import { HttpResponse, http } from "msw"
 import { useState } from "react"
 import { expect, userEvent, within } from "storybook/test"
 
-import { organizationCreateSuccessHandler } from "@/mocks/handlers"
+import {
+  organizationCreateSuccessHandler,
+  organizationSetActiveHandler,
+} from "@/mocks/handlers"
 
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -61,9 +64,7 @@ export const CreateOpensHome: Story = {
       handlers: {
         page: [
           organizationCreateSuccessHandler(),
-          http.post("*/.auth/api/v1/auth/organization/set-active", () =>
-            HttpResponse.json({}),
-          ),
+          organizationSetActiveHandler(),
           http.post("*/api/v1/onboarding/user/complete", () => {
             userOnboardingCompleted.value = true
             return HttpResponse.json({ completedAt: new Date().toISOString() })

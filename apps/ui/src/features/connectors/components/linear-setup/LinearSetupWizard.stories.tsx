@@ -8,7 +8,10 @@ import { Button } from "@/components/ui/Button"
 import { CHOOSE_WORKSPACES_HINT } from "@/features/workspace-sources/ChooseWorkspacesStep"
 import { workspaceSourcesOptions } from "@/features/workspace-sources/queries"
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
-import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
+import {
+  linearAvailableScopesHandler,
+  linearOauthAppHandler,
+} from "@/mocks/linear-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import {
   connectionUsageHandler,
@@ -35,26 +38,6 @@ const baseStatus: LinearConnectorStatus = {
 function statusHandler(status: LinearConnectorStatus) {
   return http.get(`/${orgSlug}/api/v1/connectors/linear/status`, () =>
     HttpResponse.json(status),
-  )
-}
-
-function oauthAppHandler(input: {
-  globalLinearOauthConfigured: boolean
-  oauthAppSaved: boolean
-  oauthClientId?: string | null
-}) {
-  return http.get(`/${orgSlug}/api/v1/connectors/linear/oauth-app`, () =>
-    HttpResponse.json({
-      linearOauthConfigured:
-        input.globalLinearOauthConfigured || input.oauthAppSaved,
-      globalLinearOauthConfigured: input.globalLinearOauthConfigured,
-      oauthCallbackUrl:
-        "https://app.example.com/api/v1/integrations/linear/callback",
-      linearWebhookUrl: "https://app.example.com/api/v1/webhook/linear",
-      linearCreateUrl: "https://linear.app/settings/api/applications/new",
-      oauthAppSaved: input.oauthAppSaved,
-      oauthClientId: input.oauthClientId ?? null,
-    }),
   )
 }
 
@@ -96,6 +79,7 @@ export const Loading: Story = {
             await delay("infinite")
             return HttpResponse.json(baseStatus)
           }),
+          linearOauthAppHandler(),
         ],
       },
     },
@@ -112,7 +96,7 @@ export const ConnectWorkspace: Story = {
     msw: {
       handlers: {
         page: [
-          oauthAppHandler({
+          linearOauthAppHandler({
             globalLinearOauthConfigured: true,
             oauthAppSaved: false,
           }),
@@ -138,7 +122,7 @@ export const RegisterOauthApp: Story = {
     msw: {
       handlers: {
         page: [
-          oauthAppHandler({
+          linearOauthAppHandler({
             globalLinearOauthConfigured: false,
             oauthAppSaved: false,
           }),
@@ -164,7 +148,7 @@ export const RegisterOauthAppSaved: Story = {
     msw: {
       handlers: {
         page: [
-          oauthAppHandler({
+          linearOauthAppHandler({
             globalLinearOauthConfigured: false,
             oauthAppSaved: true,
             oauthClientId: "lin_client",
@@ -195,7 +179,7 @@ export const ChooseWorkspaces: Story = {
     msw: {
       handlers: {
         page: [
-          oauthAppHandler({
+          linearOauthAppHandler({
             globalLinearOauthConfigured: true,
             oauthAppSaved: false,
           }),
@@ -203,6 +187,8 @@ export const ChooseWorkspaces: Story = {
           workspaceListHandler([docsWorkspace]),
           linearAvailableScopesHandler(),
           connectionUsageHandler([]),
+          // The Workspace has no source before the add.
+          workspaceSourcesHandler(workspaceSourceList()),
           ...workspaceSourceChangeHandlers(addCalls),
         ],
       },
@@ -266,7 +252,7 @@ export const MergeStepShowsTheMerge: Story = {
     msw: {
       handlers: {
         page: [
-          oauthAppHandler({
+          linearOauthAppHandler({
             globalLinearOauthConfigured: true,
             oauthAppSaved: false,
           }),
@@ -361,7 +347,7 @@ export const ManageKeepsTheCurrentScope: Story = {
     msw: {
       handlers: {
         page: [
-          oauthAppHandler({
+          linearOauthAppHandler({
             globalLinearOauthConfigured: true,
             oauthAppSaved: false,
           }),
@@ -469,7 +455,7 @@ export const ManageAgainShowsTheNewScope: Story = {
     msw: {
       handlers: {
         page: [
-          oauthAppHandler({
+          linearOauthAppHandler({
             globalLinearOauthConfigured: true,
             oauthAppSaved: false,
           }),

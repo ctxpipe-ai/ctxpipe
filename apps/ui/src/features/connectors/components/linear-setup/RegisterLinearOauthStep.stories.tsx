@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
+
+import { linearOauthAppHandler } from "@/mocks/linear-handlers"
 
 import { entryPageInnerDecorators } from "../../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../../.storybook/decorators/with-story-route"
@@ -36,19 +37,10 @@ export const Unsaved: Story = {
     msw: {
       handlers: {
         page: [
-          http.get(`/${orgSlug}/api/v1/connectors/linear/oauth-app`, () =>
-            HttpResponse.json({
-              linearOauthConfigured: false,
-              globalLinearOauthConfigured: false,
-              oauthCallbackUrl:
-                "https://app.example.com/api/v1/integrations/linear/callback",
-              linearWebhookUrl: "https://app.example.com/api/v1/webhook/linear",
-              linearCreateUrl:
-                "https://linear.app/settings/api/applications/new",
-              oauthAppSaved: false,
-              oauthClientId: null,
-            }),
-          ),
+          linearOauthAppHandler({
+            globalLinearOauthConfigured: false,
+            oauthAppSaved: false,
+          }),
         ],
       },
     },
@@ -64,19 +56,11 @@ export const Saved: Story = {
     msw: {
       handlers: {
         page: [
-          http.get(`/${orgSlug}/api/v1/connectors/linear/oauth-app`, () =>
-            HttpResponse.json({
-              linearOauthConfigured: true,
-              globalLinearOauthConfigured: false,
-              oauthCallbackUrl:
-                "https://app.example.com/api/v1/integrations/linear/callback",
-              linearWebhookUrl: "https://app.example.com/api/v1/webhook/linear",
-              linearCreateUrl:
-                "https://linear.app/settings/api/applications/new",
-              oauthAppSaved: true,
-              oauthClientId: "lin_client",
-            }),
-          ),
+          linearOauthAppHandler({
+            globalLinearOauthConfigured: false,
+            oauthAppSaved: true,
+            oauthClientId: "lin_client",
+          }),
         ],
       },
     },

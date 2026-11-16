@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { OnboardingCreateOrgSlide } from "@/components/onboarding/OnboardingCreateOrgSlide"
@@ -7,6 +6,7 @@ import {
   organizationCreateErrorHandler,
   organizationCreateSlowSuccessHandler,
   organizationListEmptyHandler,
+  organizationSetActiveHandler,
   sessionSignedInOnboardingHandler,
 } from "@/mocks/handlers"
 
@@ -166,10 +166,7 @@ export const CreatingOrganization: Story = {
         page: [
           ...createOrgBaseMsw,
           organizationCreateSlowSuccessHandler(),
-          http.post("*/.auth/api/v1/auth/organization/set-active", () => {
-            setActive()
-            return HttpResponse.json({})
-          }),
+          organizationSetActiveHandler(setActive),
         ],
       },
     },

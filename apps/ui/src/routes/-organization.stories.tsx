@@ -4,12 +4,23 @@ import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import {
+  docsConversations,
+  docsWorkspace,
+} from "@/features/workspaces/workspace-fixtures"
+import {
   orgApiKeysListEmptyHandler,
   orgApiKeysListForbiddenHandler,
   orgApiKeysListPopulatedHandler,
   organizationFullWithOrgHandler,
+  organizationInvitationsHandler,
   organizationListWithOrgHandler,
+  organizationMembersHandler,
+  organizationPermissionHandler,
 } from "@/mocks/handlers"
+import {
+  conversationsListHandler,
+  workspaceListHandler,
+} from "@/mocks/workspace-handlers"
 
 import {
   entryPageInnerDecorators,
@@ -60,7 +71,14 @@ export const Settings: Story = {
     route: "/$orgSlug/organization/$organizationView",
     msw: {
       handlers: {
-        page: [organizationListWithOrgHandler, organizationFullWithOrgHandler],
+        page: [
+          organizationListWithOrgHandler,
+          organizationFullWithOrgHandler,
+          // The admin may change the org.
+          organizationPermissionHandler(true),
+          workspaceListHandler([docsWorkspace]),
+          conversationsListHandler(docsConversations),
+        ],
       },
     },
   },
@@ -145,6 +163,9 @@ const subPageHandlers = [
   organizationListWithOrgHandler,
   organizationFullWithOrgHandler,
   orgApiKeysListEmptyHandler,
+  organizationPermissionHandler(true),
+  organizationMembersHandler(1),
+  organizationInvitationsHandler([]),
 ]
 
 /** The frame that every sub-page and the loading state share. */

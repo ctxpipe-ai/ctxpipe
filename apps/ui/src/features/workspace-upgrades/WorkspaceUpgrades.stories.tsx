@@ -109,11 +109,12 @@ const meta = {
           workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
           workspaceUpgradeStartHandler({ requests: startRequests }),
           workspaceUpgradeCheckHandler({ requests: checkRequests }),
-          ...workspaceUpgradeAutomaticHandlers({
-            requests: automaticRequests,
-            setting,
-          }),
         ],
+        // Its own key, so a story that replaces `page` keeps the setting.
+        automatic: workspaceUpgradeAutomaticHandlers({
+          requests: automaticRequests,
+          setting,
+        }),
       },
     },
   },

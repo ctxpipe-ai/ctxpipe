@@ -1,9 +1,11 @@
-import { delay, HttpResponse, http } from "msw"
+import { HttpResponse, http } from "msw"
 
 import type {
   WorkspaceUpgradeItem,
   WorkspaceUpgrades,
 } from "@/features/workspace-upgrades/queries"
+
+import { type MockState, mockResponse } from "./mock-state"
 
 function pathnameOf(request: Request) {
   return new URL(request.url).pathname
@@ -67,7 +69,7 @@ export function upgradesFixture(
  * adds its path to `answered`, so a play can wait for it.
  */
 export function workspaceUpgradesHandler(
-  upgrades: WorkspaceUpgrades | (() => WorkspaceUpgrades) | "loading" | "error",
+  upgrades: MockState<WorkspaceUpgrades | (() => WorkspaceUpgrades)>,
   workspaceSlug?: string,
   answered?: string[],
 ) {
@@ -78,13 +80,12 @@ export function workspaceUpgradesHandler(
         ? path.endsWith(`/workspaces/${workspaceSlug}/upgrades`)
         : /\/workspaces\/[^/]+\/upgrades$/.test(path)
     },
-    async ({ request }) => {
-      if (upgrades === "loading") await delay("infinite")
-      answered?.push(pathnameOf(request))
-      if (upgrades === "error")
-        return HttpResponse.json({ error: "Server error" }, { status: 500 })
-      return HttpResponse.json(
-        typeof upgrades === "function" ? upgrades() : upgrades,
+    ({ request }) => {
+      if (upgrades !== "loading") answered?.push(pathnameOf(request))
+      return mockResponse(upgrades, (upgrades) =>
+        HttpResponse.json(
+          typeof upgrades === "function" ? upgrades() : upgrades,
+        ),
       )
     },
   )

@@ -7,7 +7,10 @@ import {
   conversationAguiTextEvents,
   installAguiWebSocket,
 } from "@/mocks/conversation-agui"
-import { workspaceShellHandlers } from "@/mocks/workspace-handlers"
+import {
+  conversationChatHandler,
+  workspaceShellHandlers,
+} from "@/mocks/workspace-handlers"
 
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -92,9 +95,19 @@ function threadArgs(
   }
 }
 
+/** The server has the same transcript as the thread that the page shows. */
+function threadHandlers(messages: typeof docsConversationDetail.messages) {
+  return {
+    handlers: {
+      page: [conversationChatHandler(messages), ...workspaceShellHandlers()],
+    },
+  }
+}
+
 export const ThreadShort: Story = {
   args: threadArgs(docsConversationDetail.messages),
   parameters: {
+    msw: threadHandlers(docsConversationDetail.messages),
     review: {
       purpose:
         "Chat session of a Workspace, where a member asks about the code: a short thread with one question and one answer.",
@@ -106,6 +119,7 @@ export const ThreadShort: Story = {
 export const ThreadLong: Story = {
   args: threadArgs(longThreadMessages),
   parameters: {
+    msw: threadHandlers(longThreadMessages),
     review: {
       purpose:
         "Chat session of a Workspace, where a member asks about the code: a long thread with many turns that scrolls to the latest answer.",
@@ -117,6 +131,7 @@ export const ThreadLong: Story = {
 export const MarkdownAnswer: Story = {
   args: threadArgs(markdownAnswerMessages, "Auth"),
   parameters: {
+    msw: threadHandlers(markdownAnswerMessages),
     review: {
       purpose:
         "Chat session of a Workspace, where a member asks about the code: the answer has Markdown headings, lists, and links.",
@@ -128,6 +143,7 @@ export const MarkdownAnswer: Story = {
 export const CodeAnswer: Story = {
   args: threadArgs(codeAnswerMessages, "Session helper"),
   parameters: {
+    msw: threadHandlers(codeAnswerMessages),
     review: {
       purpose:
         "Chat session of a Workspace, where a member asks about the code: the answer has a TypeScript code block with syntax colors.",
@@ -157,6 +173,7 @@ export const CodeAnswer: Story = {
 export const Reasoning: Story = {
   args: threadArgs(reasoningMessages, "Ledger"),
   parameters: {
+    msw: threadHandlers(reasoningMessages),
     review: {
       purpose:
         "Chat session of a Workspace, where a member asks about the code: the answer has a finished reasoning block before the text.",
@@ -168,6 +185,7 @@ export const Reasoning: Story = {
 export const ReasoningStreaming: Story = {
   args: threadArgs(streamingReasoningMessages, "Ledger"),
   parameters: {
+    msw: threadHandlers(streamingReasoningMessages),
     review: {
       purpose:
         "Chat session of a Workspace, where a member asks about the code: the agent still streams its reasoning block.",
@@ -179,6 +197,7 @@ export const ReasoningStreaming: Story = {
 export const ToolUse: Story = {
   args: threadArgs(oneToolMessages, "Login"),
   parameters: {
+    msw: threadHandlers(oneToolMessages),
     review: {
       purpose:
         "Chat session of a Workspace, where a member asks about the code: the answer has one finished tool call.",
@@ -190,6 +209,7 @@ export const ToolUse: Story = {
 export const ToolUseMany: Story = {
   args: threadArgs(manyToolMessages, "Billing"),
   parameters: {
+    msw: threadHandlers(manyToolMessages),
     review: {
       purpose:
         "Chat session of a Workspace, where a member asks about the code: the answer has many finished tool calls.",
@@ -201,6 +221,7 @@ export const ToolUseMany: Story = {
 export const ToolUseStreaming: Story = {
   args: threadArgs(streamingToolMessages, "Repo"),
   parameters: {
+    msw: threadHandlers(streamingToolMessages),
     review: {
       purpose:
         "Chat session of a Workspace, where a member asks about the code: a tool call still runs while the answer streams.",
@@ -212,6 +233,7 @@ export const ToolUseStreaming: Story = {
 export const ReasoningAndTools: Story = {
   args: threadArgs(reasoningAndToolsMessages, "Ledger"),
   parameters: {
+    msw: threadHandlers(reasoningAndToolsMessages),
     review: {
       purpose:
         "Chat session of a Workspace, where a member asks about the code: the answer has reasoning and tool calls, all finished.",
@@ -223,6 +245,7 @@ export const ReasoningAndTools: Story = {
 export const ReasoningAndToolsStreaming: Story = {
   args: threadArgs(streamingReasoningAndToolsMessages, "Ledger"),
   parameters: {
+    msw: threadHandlers(streamingReasoningAndToolsMessages),
     review: {
       purpose:
         "Chat session of a Workspace, where a member asks about the code: reasoning and tool calls still stream.",
@@ -234,6 +257,7 @@ export const ReasoningAndToolsStreaming: Story = {
 export const SourceLinks: Story = {
   args: threadArgs(sourceLinkMessages, "Payments API"),
   parameters: {
+    msw: threadHandlers(sourceLinkMessages),
     review: {
       purpose:
         "Chat session of a Workspace, where a member asks about the code: the answer links to source files.",
@@ -433,13 +457,7 @@ export const StoppedBeforeFirstAnswer: Story = {
     msw: {
       handlers: {
         page: [
-          http.get(/\/api\/v1\/conversations\/conv_1\/chat$/, () =>
-            HttpResponse.json({
-              messages: [stoppedQuestion],
-              activeRun: null,
-              interrupts: null,
-            }),
-          ),
+          conversationChatHandler([stoppedQuestion]),
           ...workspaceShellHandlers(),
         ],
       },

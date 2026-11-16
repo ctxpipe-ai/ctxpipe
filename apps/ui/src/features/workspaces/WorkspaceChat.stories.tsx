@@ -10,6 +10,7 @@ import {
   installAguiWebSocket,
 } from "@/mocks/conversation-agui"
 import {
+  conversationChatHandler,
   conversationDetailHandler,
   conversationDetailLoadingHandler,
   workspaceShellHandlers,
@@ -784,18 +785,7 @@ export const LateErrorDoesNotClobberSuccess: Story = {
     msw: {
       handlers: {
         page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/conversations\/[^/]+\/chat$/.test(
-                new URL(request.url).pathname,
-              ),
-            () =>
-              HttpResponse.json({
-                messages: lateErrorDetail.messages,
-                activeRun: null,
-                interrupts: null,
-              }),
-          ),
+          conversationChatHandler(lateErrorDetail.messages),
           http.get(
             ({ request }) =>
               /\/api\/v1\/conversations\/[^/]+$/.test(

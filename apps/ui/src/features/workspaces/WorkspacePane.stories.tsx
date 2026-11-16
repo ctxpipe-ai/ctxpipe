@@ -15,6 +15,7 @@ import {
   conversationGitTreeHandler,
   conversationGitTreeMissingHandler,
   conversationPrepareHandler,
+  conversationPullRequestHandler,
   workspaceFileJobHandler,
   workspaceGitBlobHandler,
   workspaceGitBlobLoadingHandler,
@@ -24,6 +25,7 @@ import {
   workspaceGraphHandler,
   workspaceGraphLoadingHandler,
   workspaceListHandler,
+  workspaceSettingsHandlers,
 } from "@/mocks/workspace-handlers"
 
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
@@ -277,6 +279,14 @@ const meta = {
       pane: "files",
     } satisfies StoryRouteParams,
     review: { kind: "component" },
+    msw: {
+      handlers: {
+        // A story sets `page`. It comes first, so it wins over the default.
+        page: [],
+        // The conversation has no pull request yet.
+        pullRequest: [conversationPullRequestHandler(null)],
+      },
+    },
   },
   beforeEach: () => {
     clearAllConversationGitTreeSnapshots()
@@ -358,6 +368,7 @@ export const Triggers: Story = {
     )
   },
   parameters: {
+    msw: { handlers: { page: [workspaceGraphHandler()] } },
     review: {
       purpose:
         "Pane triggers in the chat header of a Workspace, which open the Files, Graph, or Settings pane: the pane is collapsed, so only the trigger buttons show.",
@@ -444,7 +455,14 @@ export const FilesEmpty: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [workspaceGitTreeHandler({ sha: "abc123def456", paths: [] })],
+        page: [
+          workspaceGitTreeHandler({ sha: "abc123def456", paths: [] }),
+          workspaceGitStatusHandler({
+            sha: "abc123def456",
+            source: "sandbox",
+            items: [],
+          }),
+        ],
       },
     },
     review: {
@@ -1310,7 +1328,10 @@ export const Settings: Story = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        page: [workspaceListHandler([docsWorkspace])],
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          ...workspaceSettingsHandlers(),
+        ],
       },
     },
     review: {
@@ -1332,7 +1353,11 @@ export const SettingsSkippedFileOpensInFiles: Story = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        page: [workspaceListHandler([docsWorkspace]), ...gitFilesHandlers],
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          ...gitFilesHandlers,
+          ...workspaceSettingsHandlers(),
+        ],
       },
     },
     review: {
@@ -1717,6 +1742,8 @@ export const SandboxLoading: Story = {
         page: [
           conversationGitTreeMissingHandler(),
           workspaceGitTreeHandler({ sha: "", paths: [] }),
+          // The sandbox starts, so its status does not answer yet.
+          conversationGitStatusHandler("loading"),
         ],
       },
     },
@@ -1768,6 +1795,19 @@ export const CachedSandboxWhile409: Story = {
           workspaceGitTreeHandler({
             sha: "workspace-only",
             paths: ["repositories/README.md"],
+          }),
+          // The new sandbox has no change.
+          conversationGitStatusHandler({
+            source: "sandbox",
+            branch: "ctxpipe/chat/conv_1/1",
+            dirty: false,
+            differsFromDefault: false,
+            unpushed: false,
+            published: false,
+            ahead: 0,
+            behind: 0,
+            items: [],
+            worktreeVersion: "wt-0",
           }),
         ],
       },

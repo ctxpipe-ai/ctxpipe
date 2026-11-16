@@ -9,6 +9,7 @@ import {
 } from "@/features/workspaces/workspace-fixtures"
 import {
   authConfigHandler,
+  githubAppInstalledHandlers,
   organizationListWithOrgHandler,
   sessionSignedInHandler,
 } from "@/mocks/handlers"
@@ -60,6 +61,7 @@ const meta = {
           orgGithubConnectionsHandler(),
           githubInstallationReposHandler(),
         ],
+        github: githubAppInstalledHandlers,
       },
     },
   },
