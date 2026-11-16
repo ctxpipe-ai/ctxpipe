@@ -94,6 +94,63 @@ describe("withTransientHttpRetry", () => {
     expect(n).toBe(2)
   })
 
+  describe("retryRestartsUntilAborted: a codesearch redeploy within the call's deadline", () => {
+    const failing = (code: string, times: number) => {
+      let n = 0
+      const run = async () => {
+        n += 1
+        if (n <= times) {
+          const err = new Error(`connect ${code}`) as NodeJS.ErrnoException
+          err.code = code
+          throw err
+        }
+        return "ok"
+      }
+      return { run, calls: () => n }
+    }
+    const opts = (signal?: AbortSignal) => ({
+      retries: 1,
+      baseDelayMs: 1,
+      maxDelayMs: 1,
+      signal,
+      retryRestartsUntilAborted: true,
+    })
+
+    it("retries connection refused and name not found past `retries` while the signal holds", async () => {
+      for (const code of ["ECONNREFUSED", "ENOTFOUND"]) {
+        const restart = failing(code, 6)
+        await expect(
+          withTransientHttpRetry(
+            restart.run,
+            opts(new AbortController().signal),
+          ),
+        ).resolves.toBe("ok")
+        expect(restart.calls(), code).toBe(7)
+      }
+    })
+
+    it("keeps the short budget for every other failure, and without a signal", async () => {
+      const reset = failing("ECONNRESET", 6)
+      await expect(
+        withTransientHttpRetry(reset.run, opts(new AbortController().signal)),
+      ).rejects.toThrow(/ECONNRESET/)
+      expect(reset.calls()).toBe(2)
+      const unbounded = failing("ECONNREFUSED", 6)
+      await expect(
+        withTransientHttpRetry(unbounded.run, opts()),
+      ).rejects.toThrow(/ECONNREFUSED/)
+      expect(unbounded.calls()).toBe(2)
+    })
+
+    it("stops when the deadline aborts", async () => {
+      const down = failing("ECONNREFUSED", Number.POSITIVE_INFINITY)
+      await expect(
+        withTransientHttpRetry(down.run, opts(AbortSignal.timeout(50))),
+      ).rejects.toThrow()
+      expect(down.calls()).toBeGreaterThan(2)
+    })
+  })
+
   it("retries on ECONNREFUSED via error.cause then succeeds", async () => {
     let n = 0
     const result = await withTransientHttpRetry(

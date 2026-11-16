@@ -48,5 +48,12 @@ export class CodesearchHttpError extends Error {
 /** Transport options for one codesearch request: a deadline and a retry budget. */
 export type CodesearchHttpOptions = {
   signal?: AbortSignal
-  retry?: { retries: number; baseDelayMs: number; maxDelayMs: number }
+  retry?: {
+    retries: number
+    baseDelayMs: number
+    maxDelayMs: number
+    /** With `signal`: retry a codesearch restart until it aborts (withTransientHttpRetry). */
+    signal?: AbortSignal
+    retryRestartsUntilAborted?: boolean
+  }
 }
