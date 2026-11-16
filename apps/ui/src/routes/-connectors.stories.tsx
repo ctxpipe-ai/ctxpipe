@@ -493,6 +493,9 @@ export const NeedsFormatUpgrade: Story = {
 export const NeedsFormatUpgradeNoRowYet: Story = {
   render: pageRender,
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as NeedsFormatUpgrade.",
+    },
     ...pageHandlers(
       [
         connectorsListHandler(),

@@ -124,6 +124,9 @@ export const ConversationMissing: Story = {
 export const ConversationForeignWorkspace: Story = {
   args: { conversationId: "conv_other" },
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as ConversationMissing.",
+    },
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",
@@ -409,6 +412,9 @@ export const SocketCleansUpOnLeave: Story = {
   tags: ["required"],
   render: () => <SocketCleanupHarness />,
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends on a test harness with a Left conversation marker, which the product does not render.",
+    },
     intent:
       "Catches a conversation socket that stays open after the user leaves the conversation. Leaving must close every conversation socket. Not for messages.",
     msw: {
@@ -519,6 +525,9 @@ export const ReloadReconnects: Story = {
   tags: ["required"],
   render: () => <ReloadReconnectHarness />,
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends on a test harness with a Reload conversation button, which the product does not render.",
+    },
     intent:
       "Catches a reloaded conversation that does not open a new socket. A reload must reconnect and show the stored messages again. Not for streaming or sends.",
     storyRoute: {
@@ -651,6 +660,9 @@ export const RapidRouteChanges: Story = {
   tags: ["required"],
   render: () => <RapidRouteHarness />,
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends on a test harness with route buttons, which the product does not render.",
+    },
     intent:
       "Catches fast switches between conversations that leave a stale error or composer. The last route wins: missing shows not found, ready shows the follow-up composer. Not for messages.",
     storyRoute: {
@@ -1277,6 +1289,9 @@ const preparedConversations: string[] = []
 export const ComposeOpenPreparesSandbox: Story = {
   render: () => <ComposeHarness />,
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as FirstTurnStreamsLive.",
+    },
     storyRoute: {
       pattern: "orgWorkspace",
       orgSlug: "acme",

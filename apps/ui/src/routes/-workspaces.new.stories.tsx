@@ -255,6 +255,9 @@ export const CreateMovesToStepTwoUrl: Story = {
 /** The user opens a link for a Workspace that does not exist (or is not theirs). */
 export const UnknownWorkspaceInUrl: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as SelectGitHub.",
+    },
     review: {
       purpose:
         "Add Workspace page, where an admin picks the Workspace repository and adds sources: the address names a Workspace that does not exist, and Start again goes back to step 1.",
@@ -297,6 +300,9 @@ export const UnknownWorkspaceInUrl: Story = {
  */
 export const LoadingStepTwo: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as StepTwoFromUrl.",
+    },
     review: {
       purpose:
         "Add Workspace page, where an admin picks the Workspace repository and adds sources: a reload at the step 2 address, so the loading state already shows step 2.",
@@ -439,6 +445,9 @@ export const StepTwoUpgradesReadFails: Story = {
     upgradeReads.count = 0
   },
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as StepTwoFromUrl.",
+    },
     ...stepTwoWith(
       http.get(
         ({ request }) =>
@@ -475,6 +484,9 @@ export const StepTwoWaitsForFormat: Story = {
     upgradeReads.count = 0
   },
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as StepTwoFromUrl.",
+    },
     ...stepTwoWith(
       // The first read has no format yet; the next reads have format 3.
       workspaceUpgradesHandler(() =>
@@ -528,6 +540,9 @@ function placement(canvas: ReturnType<typeof within>): Placement {
 export const KeepsPlaceBetweenSteps: Story = {
   tags: ["required"],
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as StepTwoFromUrl.",
+    },
     review: {
       purpose:
         "Add Workspace page, where an admin picks the Workspace repository and adds sources: the page loads slowly and moves to step 2, and the heading and step card keep their place.",

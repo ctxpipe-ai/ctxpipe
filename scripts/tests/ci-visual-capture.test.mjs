@@ -4,6 +4,7 @@ import { test } from "node:test"
 
 import { readUnstableList } from "../checks/visual.mjs"
 import { judgeProof } from "../ci/visual-capture-proof.mjs"
+import { componentClip } from "../ci/visual-component-box.mjs"
 import {
   captureWorkers,
   shootUntilSteady,
@@ -16,8 +17,12 @@ const page = (...frames) => {
   let taken = 0
   let paused = 0
   return {
-    shoot: async () =>
-      Buffer.from(frames[Math.min(taken++, frames.length - 1)]),
+    shoot: async () => {
+      const frame = frames[Math.min(taken++, frames.length - 1)]
+      // A frame is the PNG, or `[png, area]` for a shot of a component.
+      const [png, area] = Array.isArray(frame) ? frame : [frame]
+      return { png: Buffer.from(png), area }
+    },
     pause: async () => {
       paused++
     },
@@ -41,6 +46,14 @@ test("a late change is waited for until two shots in a row match", async () => {
   assert.equal(late.taken(), 3)
   // A shot that differs gives a slow change time to end before the next.
   assert.equal(late.paused(), 1)
+})
+
+test("a component that moves with the same pixels is not steady until it stops", async () => {
+  const at = (y) => ({ x: 0, y, width: 100, height: 40 })
+  const moving = page(["a", at(10)], ["a", at(20)], ["a", at(30)], ["a", at(30)])
+  const result = await shootUntilSteady(moving.shoot, moving.pause)
+  assert.deepEqual(result, { steady: true, png: Buffer.from("a") })
+  assert.equal(moving.taken(), 4)
 })
 
 test("a page that keeps changing is unstable after the last shot", async () => {
@@ -150,4 +163,41 @@ test("the parts of a plan hold each story one time, and each part gets every n-t
     plan.map((story) => story.id),
   )
   assert.deepEqual(splitPlan(plan, 1), [plan])
+})
+
+const page1440 = { width: 1440, height: 900 }
+
+test("a component shot is the union of the boxes with 16 px of padding, in whole pixels", () => {
+  assert.deepEqual(
+    componentClip(
+      [
+        { x: 100.4, y: 50, width: 200, height: 40.2 },
+        // A popover below and to the right of its trigger.
+        { x: 250, y: 100, width: 300, height: 120 },
+      ],
+      page1440,
+    ),
+    { x: 84, y: 34, width: 482, height: 202 },
+  )
+})
+
+test("a component shot stays inside the page", () => {
+  // The underlay of a modal covers the viewport: the shot is the full page.
+  assert.deepEqual(
+    componentClip([{ x: 0, y: 0, width: 1440, height: 900 }], page1440),
+    { x: 0, y: 0, width: 1440, height: 900 },
+  )
+  // A drawer that slides in from the left is partly out of the page.
+  assert.deepEqual(
+    componentClip([{ x: -320, y: 10, width: 400, height: 100 }], page1440),
+    { x: 0, y: 0, width: 96, height: 126 },
+  )
+})
+
+test("a story with no visible box has no component area", () => {
+  assert.equal(componentClip([], page1440), null)
+  assert.equal(
+    componentClip([{ x: 1500, y: 10, width: 40, height: 40 }], page1440),
+    null,
+  )
 })

@@ -94,6 +94,7 @@ export const ConnectedWithoutCaptureRepository: Story = {
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
     ),
   parameters: {
+    visual: { skip: "Behavior test: it ends in the same state as Connected." },
     review: {
       purpose:
         "Slack connection card on the Connectors page: Slack is installed without a capture repository, and the connection is ready for Workspace sources.",

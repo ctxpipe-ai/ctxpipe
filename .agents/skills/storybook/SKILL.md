@@ -64,6 +64,7 @@ export const LinkedToAnotherUser: Story = {
   - the state that the story shows, and how the user got there (what they pressed or opened). Name each state that a reviewer can take for a defect, such as a loading, pending, empty or error state.
 - Examples: "After the member presses Publish, the Workspace page waits for the push, so the Publish button shows its spinner." "Connectors page where an admin adds the tools of the org: two connections still wait for the end of their setup." Not "Workspace page with a pending button" (no use, no user step), and not "Shows the pending state" (no UI).
 - Describe the UI, not the story: do not start with "Shows", "Displays" or "Renders".
+- The purpose names a state that the product renders, and the screenshot shows that state (see Plausible stories). Before you write it, find the route or the caller that renders this state with these props. If you cannot find one, do not write the story. If the screenshot does not show the state of the purpose, fix the story, not the purpose.
 - Both values are string literals: the check and the critic read the story file with the CSF parser, and the build does not run.
 - The critic gets the Storybook name (`<title> / <name>`), the kind and the purpose with each screenshot. The kind gives the scope: the page-only qualities apply only to a `page`. The purpose goes into the prompt as data in a `<data>` block. It tells the critic what it looks at. It does not explain a change: that is the job of the brief.
 - `visual:review` reads the story file at the merge base (`--images`, the factory critic), or the manifest of `pnpm visual:check`. A new story that is not at the merge base has no kind or purpose there: its scope is `component`, and the verdict says so.
@@ -75,6 +76,29 @@ The visual critic reports story data that no real user sees as a defect of the s
 
 - Mock data is realistic: real-looking names, values and text, never random values or lorem ipsum. Give a fixture the counts and mixes that a real org has. Do not use a run of generated ids (`ITEM001` to `ITEM100`) to reach a limit. Use the smallest real case that shows the state.
 - Do not render debug output, such as the serialized value of a control, in the canvas. A play reads the result through the visible UI, a recorded msw request, or an `fn()` spy on a callback.
+
+## Plausible stories
+
+Each story shows a state that a user can see in the real product. A screenshot of a state that the product never renders wastes the review, and the visual critic judges a UI that does not exist.
+
+- Render a component with the props that a real caller passes. Find the callers (`rg "<MyComponent"`) and the route before you choose the args.
+- Do not write a story for an empty frame: a shell, a layout or a page frame with a placeholder child ("Slide placeholder", "Main content"). Put a real child in it, or write a story for the page that renders it.
+- Do not give a component a context that the product never gives it. For example, the SideNav is always in the shell layout: its story wraps it in `ShellLayoutProvider`, or the nav has no org and no items.
+- The end state of a play is the screenshot. A play that ends on a test harness (a test panel with load buttons, a story route marker such as "Story route: /acme", "Landed on …" or "Home page", an empty page after a navigation) keeps its play and skips its screenshot: `visual: { skip: "Behavior test: it ends on a story route marker, which the product does not render." }`.
+- MSW: the preview `defaults` (the signed-in session, the org list, the auth config) answer before a story's `page` handlers. A story that changes the session or the org list puts its handlers in `defaults`. Else the story shows the default user, or "Not Found" after a redirect.
+- Look at each new or changed screenshot. If it does not show the state of the purpose, the story is wrong.
+
+## One story for each state
+
+Each UI state has one story. Two stories of one state give two screenshots to review and two baselines to update for each change.
+
+- **A page state** (a whole route, with its shell) lives in the page story beside the route (`src/routes/-<route>.stories.tsx`). A component story does not repeat the whole page.
+- **A component state** lives in the story file of the component that owns the state: the component whose props or data make the state. A wrapper does not repeat a state of its child, and a child does not repeat a state that its wrapper owns. For example, the GitHub states of a connector row live in `GithubConnectionCard.stories.tsx`, not also in `ConnectorListItem.stories.tsx`.
+- **A behavior test** (a story for its `play`) that ends in the same state as another story keeps its play and skips its screenshot: `visual: { skip: "Behavior test: it ends in the same state as <Story>." }`. Do not delete a behavior test to remove a duplicate screenshot.
+- **A variant** whose args or fixtures do not change the pixels (the same file content, a prop that only a play reads) is not a new state. Delete it, or give it a play that reaches its own state.
+- When only the mobile screenshot is the same as another story, set `visual: { viewports: ["desktop"] }`.
+- Before you add a story, look at the stories of the component, of its wrapper and of its route. If one shows the state, extend that story.
+- **Guard:** `node scripts/ci/check-duplicate-screenshots.mjs` runs in CI (the policy check `duplicate-screenshots`). It fails when the committed baselines of two different stories have the same pixels. A named snapshot may repeat the end state of its own story. When two stories must look the same (rare), give the second one `visual: { duplicate: "<reason>" }`. Exactly one story of a set of same pixels has no reason: it owns the state.
 
 ## Colocation and naming
 
@@ -182,13 +206,20 @@ Mac and Linux render text differently (81 of 86 sample stories differed). So eac
 
 Each story has a committed baseline PNG beside its story file: `<story file dir>/screenshots/<storyfile>.<storyname>.<viewport>.screenshot.png`. A named snapshot adds `@<name>` to `<storyname>` (see Screenshot options). `<storyfile>` is the story file name without `.stories.tsx`, `<storyname>` is the export name, and `<viewport>` is `desktop` (1440x900) or `mobile` (390x844). Every story has a `desktop` baseline. A page story (the `page` tag) also has a `mobile` baseline.
 
-Each screenshot shows the full page at the width of its viewport, so the reviewer and the visual critic see all of the content. Playwright's `fullPage` alone takes only the scroll height of the document. A workspace page has the height of the viewport (`h-svh`), and its panes scroll inside, so their content below the fold would stay hidden. Thus, for each shot, the capture makes the viewport higher until each pane shows all of its content ([`visual-full-page.mjs`](../../../scripts/ci/visual-full-page.mjs)). A pane in a higher viewport is higher, so this needs no change to a story or to the CSS of the app. After the shot, the viewport gets its first size and the scroll positions again, before the play continues or the layout checks run. Thus the layout checks see the same page as before the shot.
+Each screenshot of a page story shows the full page at the width of its viewport, so the reviewer and the visual critic see all of the content. Playwright's `fullPage` alone takes only the scroll height of the document. A workspace page has the height of the viewport (`h-svh`), and its panes scroll inside, so their content below the fold would stay hidden. Thus, for each shot, the capture makes the viewport higher until each pane shows all of its content ([`visual-full-page.mjs`](../../../scripts/ci/visual-full-page.mjs)). A pane in a higher viewport is higher, so this needs no change to a story or to the CSS of the app. After the shot, the viewport gets its first size and the scroll positions again, before the play continues or the layout checks run. Thus the layout checks see the same page as before the shot.
 
 - A scroll container whose height does not change with the viewport (for example a list with `max-h-64`, or a list in a dialog with a fixed height) keeps its scroll: the screenshot shows only its visible part. The capture finds such a container with a first step of 8 px and does not grow the viewport for it. To show all of its content, give the story fixture data that fits, or take a named snapshot after the play scrolls the list.
 - The overlay of a React Aria modal has the height of the page (`--page-height`), and that height includes the overlay. While the capture changes the viewport, the overlay has no height and clips its content, so the page measures its real height and keeps no empty space.
 - The width of the screenshot is the width of the viewport. Content that runs out at the side is not in the screenshot, as before.
 - The viewport and the screenshot are at most 10,000 px high. Content below that limit is not in the screenshot.
 - An element that has the viewport height (`h-screen`, a dialog in the center) is as high as the full page in the screenshot. For example, the SideNav goes down to the end of the page.
+
+A story with the kind `component` (see Review annotations) shows only its component, as Chromatic does. The capture crops the full page to the union of the boxes that the story paints, with a padding of 16 px ([`visual-component-box.mjs`](../../../scripts/ci/visual-component-box.mjs)). A story with the kind `page` keeps the full page.
+
+- The capture looks at the content of the decorator of `preview.tsx`, and at each overlay outside `#storybook-root` (the portal of a dialog, a popover, a menu or a toast). Thus an open menu or a toast is in the shot.
+- An element paints when it has a background, a border or a shadow, when it is an image, an SVG, a canvas or a form control, and where it has text. A background of the same color as the decorator does not count, and neither does a transparent popover underlay. The dim underlay of an open modal paints the viewport, so that story shows the full page.
+- Hidden content does not count: `display: none`, `opacity: 0`, `visibility: hidden`, a box of 1 px or less (a visually hidden label), and content that an ancestor clips (`overflow` is not `visible`). A masked element counts, so the shot keeps its place.
+- The capture measures the area again for each shot. A layout that still moves gives another area, and the shot is not steady.
 
 - `pnpm visual:check` builds Storybook, captures every story in the pinned container ([`scripts/ci/visual.mjs`](../../../scripts/ci/visual.mjs)) and compares each screenshot with its baseline. The capture runs one container for each 3 free CPUs of Docker at the same time. Each container gets a part of the stories. It writes `.ci-results/visual/manifest.json` and the images of each story that is not unchanged (`<story id>/<viewport>/`). It never writes a baseline. It fails on each status that is not `unchanged`: `new` (no baseline), `changed`, `removed` (an orphan baseline), `unstable`, `play-failed` or `size-changed`. It also fails on each layout problem (see Layout checks).
 - The compare ([`diff.ts`](../../../packages/visual-review/src/compare/diff.ts)) counts a pixel as changed when its color delta is above the threshold 0.1 (pixelmatch scale). It also finds a faint change: a delta above 0.02 (about 5 gray levels) that fills a full 32 × 32 square, for example a surface that changes from rgb(10,10,10) to rgb(18,18,21). Anti-aliasing at edges and a shift of 1 or 2 levels in a gradient do not fill a square. The rule does not see a faint change in a part less than 32 px high or wide (for example, a row 24 px high). For a faint change, the diff image, the pixel count and the regions use 0.02, and the summary starts with "A faint color change".
@@ -203,6 +234,7 @@ Each screenshot shows the full page at the width of its viewport, so the reviewe
 A story controls its screenshots with `parameters: { visual: { ... } }`, in the story or in the meta of its file. The value of the story wins over the meta, key by key. Each value must be a literal: `checks:list` and `pnpm visual:check` read the story file with the Storybook CSF parser. A value that is not valid stops both commands.
 
 - `skip: "<reason>"`: the story has no screenshot. A reason is necessary.
+- `duplicate: "<reason>"`: the screenshot of the story may have the same pixels as the screenshot of one other story (see One story for each state). A reason is necessary.
 - `maxDiffPixels: <n>`: the count of pixels that may differ (default 10). Do not raise it to hide noise.
 - `viewports: ["desktop"]` or `["desktop", "mobile"]`: this list replaces the default viewports (desktop, and mobile for a `page` story). For example, a page story whose play asserts the desktop layout uses `["desktop"]`.
 - `masks: ["<CSS selector>"]`: the capture hides each element that a selector finds. Use it only when you cannot change the source of the element (for example, a library canvas).

@@ -575,6 +575,9 @@ export const RangeAcrossWeeks: Story = {
 /** On a short window the calendar popover stays inside the viewport. */
 export const CalendarOnShortViewport: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as RangeAcrossWeeks.",
+    },
     review: {
       purpose:
         "Date range calendar of the Workspace activity section in a short window: the open calendar stays inside the viewport.",
@@ -643,6 +646,9 @@ export const GermanLocale: Story = {
 export const ResetClearsEveryFilter: Story = {
   tags: ["required"],
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as MonthLabelsStayInTheChart.",
+    },
     review: {
       purpose:
         "Workspace activity section on the org home: the user pressed Reset, which cleared the author, day and date range filters.",

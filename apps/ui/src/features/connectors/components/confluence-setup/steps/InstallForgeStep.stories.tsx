@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { atlassianCapabilitiesHandler } from "@/mocks/atlassian-handlers"
 
@@ -191,6 +192,13 @@ export const HostedInstallIntentError: Story = {
       },
     },
   },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Install Forge app" }),
+    )
+    await canvas.findByText("Could not start install")
+  },
 }
 
 export const InstallForge: Story = {
@@ -326,5 +334,16 @@ export const MarketplaceInstallPending: Story = {
         ],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Install Forge app" }),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: /Install Forge app/ }),
+      ).toBeDisabled(),
+    )
   },
 }

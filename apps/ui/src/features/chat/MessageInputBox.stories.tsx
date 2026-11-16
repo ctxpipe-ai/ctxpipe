@@ -49,6 +49,9 @@ type Story = StoryObj<typeof meta>
 /** Typed text survives a remount under the same draft key, and a send clears it. */
 export const DraftSurvivesRemount: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends on a test harness with a Remount composer button, which the product does not render.",
+    },
     review: {
       purpose:
         "Chat message composer with a saved draft: typed text stays after a remount and the send clears it.",

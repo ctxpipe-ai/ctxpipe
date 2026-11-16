@@ -1040,7 +1040,9 @@ export const AddSeveralSendsOneBatch: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add repositories dialog is open, and the user picks two repositories for one pull request.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: {
+      skip: "Behavior test: it ends in the same state as AddSendsChange.",
+    },
     intent:
       "Catches an add of several repositories that sends one request per repository. It must send one batch request, so one pull request. Not for the repository list.",
     msw: {
@@ -1107,7 +1109,9 @@ export const AddByUrlSendsGitSource: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the Paste URL tab of the Add repositories dialog refuses an ssh URL, then adds an https URL.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: {
+      skip: "Behavior test: it ends in the same state as AddSendsChange.",
+    },
     msw: {
       handlers: {
         page: [
@@ -1365,6 +1369,7 @@ export const LoadFailed: Story = {
  */
 export const UpgradesLoadFailed: Story = {
   parameters: {
+    visual: { skip: "Behavior test: it ends in the same state as LoadFailed." },
     review: {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the format upgrade check did not load, so an error with Retry is visible and no Add button.",
@@ -1683,7 +1688,9 @@ export const AddRepositoriesWorkspaceRepositoryDisabled: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add repositories dialog lists the Workspace repository as disabled, with a label.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: {
+      skip: "Behavior test: it ends in the same state as AddRepositoriesExplains.",
+    },
     msw: {
       handlers: {
         page: [
@@ -1748,7 +1755,9 @@ export const AddRepositoriesRefreshesOnReturn: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the user comes back from GitHub, and the dialog list loads again with the new repository first.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: {
+      skip: "Behavior test: it ends in the same state as AddSendsChange.",
+    },
     msw: {
       handlers: {
         page: [
@@ -1901,7 +1910,9 @@ export const AddRepositoriesListFailsKeepsHint: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add repositories list did not load, but the hint with a Connectors link stays.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: {
+      skip: "Behavior test: it ends in the same state as GithubNoRepositories.",
+    },
     msw: {
       handlers: {
         page: [
@@ -2285,7 +2296,9 @@ export const RenameSendsChange: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the rename dialog of a Linear source is open, and it sends a new name in the same provider folder.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: {
+      skip: "Behavior test: it ends in the same state as EditSendsChange.",
+    },
     msw: {
       handlers: {
         page: [
@@ -2341,7 +2354,9 @@ export const EditDescriptionSendsChange: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the edit dialog of a Linear source is open, and the user changes the description.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: {
+      skip: "Behavior test: it ends in the same state as EditSendsChange.",
+    },
     msw: {
       handlers: {
         page: [

@@ -306,6 +306,9 @@ export const ReadOnly: Story = {
 /** A protected default branch: a neutral note, no warning and no "fix it". */
 export const ProtectedDefaultBranch: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as EmptyLinkedRepos.",
+    },
     review: {
       purpose:
         "Settings pane of a Workspace: the default branch is protected, so a neutral note says changes go by pull request, with no warning.",

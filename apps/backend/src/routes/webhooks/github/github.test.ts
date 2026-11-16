@@ -81,8 +81,10 @@ vi.mock("../../../openworkflow/enqueue-repository-ingestion.js", () => ({
 
 const persistWorkspaceTipsMock = vi.hoisted(() => vi.fn().mockResolvedValue(0))
 
-vi.mock("../../../openworkflow/enqueue-workspace-tip-check.js", () => ({
-  enqueueWorkspaceTipCheck: vi.fn().mockResolvedValue(undefined),
+// The tip check filter reads Workspaces from the database, which this file
+// does not have; github-tip.contract.test.ts proves it on a real one.
+vi.mock("./github-push-tip-check.js", () => ({
+  enqueuePushTipChecks: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock("../../../openworkflow/enqueue-workspace-hydrate.js", () => ({
@@ -102,7 +104,7 @@ import {
   registerInstallationOnConnection,
 } from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
-import { enqueueWorkspaceTipCheck } from "../../../openworkflow/enqueue-workspace-tip-check.js"
+import { enqueuePushTipChecks } from "./github-push-tip-check.js"
 import { registerGithubWebhookRoute } from "./github.js"
 
 const listInstallationsMock = vi.mocked(listInstallationsByGithubInstallationId)
@@ -371,7 +373,7 @@ describe("POST /api/v1/webhook/github", () => {
     listInstallationsMock.mockResolvedValue([
       { id: "ghi_1", orgId: "org_1", ...baseInstallationRow },
     ])
-    const tipCheck = vi.mocked(enqueueWorkspaceTipCheck)
+    const tipCheck = vi.mocked(enqueuePushTipChecks)
     const push = async (ref: string) => {
       const body = JSON.stringify({
         ref,
@@ -398,10 +400,14 @@ describe("POST /api/v1/webhook/github", () => {
     expect(tipCheck).not.toHaveBeenCalled()
     expect(enqueueIngestionMock).not.toHaveBeenCalled()
 
-    // Another branch still gets a tip check.
+    // Another branch goes to the tip check filter
+    // (`github-tip.contract.test.ts`).
     const branch = await push("refs/heads/feature")
     expect(branch.status).toBe(200)
     expect(tipCheck).toHaveBeenCalledTimes(1)
+    expect(tipCheck).toHaveBeenCalledWith(
+      expect.objectContaining({ ref: "refs/heads/feature", orgIds: ["org_1"] }),
+    )
   })
 
   it("on push enqueues ingestion for each org linked to the same installation id", async () => {

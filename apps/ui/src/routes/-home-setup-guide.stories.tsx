@@ -1356,6 +1356,9 @@ export const GuideEstablishedUserNewOrg: Story = {
 export const GuideEstablishedUserEmptyOrg: Story = {
   tags: ["required"],
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as GuideAdminNewOrg.",
+    },
     review: {
       purpose:
         "Org home page with the setup guide, which leads a new org through its first steps: an older org with no Workspace, so the guide shows with the empty activity below.",
@@ -1388,6 +1391,9 @@ export const GuideEstablishedUserEmptyOrg: Story = {
 export const GuideStaysAfterFirstWorkspace: Story = {
   tags: ["required"],
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as GuideEstablishedUserNewOrg.",
+    },
     review: {
       purpose:
         "Org home page with the setup guide, which leads a new org through its first steps: an older org whose first Workspace is from the last 14 days, so the guide stays.",

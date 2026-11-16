@@ -118,6 +118,9 @@ export const RowsFadeInInOrder: Story = {
  */
 export const RowsWithReducedMotion: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as RowsFadeInInOrder.",
+    },
     review: {
       purpose:
         "Welcome slide of onboarding that explains how ctxpipe works in three steps: the user prefers reduced motion, so the rows do not move.",

@@ -6,14 +6,9 @@ import { OnboardingPageShell } from "@/components/onboarding/OnboardingPageShell
 
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 
-function ShellChildren() {
-  return (
-    <div className="rounded-md border border-border bg-zinc-950/80 px-6 py-12 text-zinc-200">
-      <p className="text-lg">Slide placeholder</p>
-    </div>
-  )
-}
-
+// The onboarding page story (Pages/Onboarding) owns the frame with a loaded
+// scene. This file has only the state that the page story cannot reach: the
+// background scene failed to load. The frame always holds a real slide.
 const meta = {
   title: "Components/Onboarding/PageShell",
   component: OnboardingPageShell,
@@ -21,13 +16,13 @@ const meta = {
   parameters: {
     layout: "fullscreen",
     storyRoute: { pattern: "flat", path: "/onboarding" },
-    review: { kind: "component" },
+    review: { kind: "page" },
   },
   args: {
     sceneReady: true,
     onSceneLoad: fn(),
     onSceneError: fn(),
-    children: <ShellChildren />,
+    children: <OnboardingHowItWorksSlide actionLabel="Next" onNext={fn()} />,
   },
 } satisfies Meta<typeof OnboardingPageShell>
 
@@ -35,46 +30,20 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Default: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Onboarding page frame with the background scene and the Sign out link, around a placeholder slide: the scene loaded.",
-    },
-  },
-  args: {
-    sceneFailed: false,
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    const signOut = await canvas.findByRole("link", { name: "Sign out" })
-    expect(signOut).toHaveAttribute("href", "/.auth/sign-out")
-  },
-}
-
 export const SceneFailed: Story = {
   parameters: {
     review: {
       purpose:
-        "Onboarding page frame with the background scene and the Sign out link, around a placeholder slide: the scene failed to load.",
+        "Onboarding page with the welcome slide: the background scene failed to load, so a note says that Continue still works.",
     },
   },
   args: {
     sceneFailed: true,
   },
-}
-
-/** The welcome slide on the page, as a new user sees it. */
-export const WithWelcomeSlide: Story = {
-  parameters: {
-    review: {
-      kind: "page",
-      purpose:
-        "Onboarding page as a new user first sees it: the frame with the welcome slide that explains how ctxpipe works.",
-    },
-  },
-  args: {
-    sceneFailed: false,
-    children: <OnboardingHowItWorksSlide actionLabel="Next" onNext={fn()} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const signOut = await canvas.findByRole("link", { name: "Sign out" })
+    expect(signOut).toHaveAttribute("href", "/.auth/sign-out")
+    await canvas.findByText("Animation failed to load. Continue still works.")
   },
 }

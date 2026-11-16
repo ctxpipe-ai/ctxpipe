@@ -376,6 +376,9 @@ export const CloseCancelsTheSetup: Story = {
 export const InstallMarksTheDraft: Story = {
   render: () => wizard(),
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as WaitForInstall.",
+    },
     review: {
       purpose:
         "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the user clicks Install Forge app on the install step.",

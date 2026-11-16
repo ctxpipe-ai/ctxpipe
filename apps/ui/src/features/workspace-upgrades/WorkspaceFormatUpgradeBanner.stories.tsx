@@ -254,6 +254,9 @@ export const Blocked: Story = {
 /** At the newest format the banner shows nothing. */
 export const UpToDate: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: at the newest format the banner renders nothing, so the screenshot is empty.",
+    },
     ...handlers(
       "owner",
       upgradesFixture([upgradeItemFixture({ status: "completed" })], {

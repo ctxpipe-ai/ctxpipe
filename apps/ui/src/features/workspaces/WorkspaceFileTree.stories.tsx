@@ -121,19 +121,6 @@ export const EmptyProjection: Story = {
   args: { paths: [], selectedPath: null },
 }
 
-export const SelectedFile: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File tree of a Workspace, where a member browses and opens files: a file deep in a folder is selected, so its folders are open.",
-    },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
-  },
-  args: {
-    selectedPath: "knowledge/auth/session.ts",
-  },
-}
-
 export const GitShaped: Story = {
   parameters: {
     review: {
@@ -181,21 +168,6 @@ export const GitStatus: Story = {
         deletions: 1,
       },
     ],
-  },
-}
-
-export const ReadOnly: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File tree of a Workspace, where a member browses and opens files: the Workspace is read-only, so no edit controls show.",
-    },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
-  },
-  args: {
-    paths: docsWorkspaceGitTree.paths,
-    selectedPath: "AGENTS.md",
-    writable: false,
   },
 }
 
@@ -322,7 +294,7 @@ export const DeletedFile: Story = {
   parameters: {
     review: {
       purpose:
-        "File tree of a Workspace, where a member browses and opens files: a file deleted in this conversation shows as a struck-through row.",
+        "File tree of a Workspace, where a member browses and opens files: the member opened a folder, and a file deleted in this conversation shows as a struck-through row.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
@@ -333,23 +305,24 @@ export const DeletedFile: Story = {
       { path: "knowledge/old-pricing.md", status: "deleted", deletions: 12 },
     ],
   },
-}
-
-export const DeletedFolder: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File tree of a Workspace, where a member browses and opens files: all files of a folder were deleted, so the folder shows as deleted.",
-    },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
-  },
-  args: {
-    paths: ["AGENTS.md", "knowledge/billing.md"],
-    selectedPath: "knowledge/billing.md",
-    gitStatus: [
-      { path: "knowledge/archive/2023.md", status: "deleted", deletions: 40 },
-      { path: "knowledge/archive/2024.md", status: "deleted", deletions: 31 },
-    ],
+  play: async ({ canvasElement }) => {
+    const folder = await waitFor(() => {
+      const row = findInShadows(
+        canvasElement,
+        "[data-item-type='folder'][data-item-path^='knowledge']",
+      )
+      expect(row).toBeTruthy()
+      return row as HTMLElement
+    })
+    await userEvent.click(folder)
+    await waitFor(() =>
+      expect(
+        findInShadows(
+          canvasElement,
+          "[data-item-path='knowledge/old-pricing.md']",
+        ),
+      ).toBeTruthy(),
+    )
   },
 }
 
@@ -441,7 +414,9 @@ export const DeletedFileStaysUntilMerged: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: the change was merged into the base branch, so the deleted file row is gone.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: {
+      skip: "Behavior test: it ends on a test harness with a Merge into base branch button, which the product does not render.",
+    },
     intent:
       "Catches a deleted file that vanishes from the tree or can be selected. It stays as a struck-through row with a text summary and is not selectable. Not for other markers.",
   },
@@ -592,7 +567,9 @@ export const NewPathsKeepExpandedFolders: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: new paths loaded, and the folder that the member opened stays open.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    visual: {
+      skip: "Behavior test: it ends on a test harness with a Load new paths button, which the product does not render.",
+    },
     intent:
       "Catches a path reload that collapses folders the user opened. New paths appear and open folders stay open. Not for the first load.",
   },

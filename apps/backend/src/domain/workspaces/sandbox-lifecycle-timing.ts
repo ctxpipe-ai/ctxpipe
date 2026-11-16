@@ -66,6 +66,9 @@ export async function timeSandboxLifecycle<T>(
 
 export function classifySandboxCommand(command: string): string {
   const cmd = command.replace(SANDBOX_GIT_GUARD, "").trim()
+  // Several marked setup steps in one command (AgentCore): each step writes
+  // its own mark, so the command is only `setup`.
+  if (cmd.split("CTXPIPE_LIFECYCLE_T0=").length > 2) return "setup"
   if (cmd.includes("opencode serve")) return "opencode-serve"
   if (cmd.includes("git cat-file -e")) return "git-cat-file"
   if (cmd.includes("git checkout --detach")) return "git-checkout-detach"
