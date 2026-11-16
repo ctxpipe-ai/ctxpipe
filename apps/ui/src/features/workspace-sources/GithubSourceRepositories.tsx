@@ -126,7 +126,23 @@ const pendingTag: StatusTag = {
   dotClassName: "size-1.5 rounded-full bg-zinc-500",
 }
 
+/** The amber tag of a repository that needs attention. */
+const attentionTagStyle = {
+  className:
+    "inline-flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-200",
+  dotClassName: "size-1.5 rounded-full bg-amber-300",
+}
+
 function linkedStatus(item: WorkspaceLinkedRepository): StatusTag {
+  // The note under the row gives the cause and the fix.
+  if (item.indexingStatus === "failed") {
+    return {
+      label: "Not indexed",
+      hint: "ctxpipe could not index the latest commit of this repository.",
+      tone: "attention",
+      ...attentionTagStyle,
+    }
+  }
   const indexed =
     item.indexedSha != null &&
     item.indexedSha === (item.desiredSha ?? item.indexedSha)
@@ -135,9 +151,7 @@ function linkedStatus(item: WorkspaceLinkedRepository): StatusTag {
       label: "Indexed with issues",
       hint: "ctxpipe indexed the latest commit that it knows, but some parts of the index are incomplete.",
       tone: "attention",
-      className:
-        "inline-flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-200",
-      dotClassName: "size-1.5 rounded-full bg-amber-300",
+      ...attentionTagStyle,
     }
   }
   if (indexed) {
@@ -174,9 +188,18 @@ type RepositoryRow = {
   source: WorkspaceSource | null
 }
 
-/** A row needs attention when its index has issues or its source is not ok. */
+/** The index of a linked repository failed or has issues: its note says why. */
+function indexNote(linked: WorkspaceLinkedRepository | null): string | null {
+  return linked?.indexingStatus === "failed" ||
+    linked?.indexingStatus === "complete_with_issues"
+    ? linked.indexingError?.trim() || null
+    : null
+}
+
+/** A row needs attention when its index failed or has issues, or its source is not ok. */
 export function repositoryNeedsAttention(row: RepositoryRow): boolean {
   return (
+    row.linked?.indexingStatus === "failed" ||
     row.linked?.indexingStatus === "complete_with_issues" ||
     (row.source != null && row.source.status !== "ok")
   )
@@ -358,10 +381,9 @@ export function GithubSourceRepositories(props: {
                         unlink it.
                       </p>
                     ) : null,
-                    row.linked?.indexingStatus === "complete_with_issues" &&
-                    row.linked.indexingError ? (
+                    indexNote(row.linked) ? (
                       <p key="issues" className="text-amber-200/80">
-                        {row.linked.indexingError}
+                        {indexNote(row.linked)}
                       </p>
                     ) : null,
                   ].filter(Boolean)
@@ -507,15 +529,14 @@ export function GithubSourceRepositories(props: {
                         unlink it.
                       </p>
                     ) : null}
-                    {row.linked?.indexingStatus === "complete_with_issues" &&
-                    row.linked.indexingError ? (
+                    {indexNote(row.linked) ? (
                       <p
                         className={cn(
                           sourceRowNoteClassName,
                           "text-amber-200/80",
                         )}
                       >
-                        {row.linked.indexingError}
+                        {indexNote(row.linked)}
                       </p>
                     ) : null}
                   </li>

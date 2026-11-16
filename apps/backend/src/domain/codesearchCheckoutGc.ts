@@ -1,4 +1,4 @@
-import { eq, type SQL, sql } from "drizzle-orm"
+import { and, eq, lt, not, or, type SQL, sql } from "drizzle-orm"
 import { z } from "zod"
 
 import { repositoryRevisionCheckoutKey } from "../../../../shared/workspace-checkout.js"
@@ -13,6 +13,7 @@ import { organizations } from "../db/schema/auth.js"
 import { repositories } from "../db/schema/repositories.js"
 import { formatUnknownError } from "../db/transientDbRetry.js"
 import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
+import { repositoryLostAccessCondition } from "../models/repositories.js"
 import { log } from "../observability/logger.js"
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 import {
@@ -398,8 +399,10 @@ export type PublishedRebuild = {
 }
 
 /**
- * The published revision of a repository, when it is not in `liveShas`: no
- * unfinished run indexes it now.
+ * The published revision of a repository, when it is not in `liveShas` (no
+ * unfinished run indexes it now). A repository whose Git host refused
+ * ctxpipe access gets one try each week only: a webhook or a refresh of its
+ * Workspace tries it again when the access comes back (CTX-1297).
  */
 async function publishedShaToRebuild(
   orgId: string,
@@ -410,7 +413,15 @@ async function publishedShaToRebuild(
     db
       .select({ sha: repositories.lastIngestedHash })
       .from(repositories)
-      .where(eq(repositories.id, repositoryId))
+      .where(
+        and(
+          eq(repositories.id, repositoryId),
+          or(
+            not(repositoryLostAccessCondition()),
+            lt(repositories.indexingFailedAt, sql`now() - interval '7 days'`),
+          ),
+        ),
+      )
       .limit(1),
   )
   const sha = row?.sha ?? undefined

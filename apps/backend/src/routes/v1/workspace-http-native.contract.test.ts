@@ -5,6 +5,7 @@ import { expect, it, vi } from "vitest"
 
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { repositories } from "../../db/schema/repositories.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { WRITE_STATUS_REASONS } from "../../domain/workspaces/write-status.js"
 import {
@@ -17,6 +18,7 @@ import {
 } from "../../models/workspaces.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceTipCheck } from "../../openworkflow/workflows/workspace-tip-check.js"
+import { GIT_REMOTE_ACCESS_MESSAGES } from "../../services/git/clone-tree.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import { insertLinkedRepositoryRows } from "../../test/workspace-links-fixture.js"
@@ -170,6 +172,76 @@ it(
       expect(
         await withOrgIdContext(f.org, () => getWorkspaceById(f.workspaceId)),
       ).toMatchObject({ id: f.workspaceId })
+    })
+  },
+)
+
+it(
+  "tries the index of a lost-access repository again when the user opens the Workspace, not when the UI polls it",
+  { timeout: 45_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      await f.handle.cancel()
+      const app = workspaceHttpApp(f.org, workspaceRoutes)
+      const repositoryId = `repo_lost_${f.id}`
+      const sha = "c0ffee0000000000000000000000000000000002"
+      await withOrgDbContext(f.org.id, async (db) => {
+        await db.insert(repositories).values({
+          id: repositoryId,
+          orgId: f.org.id,
+          name: "lost-access",
+          gitUrl: "https://github.com/acme/lost-access.git",
+          githubConnectionId: f.connectionId,
+          indexReady: true,
+          indexingStatus: "failed",
+          indexingError: GIT_REMOTE_ACCESS_MESSAGES.denied,
+          lastIngestedHash: sha,
+        })
+        await insertLinkedRepositoryRows(db, {
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+          gitUrl: "https://github.com/acme/lost-access",
+        })
+      })
+      const queued = async () => {
+        const { rows } = await getSystemDb().execute<{ input: unknown }>(sql`
+          select input from openworkflow.workflow_runs
+          where workflow_name = 'repository-index'
+            and input->>'repositoryId' = ${repositoryId}
+        `)
+        return rows.map((row) => row.input)
+      }
+
+      // The UI polls the detail route while a hydrate runs: no retry. The
+      // reads are in an earlier minute, so a retry of theirs would have a
+      // key of its own.
+      const opened = Date.now()
+      const now = vi.spyOn(Date, "now").mockReturnValue(opened - 120_000)
+      try {
+        for (let i = 0; i < 3; i++) {
+          const detail = await app.request("/workspaces/knowledge")
+          expect(detail.status).toBe(200)
+        }
+        // The user opens the Workspace two times in one minute: one retry.
+        now.mockReturnValue(opened)
+        for (let i = 0; i < 2; i++) {
+          const touched = await app.request("/workspaces/knowledge/touch", {
+            method: "POST",
+          })
+          expect(touched.status).toBe(204)
+        }
+      } finally {
+        now.mockRestore()
+      }
+      await expect.poll(queued, { timeout: 5_000 }).toEqual([
+        {
+          orgId: f.org.id,
+          repositoryId,
+          targetHash: sha,
+          ingestionV2: true,
+          rebuild: true,
+        },
+      ])
     })
   },
 )

@@ -6,7 +6,7 @@ import {
 } from "../../domain/codesearchCheckoutGc.js"
 import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { repositoryIndex } from "./repository-index.js"
+import { enqueueCodesearchRebuild } from "../enqueue-codesearch-rebuild.js"
 
 /**
  * The hourly collection of old codesearch checkouts (CTX-973): each run
@@ -48,19 +48,10 @@ export async function startPublishedRebuilds(
   rebuilds: PublishedRebuild[],
   hour: string,
 ): Promise<void> {
-  for (const { orgId, repositoryId, sha } of rebuilds)
-    await enqueueWorkflow(
-      repositoryIndex.spec,
-      {
-        orgId,
-        repositoryId,
-        targetHash: sha,
-        ingestionV2: true,
-        rebuild: true,
-      },
-      {
-        idempotencyKey: `repository-index-rebuild:${repositoryId}:${sha}:${hour}`,
-      },
+  for (const rebuild of rebuilds)
+    await enqueueCodesearchRebuild(
+      rebuild,
+      `repository-index-rebuild:${rebuild.repositoryId}:${rebuild.sha}:${hour}`,
     )
 }
 

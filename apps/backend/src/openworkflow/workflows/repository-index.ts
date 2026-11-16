@@ -17,8 +17,10 @@ import {
   userFacingIndexingError,
 } from "../../lib/memoryFitError.js"
 import {
+  clearRepositoryLostAccess,
   ensureRepositoryRevisionCheckout,
   getRepositoryReadBinding,
+  markRepositoryLostAccess,
   repositoryIndexAlreadyPublished,
   setRepositoryIndexingStep,
 } from "../../models/repositories.js"
@@ -27,6 +29,7 @@ import {
   captureRepositoryIngestionRequest,
 } from "../../models/repository-ingestion-requests.js"
 import { flushWorkflowLog, getLogger } from "../../observability/logger.js"
+import { GitRemoteAccessError } from "../../services/git/clone-tree.js"
 import { checkedPlainGitRemote } from "../../services/git/plain-git-remote.js"
 import { parseIndexerConcurrency } from "../codesearchCapacity.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
@@ -294,17 +297,39 @@ export const repositoryIndex = defineWorkflow(
     }
 
     const env = parseEnv(process.env as Record<string, string | undefined>)
-    const githubToken = await wls("resolve-github-token", () =>
-      resolveRepositoryReadCredential({
-        orgId: input.orgId,
-        env,
-        remote: {
-          url: repository.gitUrl,
-          connectionId:
-            input.githubConnectionId ?? repository.githubConnectionId,
-        },
-      }),
-    )
+    const githubToken = await wls("resolve-github-token", async () => {
+      try {
+        const token = await resolveRepositoryReadCredential({
+          orgId: input.orgId,
+          env,
+          remote: {
+            url: repository.gitUrl,
+            connectionId:
+              input.githubConnectionId ?? repository.githubConnectionId,
+          },
+        })
+        // GitHub gave a credential: a lost access is back (CTX-1297). With
+        // no credential (no connection), only a successful run ends it.
+        if (token)
+          await clearRepositoryLostAccess({
+            orgId: input.orgId,
+            repositoryId: input.repositoryId,
+          })
+        return token
+      } catch (error) {
+        // A run with a request leaves the failure to its ingestion. A run
+        // with no request records a refusal, which stays until the
+        // installation gets the repository back: the hourly sweep then
+        // stops its rebuilds, and the UI tells the user what to fix.
+        if (!requestId && error instanceof GitRemoteAccessError)
+          await markRepositoryLostAccess({
+            orgId: input.orgId,
+            repositoryId: input.repositoryId,
+            error,
+          })
+        throw error
+      }
+    })
 
     const checkout = await runIndexPhaseWithAdmissionRetry(
       indexStep,
