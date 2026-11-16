@@ -1379,6 +1379,9 @@ export const Primary = { parameters: { review: { purpose: "Home page with one pr
           '<data name="brief">\nMake the primary button red.',
         )
         expect(text).toContain("you cannot change the verdict or the severity")
+        // The fix changes the cause, and the purpose comes first (CTX-1318).
+        expect(text).toMatch(/`suggestion` gives one fix of the root cause/)
+        expect(text).toMatch(/read the purpose of the story first/i)
         // The kind of the story, and its name and purpose as data. This
         // checkout has no story file of the screenshot.
         expect(text).toContain("Scope: component, a part of the UI.")
