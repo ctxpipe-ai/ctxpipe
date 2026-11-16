@@ -12,6 +12,8 @@ import {
 } from "../../domain/ingestion/ingest-refs.js"
 import {
   IngestStepCommandError,
+  IngestStepTimeLimitError,
+  ingestStepCheckpoint,
   ingestStepSignal,
 } from "../../domain/ingestion/ingest-shard-ops.js"
 import type {
@@ -748,6 +750,7 @@ async function attemptSkillStep(
     // Where the attempt is, for the log of a failed attempt.
     let stage: "find" | "list-files" | "runtime" | "push" = "find"
     const signal = ingestStepSignal()
+    const checkpoint = ingestStepCheckpoint()
     try {
       // A crash after the push: the step's commit is on the ref, and its
       // `Ctxpipe-More` trailer says whether a next page waits.
@@ -804,6 +807,7 @@ async function attemptSkillStep(
         ...(fetchRef ? { fetchRef } : {}),
         rootMap,
         signal,
+        checkpoint,
       })
       // A runtime that cannot report the usage of a model step makes the
       // spend unknown. The step counts as unknown, so that the spend does not
@@ -893,7 +897,10 @@ async function attemptSkillStep(
       // attempt failed (the stage, the step command and its exit code, or
       // the time limit) and the fields of `ingestErrorFields`.
       const command = error instanceof IngestStepCommandError ? error : null
-      failed = signal.aborted
+      // A checkpoint with nothing staged fails as the time limit does.
+      const timeLimit =
+        signal.aborted || error instanceof IngestStepTimeLimitError
+      failed = timeLimit
         ? "timeLimit"
         : command?.model?.errors.length
           ? "model"
@@ -904,7 +911,7 @@ async function attemptSkillStep(
         workspaceId: destination.workspaceId,
         ingestStep: ctx.name,
         attempt,
-        stage: signal.aborted ? "time-limit" : (command?.part ?? stage),
+        stage: timeLimit ? "time-limit" : (command?.part ?? stage),
         ...(command ? { exitCode: command.exitCode } : {}),
         ...(command?.model
           ? {

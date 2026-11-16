@@ -12,7 +12,8 @@ import { INGEST_STEP_LIMIT_MS, ingestStepSignal } from "./ingest-shard-ops.js"
 
 /*
  * Contract (Docker): a hung step ends at the step limit, and its processes
- * are gone before the exec returns. Only `setTimeout` is fake: the step
+ * are gone before the exec returns. A stop also ends the processes, but the
+ * exec resolves with the output so far. Only `setTimeout` is fake: the step
  * limit timer. Docker I/O uses Node's internal timers.
  */
 
@@ -57,6 +58,40 @@ describe("dockerRootExec with a step limit", () => {
         expect(await count()).toBe(0)
       } finally {
         vi.useRealTimers()
+        await provider.destroy({ id: handle.id })
+      }
+    },
+  )
+
+  it(
+    "a stop ends the whole process group and resolves with the output that the command wrote (CTX-1312)",
+    { timeout: 180_000 },
+    async () => {
+      const provider = dockerSandbox({ image: workspaceChatDockerImage() })
+      const handle = await provider.create({
+        id: `ingest-stop-out-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      })
+      try {
+        const root = dockerRootExec(handle.id)
+        const count = async () =>
+          Number(
+            (
+              await root("ps -eo args | grep -c '^sleep 86[4]03' || true")
+            ).stdout.trim(),
+          )
+        const stop = new AbortController()
+        const signal = new AbortController()
+        const running = root(
+          "echo first; runuser -u node -- sh -c 'sleep 86403 & sleep 86403'",
+          { signal: signal.signal, stop: stop.signal },
+        )
+        while ((await count()) < 2) {}
+        stop.abort(new Error("checkpoint"))
+        const result = await running
+        expect(result).toMatchObject({ stdout: "first\n", stopped: true })
+        expect(await count()).toBe(0)
+        expect(signal.signal.aborted).toBe(false)
+      } finally {
         await provider.destroy({ id: handle.id })
       }
     },

@@ -29,8 +29,10 @@ export function ingestModelRunCommand(input: {
 }): string {
   const run = `opencode run --format json${input.model ? ` --model ${quote(input.model)}` : ""} ${quote(input.prompt)}`
   // POSIX sh has no pipefail: fd 3 carries the exit code of `opencode run`
-  // out of the pipe, and fd 4 carries the filtered lines to stdout.
-  return `exec 4>&1; code=$( { { ${run}; echo $? >&3; } | { grep -F -e ${quote(OPENCODE_STEP_FINISH)} -e ${quote(OPENCODE_ERROR)} >&4; true; }; } 3>&1 ); exit "$code"`
+  // out of the pipe, and fd 4 carries the filtered lines to stdout. `grep`
+  // writes each line at once, so the usage lines are out when a checkpoint
+  // stops the run (CTX-1312).
+  return `exec 4>&1; code=$( { { ${run}; echo $? >&3; } | { grep --line-buffered -F -e ${quote(OPENCODE_STEP_FINISH)} -e ${quote(OPENCODE_ERROR)} >&4; true; }; } 3>&1 ); exit "$code"`
 }
 
 /** The count of finished model calls (`step_finish` lines). */
