@@ -144,38 +144,62 @@ type ShimRequest =
       body?: string
     }
 
-/** The events of one `InvokeAgentRuntime` call to the shim. */
+/**
+ * The events of one `InvokeAgentRuntime` call to the shim. The answer ends
+ * at once after its last event (`stored`, `error` or `end`), and a consumer
+ * reads on to that end: a call closed early shows as an aborted HTTP call.
+ * A process in the sandbox can replace the shim, so the read stops 2 s after
+ * the last event, also when the answer has not ended.
+ */
 async function* shimEvents(
   runtime: AgentCoreRuntime,
   sessionId: string,
   payload: ShimRequest,
   signal?: AbortSignal,
 ): AsyncGenerator<ShimEvent> {
-  const output = await runtime.client.send(
-    new InvokeAgentRuntimeCommand({
-      agentRuntimeArn: runtime.runtimeArn,
-      qualifier: runtime.qualifier,
-      runtimeSessionId: sessionId,
-      contentType: "application/json",
-      accept: "text/event-stream",
-      payload: Buffer.from(JSON.stringify(payload)),
-    }),
-    signal ? { abortSignal: signal } : {},
-  )
-  let buffer = ""
-  const decoder = new TextDecoder()
-  for await (const chunk of output.response as AsyncIterable<Uint8Array>) {
-    buffer += decoder.decode(chunk, { stream: true })
-    for (
-      let end = buffer.indexOf("\n\n");
-      end >= 0;
-      end = buffer.indexOf("\n\n")
-    ) {
-      const block = buffer.slice(0, end)
-      buffer = buffer.slice(end + 2)
-      if (block.startsWith("data: "))
-        yield shimEventSchema.parse(JSON.parse(block.slice("data: ".length)))
+  const cut = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const output = await runtime.client.send(
+      new InvokeAgentRuntimeCommand({
+        agentRuntimeArn: runtime.runtimeArn,
+        qualifier: runtime.qualifier,
+        runtimeSessionId: sessionId,
+        contentType: "application/json",
+        accept: "text/event-stream",
+        payload: Buffer.from(JSON.stringify(payload)),
+      }),
+      {
+        abortSignal: signal
+          ? AbortSignal.any([signal, cut.signal])
+          : cut.signal,
+      },
+    )
+    let buffer = ""
+    const decoder = new TextDecoder()
+    for await (const chunk of output.response as AsyncIterable<Uint8Array>) {
+      buffer += decoder.decode(chunk, { stream: true })
+      for (
+        let end = buffer.indexOf("\n\n");
+        end >= 0;
+        end = buffer.indexOf("\n\n")
+      ) {
+        const block = buffer.slice(0, end)
+        buffer = buffer.slice(end + 2)
+        if (!block.startsWith("data: ")) continue
+        const event = shimEventSchema.parse(
+          JSON.parse(block.slice("data: ".length)),
+        )
+        if (event.type !== "head" && event.type !== "body")
+          timer ??= setTimeout(() => cut.abort(), 2_000)
+        yield event
+      }
     }
+  } catch (error) {
+    // The answer had its last event and did not end: it is complete.
+    if (!cut.signal.aborted) throw error
+  } finally {
+    clearTimeout(timer)
   }
 }
 

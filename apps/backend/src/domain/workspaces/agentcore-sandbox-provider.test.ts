@@ -290,6 +290,24 @@ describe("agentCoreSandboxProvider", () => {
     }
   })
 
+  it("stops reading a shim answer 2 s after its last event, so an answer with no end holds no call open", async () => {
+    // A process in the sandbox can replace the shim: it must not keep backend calls open.
+    fake.delayInvocationEnds(60_000)
+    try {
+      const handle = await provider.create({})
+      const before = fake.cutInvocations.length
+      const started = Date.now()
+      expect((await handle.process.exec("echo hi")).stdout).toBe("hi\n")
+      expect(Date.now() - started).toBeLessThan(10_000)
+      await vi.waitFor(() =>
+        expect(fake.cutInvocations.slice(before)).toEqual(["put"]),
+      )
+      await provider.destroy({ id: handle.id })
+    } finally {
+      fake.delayInvocationEnds(0)
+    }
+  }, 20_000)
+
   it("reaches a sandbox port through the shim and streams its answer", async () => {
     const handle = await provider.create({})
     let upstreamClosed = () => {}
