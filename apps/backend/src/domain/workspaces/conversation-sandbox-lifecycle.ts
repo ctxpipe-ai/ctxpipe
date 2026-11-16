@@ -44,6 +44,10 @@ import {
 } from "./sandbox-lock-store.js"
 import { stopDetachedProviderSandbox } from "./sandbox-provider.js"
 import {
+  retiresVercelRow,
+  retireVercelSandboxes,
+} from "./vercel-sandbox-retirement.js"
+import {
   currentSandboxAgent,
   type SandboxAgent,
 } from "./workspace-base-providers.js"
@@ -402,6 +406,8 @@ export async function orgsWithSandboxes(): Promise<string[]> {
 
 /**
  * The lifecycle sweep for one organization's conversation sandboxes:
+ * - retire the org's `vercel` sandbox rows (`retireVercelSandboxes`); the
+ *   steps below skip them;
  * - stop a running sandbox after 5 minutes unused (never while a turn or file
  *   read holds the conversation);
  * - delete a sandbox and its saved state a day before that state would
@@ -417,11 +423,16 @@ export async function sweepConversationSandboxes(
   orgId: string,
   now: Date = new Date(),
 ): Promise<{ stopped: number; deleted: number; nextSweepAt: Date | null }> {
+  const retirement = await retireVercelSandboxes(orgId, now)
   const { rows, bases, conversations } = await withOrgDbContext(
     orgId,
     async () => ({
-      rows: await listSandboxInstances({ kind: "chat" }),
-      bases: await listSandboxInstances({ kind: "base" }),
+      rows: (await listSandboxInstances({ kind: "chat" })).filter(
+        (row) => !retiresVercelRow(row),
+      ),
+      bases: (await listSandboxInstances({ kind: "base" })).filter(
+        (row) => !retiresVercelRow(row),
+      ),
       conversations: new Set(
         (await listOrgConversationsForSandboxGc(orgId)).map((row) => row.id),
       ),
@@ -435,6 +446,7 @@ export async function sweepConversationSandboxes(
   }
   const retryAt =
     Math.floor(now.getTime() / RETRY_GRID_MS) * RETRY_GRID_MS + RETRY_GRID_MS
+  if (retirement.left) dueAt(retryAt)
   // Run tokens a turn end could not revoke (or a prepare left) go now.
   if (await revokeIdleRunGitTokens({ orgId }).catch(() => true)) dueAt(retryAt)
   if (await revokeFinishedIngestGitTokens({ orgId }).catch(() => true))
@@ -534,9 +546,11 @@ export async function sweepConversationSandboxes(
   // when an earlier delete failed. The shard lock (its thread id) keeps the
   // sandbox of a step that runs.
   try {
-    const ingest = await withOrgDbContext(orgId, () =>
-      listSandboxInstances({ kind: "ingest" }),
-    )
+    const ingest = (
+      await withOrgDbContext(orgId, () =>
+        listSandboxInstances({ kind: "ingest" }),
+      )
+    ).filter((row) => !retiresVercelRow(row))
     const unfinished = await unfinishedOrgWorkflowRunIds(
       orgId,
       INGESTION_V2_WORKFLOW_NAME,
