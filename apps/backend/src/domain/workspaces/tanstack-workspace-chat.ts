@@ -87,7 +87,10 @@ import {
   timeSandboxLifecycle,
   wrapSandboxSetupCommand,
 } from "./sandbox-lifecycle-timing.js"
-import { postgresSandboxLocks } from "./sandbox-lock-store.js"
+import {
+  postgresSandboxLocks,
+  workspaceLockUntilCreated,
+} from "./sandbox-lock-store.js"
 import {
   stopEarlierTurnProcesses,
   withOpencodeServeRetry,
@@ -530,11 +533,7 @@ function sandboxEnsureContext(
     threadId: input.conversationId,
     runId: input.runId ?? `prepare-${input.conversationId}`,
     store: built.instances,
-    locks: postgresSandboxLocks(
-      input.orgId,
-      abortController,
-      `workspace-sandboxes:${input.workspaceId}`,
-    ),
+    locks: built.workspaceLock.locks(abortController),
     signal: abortController.signal,
     // Match the optional fields emitted by native withSandbox's tenantFrom.
     tenant: { userId: undefined, orgId: input.orgId },
@@ -936,11 +935,7 @@ async function startWorkspaceChat(
         }),
         withSandbox(definition, {
           instances: built.instances,
-          locks: postgresSandboxLocks(
-            input.orgId,
-            abortController,
-            `workspace-sandboxes:${input.workspaceId}`,
-          ),
+          locks: built.workspaceLock.locks(abortController),
         }),
         defineChatMiddleware({
           name: "workspace-chat-revision",
@@ -1359,6 +1354,11 @@ async function buildWorkspaceChatSandbox(
     modelBase: contract.modelBase,
     proxyEnv: vault?.env,
   })
+  // One start: the Workspace lock ends when its sandbox is created.
+  const workspaceLock = workspaceLockUntilCreated(
+    input.orgId,
+    input.workspaceId,
+  )
   const provider = conversationSandboxProvider(
     selectedProvider,
     agentPassword,
@@ -1382,8 +1382,9 @@ async function buildWorkspaceChatSandbox(
           prefixes: [`${cloneLabel}:`],
         })
     },
+    workspaceLock,
     definition: conversationSandboxDefinition({
-      provider:
+      provider: workspaceLock.provider(
         selectedProvider === "unsandboxed"
           ? provider
           : withConversationSandboxSlots(provider, {
@@ -1394,6 +1395,7 @@ async function buildWorkspaceChatSandbox(
               image,
               revision: revision.data,
             }),
+      ),
       workspace,
       image,
       revision: revision.data,
