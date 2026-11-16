@@ -307,11 +307,6 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     // It downloads by the artifact ids that the Storybook shards give, so
     // another job of the run cannot replace them.
     "ci.yaml:nightly-tickets",
-    // The push job loads the image that the build job made from the PR's code
-    // and pushes it: that is its purpose. It runs no file of the artifact on
-    // the runner (`docker load` only stores the image), and its role can only
-    // push to ctxpipe-pr/* in the preview account, where PR code runs anyway.
-    "pr-preview-images.yaml:push",
   ])
   for (const job of jobs) {
     // A job has an OIDC token when it asks for one, or when the workflow
