@@ -45,8 +45,8 @@ const GIT_TOKEN_REVOKE_GRACE_MS = 30_000
 
 /**
  * Tags on every hosted chat sandbox. `environment` is the deployment
- * environment name, so the sandboxes of one environment can be listed. `environment` is
- * the first tag because `listTaggedSandboxes` filters on the
+ * environment name, so the sandboxes of one environment can be listed.
+ * `environment` is the first tag because `listTaggedSandboxes` filters on the
  * first tag: one environment has fewer chats than all environments.
  */
 export function conversationSandboxTags(
@@ -723,9 +723,9 @@ type SandboxTarget = {
   credentials: VercelCredentials
   name: string
   /**
-   * Where the sandbox's GitHub token is kept, so it can be revoked. PR-close
-   * cleanup has none: the preview's database is deleted with the preview, and
-   * a token that is not revoked expires within an hour.
+   * Where the sandbox's GitHub token is kept, so it can be revoked.
+   * `deleteLateSandbox` has none: no row records that sandbox, and a token
+   * that is not revoked expires within an hour.
    */
   tokens?: SandboxGitTokenStore
   revoke?: (token: string) => Promise<void>

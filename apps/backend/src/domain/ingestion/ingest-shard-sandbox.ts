@@ -323,7 +323,8 @@ function ingestIsolation(): "docker" | "vercel" | "agentcore" {
 
 /**
  * The deployment environment of hosted sandboxes, for their tags. On
- * Railway, an untagged sandbox would escape the PR-close cleanup.
+ * Railway, each sandbox gets the environment tag, so the sandboxes of one
+ * environment stay listable.
  */
 function hostedEnvironment(): string {
   const environment = deploymentEnvironment(process.env)
