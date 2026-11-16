@@ -55,7 +55,7 @@ for (const path of storyFiles(join(root, "apps/ui/src"))) {
       )
     if (!story.purpose)
       errors.push(
-        `${where} has no parameters.review.purpose. Write one sentence (a string literal) in the story: what the UI is for, and the state that the story shows.`,
+        `${where} has no parameters.review.purpose. Write one sentence (a string literal) in the story: "<the UI>, where <the user> <does what>: <the state, and the step of the user that led there>."`,
       )
     else if (!validPurpose(story.purpose))
       errors.push(
