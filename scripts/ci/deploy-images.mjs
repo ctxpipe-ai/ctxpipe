@@ -1,6 +1,13 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { appendFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import {
+  appendFileSync,
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -121,19 +128,60 @@ export const images = [
 // change to it is about other apps. So a change to pnpm-lock.yaml counts for an
 // image only when the pruned lockfile of its `packages` changed: the lockfile
 // that `turbo prune <packages> --docker` writes, which holds exactly what the
-// image's install reads. The turbo version is the one that the lockfile
-// resolves (a test keeps them equal).
-export const TURBO = "turbo@2.10.11"
+// image's install reads.
+//
+// The plan's output decides what the production build pushes, so turbo is the
+// platform binary of the version that the lockfile resolves, checked against
+// the lockfile's sha512 integrity, with no install script (TURBO_BIN, the
+// tests' turbo, is one that pnpm installed and checked). A prune that fails or
+// takes longer than PRUNE_MS counts as a changed lockfile: the image builds.
+const PRUNE_MS = 60_000
+
+/** The checked turbo binary of the lockfile's version for this platform. */
+async function turboBinary(root) {
+  if (process.env.TURBO_BIN) return process.env.TURBO_BIN
+  const os = { darwin: "darwin", linux: "linux", win32: "windows" }[
+    process.platform
+  ]
+  const arch = { arm64: "arm64", x64: "64" }[process.arch]
+  const name = `@turbo/${os}-${arch}`
+  const entry = new RegExp(
+    `^ {2}'${name}@(\\d+\\.\\d+\\.\\d+)':\\n {4}resolution: \\{integrity: (sha512-[A-Za-z0-9+/=]+)\\}`,
+    "m",
+  ).exec(readFileSync(join(root, "pnpm-lock.yaml"), "utf8"))
+  if (!entry) throw new Error(`the lockfile resolves no ${name}`)
+  const [, version, integrity] = entry
+  const response = await fetch(
+    `https://registry.npmjs.org/${name}/-/${os}-${arch}-${version}.tgz`,
+    { signal: AbortSignal.timeout(PRUNE_MS) },
+  )
+  if (!response.ok)
+    throw new Error(`${name}@${version}: HTTP ${response.status}`)
+  const tarball = Buffer.from(await response.arrayBuffer())
+  const actual = `sha512-${createHash("sha512").update(tarball).digest("base64")}`
+  if (actual !== integrity)
+    throw new Error(`${name}@${version}: integrity ${actual}, not ${integrity}`)
+  const dir = mkdtempSync(join(tmpdir(), "turbo-"))
+  writeFileSync(join(dir, "turbo.tgz"), tarball)
+  // The tarball's one top folder (its name varies) goes away.
+  execFileSync("tar", ["-xzf", "turbo.tgz", "--strip-components=1"], {
+    cwd: dir,
+    stdio: "ignore",
+  })
+  const bin = join(dir, "bin", "turbo")
+  chmodSync(bin, 0o755)
+  return bin
+}
 
 /** The SHA-256 of the pruned lockfile of `packages` in the checkout `dir`. */
-export function prunedLockfile(dir, packages) {
+export function prunedLockfile(turbo, dir, packages) {
   const out = mkdtempSync(join(tmpdir(), "prune-"))
   try {
-    execFileSync(
-      "npx",
-      ["--yes", TURBO, "prune", ...packages, "--docker", "--out-dir", out],
-      { cwd: dir, stdio: "ignore" },
-    )
+    execFileSync(turbo, ["prune", ...packages, "--docker", "--out-dir", out], {
+      cwd: dir,
+      stdio: "ignore",
+      timeout: PRUNE_MS,
+    })
     return createHash("sha256")
       .update(readFileSync(join(out, "json", "pnpm-lock.yaml")))
       .digest("hex")
@@ -391,13 +439,7 @@ const matrixEntry = ({ inputs, packages, ...matrix }) => matrix
  * other image: `{ build: [matrix entry], reuse: { image: digest },
  * reasons: { image: text } }`.
  */
-export async function planImages({
-  root,
-  event,
-  repo,
-  token,
-  prune = prunedLockfile,
-}) {
+export async function planImages({ root, event, repo, token }) {
   const everything = (reason) => ({
     build: images.map(matrixEntry),
     reuse: {},
@@ -469,7 +511,7 @@ export async function planImages({
   const result = { build: [], reuse: {}, reasons: {} }
   const short = base.head_sha.slice(0, 7)
   const lockfile = changed.includes("pnpm-lock.yaml")
-    ? lockfileChanges(root, base.head_sha, prune)
+    ? await lockfileChanges(root, base.head_sha)
     : () => true
   for (const image of images) {
     const uncovered = uncoveredSources(root, image)
@@ -501,38 +543,46 @@ export async function planImages({
  * of the image. An image without `packages`, or a prune that fails, counts as
  * changed, so it builds.
  */
-function lockfileChanges(root, baseSha, prune) {
-  const baseDir = mkdtempSync(join(tmpdir(), "deploy-base-"))
-  const cache = new Map()
+async function lockfileChanges(root, baseSha) {
+  let turbo
   try {
-    execFileSync("git", ["worktree", "add", "--detach", baseDir, baseSha], {
-      cwd: root,
-      stdio: "ignore",
-    })
+    turbo = await turboBinary(root)
   } catch {
     return () => true
   }
-  const pruned = (dir, packages) => {
-    const key = `${dir}\0${packages.join(",")}`
-    if (!cache.has(key)) cache.set(key, prune(dir, packages))
-    return cache.get(key)
-  }
-  const changedFor = ({ packages }) => {
-    if (!packages) return true
+  const baseDir = mkdtempSync(join(tmpdir(), "deploy-base-"))
+  const git = (...args) =>
+    execFileSync("git", args, { cwd: root, stdio: "ignore" })
+  try {
+    git("worktree", "add", "--detach", baseDir, baseSha)
+    const pruned = new Map()
+    const prune = (dir, packages) => {
+      const key = `${dir}\0${packages.join(",")}`
+      if (!pruned.has(key))
+        pruned.set(key, prunedLockfile(turbo, dir, packages))
+      return pruned.get(key)
+    }
+    const changedFor = ({ packages }) => {
+      if (!packages) return true
+      try {
+        return prune(baseDir, packages) !== prune(root, packages)
+      } catch {
+        return true
+      }
+    }
+    const results = new Map(
+      images.map((image) => [image.image, changedFor(image)]),
+    )
+    return (image) => results.get(image.image)
+  } catch {
+    return () => true
+  } finally {
     try {
-      return pruned(baseDir, packages) !== pruned(root, packages)
+      git("worktree", "remove", "--force", baseDir)
     } catch {
-      return true
+      rmSync(baseDir, { recursive: true, force: true })
     }
   }
-  const results = new Map(
-    images.map((image) => [image.image, changedFor(image)]),
-  )
-  execFileSync("git", ["worktree", "remove", "--force", baseDir], {
-    cwd: root,
-    stdio: "ignore",
-  })
-  return (image) => results.get(image.image)
 }
 
 if (

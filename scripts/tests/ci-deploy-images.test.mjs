@@ -16,14 +16,11 @@ import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { parse } from "yaml"
 
-import {
-  images,
-  planImages,
-  TURBO,
-  uncoveredSources,
-} from "../ci/deploy-images.mjs"
+import { images, planImages, uncoveredSources } from "../ci/deploy-images.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
+// The plan's turbo: the one that pnpm installed and checked, not a download.
+process.env.TURBO_BIN = join(root, "node_modules", ".bin", "turbo")
 
 // GitHub is an outside service: msw answers its HTTP calls.
 const server = setupServer()
@@ -176,12 +173,8 @@ function github({ base, runs, prereleases = [], notices = {} }) {
   ]
 }
 
-// No test runs turbo: a prune that fails counts as a changed lockfile.
-const noPrune = () => {
-  throw new Error("no turbo in the tests")
-}
-const plan = (dir, event = "push", prune = noPrune) =>
-  planImages({ root: dir, event, repo, token: "t", prune })
+const plan = (dir, event = "push") =>
+  planImages({ root: dir, event, repo, token: "t" })
 const built = (result) => result.build.map(({ image }) => image)
 
 test("a merge that changes no image input builds no image and reuses each digest", async () => {
@@ -238,26 +231,77 @@ test("a change to the lockfile or the chat sandbox files builds the images that 
   assert.deepEqual(built(await plan(shim.dir)), ["chat-sandbox-agentcore"])
 })
 
+// A pnpm workspace with the image packages, each with one dependency, and its
+// lockfile with the given integrity of codesearch's dependency.
+function workspace(codesearchIntegrity) {
+  const apps = ["backend", "codesearch", "ui"]
+  const lockfile = [
+    "lockfileVersion: '9.0'",
+    "",
+    "settings:",
+    "  autoInstallPeers: true",
+    "  excludeLinksFromLockfile: false",
+    "",
+    "importers:",
+    "",
+    "  .: {}",
+    ...apps.flatMap((app) => [
+      "",
+      `  apps/${app}:`,
+      "    dependencies:",
+      `      dep-${app}:`,
+      "        specifier: 1.0.0",
+      "        version: 1.0.0",
+    ]),
+    "",
+    "packages:",
+    ...apps.flatMap((app) => [
+      "",
+      `  dep-${app}@1.0.0:`,
+      `    resolution: {integrity: sha512-${app === "codesearch" ? codesearchIntegrity : "AAAA"}}`,
+    ]),
+    "",
+    "snapshots:",
+    ...apps.flatMap((app) => ["", `  dep-${app}@1.0.0: {}`]),
+    "",
+  ].join("\n")
+  return {
+    "package.json": JSON.stringify({
+      name: "fixture",
+      private: true,
+      packageManager: "pnpm@10.12.1",
+    }),
+    "pnpm-workspace.yaml": "packages:\n  - apps/*\n",
+    "turbo.json": "{}\n",
+    ...Object.fromEntries(
+      apps.map((app) => [
+        `apps/${app}/package.json`,
+        JSON.stringify({
+          name: `@ctxpipe/${app}`,
+          version: "0.0.0",
+          dependencies: { [`dep-${app}`]: "1.0.0" },
+        }),
+      ]),
+    ),
+    "pnpm-lock.yaml": lockfile,
+  }
+}
+
 test("a lockfile change builds only the images whose pruned lockfile changed", async () => {
-  const { dir, base } = repository({ "pnpm-lock.yaml": "x\n" })
+  // Only codesearch's dependency changed in the lockfile: turbo prune finds it.
+  const { dir, base } = repository(
+    { "pnpm-lock.yaml": workspace("BBBB")["pnpm-lock.yaml"] },
+    { baseChanges: workspace("AAAA") },
+  )
   server.use(...github({ base }))
-  // The pruned lockfile of codesearch differs between the base and this commit;
-  // the others' are the same.
-  const prune = (checkout, packages) =>
-    packages.includes("@ctxpipe/codesearch") ? checkout : "the same"
-  const result = await plan(dir, "push", prune)
+  const result = await plan(dir)
   assert.deepEqual(built(result), ["codesearch"])
   assert.equal(
     result.reasons.codesearch,
     `pnpm-lock.yaml changed since ${base.slice(0, 7)}`,
   )
   assert.equal(result.reuse.backend, digestOf("backend"))
-})
-
-test("the plan's turbo is the version that the lockfile resolves", () => {
-  const lockfile = readFileSync(join(root, "pnpm-lock.yaml"), "utf8")
-  const locked = /^ {2}turbo@(\d+\.\d+\.\d+):$/m.exec(lockfile)?.[1]
-  assert.equal(TURBO, `turbo@${locked}`)
+  assert.equal(result.reuse.ui, digestOf("ui"))
 })
 
 test("a change to the deploy workflow or to this plan builds every image", async () => {
