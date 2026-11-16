@@ -455,6 +455,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
 
+  # outside-manifest: only in a full run, never in gate mode: it checks that the shard reports cover each full inventory (scripts/ci/test-suite.mjs)
   test:
     timeout-minutes: 10
     # Keeps the single "Tests" check: it passes only when every shard and
@@ -766,6 +767,7 @@ jobs:
           cache-from: type=registry,ref=${{ matrix.cache }}
           cache-to: type=registry,ref=${{ matrix.cache }},mode=max,ignore-error=true
 
+  # outside-manifest: the typecheck of the self-host example runs only in a full run; it is also the check typecheck:self-host of the Typecheck job
   packages:
     timeout-minutes: 20
     name: Runnable packages and examples
@@ -826,6 +828,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: ignore
 
+  # outside-manifest: it builds the static Storybook, the prerequisite storybook-build of the play and screenshot checks
   storybook-build:
     timeout-minutes: 20
     name: Storybook build
@@ -859,6 +862,7 @@ jobs:
           path: apps/ui/storybook-static
           if-no-files-found: error
 
+  # outside-manifest: only in a full run, never in gate mode: in gate mode the Storybook plays job runs the required stories through selected.mjs
   storybook-required:
     timeout-minutes: 30
     name: Storybook required plays

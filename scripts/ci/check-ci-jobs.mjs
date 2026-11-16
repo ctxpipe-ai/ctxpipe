@@ -15,15 +15,17 @@
 //    whose `if:` excludes a pull request (another event, a branch ref) does
 //    not start on one. Each other job needs a comment line
 //    `# outside-gate: <reason>` in its job block or directly above it.
-// 2. A job in the gate runs its checks through the manifest runner. When it
-//    starts a check tool itself (Vitest, `node --test`, a linter, a type
-//    checker, Terraform, an image build), it needs a comment line
+// 2. A job in the gate runs its checks through the manifest runner
+//    (scripts/checks/run.mjs, selected.mjs or `checks:run`). When it starts
+//    a check tool itself (Vitest, `node --test`, a policy script, a linter,
+//    a type checker, Terraform, an image build), or runs a script without
+//    the manifest runner, it needs a comment line
 //    `# outside-manifest: <reason>`.
 // 3. The import closure of the check runner (scripts/checks/run.mjs), of
 //    each policy script (scripts/ci/check-*.mjs) and of each test of the CI
-//    scripts (scripts/tests/*.test.mjs) has only literal specifiers: the
-//    selector gives no cache key to a check whose closure has a computed
-//    import().
+//    scripts (scripts/tests/*.test.mjs), inside scripts/, has only literal
+//    specifiers: the selector gives no cache key to a check whose closure
+//    has a computed import().
 // 4. A check that is not portable has a stated reason: each entry of
 //    scripts/checks/non-portable.json is `"<check id>": "<reason>"`. (A
 //    project check without a cache states its reason as `uncached` in
@@ -67,8 +69,12 @@ function field(lines, indent, key) {
 }
 
 // A step that starts a check tool itself, not through the manifest runner.
+// A step that starts a check tool itself, not through the manifest runner:
+// pnpm and npx with any options, a policy script, or an image build.
 const checkTool =
-  /(?:^|[\s;&|(])(?:(?:pnpm (?:exec )?|npx )?(?:vitest|playwright test|oxlint|oxfmt|knip|tsc|bun check)|node --test|terraform (?:validate|plan)|docker (?:buildx )?build|pnpm (?:run )?(?:test|lint|typecheck|knip|format:check))\b|uses:\s*docker\/build-push-action@/
+  /(?:^|[\s;&|(])(?:(?:pnpm|npx)(?:\s+-{1,2}[\w-]+(?:[ =][^\s;&|]+)?)*\s+(?:exec\s+|run\s+)?(?:vitest|playwright\s+test|oxlint|oxfmt|knip|tsc|test|lint|typecheck|format:check)\b|(?:vitest|playwright test|oxlint|oxfmt|knip|tsc|bun check)\b|node\s+(?:--test\b|\S*scripts\/ci\/check-[\w-]+\.mjs)|terraform\s+(?:validate|plan)\b|docker\s+(?:buildx\s+)?build\b)|uses:\s*docker\/build-push-action@/
+// A step that runs the planned checks through the manifest runner.
+const manifestRunner = /scripts\/checks\/(?:run|selected)\.mjs|checks:run\b/
 
 // The jobs of a workflow. The parser reads the subset of YAML that the
 // workflows use; a job key that it cannot read is a failure.
@@ -121,6 +127,10 @@ function parseWorkflow(file, text) {
       line: key + 1,
       comments: own.filter(isComment).map((line) => line.trim()),
       tool: body.some((line) => !isComment(line) && checkTool.test(line)),
+      // A job with a script and no manifest runner does its own work.
+      ownWork:
+        body.some((line) => /^\s*(?:-\s+)?run:/.test(line)) &&
+        !body.some((line) => !isComment(line) && manifestRunner.test(line)),
       needs,
       if: (field(body, 4, "if") ?? "")
         .replace(/^\$\{\{\s*/, "")
@@ -250,9 +260,13 @@ for (const name of readdirSync(join(root, ".github/workflows")).sort()) {
       failures.push(
         `${file}:${job.line}: job "${job.id}" starts on each pull request push outside the merge gate. Select it with the merge gate plan (needs: merge-gate-plan, and an if: on the output of its selection), or add "# outside-gate: <reason>" above the job (scripts/checks/README.md, Jobs outside the merge gate).`,
       )
-    if (kind === "gated" && job.tool && !hasReason(job, "outside-manifest"))
+    if (
+      kind === "gated" &&
+      (job.tool || job.ownWork) &&
+      !hasReason(job, "outside-manifest")
+    )
       failures.push(
-        `${file}:${job.line}: job "${job.id}" starts a check tool itself, so factory check cannot run that work. Run it as a check of the manifest (scripts/checks/run.mjs or selected.mjs), or add "# outside-manifest: <reason>" above the job.`,
+        `${file}:${job.line}: job "${job.id}" ${job.tool ? "starts a check tool itself" : "runs a script but no manifest runner"}, so factory check cannot run that work. Run it as a check of the manifest (scripts/checks/run.mjs or selected.mjs), or add "# outside-manifest: <reason>" above the job.`,
       )
   }
 }
@@ -262,7 +276,10 @@ for (const name of readdirSync(join(root, ".github/workflows")).sort()) {
 // The first computed import() in the closure of `file`, as `<file>:<line>`.
 // A literal specifier is one string, then `)` or `,`; `import()` is prose.
 function computedImport(file, seen = new Set()) {
-  if (seen.has(file) || !existsSync(join(root, file))) return undefined
+  // The check reads only scripts/, as its inputs say; the tests of the
+  // CI scripts that import app files have those files as inputs.
+  if (seen.has(file) || !file.startsWith("scripts/")) return undefined
+  if (!existsSync(join(root, file))) return undefined
   seen.add(file)
   const text = readFileSync(join(root, file), "utf8")
   for (const match of text.matchAll(/\bimport\s*\(/g)) {

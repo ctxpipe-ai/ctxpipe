@@ -164,6 +164,18 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404-arm
     steps:
       - run: pnpm exec vitest run
+  self-host:
+    needs: merge-gate-plan
+    if: needs.merge-gate-plan.outputs.self-host != ''
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - run: pnpm --filter @ctxpipe/aws-cdk-self-host typecheck
+  own-script:
+    needs: merge-gate-plan
+    if: needs.merge-gate-plan.outputs.own-script != ''
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - run: bash scripts/ci/own-check.sh
   # outside-manifest: the image is the result of its check (stepResults)
   images:
     needs: merge-gate-plan
@@ -180,6 +192,8 @@ jobs:
     'job "every-push" starts on',
     'job "each-gated-push" starts on',
     'job "tests" starts a',
+    'job "self-host" starts a',
+    'job "own-script" runs a',
   ])
   // A workflow without a pull request trigger has no rule.
   const push = check({
