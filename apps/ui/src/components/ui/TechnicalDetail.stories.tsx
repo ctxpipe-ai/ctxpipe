@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, within } from "storybook/test"
 
+import { InlineAlert } from "./InlineAlert"
 import { TechnicalDetail } from "./TechnicalDetail"
 
 const meta = {
@@ -30,8 +31,11 @@ export const ReasonWithToken: Story = {
       "clone failed: https://x-access-token:ghs_0123456789abcdefghijklmnopqrstuvwxyz@github.com/acme/handbook.git returned 403",
   },
   render: (args) => (
-    <div className="w-md rounded-md bg-red-950/40 p-3">
-      <TechnicalDetail {...args} />
+    <div className="w-md">
+      <InlineAlert variant="error" title="Could not load the Workspace">
+        <p>The server refused the request (status 403).</p>
+        <TechnicalDetail {...args} className="mt-2" />
+      </InlineAlert>
     </div>
   ),
   play: async ({ canvasElement }) => {
