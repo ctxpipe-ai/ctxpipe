@@ -5,7 +5,12 @@ import { inviteSignInHref, inviteSignOutHref } from "./invite-accept-decision"
 import type { InviteAcceptError } from "./invite-accept-error"
 import { InviteWrongAccountNotice } from "./InviteWrongAccountNotice"
 
-/** A failed invitation accept: what happened and the next step. */
+/**
+ * A failed invitation accept: what happened and the next step (sign in,
+ * sign out or try again). For the wrong-account case it shows
+ * `InviteWrongAccountNotice`. Use that component directly when the page knows
+ * before the accept that the signed-in email is not the invited one.
+ */
 export function InviteAcceptErrorNotice({
   error,
   invitationId,

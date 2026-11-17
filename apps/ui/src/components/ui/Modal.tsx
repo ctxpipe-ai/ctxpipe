@@ -97,6 +97,13 @@ const frameStyles = tv({
   },
 })
 
+/**
+ * The overlay and the frame of a modal: it dims the page, centers the frame
+ * (or puts it at the top) and gives it a width (`size`). Put a `Dialog` in it
+ * for the content, or an `AlertDialog` for a confirm step. Use a `Popover`
+ * for a small panel that stays next to its trigger and does not block the
+ * page.
+ */
 export function Modal(
   props: ModalOverlayProps & { size?: ModalSize; placement?: ModalPlacement },
 ) {

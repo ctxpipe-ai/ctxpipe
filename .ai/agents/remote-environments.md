@@ -62,7 +62,7 @@ Cursor is not in use now. Use this section only when Cursor Cloud runs again. Fo
 
 ## Claude Code on the web
 
-[`.claude/hooks/session-start.sh`](../../.claude/hooks/session-start.sh) runs on every cloud session (no-op locally): starts `dockerd` with the `mirror.gcr.io` Docker Hub mirror, brings up Compose **`infra`**, runs `pnpm install`, stamps the `@ctxpipe/aws-cdk` image tag, installs Zoekt with `go install`, writes `apps/backend/.env.local`, migrates, exports `DATABASE_URL` / `AUTH_SECRET` / `GRAPH_DB_URI` to the shell, and starts Storybook for the `ctxpipe-storybook` MCP.
+[`.claude/hooks/session-start.sh`](../../.claude/hooks/session-start.sh) runs on every cloud session (no-op locally): starts `dockerd` with the `mirror.gcr.io` Docker Hub mirror, brings up Compose **`infra`**, runs `pnpm install`, stamps the `@ctxpipe/aws-cdk` image tag, installs Zoekt with `go install`, writes `apps/backend/.env.local`, migrates, and exports `DATABASE_URL` / `AUTH_SECRET` / `GRAPH_DB_URI` to the shell. Agents read the component docs with `storybook tools` and need no running Storybook.
 
 - **Tests:** when `factory` is installed, run `factory check`. When it is not installed, run them as in CI; no extra env needed (`pnpm --filter @ctxpipe/backend test`, `@ctxpipe/ui`, `ctxpipe`, `@ctxpipe/aws-cdk`). For codesearch use `pnpm --filter @ctxpipe/codesearch test:vitest`; `test` builds the Docker image, which cannot build here.
 - **App:** `bash scripts/dev-headless.sh` runs codesearch (host, [`scripts/codesearch-host-dev.sh`](../../scripts/codesearch-host-dev.sh)), backend, worker, and UI; browse `http://localhost:3000`. The backend will not boot without `MODEL_PROVIDER_API_KEY`.

@@ -79,12 +79,4 @@ if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
   } >>"$CLAUDE_ENV_FILE"
 fi
 
-########################################################
-# 4. Storybook, for the ctxpipe-storybook MCP
-########################################################
-if ! curl -s -o /dev/null http://127.0.0.1:6006/; then
-  (cd apps/ui && setsid pnpm storybook >/tmp/storybook.log 2>&1 &)
-  for _ in $(seq 1 60); do curl -s -o /dev/null http://127.0.0.1:6006/ && break; sleep 1; done
-fi
-
-echo "Cloud dev env ready: postgres :5433, falkordb :6379, storybook :6006, DATABASE_URL/AUTH_SECRET exported. Start the app with: bash scripts/dev-headless.sh (see AGENTS.md, Claude Code on the web)." >&3
+echo "Cloud dev env ready: postgres :5433, falkordb :6379, DATABASE_URL/AUTH_SECRET exported. Start the app with: bash scripts/dev-headless.sh (see AGENTS.md, Claude Code on the web)." >&3

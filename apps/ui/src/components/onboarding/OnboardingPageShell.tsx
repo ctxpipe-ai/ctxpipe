@@ -12,6 +12,11 @@ type OnboardingPageShellProps = {
   children: React.ReactNode
 }
 
+/**
+ * The full-screen frame of the onboarding route: the animated background, the
+ * "Sign out" link and a centered column for the current slide. Use it only for
+ * onboarding. A page inside an org uses the `AppShell` of `/$orgSlug`.
+ */
 export function OnboardingPageShell({
   sceneReady,
   sceneFailed,

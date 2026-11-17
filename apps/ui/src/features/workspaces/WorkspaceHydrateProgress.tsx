@@ -74,6 +74,12 @@ export function WorkspaceHydrateFailedBody(props: {
   )
 }
 
+/**
+ * The Workspace page while ctxpipe prepares a new Workspace: the steps of the
+ * preparation, with the current step marked. Chat and the graph open when it
+ * is done. When the preparation failed, it shows `WorkspaceHydrateFailedBody`.
+ * Use `WorkspaceHydrateFailedBody` directly inside the Workspace chrome.
+ */
 export function WorkspaceHydrateProgress(props: {
   orgSlug: string
   workspace: Workspace

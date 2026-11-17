@@ -139,6 +139,13 @@ function waitStyle(wait: number, style?: CSSProperties) {
   return { ...style, "--skeleton-wait": `${wait}ms` } as CSSProperties
 }
 
+/**
+ * A region wait: a gray bone with the box of the content that loads, so the
+ * layout does not move when the content arrives. It stays hidden for a fast
+ * load. Give it the size of the loaded element with `className`. Use
+ * `InlineLoader` or `ProgressLoader` for a process wait (work that the user
+ * started), not for content that loads.
+ */
 export function Skeleton({
   className,
   style,
