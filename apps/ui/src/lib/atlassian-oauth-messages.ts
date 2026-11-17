@@ -21,20 +21,19 @@ const KNOWN: Record<string, { title: string; description: string }> = {
   },
   invalid_code: {
     title: "Link expired or invalid",
-    description: "Start the connection again from Connectors.",
+    description: "Start the connection again.",
   },
   no_code: {
     title: "Link could not be completed",
-    description: "Start the connection again from Connectors.",
+    description: "Start the connection again.",
   },
   state_mismatch: {
     title: "Session mismatch",
-    description:
-      "Open Connectors and start the connection again in this browser window.",
+    description: "Start the connection again in this browser window.",
   },
   please_restart_the_process: {
     title: "Link request expired",
-    description: "Start the connection again from Connectors.",
+    description: "Start the connection again.",
   },
 }
 
@@ -50,8 +49,9 @@ export function oauthErrorMessage(
     return known
   }
   return {
-    title: "Connection issue",
+    title: "Could not link the account",
     description:
-      errorDescription?.trim() || `Error: ${error.replace(/_/g, " ")}`,
+      errorDescription?.trim() ||
+      `Start the connection again. The error code is ${error}.`,
   }
 }
