@@ -536,7 +536,7 @@ test("a change to the gate code or its pin runs every test of the CI scripts, an
     describe({ kind: "gate", inputs: [".github/merge-gate.json"] }),
     "gate input .github/merge-gate.json changed",
   )
-  // The merge gate summary says why.
+  // The gate report says why.
   const { decision } = gateDecision({
     config: config(),
     planned,
@@ -594,7 +594,7 @@ test("a change to a definition of checks reuses each stored pass whose definitio
     changed: [],
   })
   assert.match(planned.reason, /definitions of checks changed \(scripts\/checks\/lanes\.mjs\)/)
-  // The merge gate summary says why.
+  // The gate report says why.
   const { decision } = gateDecision({
     config: config(),
     planned,

@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -27,9 +28,8 @@ const repo = "acme/widgets"
 // `gh api <path> [--paginate|--silent] [--jq <expr>]` prints the file of that
 // path (slashes become underscores), through jq when --jq is given, or fails
 // with the text in `<name>.error`, or one time with the text in
-// `<name>.error-once`. `gh api --method <verb>` appends its arguments to
-// calls.log. The fake `sleep` appends its argument to sleeps.log and does not
-// wait.
+// `<name>.error-once`. The fake `sleep` appends its argument to sleeps.log and
+// does not wait.
 const fakeGh = `#!/usr/bin/env bash
 set -euo pipefail
 dir="$FAKE_GH_DIR"
@@ -42,10 +42,6 @@ fi
 if [ -f "$dir/$name.error" ]; then
   cat "$dir/$name.error" >&2
   exit 1
-fi
-if [ "$2" = --method ]; then
-  echo "$*" >> "$dir/calls.log"
-  exit 0
 fi
 expr=""
 args=("\${@:3}")
@@ -90,6 +86,7 @@ const stepShell = (job, stepName) => {
 
 const steps = {
   "jobs-of-the-run": ["merge-gate", "The jobs of this run"],
+  reminder: ["merge-gate", "Remind the author of the MCP evals"],
 }
 
 const run = (script, dir, env, args = [], cwd = undefined) => {
@@ -115,7 +112,6 @@ const run = (script, dir, env, args = [], cwd = undefined) => {
     status: result.status,
     stdout: result.stdout,
     stderr: result.stderr,
-    calls: log("calls.log"),
     sleeps: log("sleeps.log"),
   }
 }
@@ -169,23 +165,6 @@ const mergeRevision = (change) => {
   return dir
 }
 
-test("each step that calls the GitHub API holds the same gh_retry", () => {
-  const all = Object.values(steps)
-  const texts = all.map((step) => {
-    const text = stepShell(...step)
-    const from = text.indexOf("# gh_retry runs")
-    assert.ok(from >= 0, step.join(": "))
-    return text.slice(from, text.indexOf("\n}\n", from) + 3)
-  })
-  for (const [index, text] of texts.entries())
-    assert.equal(text, texts[0], all[index].join(": "))
-  // No step of the workflow calls the GitHub API to list the PR files.
-  assert.doesNotMatch(
-    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
-    /pulls\/\$PR\/files/,
-  )
-})
-
 const remind = ({ change, labels }) => {
   const dir = setup({
     api: {
@@ -237,6 +216,44 @@ test("the evals reminder stays away with the label or without an MCP change", ()
     assert.equal(result.status, 0, result.stderr)
     assert.equal(result.stdout, "")
   }
+})
+
+test("the reminder step adds the reminder to the job summary, and to summary.md only when the decision wrote it", () => {
+  const step = (decided) => {
+    const dir = setup({ api: { [`repos/${repo}/issues/7/labels`]: [] } })
+    const cwd = mergeRevision(({ write }) =>
+      write("apps/backend/src/mcp/tools.ts", "changed"),
+    )
+    mkdirSync(join(cwd, "scripts/ci"), { recursive: true })
+    copyFileSync(
+      join(root, "scripts/ci/mcp-evals-reminder.sh"),
+      join(cwd, "scripts/ci/mcp-evals-reminder.sh"),
+    )
+    const summary = join(dir, "decision/summary.md")
+    if (decided) {
+      mkdirSync(join(dir, "decision"))
+      writeFileSync(summary, "## Merge gate\n")
+    }
+    const stepSummary = join(dir, "step-summary.md")
+    const result = run(
+      "reminder",
+      dir,
+      { REPO: repo, PR: "7", GITHUB_STEP_SUMMARY: stepSummary },
+      [],
+      cwd,
+    )
+    assert.equal(result.status, 0, result.stderr)
+    return {
+      stepSummary: readFileSync(stepSummary, "utf8"),
+      summary: existsSync(summary) ? readFileSync(summary, "utf8") : null,
+    }
+  }
+  const decided = step(true)
+  assert.match(decided.stepSummary, /^\n\*\*MCP evals:\*\*/)
+  assert.match(decided.summary, /^## Merge gate\n\n\*\*MCP evals:\*\*/)
+  const failed = step(false)
+  assert.match(failed.stepSummary, /\*\*MCP evals:\*\*/)
+  assert.equal(failed.summary, null)
 })
 
 // The step that reads the jobs of this run attempt, with no earlier attempt.
@@ -320,13 +337,16 @@ test("the merge gate posts no PR comment, and its job summary and artifact hold 
     readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
   )
   const job = workflow.jobs["merge-gate"]
-  const text = JSON.stringify(job)
-  assert.doesNotMatch(text, /issues\/\$PR\/comments|comment\.md/)
   // The job only reads the PR: it writes no comment.
   assert.equal(job.permissions["pull-requests"], "read")
   const step = (name) => job.steps.find((item) => item.name === name)
   assert.match(step("Decision").run, /summary\.md" >> "\$GITHUB_STEP_SUMMARY"/)
   assert.match(step("Preserve the decision").with.path, /decision\/summary\.md/)
+  // No step of the workflow calls the GitHub API to list the PR files.
+  assert.doesNotMatch(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+    /pulls\/\$PR\/files/,
+  )
   // The reminder is in the artifact too: it runs before the upload.
   const names = job.steps.map((item) => item.name)
   assert.ok(

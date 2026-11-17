@@ -61,12 +61,12 @@ import {
 //     exit code is 1 when its verdict is fail. In shadow mode the full run
 //     gates; this computes what a gated run would decide from the same
 //     results. In gate mode with a full run, the exit code is 1 when the full
-//     run fails. It writes decision.json, summary.md (the job summary, which
-//     is the report of the gate) and the next PR store (store.json) to <dir>. <inputs> holds the artifacts of the
-//     manifest, select, LLM and plan jobs, <results> the test artifacts,
-//     <needs> the `needs` context, <jobs> the jobs of this run attempt from
-//     the GitHub API, <earlier> the jobs of the earlier attempts of this
-//     run.
+//     run fails. It writes decision.json, summary.md (the gate report: the
+//     job summary) and the next PR store (store.json) to <dir>. <inputs>
+//     holds the artifacts of the manifest, select, LLM and plan jobs,
+//     <results> the test artifacts, <needs> the `needs` context, <jobs> the
+//     jobs of this run attempt from the GitHub API, <earlier> the jobs of the
+//     earlier attempts of this run.
 //     The decision also holds the review critics (critics.json of the
 //     critics job). In gate mode, the exit code is 1 when a critic has no
 //     stored verdict, or when a same-repo PR has no critics record.
@@ -621,8 +621,8 @@ function commitLink(commit, repoUrl) {
     : commit.slice(0, 7)
 }
 
-// The critics section of the summary. Each stored verdict
-// links to the commit that the agent reviewed.
+// The critics section of the summary. Each stored verdict links to the commit
+// that the agent reviewed.
 export function criticsText(checked, repoUrl) {
   const lines = ["", "#### Review critics", ""]
   // The verdicts are attested, not verified: any writer of the agent class,

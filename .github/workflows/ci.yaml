@@ -2369,8 +2369,7 @@ jobs:
         run: |
           # gh_retry runs `gh "$@"`. On a GitHub API rate limit, it waits until the
           # reset time that GitHub gives (one minute for a secondary limit), at most 5
-          # minutes, and runs the call again one time. Exit code 2: the limit stays.
-          # Each step that calls the API holds this same text (a test checks it).
+          # minutes, and runs the call again one time.
           gh_retry() {
             local err="$RUNNER_TEMP/gh-retry.err" out wait try
             for try in 1 2; do
@@ -2388,7 +2387,7 @@ jobs:
               sleep "$wait"
             done
             cat "$err" >&2
-            return 2
+            return 1
           }
           gh_retry api "repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=100" --paginate \
             --jq '.jobs[]' | jq -s '{jobs: .}' > "$RUNNER_TEMP/jobs.json"
@@ -2461,9 +2460,12 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: |
-          set -o pipefail
-          bash scripts/ci/mcp-evals-reminder.sh |
-            tee -a "$RUNNER_TEMP/decision/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          reminder="$(bash scripts/ci/mcp-evals-reminder.sh)"
+          [ -n "$reminder" ] || exit 0
+          printf '%s\n' "$reminder" >> "$GITHUB_STEP_SUMMARY"
+          # No decision: the artifact gets no report of the reminder alone.
+          summary="$RUNNER_TEMP/decision/summary.md"
+          [ ! -f "$summary" ] || printf '%s\n' "$reminder" >> "$summary"
       # The report for an agent: summary.md is the text of the job summary,
       # which the GitHub API does not give (scripts/checks/README.md, Merge
       # gate).

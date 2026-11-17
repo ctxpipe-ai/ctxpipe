@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Print the MCP evals reminder for the merge gate summary when the PR changes
+# Print the MCP evals reminder for the gate report when the PR changes
 # a file under apps/backend/src/mcp/ and has no `mcp-evals` label. Else print
 # nothing. The evals call paid models, so only the label starts them
 # (mcp-evals.yaml). The reminder does not depend on the check selection, so
