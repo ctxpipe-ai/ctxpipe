@@ -110,6 +110,9 @@ export function GitHubSetupPageContent({ orgSlug }: { orgSlug: string }) {
   if (installationQuery.isError) {
     return (
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
+        <h1 className="mb-6 text-xl font-medium tracking-tight text-foreground">
+          Finish connecting GitHub
+        </h1>
         <InlineAlert
           variant="error"
           title="Could not check GitHub"
@@ -123,7 +126,8 @@ export function GitHubSetupPageContent({ orgSlug }: { orgSlug: string }) {
             </Button>
           }
         >
-          Try again, or close the wizard.
+          ctxpipe could not read the GitHub App installation of this
+          organization. Try again, or close the wizard.
         </InlineAlert>
         <div className="mt-6">
           <Button variant="quiet" onPress={goBack}>
@@ -141,12 +145,13 @@ export function GitHubSetupPageContent({ orgSlug }: { orgSlug: string }) {
           Finish connecting GitHub
         </h1>
         <p className="mt-3 max-w-prose text-sm leading-relaxed text-muted-foreground">
-          The GitHub App is not installed yet. Close this wizard and complete
-          the install from Connectors.
+          The GitHub App is not installed yet. Complete the install on the
+          Connectors page.
         </p>
         <div className="mt-8">
-          <Button variant="quiet" onPress={goBack}>
-            Close wizard
+          {/* The one next step: the button names where it goes. */}
+          <Button variant="secondary" onPress={goBack}>
+            Open Connectors
           </Button>
         </div>
       </main>

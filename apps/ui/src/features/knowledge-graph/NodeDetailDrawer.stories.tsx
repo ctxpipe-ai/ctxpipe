@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, fn, userEvent, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { NodeDetailDrawer } from "./NodeDetailDrawer"
 import { colorForKind } from "./theme"
@@ -87,7 +87,7 @@ export const Populated: Story = {
   parameters: {
     review: {
       purpose:
-        "Node detail drawer of the knowledge graph, which tells a user about one node and its links: an integration node with one link and all sections.",
+        "Node drawer of the knowledge graph, which opens when the user clicks a node: an integration node with one outgoing link, its path, summary, activity and links.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -105,6 +105,17 @@ export const Populated: Story = {
     for (const section of sections.slice(1)) {
       await expect(borderTop(section)).toBe("1px")
     }
+    // The one claim is on one day, and the buckets cover a week from it: the
+    // two axis dates differ.
+    const activity = headings
+      .find((heading) => heading.textContent === "Activity")
+      ?.closest("section")
+    await waitFor(() => {
+      const dates = [...(activity?.querySelectorAll("svg text") ?? [])]
+        .map((label) => label.textContent ?? "")
+        .filter((label) => /[A-Za-z]/.test(label))
+      expect(new Set(dates).size).toBe(2)
+    })
   },
 }
 

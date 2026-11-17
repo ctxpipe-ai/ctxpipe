@@ -409,10 +409,12 @@ export function KnowledgeGraphExplorer({
       const idx = Math.min(bucketCount - 1, Math.floor((t - min) / bucketSize))
       counts[idx] = (counts[idx] ?? 0) + 1
     }
+    // The buckets cover `span`, which is at least one week, also when all
+    // the stamps are on one day.
     return {
       counts,
       rangeStart: min,
-      rangeEnd: max,
+      rangeEnd: min + span,
       total: edgeTimeIndex.length,
     }
   }, [edgeTimeIndex])

@@ -109,11 +109,17 @@ function UpgradeToast(props: {
           {saving
             ? "ctxpipe saves the setting. It starts the upgrade when the setting is saved. You can leave this page."
             : saveFailed
-              ? `ctxpipe could not save the setting. ${job.data?.failureReason ?? ""} Press Update once to start the upgrade now, or press Review upgrade.`
+              ? "ctxpipe could not save the setting. Press Update once to start the upgrade now, or press Review upgrade."
               : jobStatus === "completed"
                 ? "ctxpipe saved the setting. The upgrade starts in a moment."
                 : upgradeToastLine(item)}
         </p>
+        {/* The cause is raw error text: a mono line under the message. */}
+        {saveFailed && job.data?.failureReason ? (
+          <p className="mt-1 max-h-10 overflow-y-auto break-words font-mono text-xs text-muted-foreground">
+            {job.data.failureReason}
+          </p>
+        ) : null}
         {isAdmin === false ? (
           <p className="text-xs text-muted-foreground">{MEMBER_ASK_ADMIN}</p>
         ) : null}

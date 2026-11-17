@@ -248,7 +248,7 @@ export const UserMenuLinksConnectedApps: Story = {
       "Catches a user menu whose Connected apps item does not link to the connected apps page in the auth area. Not for other menu items or account data.",
     review: {
       purpose:
-        "Main navigation of an org: the user menu is open with the focus on its first item.",
+        "Side nav of an org: the user pressed their name at the bottom, and the user menu opened with Settings, Connected apps and Sign out, the focus on Settings.",
     },
   },
   play: async ({ canvasElement }) => {

@@ -1,4 +1,10 @@
-import { IconBrain, IconFile, IconSearch, IconTool } from "@tabler/icons-react"
+import {
+  IconBrain,
+  IconChevronRight,
+  IconFile,
+  IconSearch,
+  IconTool,
+} from "@tabler/icons-react"
 import {
   Fragment,
   type ReactElement,
@@ -181,6 +187,14 @@ function ActivityLog(props: { entries: ActivityEntry[]; status: ReactNode }) {
             <span className="tabular-nums">{chip.label}</span>
           </span>
         ))}
+        {/* The chevron tells that the row opens the log. */}
+        <IconChevronRight
+          className={cn(
+            "size-3.5 shrink-0 transition-transform",
+            expanded && "rotate-90",
+          )}
+          aria-hidden
+        />
       </AriaButton>
       {expanded ? (
         <section

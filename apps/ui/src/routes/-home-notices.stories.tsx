@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
+import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import type { WorkspaceSkippedFile } from "@/features/workspaces/types"
@@ -243,13 +244,43 @@ export const ToastTakesNoSpaceAfterItGoes: Story = {
   },
 }
 
-/** Update once starts this item with the existing start API. */
+/** The pending items of UpdateOnce: the start queues the item. */
+const updateOnceItems = { docs: [upgradeItemFixture()] }
+const updateOnceHandlers = homeHandlers("owner", updateOnceItems)
+
+/**
+ * Update once starts this item with the existing start API. The server
+ * queues it, so the toast goes and a short message says what happens next.
+ */
 export const UpdateOnce: Story = {
+  beforeEach: () => {
+    updateOnceItems.docs = [upgradeItemFixture()]
+  },
+  decorators: [
+    (Story) => (
+      <>
+        <Story />
+        <Toaster />
+      </>
+    ),
+  ],
   parameters: {
-    ...homeHandlers("owner", { docs: [upgradeItemFixture()] }),
+    msw: {
+      handlers: {
+        ...updateOnceHandlers.msw.handlers,
+        page: [
+          // The server queues the item. No answer here: the start handler
+          // below answers and records the request.
+          http.post(/\/upgrades\/[^/]+\/start$/, () => {
+            updateOnceItems.docs = [upgradeItemFixture({ status: "queued" })]
+          }),
+          ...updateOnceHandlers.msw.handlers.page,
+        ],
+      },
+    },
     review: {
       purpose:
-        "Org home page with upgrade and problem notices as toasts: the owner pressed Update once and the upgrade starts.",
+        "Home with an upgrade toast: the owner pressed Update once, so the upgrade is queued, the toast went away, and a message says that ctxpipe prepares a pull request.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -263,6 +294,15 @@ export const UpdateOnce: Story = {
       expect(requests).toEqual([
         "/acme/api/v1/workspaces/docs/upgrades/format-3/start",
       ]),
+    )
+    const body = within(canvasElement.ownerDocument.body)
+    await body.findByText(
+      "The upgrade is queued. ctxpipe prepares a pull request.",
+    )
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("region", { name: "Workspace notices" }),
+      ).toBeNull(),
     )
   },
 }
@@ -352,7 +392,7 @@ export const AlwaysUpdateSaveFails: Story = {
     ),
     review: {
       purpose:
-        "Org home page with upgrade and problem notices as toasts: the Always update save failed, and the toast shows the cause and the next steps.",
+        "Home with an upgrade toast: the owner pressed Always update and the setting did not save, so the toast gives the next steps and the cause as raw error text.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -384,11 +424,12 @@ export const AlwaysUpdateSaveFails: Story = {
   },
 }
 
+// The server names this Git error a known cause: the repository is too large.
 const failedUpgrade = upgradeItemFixture({
   status: "failed",
   failureReason: "stdout maxBuffer length exceeded",
   failure: {
-    code: "unknown",
+    code: "repository_too_large",
     step: null,
     repository: null,
     summary: "stdout maxBuffer length exceeded",
@@ -405,7 +446,7 @@ export const FailedUpgrade: Story = {
     ...homeHandlers("owner", { docs: [failedUpgrade] }),
     review: {
       purpose:
-        "Org home page with upgrade and problem notices as toasts: an upgrade failed, so the owner sees the cause and two next steps, with no update buttons.",
+        "Home with a toast for a failed Workspace upgrade: the owner pressed Ask the agent, so the composer holds a prompt with the cause of the failure.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -849,7 +890,7 @@ export const MixedStack: Story = {
     ),
     review: {
       purpose:
-        "Org home page with upgrade and problem notices as toasts: a problem and an upgrade in one stack, with the problem in front.",
+        "Home with two notices in one toast stack, a skipped-files problem in front of an upgrade: the user moved the pointer onto the stack, so it opened and shows both.",
     },
   },
   play: async ({ canvasElement }) => {

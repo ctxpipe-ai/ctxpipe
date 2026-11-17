@@ -88,7 +88,9 @@ function buildNodeActivityBuckets(claims: NodeClaim[]): ActivityBuckets | null {
     const idx = Math.min(bucketCount - 1, Math.floor((t - min) / bucketSize))
     counts[idx] = (counts[idx] ?? 0) + 1
   }
-  return { counts, rangeStart: min, rangeEnd: max, total: stamps.length }
+  // The buckets cover `span`, which is at least one week, also when all the
+  // stamps are on one day.
+  return { counts, rangeStart: min, rangeEnd: min + span, total: stamps.length }
 }
 
 /** Known node-payload fields worth showing as "kind-aware" chips. Anything

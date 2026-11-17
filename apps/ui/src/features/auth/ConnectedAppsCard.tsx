@@ -94,8 +94,10 @@ export function ConnectedAppsCard() {
       const res = await userClient.api.v1.me["connected-apps"][
         ":consentId"
       ].$delete({ param: { consentId: id } })
+      // The message of an answer with no error text: the cause, not the
+      // title of the alert again.
       await readApiJson(res, {
-        message: "Could not revoke the app",
+        message: "The server had an error",
       })
     },
     onSuccess: async () => {
@@ -380,8 +382,8 @@ function RevokeModal(props: {
             </DialogDescription>
           </DialogHeader>
           {error ? (
-            <InlineAlert variant="error" title="Could not revoke">
-              {error}
+            <InlineAlert variant="error" title="The app still has access">
+              {error}. Try again.
             </InlineAlert>
           ) : null}
           <div className="flex justify-end gap-2">

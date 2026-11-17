@@ -73,7 +73,7 @@ export const WorkingWithThought: Story = {
   parameters: {
     review: {
       purpose:
-        "Chat thread while the agent works: the closed activity log shows counters and one status line names the current thought.",
+        "Chat thread while the agent works on a request: the closed activity row counts the reads, searches, tools and thoughts, and one status line names the current thought.",
     },
   },
   args: {
@@ -367,27 +367,32 @@ export const ChatProgressSpacing: Story = {
   },
 }
 
-const earlierTurns: ChatMessage[] = Array.from({ length: 4 }, (_, index) => [
+/** Three earlier turns about the Docker setup, long enough to scroll. */
+const earlierTurns: ChatMessage[] = [
+  [
+    "Where is the local Docker setup described?",
+    "The knowledge unit knowledge/dev/docker.md describes the local setup. It lists the services of docker-compose.yml: Postgres on port 5433, FalkorDB on port 6379, and the OpenTelemetry collector on port 4318. It also says that `pnpm dev:infra` starts these services and that `pnpm dev` starts the backend and the UI on the host.",
+  ],
+  [
+    "Which profile starts the production images?",
+    "The deploy profile starts the production images. Run `pnpm start` to use it. The infra profile starts only the databases and the collector, so you run the backend and the UI on the host. Two more units, knowledge/dev/compose-profiles.md and knowledge/ops/deploy.md, repeat parts of this text with older port numbers.",
+  ],
+  [
+    "Are the older port numbers still used anywhere?",
+    "No. The compose file uses port 5433 for Postgres since the change to parallel worktrees. The older units still name port 5432. They also describe a database per developer, which the setup no longer uses: each linked worktree now gets its own database on the shared Postgres.",
+  ],
+].flatMap(([question, answer], index) => [
   {
     id: `msg_scroll_u${index}`,
     role: "user" as const,
-    parts: [{ type: "text" as const, content: `Question ${index + 1}` }],
+    parts: [{ type: "text" as const, content: question ?? "" }],
   },
   {
     id: `msg_scroll_a${index}`,
     role: "assistant" as const,
-    parts: [
-      {
-        type: "text" as const,
-        content: Array.from(
-          { length: 6 },
-          () =>
-            "The knowledge units describe the Docker setup, the compose file, and the local ports.",
-        ).join(" "),
-      },
-    ],
+    parts: [{ type: "text" as const, content: answer ?? "" }],
   },
-]).flat()
+])
 
 /**
  * At the bottom of a working turn, the thread stays at the bottom. Opening
@@ -397,7 +402,7 @@ export const OpeningLogKeepsScroll: Story = {
   parameters: {
     review: {
       purpose:
-        "Long chat thread scrolled to the bottom of a working turn: the user opened the activity log and the log button kept its place.",
+        "Chat thread of a Workspace, scrolled to a turn that still works: the user opened its activity log, and the counter row kept its place while the log opened below it.",
     },
     intent:
       "Catches an activity log that moves the chat when the user opens it. The thread stays at the bottom and the log button keeps its place. Not for log content.",
@@ -442,7 +447,7 @@ export const ReasoningCollapsed: Story = {
   parameters: {
     review: {
       purpose:
-        "Chat thread with an answer after one thought: the activity log is closed and the thought text is hidden.",
+        "Chat thread of a Workspace with an answer after one thought: the activity row with its chevron is closed, so the thought text stays hidden until the user opens it.",
     },
   },
   args: {

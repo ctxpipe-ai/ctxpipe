@@ -42,8 +42,9 @@ export function FormatUpgradeWorkspacesNotice(props: {
         </>
       }
     >
+      {/* This page is not inside a Workspace, so the notice names it. */}
       {workspaces.length === 1
-        ? "This Workspace still has the old repository layout."
+        ? `The ${workspaces[0]?.displayName} Workspace still has the old repository layout.`
         : "These Workspaces still have the old repository layout."}{" "}
       Sources need the newest layout. Run the format upgrade first, then add the
       source.

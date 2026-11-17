@@ -110,6 +110,21 @@ export function formatCalendarDate(date: string): string {
   }).format(parseUtcDate(date))
 }
 
+/**
+ * The days of a range, each month and year one time: `Aug 10 – 13, 2026`.
+ * One day is one date. The spaces around the dash are plain spaces.
+ */
+export function formatCalendarRange(since: string, until: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  })
+    .formatRange(parseUtcDate(since), parseUtcDate(until))
+    .replaceAll("\u2009", " ")
+}
+
 export function formatCommitTooltip(count: number, date: string): string {
   return `${count} ${count === 1 ? "commit" : "commits"} on ${formatCalendarDate(date)}`
 }

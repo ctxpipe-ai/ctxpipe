@@ -225,7 +225,9 @@ function SetupProgress(props: { done: number; total: number }) {
       aria-label="Setup progress"
       value={props.done}
       maxValue={props.total}
-      className="h-1 w-24 shrink overflow-hidden rounded-full bg-zinc-800 max-sm:w-12"
+      // On a narrow screen the count ("2 of 6 done") says it, and the bar
+      // would wrap to its own line.
+      className="h-1 w-24 shrink overflow-hidden rounded-full bg-zinc-800 max-sm:hidden"
     >
       {({ percentage }) => (
         <div
@@ -345,9 +347,8 @@ function GuideRows(props: {
             <span className="ctx-node size-7 text-muted-foreground [&>svg]:size-4">
               {copy.icon}
             </span>
-            <p className="min-w-0 flex-1 truncate text-sm text-zinc-300">
-              {copy.title}
-            </p>
+            {/* The title wraps on a narrow screen, so it stays whole. */}
+            <p className="min-w-0 flex-1 text-sm text-zinc-300">{copy.title}</p>
             {row.pending ? <AwaitingMergeLink change={row.pending} /> : null}
             <ActionButton
               action={props.actions[row.id]}

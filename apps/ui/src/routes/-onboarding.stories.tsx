@@ -216,7 +216,7 @@ export const JoinerFinishStaysWhenSessionIsStale: Story = {
   parameters: {
     review: {
       purpose:
-        "Onboarding screen, where a new user learns ctxpipe and an admin creates the organization: the finish did not save, so the welcome slide stays with an error toast.",
+        "Onboarding page of a user who joined an org: the user pressed Get started and the finish did not save, so the welcome slide stays with an error toast and the next steps.",
     },
     storyRoute: onboardingJourneyRoute,
     msw: {
@@ -234,7 +234,9 @@ export const JoinerFinishStaysWhenSessionIsStale: Story = {
   play: async ({ canvasElement }) => {
     await finishJoiner(canvasElement)
     const body = within(canvasElement.ownerDocument.body)
-    await body.findByText("Could not finish onboarding. Try again.")
+    await body.findByText(
+      "Could not finish onboarding. Try again. If it fails again, sign out, then sign in.",
+    )
     const canvas = within(canvasElement)
     await expect(
       canvas.getByRole("button", { name: "Get started" }),
@@ -423,7 +425,9 @@ export const AdminFinishFailureContinues: Story = {
       canvas.getByRole("button", { name: "Create organization" }),
     )
     const body = within(canvasElement.ownerDocument.body)
-    await body.findByText("Could not finish onboarding. Try again.")
+    await body.findByText(
+      "Could not finish onboarding. Try again. If it fails again, sign out, then sign in.",
+    )
     const proceed = await canvas.findByRole("button", { name: "Continue" })
     await waitFor(() => expect(proceed).toBeEnabled())
     await waitFor(() =>
@@ -439,7 +443,9 @@ export const AdminFinishFailureContinues: Story = {
     // Only the first try failed. Continue completes onboarding with no
     // second error.
     expect(
-      body.getAllByText("Could not finish onboarding. Try again."),
+      body.getAllByText(
+        "Could not finish onboarding. Try again. If it fails again, sign out, then sign in.",
+      ),
     ).toHaveLength(1)
   },
 }

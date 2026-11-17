@@ -105,13 +105,18 @@ export function upgradeFailureAllowsStartAgain(
   return !item.failure || upgradeFailureCopy(item.failure).startAgain !== false
 }
 
+/** A recorded cause as a sentence: raw error text often has no period. */
+function asSentence(text: string): string {
+  return text.replace(/[.!?]?\s*$/, ".")
+}
+
 /** The chat prompt of "Fix using agent" for a failed upgrade. */
 export function upgradeFailurePrompt(
   item: Pick<WorkspaceUpgradeItem, "title">,
   failure: UpgradeFailure,
 ): string {
   const { step } = upgradeFailureCopy(failure)
-  return `The upgrade "${item.title}" of this Workspace failed${step ? ` at the step "${step}"` : ""}. ctxpipe recorded: ${failure.summary} Find the cause, and tell me how to fix it.`
+  return `The upgrade "${item.title}" of this Workspace failed${step ? ` at the step "${step}"` : ""}. ctxpipe recorded: ${asSentence(failure.summary)} Find the cause, and tell me how to fix it.`
 }
 
 /**
@@ -122,5 +127,5 @@ export function upgradeFailedItemPrompt(
   item: Pick<WorkspaceUpgradeItem, "title" | "failure" | "failureReason">,
 ): string {
   if (item.failure) return upgradeFailurePrompt(item, item.failure)
-  return `The upgrade "${item.title}" of this Workspace failed. ctxpipe recorded: ${item.failureReason ?? "no reason."} Find the cause, and tell me how to fix it.`
+  return `The upgrade "${item.title}" of this Workspace failed. ctxpipe recorded: ${asSentence(item.failureReason ?? "no reason")} Find the cause, and tell me how to fix it.`
 }

@@ -120,7 +120,7 @@ export const WorkspacesLoading: Story = {
   parameters: {
     review: {
       purpose:
-        "Org home page, where a member asks the agent and opens a Workspace: the Workspace list is still loading, and the composer and activity skeleton hold their place.",
+        "Home, where a member asks the agent and sees the commits of a Workspace: the Workspace list still loads, so the nav, the activity and the commits show skeletons.",
     },
     // At the mobile width the screenshot is the same as Loading.
     visual: { viewports: ["desktop"] },
