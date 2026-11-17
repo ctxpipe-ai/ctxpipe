@@ -98,6 +98,34 @@ it("returns no changes when the revision renames no file", async () => {
   expect(changes).toEqual([])
 })
 
+// CTX-1369: each connector mirror commit adds or edits a few files of a
+// Workspace that holds thousands. With no rename in the diff, the check reads
+// no file, so its cost does not grow with the size of the Workspace.
+it("checks a commit with no rename in a large Workspace without a read of each file", async () => {
+  const repo = repository()
+  const count = 3000
+  for (let index = 0; index < count; index++)
+    repo.write(
+      `issues/issue-${index}.md`,
+      `---\nkind: Issue\n---\n# Issue ${index}\n\nSee [the next issue](issue-${(index + 1) % count}.md).\n`,
+    )
+  const before = repo.commit("Mirror the issues")
+  repo.write(
+    "issues/issue-7.md",
+    "---\nkind: Issue\n---\n# Issue 7\n\nNow done.\n",
+  )
+  repo.write("issues/issue-new.md", "---\nkind: Issue\n---\n# A new issue\n")
+  const after = repo.commit("Mirror one change")
+  const pack = await captureGitPack(repo.directory, after, null, [before])
+
+  const start = performance.now()
+  const changes = await nativeRenameRewriteFiles(pack, before, null)
+  const elapsed = performance.now() - start
+
+  expect(changes).toEqual([])
+  expect(elapsed).toBeLessThan(5_000)
+}, 120_000)
+
 it("rewrites a link in another file to the new path of a renamed file", async () => {
   const repo = repository()
   repo.write("knowledge/a.md", "# A\n\n[B](./b.md)\n")
