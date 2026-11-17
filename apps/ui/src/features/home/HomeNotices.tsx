@@ -158,7 +158,7 @@ function UpgradeToast(props: {
             />
           ) : null}
           <Button
-            variant="ghost"
+            variant="quiet"
             size="sm"
             isDisabled={busy}
             onPress={onDismiss}
@@ -243,7 +243,7 @@ function FailedUpgradeToast(props: {
           label={label}
         />
         <Button
-          variant="ghost"
+          variant="quiet"
           size="sm"
           onPress={onDismiss}
           aria-label={`Dismiss: ${label}`}
@@ -336,7 +336,7 @@ function HydrateProblemToast(props: {
           </Button>
         )}
         <Button
-          variant="ghost"
+          variant="quiet"
           size="sm"
           onPress={onDismiss}
           aria-label={`Dismiss: ${workspace.displayName}, skipped files`}

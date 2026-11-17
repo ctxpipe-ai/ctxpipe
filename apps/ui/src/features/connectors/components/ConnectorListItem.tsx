@@ -52,7 +52,7 @@ function TileTrigger({
       ref={ref}
       aria-describedby={describedBy}
       slot="trigger"
-      variant="ghost"
+      variant="quiet"
       className="h-auto min-w-0 justify-start gap-3 rounded-md px-1.5 py-1.5 text-left"
     >
       <span aria-hidden className="ctx-node h-9 w-9 shrink-0">
@@ -276,6 +276,9 @@ export function ConnectorListItem({
                 {rowAction}
               </div>
             ) : null}
+            {/* A footer row of the card, as the pending row, not an
+                InlineAlert: the red dot in the head is the one status signal
+                (DESIGN.md status rubric), and this row gives the next step. */}
             {failed ? (
               <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] px-3 py-2.5 sm:pl-14">
                 <p className="text-sm text-muted-foreground">

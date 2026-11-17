@@ -194,7 +194,7 @@ function MessageInputSuggestions(props: {
           {props.suggestions.map((suggestion) => (
             <li key={suggestion}>
               <Button
-                variant="ghost"
+                variant="quiet"
                 className="h-auto w-full justify-start px-2 py-1.5 text-left text-sm"
                 onPress={() => {
                   controller.textInput.setInput(suggestion)

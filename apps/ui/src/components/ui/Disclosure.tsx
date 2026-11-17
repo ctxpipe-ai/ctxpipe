@@ -73,7 +73,7 @@ export function DisclosureHeader({
     <Heading className="m-0 text-sm font-medium text-foreground">
       <Button
         slot="trigger"
-        variant="ghost"
+        variant="quiet"
         className="group flex h-auto min-h-0 w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium text-inherit"
       >
         {({ isDisabled }) => (

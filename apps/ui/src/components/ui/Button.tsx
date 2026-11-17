@@ -12,13 +12,7 @@ import { focusRing } from "@/lib/react-aria-utils"
 
 interface ButtonProps extends Omit<RACButtonProps, "size"> {
   /** @default 'primary' */
-  variant?:
-    | "primary"
-    | "secondary"
-    | "destructive"
-    | "quiet"
-    | "ghost"
-    | "outline"
+  variant?: "primary" | "secondary" | "destructive" | "quiet" | "outline"
   /** @default 'default' */
   size?: "default" | "sm" | "icon" | "icon-sm"
   ref?: Ref<HTMLButtonElement>
@@ -39,9 +33,8 @@ const button = tv({
         "border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 pressed:bg-secondary/70",
       destructive:
         "bg-destructive font-medium text-white hover:bg-destructive/90 pressed:bg-destructive/80",
-      // One look with two names; see the compound variants.
+      // The look is in the compound variants, after the disabled classes.
       quiet: "",
-      ghost: "",
       outline:
         "rounded-sm border border-white/75 bg-transparent text-zinc-100 dark:border-white/75 hover:border-white/88 hover:bg-white/[0.08] dark:hover:border-white/88 pressed:border-white/88 pressed:bg-white/10",
     },
@@ -64,12 +57,12 @@ const button = tv({
   },
   compoundVariants: [
     {
-      variant: ["quiet", "ghost"],
+      variant: "quiet",
       class:
         "border-0 bg-transparent text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground pressed:bg-foreground/[0.08]",
     },
     {
-      variant: ["quiet", "ghost"],
+      variant: "quiet",
       isDisabled: true,
       class:
         "bg-transparent hover:bg-transparent pressed:bg-transparent text-muted-foreground hover:text-muted-foreground",
@@ -151,7 +144,6 @@ export function Button(props: ButtonProps) {
                   "h-4 w-4 animate-spin",
                   props.variant === "secondary" ||
                   props.variant === "quiet" ||
-                  props.variant === "ghost" ||
                   props.variant === "outline"
                     ? "text-foreground"
                     : props.variant === "destructive"

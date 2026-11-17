@@ -261,7 +261,7 @@ function NodeDetailDrawerBody({
       <div className="flex items-start gap-2 border-b border-border px-4 py-3">
         <div className="min-w-0 flex-1">
           <Button
-            variant="ghost"
+            variant="quiet"
             onPress={onFocus}
             aria-label={`Focus ${title} on the graph`}
             className="-ml-1 h-auto max-w-full justify-start px-1 py-0 text-left"
@@ -301,7 +301,7 @@ function NodeDetailDrawerBody({
           </div>
         </div>
         <Button
-          variant="ghost"
+          variant="quiet"
           size="icon-sm"
           onPress={onClose}
           aria-label="Close details"
@@ -415,7 +415,7 @@ function NodeDetailDrawerBody({
                 return (
                   <li key={nid}>
                     <Button
-                      variant="ghost"
+                      variant="quiet"
                       onPress={() => onNeighborSelect(nid)}
                       className="h-auto w-full justify-start gap-2 px-2 py-1.5"
                     >
@@ -449,7 +449,7 @@ function NodeDetailDrawerBody({
                 return (
                   <Button
                     key={pred}
-                    variant={active ? "secondary" : "ghost"}
+                    variant={active ? "secondary" : "quiet"}
                     onPress={() => setPredicateFilter(active ? null : pred)}
                     aria-pressed={active}
                     className="h-7 px-2"
@@ -584,7 +584,7 @@ function ClaimList({
         return (
           <li key={key}>
             <Button
-              variant="ghost"
+              variant="quiet"
               onPress={() => onNeighborSelect(c.neighborId)}
               className="h-auto w-full flex-col items-stretch gap-0.5 rounded-md px-2 py-1.5"
             >

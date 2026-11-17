@@ -263,7 +263,7 @@ export function ConversationCtaActions(props: {
           content="Commit and push your changes to the conversation branch"
         >
           <Button
-            variant={plan.sync === "cta" ? "primary" : "ghost"}
+            variant={plan.sync === "cta" ? "primary" : "quiet"}
             isDisabled={!commitPush.enabled || commitPush.pending}
             isPending={commitPush.pending}
             onPress={commitPush.onPress}
@@ -284,7 +284,7 @@ export function ConversationCtaActions(props: {
       ) : null}
       {showPrLink ? (
         <Button
-          variant={plan.sync === "cta" ? "ghost" : "primary"}
+          variant={plan.sync === "cta" ? "quiet" : "primary"}
           href={pullRequest.href ?? undefined}
           target="_blank"
           rel="noopener noreferrer"

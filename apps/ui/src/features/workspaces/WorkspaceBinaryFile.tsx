@@ -66,7 +66,7 @@ export function WorkspaceBinaryFile(props: {
           <span className="truncate text-foreground">{name}</span>
           <span className="ml-auto">
             <Button
-              variant="ghost"
+              variant="quiet"
               size="sm"
               onPress={() => setShowSource(false)}
             >
@@ -142,7 +142,7 @@ function DownloadButton(props: { name: string; rawUrl: string }) {
 
 function ViewSourceButton(props: { onPress: () => void }) {
   return (
-    <Button variant="ghost" size="sm" onPress={props.onPress}>
+    <Button variant="quiet" size="sm" onPress={props.onPress}>
       View source
     </Button>
   )
@@ -200,7 +200,7 @@ function ImagePreview(props: {
           </span>
         ) : null}
         <span className="ml-auto flex items-center gap-2">
-          <Button variant="ghost" size="sm" onPress={() => setFit(!fit)}>
+          <Button variant="quiet" size="sm" onPress={() => setFit(!fit)}>
             {fit ? "Actual size" : "Zoom to fit"}
           </Button>
           {props.onViewSource ? (

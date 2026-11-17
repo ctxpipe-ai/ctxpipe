@@ -185,7 +185,7 @@ export function SideNavOrganizationCreateDialog({
             ) : null}
             <div className="flex justify-end gap-3">
               <Button
-                variant="ghost"
+                variant="quiet"
                 className="rounded-md text-zinc-400 hover:text-zinc-200"
                 isDisabled={createOrg.isPending}
                 onPress={() => close()}

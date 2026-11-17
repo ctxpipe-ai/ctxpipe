@@ -263,7 +263,7 @@ export function WorkspacePane(props: {
               <OverlayNavMenuButton />
             </div>
             <Button
-              variant="ghost"
+              variant="quiet"
               onPress={props.onRestoreConversation}
               className={cn(
                 workspaceChromeTabIdleClassName,

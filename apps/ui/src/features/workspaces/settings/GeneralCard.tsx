@@ -56,7 +56,7 @@ export function GeneralCard(props: {
         <>
           {dirty ? (
             <Button
-              variant="ghost"
+              variant="quiet"
               isDisabled={saveMutation.isPending}
               onPress={() => {
                 setDisplayName(workspace.displayName)
