@@ -829,10 +829,11 @@ jobs:
           if-no-files-found: ignore
 
   # outside-manifest: it builds the static Storybook, the prerequisite storybook-build of the play and screenshot checks
+  # outside-gate: also when no Storybook check runs, but the Storybook preview job has no cached build of an agent's run (scripts/checks/README.md, Storybook preview)
   storybook-build:
     timeout-minutes: 20
     name: Storybook build
-    needs: [merge-gate-plan, nightly-change]
+    needs: [merge-gate-plan, merge-gate-select, nightly-change]
     # The nightly run (schedule) also plays the stories, to record the trace.
     # It also renders the stories without a play function, and records each
     # story under the id of its screenshot check (storybook-plays.mjs).
@@ -841,9 +842,13 @@ jobs:
       (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
-      (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.storybook-build != '')
+      (needs.merge-gate-plan.outputs.mode != 'gate' || needs.merge-gate-plan.outputs.storybook-build != '' ||
+      needs.merge-gate-select.outputs.storybook-preview == 'build')
     # github-hosted: a static build without Docker (ADR-065)
     runs-on: ubuntu-24.04-arm
+    # The Storybook preview job downloads the build by this id.
+    outputs:
+      artifact-id: ${{ steps.preserve.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -856,11 +861,91 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @ctxpipe/ui build-storybook
       - name: Preserve the Storybook build
+        id: preserve
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: storybook-static
           path: apps/ui/storybook-static
           if-no-files-found: error
+
+  # The Storybook preview of the PR (scripts/checks/README.md, Storybook
+  # preview): `factory deploy storybook` publishes the Storybook build at
+  # https://storybook.ctxpipe.dev/commit/<head sha>/. The build is the one
+  # that an agent's `factory check` stored (the select job got it), else the
+  # one of the Storybook build job. The job holds the R2 key of the preview
+  # bucket (workbench), so it runs no repository script and no package: only
+  # the selector release, checked against the pin of the base revision. It
+  # never fails the run.
+  # outside-gate: it publishes the preview of the PR; it checks nothing, and each step continues on an error
+  storybook-preview:
+    timeout-minutes: 10
+    name: Storybook preview
+    needs: [merge-gate-select, storybook-build]
+    if: |
+      !cancelled() && github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.merge-gate-select.outputs.storybook-preview != ''
+    continue-on-error: true
+    environment: workbench
+    # github-hosted: a short job without Docker (ADR-065)
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        continue-on-error: true
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: The pin of the base revision
+        continue-on-error: true
+        run: |
+          mkdir -p "$RUNNER_TEMP/gate/.github"
+          git show HEAD^1:.github/merge-gate.json > "$RUNNER_TEMP/gate/.github/merge-gate.json"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        continue-on-error: true
+        with:
+          name: factory-release
+          path: ${{ runner.temp }}/release
+      - name: Selector release, checked against the pin
+        continue-on-error: true
+        run: |
+          sha256="$(jq -er .factory.sha256 "$RUNNER_TEMP/gate/.github/merge-gate.json")"
+          echo "$sha256  $RUNNER_TEMP/release/factory.tar.gz" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/release/factory.tar.gz" -C "$RUNNER_TEMP/bin" factory
+      - name: Download the cached Storybook build
+        if: needs.merge-gate-select.outputs.storybook-preview == 'cache'
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.merge-gate-select.outputs.storybook-artifact-id }}
+          path: ${{ runner.temp }}/cached
+      - name: Download the Storybook build of this run
+        if: needs.merge-gate-select.outputs.storybook-preview == 'build' && needs.storybook-build.outputs.artifact-id != ''
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.storybook-build.outputs.artifact-id }}
+          path: ${{ runner.temp }}/built
+      - name: Publish the preview
+        continue-on-error: true
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          STORYBOOK_R2_ACCESS_KEY_ID: ${{ secrets.STORYBOOK_R2_ACCESS_KEY_ID }}
+          STORYBOOK_R2_SECRET_ACCESS_KEY: ${{ secrets.STORYBOOK_R2_SECRET_ACCESS_KEY }}
+        run: |
+          archive="$(find "$RUNNER_TEMP/cached" -name storybook.tar.gz -print -quit 2>/dev/null || true)"
+          if [ -n "$archive" ]; then
+            source=(--archive "$archive")
+          else
+            index="$(find "$RUNNER_TEMP/built" -name index.json -maxdepth 2 -print -quit 2>/dev/null || true)"
+            [ -n "$index" ] || { echo "::notice::No Storybook build for the preview."; exit 0; }
+            source=(--dir "$(dirname "$index")")
+          fi
+          "$RUNNER_TEMP/bin/factory" deploy storybook --sha "$HEAD_SHA" "${source[@]}" | tee "$RUNNER_TEMP/deploy.txt"
+          grep '^STORYBOOK ' "$RUNNER_TEMP/deploy.txt" | sed 's/^STORYBOOK /Storybook preview: /' >> "$GITHUB_STEP_SUMMARY" || true
 
   # outside-manifest: only in a full run, never in gate mode: in gate mode the Storybook plays job runs the required stories through selected.mjs
   storybook-required:
@@ -1647,6 +1732,11 @@ jobs:
     # upload an artifact with the same name.
     outputs:
       artifact-id: ${{ steps.preserve.outputs.artifact-id }}
+      # The Storybook preview (scripts/checks/README.md, Storybook preview):
+      # `cache` when this job got the cached build of an agent's run, `build`
+      # when the Storybook build job must build it, empty for no preview.
+      storybook-preview: ${{ steps.storybook.outputs.preview }}
+      storybook-artifact-id: ${{ steps.storybook-upload.outputs.artifact-id }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -1735,6 +1825,44 @@ jobs:
           cp "$RUNNER_TEMP/inputs/manifest.json" "$out/manifest.json"
           rm "$out/select-cause.txt"
           find "$XDG_CACHE_HOME/factory/traces" -name '*.json.gz' -exec cp {} "$out/trace.json.gz" \; -quit || true
+      # When a Storybook check is selected, the selection names the key of the
+      # Storybook build and whether an agent's `factory check` stored it. This
+      # job holds the reader role, so it gets a stored build for the Storybook
+      # preview job. Without one, the Storybook build job builds it.
+      - name: The cached Storybook build of the preview
+        id: storybook
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        run: |
+          selection="$RUNNER_TEMP/out/selection.json"
+          [ -f "$selection" ] || exit 0
+          key="$(jq -r 'first(.artifacts[]? | select(.name == "storybook") | .key) // ""' "$selection")"
+          cached="$(jq -r 'first(.artifacts[]? | select(.name == "storybook") | .cached) // false' "$selection")"
+          [[ "$key" =~ ^[0-9a-f]{64}$ ]] || exit 0
+          prefix="artifacts/v1/storybook/$key/"
+          if [ "$cached" = true ]; then
+            object="$(aws s3api list-objects-v2 --bucket ctxpipe-factory-check-results-134416647419 \
+              --expected-bucket-owner 134416647419 --prefix "$prefix" --max-keys 1 \
+              --query 'Contents[0].Key' --output text)"
+            if [[ "$object" == "$prefix"*.tar.gz ]]; then
+              mkdir -p "$RUNNER_TEMP/storybook"
+              aws s3api get-object --bucket ctxpipe-factory-check-results-134416647419 \
+                --expected-bucket-owner 134416647419 --key "$object" \
+                "$RUNNER_TEMP/storybook/storybook.tar.gz" > /dev/null
+              echo "preview=cache" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "preview=build" >> "$GITHUB_OUTPUT"
+      - name: Keep the cached Storybook build for the preview job
+        id: storybook-upload
+        if: steps.storybook.outputs.preview == 'cache'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: storybook-preview-cache
+          path: ${{ runner.temp }}/storybook/storybook.tar.gz
+          retention-days: 1
+          if-no-files-found: error
       - name: Preserve the selection
         id: preserve
         if: always()
@@ -2270,6 +2398,7 @@ jobs:
         storybook-required,
         storybook-plays,
         storybook-visual,
+        storybook-preview,
         codesearch,
         migrate,
         upgrade-from-previous-release,
@@ -2402,6 +2531,18 @@ jobs:
           key: merge-gate-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             merge-gate-pr-${{ github.event.pull_request.number }}-
+      # The Storybook preview of the head commit (scripts/checks/README.md,
+      # Storybook preview): a HEAD request with no credential. gate.mjs links
+      # it when the selection holds a Storybook check.
+      - name: The Storybook preview
+        continue-on-error: true
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          url="https://storybook.ctxpipe.dev/commit/$HEAD_SHA/"
+          if curl --fail --silent --head --max-time 10 --output /dev/null "${url}index.json"; then
+            jq -n --arg url "$url" '{url: $url}' > "$RUNNER_TEMP/storybook.json"
+          fi
       # In gate mode a failed verdict fails this step; the next steps still
       # publish the decision and keep the PR store.
       - name: Decision
@@ -2413,7 +2554,7 @@ jobs:
           node "$RUNNER_TEMP/gate/scripts/checks/gate.mjs" decide --config "$RUNNER_TEMP/gate/.github/merge-gate.json" \
             --inputs "$RUNNER_TEMP/inputs" --results "$RUNNER_TEMP/results" \
             --needs "$RUNNER_TEMP/needs.json" --jobs "$RUNNER_TEMP/jobs.json" \
-            --earlier "$RUNNER_TEMP/earlier.json" \
+            --earlier "$RUNNER_TEMP/earlier.json" --storybook "$RUNNER_TEMP/storybook.json" \
             --store .merge-gate-store/store.json --out "$RUNNER_TEMP/decision" || code=$?
           # A gate.mjs that did not run its command (for example an older
           # base without the path check) writes no decision: that fails.

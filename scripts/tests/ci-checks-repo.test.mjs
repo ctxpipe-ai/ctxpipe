@@ -472,6 +472,41 @@ test("the manifest lists each prerequisite that a prerequisite needs", () => {
         assert.ok(check.prerequisites.includes(need), `${check.id}: ${need}`)
 })
 
+test("the Storybook build is a cached artifact of the prerequisite that writes it, keyed by files that exist", () => {
+  const result = node([script("list.mjs")])
+  assert.equal(result.status, 0, result.stderr)
+  const { checks, artifacts } = JSON.parse(result.stdout)
+  assert.deepEqual(
+    artifacts.map(({ name, prerequisite, path }) => ({
+      name,
+      prerequisite,
+      path,
+    })),
+    [
+      {
+        name: "storybook",
+        prerequisite: "storybook-build",
+        path: "apps/ui/storybook-static",
+      },
+    ],
+  )
+  // The prerequisite builds into the folder that the artifact names, and a
+  // Storybook check needs it, so a run that plays a story can store it.
+  assert.match(
+    readFileSync(script("prerequisites.mjs"), "utf8"),
+    /apps\/ui\/storybook-static\/index\.json/,
+  )
+  assert.ok(
+    checks.some(
+      (check) =>
+        check.family === "storybook" &&
+        check.prerequisites.includes("storybook-build"),
+    ),
+  )
+  for (const input of artifacts[0].inputs)
+    assert.ok(existsSync(join(root, input)), input)
+})
+
 test("the backend files that start Docker or host tools run in the contracts lane", () => {
   const moved = JSON.parse(
     readFileSync(join(root, "scripts/ci/contracts.json"), "utf8"),

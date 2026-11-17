@@ -1149,6 +1149,25 @@ export function nextStore({ store, selection, ran, contradictions, run, now }) {
 
 // The text of a gate-mode decision: the job summary (`limit` rows for each
 // table) or the PR comment (fewer rows, in collapsed sections).
+// The link to the Storybook preview of the PR (README, Storybook preview):
+// only when the selection holds a Storybook check and the preview of the
+// head commit answered. `preview` is what the Merge gate job wrote, or
+// undefined.
+export function storybookPreview(selection, preview) {
+  const url = preview?.url
+  if (
+    typeof url !== "string" ||
+    !/^https:\/\/storybook\.ctxpipe\.dev\/commit\/[0-9a-f]{40}\/$/.test(url)
+  )
+    return undefined
+  return selection?.selected?.some((check) => check.id.startsWith("storybook:"))
+    ? url
+    : undefined
+}
+
+const storybookLine = (decision) =>
+  decision.storybook ? ["", `**Storybook preview:** ${decision.storybook}`] : []
+
 export function gateText(
   decision,
   runUrl,
@@ -1174,6 +1193,7 @@ export function gateText(
     // store, and the passes that an agent stored (factory check).
     `**Cache hits:** ${["ci", "pr", "agent"].map((k) => `${k} ${classes[k] ?? 0}`).join(", ")} of ${s.counts.selected} selected checks.`,
   )
+  lines.push(...storybookLine(decision))
   // A CI miss must be visible: a selected check with a key and no stored pass.
   const noPass = Object.entries(decision.noStoredPass).sort(([a], [b]) =>
     a.localeCompare(b),
@@ -1434,6 +1454,7 @@ export function comment(decision, runUrl) {
         `Hit contradictions: ${m.contradictions.map((item) => code(item.id)).join(", ")}.`,
       )
   }
+  lines.push(...storybookLine(decision))
   if (runUrl) lines.push("", `[Decision details](${runUrl})`)
   return `${lines.join("\n")}\n`
 }
@@ -1599,6 +1620,18 @@ if (
           pr !== undefined &&
           pr.head?.repo?.full_name !== pr.base?.repo?.full_name,
       })
+      decision.storybook = storybookPreview(
+        planned?.selection ?? readJson(join(options.inputs, "selection.json")),
+        // A preview record that does not parse gives no link, never a
+        // failed gate.
+        (() => {
+          try {
+            return readJson(options.storybook)
+          } catch {
+            return undefined
+          }
+        })(),
+      )
       const repoUrl =
         env.GITHUB_SERVER_URL && env.GITHUB_REPOSITORY
           ? `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}`

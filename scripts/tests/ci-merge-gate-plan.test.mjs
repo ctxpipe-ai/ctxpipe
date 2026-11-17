@@ -21,6 +21,7 @@ import {
   gateDecision,
   gateText,
   marker,
+  storybookPreview,
 } from "../checks/gate.mjs"
 import {
   jobPlans,
@@ -1128,6 +1129,27 @@ test("the PR comment shows the selection, the hits, the LLM decisions and the mi
     "**Shards:** `test-shards` 1 of 9 (about",
   ])
     assert.ok(text.includes(part), part)
+})
+
+test("the PR comment links the Storybook preview only when a Storybook check is selected and the preview answered", () => {
+  const url = `https://storybook.ctxpipe.dev/commit/${"a".repeat(40)}/`
+  const ui = { selected: [{ id: "storybook:visual:apps/ui/src/A.stories.tsx#a" }] }
+  const backend = { selected: [{ id: "vitest:backend:apps/backend/src/a.test.ts" }] }
+  assert.equal(storybookPreview(ui, { url }), url)
+  assert.equal(storybookPreview(backend, { url }), undefined)
+  assert.equal(storybookPreview(ui, undefined), undefined)
+  // Only the preview host, a full commit SHA and the folder.
+  for (const other of [
+    `https://storybook.ctxpipe.dev/commit/${"a".repeat(12)}/`,
+    `https://example.com/commit/${"a".repeat(40)}/`,
+    `${url}index.html`,
+  ])
+    assert.equal(storybookPreview(ui, { url: other }), undefined, other)
+  const { decision } = decide()
+  const text = (storybook) =>
+    gateText({ ...decision, storybook }, undefined, { comment: true })
+  assert.ok(text(url).includes(`**Storybook preview:** ${url}`), text(url))
+  assert.ok(!text(undefined).includes("Storybook preview"))
 })
 
 test("the PR comment counts by family the selected checks that no store had a pass for", () => {

@@ -307,6 +307,11 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     // It downloads by the artifact ids that the Storybook shards give, so
     // another job of the run cannot replace them.
     "ci.yaml:nightly-tickets",
+    // The Storybook preview job uploads the files of a Storybook build to the
+    // preview bucket as data: it runs no downloaded file, only the factory
+    // release (checked against its pinned SHA-256). It downloads the build by
+    // the artifact ids that the select job and the Storybook build job give.
+    "ci.yaml:storybook-preview",
   ])
   for (const job of jobs) {
     // A job has an OIDC token when it asks for one, or when the workflow

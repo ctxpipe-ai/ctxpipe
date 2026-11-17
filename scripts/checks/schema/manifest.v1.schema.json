@@ -4,7 +4,10 @@
   "title": "ctxpipe check manifest",
   "description": "Output of `pnpm checks:list`. A reader rejects an unknown schemaVersion. A new optional property does not change the version.",
   "type": "object",
-  "required": ["schemaVersion", "checks"],
+  "required": [
+    "schemaVersion",
+    "checks"
+  ],
   "additionalProperties": false,
   "properties": {
     "schemaVersion": {
@@ -15,12 +18,26 @@
       "items": {
         "$ref": "#/$defs/check"
       }
+    },
+    "artifacts": {
+      "description": "Builds that a selector may cache by their inputs. When a run makes the prerequisite of an artifact for a check, the selector may store the folder `path`, keyed by the content of `inputs` and the toolchain. The Storybook preview job of ci.yaml publishes the cached Storybook build (scripts/checks/README.md, Storybook preview). Optional; without it, none.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
     }
   },
   "$defs": {
     "check": {
       "type": "object",
-      "required": ["id", "family", "lane", "root", "file", "inputs"],
+      "required": [
+        "id",
+        "family",
+        "lane",
+        "root",
+        "file",
+        "inputs"
+      ],
       "additionalProperties": false,
       "properties": {
         "id": {
@@ -71,12 +88,18 @@
           "description": "Inputs (each also in `inputs`) for which a reader with a trace (trace.v1.schema.json) may select checks from the trace instead of the whole lane. `lines`: the input is source that the checks run in Node child processes; the trace records those lines when the check's `recorded` holds `children`, so a changed file selects as any traced source file does. `tables`: the input holds Drizzle migration directories. A changed `migration.sql` selects the checks whose cases touched a table that a changed statement names (the case property `tables`) and the checks that read the file (`reads`, or `dirs` of a directory above it). Any other changed file in the input selects the checks that read it; `snapshot.json` is drizzle-kit state that no check reads. The input selects the whole lane when the trace does not hold the needed kind for the lane's checks, or when the reader cannot name the tables of a changed statement.",
           "type": "object",
           "additionalProperties": {
-            "enum": ["lines", "tables"]
+            "enum": [
+              "lines",
+              "tables"
+            ]
           }
         },
         "runtime": {
           "description": "The runtime that runs the lane. A result cache adds its version to the key.",
-          "enum": ["node", "bun"]
+          "enum": [
+            "node",
+            "bun"
+          ]
         },
         "env": {
           "description": "The environment variables that change the result of the lane. Optional; without it, no variable.",
@@ -84,7 +107,10 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["name", "mode"],
+            "required": [
+              "name",
+              "mode"
+            ],
             "properties": {
               "name": {
                 "type": "string",
@@ -92,7 +118,10 @@
               },
               "mode": {
                 "description": "`value`: a result cache adds a hash of the value to the key; the value is the same on every machine. `presence`: it adds only whether the variable is set; use it for a secret, or an address that only points at a service.",
-                "enum": ["value", "presence"]
+                "enum": [
+                  "value",
+                  "presence"
+                ]
               }
             }
           }
@@ -120,7 +149,9 @@
         "tools": {
           "description": "Eval checks: the MCP tool names that the case declares in its rules. `*` stands for any tool. A reader can select the case when a change reaches code that one of these tools runs (the trace's `tools` edges).",
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "uniqueItems": true
         },
         "portable": {
@@ -145,6 +176,41 @@
         "selectAll": {
           "description": "true: a selector must not sample the lane. It selects every check of the lane that a change reaches, also where it selects only some checks of another lane (for example the k cheapest that executed a changed range). A model step does not remove such a check. Use it for a lane where each check compares the result with its own expected output (one screenshot of each story): an unselected check keeps an expected output that is not correct. Each check of the lane has the same value. Optional; without it, false.",
           "type": "boolean"
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "required": [
+        "name",
+        "prerequisite",
+        "path",
+        "inputs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "prerequisite": {
+          "description": "The prerequisite (scripts/checks/prerequisites.mjs) that makes the build.",
+          "type": "string"
+        },
+        "path": {
+          "description": "The repo-relative folder that the prerequisite writes.",
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.)[A-Za-z0-9_.][^*]*$"
+        },
+        "inputs": {
+          "description": "Repo-relative files or folders whose content decides the build. No glob, no `..`.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^(?!.*\\.\\.)[A-Za-z0-9_.][^*]*$"
+          }
         }
       }
     }
