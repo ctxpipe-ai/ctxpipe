@@ -1147,13 +1147,11 @@ export function nextStore({ store, selection, ran, contradictions, run, now }) {
   }
 }
 
-// The text of a gate-mode decision: the job summary (`limit` rows for each
-// table) or the PR comment (fewer rows, in collapsed sections).
 // The link to the Storybook preview of the PR (README, Storybook preview):
 // only when the selection holds a Storybook check and the preview of the
-// head commit answered. `preview` is what the Merge gate job wrote, or
-// undefined.
-export function storybookPreview(selection, preview) {
+// head commit answered. `preview` is the record that the Merge gate job
+// wrote, or undefined. The pattern keeps any other text out of the comment.
+export function storybookPreviewUrl(selection, preview) {
   const url = preview?.url
   if (
     typeof url !== "string" ||
@@ -1166,8 +1164,12 @@ export function storybookPreview(selection, preview) {
 }
 
 const storybookLine = (decision) =>
-  decision.storybook ? ["", `**Storybook preview:** ${decision.storybook}`] : []
+  decision.storybookPreviewUrl
+    ? ["", `**Storybook preview:** ${decision.storybookPreviewUrl}`]
+    : []
 
+// The text of a gate-mode decision: the job summary (`limit` rows for each
+// table) or the PR comment (fewer rows, in collapsed sections).
 export function gateText(
   decision,
   runUrl,
@@ -1620,17 +1622,9 @@ if (
           pr !== undefined &&
           pr.head?.repo?.full_name !== pr.base?.repo?.full_name,
       })
-      decision.storybook = storybookPreview(
+      decision.storybookPreviewUrl = storybookPreviewUrl(
         planned?.selection ?? readJson(join(options.inputs, "selection.json")),
-        // A preview record that does not parse gives no link, never a
-        // failed gate.
-        (() => {
-          try {
-            return readJson(options.storybook)
-          } catch {
-            return undefined
-          }
-        })(),
+        readJson(options["storybook-preview"]),
       )
       const repoUrl =
         env.GITHUB_SERVER_URL && env.GITHUB_REPOSITORY
