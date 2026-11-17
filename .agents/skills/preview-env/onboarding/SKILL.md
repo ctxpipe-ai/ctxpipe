@@ -35,7 +35,7 @@ First area of every run. Creates account A, the org, the GitHub connection, and 
 **Evidence** `ONB-2-1.png` (validation error), `ONB-2-2.png` (Home with the guide); trace of the org-create request and the two onboarding-complete requests.
 
 ### ONB-3 Connect the GitHub App from the guide (human checkpoint)
-**Requires** ONB-2; `GH_TEST_ORG` with the App installable; a human at the GitHub consent screen (`SKIP(needs-human)` otherwise). A Railway preview uses the preview GitHub App, not the production App. Add the callback URL of the preview's host (the link of the PR's `pr-preview` deployment) to the preview App. *Uncertain:* whether the App's install callback and webhooks reach a Railway preview or `app.ctxpipe.localhost`; on `local` the operator may first have to finish the self-hosted App wizard.
+**Requires** ONB-2; `GH_TEST_ORG` with the App installable; a human at the GitHub consent screen (`SKIP(needs-human)` otherwise). An AWS PR preview (`https://pr-<N>.ctxpipe.dev`, the link of the PR's `pr-preview` deployment) uses the preview GitHub App, not the production App. Add the callback URL of that host to the preview App. *Uncertain:* whether the App's install callback and webhooks reach a PR preview or `app.ctxpipe.localhost`; on `local` the operator may first have to finish the self-hosted App wizard.
 **Steps**
 1. In the **Get started** guide, click **Connect GitHub**.
 2. Human: install the App on `GH_TEST_ORG` with access to **all repositories**, then return.

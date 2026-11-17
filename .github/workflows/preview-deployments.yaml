@@ -16,33 +16,42 @@ permissions: {}
 
 jobs:
   inactive:
-    # github-hosted: a few GitHub API calls, no Docker
+    # github-hosted: a few GitHub API calls, without Docker (ADR-065)
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     permissions:
       deployments: write
       pull-requests: read
     steps:
-      # Each list goes into a variable first, so a failed call fails the step
-      # and is never read as "nothing to do".
-      - name: Inactive deployments of closed PRs and expired previews
+      # A deployment is live when its newest status is success, in_progress,
+      # queued or pending: an `up` that stopped half-way stays in_progress.
+      # The list goes into a variable first, so a failed call fails the step
+      # and is never read as "nothing to do". A failed call for one deployment
+      # does not stop the others; the step fails at the end.
+      - name: Set inactive on the deployments of closed PRs and expired previews
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           now=$(date +%s)
-          deployments=$(gh api "repos/$REPO/deployments?environment=pr-preview&per_page=100")
-          list=$(jq -r '.[] | select(.payload.pr | type == "number") | "\(.id) \(.payload.pr)"' <<< "$deployments")
+          deployments=$(gh api --paginate "repos/$REPO/deployments?environment=pr-preview&per_page=100")
+          deployment_prs=$(jq -r '.[] | select(.task | test("^preview-pr-[1-9][0-9]*$")) | "\(.id) \(.task | ltrimstr("preview-pr-"))"' <<< "$deployments")
+          failed=0
           while read -r id pr; do
             [[ -n $id ]] || continue
-            newest=$(gh api "repos/$REPO/deployments/$id/statuses?per_page=1" --jq '.[0] // {} | "\(.state) \(.created_at // "1970-01-01T00:00:00Z" | fromdateiso8601)"')
-            read -r state at <<< "$newest"
-            [[ $state == success ]] || continue
-            age=$(( now - at ))
-            pr_state=$(gh api "repos/$REPO/pulls/$pr" --jq .state)
+            newest_status=$(gh api "repos/$REPO/deployments/$id/statuses?per_page=1" \
+              --jq '.[0] // {} | "\(.state) \(.created_at // "1970-01-01T00:00:00Z" | fromdateiso8601)"') ||
+              { echo "::error::No statuses of deployment $id (PR $pr)"; failed=1; continue; }
+            read -r state status_at <<< "$newest_status"
+            [[ $state =~ ^(success|in_progress|queued|pending)$ ]] || continue
+            age=$(( now - status_at ))
+            pr_state=$(gh api "repos/$REPO/pulls/$pr" --jq .state) ||
+              { echo "::error::No state of PR $pr (deployment $id)"; failed=1; continue; }
             if [[ $pr_state == closed ]] || (( age > 72 * 3600 )); then
-              gh api --method POST "repos/$REPO/deployments/$id/statuses" -f state=inactive -F auto_inactive=false > /dev/null
-              echo "PR $pr: deployment $id is inactive (PR $pr_state, success $(( age / 3600 )) hours ago)" | tee -a "$GITHUB_STEP_SUMMARY"
+              gh api --method POST "repos/$REPO/deployments/$id/statuses" -f state=inactive > /dev/null ||
+                { echo "::error::Deployment $id (PR $pr) did not take the status inactive"; failed=1; continue; }
+              echo "PR $pr: deployment $id is inactive (PR $pr_state, $state $(( age / 3600 )) hours ago)" | tee -a "$GITHUB_STEP_SUMMARY"
             fi
-          done <<< "$list"
+          done <<< "$deployment_prs"
+          exit "$failed"
