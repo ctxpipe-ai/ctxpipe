@@ -502,9 +502,10 @@ function SetupGuidePanel(props: {
               />
             </span>
           ) : null}
+          {/* ml-auto: on a narrow screen Dismiss wraps and stays at the right. */}
           <Button
             variant="quiet"
-            className="h-7 px-1 text-xs"
+            className="ml-auto h-7 px-1 text-xs"
             onPress={guide.dismiss}
           >
             Dismiss

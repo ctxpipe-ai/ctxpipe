@@ -936,7 +936,7 @@ export const FailedUnknown: Story = {
       await canvas.findByRole("button", { name: "Fix using agent" }),
     )
     expect(fixPrompts).toHaveBeenCalledWith(
-      'The upgrade "Fresh re-ingestion of the source repositories" of this Workspace failed at the step "Ingest the source repository (acme/ky)". ctxpipe recorded: The ingestion run failed: something odd happened Find the cause, and tell me how to fix it.',
+      'The upgrade "Fresh re-ingestion of the source repositories" of this Workspace failed at the step "Ingest the source repository (acme/ky)". ctxpipe recorded: The ingestion run failed: something odd happened. Find the cause, and tell me how to fix it.',
     )
   },
 }
