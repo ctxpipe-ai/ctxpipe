@@ -1831,6 +1831,8 @@ jobs:
         id: storybook
         if: github.event.pull_request.head.repo.full_name == github.repository
         continue-on-error: true
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           selection="$RUNNER_TEMP/out/selection.json"
           [ -f "$selection" ] || exit 0
@@ -1839,6 +1841,8 @@ jobs:
           entry='first(.artifacts[]? | select(.name == "storybook"))'
           key="$(jq -r "$entry | .key // \"\"" "$selection")"
           writer="$(jq -r "$entry | if .cached then .writer // \"\" else \"\" end" "$selection")"
+          # The S3 key of a cached build holds the writer's name, so no
+          # command of this step prints a key.
           [[ "$key" =~ ^[0-9a-f]{64}$ ]] || exit 0
           # The selector names the writer of the cached build by the SHA-256
           # of its name (a public record names no writer). Take the object of
@@ -1857,12 +1861,23 @@ jobs:
               --expected-bucket-owner 134416647419 --prefix "$prefix" \
               --query 'Contents[].Key' --output text | tr '\t' '\n')
             if [ -n "$object" ]; then
-              mkdir -p "$RUNNER_TEMP/storybook"
+              mkdir -p "$RUNNER_TEMP/storybook" "$RUNNER_TEMP/fetched"
               aws s3api get-object --bucket ctxpipe-factory-check-results-134416647419 \
                 --expected-bucket-owner 134416647419 --key "$object" \
-                "$RUNNER_TEMP/storybook/storybook.tar.gz" > /dev/null
-              echo "preview=cache" >> "$GITHUB_OUTPUT"
-              exit 0
+                "$RUNNER_TEMP/fetched/storybook.tar.gz" > /dev/null 2>&1 ||
+                { echo "preview=build" >> "$GITHUB_OUTPUT"; exit 0; }
+              # An agent can write the archive, and the next step makes it an
+              # artifact of this public repository. So the same content check
+              # as the publish runs first, with no upload, and writes a new
+              # archive of only the checked files: the job keeps only that
+              # one. On a refusal, the Storybook build job builds it again.
+              if "$RUNNER_TEMP/bin/factory" deploy storybook --sha "$HEAD_SHA" --dry-run \
+                --archive "$RUNNER_TEMP/fetched/storybook.tar.gz" --out "$RUNNER_TEMP/storybook/storybook.tar.gz"; then
+                rm -rf "$RUNNER_TEMP/fetched"
+                echo "preview=cache" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              rm -rf "$RUNNER_TEMP/fetched" "$RUNNER_TEMP/storybook"
             fi
           fi
           echo "preview=build" >> "$GITHUB_OUTPUT"
