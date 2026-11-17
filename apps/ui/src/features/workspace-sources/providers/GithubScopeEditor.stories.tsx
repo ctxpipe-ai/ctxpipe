@@ -6,8 +6,8 @@ import { signedInHandlers } from "@/mocks/handlers"
 import { githubInstallationReposHandler } from "@/mocks/workspace-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import { sourceDialogStoryFrame } from "../source-dialog-story-frame"
 import { GithubScopeEditor } from "./github"
-import { scopeEditorStoryFrame } from "./scope-editor-story-frame"
 
 const repos = [
   { id: 11, name: "api", full_name: "acme/api", clone_url: "x" },
@@ -21,7 +21,7 @@ const repos = [
 const meta = {
   title: "Components/WorkspaceSources/GithubScopeEditor",
   component: GithubScopeEditor,
-  decorators: [scopeEditorStoryFrame],
+  decorators: [sourceDialogStoryFrame],
   parameters: {
     app: "root",
     review: { kind: "component" },

@@ -6,8 +6,8 @@ import { signedInHandlers } from "@/mocks/handlers"
 import { plainCatalogHandler } from "@/mocks/plain-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import { sourceDialogStoryFrame } from "../source-dialog-story-frame"
 import { PlainScopeEditor } from "./plain"
-import { scopeEditorStoryFrame } from "./scope-editor-story-frame"
 
 const catalogPath = ({ request }: { request: Request }) =>
   new URL(request.url).pathname.endsWith("/api/v1/connectors/plain/catalog")
@@ -15,7 +15,7 @@ const catalogPath = ({ request }: { request: Request }) =>
 const meta = {
   title: "Components/WorkspaceSources/PlainScopeEditor",
   component: PlainScopeEditor,
-  decorators: [scopeEditorStoryFrame],
+  decorators: [sourceDialogStoryFrame],
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -50,9 +50,11 @@ export const SelectHelpCentersAndLabels: Story = {
   },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(
-      await canvas.findByText("Select at least one Help Center or label."),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText("Select at least one Help Center or label."),
+      ).toBeVisible(),
+    )
     await expect(args.onChange).not.toHaveBeenCalled()
     await expect(canvas.getByText(/100 newest threads/)).toBeVisible()
     await expect(canvas.getByText(/can hold personal data/)).toBeVisible()

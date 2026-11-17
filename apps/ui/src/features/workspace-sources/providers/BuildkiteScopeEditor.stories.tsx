@@ -7,8 +7,8 @@ import { buildkitePipelinesHandler } from "@/mocks/buildkite-handlers"
 import { signedInHandlers } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import { sourceDialogStoryFrame } from "../source-dialog-story-frame"
 import { BuildkiteScopeEditor } from "./buildkite"
-import { scopeEditorStoryFrame } from "./scope-editor-story-frame"
 
 const pipelinesPath = ({ request }: { request: Request }) =>
   new URL(request.url).pathname.endsWith(
@@ -18,7 +18,7 @@ const pipelinesPath = ({ request }: { request: Request }) =>
 const meta = {
   title: "Components/WorkspaceSources/BuildkiteScopeEditor",
   component: BuildkiteScopeEditor,
-  decorators: [scopeEditorStoryFrame],
+  decorators: [sourceDialogStoryFrame],
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -56,9 +56,9 @@ export const SelectPipelines: Story = {
   },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(
-      await canvas.findByText("Select at least one pipeline."),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Select at least one pipeline.")).toBeVisible(),
+    )
     await expect(args.onChange).not.toHaveBeenCalled()
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: "Web App" }),

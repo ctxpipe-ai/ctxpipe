@@ -161,10 +161,16 @@ export function upgradeCheckResult(
     case "awaiting_operator":
       return `${at} ctxpipe found no open pull request for this upgrade.`
     case "blocked":
-      return item.blockedReason === "needs_format" &&
-        typeof formatVersion === "number"
-        ? `${at} The Workspace uses format ${formatVersion}. This item needs format ${item.targetFormat}.`
-        : `${at} This item is still blocked.`
+      if (
+        item.blockedReason !== "needs_format" ||
+        typeof formatVersion !== "number"
+      )
+        return `${at} This item is still blocked.`
+      // The Workspace has the format: the block above says that the check is
+      // stale, so this line gives only the time.
+      return formatVersion >= item.targetFormat
+        ? at
+        : `${at} The Workspace uses format ${formatVersion}. This item needs format ${item.targetFormat}.`
     case "completed":
       return `${at} The upgrade is applied.`
     default:

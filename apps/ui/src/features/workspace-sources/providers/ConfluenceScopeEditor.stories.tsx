@@ -5,13 +5,13 @@ import { confluenceTreeHandlers } from "@/mocks/confluence-handlers"
 import { signedInHandlers } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import { sourceDialogStoryFrame } from "../source-dialog-story-frame"
 import { ConfluenceScopeEditor } from "./confluence"
-import { scopeEditorStoryFrame } from "./scope-editor-story-frame"
 
 const meta = {
   title: "Components/WorkspaceSources/ConfluenceScopeEditor",
   component: ConfluenceScopeEditor,
-  decorators: [scopeEditorStoryFrame],
+  decorators: [sourceDialogStoryFrame],
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -51,9 +51,9 @@ export const SelectAllPagesOfASpace: Story = {
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     // The auth decorator renders the story after the session loads.
-    await expect(
-      await canvas.findByText(/Select at least one space/),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText(/Select at least one space/)).toBeVisible(),
+    )
     await expect(args.onChange).not.toHaveBeenCalled()
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: /Engineering/ }),

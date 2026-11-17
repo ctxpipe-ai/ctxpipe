@@ -160,27 +160,30 @@ export const RunningStage: Story = {
 export const ReingestProgress: Story = {
   parameters: {
     ...withUpgrades(
-      upgradesFixture([
-        upgradeItemFixture({
-          kind: "reingest",
-          title: "Fresh re-ingestion of the source repositories",
-          status: "running",
-          approvedAt: minutesAgo(7),
-          repositories: [
-            ["acme/api", "done"],
-            ["acme/web", "pending"],
-            ["acme/docs", "pending"],
-          ].map(([repository, status]) => ({
-            repository: repository as string,
-            status: status as "done" | "pending",
-            sha: null,
-            runId: null,
-            report: [],
-            spendUsd: null,
-            spendUnknown: false,
-          })),
-        }),
-      ]),
+      // A re-ingestion runs only on format 3.
+      upgradesFixture(
+        [
+          upgradeItemFixture({
+            kind: "reingest",
+            status: "running",
+            approvedAt: minutesAgo(7),
+            repositories: [
+              ["acme/api", "done"],
+              ["acme/web", "pending"],
+              ["acme/docs", "pending"],
+            ].map(([repository, status]) => ({
+              repository: repository as string,
+              status: status as "done" | "pending",
+              sha: null,
+              runId: null,
+              report: [],
+              spendUsd: null,
+              spendUnknown: false,
+            })),
+          }),
+        ],
+        { formatVersion: 3 },
+      ),
     ),
     review: {
       purpose:

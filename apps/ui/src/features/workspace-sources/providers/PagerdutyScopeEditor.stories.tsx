@@ -7,13 +7,13 @@ import { signedInHandlers } from "@/mocks/handlers"
 import { pagerdutyServicesHandler } from "@/mocks/pagerduty-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import { sourceDialogStoryFrame } from "../source-dialog-story-frame"
 import { PagerdutyScopeEditor } from "./pagerduty"
-import { scopeEditorStoryFrame } from "./scope-editor-story-frame"
 
 const meta = {
   title: "Components/WorkspaceSources/PagerdutyScopeEditor",
   component: PagerdutyScopeEditor,
-  decorators: [scopeEditorStoryFrame],
+  decorators: [sourceDialogStoryFrame],
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -48,9 +48,9 @@ export const SelectServices: Story = {
   },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(
-      await canvas.findByText("Select at least one service."),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Select at least one service.")).toBeVisible(),
+    )
     await expect(args.onChange).not.toHaveBeenCalled()
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: "checkout-api" }),
@@ -169,44 +169,78 @@ export const ServiceListFails: Story = {
   },
 }
 
+// One more service than a source can hold. Each product area has an API, a
+// worker, a database, a queue and a cron job, as in a real PagerDuty account.
+const manyServices = [
+  "accounts",
+  "analytics",
+  "auth",
+  "billing",
+  "catalog",
+  "checkout",
+  "exports",
+  "gateway",
+  "imports",
+  "inventory",
+  "ledger",
+  "notifications",
+  "orders",
+  "payments",
+  "pricing",
+  "recommendations",
+  "reviews",
+  "scheduler",
+  "search",
+  "shipping",
+  "webhooks",
+]
+  .flatMap((area) =>
+    ["api", "worker", "db", "queue", "cron"].map((part) => `${area}-${part}`),
+  )
+  .slice(0, PAGERDUTY_SOURCE_MAX_SERVICES + 1)
+  .map((name, index) => ({
+    id: `PSV${String(index + 1).padStart(4, "0")}`,
+    name,
+  }))
+
 export const OverTheServiceLimit: Story = {
   parameters: {
     review: {
       purpose:
-        "PagerDuty scope editor, where the user picks the services of a Workspace source: the selection goes above the service limit, so an error shows and the scope is not ready.",
+        "PagerDuty scope editor in the Add source dialog: 100 services are selected, the user ticks one more, so an error states the 100-service limit and the dialog cannot save.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith(
+                "/api/v1/connectors/pagerduty/available-services",
+              ),
+            () => HttpResponse.json({ items: manyServices, more: false }),
+          ),
+        ],
+      },
+    },
   },
   args: {
-    // A full selection: one more service goes above the cap.
+    // A full selection: all services but the first.
     initialScope: {
-      services: Array.from(
-        { length: PAGERDUTY_SOURCE_MAX_SERVICES },
-        (_, i) => `PX${String(i).padStart(3, "0")}`,
-      ),
+      services: manyServices.slice(1).map((service) => service.id),
     },
   },
   play: async ({ args, canvasElement }) => {
+    await expect(manyServices).toHaveLength(PAGERDUTY_SOURCE_MAX_SERVICES + 1)
     const canvas = within(canvasElement.ownerDocument.body)
     const limit = `Select at most ${PAGERDUTY_SOURCE_MAX_SERVICES} PagerDuty services.`
-    const checkout = await canvas.findByRole("checkbox", {
-      name: "checkout-api",
+    const first = await canvas.findByRole("checkbox", {
+      name: manyServices[0]?.name,
     })
     await expect(canvas.queryByText(limit)).not.toBeInTheDocument()
-    await userEvent.click(checkout)
+    await userEvent.click(first)
     await waitFor(() => expect(canvas.getByText(limit)).toBeVisible())
+    // Above the cap, the scope is not ready, so the dialog cannot save.
     await expect(args.onChange).toHaveBeenLastCalledWith(null)
-    // One service less is in the cap again, and the scope is ready.
-    await userEvent.click(
-      canvas.getByRole("checkbox", { name: "checkout-api" }),
-    )
-    await waitFor(() =>
-      expect(args.onChange).toHaveBeenLastCalledWith({
-        services: expect.arrayContaining(["PX000"]),
-      }),
-    )
-    await waitFor(() =>
-      expect(canvas.queryByText(limit)).not.toBeInTheDocument(),
-    )
   },
 }

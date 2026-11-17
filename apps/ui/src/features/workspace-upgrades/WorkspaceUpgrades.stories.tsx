@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { WRITE_STATUS_REASONS } from "backend/domain/workspaces/write-status"
 import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
@@ -365,7 +366,6 @@ export const ReingestWorkingWithSpend: Story = {
             upgradeItemFixture({
               key: "reingest-3",
               kind: "reingest",
-              title: "Ingest the source repositories again",
               status: "running",
               approvedAt: new Date(Date.now() - 72 * 60_000).toISOString(),
               repositories: [
@@ -826,6 +826,9 @@ export const FailedSourceAccess: Story = {
     const canvas = within(canvasElement)
     const link = await canvas.findByRole("link", { name: "Reconnect GitHub" })
     expect(link).toHaveAttribute("href", "/acme/connectors")
+    // The title names the kind of the item that failed.
+    expect(canvas.getByText("The re-ingestion failed")).toBeVisible()
+    expect(canvas.queryByText("The upgrade failed")).toBeNull()
     expect(
       canvas.getByText("Failed step: Read the source repository (acme/ky)."),
     ).toBeVisible()
@@ -1024,7 +1027,7 @@ export const BlockedNotGithub: Story = {
           upgradeItemFixture({
             status: "blocked",
             blockedReason: "write_access",
-            note: "This remote is not GitHub. ctxpipe can hydrate, search, and chat with it, but cannot commit or push to it. Relink to a GitHub repository that the App can write to.",
+            note: WRITE_STATUS_REASONS.nonGithubHost,
           }),
         ]),
       ),

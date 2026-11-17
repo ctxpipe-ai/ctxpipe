@@ -986,23 +986,21 @@ export const AddSendsChange: Story = {
       handlers: {
         page: [
           // After the add, the server lists the change of the pull request.
-          http.get(/\/api\/v1\/workspaces\/[^/]+\/sources$/, () =>
-            HttpResponse.json(
-              workspaceSourceList(
-                addCalls.length === 0
-                  ? {}
-                  : {
-                      pendingChanges: [
-                        {
-                          path: "sources/github/acme/api.md",
-                          provider: "github",
-                          action: "add",
-                          pullRequestUrl: "https://github.com/acme/docs/pull/7",
-                          createdAt: "2026-10-10T10:00:00.000Z",
-                        },
-                      ],
-                    },
-              ),
+          workspaceSourcesHandler(() =>
+            workspaceSourceList(
+              addCalls.length === 0
+                ? {}
+                : {
+                    pendingChanges: [
+                      {
+                        path: "sources/github/acme/api.md",
+                        provider: "github",
+                        action: "add",
+                        pullRequestUrl: "https://github.com/acme/docs/pull/7",
+                        createdAt: "2026-10-10T10:00:00.000Z",
+                      },
+                    ],
+                  },
             ),
           ),
           connected,

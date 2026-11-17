@@ -26,7 +26,7 @@ import {
   CHOOSE_WORKSPACES_HINT,
   ChooseWorkspacesStep,
 } from "./ChooseWorkspacesStep"
-import { scopeEditorStoryFrame } from "./providers/scope-editor-story-frame"
+import { sourceDialogStoryFrame } from "./source-dialog-story-frame"
 
 type StepProps = Omit<ComponentProps<typeof ChooseWorkspacesStep>, "value">
 
@@ -47,20 +47,22 @@ function StepWithState(props: StepProps) {
   )
 }
 
+/** The onChange of the step: each value that the step gives to the wizard. */
+const onStepChange = fn<(value: ChooseWorkspacesValue) => void>()
+
 /**
  * The requests that the wizard sends for the last value of the step, or null
  * while the step is not ready.
  */
 function lastRequests(args: StepProps) {
-  const onChange = args.onChange as ReturnType<typeof fn>
-  const value = onChange.mock.lastCall?.[0] as ChooseWorkspacesValue | undefined
-  return chooseWorkspacesRequests(value ?? emptyChooseWorkspaces(), args)
+  const value = onStepChange.mock.lastCall?.[0] ?? emptyChooseWorkspaces()
+  return chooseWorkspacesRequests(value, args)
 }
 
 const meta = {
   title: "Components/WorkspaceSources/ChooseWorkspacesStep",
   component: StepWithState,
-  decorators: [scopeEditorStoryFrame],
+  decorators: [sourceDialogStoryFrame],
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -84,7 +86,10 @@ const meta = {
     orgSlug: "acme",
     provider: "linear",
     connectionId: "con_li1",
-    onChange: fn(),
+    onChange: onStepChange,
+  },
+  beforeEach: () => {
+    onStepChange.mockClear()
   },
 } satisfies Meta<typeof StepWithState>
 

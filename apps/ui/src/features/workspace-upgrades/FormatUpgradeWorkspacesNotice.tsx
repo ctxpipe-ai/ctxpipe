@@ -22,32 +22,34 @@ export function FormatUpgradeWorkspacesNotice(props: {
 }) {
   const { orgSlug, workspaces, upgradeButtons = true } = props
   const isAdmin = useIsOrgAdmin(orgSlug)
-  const askAdmin = isAdmin === false
+  const buttons = upgradeButtons
+    ? workspaces.map((workspace) => (
+        <Button
+          key={workspace.slug}
+          variant="secondary"
+          size="sm"
+          href={workspaceUpgradesHref(orgSlug, workspace.slug)}
+          aria-label={`Review upgrade: ${workspace.displayName}`}
+        >
+          {workspaces.length === 1
+            ? "Review upgrade"
+            : `Review upgrade: ${workspace.displayName}`}
+        </Button>
+      ))
+    : null
+  const askAdmin =
+    isAdmin === false ? (
+      <span className="self-center text-xs">{MEMBER_ASK_ADMIN}</span>
+    ) : null
   return (
     <InlineAlert
       variant="warning"
       title="Upgrade a Workspace before you add a source"
       actions={
-        upgradeButtons || askAdmin ? (
+        buttons || askAdmin ? (
           <>
-            {upgradeButtons
-              ? workspaces.map((workspace) => (
-                  <Button
-                    key={workspace.slug}
-                    variant="secondary"
-                    size="sm"
-                    href={workspaceUpgradesHref(orgSlug, workspace.slug)}
-                    aria-label={`Review upgrade: ${workspace.displayName}`}
-                  >
-                    {workspaces.length === 1
-                      ? "Review upgrade"
-                      : `Review upgrade: ${workspace.displayName}`}
-                  </Button>
-                ))
-              : null}
-            {askAdmin ? (
-              <span className="self-center text-xs">{MEMBER_ASK_ADMIN}</span>
-            ) : null}
+            {buttons}
+            {askAdmin}
           </>
         ) : undefined
       }

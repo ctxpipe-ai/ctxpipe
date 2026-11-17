@@ -8,13 +8,13 @@ import {
 } from "@/mocks/slack-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
-import { scopeEditorStoryFrame } from "./scope-editor-story-frame"
+import { sourceDialogStoryFrame } from "../source-dialog-story-frame"
 import { SlackScopeEditor } from "./slack"
 
 const meta = {
   title: "Components/WorkspaceSources/SlackScopeEditor",
   component: SlackScopeEditor,
-  decorators: [scopeEditorStoryFrame],
+  decorators: [sourceDialogStoryFrame],
   parameters: {
     app: "root",
     review: { kind: "component" },

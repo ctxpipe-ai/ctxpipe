@@ -98,6 +98,13 @@ const UPGRADE_BLOCKED_COPY: Record<
   },
 }
 
+/** The title of a failed item names its kind: a format upgrade or a re-ingestion. */
+export function upgradeFailedTitle(item: Pick<WorkspaceUpgradeItem, "kind">) {
+  return item.kind === "reingest"
+    ? "The re-ingestion failed"
+    : "The upgrade failed"
+}
+
 /**
  * The title and the short reason of a blocked item. `readFormat` is the
  * format that ctxpipe read last. When it is already the format that the item

@@ -49,6 +49,7 @@ import {
   MEMBER_ASK_ADMIN,
   UPGRADE_WAITS_LABEL,
   upgradeBlockedCopy,
+  upgradeFailedTitle,
   upgradeCanCheck,
   upgradeCanStart,
   upgradeGroups,
@@ -176,13 +177,6 @@ function PullRequestLink(props: {
         : "Pull request"}
     </TextLink>
   )
-}
-
-/** The title of a failed item names its kind: a format upgrade or a re-ingestion. */
-function upgradeFailedTitle(item: Pick<WorkspaceUpgradeItem, "kind">) {
-  return item.kind === "reingest"
-    ? "The re-ingestion failed"
-    : "The upgrade failed"
 }
 
 /**

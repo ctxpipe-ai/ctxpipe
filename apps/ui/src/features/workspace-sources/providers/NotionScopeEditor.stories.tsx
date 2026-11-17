@@ -6,8 +6,8 @@ import { signedInHandlers } from "@/mocks/handlers"
 import { notionResourcesHandler } from "@/mocks/notion-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import { sourceDialogStoryFrame } from "../source-dialog-story-frame"
 import { NotionScopeEditor } from "./notion"
-import { scopeEditorStoryFrame } from "./scope-editor-story-frame"
 
 const HANDBOOK = "1a2b3c4d-0000-4000-8000-000000000001"
 const INCIDENTS = "1a2b3c4d-0000-4000-8000-000000000002"
@@ -15,7 +15,7 @@ const INCIDENTS = "1a2b3c4d-0000-4000-8000-000000000002"
 const meta = {
   title: "Components/WorkspaceSources/NotionScopeEditor",
   component: NotionScopeEditor,
-  decorators: [scopeEditorStoryFrame],
+  decorators: [sourceDialogStoryFrame],
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -50,9 +50,11 @@ export const SelectAPageAndADatabase: Story = {
   },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(
-      await canvas.findByText("Select at least one page or database."),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText("Select at least one page or database."),
+      ).toBeVisible(),
+    )
     await expect(args.onChange).not.toHaveBeenCalled()
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: /Engineering handbook/ }),

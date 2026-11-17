@@ -5,13 +5,13 @@ import { signedInHandlers } from "@/mocks/handlers"
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import { sourceDialogStoryFrame } from "../source-dialog-story-frame"
 import { LinearScopeEditor } from "./linear"
-import { scopeEditorStoryFrame } from "./scope-editor-story-frame"
 
 const meta = {
   title: "Components/WorkspaceSources/LinearScopeEditor",
   component: LinearScopeEditor,
-  decorators: [scopeEditorStoryFrame],
+  decorators: [sourceDialogStoryFrame],
   parameters: {
     app: "root",
     review: { kind: "component" },
