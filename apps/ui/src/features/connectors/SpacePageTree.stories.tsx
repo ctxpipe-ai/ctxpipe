@@ -49,13 +49,13 @@ function SpacePageTreeHarness() {
   )
 }
 
+/**
+ * Tree where the user picks the Confluence spaces and pages to import: two
+ * spaces loaded, none selected yet.
+ */
 export const List: Story = {
   render: () => <SpacePageTreeHarness />,
   parameters: {
-    review: {
-      purpose:
-        "Tree where the user picks the Confluence spaces and pages to import: two spaces loaded, none selected yet.",
-    },
     msw: {
       handlers: {
         page: [
@@ -86,13 +86,13 @@ export const List: Story = {
   },
 }
 
+/**
+ * Tree where the user picks the Confluence spaces and pages to import: the
+ * space list is still loading.
+ */
 export const Loading: Story = {
   render: () => <SpacePageTreeHarness />,
   parameters: {
-    review: {
-      purpose:
-        "Tree where the user picks the Confluence spaces and pages to import: the space list is still loading.",
-    },
     msw: {
       handlers: {
         page: [
@@ -120,14 +120,14 @@ export const Loading: Story = {
   },
 }
 
+/**
+ * Tree where the user picks the Confluence spaces and pages to import: the
+ * space list request failed.
+ */
 export const ErrorState: Story = {
   name: "Error",
   render: () => <SpacePageTreeHarness />,
   parameters: {
-    review: {
-      purpose:
-        "Tree where the user picks the Confluence spaces and pages to import: the space list request failed.",
-    },
     msw: {
       handlers: {
         page: [

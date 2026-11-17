@@ -43,13 +43,13 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Onboarding screen, where a new user learns ctxpipe and an admin creates the
+ * organization: the session and the organizations are still loading.
+ */
 export const Loading: Story = {
   render: () => <OnboardingPageContent />,
   parameters: {
-    review: {
-      purpose:
-        "Onboarding screen, where a new user learns ctxpipe and an admin creates the organization: the session and the organizations are still loading.",
-    },
     msw: {
       // This story replaces the `session` handlers of the meta: the
       // session and the organizations never load.

@@ -53,12 +53,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Used in section of a connector, which lists the Workspaces that use the
+ * connection: the Workspace list still loads.
+ */
 export const Loading: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Used in section of a connector, which lists the Workspaces that use the connection: the Workspace list still loads.",
-    },
     msw: { handlers: { page: [connectionUsageHandler("loading")] } },
   },
   play: async ({ canvasElement }) => {
@@ -71,12 +71,13 @@ export const Loading: Story = {
   },
 }
 
+/**
+ * Used in section of a connector, which lists the Workspaces that use the
+ * connection: no Workspace uses the GitHub connection yet, and the Add to
+ * Workspaces dialog is open.
+ */
 export const NotUsedInAnyWorkspace: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Used in section of a connector, which lists the Workspaces that use the connection: no Workspace uses the GitHub connection yet, and the Add to Workspaces dialog is open.",
-    },
     msw: {
       handlers: {
         page: [
@@ -106,12 +107,13 @@ export const NotUsedInAnyWorkspace: Story = {
   },
 }
 
+/**
+ * Used in section of a connector, which lists the Workspaces that use the
+ * connection: one Workspace uses the GitHub connection, with its count of
+ * linked repositories.
+ */
 export const UsedInOneWorkspace: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Used in section of a connector, which lists the Workspaces that use the connection: one Workspace uses the GitHub connection, with its count of linked repositories.",
-    },
     msw: {
       handlers: {
         page: [
@@ -136,13 +138,14 @@ export const UsedInOneWorkspace: Story = {
   },
 }
 
+/**
+ * Used in section of a connector, which lists the Workspaces that use the
+ * connection: two Workspaces have an open pull request for the Notion source
+ * that waits for a merge.
+ */
 export const PullRequestAwaitingMerge: Story = {
   args: { provider: "notion" },
   parameters: {
-    review: {
-      purpose:
-        "Used in section of a connector, which lists the Workspaces that use the connection: two Workspaces have an open pull request for the Notion source that waits for a merge.",
-    },
     msw: {
       handlers: {
         page: [
@@ -204,13 +207,14 @@ export const PullRequestAwaitingMerge: Story = {
   },
 }
 
+/**
+ * Used in list of a Confluence connection card on the Connectors page: three
+ * Workspaces use the connection, and each row links to the Workspace with the
+ * count of spaces that it syncs.
+ */
 export const UsedInManyWorkspaces: Story = {
   args: { provider: "confluence" },
   parameters: {
-    review: {
-      purpose:
-        "Used in list of a Confluence connection card on the Connectors page: three Workspaces use the connection, and each row links to the Workspace with the count of spaces that it syncs.",
-    },
     msw: {
       handlers: {
         page: [
@@ -243,15 +247,16 @@ export const UsedInManyWorkspaces: Story = {
   },
 }
 
+/**
+ * Used in section of a connector, which lists the Workspaces that use the
+ * connection: one Workspace uses the GitHub connection, and its link opens the
+ * source section of its settings.
+ */
 export const UsedInLinksToSourceSection: Story = {
   tags: ["required"],
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as UsedInOneWorkspace.",
-    },
-    review: {
-      purpose:
-        "Used in section of a connector, which lists the Workspaces that use the connection: one Workspace uses the GitHub connection, and its link opens the source section of its settings.",
     },
     intent:
       "Catches a connector usage row that links to the wrong place. The link must open the workspace settings pane at the source section of that connector. Not for usage counts.",

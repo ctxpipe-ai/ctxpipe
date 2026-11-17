@@ -35,14 +35,14 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Device sign-in screen, where a user confirms the code of a CLI or agent: the
+ * session and the device code are still loading.
+ */
 export const DeviceLoading: Story = {
   tags: ["page"],
   render: () => <DeviceAuthorizationPage />,
   parameters: {
-    review: {
-      purpose:
-        "Device sign-in screen, where a user confirms the code of a CLI or agent: the session and the device code are still loading.",
-    },
     route: "/.auth/device",
     storyRoute: {
       pattern: "flat",
@@ -73,15 +73,16 @@ export const DeviceLoading: Story = {
   },
 }
 
+/**
+ * Sign-in page, where a user signs in with email and password: the user is
+ * signed out and the form is empty, with links to reset the password and to
+ * sign up.
+ */
 export const SignIn: Story = {
   tags: ["page"],
   name: "Sign-in",
   render: () => <SignInRoutePage />,
   parameters: {
-    review: {
-      purpose:
-        "Sign-in page, where a user signs in with email and password: the user is signed out and the form is empty, with links to reset the password and to sign up.",
-    },
     route: "/.auth/sign-in",
     storyRoute: {
       pattern: "flat",

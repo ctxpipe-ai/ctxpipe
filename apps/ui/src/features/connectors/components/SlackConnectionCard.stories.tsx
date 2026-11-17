@@ -76,16 +76,16 @@ function statusHandler(body: unknown) {
   )
 }
 
+/**
+ * Slack connection card on the Connectors page: the Slack workspace is
+ * connected and captures to a context repository.
+ */
 export const Connected: Story = {
   render: () =>
     shell(
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
     ),
   parameters: {
-    review: {
-      purpose:
-        "Slack connection card on the Connectors page: the Slack workspace is connected and captures to a context repository.",
-    },
     msw: { handlers: { page: [statusHandler(statusLive)] } },
   },
 }
@@ -126,16 +126,16 @@ export const ConnectedWithoutCaptureRepository: Story = {
   },
 }
 
+/**
+ * Slack connection card on the Connectors page: Slack revoked the access, so
+ * the card shows Needs reconnect.
+ */
 export const Revoked: Story = {
   render: () =>
     shell(
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
     ),
   parameters: {
-    review: {
-      purpose:
-        "Slack connection card on the Connectors page: Slack revoked the access, so the card shows Needs reconnect.",
-    },
     msw: {
       handlers: {
         page: [
@@ -158,16 +158,17 @@ export const Revoked: Story = {
   },
 }
 
+/**
+ * Slack card on the Connectors page: the status read failed with a server
+ * error, so a row under the head gives the cause and a Retry button without a
+ * click.
+ */
 export const StatusError: Story = {
   render: () =>
     shell(
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
     ),
   parameters: {
-    review: {
-      purpose:
-        "Slack card on the Connectors page: the status read failed with a server error, so a row under the head gives the cause and a Retry button without a click.",
-    },
     msw: {
       handlers: {
         page: [
@@ -184,16 +185,16 @@ export const StatusError: Story = {
   },
 }
 
+/**
+ * Slack connection card on the Connectors page: the status request is still
+ * loading.
+ */
 export const Loading: Story = {
   render: () =>
     shell(
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
     ),
   parameters: {
-    review: {
-      purpose:
-        "Slack connection card on the Connectors page: the status request is still loading.",
-    },
     msw: {
       handlers: {
         page: [

@@ -147,13 +147,14 @@ function withUpgrades(
   }
 }
 
+/**
+ * Upgrades card in the Workspace settings, where an admin starts format
+ * upgrades and re-ingestions: the upgrade list still loads, so skeleton rows
+ * hold its place.
+ */
 export const Loading: Story = {
   parameters: {
     ...withUpgrades(workspaceUpgradesHandler("loading")),
-    review: {
-      purpose:
-        "Upgrades card in the Workspace settings, where an admin starts format upgrades and re-ingestions: the upgrade list still loads, so skeleton rows hold its place.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -166,15 +167,15 @@ export const Loading: Story = {
   },
 }
 
+/**
+ * Upgrades section of a Workspace: the Workspace is at the newest format and no
+ * upgrade is open.
+ */
 export const UpToDate: Story = {
   parameters: {
     ...withUpgrades(
       workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
     ),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: the Workspace is at the newest format and no upgrade is open.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -292,6 +293,7 @@ export const MemberAsksAdmin: Story = {
   },
 }
 
+/** Upgrades section of a Workspace: a format upgrade is running. */
 export const Running: Story = {
   parameters: {
     ...withUpgrades(
@@ -299,9 +301,6 @@ export const Running: Story = {
         upgradesFixture([upgradeItemFixture({ status: "running" })]),
       ),
     ),
-    review: {
-      purpose: "Upgrades section of a Workspace: a format upgrade is running.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -672,6 +671,10 @@ export const NotesWithDetails: Story = {
   },
 }
 
+/**
+ * Upgrades section of a Workspace: the format upgrade failed because GitHub
+ * refused the push, with Start again.
+ */
 export const Failed: Story = {
   parameters: {
     ...withUpgrades(
@@ -684,10 +687,6 @@ export const Failed: Story = {
         ]),
       ),
     ),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: the format upgrade failed because GitHub refused the push, with Start again.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -808,6 +807,11 @@ export const FailedAfterAutoRetry: Story = {
   },
 }
 
+/**
+ * Upgrades card in the Workspace settings, seen by an admin: the re-ingestion
+ * failed because ctxpipe cannot read the source repository acme/ky, so the item
+ * gives the cause, Reconnect GitHub and Start again.
+ */
 export const FailedSourceAccess: Story = {
   parameters: {
     ...failedReingest({
@@ -817,10 +821,6 @@ export const FailedSourceAccess: Story = {
       summary:
         "ctxpipe cannot read the default branch of the repository. Repository not found.",
     }),
-    review: {
-      purpose:
-        "Upgrades card in the Workspace settings, seen by an admin: the re-ingestion failed because ctxpipe cannot read the source repository acme/ky, so the item gives the cause, Reconnect GitHub and Start again.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -925,6 +925,10 @@ export const FailedTooManySourcesMember: Story = {
 
 const fixPrompts = fn()
 
+/**
+ * Upgrades section of a Workspace: a re-ingestion failed with an unknown cause,
+ * and the user can fix it with an agent.
+ */
 export const FailedUnknown: Story = {
   args: { onFixWithAgent: fixPrompts },
   parameters: {
@@ -934,10 +938,6 @@ export const FailedUnknown: Story = {
       repository: "acme/ky",
       summary: "The ingestion run failed: something odd happened",
     }),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: a re-ingestion failed with an unknown cause, and the user can fix it with an agent.",
-    },
   },
   play: async ({ canvasElement }) => {
     fixPrompts.mockClear()
@@ -983,6 +983,11 @@ export const FailedServerBusy: Story = {
   },
 }
 
+/**
+ * Upgrades card in the Workspace settings: ctxpipe cannot open the format
+ * upgrade pull request because the GitHub App has read access only, so the item
+ * is blocked with no Start.
+ */
 export const Blocked: Story = {
   parameters: {
     ...withUpgrades(
@@ -996,10 +1001,6 @@ export const Blocked: Story = {
         ]),
       ),
     ),
-    review: {
-      purpose:
-        "Upgrades card in the Workspace settings: ctxpipe cannot open the format upgrade pull request because the GitHub App has read access only, so the item is blocked with no Start.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1114,13 +1115,13 @@ async function expectReingestCard(canvasElement: HTMLElement, title: string) {
   return canvas
 }
 
+/**
+ * Upgrades section of a Workspace: the re-ingestion is blocked because ctxpipe
+ * cannot publish to the repository.
+ */
 export const ReingestBlockedOnWriteAccess: Story = {
   parameters: {
     ...blockedReingest("write_access"),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: the re-ingestion is blocked because ctxpipe cannot publish to the repository.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = await expectReingestCard(
@@ -1135,13 +1136,14 @@ export const ReingestBlockedOnWriteAccess: Story = {
   },
 }
 
+/**
+ * Upgrades card in the Workspace settings: the Workspace has format 2, so the
+ * re-ingestion is blocked until the format upgrade to format 3 is merged, with
+ * Check again.
+ */
 export const ReingestNeedsFormat: Story = {
   parameters: {
     ...blockedReingest("needs_format"),
-    review: {
-      purpose:
-        "Upgrades card in the Workspace settings: the Workspace has format 2, so the re-ingestion is blocked until the format upgrade to format 3 is merged, with Check again.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = await expectReingestCard(
@@ -1252,13 +1254,13 @@ export const ReingestChecksNewFormat: Story = {
   },
 }
 
+/**
+ * Upgrades section of a Workspace: the re-ingestion is blocked because this
+ * deployment cannot run it.
+ */
 export const ReingestSandboxUnavailable: Story = {
   parameters: {
     ...blockedReingest("sandbox_unavailable"),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: the re-ingestion is blocked because this deployment cannot run it.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = await expectReingestCard(
@@ -1401,12 +1403,10 @@ export const HistoryWithAppliedUpgrade: Story = {
   },
 }
 
+/** Upgrades section of a Workspace: the upgrades failed to load. */
 export const LoadError: Story = {
   parameters: {
     ...withUpgrades(workspaceUpgradesHandler("error")),
-    review: {
-      purpose: "Upgrades section of a Workspace: the upgrades failed to load.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

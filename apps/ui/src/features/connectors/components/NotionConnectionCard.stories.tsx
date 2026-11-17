@@ -98,24 +98,24 @@ function card() {
   )
 }
 
+/**
+ * Notion connection card on the Connectors page: the Notion workspace is
+ * connected and syncs to a context repository.
+ */
 export const Connected: Story = {
   render: () => shell(card()),
   parameters: {
-    review: {
-      purpose:
-        "Notion connection card on the Connectors page: the Notion workspace is connected and syncs to a context repository.",
-    },
     msw: { handlers: { page: [notionStatus(statusComplete)] } },
   },
 }
 
+/**
+ * Notion connection card on the Connectors page: the status request is still
+ * loading.
+ */
 export const Checking: Story = {
   render: () => shell(card()),
   parameters: {
-    review: {
-      purpose:
-        "Notion connection card on the Connectors page: the status request is still loading.",
-    },
     msw: {
       handlers: {
         page: [
@@ -135,13 +135,13 @@ export const Checking: Story = {
   },
 }
 
+/**
+ * Notion card on the Connectors page: the status read failed, so a row under
+ * the head gives the cause and a Retry button without a click.
+ */
 export const CouldntLoad: Story = {
   render: () => shell(card()),
   parameters: {
-    review: {
-      purpose:
-        "Notion card on the Connectors page: the status read failed, so a row under the head gives the cause and a Retry button without a click.",
-    },
     msw: {
       handlers: {
         page: [
@@ -161,13 +161,13 @@ export const CouldntLoad: Story = {
 const statusReads = fn()
 const deleted = fn()
 
+/**
+ * Notion card on the Connectors page: the admin started the setup but did not
+ * finish it, so the card offers Remove and the next step, Register OAuth app.
+ */
 export const PendingSetup: Story = {
   render: () => shell(card()),
   parameters: {
-    review: {
-      purpose:
-        "Notion card on the Connectors page: the admin started the setup but did not finish it, so the card offers Remove and the next step, Register OAuth app.",
-    },
     msw: {
       handlers: {
         page: [
@@ -209,15 +209,15 @@ export const PendingSetup: Story = {
     }),
 }
 
+/**
+ * Notion connection card on the Connectors page: auth is done and each
+ * Workspace sets its own scope, so the card shows no scope.
+ */
 export const ConnectedWithoutSyncRepository: Story = {
   name: "Connected, scope set in each Workspace",
   render: () => shell(card()),
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Connected." },
-    review: {
-      purpose:
-        "Notion connection card on the Connectors page: auth is done and each Workspace sets its own scope, so the card shows no scope.",
-    },
     msw: {
       handlers: {
         page: [
@@ -246,14 +246,14 @@ export const ConnectedWithoutSyncRepository: Story = {
   },
 }
 
+/**
+ * Notion connection card on the Connectors page: Notion revoked the access, so
+ * the card asks the admin to reconnect.
+ */
 export const RevokedNeedsReconnect: Story = {
   name: "Revoked, needs reconnect",
   render: () => shell(card()),
   parameters: {
-    review: {
-      purpose:
-        "Notion connection card on the Connectors page: Notion revoked the access, so the card asks the admin to reconnect.",
-    },
     msw: {
       handlers: {
         page: [

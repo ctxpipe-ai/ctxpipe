@@ -68,13 +68,13 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Connectors page, where an admin adds and manages the sources of the org: the
+ * org has no connections yet.
+ */
 export const Empty: Story = {
   render: () => <ConnectorsPageContent orgSlug={orgSlug} />,
   parameters: {
-    review: {
-      purpose:
-        "Connectors page, where an admin adds and manages the sources of the org: the org has no connections yet.",
-    },
     storyRoute: {
       pattern: "orgConnectors",
       orgSlug,
@@ -95,6 +95,10 @@ export const Empty: Story = {
   },
 }
 
+/**
+ * Connectors page, where an admin adds and manages the sources of the org: the
+ * connection list is still loading.
+ */
 export const Loading: Story = {
   render: () => <ConnectorsPageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
@@ -110,10 +114,6 @@ export const Loading: Story = {
     expect(canvas.getByText("Loading connectors")).toBeInTheDocument()
   },
   parameters: {
-    review: {
-      purpose:
-        "Connectors page, where an admin adds and manages the sources of the org: the connection list is still loading.",
-    },
     storyRoute: {
       pattern: "orgConnectors",
       orgSlug,
@@ -409,6 +409,10 @@ function pageHandlers(
 
 const pageRender = () => <ConnectorsPageContent orgSlug={orgSlug} />
 
+/**
+ * Connectors page, where an admin adds and manages the sources of the org:
+ * every connector is set up, and the user opens each card to see its account.
+ */
 export const Full: Story = {
   render: pageRender,
   parameters: {
@@ -425,10 +429,6 @@ export const Full: Story = {
       connectionUsageHandler([]),
       workspaceListHandler([]),
     ]),
-    review: {
-      purpose:
-        "Connectors page, where an admin adds and manages the sources of the org: every connector is set up, and the user opens each card to see its account.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -562,6 +562,11 @@ export const NeedsFormatUpgradeNoConnections: Story = {
   },
 }
 
+/**
+ * Connectors page, where an admin connects the tools of the org: the GitHub App
+ * install and the Linear connection are not finished, so each row shows its
+ * next step.
+ */
 export const InProgress: Story = {
   render: pageRender,
   parameters: {
@@ -617,13 +622,13 @@ export const InProgress: Story = {
         pendingConfigPullUrl: "https://github.com/acme/ingest/pull/43",
       }),
     ]),
-    review: {
-      purpose:
-        "Connectors page, where an admin connects the tools of the org: the GitHub App install and the Linear connection are not finished, so each row shows its next step.",
-    },
   },
 }
 
+/**
+ * Connectors page, where an admin adds and manages the sources of the org: some
+ * connections are healthy, some failed to sync or to save the config.
+ */
 export const MixedHealth: Story = {
   render: pageRender,
   parameters: {
@@ -655,13 +660,13 @@ export const MixedHealth: Story = {
         setupPhase: "sync_failed",
       }),
     ]),
-    review: {
-      purpose:
-        "Connectors page, where an admin adds and manages the sources of the org: some connections are healthy, some failed to sync or to save the config.",
-    },
   },
 }
 
+/**
+ * Connectors page, where an admin adds and manages the sources of the org: the
+ * status of each connector failed to load.
+ */
 export const CouldntLoad: Story = {
   render: pageRender,
   parameters: {
@@ -675,10 +680,6 @@ export const CouldntLoad: Story = {
       statusFailed("/api/v1/connectors/slack/status", slackId),
       statusFailed("/api/v1/connectors/pagerduty/status", pagerdutyId),
     ]),
-    review: {
-      purpose:
-        "Connectors page, where an admin adds and manages the sources of the org: the status of each connector failed to load.",
-    },
   },
 }
 

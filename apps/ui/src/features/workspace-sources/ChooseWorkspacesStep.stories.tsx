@@ -97,12 +97,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Choose Workspaces step of a connector setup, where the user adds a source to
+ * Workspaces: the Workspace list still loads.
+ */
 export const Loading: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Choose Workspaces step of a connector setup, where the user adds a source to Workspaces: the Workspace list still loads.",
-    },
     msw: {
       handlers: {
         page: [
@@ -120,13 +120,12 @@ export const Loading: Story = {
   },
 }
 
+/**
+ * Add to Workspaces step of a connector setup, where the user ticks the
+ * Workspaces that get the new source: the list loaded and nothing is ticked
+ * yet, so no scope editor shows, only a hint.
+ */
 export const ShowsHint: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Add to Workspaces step of a connector setup, where the user ticks the Workspaces that get the new source: the list loaded and nothing is ticked yet, so no scope editor shows, only a hint.",
-    },
-  },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("checkbox", { name: docsWorkspace.displayName })
@@ -135,12 +134,12 @@ export const ShowsHint: Story = {
   },
 }
 
+/**
+ * Choose Workspaces step of a connector setup, where the user adds a source to
+ * Workspaces: the org has no Workspaces yet, so the step offers to create one.
+ */
 export const NoWorkspaces: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Choose Workspaces step of a connector setup, where the user adds a source to Workspaces: the org has no Workspaces yet, so the step offers to create one.",
-    },
     msw: { handlers: { page: [workspaceListHandler([])] } },
   },
   play: async ({ canvasElement }) => {
@@ -155,13 +154,12 @@ export const NoWorkspaces: Story = {
   },
 }
 
+/**
+ * Choose Workspaces step of a connector setup, where the user adds a source to
+ * Workspaces: the user picks one Workspace and one Linear team, so the step is
+ * ready.
+ */
 export const SingleWorkspace: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Choose Workspaces step of a connector setup, where the user adds a source to Workspaces: the user picks one Workspace and one Linear team, so the step is ready.",
-    },
-  },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -176,12 +174,13 @@ export const SingleWorkspace: Story = {
   },
 }
 
+/**
+ * Choose Workspaces step of a connector setup, where the user adds a source to
+ * Workspaces: two Workspaces are picked, with a choice between one Linear scope
+ * for both and a scope for each.
+ */
 export const ChooseWorkspacesMulti: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Choose Workspaces step of a connector setup, where the user adds a source to Workspaces: two Workspaces are picked, with a choice between one Linear scope for both and a scope for each.",
-    },
     intent:
       "Catches a multi-workspace connector step that mixes the shared and per-workspace scope. Same scope shows one picker, different scope shows one for each workspace. Not for connector sign-in.",
   },

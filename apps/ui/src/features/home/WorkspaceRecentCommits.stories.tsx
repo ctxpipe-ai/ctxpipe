@@ -38,13 +38,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Recent commits list of a Workspace on the org home: a few commits, each with
+ * author, message, time and hash.
+ */
 export const Populated: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Recent commits list of a Workspace on the org home: a few commits, each with author, message, time and hash.",
-    },
-  },
   args: {
     commits: docsWorkspaceActivityRecent,
   },
@@ -349,25 +347,22 @@ export const AvatarAndInitialFallback: Story = {
   },
 }
 
+/**
+ * Recent commits list of a Workspace on the org home: the Workspace has no
+ * commits yet.
+ */
 export const NoHistory: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Recent commits list of a Workspace on the org home: the Workspace has no commits yet.",
-    },
-  },
   args: {
     commits: [],
   },
 }
 
+/**
+ * Recent commits list of a Workspace on Home, which lists the latest commits of
+ * its repository: the commits still load, so three fading skeleton rows hold
+ * the place.
+ */
 export const Loading: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Recent commits list of a Workspace on Home, which lists the latest commits of its repository: the commits still load, so three fading skeleton rows hold the place.",
-    },
-  },
   args: {
     commits: [],
   },

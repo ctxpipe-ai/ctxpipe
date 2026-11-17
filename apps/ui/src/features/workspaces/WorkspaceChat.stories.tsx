@@ -52,6 +52,10 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Chat panel of a Workspace, where a member talks to the ctxpipe agent: no
+ * conversation is open, so the empty composer for a new conversation shows.
+ */
 export const ComposeEmpty: Story = {
   parameters: {
     msw: {
@@ -59,13 +63,13 @@ export const ComposeEmpty: Story = {
         page: workspaceShellHandlers(),
       },
     },
-    review: {
-      purpose:
-        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: no conversation is open, so the empty composer for a new conversation shows.",
-    },
   },
 }
 
+/**
+ * Chat panel of a Workspace, where a member talks to the ctxpipe agent: the
+ * conversation detail is still loading.
+ */
 export const ConversationLoading: Story = {
   args: { conversationId: "conv_1" },
   parameters: {
@@ -80,13 +84,14 @@ export const ConversationLoading: Story = {
         page: [conversationDetailLoadingHandler(), ...workspaceShellHandlers()],
       },
     },
-    review: {
-      purpose:
-        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the conversation detail is still loading.",
-    },
   },
 }
 
+/**
+ * Chat panel of a Workspace, where a member talks to the ctxpipe agent: the
+ * member opened a link to a conversation that does not exist, so a not found
+ * message and New conversation show.
+ */
 export const ConversationMissing: Story = {
   args: { conversationId: "conv_missing" },
   parameters: {
@@ -100,10 +105,6 @@ export const ConversationMissing: Story = {
       handlers: {
         page: [conversationDetailHandler(null), ...workspaceShellHandlers()],
       },
-    },
-    review: {
-      purpose:
-        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the member opened a link to a conversation that does not exist, so a not found message and New conversation show.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -121,6 +122,10 @@ export const ConversationMissing: Story = {
   },
 }
 
+/**
+ * Chat panel of a Workspace, where a member talks to the ctxpipe agent: the
+ * conversation belongs to another Workspace, so a not found heading shows.
+ */
 export const ConversationForeignWorkspace: Story = {
   args: { conversationId: "conv_other" },
   parameters: {
@@ -138,10 +143,6 @@ export const ConversationForeignWorkspace: Story = {
         page: [conversationDetailHandler(null), ...workspaceShellHandlers()],
       },
     },
-    review: {
-      purpose:
-        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the conversation belongs to another Workspace, so a not found heading shows.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -153,6 +154,11 @@ export const ConversationForeignWorkspace: Story = {
   },
 }
 
+/**
+ * Chat panel of a Workspace, where a member talks to the ctxpipe agent: the
+ * member opened a stored conversation, so its messages and the follow-up
+ * composer show.
+ */
 export const ConversationReady: Story = {
   args: { conversationId: "conv_1" },
   parameters: {
@@ -166,10 +172,6 @@ export const ConversationReady: Story = {
       handlers: {
         page: workspaceShellHandlers(),
       },
-    },
-    review: {
-      purpose:
-        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the member opened a stored conversation, so its messages and the follow-up composer show.",
     },
   },
 }
@@ -408,6 +410,10 @@ function SocketCleanupHarness() {
   )
 }
 
+/**
+ * Chat panel of a Workspace in a test harness with a leave button: the user
+ * left the conversation, and a Left conversation text replaces the chat.
+ */
 export const SocketCleansUpOnLeave: Story = {
   tags: ["required"],
   render: () => <SocketCleanupHarness />,
@@ -421,10 +427,6 @@ export const SocketCleansUpOnLeave: Story = {
       handlers: {
         page: workspaceShellHandlers(),
       },
-    },
-    review: {
-      purpose:
-        "Chat panel of a Workspace in a test harness with a leave button: the user left the conversation, and a Left conversation text replaces the chat.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -521,6 +523,11 @@ function ReloadReconnectHarness() {
   )
 }
 
+/**
+ * Chat panel of a Workspace in a test harness with a reload button: the
+ * conversation reloaded, opened a new socket, and shows the stored messages
+ * again.
+ */
 export const ReloadReconnects: Story = {
   tags: ["required"],
   render: () => <ReloadReconnectHarness />,
@@ -540,10 +547,6 @@ export const ReloadReconnects: Story = {
       handlers: {
         page: workspaceShellHandlers(),
       },
-    },
-    review: {
-      purpose:
-        "Chat panel of a Workspace in a test harness with a reload button: the conversation reloaded, opened a new socket, and shows the stored messages again.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -656,6 +659,10 @@ function RapidRouteHarness() {
   )
 }
 
+/**
+ * Chat panel of a Workspace in a test harness that switches conversations fast:
+ * the last route wins, so the ready conversation shows its follow-up composer.
+ */
 export const RapidRouteChanges: Story = {
   tags: ["required"],
   render: () => <RapidRouteHarness />,
@@ -703,10 +710,6 @@ export const RapidRouteChanges: Story = {
           ...workspaceShellHandlers(),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Chat panel of a Workspace in a test harness that switches conversations fast: the last route wins, so the ready conversation shows its follow-up composer.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -783,6 +786,10 @@ function ComposeHarness() {
   )
 }
 
+/**
+ * Chat panel of a Workspace, where a member talks to the ctxpipe agent: a later
+ * send failed, the first answer stays, and the error shows as an alert.
+ */
 export const LateErrorDoesNotClobberSuccess: Story = {
   tags: ["required"],
   render: () => <ComposeHarness />,
@@ -817,10 +824,6 @@ export const LateErrorDoesNotClobberSuccess: Story = {
           ...workspaceShellHandlers(),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: a later send failed, the first answer stays, and the error shows as an alert.",
     },
   },
   play: async ({ canvasElement }) => {

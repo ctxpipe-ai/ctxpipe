@@ -90,12 +90,12 @@ export const Settings: Story = {
   },
 }
 
+/**
+ * Body of the organization settings page, where an admin manages the org API
+ * keys: the org has no API keys yet.
+ */
 export const ApiKeysEmpty: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Body of the organization settings page, where an admin manages the org API keys: the org has no API keys yet.",
-    },
     msw: {
       handlers: {
         page: [
@@ -119,12 +119,12 @@ export const ApiKeysEmpty: Story = {
   },
 }
 
+/**
+ * Body of the organization settings page, where an admin manages the org API
+ * keys: the org has a list of API keys.
+ */
 export const ApiKeysPopulated: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Body of the organization settings page, where an admin manages the org API keys: the org has a list of API keys.",
-    },
     msw: {
       handlers: {
         page: [
@@ -137,12 +137,12 @@ export const ApiKeysPopulated: Story = {
   },
 }
 
+/**
+ * Body of the organization settings page, where an admin manages the org API
+ * keys: the user is a member and may not see the keys.
+ */
 export const ApiKeysMemberForbidden: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Body of the organization settings page, where an admin manages the org API keys: the user is a member and may not see the keys.",
-    },
     msw: {
       handlers: {
         page: [

@@ -37,12 +37,13 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Confluence scope editor in the Add source dialog, where the user picks the
+ * spaces and pages that a Workspace source syncs: from an empty selection, the
+ * user ticks the Engineering space.
+ */
 export const SelectAllPagesOfASpace: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Confluence scope editor in the Add source dialog, where the user picks the spaces and pages that a Workspace source syncs: from an empty selection, the user ticks the Engineering space.",
-    },
     intent:
       "Catches a Confluence scope that stays not ready after the user picks a space. Picking a space must select all its pages in the scope. Not for saved page lists.",
   },
@@ -64,12 +65,13 @@ export const SelectAllPagesOfASpace: Story = {
   },
 }
 
+/**
+ * Confluence scope editor in the Edit source dialog: the saved scope had some
+ * pages of the Operations space, and the user ticked the space, so the source
+ * now syncs all its pages.
+ */
 export const EditsASavedPageList: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Confluence scope editor in the Edit source dialog: the saved scope had some pages of the Operations space, and the user ticked the space, so the source now syncs all its pages.",
-    },
     intent:
       "Catches a saved page list that shows its space as fully or not selected. A partial list shows as partly selected, and a click selects all pages. Not for a new scope.",
   },

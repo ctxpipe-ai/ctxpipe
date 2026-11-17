@@ -35,23 +35,21 @@ function OpenModalTrigger() {
   )
 }
 
+/**
+ * Modal that asks a user to take over an Atlassian account linked to another
+ * user: the modal is open over the page.
+ */
 export const AccountClaimModal: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Modal that asks a user to take over an Atlassian account linked to another user: the modal is open over the page.",
-    },
-  },
   render: () => <OpenModalTrigger />,
 }
 
+/**
+ * Modal that asks a user to take over an Atlassian account linked to another
+ * user: the modal content alone in a card, with no overlay.
+ */
 export const ContentOnly: Story = {
   parameters: {
     layout: "centered",
-    review: {
-      purpose:
-        "Modal that asks a user to take over an Atlassian account linked to another user: the modal content alone in a card, with no overlay.",
-    },
   },
   decorators: [
     (Story) => (

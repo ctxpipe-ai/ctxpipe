@@ -29,13 +29,11 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
+/**
+ * Test fixture that proves the globals of the preview add nothing: one line of
+ * text, with no wrapper, no Query client and no mock.
+ */
 export const NoOptIn: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Test fixture that proves the globals of the preview add nothing: one line of text, with no wrapper, no Query client and no mock.",
-    },
-  },
   play: async ({ canvasElement }) => {
     // The story element is the only child of the root: no global wrapper.
     await expect(canvasElement.children).toHaveLength(1)
@@ -48,13 +46,13 @@ export const NoOptIn: Story = {
   },
 }
 
+/**
+ * Test fixture that proves the opt-in of the Query client: one line of text,
+ * and the story file sets parameters.queryClient.
+ */
 export const QueryClientOptIn: Story = {
   parameters: {
     queryClient: true,
-    review: {
-      purpose:
-        "Test fixture that proves the opt-in of the Query client: one line of text, and the story file sets parameters.queryClient.",
-    },
   },
   play: async ({ canvasElement }) => {
     await expect(canvasElement.firstElementChild).toHaveAttribute(

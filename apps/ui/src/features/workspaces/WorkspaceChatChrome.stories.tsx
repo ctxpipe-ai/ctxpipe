@@ -54,15 +54,17 @@ type Story = StoryObj<typeof meta>
 
 const syncName = "Sync: commit and push your changes"
 
-export const Writable: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation above its thread: the Workspace is writable and the conversation changed no files yet, so no access badge, no branch and no publish button show.",
-    },
-  },
-}
+/**
+ * Chat header of a Workspace conversation above its thread: the Workspace is
+ * writable and the conversation changed no files yet, so no access badge, no
+ * branch and no publish button show.
+ */
+export const Writable: Story = {}
 
+/**
+ * Chat header of a Workspace conversation above its thread: the GitHub App
+ * cannot write to the repository, so a Read-only badge shows.
+ */
 export const ReadOnly: Story = {
   args: {
     workspace: readOnlyWorkspace,
@@ -74,12 +76,6 @@ export const ReadOnly: Story = {
     await expect(pill).toHaveTextContent(
       "The GitHub App cannot write to this repository.",
     )
-  },
-  parameters: {
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation above its thread: the GitHub App cannot write to the repository, so a Read-only badge shows.",
-    },
   },
 }
 
@@ -111,6 +107,10 @@ export const ProtectedDefaultBranch: Story = {
   },
 }
 
+/**
+ * Chat header of a Workspace conversation, with its title and access badge:
+ * ctxpipe still checks if the GitHub App can push, and a tooltip says so.
+ */
 export const PendingProbe: Story = {
   args: {
     workspace: pendingWriteWorkspace,
@@ -130,12 +130,6 @@ export const PendingProbe: Story = {
       "Checking whether the GitHub App can push to this repository",
     )
     await waitFor(() => expect(tooltip).toBeVisible())
-  },
-  parameters: {
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation, with its title and access badge: ctxpipe still checks if the GitHub App can push, and a tooltip says so.",
-    },
   },
 }
 
@@ -215,6 +209,10 @@ export const SyncDisabled: Story = {
   },
 }
 
+/**
+ * Chat header of a Workspace conversation, with its publish buttons: all
+ * changes are pushed and no pull request exists, so only Create PR shows.
+ */
 export const CommittedCreatePrOnly: Story = {
   args: {
     title: "Billing structure",
@@ -245,14 +243,12 @@ export const CommittedCreatePrOnly: Story = {
       canvas.queryByRole("button", { name: syncName }),
     ).not.toBeInTheDocument()
   },
-  parameters: {
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation, with its publish buttons: all changes are pushed and no pull request exists, so only Create PR shows.",
-    },
-  },
 }
 
+/**
+ * Chat header of a Workspace conversation, with its publish buttons: the branch
+ * has no changes, so no Sync or pull request button shows.
+ */
 export const CleanNoPublishActions: Story = {
   args: {
     title: "Billing structure",
@@ -283,12 +279,6 @@ export const CleanNoPublishActions: Story = {
     expect(
       canvas.queryByRole("button", { name: "Create PR" }),
     ).not.toBeInTheDocument()
-  },
-  parameters: {
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation, with its publish buttons: the branch has no changes, so no Sync or pull request button shows.",
-    },
   },
 }
 
@@ -332,6 +322,10 @@ export const Pushing: Story = {
   },
 }
 
+/**
+ * Chat header of a Workspace conversation, with its publish buttons: the
+ * request to create the pull request runs and is pending.
+ */
 export const CreatingPr: Story = {
   args: {
     ...DirtyCommitPush.args,
@@ -348,12 +342,6 @@ export const CreatingPr: Story = {
         pending: true,
         onPress: () => {},
       },
-    },
-  },
-  parameters: {
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation, with its publish buttons: the request to create the pull request runs and is pending.",
     },
   },
 }
@@ -466,6 +454,10 @@ export const CommitPushWithOpenPr: Story = {
   },
 }
 
+/**
+ * Chat header of a Workspace conversation, with its publish buttons: the old
+ * pull request merged and the branch has new changes, with a branch link.
+ */
 export const MergedCreatePrAgain: Story = {
   args: {
     ...DirtyCommitPush.args,
@@ -474,14 +466,12 @@ export const MergedCreatePrAgain: Story = {
       href: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
     },
   },
-  parameters: {
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation, with its publish buttons: the old pull request merged and the branch has new changes, with a branch link.",
-    },
-  },
 }
 
+/**
+ * Chat header and body of a Workspace conversation: the chat sandbox is gone,
+ * and an error alert in the body tells the user to send another message.
+ */
 export const ChatError: Story = {
   args: {
     title: "Billing structure",
@@ -495,12 +485,6 @@ export const ChatError: Story = {
         </div>
       </div>
     ),
-  },
-  parameters: {
-    review: {
-      purpose:
-        "Chat header and body of a Workspace conversation: the chat sandbox is gone, and an error alert in the body tells the user to send another message.",
-    },
   },
 }
 

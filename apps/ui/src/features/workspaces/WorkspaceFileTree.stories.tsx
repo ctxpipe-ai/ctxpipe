@@ -117,22 +117,17 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Nested: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File tree of a Workspace, where a member browses and opens files: nested folders with one file selected.",
-    },
-  },
-}
+/**
+ * File tree of a Workspace, where a member browses and opens files: nested
+ * folders with one file selected.
+ */
+export const Nested: Story = {}
 
+/**
+ * File tree of a Workspace, where a member browses and opens files: the file
+ * search field is open.
+ */
 export const SearchOpen: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File tree of a Workspace, where a member browses and opens files: the file search field is open.",
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const search = await canvas.findByRole("button", { name: "Search files" })
@@ -140,13 +135,11 @@ export const SearchOpen: Story = {
   },
 }
 
+/**
+ * File tree of a Workspace, where a member browses and opens files: long file
+ * names in a narrow tree are cut with an ellipsis.
+ */
 export const LongNames: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File tree of a Workspace, where a member browses and opens files: long file names in a narrow tree are cut with an ellipsis.",
-    },
-  },
   decorators: [
     (Story) => (
       <div className="flex h-96 w-44 flex-col bg-card">
@@ -163,36 +156,30 @@ export const LongNames: Story = {
   },
 }
 
+/**
+ * File tree of a Workspace, where a member browses and opens files: the
+ * Workspace has no files yet.
+ */
 export const EmptyProjection: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File tree of a Workspace, where a member browses and opens files: the Workspace has no files yet.",
-    },
-  },
   args: { paths: [], selectedPath: null },
 }
 
+/**
+ * File tree of a Workspace, where a member browses and opens files: the tree of
+ * a real git repository with AGENTS.md selected.
+ */
 export const GitShaped: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File tree of a Workspace, where a member browses and opens files: the tree of a real git repository with AGENTS.md selected.",
-    },
-  },
   args: {
     paths: docsWorkspaceGitTree.paths,
     selectedPath: "AGENTS.md",
   },
 }
 
+/**
+ * File tree of a Workspace, where a member browses and opens files: added and
+ * modified files show change markers and line counts.
+ */
 export const GitStatus: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File tree of a Workspace, where a member browses and opens files: added and modified files show change markers and line counts.",
-    },
-  },
   decorators: [
     (Story) => (
       <div className="flex h-96 w-80 flex-col bg-card">
@@ -221,13 +208,12 @@ export const GitStatus: Story = {
   },
 }
 
+/**
+ * File tree of a Workspace, where a member browses and opens files: a large org
+ * keeps one folder for each of its 40 areas, so the tree scrolls and only the
+ * top folders fit.
+ */
 export const LargeTree: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File tree of a Workspace, where a member browses and opens files: a large org keeps one folder for each of its 40 areas, so the tree scrolls and only the top folders fit.",
-    },
-  },
   args: {
     paths: largeTree(),
     selectedPath: "billing/overview.md",
@@ -261,12 +247,12 @@ function PierreKeyboardFocusHarness(
   )
 }
 
+/**
+ * File tree of a Workspace, where a member browses and opens files: the member
+ * found a file with the keyboard search, and Escape put focus back on that row.
+ */
 export const PierreKeyboardFocus: Story = {
   parameters: {
-    review: {
-      purpose:
-        "File tree of a Workspace, where a member browses and opens files: the member found a file with the keyboard search, and Escape put focus back on that row.",
-    },
     intent:
       "Catches a file tree search that loses keyboard focus. Typing then Enter selects a file, and Escape returns focus to the selected row. Not for the file list content.",
   },
@@ -338,13 +324,12 @@ export const PierreKeyboardFocus: Story = {
   },
 }
 
+/**
+ * File tree of a Workspace, where a member browses and opens files: the member
+ * opened a folder, and a file deleted in this conversation shows as a
+ * struck-through row.
+ */
 export const DeletedFile: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File tree of a Workspace, where a member browses and opens files: the member opened a folder, and a file deleted in this conversation shows as a struck-through row.",
-    },
-  },
   args: {
     paths: ["AGENTS.md", "knowledge/billing.md"],
     selectedPath: "knowledge/billing.md",
@@ -373,13 +358,11 @@ export const DeletedFile: Story = {
   },
 }
 
+/**
+ * File tree of a Workspace, where a member browses and opens files: one added,
+ * one modified, and one deleted file in one folder.
+ */
 export const MixedAddedModifiedDeleted: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File tree of a Workspace, where a member browses and opens files: one added, one modified, and one deleted file in one folder.",
-    },
-  },
   decorators: [
     (Story) => (
       <div className="flex h-96 w-80 flex-col bg-card">
@@ -412,13 +395,11 @@ export const MixedAddedModifiedDeleted: Story = {
   },
 }
 
+/**
+ * File tree of a Workspace, where a member browses and opens files: a deleted
+ * file with a long name deep in folders, in a narrow tree.
+ */
 export const DeletedLongNestedName: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File tree of a Workspace, where a member browses and opens files: a deleted file with a long name deep in folders, in a narrow tree.",
-    },
-  },
   decorators: [
     (Story) => (
       <div className="flex h-96 w-44 flex-col bg-card">
@@ -453,12 +434,12 @@ function DeletedFileHarness(props: ComponentProps<typeof WorkspaceFileTree>) {
 
 const deletedRowSelector = "button[data-item-path='old-pricing.md']"
 
+/**
+ * File tree of a Workspace, where a member browses and opens files: the change
+ * was merged into the base branch, so the deleted file row is gone.
+ */
 export const DeletedFileStaysUntilMerged: Story = {
   parameters: {
-    review: {
-      purpose:
-        "File tree of a Workspace, where a member browses and opens files: the change was merged into the base branch, so the deleted file row is gone.",
-    },
     visual: {
       skip: "Behavior test: it ends on a test harness with a Merge into base branch button, which the product does not render.",
     },
@@ -513,12 +494,12 @@ export const DeletedFileStaysUntilMerged: Story = {
   },
 }
 
+/**
+ * File tree of a Workspace, where a member browses and opens files: each added,
+ * modified, and deleted file has its marker, and folders mark a change inside.
+ */
 export const ChangeMarkers: Story = {
   parameters: {
-    review: {
-      purpose:
-        "File tree of a Workspace, where a member browses and opens files: each added, modified, and deleted file has its marker, and folders mark a change inside.",
-    },
     intent:
       "Catches file tree rows that miss their change markers. Added, modified, and deleted files show the right marker and counts. Not for folder expansion.",
   },

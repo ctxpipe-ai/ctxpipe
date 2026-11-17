@@ -38,22 +38,16 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Markdown: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File preview of a Workspace, where a member reads a file: a Markdown file.",
-    },
-  },
-}
+/**
+ * File preview of a Workspace, where a member reads a file: a Markdown file.
+ */
+export const Markdown: Story = {}
 
+/**
+ * File preview of a Workspace, where a member reads a file: a short TypeScript
+ * file with syntax colors.
+ */
 export const TypeScript: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File preview of a Workspace, where a member reads a file: a short TypeScript file with syntax colors.",
-    },
-  },
   args: {
     path: "apps/ui/src/main.tsx",
     body: 'export function boot() {\n  return "ok"\n}\n',
@@ -61,12 +55,12 @@ export const TypeScript: Story = {
   },
 }
 
+/**
+ * File preview of a Workspace, where a member reads a file: a local edit shows
+ * as a diff against the head version.
+ */
 export const DiffVsHead: Story = {
   parameters: {
-    review: {
-      purpose:
-        "File preview of a Workspace, where a member reads a file: a local edit shows as a diff against the head version.",
-    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
@@ -77,13 +71,12 @@ export const DiffVsHead: Story = {
   },
 }
 
+/**
+ * File preview of a Workspace, where a member reads and edits a file: the
+ * member opened a short Markdown file that the conversation can change, so it
+ * opens in the editor.
+ */
 export const Editable: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File preview of a Workspace, where a member reads and edits a file: the member opened a short Markdown file that the conversation can change, so it opens in the editor.",
-    },
-  },
   args: {
     path: "AGENTS.md",
     body: docsWorkspaceGitBlobs["AGENTS.md"] ?? "",
@@ -139,13 +132,11 @@ const handbookBody = [
   "| Billing | Payments team | #team-payments | knowledge/billing/runbook.md | Page the payments on-call engineer, then the engineering manager of payments | Refunds above 1,000 USD need a second approval from finance before the ledger posts them |",
 ].join("\n")
 
+/**
+ * File preview of a Workspace, where a member reads a file: a long handbook
+ * page with a wide table at its end, so the preview scrolls down and across.
+ */
 export const LongFile: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "File preview of a Workspace, where a member reads a file: a long handbook page with a wide table at its end, so the preview scrolls down and across.",
-    },
-  },
   args: {
     path: "knowledge/handbook.md",
     body: handbookBody,
@@ -225,14 +216,14 @@ export const DraftSavedShowsFile: Story = {
   },
 }
 
+/**
+ * File preview of a Workspace, where a member edits a file: the member reverted
+ * a draft, so the diff view changed back to the file view.
+ */
 export const DraftRevertedShowsFile: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends on a test harness with Save draft and Revert draft buttons, which the product does not render.",
-    },
-    review: {
-      purpose:
-        "File preview of a Workspace, where a member edits a file: the member reverted a draft, so the diff view changed back to the file view.",
     },
     intent:
       "Catches a reverted draft that stays in the diff view. After Revert draft, the file view must show. Not for saved drafts.",

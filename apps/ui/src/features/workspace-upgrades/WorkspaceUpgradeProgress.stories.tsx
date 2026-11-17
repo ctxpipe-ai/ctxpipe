@@ -491,24 +491,25 @@ function checkingFormatTimesOut(role: "owner" | "member"): Story {
   }
 }
 
+/**
+ * Re-ingestion item in the Upgrades card, seen by an owner: the Workspace has
+ * format 3, but the check after the hydrate did not finish in a minute, so a
+ * stale block asks for Check again.
+ */
 export const CheckingFormatTimesOutAdmin: Story = {
   ...checkingFormatTimesOut("owner"),
   parameters: {
     ...checkingFormatTimesOut("owner").parameters,
-    review: {
-      purpose:
-        "Re-ingestion item in the Upgrades card, seen by an owner: the Workspace has format 3, but the check after the hydrate did not finish in a minute, so a stale block asks for Check again.",
-    },
   },
 }
 
+/**
+ * Re-ingestion card in the Upgrades section, for a member: the format check
+ * timed out, so the blocked line comes back with no Check again.
+ */
 export const CheckingFormatTimesOutMember: Story = {
   ...checkingFormatTimesOut("member"),
   parameters: {
     ...checkingFormatTimesOut("member").parameters,
-    review: {
-      purpose:
-        "Re-ingestion card in the Upgrades section, for a member: the format check timed out, so the blocked line comes back with no Check again.",
-    },
   },
 }

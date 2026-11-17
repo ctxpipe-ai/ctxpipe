@@ -66,13 +66,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Workspace row in the side nav, which opens a Workspace: two rows, the current
+ * Workspace and a read-only one.
+ */
 export const MultipleWorkspaces: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Workspace row in the side nav, which opens a Workspace: two rows, the current Workspace and a read-only one.",
-    },
-  },
   render: (args) => (
     <>
       <WorkspaceNavRow {...args} current />
@@ -85,13 +83,11 @@ export const MultipleWorkspaces: Story = {
   ),
 }
 
+/**
+ * Workspace row in the side nav, which opens a Workspace: the only Workspace of
+ * the org, current and not collapsible.
+ */
 export const SingleWorkspace: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Workspace row in the side nav, which opens a Workspace: the only Workspace of the org, current and not collapsible.",
-    },
-  },
   args: {
     workspaceCount: 1,
     collapsible: false,
@@ -99,19 +95,21 @@ export const SingleWorkspace: Story = {
   },
 }
 
+/**
+ * Workspace row in the collapsed side nav rail, which opens a Workspace: the
+ * current Workspace as an icon with no name.
+ */
 export const CollapsedNav: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Workspace row in the collapsed side nav rail, which opens a Workspace: the current Workspace as an icon with no name.",
-    },
-  },
   args: {
     navExpanded: false,
     current: true,
   },
 }
 
+/**
+ * Workspace row in the side nav, which opens a Workspace: the member opened the
+ * Workspace, so the row lists its chats and the open chat is selected.
+ */
 export const OpenWithConversations: Story = {
   args: {
     open: true,
@@ -119,10 +117,6 @@ export const OpenWithConversations: Story = {
     currentConversationId: "conv_1",
   },
   parameters: {
-    review: {
-      purpose:
-        "Workspace row in the side nav, which opens a Workspace: the member opened the Workspace, so the row lists its chats and the open chat is selected.",
-    },
     msw: {
       handlers: {
         page: [conversationsListHandler(docsConversations)],

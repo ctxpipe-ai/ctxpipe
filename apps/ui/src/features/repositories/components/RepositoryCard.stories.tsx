@@ -62,13 +62,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Repository card that shows the index state of a repository: the index is
+ * ready, from an ingest one hour ago.
+ */
 export const Ready: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Repository card that shows the index state of a repository: the index is ready, from an ingest one hour ago.",
-    },
-  },
   render: () => (
     <RepositoryCard
       repo={{
@@ -84,13 +82,11 @@ export const Ready: Story = {
   ),
 }
 
+/**
+ * Repository card that shows the index state of a repository: the first index
+ * runs at step 7 of 22.
+ */
 export const IndexingWithStepLabel: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Repository card that shows the index state of a repository: the first index runs at step 7 of 22.",
-    },
-  },
   render: () => (
     <RepositoryCard
       repo={{
@@ -106,13 +102,11 @@ export const IndexingWithStepLabel: Story = {
   ),
 }
 
+/**
+ * Repository card that shows the index state of a repository: an index after a
+ * merge runs with no step data.
+ */
 export const IndexingNoStepData: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Repository card that shows the index state of a repository: an index after a merge runs with no step data.",
-    },
-  },
   render: () => (
     <RepositoryCard
       repo={{
@@ -126,13 +120,11 @@ export const IndexingNoStepData: Story = {
   ),
 }
 
+/**
+ * Repository card that shows the index state of a repository: a refresh of a
+ * ready index runs at step 14 of 22.
+ */
 export const RefreshingWithStepLabel: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Repository card that shows the index state of a repository: a refresh of a ready index runs at step 14 of 22.",
-    },
-  },
   render: () => (
     <RepositoryCard
       repo={{
@@ -149,13 +141,11 @@ export const RefreshingWithStepLabel: Story = {
   ),
 }
 
+/**
+ * Repository card that shows the index state of a repository: the index waits
+ * in the queue.
+ */
 export const Queued: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Repository card that shows the index state of a repository: the index waits in the queue.",
-    },
-  },
   render: () => (
     <RepositoryCard
       repo={{ ...baseRepo, indexingStatus: "queued" }}
@@ -165,13 +155,11 @@ export const Queued: Story = {
   ),
 }
 
+/**
+ * Repository card that shows the index state of a repository: the index failed
+ * because the clone timed out.
+ */
 export const Failed: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Repository card that shows the index state of a repository: the index failed because the clone timed out.",
-    },
-  },
   render: () => (
     <RepositoryCard
       repo={{
@@ -185,13 +173,11 @@ export const Failed: Story = {
   ),
 }
 
+/**
+ * Repository card that shows the index state of a repository: the index ended
+ * with issues, and the user picked Retry in the menu.
+ */
 export const CompleteWithIssues: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Repository card that shows the index state of a repository: the index ended with issues, and the user picked Retry in the menu.",
-    },
-  },
   args: {
     repo: {
       ...baseRepo,

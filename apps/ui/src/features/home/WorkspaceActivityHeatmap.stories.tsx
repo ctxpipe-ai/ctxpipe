@@ -29,13 +29,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Commit activity heatmap of a Workspace on the org home: a year of commits by
+ * day, with weekday labels.
+ */
 export const Populated: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Commit activity heatmap of a Workspace on the org home: a year of commits by day, with weekday labels.",
-    },
-  },
   args: {
     days: docsWorkspaceActivity.days,
   },
@@ -61,37 +59,33 @@ export const DaySelected: Story = {
   },
 }
 
+/**
+ * Commit activity heatmap of a Workspace on the org home: the Workspace has no
+ * commits yet.
+ */
 export const NoHistory: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Commit activity heatmap of a Workspace on the org home: the Workspace has no commits yet.",
-    },
-  },
   args: {
     days: emptyWorkspaceActivity.days,
   },
 }
 
+/**
+ * Commit activity heatmap of a Workspace on the org home: the skeleton while
+ * the activity loads.
+ */
 export const Loading: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Commit activity heatmap of a Workspace on the org home: the skeleton while the activity loads.",
-    },
-  },
   args: {
     days: [],
   },
   render: () => <WorkspaceActivityHeatmapSkeleton />,
 }
 
+/**
+ * Commit activity heatmap of a Workspace: the loading skeleton and the loaded
+ * heatmap side by side, at the same size.
+ */
 export const HeatmapSkeletonMatches: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Commit activity heatmap of a Workspace: the loading skeleton and the loaded heatmap side by side, at the same size.",
-    },
     intent:
       "Catches an activity heatmap skeleton whose size differs from the loaded heatmap. This causes layout shift. Not for activity counts or colors.",
   },

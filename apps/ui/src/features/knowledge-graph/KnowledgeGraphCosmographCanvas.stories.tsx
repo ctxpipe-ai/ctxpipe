@@ -147,13 +147,11 @@ export const NativeLegends: Story = {
   },
 }
 
+/**
+ * Graph canvas of the knowledge graph, where a user explores how the files of a
+ * Workspace link: the canvas in a narrow pane.
+ */
 export const PaneNarrow: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Graph canvas of the knowledge graph, where a user explores how the files of a Workspace link: the canvas in a narrow pane.",
-    },
-  },
   decorators: [
     (Story) => (
       <div className="relative h-[32rem] w-96 overflow-hidden bg-zinc-950">
@@ -163,13 +161,11 @@ export const PaneNarrow: Story = {
   ],
 }
 
+/**
+ * Graph canvas of the knowledge graph, where a user explores how the files of a
+ * Workspace link: the canvas in a wide pane.
+ */
 export const PaneWide: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Graph canvas of the knowledge graph, where a user explores how the files of a Workspace link: the canvas in a wide pane.",
-    },
-  },
   decorators: [
     (Story) => (
       <div className="relative h-[32rem] w-full max-w-5xl overflow-hidden bg-zinc-950">

@@ -57,12 +57,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Conversation list of a Workspace in the side nav, where a member opens a
+ * chat: a few chats, and the open chat is selected.
+ */
 export const WithConversations: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the side nav, where a member opens a chat: a few chats, and the open chat is selected.",
-    },
     msw: {
       handlers: {
         page: [conversationsListHandler(docsConversations)],
@@ -71,14 +71,14 @@ export const WithConversations: Story = {
   },
 }
 
+/**
+ * Conversation list of a Workspace in the side nav: a file is open, so the chat
+ * links go to the files pane and not to that file.
+ */
 export const SwitchFromOpenFile: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as WithConversations.",
-    },
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the side nav: a file is open, so the chat links go to the files pane and not to that file.",
     },
     storyRoute: {
       pattern: "orgIndex",
@@ -104,12 +104,12 @@ export const SwitchFromOpenFile: Story = {
   },
 }
 
+/**
+ * Conversation list of a Workspace in the side nav, where a member opens a
+ * chat: the Workspace has no chats yet, so a short line says so.
+ */
 export const Empty: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the side nav, where a member opens a chat: the Workspace has no chats yet, so a short line says so.",
-    },
     msw: {
       handlers: {
         page: [conversationsListHandler([])],
@@ -118,12 +118,12 @@ export const Empty: Story = {
   },
 }
 
+/**
+ * Conversation list of a Workspace in the side nav, where a member opens a
+ * chat: the chats still load, so skeleton rows show.
+ */
 export const Loading: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the side nav, where a member opens a chat: the chats still load, so skeleton rows show.",
-    },
     msw: {
       handlers: {
         page: [conversationsListLoadingHandler()],
@@ -132,12 +132,13 @@ export const Loading: Story = {
   },
 }
 
+/**
+ * Conversation list of a Workspace in the side nav, where a member opens a
+ * chat: the server has more chats than the first page, so a Load more control
+ * shows.
+ */
 export const LoadMore: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the side nav, where a member opens a chat: the server has more chats than the first page, so a Load more control shows.",
-    },
     msw: {
       handlers: {
         page: [
@@ -153,15 +154,15 @@ export const LoadMore: Story = {
   },
 }
 
+/**
+ * Conversation list of a Workspace in the collapsed side nav rail: each chat
+ * shows as initials with no name.
+ */
 export const Collapsed: Story = {
   args: {
     navExpanded: false,
   },
   parameters: {
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the collapsed side nav rail: each chat shows as initials with no name.",
-    },
     msw: {
       handlers: {
         page: [conversationsListHandler(docsConversations)],
@@ -863,6 +864,10 @@ function OpensChats(props: ComponentProps<typeof WorkspaceConversationList>) {
  * marks it read, and the list stops reading when no chat works.
  */
 const finishRequests = { count: 0 }
+/**
+ * Conversation list of a Workspace in the side nav: a working chat finished and
+ * became unread, and the member opened it, so it is read.
+ */
 export const WorkingThenUnreadThenRead: Story = {
   beforeEach: () => {
     finishRequests.count = 0
@@ -871,10 +876,6 @@ export const WorkingThenUnreadThenRead: Story = {
   args: { currentConversationId: undefined },
   render: (args) => <OpensChats {...args} />,
   parameters: {
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the side nav: a working chat finished and became unread, and the member opened it, so it is read.",
-    },
     // Selecting a chat goes to its route. The list stays, as in the Workspace layout.
     storyRoute: {
       pattern: "orgWorkspace",

@@ -53,25 +53,21 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Skeleton placeholder that holds the place of content while it loads: one
+ * plain bone.
+ */
 export const Bone: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Skeleton placeholder that holds the place of content while it loads: one plain bone.",
-    },
-  },
   args: {
     className: "h-4 w-40",
   },
 }
 
+/**
+ * Skeleton placeholder that holds the place of content while it loads: one row
+ * of a list.
+ */
 export const Row: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Skeleton placeholder that holds the place of content while it loads: one row of a list.",
-    },
-  },
   render: () => (
     <div className="w-64 bg-zinc-950 py-2">
       <SkeletonRow />
@@ -79,13 +75,11 @@ export const Row: Story = {
   ),
 }
 
+/**
+ * Skeleton placeholder that holds the place of content while it loads: three
+ * tall rows of the connector catalog.
+ */
 export const Catalog: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Skeleton placeholder that holds the place of content while it loads: three tall rows of the connector catalog.",
-    },
-  },
   render: () => (
     <div className="w-md divide-y divide-white/[0.06] bg-zinc-950" aria-busy>
       <span className="sr-only">Loading connectors</span>
@@ -96,13 +90,11 @@ export const Catalog: Story = {
   ),
 }
 
+/**
+ * Skeleton placeholder that holds the place of content while it loads: the body
+ * of a page.
+ */
 export const PageBody: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Skeleton placeholder that holds the place of content while it loads: the body of a page.",
-    },
-  },
   render: () => (
     <div className="w-md bg-zinc-950 p-8">
       <PageBodySkeleton label="Loading page" />
@@ -110,13 +102,11 @@ export const PageBody: Story = {
   ),
 }
 
+/**
+ * Skeleton placeholder that holds the place of content while it loads: three
+ * text lines of less and less width.
+ */
 export const Lines: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Skeleton placeholder that holds the place of content while it loads: three text lines of less and less width.",
-    },
-  },
   render: () => (
     <div className="flex w-80 flex-col gap-2">
       <SkeletonLine className="h-4 w-full" />

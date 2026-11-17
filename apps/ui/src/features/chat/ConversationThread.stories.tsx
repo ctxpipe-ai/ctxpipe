@@ -59,14 +59,11 @@ const progressCounters = "Read 1 file, 2 searches, Used 1 tool, 3 thoughts"
 const inventedLabel =
   /Contextualizing|Analyzing|Traversing|Reading knowledge|Checking sources/
 
-export const ReplyOnly: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Chat thread of a Workspace conversation: a finished billing question and its plain text answer, with no tool calls.",
-    },
-  },
-}
+/**
+ * Chat thread of a Workspace conversation: a finished billing question and its
+ * plain text answer, with no tool calls.
+ */
+export const ReplyOnly: Story = {}
 
 /** While the agent works, the counters show and one line names the current thought. */
 export const WorkingWithThought: Story = {
@@ -445,13 +442,12 @@ export const OpeningLogKeepsScroll: Story = {
   },
 }
 
+/**
+ * Chat thread of a Workspace with an answer after one thought: the activity row
+ * with its chevron is closed, so the thought text stays hidden until the user
+ * opens it.
+ */
 export const ReasoningCollapsed: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Chat thread of a Workspace with an answer after one thought: the activity row with its chevron is closed, so the thought text stays hidden until the user opens it.",
-    },
-  },
   args: {
     messages: reasoningMessages,
   },
@@ -464,13 +460,11 @@ export const ReasoningCollapsed: Story = {
   },
 }
 
+/**
+ * Chat thread of a turn with thoughts between tool calls: the open activity log
+ * lists the five entries in order.
+ */
 export const ThoughtsBetweenTools: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Chat thread of a turn with thoughts between tool calls: the open activity log lists the five entries in order.",
-    },
-  },
   args: {
     messages: thoughtsBetweenToolsMessages,
   },
@@ -492,37 +486,22 @@ export const ThoughtsBetweenTools: Story = {
   },
 }
 
+/** Chat thread of a turn where the agent used one tool before it answered. */
 export const ToolUse: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Chat thread of a turn where the agent used one tool before it answered.",
-    },
-  },
   args: {
     messages: oneToolMessages,
   },
 }
 
+/** Chat thread of a turn where the agent used many tools before it answered. */
 export const ToolUseMany: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Chat thread of a turn where the agent used many tools before it answered.",
-    },
-  },
   args: {
     messages: manyToolMessages,
   },
 }
 
+/** Chat thread of a turn with thoughts and tool calls before the answer. */
 export const ReasoningAndTools: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Chat thread of a turn with thoughts and tool calls before the answer.",
-    },
-  },
   args: {
     messages: reasoningAndToolsMessages,
   },

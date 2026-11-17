@@ -13,11 +13,8 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const ProductMark: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Zendesk product mark, the logo that names the provider on connector cards and dialogs: the mark alone at a large size.",
-    },
-  },
-}
+/**
+ * Zendesk product mark, the logo that names the provider on connector cards and
+ * dialogs: the mark alone at a large size.
+ */
+export const ProductMark: Story = {}

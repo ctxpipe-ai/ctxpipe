@@ -42,16 +42,16 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Notion setup step where the admin registers a private Notion OAuth app: the
+ * empty form, with no OAuth app saved yet.
+ */
 export const RegisterOAuth: Story = {
   name: "Private OAuth app form",
   render: () => (
     <RegisterNotionOauthStep orgSlug={orgSlug} connectionId={connectionId} />
   ),
   parameters: {
-    review: {
-      purpose:
-        "Notion setup step where the admin registers a private Notion OAuth app: the empty form, with no OAuth app saved yet.",
-    },
     msw: {
       handlers: {
         page: [

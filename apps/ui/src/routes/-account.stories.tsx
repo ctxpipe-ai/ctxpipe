@@ -44,12 +44,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Body of the user account API keys view, where a user makes personal keys: the
+ * user has no keys yet.
+ */
 export const ApiKeysEmpty: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Body of the user account API keys view, where a user makes personal keys: the user has no keys yet.",
-    },
     msw: {
       handlers: {
         page: [
@@ -237,15 +237,16 @@ function connectedAppsHandlers(options: { failRevoke?: boolean } = {}) {
 
 const editBackend = connectedAppsHandlers()
 
+/**
+ * Body of the user account Connected apps view: the user edits the
+ * organizations of one app in a dialog, and a legacy app shows a reconnect
+ * hint.
+ */
 export const ConnectedAppsEditOrgs: Story = {
   tags: ["required"],
   args: { accountView: "connected-apps" },
   beforeEach: editBackend.reset,
   parameters: {
-    review: {
-      purpose:
-        "Body of the user account Connected apps view: the user edits the organizations of one app in a dialog, and a legacy app shows a reconnect hint.",
-    },
     intent:
       "Catches a connected app edit that cannot change its organizations, or a legacy app that offers Edit. Legacy apps show a reconnect hint instead. Not for revoke.",
     storyRoute: {
@@ -293,15 +294,16 @@ export const ConnectedAppsEditOrgs: Story = {
 
 const revokeBackend = connectedAppsHandlers()
 
+/**
+ * Connected apps view of the user account, where a user removes the access of
+ * OAuth apps: the user revoked one app in its dialog, and the list keeps the
+ * other app.
+ */
 export const ConnectedAppsRevoke: Story = {
   tags: ["required"],
   args: { accountView: "connected-apps" },
   beforeEach: revokeBackend.reset,
   parameters: {
-    review: {
-      purpose:
-        "Connected apps view of the user account, where a user removes the access of OAuth apps: the user revoked one app in its dialog, and the list keeps the other app.",
-    },
     intent:
       "Catches a revoke that leaves the app in the list or leaves the dialog open. Confirming sends a DELETE request and removes only that app. Not for revoke errors.",
     storyRoute: {
@@ -327,15 +329,15 @@ export const ConnectedAppsRevoke: Story = {
 
 const failingRevokeBackend = connectedAppsHandlers({ failRevoke: true })
 
+/**
+ * Revoke dialog of the Connected apps view: the user pressed Revoke app and the
+ * server had an error, so the dialog stays open with the cause and a retry.
+ */
 export const ConnectedAppsRevokeError: Story = {
   tags: ["required"],
   args: { accountView: "connected-apps" },
   beforeEach: failingRevokeBackend.reset,
   parameters: {
-    review: {
-      purpose:
-        "Revoke dialog of the Connected apps view: the user pressed Revoke app and the server had an error, so the dialog stays open with the cause and a retry.",
-    },
     intent:
       "Catches a failed revoke that closes the dialog or removes the app. The dialog stays open with the error and the app stays listed. Not for a successful revoke.",
     storyRoute: {
@@ -366,13 +368,13 @@ export const ConnectedAppsRevokeError: Story = {
   },
 }
 
+/**
+ * Body of the user account Connected apps view, which lists the apps with
+ * access: the user has no connected apps.
+ */
 export const ConnectedAppsEmpty: Story = {
   args: { accountView: "connected-apps" },
   parameters: {
-    review: {
-      purpose:
-        "Body of the user account Connected apps view, which lists the apps with access: the user has no connected apps.",
-    },
     storyRoute: {
       pattern: "flat",
       path: "/.auth/account/connected-apps",

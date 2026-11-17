@@ -53,6 +53,10 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * GitHub destination page in the app shell, where a member picks or creates a
+ * Workspace: the org has no Workspaces yet.
+ */
 export const Empty: Story = {
   args: {
     status: "ready",
@@ -61,13 +65,14 @@ export const Empty: Story = {
   parameters: {
     // The app shell lists the same Workspaces as the page.
     msw: { handlers: { page: [workspaceListHandler([])] } },
-    review: {
-      purpose:
-        "GitHub destination page in the app shell, where a member picks or creates a Workspace: the org has no Workspaces yet.",
-    },
   },
 }
 
+/**
+ * GitHub setup page after GitHub connects, where a member creates a Workspace
+ * or opens one to add repositories: the Workspace list still loads, so skeleton
+ * rows show.
+ */
 export const Loading: Story = {
   args: {
     status: "loading",
@@ -76,13 +81,13 @@ export const Loading: Story = {
   parameters: {
     // The app shell lists the same Workspaces as the page.
     msw: { handlers: { page: [workspaceListHandler("loading")] } },
-    review: {
-      purpose:
-        "GitHub setup page after GitHub connects, where a member creates a Workspace or opens one to add repositories: the Workspace list still loads, so skeleton rows show.",
-    },
   },
 }
 
+/**
+ * GitHub destination page in the app shell, where a member picks or creates a
+ * Workspace: the Workspace list did not load.
+ */
 export const LoadError: Story = {
   args: {
     status: "error",
@@ -91,10 +96,6 @@ export const LoadError: Story = {
   parameters: {
     // The app shell lists the same Workspaces as the page.
     msw: { handlers: { page: [workspaceListHandler("error")] } },
-    review: {
-      purpose:
-        "GitHub destination page in the app shell, where a member picks or creates a Workspace: the Workspace list did not load.",
-    },
   },
 }
 
@@ -107,6 +108,11 @@ const handbookWorkspace = {
   workspaceRepositoryUrl: "https://github.com/acme/handbook",
 }
 
+/**
+ * GitHub setup page after GitHub connects, where a member creates a Workspace
+ * or opens one to add repositories: the org has two Workspaces, each row opens
+ * its settings.
+ */
 export const Populated: Story = {
   args: {
     status: "ready",
@@ -119,13 +125,13 @@ export const Populated: Story = {
         page: [workspaceListHandler([docsWorkspace, handbookWorkspace])],
       },
     },
-    review: {
-      purpose:
-        "GitHub setup page after GitHub connects, where a member creates a Workspace or opens one to add repositories: the org has two Workspaces, each row opens its settings.",
-    },
   },
 }
 
+/**
+ * GitHub destination in the onboarding layout, where a new member creates a
+ * first Workspace: the org has no Workspaces yet.
+ */
 export const OnboardingEmpty: Story = {
   args: {
     variant: "onboarding",
@@ -135,10 +141,6 @@ export const OnboardingEmpty: Story = {
   parameters: {
     // The app shell lists the same Workspaces as the page.
     msw: { handlers: { page: [workspaceListHandler([])] } },
-    review: {
-      purpose:
-        "GitHub destination in the onboarding layout, where a new member creates a first Workspace: the org has no Workspaces yet.",
-    },
   },
 }
 

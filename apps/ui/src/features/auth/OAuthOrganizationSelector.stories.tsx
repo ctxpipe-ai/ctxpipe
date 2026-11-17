@@ -20,6 +20,10 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * OAuth screen where a user picks the organization that a client connection
+ * uses: the user has two organizations.
+ */
 export const MultipleOrganizations: Story = {
   name: "Multiple organizations",
   parameters: {
@@ -28,10 +32,6 @@ export const MultipleOrganizations: Story = {
       pattern: "flat",
       path: "/.auth/select-organization",
     } satisfies StoryRouteParams,
-    review: {
-      purpose:
-        "OAuth screen where a user picks the organization that a client connection uses: the user has two organizations.",
-    },
   },
   args: {
     organizations: [

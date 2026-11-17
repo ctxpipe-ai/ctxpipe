@@ -141,13 +141,11 @@ export const SourceLink: Story = {
   },
 }
 
+/**
+ * Node detail drawer of the knowledge graph, which tells a user about one node
+ * and its links: the node has few peers to compare its degree with.
+ */
 export const Isolated: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Node detail drawer of the knowledge graph, which tells a user about one node and its links: the node has few peers to compare its degree with.",
-    },
-  },
   args: {
     peerDegrees: [1],
   },

@@ -48,14 +48,14 @@ const step = () => (
   />
 )
 
+/**
+ * Notion setup step where the admin adds the webhook in Notion: ctxpipe still
+ * waits for the Notion verification token.
+ */
 export const WaitingForToken: Story = {
   name: "Waiting for verification token",
   render: step,
   parameters: {
-    review: {
-      purpose:
-        "Notion setup step where the admin adds the webhook in Notion: ctxpipe still waits for the Notion verification token.",
-    },
     msw: {
       handlers: {
         page: [
@@ -73,14 +73,14 @@ export const WaitingForToken: Story = {
   },
 }
 
+/**
+ * Notion setup step where the admin adds the webhook in Notion: the
+ * verification token arrived and shows for the admin to copy.
+ */
 export const TokenReceived: Story = {
   name: "Verification token received",
   render: step,
   parameters: {
-    review: {
-      purpose:
-        "Notion setup step where the admin adds the webhook in Notion: the verification token arrived and shows for the admin to copy.",
-    },
     msw: {
       handlers: {
         page: [

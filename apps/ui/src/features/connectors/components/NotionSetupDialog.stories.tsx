@@ -82,16 +82,16 @@ function dialog() {
   )
 }
 
+/**
+ * Notion setup dialog on a self-hosted install: the admin saves a private OAuth
+ * app, and the dialog moves on to wait for the webhook token.
+ */
 export const RegisterNotionOauth: Story = {
   name: "Register Notion OAuth app (self-hosted)",
   render: () => dialog(),
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as AddNotionWebhookWaiting.",
-    },
-    review: {
-      purpose:
-        "Notion setup dialog on a self-hosted install: the admin saves a private OAuth app, and the dialog moves on to wait for the webhook token.",
     },
     msw: {
       handlers: {
@@ -165,14 +165,14 @@ export const RegisterNotionOauth: Story = {
   },
 }
 
+/**
+ * Notion setup dialog at the webhook step: the OAuth app is saved and ctxpipe
+ * waits for Notion to send the verification token.
+ */
 export const AddNotionWebhookWaiting: Story = {
   name: "Add the webhook (waiting for token)",
   render: () => dialog(),
   parameters: {
-    review: {
-      purpose:
-        "Notion setup dialog at the webhook step: the OAuth app is saved and ctxpipe waits for Notion to send the verification token.",
-    },
     msw: {
       handlers: {
         page: [
@@ -197,14 +197,14 @@ export const AddNotionWebhookWaiting: Story = {
   },
 }
 
+/**
+ * Notion setup dialog at the webhook step: the verification token arrived and
+ * shows for the admin to paste in Notion.
+ */
 export const AddNotionWebhookToken: Story = {
   name: "Add the webhook (verification token received)",
   render: () => dialog(),
   parameters: {
-    review: {
-      purpose:
-        "Notion setup dialog at the webhook step: the verification token arrived and shows for the admin to paste in Notion.",
-    },
     msw: {
       handlers: {
         page: [
@@ -224,14 +224,14 @@ export const AddNotionWebhookToken: Story = {
   },
 }
 
+/**
+ * Notion setup dialog after the webhook step: the admin continues and the
+ * dialog offers the Connect Notion button.
+ */
 export const ConnectNotionAfterWebhook: Story = {
   name: "Connect Notion after webhook",
   render: () => dialog(),
   parameters: {
-    review: {
-      purpose:
-        "Notion setup dialog after the webhook step: the admin continues and the dialog offers the Connect Notion button.",
-    },
     msw: {
       handlers: {
         page: [
@@ -260,14 +260,14 @@ export const ConnectNotionAfterWebhook: Story = {
   },
 }
 
+/**
+ * Notion setup dialog on the hosted product, where ctxpipe supplies the OAuth
+ * app: the first step asks the admin to authorize ctxpipe in Notion.
+ */
 export const ConnectNotionGlobalEnv: Story = {
   name: "Connect Notion (hosted env OAuth)",
   render: () => dialog(),
   parameters: {
-    review: {
-      purpose:
-        "Notion setup dialog on the hosted product, where ctxpipe supplies the OAuth app: the first step asks the admin to authorize ctxpipe in Notion.",
-    },
     msw: {
       handlers: {
         page: [
@@ -312,14 +312,14 @@ const installedHandlers = [
   connectionUsageHandler([]),
 ]
 
+/**
+ * Notion setup dialog after the connect: the admin adds Notion pages to a
+ * Workspace, and the dialog links the pull request to merge.
+ */
 export const AddToWorkspaces: Story = {
   name: "Add Notion to Workspaces",
   render: () => dialog(),
   parameters: {
-    review: {
-      purpose:
-        "Notion setup dialog after the connect: the admin adds Notion pages to a Workspace, and the dialog links the pull request to merge.",
-    },
     msw: { handlers: { page: installedHandlers } },
   },
   play: async ({ canvasElement }) => {
@@ -371,14 +371,14 @@ export const AddToWorkspaces: Story = {
   },
 }
 
+/**
+ * Notion setup dialog for a connection that is already installed: a newer setup
+ * replaced this one and a config pull request waits for a merge.
+ */
 export const ReplacedSetup: Story = {
   name: "Replaced setup with a config pull request",
   render: () => dialog(),
   parameters: {
-    review: {
-      purpose:
-        "Notion setup dialog for a connection that is already installed: a newer setup replaced this one and a config pull request waits for a merge.",
-    },
     msw: {
       handlers: {
         page: [

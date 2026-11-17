@@ -111,12 +111,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Linear connection card on the Connectors page: the status request has not
+ * returned, so the card is still checking.
+ */
 export const Checking: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Linear connection card on the Connectors page: the status request has not returned, so the card is still checking.",
-    },
     msw: {
       handlers: {
         page: [
@@ -130,12 +130,12 @@ export const Checking: Story = {
   },
 }
 
+/**
+ * Linear connection card on the Connectors page: the status request failed, so
+ * the card could not load.
+ */
 export const CouldntLoad: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Linear connection card on the Connectors page: the status request failed, so the card could not load.",
-    },
     msw: {
       handlers: {
         page: [
@@ -152,12 +152,12 @@ export const CouldntLoad: Story = {
 const statusReads = fn()
 const deleted = fn()
 
+/**
+ * Linear connection card on the Connectors page: Linear is not installed yet,
+ * so setup is not finished.
+ */
 export const PendingSetup: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Linear connection card on the Connectors page: Linear is not installed yet, so setup is not finished.",
-    },
     msw: {
       handlers: {
         page: [
@@ -287,6 +287,10 @@ export const SyncNowFromMenu: Story = {
   },
 }
 
+/**
+ * Linear connection card on the Connectors page: an owner starts a sync from
+ * the actions menu and an error toast says it could not start.
+ */
 export const SyncNowFails: Story = {
   decorators: [
     (Story) => (
@@ -297,10 +301,6 @@ export const SyncNowFails: Story = {
     ),
   ],
   parameters: {
-    review: {
-      purpose:
-        "Linear connection card on the Connectors page: an owner starts a sync from the actions menu and an error toast says it could not start.",
-    },
     msw: {
       handlers: {
         role: [activeMemberRoleHandler("owner")],
@@ -387,12 +387,12 @@ export const SyncNowHiddenWhileAwaitingMerge: Story = {
   },
 }
 
+/**
+ * Linear connection card on the Connectors page: a live connection whose access
+ * was revoked, so it needs a reconnect.
+ */
 export const Revoked: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Linear connection card on the Connectors page: a live connection whose access was revoked, so it needs a reconnect.",
-    },
     msw: {
       handlers: {
         page: [
@@ -416,13 +416,14 @@ export const Revoked: Story = {
   },
 }
 
+/**
+ * Linear connection card on the Connectors page: access was revoked on a
+ * connection that is not installed, and the card shows needs reconnect, not
+ * setup not finished.
+ */
 export const RevokedDraft: Story = {
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Revoked." },
-    review: {
-      purpose:
-        "Linear connection card on the Connectors page: access was revoked on a connection that is not installed, and the card shows needs reconnect, not setup not finished.",
-    },
     msw: {
       handlers: {
         page: [

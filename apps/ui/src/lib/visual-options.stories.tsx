@@ -84,13 +84,11 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
+/**
+ * Test fixture that proves the screenshot masks and named snapshots: the menu
+ * opened and the user pressed Save.
+ */
 export const NamedSnapshots: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Test fixture that proves the screenshot masks and named snapshots: the menu opened and the user pressed Save.",
-    },
-  },
   play: async ({ canvas, userEvent }) => {
     await snapshot("closed")
     await userEvent.click(canvas.getByRole("button", { name: "Open menu" }))
@@ -127,13 +125,11 @@ function PaneLayout() {
   )
 }
 
+/**
+ * Test fixture that proves the full-page screenshot: a layout with the viewport
+ * height and a pane that scrolls inside, with all 60 rows in the baseline.
+ */
 export const PaneScrollsInside: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Test fixture that proves the full-page screenshot: a layout with the viewport height and a pane that scrolls inside, with all 60 rows in the baseline.",
-    },
-  },
   render: () => <PaneLayout />,
   play: async ({ canvas }) => {
     await expect(canvas.getByText("Pane row 60")).toBeInTheDocument()

@@ -71,12 +71,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Workspace list in the side nav, where a member opens a Workspace or its
+ * chats: two Workspaces, and the current one shows its chats.
+ */
 export const MultipleWorkspaces: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Workspace list in the side nav, where a member opens a Workspace or its chats: two Workspaces, and the current one shows its chats.",
-    },
     msw: {
       handlers: {
         page: [
@@ -89,12 +89,12 @@ export const MultipleWorkspaces: Story = {
   },
 }
 
+/**
+ * Workspace list in the side nav, where a member opens a Workspace or its
+ * chats: the org has one Workspace with its chats.
+ */
 export const SingleWorkspace: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Workspace list in the side nav, where a member opens a Workspace or its chats: the org has one Workspace with its chats.",
-    },
     msw: {
       handlers: {
         page: [
@@ -107,12 +107,12 @@ export const SingleWorkspace: Story = {
   },
 }
 
+/**
+ * Workspace list in the side nav, where a member opens a Workspace or its
+ * chats: the org has no Workspaces yet.
+ */
 export const Empty: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Workspace list in the side nav, where a member opens a Workspace or its chats: the org has no Workspaces yet.",
-    },
     msw: {
       handlers: {
         page: [workspaceListHandler([]), githubInstallationReposHandler()],
@@ -121,13 +121,13 @@ export const Empty: Story = {
   },
 }
 
+/**
+ * Workspace list in the collapsed side nav rail, where a member opens a
+ * Workspace: the Workspace list still loads.
+ */
 export const Loading: Story = {
   args: { expanded: false },
   parameters: {
-    review: {
-      purpose:
-        "Workspace list in the collapsed side nav rail, where a member opens a Workspace: the Workspace list still loads.",
-    },
     msw: {
       handlers: {
         page: [
@@ -173,6 +173,10 @@ const loadFailsParameters = {
   },
 }
 
+/**
+ * Workspace list in the side nav, where a member opens a Workspace or its
+ * chats: the first load failed, and Retry loaded the Workspace.
+ */
 export const LoadFails: Story = {
   beforeEach: () => {
     listReadFails = true
@@ -182,10 +186,6 @@ export const LoadFails: Story = {
       skip: "Behavior test: it ends in the same state as SingleWorkspace.",
     },
     ...loadFailsParameters,
-    review: {
-      purpose:
-        "Workspace list in the side nav, where a member opens a Workspace or its chats: the first load failed, and Retry loaded the Workspace.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -199,6 +199,11 @@ export const LoadFails: Story = {
   },
 }
 
+/**
+ * Workspace list in the collapsed side nav rail, where a member opens a
+ * Workspace: the first load failed, the member pressed Retry, and the Workspace
+ * and its chats show as icons.
+ */
 export const LoadFailsCollapsed: Story = {
   args: { expanded: false },
   beforeEach: () => {
@@ -206,10 +211,6 @@ export const LoadFailsCollapsed: Story = {
   },
   parameters: {
     ...loadFailsParameters,
-    review: {
-      purpose:
-        "Workspace list in the collapsed side nav rail, where a member opens a Workspace: the first load failed, the member pressed Retry, and the Workspace and its chats show as icons.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -230,12 +231,13 @@ export const LoadFailsCollapsed: Story = {
   },
 }
 
+/**
+ * Workspace list in the side nav, where a member opens a Workspace: the member
+ * pressed Add Workspace, so the dialog opens at its first step, before a
+ * repository is chosen.
+ */
 export const AddWorkspace: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Workspace list in the side nav, where a member opens a Workspace: the member pressed Add Workspace, so the dialog opens at its first step, before a repository is chosen.",
-    },
     msw: {
       handlers: {
         page: [
@@ -264,14 +266,14 @@ export const AddWorkspace: Story = {
   },
 }
 
+/**
+ * Workspace list in the side nav: an owner created a Workspace in the Add
+ * Workspace dialog and opened it, so the dialog closed.
+ */
 export const AddWorkspaceThenRepositories: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as SingleWorkspace.",
-    },
-    review: {
-      purpose:
-        "Workspace list in the side nav: an owner created a Workspace in the Add Workspace dialog and opened it, so the dialog closed.",
     },
     msw: {
       handlers: {

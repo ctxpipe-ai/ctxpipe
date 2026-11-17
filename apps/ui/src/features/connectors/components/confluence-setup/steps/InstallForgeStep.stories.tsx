@@ -77,6 +77,10 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Step of the Confluence setup that installs the Forge app: the install options
+ * are still loading.
+ */
 export const CapabilitiesLoading: Story = {
   name: "Capabilities loading (no flash)",
   render: () => (
@@ -87,10 +91,6 @@ export const CapabilitiesLoading: Story = {
     />
   ),
   parameters: {
-    review: {
-      purpose:
-        "Step of the Confluence setup that installs the Forge app: the install options are still loading.",
-    },
     msw: {
       handlers: {
         page: [
@@ -113,6 +113,10 @@ export const CapabilitiesLoading: Story = {
   },
 }
 
+/**
+ * Step of the Confluence setup that installs the Forge app: the self-hosted
+ * provision of the app failed with an error message.
+ */
 export const ProvisionFailed: Story = {
   name: "Self-hosted provision failed",
   render: () => (
@@ -123,10 +127,6 @@ export const ProvisionFailed: Story = {
     />
   ),
   parameters: {
-    review: {
-      purpose:
-        "Step of the Confluence setup that installs the Forge app: the self-hosted provision of the app failed with an error message.",
-    },
     msw: {
       handlers: {
         page: [
@@ -156,6 +156,10 @@ export const ProvisionFailed: Story = {
   },
 }
 
+/**
+ * Step of the Confluence setup that installs the Forge app: the hosted
+ * Marketplace install, where the install request fails when the user starts it.
+ */
 export const HostedInstallIntentError: Story = {
   name: "Hosted marketplace — install intent POST error",
   render: () => (
@@ -166,10 +170,6 @@ export const HostedInstallIntentError: Story = {
     />
   ),
   parameters: {
-    review: {
-      purpose:
-        "Step of the Confluence setup that installs the Forge app: the hosted Marketplace install, where the install request fails when the user starts it.",
-    },
     msw: {
       handlers: {
         page: [
@@ -205,6 +205,10 @@ export const HostedInstallIntentError: Story = {
   },
 }
 
+/**
+ * Step of the Confluence setup that installs the Forge app: the hosted
+ * Marketplace install link is ready for the user.
+ */
 export const InstallForge: Story = {
   name: "Marketplace hosted URL",
   render: () => (
@@ -215,10 +219,6 @@ export const InstallForge: Story = {
     />
   ),
   parameters: {
-    review: {
-      purpose:
-        "Step of the Confluence setup that installs the Forge app: the hosted Marketplace install link is ready for the user.",
-    },
     msw: {
       handlers: {
         page: [
@@ -240,6 +240,11 @@ export const InstallForge: Story = {
   },
 }
 
+/**
+ * Install step of the Confluence setup wizard on a self-hosted deployment,
+ * without the wizard frame: the admin fills in the site, email and token to
+ * provision the Forge app.
+ */
 export const ProvisionSelfHosted: Story = {
   name: "Self-hosted provision form",
   render: () => (
@@ -250,10 +255,6 @@ export const ProvisionSelfHosted: Story = {
     />
   ),
   parameters: {
-    review: {
-      purpose:
-        "Install step of the Confluence setup wizard on a self-hosted deployment, without the wizard frame: the admin fills in the site, email and token to provision the Forge app.",
-    },
     msw: {
       handlers: {
         page: [
@@ -282,6 +283,11 @@ export const ProvisionSelfHosted: Story = {
   },
 }
 
+/**
+ * Install step of the Confluence setup wizard on a self-hosted deployment,
+ * without the wizard frame: after Start provisioning, the teal loader waits for
+ * the Forge app deploy.
+ */
 export const ProvisionRunning: Story = {
   name: "Provisioning Forge app (busy)",
   render: () => (
@@ -292,10 +298,6 @@ export const ProvisionRunning: Story = {
     />
   ),
   parameters: {
-    review: {
-      purpose:
-        "Install step of the Confluence setup wizard on a self-hosted deployment, without the wizard frame: after Start provisioning, the teal loader waits for the Forge app deploy.",
-    },
     msw: {
       handlers: {
         page: [
@@ -313,6 +315,11 @@ export const ProvisionRunning: Story = {
   },
 }
 
+/**
+ * Step of the Confluence setup that installs the Forge app: the hosted
+ * Marketplace install, where the install request never returns after the user
+ * starts it.
+ */
 export const MarketplaceInstallPending: Story = {
   render: () => (
     <InstallForgeStep
@@ -322,10 +329,6 @@ export const MarketplaceInstallPending: Story = {
     />
   ),
   parameters: {
-    review: {
-      purpose:
-        "Step of the Confluence setup that installs the Forge app: the hosted Marketplace install, where the install request never returns after the user starts it.",
-    },
     msw: {
       handlers: {
         page: [

@@ -74,13 +74,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Add Workspace page, where an admin picks the Workspace repository and adds
+ * sources: the session is still loading, so step 1 shows its skeleton.
+ */
 export const Loading: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Add Workspace page, where an admin picks the Workspace repository and adds sources: the session is still loading, so step 1 shows its skeleton.",
-    },
-  },
   render: () => <NewWorkspaceSessionFallback />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -93,13 +91,11 @@ export const Loading: Story = {
   },
 }
 
+/**
+ * Add Workspace page, where an admin picks the Workspace repository and adds
+ * sources: step 1 with the Paste URL tab open.
+ */
 export const PasteUrl: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Add Workspace page, where an admin picks the Workspace repository and adds sources: step 1 with the Paste URL tab open.",
-    },
-  },
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -107,13 +103,12 @@ export const PasteUrl: Story = {
   },
 }
 
+/**
+ * Add Workspace page, where an admin creates a Workspace in two steps: step 1,
+ * where the admin picks the Workspace repository from the GitHub repositories
+ * of the org.
+ */
 export const SelectGitHub: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Add Workspace page, where an admin creates a Workspace in two steps: step 1, where the admin picks the Workspace repository from the GitHub repositories of the org.",
-    },
-  },
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -121,13 +116,11 @@ export const SelectGitHub: Story = {
   },
 }
 
+/**
+ * Add Workspace page, where an admin picks the Workspace repository and adds
+ * sources: step 1 with the Create on GitHub tab open.
+ */
 export const CreateOnGitHub: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Add Workspace page, where an admin picks the Workspace repository and adds sources: step 1 with the Create on GitHub tab open.",
-    },
-  },
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

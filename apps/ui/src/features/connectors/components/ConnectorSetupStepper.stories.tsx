@@ -19,13 +19,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Step list at the top of the Confluence setup wizard: the first two steps are
+ * done, and the user works on the third step, Add to Workspaces.
+ */
 export const MidFlow: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Step list at the top of the Confluence setup wizard: the first two steps are done, and the user works on the third step, Add to Workspaces.",
-    },
-  },
   render: () => (
     <ConnectorSetupStepper
       className="max-w-sm"
@@ -36,13 +34,11 @@ export const MidFlow: Story = {
   ),
 }
 
+/**
+ * Step list of the Confluence connector setup, which shows progress through the
+ * setup: all steps are complete.
+ */
 export const AllComplete: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Step list of the Confluence connector setup, which shows progress through the setup: all steps are complete.",
-    },
-  },
   render: () => (
     <ConnectorSetupStepper
       className="max-w-sm"
@@ -52,13 +48,11 @@ export const AllComplete: Story = {
   ),
 }
 
+/**
+ * Step list of the Confluence connector setup, which shows progress through the
+ * setup: the user is on step four and revisits step two.
+ */
 export const RevisitWithFocus: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Step list of the Confluence connector setup, which shows progress through the setup: the user is on step four and revisits step two.",
-    },
-  },
   render: () => (
     <ConnectorSetupStepper
       className="max-w-sm"

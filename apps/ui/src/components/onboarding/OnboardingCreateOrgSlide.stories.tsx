@@ -47,6 +47,10 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Onboarding slide where a new user creates the first organization: the form is
+ * empty.
+ */
 export const Empty: Story = {
   parameters: {
     msw: {
@@ -54,23 +58,19 @@ export const Empty: Story = {
         page: createOrgBaseMsw,
       },
     },
-    review: {
-      purpose:
-        "Onboarding slide where a new user creates the first organization: the form is empty.",
-    },
   },
 }
 
+/**
+ * Onboarding slide where a new user creates the first organization: the user
+ * submitted with no name, and the form asks for one.
+ */
 export const ValidationError: Story = {
   parameters: {
     msw: {
       handlers: {
         page: createOrgBaseMsw,
       },
-    },
-    review: {
-      purpose:
-        "Onboarding slide where a new user creates the first organization: the user submitted with no name, and the form asks for one.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -87,16 +87,16 @@ export const ValidationError: Story = {
   },
 }
 
+/**
+ * Onboarding slide where a new user creates the first organization: the slug
+ * starts with a hyphen, and the create button is disabled.
+ */
 export const InvalidSlug: Story = {
   parameters: {
     msw: {
       handlers: {
         page: createOrgBaseMsw,
       },
-    },
-    review: {
-      purpose:
-        "Onboarding slide where a new user creates the first organization: the slug starts with a hyphen, and the create button is disabled.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -124,16 +124,16 @@ export const InvalidSlug: Story = {
   },
 }
 
+/**
+ * Onboarding slide where a new user creates the first organization: the create
+ * request failed, and an error shows.
+ */
 export const CreateFailed: Story = {
   parameters: {
     msw: {
       handlers: {
         page: [...createOrgBaseMsw, organizationCreateErrorHandler()],
       },
-    },
-    review: {
-      purpose:
-        "Onboarding slide where a new user creates the first organization: the create request failed, and an error shows.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -157,6 +157,10 @@ export const CreateFailed: Story = {
 
 /** Records `set-active` calls. Create already makes the new org active. */
 const setActive = fn()
+/**
+ * Onboarding slide where a new user creates the first organization: the slow
+ * create request succeeded and the slide finished.
+ */
 export const CreatingOrganization: Story = {
   beforeEach: () => {
     setActive.mockClear()
@@ -176,10 +180,6 @@ export const CreatingOrganization: Story = {
         story:
           'Create uses MSW `delay("real")`, then returns success — run **Interactions** to see `onFinish` after submit.',
       },
-    },
-    review: {
-      purpose:
-        "Onboarding slide where a new user creates the first organization: the slow create request succeeded and the slide finished.",
     },
   },
   play: async ({ args, canvasElement }) => {

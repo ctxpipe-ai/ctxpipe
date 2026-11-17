@@ -59,14 +59,14 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Changes card of one agent turn in a conversation, which lists the changed
+ * files: the file list starts collapsed and only the counts show.
+ */
 export const TurnCardCollapsed: Story = {
   parameters: {
     intent:
       "Catches a changes card that does not collapse or expand its file list. The summary counts stay and the Show and Hide buttons toggle the folders. Not for diffs.",
-    review: {
-      purpose:
-        "Changes card of one agent turn in a conversation, which lists the changed files: the file list starts collapsed and only the counts show.",
-    },
   },
   tags: ["required"],
   args: { defaultCollapsed: true },
@@ -93,14 +93,15 @@ export const TurnCardCollapsed: Story = {
   },
 }
 
+/**
+ * Changes card of one agent turn in a conversation, which lists the changed
+ * files: a folder is open and shows its files with an Open diff button for
+ * each.
+ */
 export const TurnCardExpanded: Story = {
   parameters: {
     intent:
       "Catches a changes card whose folder does not add up its files, or whose Open diff button does not call the open action. Not for the collapsed state.",
-    review: {
-      purpose:
-        "Changes card of one agent turn in a conversation, which lists the changed files: a folder is open and shows its files with an Open diff button for each.",
-    },
   },
   tags: ["required"],
   play: async ({ canvasElement, args }) => {
@@ -148,6 +149,10 @@ function CardAndPane() {
   )
 }
 
+/**
+ * Changes card of one agent turn next to the diff pane: the user opened the
+ * diff of one file, and the pane shows that file of this turn.
+ */
 export const TurnCardOpensDiff: Story = {
   tags: ["required"],
   decorators: [() => <CardAndPane />],
@@ -193,10 +198,6 @@ export const TurnCardOpensDiff: Story = {
           ),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Changes card of one agent turn next to the diff pane: the user opened the diff of one file, and the pane shows that file of this turn.",
     },
   },
   play: async ({ canvasElement }) => {

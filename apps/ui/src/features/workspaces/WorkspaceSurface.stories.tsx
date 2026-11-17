@@ -94,6 +94,10 @@ function workspaceRoute(input?: {
   }
 }
 
+/**
+ * Workspace page in the org shell, where a member chats with the agent and
+ * opens the tools pane: the Workspace detail is still loading.
+ */
 export const Loading: Story = {
   parameters: {
     storyRoute: workspaceRoute(),
@@ -101,10 +105,6 @@ export const Loading: Story = {
       handlers: {
         page: [workspaceDetailLoadingHandler(), ...workspaceShellHandlers()],
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, where a member chats with the agent and opens the tools pane: the Workspace detail is still loading.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -187,6 +187,10 @@ export const SurfaceSkeletonMatches: Story = {
   },
 }
 
+/**
+ * Workspace page in the org shell, where a member chats with the agent: the
+ * Workspace does not exist, so a not found state shows.
+ */
 export const NotFound: Story = {
   parameters: {
     storyRoute: workspaceRoute(),
@@ -194,10 +198,6 @@ export const NotFound: Story = {
       handlers: {
         page: workspaceShellHandlers({ detail: null }),
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, where a member chats with the agent: the Workspace does not exist, so a not found state shows.",
     },
   },
 }
@@ -247,6 +247,10 @@ export const FailedTouchIsCaught: Story = {
   },
 }
 
+/**
+ * Workspace page in the org shell, where a member chats with the agent: the
+ * Workspace detail did not load, so an error state shows.
+ */
 export const LoadError: Story = {
   parameters: {
     storyRoute: workspaceRoute(),
@@ -255,13 +259,13 @@ export const LoadError: Story = {
         page: [workspaceDetailErrorHandler(), ...workspaceShellHandlers()],
       },
     },
-    review: {
-      purpose:
-        "Workspace page in the org shell, where a member chats with the agent: the Workspace detail did not load, so an error state shows.",
-    },
   },
 }
 
+/**
+ * Workspace page in the org shell, where a member chats with the agent: ctxpipe
+ * still reads the repository into this Workspace for the first time.
+ */
 export const Hydrating: Story = {
   args: { workspaceSlug: "knowledge" },
   parameters: {
@@ -278,13 +282,13 @@ export const Hydrating: Story = {
         }),
       },
     },
-    review: {
-      purpose:
-        "Workspace page in the org shell, where a member chats with the agent: ctxpipe still reads the repository into this Workspace for the first time.",
-    },
   },
 }
 
+/**
+ * Workspace page in the org shell, where a member chats with the agent: the
+ * Workspace waits for the newest commit of its branch.
+ */
 export const WaitingForTip: Story = {
   args: { workspaceSlug: "waiting-tip" },
   parameters: {
@@ -301,13 +305,14 @@ export const WaitingForTip: Story = {
         }),
       },
     },
-    review: {
-      purpose:
-        "Workspace page in the org shell, where a member chats with the agent: the Workspace waits for the newest commit of its branch.",
-    },
   },
 }
 
+/**
+ * Workspace page in the org shell, where a member chats with the agent: ctxpipe
+ * could not read the repository, so Prepare failed shows Try again and the raw
+ * reason beside the settings.
+ */
 export const PrepareFailed: Story = {
   args: { workspaceSlug: "knowledge-failed" },
   parameters: {
@@ -339,13 +344,13 @@ export const PrepareFailed: Story = {
         ],
       },
     },
-    review: {
-      purpose:
-        "Workspace page in the org shell, where a member chats with the agent: ctxpipe could not read the repository, so Prepare failed shows Try again and the raw reason beside the settings.",
-    },
   },
 }
 
+/**
+ * Workspace page in the org shell, where a member chats with the agent: no
+ * conversation is open, so the composer for a new conversation shows.
+ */
 export const Compose: Story = {
   parameters: {
     route: "/$orgSlug/ws/$workspaceSlug/",
@@ -354,10 +359,6 @@ export const Compose: Story = {
       handlers: {
         page: workspaceShellHandlers(),
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, where a member chats with the agent: no conversation is open, so the composer for a new conversation shows.",
     },
   },
 }
@@ -429,6 +430,10 @@ export const ConversationNeedsFormatUpgrade: Story = {
   },
 }
 
+/**
+ * Workspace page in the org shell, where a member chats with the agent: a
+ * stored conversation is open with its messages.
+ */
 export const Conversation: Story = {
   args: { conversationId: "conv_1" },
   parameters: {
@@ -438,10 +443,6 @@ export const Conversation: Story = {
       handlers: {
         page: workspaceShellHandlers(),
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, where a member chats with the agent: a stored conversation is open with its messages.",
     },
   },
 }
@@ -532,6 +533,10 @@ export const ConversationWorkspaceMovedWithChanges: Story = {
   },
 }
 
+/**
+ * Workspace page in the org shell, where a member chats with the agent: the
+ * conversation is still loading, and its title link shows.
+ */
 export const ConversationLoading: Story = {
   args: { conversationId: "conv_1" },
   parameters: {
@@ -541,10 +546,6 @@ export const ConversationLoading: Story = {
       handlers: {
         page: [conversationDetailLoadingHandler(), ...workspaceShellHandlers()],
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, where a member chats with the agent: the conversation is still loading, and its title link shows.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -572,6 +573,10 @@ export const ConversationLoading: Story = {
   },
 }
 
+/**
+ * Workspace page in the org shell, where a member chats with the agent: the
+ * user opens a conversation from the nav, and the tools pane stays closed.
+ */
 export const ConversationNavIsChatOnly: Story = {
   parameters: {
     visual: {
@@ -583,10 +588,6 @@ export const ConversationNavIsChatOnly: Story = {
       handlers: {
         page: workspaceShellHandlers(),
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, where a member chats with the agent: the user opens a conversation from the nav, and the tools pane stays closed.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -618,6 +619,10 @@ export const ConversationNavIsChatOnly: Story = {
   },
 }
 
+/**
+ * Workspace page in the org shell, with the Files pane open: the user opens a
+ * conversation, and the Files pane stays open.
+ */
 export const ConversationKeepsExplicitPaneSearch: Story = {
   parameters: {
     storyRoute: workspaceRoute({ pane: "files" }),
@@ -625,10 +630,6 @@ export const ConversationKeepsExplicitPaneSearch: Story = {
       handlers: {
         page: workspaceShellHandlers(),
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with the Files pane open: the user opens a conversation, and the Files pane stays open.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -653,6 +654,10 @@ export const ConversationKeepsExplicitPaneSearch: Story = {
   },
 }
 
+/**
+ * Workspace page in the org shell, where a member chats with the agent: the
+ * conversation does not exist, so a not found state shows.
+ */
 export const ConversationMissing: Story = {
   args: { conversationId: "conv_missing" },
   parameters: {
@@ -662,10 +667,6 @@ export const ConversationMissing: Story = {
       handlers: {
         page: workspaceShellHandlers({ conversation: null }),
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, where a member chats with the agent: the conversation does not exist, so a not found state shows.",
     },
   },
 }
@@ -1531,6 +1532,10 @@ export const MaximizedPaneMatchesHeader: Story = {
 
 const idleBudget = { conversation: 0, tree: 0, status: 0, chat: 0, diff: 0 }
 
+/**
+ * Workspace page in the org shell, with a conversation and the Files pane open:
+ * the page is idle, and its request count stays fixed.
+ */
 export const StableRequestBudget: Story = {
   tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
@@ -1630,10 +1635,6 @@ export const StableRequestBudget: Story = {
         ],
       },
     },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with a conversation and the Files pane open: the page is idle, and its request count stays fixed.",
-    },
   },
   play: async ({ canvasElement }) => {
     idleBudget.conversation = 0
@@ -1684,6 +1685,10 @@ export const StableRequestBudget: Story = {
   },
 }
 
+/**
+ * Workspace page in the org shell, where a member chats with the agent: the
+ * Files pane is open next to the new conversation composer.
+ */
 export const FilesPane: Story = {
   args: { paneParam: "files" },
   parameters: {
@@ -1693,13 +1698,13 @@ export const FilesPane: Story = {
         page: workspaceShellHandlers(),
       },
     },
-    review: {
-      purpose:
-        "Workspace page in the org shell, where a member chats with the agent: the Files pane is open next to the new conversation composer.",
-    },
   },
 }
 
+/**
+ * Workspace page in the org shell, where a member chats with the agent: the
+ * Graph pane is open and shows the knowledge graph.
+ */
 export const GraphPane: Story = {
   // With reduced motion the layout runs a fixed number of steps before the
   // graph shows. The play waits for it: without the wait, the screenshot
@@ -1712,10 +1717,6 @@ export const GraphPane: Story = {
       handlers: {
         page: workspaceShellHandlers(),
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, where a member chats with the agent: the Graph pane is open and shows the knowledge graph.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1731,6 +1732,10 @@ export const GraphPane: Story = {
   },
 }
 
+/**
+ * Workspace page in the org shell, where a member chats with the agent: the
+ * Settings pane is open.
+ */
 export const SettingsPane: Story = {
   args: { paneParam: "settings" },
   parameters: {
@@ -1741,10 +1746,6 @@ export const SettingsPane: Story = {
           workspaces: [docsWorkspace, readOnlyWorkspace],
         }),
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, where a member chats with the agent: the Settings pane is open.",
     },
   },
 }
@@ -1852,6 +1853,10 @@ async function expectNoDetailPoll() {
   await expect(writeCheck.detailReads).toBe(reads)
 }
 
+/**
+ * Workspace page in the org shell, with the Settings pane open: the GitHub
+ * write access check failed, so polling stops and a Check again alert shows.
+ */
 export const WriteCheckFailedStopsPolling: Story = {
   tags: ["required"],
   args: { paneParam: "settings" },
@@ -1914,10 +1919,6 @@ export const WriteCheckFailedStopsPolling: Story = {
         ],
       },
     },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with the Settings pane open: the GitHub write access check failed, so polling stops and a Check again alert shows.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1951,6 +1952,11 @@ export const WriteCheckFailedStopsPolling: Story = {
   },
 }
 
+/**
+ * Workspace page in the org shell, with the Settings pane open: the GitHub
+ * write access check stalls, so polling stops at the cap with a Check again
+ * button.
+ */
 export const WriteCheckStallStopsPolling: Story = {
   tags: ["required"],
   // A short cap, so the story does not wait three minutes.
@@ -1997,10 +2003,6 @@ export const WriteCheckStallStopsPolling: Story = {
         ],
       },
     },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with the Settings pane open: the GitHub write access check stalls, so polling stops at the cap with a Check again button.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -2039,6 +2041,10 @@ export const WriteCheckStallStopsPolling: Story = {
   },
 }
 
+/**
+ * Workspace page in the org shell, where a member chats with the agent: the
+ * GitHub App cannot write to the repository, so the Workspace is read-only.
+ */
 export const ReadOnly: Story = {
   args: { workspaceSlug: "handbook" },
   parameters: {
@@ -2054,10 +2060,6 @@ export const ReadOnly: Story = {
           detail: { ...readOnlyWorkspace, linkedRepositories: [] },
         }),
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, where a member chats with the agent: the GitHub App cannot write to the repository, so the Workspace is read-only.",
     },
   },
 }

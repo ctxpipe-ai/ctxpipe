@@ -123,12 +123,12 @@ const linearSource = workspaceSourceFixture({
   description: "Engineering issues. Ingest them for the weekly review.",
 })
 
+/**
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: the source list still loads.
+ */
 export const Loading: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the source list still loads.",
-    },
     msw: {
       handlers: { page: [workspaceSourcesHandler("loading"), connected] },
     },
@@ -140,12 +140,13 @@ export const Loading: Story = {
   },
 }
 
+/**
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: the Workspace has no sources and the org has no connections, so a
+ * link goes to Connectors.
+ */
 export const Empty: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Workspace has no sources and the org has no connections, so a link goes to Connectors.",
-    },
     msw: {
       handlers: {
         page: [
@@ -169,12 +170,13 @@ export const Empty: Story = {
   },
 }
 
+/**
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: the org has GitHub, Confluence and Linear connections, but the
+ * Workspace has no sources yet.
+ */
 export const ConnectedWithoutSources: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the org has GitHub, Confluence and Linear connections, but the Workspace has no sources yet.",
-    },
     msw: {
       handlers: {
         page: [workspaceSourcesHandler(workspaceSourceList()), connected],
@@ -198,13 +200,14 @@ export const ConnectedWithoutSources: Story = {
   },
 }
 
+/**
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: four sources from GitHub, Confluence and Linear, with paths,
+ * descriptions and the connector count.
+ */
 export const SeveralProviders: Story = {
   tags: ["required"],
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: four sources from GitHub, Confluence and Linear, with paths, descriptions and the connector count.",
-    },
     intent:
       "Catches a source list that drops a provider or misstates the totals. It must show every source with its path and description and the connector count. Not for edits or empty states.",
     msw: {
@@ -256,12 +259,12 @@ export const SeveralProviders: Story = {
   },
 }
 
+/**
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: three Linear sources from two Linear connections in one group.
+ */
 export const OneProviderSeveralSources: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: three Linear sources from two Linear connections in one group.",
-    },
     msw: {
       handlers: {
         page: [
@@ -398,12 +401,13 @@ export const NarrowPaneFoldsTable: Story = {
   },
 }
 
+/**
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: one Linear source has a missing connection, so the summary and its
+ * group say it needs attention.
+ */
 export const NeedsAttention: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: one Linear source has a missing connection, so the summary and its group say it needs attention.",
-    },
     msw: {
       handlers: {
         page: [
@@ -443,12 +447,13 @@ export const NeedsAttention: Story = {
   },
 }
 
+/**
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: no sources yet, and a new Confluence source waits for its pull
+ * request to merge.
+ */
 export const PendingAdd: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: no sources yet, and a new Confluence source waits for its pull request to merge.",
-    },
     msw: {
       handlers: {
         page: [
@@ -493,12 +498,13 @@ export const PendingAdd: Story = {
   },
 }
 
+/**
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: sources in each status: OK, not valid, connection missing, out of
+ * access, and OK with a warning.
+ */
 export const EachStatus: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: sources in each status: OK, not valid, connection missing, out of access, and OK with a warning.",
-    },
     msw: {
       handlers: {
         page: [
@@ -557,12 +563,13 @@ export const EachStatus: Story = {
   },
 }
 
+/**
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: an edit, a removal and an add each wait for a pull request to
+ * merge, with links to them.
+ */
 export const AwaitingMerge: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: an edit, a removal and an add each wait for a pull request to merge, with links to them.",
-    },
     msw: {
       handlers: {
         page: [
@@ -615,6 +622,10 @@ export const AwaitingMerge: Story = {
   },
 }
 
+/**
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: the URL names the Confluence section, so the list scrolls to it.
+ */
 export const ScrollsToSourceAnchor: Story = {
   tags: ["required"],
   decorators: [
@@ -629,10 +640,6 @@ export const ScrollsToSourceAnchor: Story = {
     return () => window.history.replaceState(null, "", "#")
   },
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the URL names the Confluence section, so the list scrolls to it.",
-    },
     intent:
       "Catches a source list that ignores the URL hash. The page must scroll the matching provider section into view. Not for the list content or edits.",
     msw: {
@@ -678,13 +685,14 @@ export const ScrollsToSourceAnchor: Story = {
   },
 }
 
+/**
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: the edit dialog of a Linear source is open, and the user adds a
+ * team and opens a pull request.
+ */
 export const EditSendsChange: Story = {
   tags: ["required"],
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the edit dialog of a Linear source is open, and the user adds a team and opens a pull request.",
-    },
     intent:
       "Catches a source edit that sends the wrong change. The edit dialog must start from the saved scope and send a PUT with the new scope. Not for adding sources.",
     msw: {
@@ -738,12 +746,13 @@ export const EditSendsChange: Story = {
   },
 }
 
+/**
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: the user unlinks a GitHub repository, which opens a pull request
+ * that deletes its source file.
+ */
 export const UnlinkSendsChange: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the user unlinks a GitHub repository, which opens a pull request that deletes its source file.",
-    },
     msw: {
       handlers: {
         page: [
@@ -918,6 +927,11 @@ export const UnlinkDeletesTheSourceFile: Story = {
   },
 }
 
+/**
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: a linked repository with no source file is in the GitHub list next
+ * to a repository with a file.
+ */
 export const LinkedRepositoryWithoutSourceShows: Story = {
   args: {
     linkedRepositories: [
@@ -933,10 +947,6 @@ export const LinkedRepositoryWithoutSourceShows: Story = {
     ],
   },
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: a linked repository with no source file is in the GitHub list next to a repository with a file.",
-    },
     msw: {
       handlers: {
         page: [
@@ -960,12 +970,13 @@ export const LinkedRepositoryWithoutSourceShows: Story = {
   },
 }
 
+/**
+ * Sources section of the Workspace settings: in the Add repositories dialog the
+ * user picked acme/api and pressed Open a pull request, so the list shows the
+ * change as awaiting merge and a toast links to the pull request.
+ */
 export const AddSendsChange: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings: in the Add repositories dialog the user picked acme/api and pressed Open a pull request, so the list shows the change as awaiting merge and a toast links to the pull request.",
-    },
     msw: {
       handlers: {
         page: [
@@ -1226,12 +1237,13 @@ export const AddByUrlShowsRefusal: Story = {
   },
 }
 
+/**
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: the remove dialog of a Confluence source is open, and the user
+ * confirms with a pull request.
+ */
 export const RemoveSendsChange: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the remove dialog of a Confluence source is open, and the user confirms with a pull request.",
-    },
     msw: {
       handlers: {
         page: [
@@ -1266,12 +1278,13 @@ export const RemoveSendsChange: Story = {
     })
   },
 }
+/**
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: the legacy sources file is not valid, so an error names the
+ * problem.
+ */
 export const FileNotValid: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the legacy sources file is not valid, so an error names the problem.",
-    },
     msw: {
       handlers: {
         page: [
@@ -1292,12 +1305,13 @@ export const FileNotValid: Story = {
   },
 }
 
+/**
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: a source with an unknown provider and a refused repository file
+ * give their errors.
+ */
 export const RefusedRepositoryFile: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: a source with an unknown provider and a refused repository file give their errors.",
-    },
     msw: {
       handlers: {
         page: [
@@ -1350,12 +1364,13 @@ export const RefusedRepositoryFile: Story = {
   },
 }
 
+/**
+ * Sources section of the Workspace settings card: the request for the source
+ * list failed, so an error line with Retry below it stands in place of the
+ * list.
+ */
 export const LoadFailed: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings card: the request for the source list failed, so an error line with Retry below it stands in place of the list.",
-    },
     msw: {
       handlers: { page: [workspaceSourcesHandler("error"), connected] },
     },
@@ -1397,13 +1412,14 @@ export const UpgradesLoadFailed: Story = {
   },
 }
 
+/**
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: the user cannot edit this Workspace, so the list has no add,
+ * unlink or remove buttons.
+ */
 export const ReadOnlyHidesChanges: Story = {
   tags: ["required"],
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the user cannot edit this Workspace, so the list has no add, unlink or remove buttons.",
-    },
     intent:
       "Catches a read-only workspace that shows source actions. Add, unlink, and remove buttons must not appear when the user cannot edit. Not for the source list content.",
     msw: {
@@ -1462,13 +1478,14 @@ const reposPerConnection = http.get(
   },
 )
 
+/**
+ * Sources section of the Workspace settings: the Add repositories dialog lists
+ * the repositories of two GitHub connections, and the user picks one from each
+ * and opens one pull request.
+ */
 export const PickerShowsConnectionNames: Story = {
   tags: ["required"],
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings: the Add repositories dialog lists the repositories of two GitHub connections, and the user picks one from each and opens one pull request.",
-    },
     intent:
       "Catches a repository picker that mixes several GitHub connections. It lists the repositories of each connection and sends each repository with its own connection id. Not for the source list.",
     msw: {

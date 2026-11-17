@@ -54,13 +54,11 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
+/**
+ * Test fixture that proves the play runner pins the host values: a text, an
+ * input and a spinner after the page settled.
+ */
 export const PinnedHost: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Test fixture that proves the play runner pins the host values: a text, an input and a spinner after the page settled.",
-    },
-  },
   play: async ({ canvas }) => {
     const page = window as Window & {
       __CTXPIPE_PLAY__?: { afterSettle?: () => void }

@@ -64,12 +64,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Repository picker, where an owner chooses the Workspace repository: the
+ * GitHub repository list still loads.
+ */
 export const Loading: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Repository picker, where an owner chooses the Workspace repository: the GitHub repository list still loads.",
-    },
     msw: {
       handlers: {
         page: [
@@ -91,13 +91,11 @@ export const Loading: Story = {
   },
 }
 
+/**
+ * Repository picker, where an owner chooses the Workspace repository: the owner
+ * picked a GitHub repository, so Create Workspace shows.
+ */
 export const SelectGitHub: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Repository picker, where an owner chooses the Workspace repository: the owner picked a GitHub repository, so Create Workspace shows.",
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("list", { name: /repositories/i })
@@ -115,12 +113,13 @@ export const SelectGitHub: Story = {
   },
 }
 
+/**
+ * Repository picker, where an owner chooses the Workspace repository: the
+ * GitHub App sees no free repository, so the tab says how to give it access or
+ * paste a URL.
+ */
 export const SelectGitHubEmpty: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Repository picker, where an owner chooses the Workspace repository: the GitHub App sees no free repository, so the tab says how to give it access or paste a URL.",
-    },
     msw: {
       handlers: {
         page: [
@@ -173,12 +172,12 @@ export const NoGithubConnection: Story = {
   },
 }
 
+/**
+ * Repository picker, where an owner chooses the Workspace repository: the
+ * GitHub App can see all repositories of the org.
+ */
 export const SelectGitHubAllAccess: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Repository picker, where an owner chooses the Workspace repository: the GitHub App can see all repositories of the org.",
-    },
     msw: {
       handlers: {
         page: [
@@ -321,13 +320,11 @@ export const CreateOnGitHubNoConnection: Story = {
   },
 }
 
+/**
+ * Repository picker, where an owner chooses the Workspace repository: the Paste
+ * URL tab is open with an empty git URL field.
+ */
 export const PasteUrl: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Repository picker, where an owner chooses the Workspace repository: the Paste URL tab is open with an empty git URL field.",
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(canvas.getByRole("tab", { name: /paste url/i }))
@@ -400,13 +397,11 @@ export const PasteUrlWithEmptyRootFolder: Story = {
   },
 }
 
+/**
+ * Repository picker, where an owner chooses the Workspace repository: the save
+ * failed because another Workspace already uses the git URL.
+ */
 export const SaveError: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Repository picker, where an owner chooses the Workspace repository: the save failed because another Workspace already uses the git URL.",
-    },
-  },
   args: {
     error: "That git URL is already used by another Workspace.",
   },

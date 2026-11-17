@@ -27,12 +27,12 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof meta>
 
+/**
+ * Test fixture that proves a request with no mock fails: one line of text, and
+ * the play sends the requests.
+ */
 export const RequestWithNoMockFails: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Test fixture that proves a request with no mock fails: one line of text, and the play sends the requests.",
-    },
     msw: {
       handlers: {
         // An unrelated socket mock: MSW then gives each socket to the `ws`

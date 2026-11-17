@@ -41,13 +41,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Notion scope editor in the Add source dialog, where the user picks the pages
+ * and databases that a Workspace source syncs: the user ticks a page and a
+ * database from the shared list.
+ */
 export const SelectAPageAndADatabase: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Notion scope editor in the Add source dialog, where the user picks the pages and databases that a Workspace source syncs: the user ticks a page and a database from the shared list.",
-    },
-  },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
     await waitFor(() =>
@@ -69,13 +68,12 @@ export const SelectAPageAndADatabase: Story = {
   },
 }
 
+/**
+ * Notion scope editor, where the user picks the pages and databases of a
+ * Workspace source: a search hides a selected page, but it stays in the list
+ * and stays selected.
+ */
 export const SearchKeepsTheSelection: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Notion scope editor, where the user picks the pages and databases of a Workspace source: a search hides a selected page, but it stays in the list and stays selected.",
-    },
-  },
   args: {
     label: "Docs",
     initialScope: { pages: [{ id: HANDBOOK, title: "Engineering handbook" }] },
@@ -116,13 +114,12 @@ export const SearchKeepsTheSelection: Story = {
   },
 }
 
+/**
+ * Notion scope editor, where the user picks the pages and databases of a
+ * Workspace source: the user clears the last database, so the scope is not
+ * ready.
+ */
 export const RemoveTheLastRoot: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Notion scope editor, where the user picks the pages and databases of a Workspace source: the user clears the last database, so the scope is not ready.",
-    },
-  },
   args: {
     initialScope: { databases: [{ id: INCIDENTS, title: "Incident log" }] },
   },
@@ -138,12 +135,13 @@ export const RemoveTheLastRoot: Story = {
   },
 }
 
+/**
+ * Notion scope editor in the Add source dialog: the Notion search request
+ * failed, so an error alert stands in place of the results, and the user can
+ * search again.
+ */
 export const SearchFails: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Notion scope editor in the Add source dialog: the Notion search request failed, so an error alert stands in place of the results, and the user can search again.",
-    },
     msw: {
       handlers: {
         page: [

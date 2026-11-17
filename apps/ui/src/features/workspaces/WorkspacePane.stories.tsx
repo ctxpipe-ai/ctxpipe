@@ -422,6 +422,10 @@ export const HideShowMaximize: Story = {
   },
 }
 
+/**
+ * Files pane of a Workspace, which browses and edits its files: the file tree
+ * of the default branch loaded.
+ */
 export const Files: Story = {
   parameters: {
     msw: {
@@ -429,23 +433,19 @@ export const Files: Story = {
         page: gitFilesHandlers,
       },
     },
-    review: {
-      purpose:
-        "Files pane of a Workspace, which browses and edits its files: the file tree of the default branch loaded.",
-    },
   },
 }
 
+/**
+ * Files pane of a Workspace, which browses and edits its files: the file tree
+ * is still loading.
+ */
 export const FilesLoading: Story = {
   parameters: {
     msw: {
       handlers: {
         page: [workspaceGitTreeLoadingHandler()],
       },
-    },
-    review: {
-      purpose:
-        "Files pane of a Workspace, which browses and edits its files: the file tree is still loading.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -455,6 +455,10 @@ export const FilesLoading: Story = {
   },
 }
 
+/**
+ * Files pane of a Workspace, which browses and edits its files: the branch has
+ * no files, so the tree is empty.
+ */
 export const FilesEmpty: Story = {
   parameters: {
     msw: {
@@ -469,13 +473,13 @@ export const FilesEmpty: Story = {
         ],
       },
     },
-    review: {
-      purpose:
-        "Files pane of a Workspace, which browses and edits its files: the branch has no files, so the tree is empty.",
-    },
   },
 }
 
+/**
+ * Files pane of a Workspace, which browses and edits its files: the ledger file
+ * is open in a preview tab next to the tree.
+ */
 export const FilePreview: Story = {
   args: {
     pane: { kind: "file", path: ledgerPath },
@@ -495,13 +499,13 @@ export const FilePreview: Story = {
         page: gitFilesHandlers,
       },
     },
-    review: {
-      purpose:
-        "Files pane of a Workspace, which browses and edits its files: the ledger file is open in a preview tab next to the tree.",
-    },
   },
 }
 
+/**
+ * Files pane of a Workspace, which browses and edits its files: a file tab is
+ * open, but the file content is still loading.
+ */
 export const FilePreviewLoading: Story = {
   args: {
     pane: { kind: "file", path: ledgerPath },
@@ -525,13 +529,13 @@ export const FilePreviewLoading: Story = {
         ],
       },
     },
-    review: {
-      purpose:
-        "Files pane of a Workspace, which browses and edits its files: a file tab is open, but the file content is still loading.",
-    },
   },
 }
 
+/**
+ * Files pane of a Workspace, which browses and edits its files: a long
+ * AGENTS.md file of more than 80 lines is open and scrolls.
+ */
 export const FilePreviewLong: Story = {
   args: {
     pane: { kind: "file", path: agentsPath },
@@ -558,13 +562,13 @@ export const FilePreviewLong: Story = {
         ],
       },
     },
-    review: {
-      purpose:
-        "Files pane of a Workspace, which browses and edits its files: a long AGENTS.md file of more than 80 lines is open and scrolls.",
-    },
   },
 }
 
+/**
+ * Files pane of a read-only Workspace, which browses its files: AGENTS.md is
+ * open, and the GitHub App cannot write, so no edit is possible.
+ */
 export const ReadOnly: Story = {
   args: {
     workspace: readOnlyWorkspaceDetail,
@@ -583,10 +587,6 @@ export const ReadOnly: Story = {
       handlers: {
         page: gitFilesHandlers,
       },
-    },
-    review: {
-      purpose:
-        "Files pane of a read-only Workspace, which browses its files: AGENTS.md is open, and the GitHub App cannot write, so no edit is possible.",
     },
   },
 }
@@ -903,6 +903,10 @@ export const TabChangeKeepsPosition: Story = {
   },
 }
 
+/**
+ * Files pane of a Workspace, which browses and edits its files: the file tree
+ * is collapsed, and a Show tree button fades in.
+ */
 export const TreeCollapsed: Story = {
   args: {
     pane: { kind: "file", path: ledgerPath },
@@ -927,13 +931,13 @@ export const TreeCollapsed: Story = {
         page: gitFilesHandlers,
       },
     },
-    review: {
-      purpose:
-        "Files pane of a Workspace, which browses and edits its files: the file tree is collapsed, and a Show tree button fades in.",
-    },
   },
 }
 
+/**
+ * Graph pane of a Workspace, which shows its knowledge graph: the graph loaded,
+ * with a Play layout control.
+ */
 export const Graph: Story = {
   // With reduced motion the layout runs a fixed number of steps before the
   // graph shows. With motion, a timer stops it, so the layout differed
@@ -952,10 +956,6 @@ export const Graph: Story = {
         page: [workspaceGraphHandler()],
       },
     },
-    review: {
-      purpose:
-        "Graph pane of a Workspace, which shows its knowledge graph: the graph loaded, with a Play layout control.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -970,6 +970,10 @@ export const Graph: Story = {
   },
 }
 
+/**
+ * Graph pane of a Workspace, which shows its knowledge graph: the graph is
+ * still loading.
+ */
 export const GraphLoading: Story = {
   args: { pane: { kind: "graph" } },
   parameters: {
@@ -983,10 +987,6 @@ export const GraphLoading: Story = {
       handlers: {
         page: [workspaceGraphLoadingHandler()],
       },
-    },
-    review: {
-      purpose:
-        "Graph pane of a Workspace, which shows its knowledge graph: the graph is still loading.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1294,6 +1294,10 @@ export const TriggersGraphBuilding: Story = {
   },
 }
 
+/**
+ * Settings pane of a Workspace, which shows its setup and status: the Workspace
+ * has no skipped files.
+ */
 export const Settings: Story = {
   args: { pane: { kind: "settings" } },
   parameters: {
@@ -1311,13 +1315,13 @@ export const Settings: Story = {
         ],
       },
     },
-    review: {
-      purpose:
-        "Settings pane of a Workspace, which shows its setup and status: the Workspace has no skipped files.",
-    },
   },
 }
 
+/**
+ * Settings pane of a Workspace, which lists skipped files: the user opens a
+ * skipped file, and it opens in a Files tab.
+ */
 export const SettingsSkippedFileOpensInFiles: Story = {
   args: { pane: { kind: "settings" }, workspace: skippedFilesWorkspaceDetail },
   parameters: {
@@ -1336,10 +1340,6 @@ export const SettingsSkippedFileOpensInFiles: Story = {
         ],
       },
     },
-    review: {
-      purpose:
-        "Settings pane of a Workspace, which lists skipped files: the user opens a skipped file, and it opens in a Files tab.",
-    },
   },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1354,6 +1354,10 @@ export const SettingsSkippedFileOpensInFiles: Story = {
   },
 }
 
+/**
+ * Files pane of a Workspace, maximized over the chat: a Show conversation
+ * button and the conversation title fade in.
+ */
 export const Maximized: Story = {
   args: {
     pane: { kind: "files" },
@@ -1386,10 +1390,6 @@ export const Maximized: Story = {
         page: gitFilesHandlers,
       },
     },
-    review: {
-      purpose:
-        "Files pane of a Workspace, maximized over the chat: a Show conversation button and the conversation title fade in.",
-    },
   },
 }
 
@@ -1403,6 +1403,10 @@ const conversationFileHandlers = [
   ...gitFilesHandlers,
 ]
 
+/**
+ * Files pane in a conversation on a writable Workspace: the ledger file is open
+ * in the editor from the conversation sandbox.
+ */
 export const ConversationWritable: Story = {
   args: {
     conversationId: "conv_1",
@@ -1423,13 +1427,13 @@ export const ConversationWritable: Story = {
         page: conversationFileHandlers,
       },
     },
-    review: {
-      purpose:
-        "Files pane in a conversation on a writable Workspace: the ledger file is open in the editor from the conversation sandbox.",
-    },
   },
 }
 
+/**
+ * Files pane in a conversation, which shows the sandbox branch: the tree lists
+ * the sandbox files, not the default branch files.
+ */
 export const ConversationSandboxFiles: Story = {
   tags: ["required"],
   args: {
@@ -1461,10 +1465,6 @@ export const ConversationSandboxFiles: Story = {
           }),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Files pane in a conversation, which shows the sandbox branch: the tree lists the sandbox files, not the default branch files.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1510,6 +1510,10 @@ export const ConversationMaximizedSync: Story = {
   },
 }
 
+/**
+ * Files pane in a conversation, which shows the sandbox branch: the branch has
+ * no changes, so no Sync or Create PR button shows.
+ */
 export const ConversationCleanNoPublish: Story = {
   args: {
     conversationId: "conv_1",
@@ -1549,10 +1553,6 @@ export const ConversationCleanNoPublish: Story = {
           }),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Files pane in a conversation, which shows the sandbox branch: the branch has no changes, so no Sync or Create PR button shows.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1625,6 +1625,10 @@ export const ConversationCommittedCreatePr: Story = {
   },
 }
 
+/**
+ * Files pane in a conversation on a read-only Workspace: the sandbox files
+ * show, and no Sync or Create PR button shows.
+ */
 export const ConversationReadOnly: Story = {
   args: {
     workspace: readOnlyWorkspaceDetail,
@@ -1651,10 +1655,6 @@ export const ConversationReadOnly: Story = {
         ],
       },
     },
-    review: {
-      purpose:
-        "Files pane in a conversation on a read-only Workspace: the sandbox files show, and no Sync or Create PR button shows.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1668,6 +1668,10 @@ export const ConversationReadOnly: Story = {
   },
 }
 
+/**
+ * Diff pane in a conversation, which lists the changes of the sandbox branch:
+ * the conversation has changed files.
+ */
 export const DiffTab: Story = {
   args: {
     conversationId: "conv_1",
@@ -1686,13 +1690,13 @@ export const DiffTab: Story = {
         page: conversationFileHandlers,
       },
     },
-    review: {
-      purpose:
-        "Diff pane in a conversation, which lists the changes of the sandbox branch: the conversation has changed files.",
-    },
   },
 }
 
+/**
+ * Files pane in a conversation, which shows the sandbox branch: the sandbox
+ * tree is not ready and no default branch exists, so a loading message shows.
+ */
 export const SandboxLoading: Story = {
   args: {
     conversationId: "conv_1",
@@ -1717,10 +1721,6 @@ export const SandboxLoading: Story = {
         ],
       },
     },
-    review: {
-      purpose:
-        "Files pane in a conversation, which shows the sandbox branch: the sandbox tree is not ready and no default branch exists, so a loading message shows.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1730,6 +1730,10 @@ export const SandboxLoading: Story = {
   },
 }
 
+/**
+ * Files pane in a conversation, which shows the sandbox branch: the cached tree
+ * shows while the sandbox starts, then the live tree replaces it.
+ */
 export const CachedSandboxWhile409: Story = {
   args: {
     conversationId: "conv_1",
@@ -1780,10 +1784,6 @@ export const CachedSandboxWhile409: Story = {
           }),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Files pane in a conversation, which shows the sandbox branch: the cached tree shows while the sandbox starts, then the live tree replaces it.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1954,6 +1954,10 @@ export const DefaultBranchUntilSandboxReady: Story = {
 
 const filesTreeGets = { count: 0 }
 
+/**
+ * Files pane in a conversation, which shows the sandbox branch: the tree
+ * painted and the count of tree requests stays stable.
+ */
 export const StableFilesRequestBudget: Story = {
   tags: ["required"],
   args: {
@@ -1995,10 +1999,6 @@ export const StableFilesRequestBudget: Story = {
           }),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Files pane in a conversation, which shows the sandbox branch: the tree painted and the count of tree requests stays stable.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -2108,6 +2108,10 @@ function EditThenNavigateHarness(props: ComponentProps<typeof WorkspacePane>) {
   )
 }
 
+/**
+ * Files pane in a test harness with a leave button: the user edits a file and
+ * leaves, and the pane saves the edit.
+ */
 export const EditThenNavigate: Story = {
   tags: ["required"],
   args: {
@@ -2199,10 +2203,6 @@ export const EditThenNavigate: Story = {
         ],
       },
     },
-    review: {
-      purpose:
-        "Files pane in a test harness with a leave button: the user edits a file and leaves, and the pane saves the edit.",
-    },
   },
   play: async ({ canvasElement }) => {
     editThenNavigatePuts.count = 0
@@ -2276,6 +2276,10 @@ function newFileWriteResponse(path: string, body: string | null) {
   }
 }
 
+/**
+ * Files pane in a conversation, which edits files: the user types a new file,
+ * and the editor keeps focus and all typed text.
+ */
 export const NewFileKeepsTypedText: Story = {
   tags: ["required"],
   args: {
@@ -2362,10 +2366,6 @@ export const NewFileKeepsTypedText: Story = {
         ],
       },
     },
-    review: {
-      purpose:
-        "Files pane in a conversation, which edits files: the user types a new file, and the editor keeps focus and all typed text.",
-    },
   },
   play: async ({ canvasElement }) => {
     newFileServer.blobs = {}
@@ -2430,6 +2430,10 @@ const orderedWrites = {
   maxInFlight: 0,
 }
 
+/**
+ * Files pane in a conversation, which edits files: two saves finish out of
+ * order, and each file tab shows its latest typed text.
+ */
 export const OutOfOrderSaves: Story = {
   tags: ["required"],
   args: {
@@ -2567,10 +2571,6 @@ export const OutOfOrderSaves: Story = {
           ...gitFilesHandlers,
         ],
       },
-    },
-    review: {
-      purpose:
-        "Files pane in a conversation, which edits files: two saves finish out of order, and each file tab shows its latest typed text.",
     },
   },
   play: async ({ canvasElement }) => {

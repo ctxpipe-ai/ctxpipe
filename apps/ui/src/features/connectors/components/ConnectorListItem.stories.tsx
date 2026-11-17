@@ -46,13 +46,11 @@ const shared = {
   onAction: () => {},
 }
 
+/**
+ * Connector row on the Connectors page, with health and actions for one
+ * connection: a connected GitHub row, expanded to show its details.
+ */
 export const Expanded: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Connector row on the Connectors page, with health and actions for one connection: a connected GitHub row, expanded to show its details.",
-    },
-  },
   args: {
     ...shared,
     health: "connected",
@@ -60,13 +58,11 @@ export const Expanded: Story = {
   },
 }
 
+/**
+ * Connector row on the Connectors page, with health and actions for one
+ * connection: GitHub setup is not finished, the row is open.
+ */
 export const PendingSetup: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Connector row on the Connectors page, with health and actions for one connection: GitHub setup is not finished, the row is open.",
-    },
-  },
   args: {
     ...shared,
     health: "setup_pending",
@@ -144,13 +140,11 @@ export const PendingSetupNarrow: Story = {
   },
 }
 
+/**
+ * Connector row on the Connectors page, with health and actions for one
+ * connection: the content sync failed, the row is open.
+ */
 export const SyncFailed: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Connector row on the Connectors page, with health and actions for one connection: the content sync failed, the row is open.",
-    },
-  },
   args: {
     ...shared,
     health: "sync_failed",
@@ -164,13 +158,11 @@ export const SyncFailed: Story = {
   },
 }
 
+/**
+ * Connector row on the Connectors page, with health and actions for one
+ * connection: the configuration pull request failed, the row is open.
+ */
 export const ConfigPrFailed: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Connector row on the Connectors page, with health and actions for one connection: the configuration pull request failed, the row is open.",
-    },
-  },
   args: {
     ...shared,
     health: "config_failed",

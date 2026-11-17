@@ -51,12 +51,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Main navigation of an org: the org has one Workspace and the Workspace page
+ * is current.
+ */
 export const SingleWorkspace: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Main navigation of an org: the org has one Workspace and the Workspace page is current.",
-    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
@@ -75,12 +75,11 @@ export const SingleWorkspace: Story = {
   },
 }
 
+/**
+ * Main navigation of an org: the org has two Workspaces, one of them read-only.
+ */
 export const MultipleWorkspaces: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Main navigation of an org: the org has two Workspaces, one of them read-only.",
-    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
@@ -99,12 +98,12 @@ export const MultipleWorkspaces: Story = {
   },
 }
 
+/**
+ * Main navigation of an org: the user collapsed the nav to the narrow icon
+ * rail.
+ */
 export const Collapsed: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Main navigation of an org: the user collapsed the nav to the narrow icon rail.",
-    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
@@ -209,16 +208,16 @@ export const PlainLinkMovesCurrentNav: Story = {
   },
 }
 
+/**
+ * Main navigation of an org: the nav is collapsed to the icon rail after a
+ * check of the Docs link.
+ */
 export const DocsLinkOpensProductDocs: Story = {
   parameters: {
     ...SingleWorkspace.parameters,
     visual: { skip: "Behavior test: it ends in the same state as Collapsed." },
     intent:
       "Catches a Docs link that is missing from the Help list of the main navigation. Also catches a Docs link that does not open the product docs in a new tab, or that has no name in the collapsed rail. Not for the other footer items.",
-    review: {
-      purpose:
-        "Main navigation of an org: the nav is collapsed to the icon rail after a check of the Docs link.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -239,6 +238,11 @@ export const DocsLinkOpensProductDocs: Story = {
   },
 }
 
+/**
+ * Side nav of an org: the user pressed their name at the bottom, and the user
+ * menu opened with Settings, Connected apps and Sign out, the focus on
+ * Settings.
+ */
 export const UserMenuLinksConnectedApps: Story = {
   tags: ["required"],
   parameters: {
@@ -246,10 +250,6 @@ export const UserMenuLinksConnectedApps: Story = {
     ...SingleWorkspace.parameters,
     intent:
       "Catches a user menu whose Connected apps item does not link to the connected apps page in the auth area. Not for other menu items or account data.",
-    review: {
-      purpose:
-        "Side nav of an org: the user pressed their name at the bottom, and the user menu opened with Settings, Connected apps and Sign out, the focus on Settings.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

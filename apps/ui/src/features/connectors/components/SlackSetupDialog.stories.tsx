@@ -81,12 +81,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Slack setup dialog, which connects Slack and adds its channels to Workspaces:
+ * the status request is still loading.
+ */
 export const Loading: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Slack setup dialog, which connects Slack and adds its channels to Workspaces: the status request is still loading.",
-    },
     msw: {
       handlers: {
         page: [
@@ -106,12 +106,12 @@ export const Loading: Story = {
   },
 }
 
+/**
+ * Slack setup dialog, which connects Slack and adds its channels to Workspaces:
+ * the first step, where the admin authorizes Slack.
+ */
 export const AuthorizeSlack: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Slack setup dialog, which connects Slack and adds its channels to Workspaces: the first step, where the admin authorizes Slack.",
-    },
     msw: {
       handlers: {
         page: [
@@ -130,12 +130,12 @@ export const AuthorizeSlack: Story = {
   },
 }
 
+/**
+ * Slack setup dialog, which connects Slack and adds its channels to Workspaces:
+ * Slack is authorized and the admin must connect GitHub next.
+ */
 export const ConnectGitHub: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Slack setup dialog, which connects Slack and adds its channels to Workspaces: Slack is authorized and the admin must connect GitHub next.",
-    },
     msw: {
       handlers: {
         page: [
@@ -381,12 +381,12 @@ export const ManageRemovesAnUncheckedWorkspace: Story = {
   },
 }
 
+/**
+ * Slack setup dialog, which connects Slack and adds its channels to Workspaces:
+ * the status request failed with a server error.
+ */
 export const StatusError: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Slack setup dialog, which connects Slack and adds its channels to Workspaces: the status request failed with a server error.",
-    },
     msw: {
       handlers: {
         page: [

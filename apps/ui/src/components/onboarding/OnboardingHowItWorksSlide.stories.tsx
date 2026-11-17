@@ -46,13 +46,12 @@ function slideRows(canvasElement: HTMLElement) {
   return [welcome.parentElement as HTMLElement, ...steps, action]
 }
 
+/**
+ * Welcome slide of onboarding, which tells a new user how ctxpipe works in
+ * three steps: a user with no org pressed Next, which opens the step that
+ * creates the org.
+ */
 export const NewOrganization: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Welcome slide of onboarding, which tells a new user how ctxpipe works in three steps: a user with no org pressed Next, which opens the step that creates the org.",
-    },
-  },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>

@@ -102,38 +102,39 @@ function threadHandlers(messages: typeof docsConversationDetail.messages) {
   }
 }
 
+/**
+ * Chat session of a Workspace, where a member asks about the code: a member
+ * opened a long thread, so it scrolls to the latest answer and the first turns
+ * are above the view.
+ */
 export const ThreadLong: Story = {
   args: threadArgs(longThreadMessages, "Billing"),
   parameters: {
     msw: threadHandlers(longThreadMessages),
-    review: {
-      purpose:
-        "Chat session of a Workspace, where a member asks about the code: a member opened a long thread, so it scrolls to the latest answer and the first turns are above the view.",
-    },
     storyRoute: threadRoute,
   },
 }
 
+/**
+ * Chat session of a Workspace, where a member asks about the code: the answer
+ * has Markdown headings, lists, and links.
+ */
 export const MarkdownAnswer: Story = {
   args: threadArgs(markdownAnswerMessages, "Auth"),
   parameters: {
     msw: threadHandlers(markdownAnswerMessages),
-    review: {
-      purpose:
-        "Chat session of a Workspace, where a member asks about the code: the answer has Markdown headings, lists, and links.",
-    },
     storyRoute: threadRoute,
   },
 }
 
+/**
+ * Chat session of a Workspace, where a member asks about the code: the answer
+ * has a TypeScript code block with syntax colors.
+ */
 export const CodeAnswer: Story = {
   args: threadArgs(codeAnswerMessages, "Session helper"),
   parameters: {
     msw: threadHandlers(codeAnswerMessages),
-    review: {
-      purpose:
-        "Chat session of a Workspace, where a member asks about the code: the answer has a TypeScript code block with syntax colors.",
-    },
     storyRoute: threadRoute,
   },
   play: async ({ canvasElement }) => {
@@ -156,14 +157,14 @@ export const CodeAnswer: Story = {
   },
 }
 
+/**
+ * Chat session of a Workspace, where a member asks about the code: the answer
+ * has a finished reasoning block before the text.
+ */
 export const Reasoning: Story = {
   args: threadArgs(reasoningMessages, "Ledger"),
   parameters: {
     msw: threadHandlers(reasoningMessages),
-    review: {
-      purpose:
-        "Chat session of a Workspace, where a member asks about the code: the answer has a finished reasoning block before the text.",
-    },
     storyRoute: threadRoute,
   },
 }
@@ -260,6 +261,11 @@ function toolEvents(
 const refundsThought =
   "**Finding the refund rules**\n\nThe ledger file names a refunds page. I should read it before I answer."
 
+/**
+ * Chat session of a Workspace, where a member asks about the code: the agent
+ * still writes its first thought, so the status line names the thought and Stop
+ * shows.
+ */
 export const ReasoningStreaming: Story = {
   ...liveTurn(
     "Who can approve a refund?",
@@ -268,37 +274,37 @@ export const ReasoningStreaming: Story = {
   ),
   parameters: {
     ...liveTurnParameters,
-    review: {
-      purpose:
-        "Chat session of a Workspace, where a member asks about the code: the agent still writes its first thought, so the status line names the thought and Stop shows.",
-    },
   },
 }
 
+/**
+ * Chat session of a Workspace, where a member asks about the code: the answer
+ * has one finished tool call.
+ */
 export const ToolUse: Story = {
   args: threadArgs(oneToolMessages, "Login"),
   parameters: {
     msw: threadHandlers(oneToolMessages),
-    review: {
-      purpose:
-        "Chat session of a Workspace, where a member asks about the code: the answer has one finished tool call.",
-    },
     storyRoute: threadRoute,
   },
 }
 
+/**
+ * Chat session of a Workspace, where a member asks about the code: the answer
+ * has many finished tool calls.
+ */
 export const ToolUseMany: Story = {
   args: threadArgs(manyToolMessages, "Billing"),
   parameters: {
     msw: threadHandlers(manyToolMessages),
-    review: {
-      purpose:
-        "Chat session of a Workspace, where a member asks about the code: the answer has many finished tool calls.",
-    },
     storyRoute: threadRoute,
   },
 }
 
+/**
+ * Chat session of a Workspace, where a member asks about the code: the agent
+ * searched and still reads a file, so the log counts both tools and Stop shows.
+ */
 export const ToolUseStreaming: Story = {
   ...liveTurn(
     "Which file holds the refund rules?",
@@ -317,25 +323,26 @@ export const ToolUseStreaming: Story = {
   ),
   parameters: {
     ...liveTurnParameters,
-    review: {
-      purpose:
-        "Chat session of a Workspace, where a member asks about the code: the agent searched and still reads a file, so the log counts both tools and Stop shows.",
-    },
   },
 }
 
+/**
+ * Chat session of a Workspace, where a member asks about the code: the answer
+ * has reasoning and tool calls, all finished.
+ */
 export const ReasoningAndTools: Story = {
   args: threadArgs(reasoningAndToolsMessages, "Ledger"),
   parameters: {
     msw: threadHandlers(reasoningAndToolsMessages),
-    review: {
-      purpose:
-        "Chat session of a Workspace, where a member asks about the code: the answer has reasoning and tool calls, all finished.",
-    },
     storyRoute: threadRoute,
   },
 }
 
+/**
+ * Chat session of a Workspace, where a member asks about the code: the agent
+ * thought, searched, and still reads a file, so the log counts each step and
+ * Stop shows.
+ */
 export const ReasoningAndToolsStreaming: Story = {
   ...liveTurn(
     "Why ledger.md and not invoices.md?",
@@ -358,35 +365,31 @@ export const ReasoningAndToolsStreaming: Story = {
   ),
   parameters: {
     ...liveTurnParameters,
-    review: {
-      purpose:
-        "Chat session of a Workspace, where a member asks about the code: the agent thought, searched, and still reads a file, so the log counts each step and Stop shows.",
-    },
   },
 }
 
+/**
+ * Chat session of a Workspace, where a member asks about the code: the answer
+ * links to source files.
+ */
 export const SourceLinks: Story = {
   args: threadArgs(sourceLinkMessages, "Payments API"),
   parameters: {
     msw: threadHandlers(sourceLinkMessages),
-    review: {
-      purpose:
-        "Chat session of a Workspace, where a member asks about the code: the answer links to source files.",
-    },
     storyRoute: threadRoute,
   },
 }
 
+/**
+ * Chat session of a Workspace, where a member asks about the code: the
+ * Workspace is read-only, so the member cannot send a message.
+ */
 export const ReadOnly: Story = {
   args: {
     ...threadArgs(docsConversationDetail.messages),
     workspace: readOnlyWorkspace,
   },
   parameters: {
-    review: {
-      purpose:
-        "Chat session of a Workspace, where a member asks about the code: the Workspace is read-only, so the member cannot send a message.",
-    },
     storyRoute: {
       ...threadRoute,
       workspaceSlug: "handbook",
@@ -394,15 +397,15 @@ export const ReadOnly: Story = {
   },
 }
 
+/**
+ * Chat session of a Workspace, where a member asks about the code: the member
+ * sent a question and the sandbox is still in setup.
+ */
 export const Waiting: Story = {
   args: threadArgs(docsConversationDetail.messages),
   // The socket takes the run and answers nothing.
   beforeEach: () => installAguiWebSocket(() => []).restore,
   parameters: {
-    review: {
-      purpose:
-        "Chat session of a Workspace, where a member asks about the code: the member sent a question and the sandbox is still in setup.",
-    },
     storyRoute: threadRoute,
     msw: {
       handlers: {
@@ -426,6 +429,11 @@ export const Waiting: Story = {
   },
 }
 
+/**
+ * Chat session of a Workspace, where a member asks about the code: the member
+ * sent a follow-up question, and the first words of the answer stream in while
+ * Stop shows.
+ */
 export const Streaming: Story = {
   ...liveTurn(
     "Where do refunds go?",
@@ -441,20 +449,17 @@ export const Streaming: Story = {
   ),
   parameters: {
     ...liveTurnParameters,
-    review: {
-      purpose:
-        "Chat session of a Workspace, where a member asks about the code: the member sent a follow-up question, and the first words of the answer stream in while Stop shows.",
-    },
   },
 }
 
+/**
+ * Chat session of a Workspace, where a member asks about the code: the
+ * organization is at its chat limit, so an alert tells the member to try again
+ * later.
+ */
 export const PrepareAtCapacity: Story = {
   args: threadArgs(docsConversationDetail.messages),
   parameters: {
-    review: {
-      purpose:
-        "Chat session of a Workspace, where a member asks about the code: the organization is at its chat limit, so an alert tells the member to try again later.",
-    },
     storyRoute: threadRoute,
     msw: {
       handlers: {
@@ -485,6 +490,10 @@ export const PrepareAtCapacity: Story = {
   },
 }
 
+/**
+ * Chat session of a Workspace, where a member asks about the code: the run
+ * failed after a send, and an alert shows the error.
+ */
 export const SendError: Story = {
   args: threadArgs(docsConversationDetail.messages),
   beforeEach: () =>
@@ -493,10 +502,6 @@ export const SendError: Story = {
       { type: "RUN_ERROR", runId, message: "The chat sandbox is gone." },
     ]).restore,
   parameters: {
-    review: {
-      purpose:
-        "Chat session of a Workspace, where a member asks about the code: the run failed after a send, and an alert shows the error.",
-    },
     storyRoute: threadRoute,
     msw: {
       handlers: {

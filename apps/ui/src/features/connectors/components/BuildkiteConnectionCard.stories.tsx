@@ -63,13 +63,13 @@ const card = () =>
     />,
   )
 
+/**
+ * Buildkite connection card on the Connectors page: connected with the webhook
+ * set up, card open with the Manage action.
+ */
 export const Connected: Story = {
   render: card,
   parameters: {
-    review: {
-      purpose:
-        "Buildkite connection card on the Connectors page: connected with the webhook set up, card open with the Manage action.",
-    },
     msw: {
       handlers: {
         page: [
@@ -99,14 +99,14 @@ export const Connected: Story = {
   },
 }
 
+/**
+ * Buildkite connection card on the Connectors page: connected but with no
+ * webhook, so builds sync once a day and an Add the webhook action shows.
+ */
 export const WebhookMissing: Story = {
   name: "No webhook, setup opens at the webhook step",
   render: card,
   parameters: {
-    review: {
-      purpose:
-        "Buildkite connection card on the Connectors page: connected but with no webhook, so builds sync once a day and an Add the webhook action shows.",
-    },
     msw: {
       handlers: { page: [buildkiteStatusHandler(buildkiteStoryStatus())] },
     },
@@ -132,14 +132,14 @@ export const WebhookMissing: Story = {
   },
 }
 
+/**
+ * Buildkite connection card on the Connectors page: the webhook is saved and
+ * the card offers to replace its token.
+ */
 export const ReplaceWebhookToken: Story = {
   name: "Webhook saved, its token can be replaced",
   render: card,
   parameters: {
-    review: {
-      purpose:
-        "Buildkite connection card on the Connectors page: the webhook is saved and the card offers to replace its token.",
-    },
     msw: {
       handlers: {
         page: [
@@ -164,14 +164,15 @@ export const ReplaceWebhookToken: Story = {
   },
 }
 
+/**
+ * Buildkite card on the Connectors page, opened by the admin: Buildkite no
+ * longer accepts the saved token, so the status is Needs reconnect and the
+ * details end with Reconnect Buildkite.
+ */
 export const RevokedOpensReconnect: Story = {
   name: "Revoked, reconnect opens setup",
   render: card,
   parameters: {
-    review: {
-      purpose:
-        "Buildkite card on the Connectors page, opened by the admin: Buildkite no longer accepts the saved token, so the status is Needs reconnect and the details end with Reconnect Buildkite.",
-    },
     msw: {
       handlers: {
         page: [
@@ -208,13 +209,13 @@ export const RevokedOpensReconnect: Story = {
 
 const deleted = fn()
 
+/**
+ * Buildkite connection card on the Connectors page: the user removes the
+ * connector through the actions menu and a confirm dialog.
+ */
 export const Remove: Story = {
   render: card,
   parameters: {
-    review: {
-      purpose:
-        "Buildkite connection card on the Connectors page: the user removes the connector through the actions menu and a confirm dialog.",
-    },
     msw: {
       handlers: {
         page: [
@@ -254,13 +255,13 @@ export const Remove: Story = {
   },
 }
 
+/**
+ * Buildkite connection card on the Connectors page: the status request has not
+ * returned, so the card is still checking.
+ */
 export const Checking: Story = {
   render: card,
   parameters: {
-    review: {
-      purpose:
-        "Buildkite connection card on the Connectors page: the status request has not returned, so the card is still checking.",
-    },
     msw: {
       handlers: {
         page: [

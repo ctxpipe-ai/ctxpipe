@@ -77,12 +77,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * OAuth consent screen, where a user lets an app read ctxpipe for some
+ * organizations: the user ticks a second organization and allows.
+ */
 export const ConsentSendsTickedOrgs: Story = {
   parameters: {
-    review: {
-      purpose:
-        "OAuth consent screen, where a user lets an app read ctxpipe for some organizations: the user ticks a second organization and allows.",
-    },
     intent:
       "Catches a consent route that sends the wrong organizations or scope. The consent request carries the ticked organizations and the read scope. Not for the consent screen layout.",
   },

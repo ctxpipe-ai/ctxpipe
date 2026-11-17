@@ -139,16 +139,16 @@ export const NoItemYet: Story = {
   },
 }
 
+/**
+ * Format upgrade banner of a Workspace: ctxpipe prepares the upgrade pull
+ * request now.
+ */
 export const Running: Story = {
   parameters: {
     ...handlers(
       "owner",
       upgradesFixture([upgradeItemFixture({ status: "running" })]),
     ),
-    review: {
-      purpose:
-        "Format upgrade banner of a Workspace: ctxpipe prepares the upgrade pull request now.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -162,6 +162,11 @@ export const Running: Story = {
   },
 }
 
+/**
+ * Format upgrade banner at the top of the Workspace page, seen by an owner:
+ * ctxpipe opened the upgrade pull request, so the banner says to merge it on
+ * GitHub and links to it.
+ */
 export const PullRequestOpen: Story = {
   parameters: {
     ...handlers(
@@ -176,10 +181,6 @@ export const PullRequestOpen: Story = {
         }),
       ]),
     ),
-    review: {
-      purpose:
-        "Format upgrade banner at the top of the Workspace page, seen by an owner: ctxpipe opened the upgrade pull request, so the banner says to merge it on GitHub and links to it.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -225,6 +226,10 @@ export const Failed: Story = {
   },
 }
 
+/**
+ * Format upgrade banner of a Workspace: the upgrade is blocked because the
+ * GitHub App cannot write to the repository.
+ */
 export const Blocked: Story = {
   parameters: {
     ...handlers(
@@ -237,10 +242,6 @@ export const Blocked: Story = {
         }),
       ]),
     ),
-    review: {
-      purpose:
-        "Format upgrade banner of a Workspace: the upgrade is blocked because the GitHub App cannot write to the repository.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

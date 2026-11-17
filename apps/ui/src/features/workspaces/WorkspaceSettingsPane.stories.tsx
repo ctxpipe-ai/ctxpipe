@@ -103,14 +103,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Settings: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace, where an owner manages its upgrades, sources, graph and repository: everything is up to date, and one GitHub repository is a source.",
-    },
-  },
-}
+/**
+ * Settings pane of a Workspace, where an owner manages its upgrades, sources,
+ * graph and repository: everything is up to date, and one GitHub repository is
+ * a source.
+ */
+export const Settings: Story = {}
 
 /**
  * One card for each part, in this order: Upgrades, Sources, Knowledge graph,
@@ -296,13 +294,11 @@ export const LandsOnUpgrades: Story = {
   },
 }
 
+/**
+ * Settings pane of a Workspace, where an owner manages its repository, sources,
+ * and upgrades: the Workspace repository is read-only.
+ */
 export const ReadOnly: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace, where an owner manages its repository, sources, and upgrades: the Workspace repository is read-only.",
-    },
-  },
   args: {
     workspace: readOnlyWorkspaceDetail,
   },
@@ -376,13 +372,11 @@ export const ReadOnlyWithoutConnection: Story = {
   },
 }
 
+/**
+ * Settings pane of a Workspace: a new repository still loads, so a note says
+ * answers still come from the old one.
+ */
 export const ProjectionLag: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace: a new repository still loads, so a note says answers still come from the old one.",
-    },
-  },
   args: {
     workspace: projectionLagWorkspaceDetail,
   },
@@ -395,25 +389,21 @@ export const ProjectionLag: Story = {
   },
 }
 
+/**
+ * Settings pane of a Workspace, where an owner manages its repository, sources,
+ * and upgrades: the Workspace has no linked repositories.
+ */
 export const EmptyLinkedRepos: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace, where an owner manages its repository, sources, and upgrades: the Workspace has no linked repositories.",
-    },
-  },
   args: {
     workspace: emptyLinkedWorkspaceDetail,
   },
 }
 
+/**
+ * Settings pane of a Workspace: a linked repository was indexed with issues,
+ * because one of six projects could not be indexed.
+ */
 export const LinkedRepositoryWithIssues: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace: a linked repository was indexed with issues, because one of six projects could not be indexed.",
-    },
-  },
   args: {
     workspace: {
       ...docsWorkspaceDetail,
@@ -488,13 +478,11 @@ export const AddRepositories: Story = {
   },
 }
 
+/**
+ * Settings pane of a Workspace, where an owner manages its repository, sources,
+ * and upgrades: the knowledge graph still loads.
+ */
 export const Hydrating: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace, where an owner manages its repository, sources, and upgrades: the knowledge graph still loads.",
-    },
-  },
   args: {
     workspace: hydratingWorkspaceDetail,
   },
@@ -877,12 +865,12 @@ export const RootFolder: Story = {
   },
 }
 
+/**
+ * Settings pane of a Workspace: the context repository dialog could not save a
+ * pasted git URL, so an error shows.
+ */
 export const RelinkError: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace: the context repository dialog could not save a pasted git URL, so an error shows.",
-    },
     msw: {
       handlers: {
         page: [
@@ -984,14 +972,14 @@ export const RenameRefused: Story = {
   },
 }
 
+/**
+ * Settings pane of a Workspace: the owner typed the Workspace name in the
+ * delete dialog and confirmed, so the dialog closed and the delete starts.
+ */
 export const DeleteConfirmOpen: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends after the delete, when the product leaves this page for Home; DeleteConfirmPending shows the confirmed dialog.",
-    },
-    review: {
-      purpose:
-        "Settings pane of a Workspace: the owner typed the Workspace name in the delete dialog and confirmed, so the dialog closed and the delete starts.",
     },
     msw: {
       handlers: {
@@ -1038,12 +1026,12 @@ export const DeleteConfirmOpen: Story = {
   },
 }
 
+/**
+ * Settings pane of a Workspace: the owner confirmed the delete dialog, and the
+ * delete request still runs, so the button shows a spinner.
+ */
 export const DeleteConfirmPending: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace: the owner confirmed the delete dialog, and the delete request still runs, so the button shows a spinner.",
-    },
     msw: {
       handlers: {
         page: [

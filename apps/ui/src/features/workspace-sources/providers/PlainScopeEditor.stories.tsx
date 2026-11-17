@@ -41,13 +41,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Plain scope editor, where the user picks the Help Centers and labels of a
+ * Workspace source: nothing is picked at first, with notes on limits and
+ * personal data, then the user picks two items.
+ */
 export const SelectHelpCentersAndLabels: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Plain scope editor, where the user picks the Help Centers and labels of a Workspace source: nothing is picked at first, with notes on limits and personal data, then the user picks two items.",
-    },
-  },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
     await waitFor(() =>
@@ -69,13 +68,12 @@ export const SelectHelpCentersAndLabels: Story = {
   },
 }
 
+/**
+ * Plain scope editor in the Add source dialog: Product docs is selected, the
+ * user filters for feat and ticks Feature request, and Product docs stays in
+ * the list as selected.
+ */
 export const FilterKeepsTheSelection: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Plain scope editor in the Add source dialog: Product docs is selected, the user filters for feat and ticks Feature request, and Product docs stays in the list as selected.",
-    },
-  },
   args: { label: "Support", initialScope: { helpCenters: ["hc_docs"] } },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -105,13 +103,12 @@ export const FilterKeepsTheSelection: Story = {
   },
 }
 
+/**
+ * Plain scope editor, where the user picks the Help Centers and labels of a
+ * Workspace source: a selected label that Plain no longer lists shows by its
+ * id, and the user clears it.
+ */
 export const RemovedItemCanBeCleared: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Plain scope editor, where the user picks the Help Centers and labels of a Workspace source: a selected label that Plain no longer lists shows by its id, and the user clears it.",
-    },
-  },
   args: { initialScope: { labels: ["lt_gone", "lt_bug"] } },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -123,12 +120,12 @@ export const RemovedItemCanBeCleared: Story = {
   },
 }
 
+/**
+ * Plain scope editor, where the user picks the Help Centers and labels of a
+ * Workspace source: the Help Centers and labels still load.
+ */
 export const Loading: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Plain scope editor, where the user picks the Help Centers and labels of a Workspace source: the Help Centers and labels still load.",
-    },
     msw: {
       handlers: {
         page: [
@@ -148,12 +145,13 @@ export const Loading: Story = {
   },
 }
 
+/**
+ * Plain scope editor in the Add source dialog: Plain refuses the API key of the
+ * connection, so an error alert in place of the list tells the user to
+ * reconnect Plain.
+ */
 export const LoadError: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Plain scope editor in the Add source dialog: Plain refuses the API key of the connection, so an error alert in place of the list tells the user to reconnect Plain.",
-    },
     msw: {
       handlers: {
         page: [

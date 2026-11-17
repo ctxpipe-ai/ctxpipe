@@ -56,13 +56,13 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * GitHub connection card on the Connectors page: the GitHub App is installed on
+ * an account with 12 repositories.
+ */
 export const Connected: Story = {
   render: () => <GithubConnectionCard {...cardProps} />,
   parameters: {
-    review: {
-      purpose:
-        "GitHub connection card on the Connectors page: the GitHub App is installed on an account with 12 repositories.",
-    },
     msw: {
       handlers: {
         page: [
@@ -87,13 +87,13 @@ export const Connected: Story = {
   },
 }
 
+/**
+ * GitHub connection card on the Connectors page: the installation request has
+ * not returned, so the card is still checking.
+ */
 export const Checking: Story = {
   render: () => <GithubConnectionCard {...cardProps} />,
   parameters: {
-    review: {
-      purpose:
-        "GitHub connection card on the Connectors page: the installation request has not returned, so the card is still checking.",
-    },
     msw: {
       handlers: {
         page: [
@@ -115,13 +115,13 @@ export const Checking: Story = {
   },
 }
 
+/**
+ * GitHub connection card on the Connectors page: the GitHub App is not
+ * installed yet, so setup is not finished.
+ */
 export const NotYetConnected: Story = {
   render: () => <GithubConnectionCard {...cardProps} />,
   parameters: {
-    review: {
-      purpose:
-        "GitHub connection card on the Connectors page: the GitHub App is not installed yet, so setup is not finished.",
-    },
     msw: {
       handlers: {
         page: [
@@ -140,13 +140,13 @@ export const NotYetConnected: Story = {
   },
 }
 
+/**
+ * GitHub card on the Connectors page: the installation read failed, so a row
+ * under the head gives the cause and a Retry button without a click.
+ */
 export const CouldntLoad: Story = {
   render: () => <GithubConnectionCard {...cardProps} />,
   parameters: {
-    review: {
-      purpose:
-        "GitHub card on the Connectors page: the installation read failed, so a row under the head gives the cause and a Retry button without a click.",
-    },
     msw: {
       handlers: {
         page: [

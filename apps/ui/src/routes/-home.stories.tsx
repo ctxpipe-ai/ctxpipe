@@ -51,6 +51,10 @@ const homeRoute = {
   orgSlug: "acme",
 } satisfies StoryRouteParams
 
+/**
+ * Org home page, where a member asks the agent and opens a Workspace: the
+ * session is still loading.
+ */
 export const Loading: Story = {
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
@@ -71,10 +75,6 @@ export const Loading: Story = {
     ).not.toBeInTheDocument()
   },
   parameters: {
-    review: {
-      purpose:
-        "Org home page, where a member asks the agent and opens a Workspace: the session is still loading.",
-    },
     intent:
       "Catches an org home that shows content or a Create button while the session loads. The shell shows the selector and the activity loading text. Not for loaded data.",
     storyRoute: homeRoute,
@@ -321,6 +321,10 @@ export const EmptyRecentWhileActivityLoads: Story = {
   },
 }
 
+/**
+ * Org home page, where a member asks the agent and opens a Workspace: the org
+ * has Workspaces with activity and recent commits.
+ */
 export const Populated: Story = {
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
@@ -345,10 +349,6 @@ export const Populated: Story = {
     )
   },
   parameters: {
-    review: {
-      purpose:
-        "Org home page, where a member asks the agent and opens a Workspace: the org has Workspaces with activity and recent commits.",
-    },
     intent:
       "Catches an org home that shows wrong headings or no commits. It shows the selector, Activity and Recent headings in the plain style, and recent commits. Not for loading states.",
     storyRoute: homeRoute,
@@ -394,6 +394,10 @@ export const ActivityAndRecentKeepTheirGap: Story = {
   },
 }
 
+/**
+ * Org home page, where a member asks the agent and opens a Workspace: the
+ * activity is still loading while the selector shows.
+ */
 export const ActivityLoading: Story = {
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
@@ -412,10 +416,6 @@ export const ActivityLoading: Story = {
     expect(canvas.queryByText("Loading…")).not.toBeInTheDocument()
   },
   parameters: {
-    review: {
-      purpose:
-        "Org home page, where a member asks the agent and opens a Workspace: the activity is still loading while the selector shows.",
-    },
     intent:
       "Catches an activity area that shows a bare Loading text. It shows the activity loading text while the selector is already visible. Not for loaded activity.",
     storyRoute: homeRoute,
@@ -485,6 +485,10 @@ export const FirstMessageOpensConversation: Story = {
   },
 }
 
+/**
+ * Org home page, where a member asks the agent and opens a Workspace: the
+ * Workspace has no commit history, so the empty commits text shows at once.
+ */
 export const NoHistory: Story = {
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
@@ -505,10 +509,6 @@ export const NoHistory: Story = {
     )
   },
   parameters: {
-    review: {
-      purpose:
-        "Org home page, where a member asks the agent and opens a Workspace: the Workspace has no commit history, so the empty commits text shows at once.",
-    },
     intent:
       "Catches an org home with no commit history that waits on a hanging list read. The empty commits text shows at once. Not for populated commits.",
     storyRoute: homeRoute,

@@ -74,12 +74,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Linear setup wizard, which connects Linear and adds its teams to Workspaces:
+ * the status request is still loading.
+ */
 export const Loading: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Linear setup wizard, which connects Linear and adds its teams to Workspaces: the status request is still loading.",
-    },
     msw: {
       handlers: {
         page: [
@@ -94,13 +94,13 @@ export const Loading: Story = {
   },
 }
 
+/**
+ * Linear setup wizard for a new connection on the hosted product, where ctxpipe
+ * supplies the OAuth app: the first step, which connects a Linear workspace.
+ */
 export const ConnectWorkspace: Story = {
   args: { connectionId: undefined },
   parameters: {
-    review: {
-      purpose:
-        "Linear setup wizard for a new connection on the hosted product, where ctxpipe supplies the OAuth app: the first step, which connects a Linear workspace.",
-    },
     msw: {
       handlers: {
         page: [
@@ -120,13 +120,13 @@ export const ConnectWorkspace: Story = {
   },
 }
 
+/**
+ * Linear setup wizard on a self-hosted install: the step where the admin
+ * registers a private Linear OAuth app, with no app saved yet.
+ */
 export const RegisterOauthApp: Story = {
   args: { connectionId },
   parameters: {
-    review: {
-      purpose:
-        "Linear setup wizard on a self-hosted install: the step where the admin registers a private Linear OAuth app, with no app saved yet.",
-    },
     msw: {
       handlers: {
         page: [
@@ -146,13 +146,13 @@ export const RegisterOauthApp: Story = {
   },
 }
 
+/**
+ * Linear setup wizard on a self-hosted install: the private Linear OAuth app is
+ * saved and the admin can connect Linear.
+ */
 export const RegisterOauthAppSaved: Story = {
   args: { connectionId },
   parameters: {
-    review: {
-      purpose:
-        "Linear setup wizard on a self-hosted install: the private Linear OAuth app is saved and the admin can connect Linear.",
-    },
     msw: {
       handlers: {
         page: [

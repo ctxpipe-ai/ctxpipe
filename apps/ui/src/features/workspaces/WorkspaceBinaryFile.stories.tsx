@@ -37,6 +37,10 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Image preview in the Files pane, where a member views or downloads a file:
+ * the member chose Actual size, so a small PNG shows at its own 96 × 64 px.
+ */
 export const ImagePreview: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -56,12 +60,6 @@ export const ImagePreview: Story = {
         "max-w-none",
       ),
     )
-  },
-  parameters: {
-    review: {
-      purpose:
-        "Image preview in the Files pane, where a member views or downloads a file: the member chose Actual size, so a small PNG shows at its own 96 × 64 px.",
-    },
   },
 }
 
@@ -119,6 +117,10 @@ export const SvgTextWithSource: Story = {
   },
 }
 
+/**
+ * Binary file view in the Files pane, which previews or downloads a file: a zip
+ * file has no preview, so only a Download link shows.
+ */
 export const DownloadBinaryFile: Story = {
   args: {
     path: "dist/bundle.zip",
@@ -145,12 +147,6 @@ export const DownloadBinaryFile: Story = {
       ),
     ).toBeVisible()
     await expect(canvas.queryByRole("img")).toBeNull()
-  },
-  parameters: {
-    review: {
-      purpose:
-        "Binary file view in the Files pane, which previews or downloads a file: a zip file has no preview, so only a Download link shows.",
-    },
   },
 }
 
