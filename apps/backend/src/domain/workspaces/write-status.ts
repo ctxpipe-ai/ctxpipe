@@ -11,7 +11,7 @@ export type WorkspaceWriteStatus =
 
 export const WRITE_STATUS_REASONS = {
   nonGithubHost:
-    "This remote is not GitHub. v1 can hydrate, search, and chat, but cannot commit or push. Relink to a GitHub repository the App can write.",
+    "This remote is not GitHub. ctxpipe can hydrate, search, and chat with it, but cannot commit or push to it. Relink to a GitHub repository that the App can write to.",
   githubNotConnected:
     "GitHub is not connected for this organization. An owner or admin must install the GitHub App and add this repository to the installation.",
   notInInstallation:

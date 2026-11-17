@@ -180,7 +180,8 @@ export function PagerdutyScopeEditor(props: SourceScopeEditorProps) {
             </Tag>
           )}
         </TagGroup>
-      ) : (
+      ) : servicesQuery.isError ? null : (
+        // A failed load shows its error alone: the user cannot select now.
         <p className="text-sm text-muted-foreground">
           Select at least one service.
         </p>

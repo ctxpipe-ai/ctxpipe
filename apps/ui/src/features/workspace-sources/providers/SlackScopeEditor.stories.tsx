@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { type ComponentProps, useState } from "react"
-import { expect, userEvent, waitFor, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { signedInHandlers } from "@/mocks/handlers"
 import {
@@ -9,38 +8,13 @@ import {
 } from "@/mocks/slack-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import { sourceDialogStoryFrame } from "../source-dialog-story-frame"
 import { SlackScopeEditor } from "./slack"
-
-/** The editor with the last scope it reported, as a form holds it. */
-function EditorWithOutput(
-  props: Omit<ComponentProps<typeof SlackScopeEditor>, "onChange">,
-) {
-  const [scope, setScope] = useState<Record<string, unknown> | null>(
-    props.initialScope,
-  )
-  return (
-    <>
-      <SlackScopeEditor {...props} onChange={setScope} />
-      <output
-        aria-label="Scope"
-        className="mt-4 block text-xs text-muted-foreground"
-      >
-        {JSON.stringify(scope)}
-      </output>
-    </>
-  )
-}
 
 const meta = {
   title: "Components/WorkspaceSources/SlackScopeEditor",
-  component: EditorWithOutput,
-  decorators: [
-    (Story) => (
-      <div className="max-w-lg bg-zinc-950 p-4">
-        <Story />
-      </div>
-    ),
-  ],
+  component: SlackScopeEditor,
+  decorators: [sourceDialogStoryFrame],
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -58,15 +32,13 @@ const meta = {
     provider: "slack",
     connectionId: "con_sl1",
     initialScope: {},
+    onChange: fn(),
   },
-} satisfies Meta<typeof EditorWithOutput>
+} satisfies Meta<typeof SlackScopeEditor>
 
 export default meta
 
 type Story = StoryObj<typeof meta>
-
-const scopeText = (canvasElement: HTMLElement) =>
-  within(canvasElement).getByRole("status", { name: "Scope" }).textContent
 
 export const SearchesAndPicksChannels: Story = {
   parameters: {
@@ -75,7 +47,7 @@ export const SearchesAndPicksChannels: Story = {
         "Slack scope editor, where the user picks the channels of a Workspace source: the user searches the channels and picks two of them.",
     },
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.type(
       await canvas.findByRole("searchbox", { name: "Search Slack channels" }),
@@ -87,7 +59,7 @@ export const SearchesAndPicksChannels: Story = {
     await userEvent.click(canvas.getByRole("checkbox", { name: /eng-design/ }))
     await userEvent.clear(canvas.getByRole("searchbox"))
     await userEvent.click(canvas.getByRole("checkbox", { name: /incidents/ }))
-    await expect(JSON.parse(scopeText(canvasElement) ?? "")).toEqual({
+    await expect(args.onChange).toHaveBeenLastCalledWith({
       channels: ["C0DES0001", "G0INC0001"],
     })
     await expect(canvas.getByText("2 channels selected.")).toBeVisible()
@@ -99,10 +71,10 @@ export const ChannelWithoutTheBotCanBeSelected: Story = {
   parameters: {
     review: {
       purpose:
-        "Slack scope editor, where the user picks the channels of a Workspace source: a channel without the bot can be picked, with a note to invite the bot.",
+        "Slack scope editor in the Add source dialog: the user ticks #all-hands, a channel that the ctxpipe bot is not in yet, and the row tells the user to invite the bot there.",
     },
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     const allHands = await canvas.findByRole("checkbox", { name: /all-hands/ })
     await expect(
@@ -111,7 +83,7 @@ export const ChannelWithoutTheBotCanBeSelected: Story = {
       ),
     ).toBeVisible()
     await userEvent.click(allHands)
-    await expect(JSON.parse(scopeText(canvasElement) ?? "")).toEqual({
+    await expect(args.onChange).toHaveBeenLastCalledWith({
       channels: ["C0ALL0001"],
     })
   },
@@ -125,7 +97,7 @@ export const EditsAnExistingScope: Story = {
     },
   },
   args: { initialScope: { channels: ["C0ENG0001", "C0GONE001"] } },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
       expect(
@@ -135,11 +107,11 @@ export const EditsAnExistingScope: Story = {
     const gone = canvas.getByRole("checkbox", { name: /C0GONE001/ })
     await expect(gone).toBeChecked()
     await userEvent.click(gone)
-    await expect(JSON.parse(scopeText(canvasElement) ?? "")).toEqual({
+    await expect(args.onChange).toHaveBeenLastCalledWith({
       channels: ["C0ENG0001"],
     })
     await userEvent.click(canvas.getByRole("checkbox", { name: /^#eng$|eng$/ }))
-    await expect(scopeText(canvasElement)).toBe("null")
+    await expect(args.onChange).toHaveBeenLastCalledWith(null)
     await expect(canvas.getByText("Select at least one channel.")).toBeVisible()
   },
 }
@@ -148,17 +120,16 @@ export const LoadError: Story = {
   parameters: {
     review: {
       purpose:
-        "Slack scope editor, where the user picks the channels of a Workspace source: the channel list did not load, so an error with Retry shows.",
+        "Slack scope editor in the Add source dialog: the request for the Slack channels failed, so an error alert with Retry stands in place of the channel list.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: { handlers: { page: [slackChannelsHandler("error")] } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
-      expect(
-        canvas.getByText("Could not load the Slack channels."),
-      ).toBeVisible(),
+      expect(canvas.getByRole("alert")).toHaveTextContent(
+        "Could not load the Slack channels.",
+      ),
     )
     await expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible()
   },

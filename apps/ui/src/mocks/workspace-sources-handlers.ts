@@ -50,13 +50,24 @@ export function workspaceSourceList(
   }
 }
 
+/**
+ * `GET /workspaces/:slug/sources`. `response` is a value, a function (so a
+ * story can change the answer after a change request), "loading" or "error".
+ */
 export function workspaceSourcesHandler(
-  response: MockState<WorkspaceSourceListResponse>,
+  response: MockState<
+    WorkspaceSourceListResponse | (() => WorkspaceSourceListResponse)
+  >,
 ) {
   return http.get(
     ({ request }) =>
       /\/api\/v1\/workspaces\/[^/]+\/sources$/.test(pathnameOf(request)),
-    () => mockResponse(response, (response) => HttpResponse.json(response)),
+    () =>
+      mockResponse(response, (response) =>
+        HttpResponse.json(
+          typeof response === "function" ? response() : response,
+        ),
+      ),
   )
 }
 

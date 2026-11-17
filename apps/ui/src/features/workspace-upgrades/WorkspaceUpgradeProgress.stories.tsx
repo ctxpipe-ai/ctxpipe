@@ -160,27 +160,30 @@ export const RunningStage: Story = {
 export const ReingestProgress: Story = {
   parameters: {
     ...withUpgrades(
-      upgradesFixture([
-        upgradeItemFixture({
-          kind: "reingest",
-          title: "Fresh re-ingestion of the source repositories",
-          status: "running",
-          approvedAt: minutesAgo(7),
-          repositories: [
-            ["acme/api", "done"],
-            ["acme/web", "pending"],
-            ["acme/docs", "pending"],
-          ].map(([repository, status]) => ({
-            repository: repository as string,
-            status: status as "done" | "pending",
-            sha: null,
-            runId: null,
-            report: [],
-            spendUsd: null,
-            spendUnknown: false,
-          })),
-        }),
-      ]),
+      // A re-ingestion runs only on format 3.
+      upgradesFixture(
+        [
+          upgradeItemFixture({
+            kind: "reingest",
+            status: "running",
+            approvedAt: minutesAgo(7),
+            repositories: [
+              ["acme/api", "done"],
+              ["acme/web", "pending"],
+              ["acme/docs", "pending"],
+            ].map(([repository, status]) => ({
+              repository: repository as string,
+              status: status as "done" | "pending",
+              sha: null,
+              runId: null,
+              report: [],
+              spendUsd: null,
+              spendUnknown: false,
+            })),
+          }),
+        ],
+        { formatVersion: 3 },
+      ),
     ),
     review: {
       purpose:
@@ -209,18 +212,21 @@ export const ReingestProgress: Story = {
 export const ReingestPlanning: Story = {
   parameters: {
     ...withUpgrades(
-      upgradesFixture([
-        upgradeItemFixture({
-          kind: "reingest",
-          title: "Fresh re-ingestion of the source repositories",
-          status: "running",
-          approvedAt: minutesAgo(0.1),
-        }),
-      ]),
+      // A re-ingestion runs only on format 3.
+      upgradesFixture(
+        [
+          upgradeItemFixture({
+            kind: "reingest",
+            status: "running",
+            approvedAt: minutesAgo(0.1),
+          }),
+        ],
+        { formatVersion: 3 },
+      ),
     ),
     review: {
       purpose:
-        "Progress card of a Workspace re-ingestion while it plans the run: no count yet, so the bar pulses.",
+        "Re-ingestion item in the Upgrades card, seconds after the admin pressed Start: ctxpipe plans the run and has no repository count yet, so the progress bar pulses with no value.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -237,7 +243,7 @@ export const MergedReadingFormat: Story = {
   parameters: {
     review: {
       purpose:
-        "Progress card of a Workspace format upgrade: the pull request merged and ctxpipe reads the new format.",
+        "Format upgrade item in the Upgrades card: the admin merged the upgrade pull request two minutes ago, so a progress block says that ctxpipe reads the new format and how long it has taken.",
     },
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
     msw: {
@@ -261,7 +267,9 @@ export const MergedReadingFormat: Story = {
                   checkedAt: minutesAgo(2),
                 }),
               ],
-              { formatVersion: 2 },
+              // ctxpipe has not read the new format yet: the Workspace
+              // still has the format that the upgrade starts from.
+              { formatVersion: 0 },
             ),
           ).msw.handlers.page,
         ],
@@ -280,7 +288,10 @@ export const MergedReadingFormat: Story = {
     )
     expect(within(progress).getByText(/completes this upgrade/)).toBeVisible()
     expect(within(progress).getByText(/2 min/)).toBeVisible()
-    expect(canvas.getByText("Merged. Reading the new format")).toBeVisible()
+    // The progress block names the state, so the line above it says only
+    // when ctxpipe checked last.
+    expect(canvas.getByText(/^Last check at [^.]+\.$/)).toBeVisible()
+    expect(canvas.queryByText("Merged. Reading the new format")).toBeNull()
     // The "waits for you to merge" line is gone.
     expect(canvas.queryByText(/waits for you to merge/)).toBeNull()
     await waitFor(() =>
@@ -451,15 +462,18 @@ function checkingFormatTimesOut(role: "owner" | "member"): Story {
       await waitFor(
         async () =>
           expect(
-            await canvas.findByText("Apply the format upgrade first"),
+            await canvas.findByText("ctxpipe did not finish the format check"),
           ).toBeVisible(),
         { timeout: 8_000 },
       )
+      // The Workspace has format 3, so the block does not ask for the
+      // format upgrade again.
       expect(
         canvas.getByText(
-          "Re-ingestion needs format 3. Finish the format upgrade, then press Check again.",
+          "The Workspace has format 3 now, but this item did not see it yet. Press Check again.",
         ),
       ).toBeVisible()
+      expect(canvas.queryByText(/Finish the format upgrade/)).toBeNull()
       expect(canvas.queryByText("Checking the new format")).toBeNull()
       expect(canvas.queryByText(/This page updates by itself/)).toBeNull()
       expect(canvas.getByText("Blocked")).toBeVisible()
@@ -483,7 +497,7 @@ export const CheckingFormatTimesOutAdmin: Story = {
     ...checkingFormatTimesOut("owner").parameters,
     review: {
       purpose:
-        "Re-ingestion card in the Upgrades section, for an owner: the format check timed out, so the blocked line and Check again come back.",
+        "Re-ingestion item in the Upgrades card, seen by an owner: the Workspace has format 3, but the check after the hydrate did not finish in a minute, so a stale block asks for Check again.",
     },
   },
 }

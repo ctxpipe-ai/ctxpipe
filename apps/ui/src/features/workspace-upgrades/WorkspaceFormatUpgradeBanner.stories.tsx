@@ -178,7 +178,7 @@ export const PullRequestOpen: Story = {
     ),
     review: {
       purpose:
-        "Format upgrade banner of a Workspace: the upgrade pull request is open and the banner links to it.",
+        "Format upgrade banner at the top of the Workspace page, seen by an owner: ctxpipe opened the upgrade pull request, so the banner says to merge it on GitHub and links to it.",
     },
   },
   play: async ({ canvasElement }) => {
