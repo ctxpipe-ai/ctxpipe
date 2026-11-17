@@ -156,17 +156,18 @@ function frontTitle(canvasElement: HTMLElement) {
   return within(front).getByText("Docs upgrade available")
 }
 
-/** One toast for the one Workspace item that waits for a start. */
+/**
+ * Org home page with upgrade and problem notices as toasts: one toast for the
+ * one Workspace upgrade that waits for a start, with Update once, Always update
+ * and Dismiss. The play proves one read for the org and no read for each
+ * Workspace.
+ */
 export const SingleToast: Story = {
   parameters: {
     ...homeHandlers("owner", {
       docs: [upgradeItemFixture()],
       handbook: [upgradeItemFixture({ status: "completed" })],
     }),
-    review: {
-      purpose:
-        "Org home page with upgrade and problem notices as toasts: one toast for the one Workspace upgrade that waits for a start.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -202,17 +203,13 @@ export const SingleToast: Story = {
 }
 
 /**
- * CTX-939. The toast is a title and one short line, so it does not cover the
- * composer. When the toast goes, it leaves no gap: the composer moves back up
- * by the height of the toast.
+ * Org home page with upgrade and problem notices as toasts: the user dismissed
+ * the toast, and the composer moved back up with no gap. The toast is a title
+ * and one short line, so it does not cover the composer (CTX-939).
  */
 export const ToastTakesNoSpaceAfterItGoes: Story = {
   parameters: {
     ...homeHandlers("owner", { docs: [upgradeItemFixture()] }),
-    review: {
-      purpose:
-        "Org home page with upgrade and problem notices as toasts: the toast went away and the composer moved back up with no gap.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -253,8 +250,9 @@ export const ToastTakesNoSpaceAfterItGoes: Story = {
 const updateOnceItems = { docs: [upgradeItemFixture()] }
 
 /**
- * Update once starts this item with the existing start API. The server
- * queues it, so the toast goes and a short message says what happens next.
+ * Home with an upgrade toast: the owner pressed Update once, so the upgrade is
+ * queued, the toast went away, and a message says that ctxpipe prepares a pull
+ * request. Update once uses the existing start API.
  */
 export const UpdateOnce: Story = {
   beforeEach: () => {
@@ -275,10 +273,6 @@ export const UpdateOnce: Story = {
         updateOnceItems.docs = [upgradeItemFixture({ status: "queued" })]
       },
     }),
-    review: {
-      purpose:
-        "Home with an upgrade toast: the owner pressed Update once, so the upgrade is queued, the toast went away, and a message says that ctxpipe prepares a pull request.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -305,17 +299,13 @@ export const UpdateOnce: Story = {
 }
 
 /**
- * Always update answers at once. The server saves the setting and starts the
- * upgrade, so the browser sends no start request and does not wait for the
- * commit. The toast follows the save as progress.
+ * Org home page with upgrade and problem notices as toasts: the owner pressed
+ * Always update, and the toast shows the progress of the save. The server saves
+ * the setting and starts the upgrade, so the browser sends no start request.
  */
 export const AlwaysUpdate: Story = {
   parameters: {
     ...homeHandlers("owner", { docs: [upgradeItemFixture()] }),
-    review: {
-      purpose:
-        "Org home page with upgrade and problem notices as toasts: the owner pressed Always update and the toast shows the progress of the save.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -340,8 +330,9 @@ export const AlwaysUpdate: Story = {
 }
 
 /**
- * A slow save does not block the toast: it says that the server saves and
- * starts the upgrade, and the other buttons stay usable. Dismiss still works.
+ * Org home page with upgrade and problem notices as toasts: the Always update
+ * save is slow, so the toast says that the server saves and starts the upgrade.
+ * The other buttons stay usable, and Dismiss still works.
  */
 export const AlwaysUpdateSlowSave: Story = {
   parameters: {
@@ -350,10 +341,6 @@ export const AlwaysUpdateSlowSave: Story = {
       { docs: [upgradeItemFixture()] },
       { automaticJob: { status: "running", failureReason: null } },
     ),
-    review: {
-      purpose:
-        "Org home page with upgrade and problem notices as toasts: the Always update save is slow, and the other buttons stay usable.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -373,7 +360,11 @@ export const AlwaysUpdateSlowSave: Story = {
   },
 }
 
-/** A failed save shows its cause and the next steps. */
+/**
+ * Home with an upgrade toast: the owner pressed Always update and the setting
+ * did not save, so the toast gives the next steps and the cause as raw error
+ * text. Update once stays available.
+ */
 export const AlwaysUpdateSaveFails: Story = {
   parameters: {
     ...homeHandlers(
@@ -387,10 +378,6 @@ export const AlwaysUpdateSaveFails: Story = {
         },
       },
     ),
-    review: {
-      purpose:
-        "Home with an upgrade toast: the owner pressed Always update and the setting did not save, so the toast gives the next steps and the cause as raw error text.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -434,17 +421,13 @@ const failedUpgrade = upgradeItemFixture({
 })
 
 /**
- * A failed item has a cause that can repeat, so the toast offers no Update
- * once and no Always update. It shows the cause and two next steps. Ask the
- * agent puts the prompt into the composer of that Workspace.
+ * Home with a toast for a failed Workspace upgrade: the owner pressed Ask the
+ * agent, so the composer of that Workspace holds a prompt with the cause. The
+ * cause can repeat, so the toast offers no Update once and no Always update.
  */
 export const FailedUpgrade: Story = {
   parameters: {
     ...homeHandlers("owner", { docs: [failedUpgrade] }),
-    review: {
-      purpose:
-        "Home with a toast for a failed Workspace upgrade: the owner pressed Ask the agent, so the composer holds a prompt with the cause of the failure.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -482,14 +465,14 @@ export const FailedUpgrade: Story = {
   },
 }
 
-/** A member sees the cause and the next steps of a failed upgrade too. */
+/**
+ * Org home page with upgrade and problem notices as toasts: an upgrade failed,
+ * and a member also sees the cause, Ask the agent and the review link. The
+ * toast offers no Update once.
+ */
 export const FailedUpgradeMember: Story = {
   parameters: {
     ...homeHandlers("member", { docs: [failedUpgrade] }),
-    review: {
-      purpose:
-        "Org home page with upgrade and problem notices as toasts: an upgrade failed, and a member sees the cause and the next steps too.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -510,15 +493,15 @@ export const FailedUpgradeMember: Story = {
   },
 }
 
-/** Dismiss hides the toast in this browser and starts nothing. */
+/**
+ * Org home page with upgrade and problem notices as toasts: the user dismissed
+ * the toast in this browser and nothing started. The toast collapses to an
+ * upgrade icon with a count, and a press on it shows the toast again.
+ */
 export const Dismiss: Story = {
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as UpdateOnce." },
     ...homeHandlers("owner", { docs: [upgradeItemFixture()] }),
-    review: {
-      purpose:
-        "Org home page with upgrade and problem notices as toasts: the user dismissed the toast and nothing started.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -551,14 +534,14 @@ export const Dismiss: Story = {
   },
 }
 
-/** Two dismissed toasts collapse to one icon with a count; a press restores both. */
+/**
+ * Org home page with upgrade and problem notices as toasts: the user dismissed
+ * two toasts, so they collapsed to one icon with a count, and then pressed the
+ * icon. All three toasts are back in the stack.
+ */
 export const DismissedCollapseToIcon: Story = {
   parameters: {
     ...homeHandlers("owner", threeItems),
-    review: {
-      purpose:
-        "Org home page with upgrade and problem notices as toasts: two dismissed toasts collapse to one icon with a count.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -595,16 +578,14 @@ export const DismissedCollapseToIcon: Story = {
 }
 
 /**
- * Three toasts in one stack. Only the front toast shows; the others are
- * edges behind it. The pointer opens the stack, and Tab reaches each toast.
+ * Org home page with upgrade and problem notices as toasts: three toasts in one
+ * stack, where only the front toast shows and the others are edges behind it.
+ * The pointer opens the stack, and here Tab moved the focus to a toast behind
+ * the front one, so the stack is open.
  */
 export const StackOfThree: Story = {
   parameters: {
     ...homeHandlers("owner", threeItems),
-    review: {
-      purpose:
-        "Org home page with upgrade and problem notices as toasts: three toasts in one stack, and the pointer opens the stack.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -655,14 +636,13 @@ export const StackOfThree: Story = {
   },
 }
 
-/** A member gets the toast with a quiet line and no button. */
+/**
+ * Org home page with upgrade and problem notices as toasts: a member sees the
+ * toasts with the quiet line "Ask an admin" and no button.
+ */
 export const MemberView: Story = {
   parameters: {
     ...homeHandlers("member", threeItems),
-    review: {
-      purpose:
-        "Org home page with upgrade and problem notices as toasts: a member sees the toasts with a quiet line and no button.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -678,15 +658,14 @@ export const MemberView: Story = {
   },
 }
 
-/** With reduced motion the stack opens and closes with no transition. */
+/**
+ * Org home page with upgrade and problem notices as toasts: the user prefers
+ * reduced motion, and the pointer opened the stack with no transition.
+ */
 export const ReducedMotion: Story = {
   tags: ["reduced-motion"],
   parameters: {
     ...homeHandlers("owner", threeItems),
-    review: {
-      purpose:
-        "Org home page with upgrade and problem notices as toasts: the user prefers reduced motion, so the stack opens with no transition.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -703,7 +682,11 @@ export const ReducedMotion: Story = {
   },
 }
 
-/** An item that no one can start now (running, open pull request, blocked) gets no toast. */
+/**
+ * Org home page with upgrade and problem notices as toasts: no item can start
+ * now (it is running, has an open pull request, or is blocked), so no toast
+ * shows.
+ */
 export const NoToastWhenNothingToStart: Story = {
   parameters: {
     visual: {
@@ -716,10 +699,6 @@ export const NoToastWhenNothingToStart: Story = {
       ],
       handbook: [upgradeItemFixture({ status: "pr_open" })],
     }),
-    review: {
-      purpose:
-        "Org home page with upgrade and problem notices as toasts: no item can start now, so no toast shows.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -742,16 +721,14 @@ const taxFile: WorkspaceSkippedFile = {
 }
 
 /**
- * A hydrate problem shows as a warning toast, with no upgrade. Fix using
- * agent puts the fix prompt into the composer of that Workspace.
+ * Org home page with upgrade and problem notices as toasts: a hydrate problem
+ * shows as a warning toast, with no upgrade. The user pressed Fix using agent,
+ * so the composer of that Workspace holds the fix prompt, and the problem
+ * stays.
  */
 export const ProblemOnly: Story = {
   parameters: {
     ...homeHandlers("owner", {}, { skippedFiles: { handbook: [taxFile] } }),
-    review: {
-      purpose:
-        "Org home page with upgrade and problem notices as toasts: a hydrate problem shows as a warning toast with Fix using agent.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -792,10 +769,10 @@ export const ProblemOnly: Story = {
 }
 
 /**
- * A skipped legacy overlay file is knowledge from the database, so no edit
- * of the Workspace repository fixes it. Hydrate lists the files of Git first,
- * so the front toast names the file of Git and also the overlay cause. The
- * agent gets only the file of Git.
+ * Org home page with upgrade and problem notices as toasts: the front problem
+ * toast names a file of Git and also a skipped legacy overlay file. No edit of
+ * the repository fixes the overlay file, so Fix using agent gives the agent
+ * only the file of Git.
  */
 export const ProblemLegacyOverlayAndFile: Story = {
   parameters: {
@@ -804,10 +781,6 @@ export const ProblemLegacyOverlayAndFile: Story = {
       {},
       { skippedFiles: { handbook: [taxFile, legacyOverlaySkippedFile] } },
     ),
-    review: {
-      purpose:
-        "Org home page with upgrade and problem notices as toasts: a problem toast names a file of Git and a skipped legacy overlay file.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -848,7 +821,11 @@ export const ProblemLegacyOverlayAndFile: Story = {
   },
 }
 
-/** Only a legacy overlay file: no fix exists, so the toast opens settings. */
+/**
+ * Org home page with upgrade and problem notices as toasts: only a legacy
+ * overlay file has a problem, so no fix exists and the toast offers Open
+ * settings in place of Fix using agent.
+ */
 export const ProblemLegacyOverlayOnly: Story = {
   parameters: {
     ...homeHandlers(
@@ -856,10 +833,6 @@ export const ProblemLegacyOverlayOnly: Story = {
       {},
       { skippedFiles: { handbook: [legacyOverlaySkippedFile] } },
     ),
-    review: {
-      purpose:
-        "Org home page with upgrade and problem notices as toasts: only a legacy overlay file has a problem, so the toast opens the settings.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -876,7 +849,11 @@ export const ProblemLegacyOverlayOnly: Story = {
   },
 }
 
-/** A problem and an upgrade in one stack: the problem is in front. */
+/**
+ * Home with two notices in one toast stack, a skipped-files problem in front of
+ * an upgrade: the user moved the pointer onto the stack, so it opened and shows
+ * both.
+ */
 export const MixedStack: Story = {
   parameters: {
     ...homeHandlers(
@@ -891,10 +868,6 @@ export const MixedStack: Story = {
         },
       },
     ),
-    review: {
-      purpose:
-        "Home with two notices in one toast stack, a skipped-files problem in front of an upgrade: the user moved the pointer onto the stack, so it opened and shows both.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -921,8 +894,9 @@ export const MixedStack: Story = {
 }
 
 /**
- * Dismissed notices of both types collapse to one button with an icon and
- * a count for each type. A press shows the stack again.
+ * Org home page with upgrade and problem notices as toasts: dismissed notices
+ * of both types collapse to one button with an icon and a count for each type.
+ * The user then pressed it, so the stack shows all three toasts again.
  */
 export const CollapsedBothTypes: Story = {
   parameters: {
@@ -931,10 +905,6 @@ export const CollapsedBothTypes: Story = {
       { docs: [upgradeItemFixture(), reingest] },
       { skippedFiles: { handbook: [taxFile] } },
     ),
-    review: {
-      purpose:
-        "Org home page with upgrade and problem notices as toasts: dismissed notices of both types collapse to one button with a count for each type.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

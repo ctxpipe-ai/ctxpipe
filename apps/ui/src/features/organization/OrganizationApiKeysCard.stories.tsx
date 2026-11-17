@@ -98,9 +98,10 @@ export const Forbidden: Story = {
 }
 
 /**
- * MSW org-key handlers reject any non-`organization` configId (400). A
- * successful create/revoke here proves the card never mint/lists/revokes with
- * the personal `"default"` configId.
+ * Organization API keys card, where an admin makes keys for CI and shared
+ * agents: a new key was made, and its secret shows once. The MSW handlers
+ * reject a configId that is not `organization` (400), so a create here proves
+ * that the card never uses the personal `"default"` configId.
  */
 export const CreateNamedKey: Story = {
   parameters: {
@@ -112,10 +113,6 @@ export const CreateNamedKey: Story = {
           orgApiKeysUpdateHandler(),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Organization API keys card, where an admin makes keys for CI and shared agents: a new key was made, and its secret shows once.",
     },
   },
   play: async ({ canvasElement }) => {

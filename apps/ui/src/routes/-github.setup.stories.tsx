@@ -34,18 +34,15 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 /**
- * The linked GitHub account cannot see the installation. The page must stop
- * and say why, not keep the "Registering installation…" spinner.
+ * GitHub setup screen after the App install, which registers the installation:
+ * the linked GitHub account cannot access the installation, so the page stops
+ * and says why. It does not keep the "Registering installation…" spinner.
  */
 export const RegistrationRefused: Story = {
   render: () => (
     <ConnectGithubView installationId={42} selectedOrganizationSlug="acme" />
   ),
   parameters: {
-    review: {
-      purpose:
-        "GitHub setup screen after the App install, which registers the installation: the linked GitHub account cannot access the installation.",
-    },
     msw: {
       handlers: {
         page: [
@@ -85,8 +82,9 @@ export const RegistrationRefused: Story = {
 }
 
 /**
- * The user came back from a failed GitHub account link. The page says why,
- * in GitHub terms, and still offers the link.
+ * GitHub setup screen after the App install, which asks the user to link
+ * GitHub: the last link failed because the account belongs to another ctxpipe
+ * user. The page says why in GitHub terms and still offers the link.
  */
 export const NotLinkedShowsLinkError: Story = {
   render: () => (
@@ -97,10 +95,6 @@ export const NotLinkedShowsLinkError: Story = {
     />
   ),
   parameters: {
-    review: {
-      purpose:
-        "GitHub setup screen after the App install, which asks the user to link GitHub: the last link failed because the account belongs to another user.",
-    },
     msw: {
       handlers: {
         // Replaces the auth config of signedInHandlers, which has no social providers.

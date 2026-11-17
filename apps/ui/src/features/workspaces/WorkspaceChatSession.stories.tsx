@@ -533,9 +533,10 @@ const stoppedQuestion = {
 let retrySocket: ReturnType<typeof installAguiWebSocket> | undefined
 
 /**
- * The turn stopped before the first model round: the transcript holds only
- * the question, and no run is active. The thread shows the question and that
- * the turn stopped. Retry sends the question again.
+ * Chat session of a Workspace, where a member asks about the code. The turn
+ * stopped before the first model round, so the thread had only the question and
+ * a stopped alert. The member pressed Retry, which sent the question again, and
+ * the answer arrived.
  */
 export const StoppedBeforeFirstAnswer: Story = {
   args: threadArgs([stoppedQuestion], "Skipped file"),
@@ -551,10 +552,6 @@ export const StoppedBeforeFirstAnswer: Story = {
     return retrySocket.restore
   },
   parameters: {
-    review: {
-      purpose:
-        "Chat session of a Workspace, where a member asks about the code: the turn stopped before an answer, the member pressed Retry, and the answer arrived.",
-    },
     storyRoute: threadRoute,
     msw: {
       handlers: {
@@ -662,16 +659,13 @@ async function startTurn(canvasElement: HTMLElement) {
 }
 
 /**
- * The user leaves the conversation during a turn. The chat closes its socket
- * and sends no abort frame, so the turn continues on the server.
+ * Chat session of a Workspace, where a member asks about the code. The member
+ * left the conversation during a turn. The chat closed its socket and sent no
+ * abort frame, so the turn continues on the server.
  */
 export const LeaveDuringTurn: Story = {
   parameters: {
     ...runningTurn.parameters,
-    review: {
-      purpose:
-        "Chat session of a Workspace, where a member asks about the code: the member left during a turn, so the chat closed and the turn continues.",
-    },
   },
   ...runningTurn,
   play: async ({ canvasElement }) => {
@@ -693,14 +687,14 @@ export const LeaveDuringTurn: Story = {
   },
 }
 
-/** Stop during a turn sends the abort frame of the turn. */
+/**
+ * Chat session of a Workspace, where a member asks about the code. The member
+ * clicked Stop during a running turn, and the chat sent the abort frame of that
+ * turn.
+ */
 export const StopDuringTurn: Story = {
   parameters: {
     ...runningTurn.parameters,
-    review: {
-      purpose:
-        "Chat session of a Workspace, where a member asks about the code: the member clicked Stop during a running turn.",
-    },
   },
   ...runningTurn,
   play: async ({ canvasElement }) => {

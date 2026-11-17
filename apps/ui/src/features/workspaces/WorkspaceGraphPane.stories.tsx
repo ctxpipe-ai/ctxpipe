@@ -144,8 +144,10 @@ export const NodesWithoutRelationships: Story = {
 }
 
 /**
- * Close the tips, or hide them on the tool rail: the browser keeps the
- * choice for the org, so the tips do not open again on the next visit.
+ * Knowledge graph pane of a Workspace, where a member explores how the
+ * knowledge links. The member closed the tips. The browser keeps that choice
+ * for the org, so the tips do not open on the next visit. To hide them on the
+ * tool rail has the same result.
  */
 export const ClosingTipsIsRemembered: Story = {
   args: {
@@ -153,10 +155,6 @@ export const ClosingTipsIsRemembered: Story = {
     graph: docsWorkspaceGraph,
   },
   parameters: {
-    review: {
-      purpose:
-        "Knowledge graph pane of a Workspace, where a member explores how the knowledge links: the member closed the tips, and the browser keeps that choice.",
-    },
     visual: {
       skip: "The end state is the graph without the tips panel, as in TipsClosedEarlier.",
     },
@@ -191,17 +189,17 @@ export const ClosingTipsIsRemembered: Story = {
   },
 }
 
-/** The user closed the tips on an earlier visit: the graph opens without them. */
+/**
+ * Knowledge graph pane of a Workspace, where a member explores how the
+ * knowledge links. The member closed the tips on an earlier visit, so the graph
+ * opens without them.
+ */
 export const TipsClosedEarlier: Story = {
   args: {
     pending: false,
     graph: docsWorkspaceGraph,
   },
   parameters: {
-    review: {
-      purpose:
-        "Knowledge graph pane of a Workspace, where a member explores how the knowledge links: the tips were closed on an earlier visit, so they do not open.",
-    },
     visual: {
       skip: "Without the tips panel, the graph labels still move when the play ends. The play checks the behavior.",
     },

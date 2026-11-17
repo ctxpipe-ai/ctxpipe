@@ -364,14 +364,14 @@ const installHandlers = [
   atlassianOauthHandler({ oauthAppSaved: true }, atlassianConnectionId),
 ]
 
-/** Close: ask the server to delete the draft while it is empty. */
+/**
+ * Confluence setup wizard at the Install Forge app step: the user presses Close
+ * before the install. ctxpipe then asks the server to delete the draft
+ * connection while it is empty.
+ */
 export const CloseCancelsTheSetup: Story = {
   render: () => wizard(),
   parameters: {
-    review: {
-      purpose:
-        "Confluence setup wizard at the Install Forge app step: the user presses Close before the install, so ctxpipe deletes the empty draft connection.",
-    },
     visual: {
       skip: "Behavior test: the story keeps the modal open after Close, a state that the product does not render.",
     },
@@ -386,18 +386,16 @@ export const CloseCancelsTheSetup: Story = {
 }
 
 /**
- * "Install" tells the server that the install opened, so a later cancel
- * keeps the draft for the Marketplace install event.
+ * Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the
+ * user clicks Install Forge app on the install step. The click tells the server
+ * that the install opened, so a later cancel keeps the draft for the
+ * Marketplace install event.
  */
 export const InstallMarksTheDraft: Story = {
   render: () => wizard(),
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as WaitForInstall.",
-    },
-    review: {
-      purpose:
-        "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the user clicks Install Forge app on the install step.",
     },
     msw: { handlers: { page: installHandlers } },
   },
@@ -480,15 +478,15 @@ export const AddToWorkspaces: Story = {
   },
 }
 
-/** The Docs Workspace already syncs the ENG space through this connection. */
+/**
+ * Confluence setup wizard opened from Manage on the Confluence card: the Docs
+ * Workspace already syncs the ENG space through this connection. Add to
+ * Workspaces loads that saved scope, so Save changes stays off.
+ */
 export const ManageKeepsTheCurrentScope: Story = {
   name: "06b / Manage keeps the current scope",
   render: () => wizard(),
   parameters: {
-    review: {
-      purpose:
-        "Confluence setup wizard opened from Manage on the Confluence card: Add to Workspaces loads the saved scope (Docs syncs the ENG space), so Save changes stays off.",
-    },
     msw: {
       handlers: {
         page: [

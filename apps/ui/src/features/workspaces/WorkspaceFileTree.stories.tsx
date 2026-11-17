@@ -585,13 +585,13 @@ function NewPathsHarness(props: ComponentProps<typeof WorkspaceFileTree>) {
   )
 }
 
-/** A new path list (for example the sandbox tree) keeps the open folders. */
+/**
+ * File tree of a Workspace, where a member browses and opens files. A new path
+ * list loaded (for example, the sandbox tree), and the folder that the member
+ * opened stays open.
+ */
 export const NewPathsKeepExpandedFolders: Story = {
   parameters: {
-    review: {
-      purpose:
-        "File tree of a Workspace, where a member browses and opens files: new paths loaded, and the folder that the member opened stays open.",
-    },
     visual: {
       skip: "Behavior test: it ends on a test harness with a Load new paths button, which the product does not render.",
     },

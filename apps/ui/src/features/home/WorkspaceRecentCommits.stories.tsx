@@ -49,16 +49,12 @@ export const Populated: Story = {
 }
 
 /**
- * The short hash links to the commit in a new tab. Its external-link icon
- * shows on hover and on keyboard focus, together with the focus ring.
+ * Recent commits list of a Workspace: the short hash of a commit has keyboard
+ * focus, and its link opens the commit on GitHub in a new tab. The
+ * external-link icon shows on hover and on keyboard focus, together with the
+ * focus ring.
  */
 export const OpensInNewTab: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Recent commits list of a Workspace: the short hash of a commit has keyboard focus and its link opens GitHub in a new tab.",
-    },
-  },
   args: {
     commits: docsWorkspaceActivityRecent,
   },
@@ -123,15 +119,12 @@ const longCommit = {
 } satisfies WorkspaceActivityCommit
 
 /**
- * One line per commit: avatar, message, time, hash. A long message ends in
- * an ellipsis, and the time and hash stay whole at the right.
+ * Recent commits list of a Workspace in a narrow box, with one line per commit:
+ * avatar, message, time and hash. A long commit message ends in an ellipsis,
+ * and the time and the hash stay whole at the right.
  */
 export const CompactRowTruncates: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Recent commits list of a Workspace in a narrow box: a long commit message truncates and its row stays on one line.",
-    },
     intent:
       "Catches a long commit message that wraps or pushes the time and hash to a second line. The message truncates and the row stays on one line. Not for avatar images.",
   },
@@ -174,14 +167,11 @@ export const CompactRowTruncates: Story = {
   },
 }
 
-/** The time ago tells the full local date and time in a tooltip. */
+/**
+ * Recent commits list of a Workspace: the commit time has keyboard focus, and
+ * its tooltip gives the full local date and time.
+ */
 export const TimeTooltip: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Recent commits list of a Workspace: the tooltip on a commit time gives the full local date and time.",
-    },
-  },
   args: {
     commits: docsWorkspaceActivityRecent,
   },
@@ -205,15 +195,11 @@ export const TimeTooltip: Story = {
 }
 
 /**
- * The commit line is decorative. Its segments touch from row to row, and
- * each node sits at the center line of its row, also with a taller row.
+ * Recent commits list across Workspaces, with a tall row: the decorative commit
+ * line joins from row to row, and each node is at the center line of its row.
  */
 export const CommitLineAligns: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Recent commits list across Workspaces, with a tall row: the commit line joins from row to row and each node is centered.",
-    },
     intent:
       "Catches a commit timeline line that does not span its row, or whose node does not align with the row content. Not for commit text or the workspace label.",
   },
@@ -269,9 +255,10 @@ const pixelPng = Uint8Array.from(
 const avatarRequests: { login: string; authorization: string | null }[] = []
 
 /**
- * A commit with a GitHub login shows the GitHub avatar of that login. A
- * commit without a login, or with an avatar that does not load, shows the
- * initial of the author.
+ * Recent commits list of a Workspace: one author with a GitHub login has the
+ * GitHub avatar of that login. Two authors fall back to their initial: one has
+ * no login, and the avatar of the other does not load. The image requests carry
+ * no token.
  */
 export const AvatarAndInitialFallback: Story = {
   tags: ["required"],
@@ -283,10 +270,6 @@ export const AvatarAndInitialFallback: Story = {
     ],
   },
   parameters: {
-    review: {
-      purpose:
-        "Recent commits list of a Workspace: one author has a GitHub avatar, and two authors fall back to their initial.",
-    },
     intent:
       "Catches a commit author without a loadable avatar that shows a broken image. It must fall back to an initial. A known author shows the image. Not for commit text.",
     msw: {
@@ -379,13 +362,13 @@ export const Loading: Story = {
   },
 }
 
-/** The skeleton has the same box as three loaded commits. */
+/**
+ * Recent commits list of a Workspace: the loading skeleton and three loaded
+ * commits side by side. The test proves that the skeleton has the same box as
+ * the three loaded commits.
+ */
 export const RecentCommitsSkeletonMatches: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Recent commits list of a Workspace: the loading skeleton and three loaded commits side by side, at the same size.",
-    },
     intent:
       "Catches a recent commits skeleton whose size differs from the loaded list. This causes layout shift. Not for commit data or row content.",
   },

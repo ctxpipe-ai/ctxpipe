@@ -47,8 +47,10 @@ export type StoryKind = "page" | "component"
 
 /**
  * One story: its export name, its Storybook name (`<title> / <name>`), its
- * page tag, its route string, and its review annotations. `kind` and
- * `purpose` are null when the story does not have a valid literal value.
+ * page tag, its route string, and its review annotations. `kind` is null
+ * when the story does not have a valid literal value, and `purpose` is null
+ * when the story has no JSDoc description. `reviewKeys` are the keys of
+ * `parameters.review` of the story and of the `meta`.
  */
 type StoryTags = {
   name: string
@@ -57,6 +59,7 @@ type StoryTags = {
   route: string | null
   kind: StoryKind | null
   purpose: string | null
+  reviewKeys: string[]
 }
 
 /** The strings of an array node, or `[]`. */
@@ -83,9 +86,18 @@ function stringOf(node: Node | undefined) {
     : null
 }
 
-/** The value node of `parameters.review.<key>` in an annotations object. */
-const reviewOf = (annotations: Annotations, key: "kind" | "purpose") =>
-  propertyOf(propertyOf(annotations?.parameters, "review"), key)
+/** The value node of `parameters.review.kind` in an annotations object. */
+const kindOf = (annotations: Annotations) =>
+  propertyOf(propertyOf(annotations?.parameters, "review"), "kind")
+
+/** The keys of `parameters.review` in an annotations object. */
+const reviewKeysOf = (annotations: Annotations) =>
+  (propertyOf(annotations?.parameters, "review")?.properties ?? []).flatMap(
+    (property) => {
+      const key = property.key?.name ?? property.key?.value
+      return typeof key === "string" ? [key] : []
+    },
+  )
 
 /**
  * Each story of the story file `file` with the text `code`. A story has the
@@ -94,8 +106,7 @@ const reviewOf = (annotations: Annotations, key: "kind" | "purpose") =>
  * `meta`. The kind (`parameters.review.kind`) comes from the story or else
  * from the `meta`. The purpose comes only from the story: it says what state
  * that story shows. It is the JSDoc description of the story, with its line
- * breaks as spaces. While the stories move to the JSDoc (CTX-1357), a
- * `parameters.review.purpose` of the story wins over the JSDoc.
+ * breaks as spaces.
  */
 export function storiesOf(
   { loadCsf, extractStoryJSDocInfo }: CsfTools,
@@ -119,14 +130,12 @@ export function storiesOf(
     const route =
       propertyOf(annotations?.parameters, "route") ??
       propertyOf(meta?.parameters, "route")
-    const kind = stringOf(
-      reviewOf(annotations, "kind") ?? reviewOf(meta, "kind"),
+    const kind = stringOf(kindOf(annotations) ?? kindOf(meta))
+    const purpose = extractStoryJSDocInfo(
+      csf._storyStatements[name],
+      csf.editor,
     )
-    const purpose = (
-      stringOf(reviewOf(annotations, "purpose")) ??
-      extractStoryJSDocInfo(csf._storyStatements[name], csf.editor).description
-    )
-      ?.replace(/\s+/g, " ")
+      .description?.replace(/\s+/g, " ")
       .trim()
     return {
       name,
@@ -135,6 +144,7 @@ export function storiesOf(
       route: stringOf(route),
       kind: kind === "page" || kind === "component" ? kind : null,
       purpose: purpose || null,
+      reviewKeys: [...reviewKeysOf(meta), ...reviewKeysOf(annotations)],
     }
   })
 }

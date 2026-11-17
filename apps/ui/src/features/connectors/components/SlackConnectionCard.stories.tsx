@@ -90,7 +90,11 @@ export const Connected: Story = {
   },
 }
 
-/** Installed without an @mention capture repository: the connection is ready for Workspace sources. */
+/**
+ * Slack connection card on the Connectors page: Slack is installed without an
+ * @mention capture repository. The card shows no setup warning, and the
+ * connection is ready for Workspace sources.
+ */
 export const ConnectedWithoutCaptureRepository: Story = {
   render: () =>
     shell(
@@ -98,10 +102,6 @@ export const ConnectedWithoutCaptureRepository: Story = {
     ),
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Connected." },
-    review: {
-      purpose:
-        "Slack connection card on the Connectors page: Slack is installed without a capture repository, and the connection is ready for Workspace sources.",
-    },
     msw: {
       handlers: {
         page: [

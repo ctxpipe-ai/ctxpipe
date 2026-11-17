@@ -48,9 +48,10 @@ function CreateOrganizationPage() {
 const userOnboardingCompleted = { value: false }
 
 /**
- * A signed-in user creates another organization. The slug follows the name
- * until the user edits it. The new organization opens on Home, where the
- * Get started guide is. There is no separate setup page.
+ * Dialog where a signed-in user creates another organization: the user edits
+ * the slug, creates the org, and the app opens its Home with the Get started
+ * guide. The slug follows the name until the user edits it. There is no
+ * separate setup page.
  */
 export const CreateOpensHome: Story = {
   tags: ["required"],
@@ -75,10 +76,6 @@ export const CreateOpensHome: Story = {
           }),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Dialog where a signed-in user creates another organization: the user edits the slug, creates the org, and the app opens its Home.",
     },
   },
   play: async ({ canvasElement }) => {

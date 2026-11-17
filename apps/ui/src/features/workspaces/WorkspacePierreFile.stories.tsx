@@ -192,15 +192,15 @@ async function expectView(canvasElement: HTMLElement, view: "diff" | "file") {
   })
 }
 
-/** A draft opens as a diff; with no change left, it is a plain file again. */
+/**
+ * File preview of a Workspace, where a member edits a file. A draft opens as a
+ * diff. The member saved the draft, so no change is left, and the diff view
+ * changed back to the plain file view.
+ */
 export const DraftSavedShowsFile: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends on a test harness with Save draft and Revert draft buttons, which the product does not render.",
-    },
-    review: {
-      purpose:
-        "File preview of a Workspace, where a member edits a file: the member saved a draft, so the diff view changed back to the file view.",
     },
     intent:
       "Catches a saved draft that stays in the diff view. After Save draft, the file view must show. Not for reverted drafts.",

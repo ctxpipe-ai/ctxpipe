@@ -41,18 +41,15 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 /**
- * A later view transition skips the one of `useRevealOnce`. The browser
- * rejects the `ready` promise of the skipped transition with an AbortError.
- * That must not become an unhandled rejection: Storybook fails a play for an
- * unhandled error, and the page reports it in production too. The skipped
- * update still happens.
+ * Test block that reveals content with a view transition: the user pressed
+ * Reveal, and the block shows. A later transition skips the one of
+ * `useRevealOnce`, and the AbortError of its `ready` promise must not become an
+ * unhandled rejection.
  */
 export const SkippedTransitionRejectsNothingUnhandled: Story = {
   parameters: {
     review: {
       kind: "component",
-      purpose:
-        "Test fixture that proves a skipped view transition causes no unhandled error: the user pressed Reveal, and the block shows.",
     },
   },
   play: async ({ canvasElement }) => {

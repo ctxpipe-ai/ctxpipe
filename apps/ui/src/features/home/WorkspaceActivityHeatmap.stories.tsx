@@ -45,14 +45,11 @@ export const Populated: Story = {
   },
 }
 
-/** The selected day has a light outline. */
+/**
+ * Commit activity heatmap of a Workspace on the org home, where a member picks
+ * a day to filter the commits: one day is selected and has a light outline.
+ */
 export const DaySelected: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Commit activity heatmap of a Workspace on the org home: one day is selected and has a light outline.",
-    },
-  },
   args: {
     days: docsWorkspaceActivity.days,
     selectedDate: "2026-08-22",

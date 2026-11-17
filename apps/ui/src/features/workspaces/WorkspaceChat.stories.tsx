@@ -176,7 +176,12 @@ export const ConversationReady: Story = {
   },
 }
 
-/** The header title becomes an input. Enter saves with PATCH, Escape cancels, and an empty name does nothing. */
+/**
+ * Chat panel of a Workspace, where a member talks to the ctxpipe agent. The
+ * user renamed the conversation in the header title input, and the new title
+ * shows. The play proves that Enter saves with PATCH, Escape cancels, and an
+ * empty name does nothing.
+ */
 export const RenameConversation: Story = {
   args: { conversationId: "conv_1" },
   parameters: {
@@ -205,10 +210,6 @@ export const RenameConversation: Story = {
           ...workspaceShellHandlers(),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the user renames the conversation in the header title input.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -263,8 +264,9 @@ export const RenameConversation: Story = {
 const renameStory = { turnReads: 0 }
 
 /**
- * The user renames, then the turn streams the automatic title. The header
- * keeps the user's name and never shows the automatic title.
+ * Chat panel of a Workspace, where a member talks to the ctxpipe agent. The
+ * user renamed the conversation, and then the turn streams the automatic title.
+ * The header keeps the name of the user and never shows the automatic title.
  */
 export const RenameBeatsAutomaticTitle: Story = {
   args: { conversationId: "conv_1" },
@@ -302,10 +304,6 @@ export const RenameBeatsAutomaticTitle: Story = {
           ...workspaceShellHandlers(),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the user renamed the conversation, and the later automatic title does not replace that name.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -930,10 +928,11 @@ function firstTurnEvents(threadId: string, runId: string): object[] {
 }
 
 /**
- * The first turn of a new conversation streams live: the sandbox setup, the
- * reasoning, the tool call, and the answer show without a reload. The stored
- * transcript stays empty while the turn runs, as on a real backend, so only
- * the live stream can show the answer.
+ * Chat panel of a Workspace, where a member talks to the ctxpipe agent. The
+ * first turn of a new conversation streams live, with no reload: sandbox setup,
+ * thinking, a tool call, and the answer. The stored transcript stays empty
+ * during the turn, as on a real backend, so only the live stream can show the
+ * answer.
  */
 export const FirstTurnStreamsLive: Story = {
   tags: ["required"],
@@ -966,10 +965,6 @@ export const FirstTurnStreamsLive: Story = {
           ...workspaceShellHandlers(),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the first turn streams live with sandbox setup, thinking, a tool call, and the answer.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1075,8 +1070,9 @@ function followUpEvents(threadId: string, runId: string): object[] {
 }
 
 /**
- * A follow-up turn shows "Setting up sandbox" first and "Thinking" only
- * after the sandbox is ready. No other label shows before the setup label.
+ * Chat panel of a Workspace, where a member talks to the ctxpipe agent. A
+ * follow-up turn shows "Setting up sandbox" first, and "Thinking" only after
+ * the sandbox is ready. No other label shows before the setup label.
  */
 export const FollowUpShowsSandboxSetupFirst: Story = {
   tags: ["required"],
@@ -1085,10 +1081,6 @@ export const FollowUpShowsSandboxSetupFirst: Story = {
     ...FirstTurnStreamsLive.parameters,
     intent:
       "Catches a follow-up turn that shows Thinking before the sandbox is ready. The status line shows Setting up sandbox first, with no other label before it. Not for the first turn.",
-    review: {
-      purpose:
-        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: a follow-up turn shows Setting up sandbox first, then Thinking.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1185,8 +1177,9 @@ function interleavedTurnEvents(threadId: string, runId: string): object[] {
 }
 
 /**
- * The log lists thoughts and tool calls in the order they happened, also
- * when a thought comes after a tool call. Each tool row shows its detail.
+ * Chat panel of a Workspace, where a member talks to the ctxpipe agent. The
+ * activity log lists thoughts and tool calls in stream order, also when a
+ * thought comes after a tool call. Each tool row shows its detail.
  */
 export const LogKeepsStreamOrder: Story = {
   tags: ["required"],
@@ -1195,10 +1188,6 @@ export const LogKeepsStreamOrder: Story = {
     ...FirstTurnStreamsLive.parameters,
     intent:
       "Catches an activity log that reorders thoughts and tool calls. Rows follow the stream order, also when a thought comes after a tool call. Not for spacing or the closed log.",
-    review: {
-      purpose:
-        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the activity log lists thoughts and tool calls in stream order, each tool row with its detail.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1236,8 +1225,9 @@ const capacityError =
   "Workspace chat is at capacity: your organization already has 50 chats running."
 
 /**
- * When the first turn fails, the message goes back into the composer, so the
- * user can send it again without typing it.
+ * Chat panel of a Workspace, where a member talks to the ctxpipe agent. The
+ * first turn failed at chat capacity, and the error shows. The composer holds
+ * the message again, so the user can send it again without typing it.
  */
 export const FirstTurnFailureRestoresDraft: Story = {
   tags: ["required"],
@@ -1246,10 +1236,6 @@ export const FirstTurnFailureRestoresDraft: Story = {
     ...FirstTurnStreamsLive.parameters,
     intent:
       "Catches a failed first turn that loses the user's message. The error shows and the composer holds the message again to send. Not for successful turns.",
-    review: {
-      purpose:
-        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the first turn failed at chat capacity, the error shows, and the composer holds the message again.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1285,9 +1271,10 @@ export const FirstTurnFailureRestoresDraft: Story = {
 const preparedConversations: string[] = []
 
 /**
- * Opening the new-conversation composer starts the sandbox prepare, before
- * the first message. The first message then uses the prepared conversation,
- * so the session does not prepare again and the turn does not wait for it.
+ * Chat panel of a Workspace, where a member talks to the ctxpipe agent. The new
+ * conversation composer is open, and the sandbox prepares before the first
+ * message. The first message then uses the prepared conversation, so the
+ * session does not prepare again and the turn does not wait for it.
  */
 export const ComposeOpenPreparesSandbox: Story = {
   render: () => <ComposeHarness />,
@@ -1324,10 +1311,6 @@ export const ComposeOpenPreparesSandbox: Story = {
           ...workspaceShellHandlers(),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the new conversation composer is open and the sandbox prepares before the first message.",
     },
   },
   play: async ({ canvasElement }) => {

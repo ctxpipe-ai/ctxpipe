@@ -97,8 +97,10 @@ export const SignIn: Story = {
 }
 
 /**
- * Sign-in with an email that is not verified. Better Auth sends a new link
- * (sendOnSignIn) and answers 403, so the toast is a notice, not an error.
+ * Sign-in screen, where a user signs in with email and password: the email is
+ * not verified, so a notice toast says that a new link was sent. Better Auth
+ * sends the link (`sendOnSignIn`) and answers 403, so the toast is a notice,
+ * not an error.
  */
 export const SignInUnverifiedEmail: Story = {
   tags: ["page"],
@@ -113,10 +115,6 @@ export const SignInUnverifiedEmail: Story = {
     ),
   ],
   parameters: {
-    review: {
-      purpose:
-        "Sign-in screen, where a user signs in with email and password: the email is not verified, so a notice toast says a new link was sent.",
-    },
     route: "/.auth/sign-in",
     storyRoute: {
       pattern: "flat",
@@ -164,8 +162,9 @@ export const SignInUnverifiedEmail: Story = {
 }
 
 /**
- * The real invitation page: sign-up for an email that already has an account
- * gets Better Auth's 422 on a PR preview, and the page says to sign in.
+ * Sign-up form of an organization invitation: the email already has an account,
+ * so the form tells the user to sign in. Better Auth answers 422 on a PR
+ * preview, and the form does not show that code.
  */
 export const InviteAcceptAccountExists: Story = {
   render: () => (
@@ -174,11 +173,7 @@ export const InviteAcceptAccountExists: Story = {
     </div>
   ),
   parameters: {
-    review: {
-      kind: "component",
-      purpose:
-        "Sign-up form of an organization invitation: the email already has an account, so the form tells the user to sign in.",
-    },
+    review: { kind: "component" },
     storyRoute: {
       pattern: "flat",
       path: "/.auth/accept-invitation",
@@ -238,7 +233,10 @@ export const InviteAcceptAccountExists: Story = {
   },
 }
 
-/** The page that a reset-password email opens, with the token in the URL. */
+/**
+ * Reset password screen, which a reset email opens: the token is in the
+ * address, and the form asks for a new password.
+ */
 export const ResetPassword: Story = {
   tags: ["page"],
   name: "Reset password",
@@ -251,10 +249,6 @@ export const ResetPassword: Story = {
     return <ResetPasswordPage />
   },
   parameters: {
-    review: {
-      purpose:
-        "Reset password screen, which a reset email opens: the token is in the address and the form asks for a new password.",
-    },
     route: "/.auth/reset-password",
     storyRoute: {
       pattern: "flat",
@@ -280,16 +274,16 @@ export const ResetPassword: Story = {
   },
 }
 
-/** The OAuth step where a signed-in user picks the organization for the connection. */
+/**
+ * OAuth page where a signed-in user picks the organization that an app such as
+ * Claude can read: the user has two organizations and none is picked yet, so
+ * Continue is off.
+ */
 export const SelectOrganization: Story = {
   tags: ["page"],
   name: "Select organization",
   render: () => <OAuthOrganizationSelectionRoutePage />,
   parameters: {
-    review: {
-      purpose:
-        "OAuth page where a signed-in user picks the org that an app such as Claude can read: the user has two orgs, none is picked yet, so Continue is off.",
-    },
     route: "/.auth/select-organization",
     storyRoute: {
       pattern: "flat",

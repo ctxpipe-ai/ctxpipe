@@ -347,14 +347,15 @@ export const RemovePendingSetup: Story = {
   },
 }
 
-/** A new connection holds auth only; the scope is in each Workspace. */
+/**
+ * Confluence connection card on the Connectors page: Confluence is connected
+ * but in no Workspace yet. The card is open and offers Add to a Workspace. The
+ * new connection holds only the auth, because each Workspace holds its own
+ * scope (ADR-050).
+ */
 export const InstalledNotInWorkspaces: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
-    review: {
-      purpose:
-        "Confluence connection card on the Connectors page: connected but in no Workspace yet, the card is open with an Add to a Workspace action.",
-    },
     msw: {
       handlers: {
         usage: [connectionUsageHandler([])],

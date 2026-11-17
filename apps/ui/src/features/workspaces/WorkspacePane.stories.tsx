@@ -348,7 +348,11 @@ function reducedMotionRuleCapsMotion() {
   expect(text).toContain("animation-duration: 0.01ms !important")
 }
 
-/** Collapsed pane: the triggers stand alone in the chat header. */
+/**
+ * Pane triggers in the chat header of a Workspace, which open the Files, Graph,
+ * or Settings pane. The pane is collapsed, so only the trigger buttons show,
+ * alone in the header.
+ */
 export const Triggers: Story = {
   render: (args) => (
     <div className="flex h-full min-w-0 flex-1 items-start justify-end p-4">
@@ -374,14 +378,14 @@ export const Triggers: Story = {
   },
   parameters: {
     msw: { handlers: { page: [workspaceGraphHandler()] } },
-    review: {
-      purpose:
-        "Pane triggers in the chat header of a Workspace, which open the Files, Graph, or Settings pane: the pane is collapsed, so only the trigger buttons show.",
-    },
   },
 }
 
-/** Hide, show, and maximize: the pane and the chat column change state at once. Only the small control that reverses the action fades in. */
+/**
+ * Side pane of a Workspace next to the chat. The user maximizes, hides, and
+ * shows the pane again. The pane and the chat column change state at once, and
+ * only the small control that reverses the action fades in.
+ */
 export const HideShowMaximize: Story = {
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Files." },
@@ -389,10 +393,6 @@ export const HideShowMaximize: Story = {
       handlers: {
         page: gitFilesHandlers,
       },
-    },
-    review: {
-      purpose:
-        "Side pane of a Workspace next to the chat: the user maximizes, hides, and shows the pane again, and only the control that reverses the action fades in.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -662,17 +662,14 @@ function conversationFileStory(path: string): Story {
 }
 
 /**
- * Knowledge from before Workspaces that hydrate serves from Postgres. It is
- * not in git, so the conversation shows the reason and no editor.
+ * Files pane in a conversation, which browses and edits its files. The member
+ * opened a legacy knowledge file, which hydrate serves from Postgres and not
+ * from git. The pane gives the reason and no editor, so the file is read-only.
  */
 export const LegacyKnowledgeReadOnly: Story = {
   ...conversationFileStory(legacyPath),
   parameters: {
     ...conversationFileStory(legacyPath).parameters,
-    review: {
-      purpose:
-        "Files pane in a conversation, which browses and edits its files: the member opened a legacy knowledge file, so the reason shows and the file is read-only.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -683,17 +680,17 @@ export const LegacyKnowledgeReadOnly: Story = {
   },
 }
 
-/** In the same conversation, a git file opens in the editor. */
+/**
+ * Files pane in a conversation, which browses and edits its files. In the same
+ * conversation as the legacy file, a git file is open in the editor, and the
+ * user can edit it.
+ */
 export const GitFileEditable: Story = {
   ...conversationFileStory(ledgerPath),
   parameters: {
     ...conversationFileStory(ledgerPath).parameters,
     visual: {
       skip: "Behavior test: it ends in the same state as ConversationWritable.",
-    },
-    review: {
-      purpose:
-        "Files pane in a conversation, which browses and edits its files: a git file is open in the editor and the user can edit it.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -707,9 +704,10 @@ export const GitFileEditable: Story = {
 let startingBlobHits = 0
 
 /**
- * A prepare (sandbox resume) holds the chat: the file read answers 409
- * chat_starting twice. The pane says the chat starts, asks again by itself,
- * and then shows the file. It never shows the code or "a turn is running".
+ * Files pane in a conversation, which browses and edits its files. A prepare
+ * (sandbox resume) holds the chat, so the file read answers 409 `chat_starting`
+ * two times. The pane says that the chat starts, asks again by itself, and then
+ * shows the file. It never shows the code or "a turn is running".
  */
 export const FileWhileChatStarts: Story = {
   ...conversationFileStory(ledgerPath),
@@ -739,10 +737,6 @@ export const FileWhileChatStarts: Story = {
         ],
       },
     },
-    review: {
-      purpose:
-        "Files pane in a conversation, which browses and edits its files: the chat sandbox starts, the pane says so, and then shows the open file.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -769,7 +763,10 @@ const manyFileTabs = [
   ledgerPath,
 ]
 
-/** Many file tabs: the selected tab at the end of the strip scrolls into view. */
+/**
+ * File tab strip of the Files pane, with many open files. The selected tab is
+ * at the end of the strip, and it scrolls into view.
+ */
 export const SelectedTabInView: Story = {
   tags: ["required"],
   // Tab widths depend on the fonts. The strip scrolls to the selected tab on
@@ -806,10 +803,6 @@ export const SelectedTabInView: Story = {
         page: gitFilesHandlers,
       },
     },
-    review: {
-      purpose:
-        "File tab strip of the Files pane, with many open files: the selected tab is at the end of the strip and scrolls into view.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -826,7 +819,10 @@ export const SelectedTabInView: Story = {
   },
 }
 
-/** Text tabs keep 12px side padding, active or idle; icon tabs are square. */
+/**
+ * File tab strip of the Files pane, with text tabs and icon tabs. Text tabs
+ * keep 12px side padding, active or idle, and icon tabs are square.
+ */
 export const TextTabsKeepPadding: Story = {
   tags: ["required"],
   args: {
@@ -839,10 +835,6 @@ export const TextTabsKeepPadding: Story = {
     ...SelectedTabInView.parameters,
     intent:
       "Catches file tabs with the wrong padding or a missing fade-in, or an icon tab that is not square. Text tabs keep 12px side padding. Not for tab selection.",
-    review: {
-      purpose:
-        "File tab strip of the Files pane, with text tabs and icon tabs: text tabs keep 12px side padding, and icon tabs are square.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -866,7 +858,11 @@ export const TextTabsKeepPadding: Story = {
   },
 }
 
-/** A tab change moves no tab: the selected and idle tabs share one top edge, and x and width stay put. */
+/**
+ * File tab strip of the Files pane, with many open files. The user changes the
+ * tab, and no tab moves or changes its width. The selected and idle tabs share
+ * one top edge.
+ */
 export const TabChangeKeepsPosition: Story = {
   args: {
     pane: { kind: "file", path: ledgerPath },
@@ -875,10 +871,6 @@ export const TabChangeKeepsPosition: Story = {
   },
   parameters: {
     ...SelectedTabInView.parameters,
-    review: {
-      purpose:
-        "File tab strip of the Files pane, with many open files: the user changes the tab, and no tab moves or changes its width.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1006,8 +998,10 @@ const graphPaneRoute = {
 const graphGets = { count: 0 }
 
 /**
- * The graph phase is pending: the pane waits and does not read the graph.
- * A retry of a failed graph also sets the phase to pending while it builds.
+ * Graph pane of a Workspace, which shows its knowledge graph. The graph still
+ * builds, so the pane waits, does not read the graph, and says that the graph
+ * opens later. A retry of a failed graph also sets this pending phase while it
+ * builds.
  */
 export const GraphPhasePending: Story = {
   tags: ["required"],
@@ -1044,10 +1038,6 @@ export const GraphPhasePending: Story = {
         ],
       },
     },
-    review: {
-      purpose:
-        "Graph pane of a Workspace, which shows its knowledge graph: the graph still builds, so the pane waits and says the graph opens later.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1070,8 +1060,9 @@ export const GraphPhasePending: Story = {
 const graphRebuilds = { count: 0 }
 
 /**
- * The graph phase failed: the pane shows plain copy, not the store error, and
- * a Try again action that asks the server to build the graph again.
+ * Graph pane of a Workspace, which shows its knowledge graph. The graph build
+ * failed, so an error in plain words, not the store error, says that ctxpipe
+ * builds it again. Try again asks the server to build the graph again.
  */
 export const GraphPhaseFailed: Story = {
   tags: ["required"],
@@ -1113,10 +1104,6 @@ export const GraphPhaseFailed: Story = {
         ],
       },
     },
-    review: {
-      purpose:
-        "Graph pane of a Workspace, which shows its knowledge graph: the graph build failed, so an error says that ctxpipe builds it again and offers Try again.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1138,8 +1125,9 @@ export const GraphPhaseFailed: Story = {
 }
 
 /**
- * The graph store lost a ready graph: the route answers building, the pane
- * shows the building state, and the graph opens when a later read has it.
+ * Graph pane of a Workspace, which shows its knowledge graph. The graph store
+ * lost a ready graph, so the route answers building, and the pane shows the
+ * building state. The graph opens when a later read has it.
  */
 export const GraphLostRebuilds: Story = {
   tags: ["required"],
@@ -1175,10 +1163,6 @@ export const GraphLostRebuilds: Story = {
         ],
       },
     },
-    review: {
-      purpose:
-        "Graph pane of a Workspace, which shows its knowledge graph: the store lost a ready graph, so the pane shows the building state until the graph is back.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1205,7 +1189,11 @@ export const GraphLostRebuilds: Story = {
   },
 }
 
-/** The graph phase is ready but the graph route fails: the route error shows. */
+/**
+ * Graph pane of a Workspace, which shows its knowledge graph. The graph is
+ * ready, but the graph request failed. The route error shows, with a next step,
+ * Try again, and the server reason.
+ */
 export const GraphPhaseReadyStoreUnavailable: Story = {
   tags: ["required"],
   args: {
@@ -1236,10 +1224,6 @@ export const GraphPhaseReadyStoreUnavailable: Story = {
         ],
       },
     },
-    review: {
-      purpose:
-        "Graph pane of a Workspace, which shows its knowledge graph: the graph is ready, but the graph request failed, so an error gives a next step, Try again and the server reason.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1252,15 +1236,14 @@ export const GraphPhaseReadyStoreUnavailable: Story = {
   },
 }
 
-/** Collapsed pane: the Graph trigger shows a busy dot while the graph builds. */
+/**
+ * Pane triggers in the chat header of a Workspace, with the pane collapsed. The
+ * graph builds, so the Graph trigger shows a busy dot.
+ */
 export const TriggersGraphBuilding: Story = {
   parameters: {
     intent:
       "Catches a collapsed pane whose Graph trigger shows no busy dot while the graph builds, or shows it on other triggers. Click opens the graph. Not for the open pane.",
-    review: {
-      purpose:
-        "Pane triggers in the chat header of a Workspace, with the pane collapsed: the graph builds, so the Graph trigger shows a busy dot.",
-    },
   },
   tags: ["required"],
   args: {
@@ -1479,9 +1462,10 @@ export const ConversationSandboxFiles: Story = {
 }
 
 /**
- * The pane is maximized, so the conversation header is hidden: the pane shows
- * Sync. When the conversation shows beside the pane, only it has
- * them.
+ * Files pane in a conversation, maximized over the chat, so the conversation
+ * header is hidden. The agent changed files that are not on GitHub yet, so the
+ * pane header shows only the Sync button. When the conversation shows beside
+ * the pane, only the conversation header has these buttons.
  */
 export const ConversationMaximizedSync: Story = {
   tags: ["required"],
@@ -1493,10 +1477,6 @@ export const ConversationMaximizedSync: Story = {
     ...ConversationSandboxFiles.parameters,
     intent:
       "Catches a maximized pane with a dirty branch that lacks Sync or shows Create PR. Sync must be the only call to action. Not for a clean branch.",
-    review: {
-      purpose:
-        "Files pane in a conversation, maximized over the chat: the agent changed files that are not on GitHub yet, so the pane header shows only the Sync button.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1568,8 +1548,9 @@ export const ConversationCleanNoPublish: Story = {
 }
 
 /**
- * Maximized, so the pane header shows the conversation's Create PR. The
- * commits are on GitHub, so nothing is left to sync and Create PR is the CTA.
+ * Files pane in a conversation, maximized over the chat. All commits are on
+ * GitHub and no pull request is open, so nothing is left to sync. The Create PR
+ * button of the conversation is the main button in the pane header.
  */
 export const ConversationCommittedCreatePr: Story = {
   args: {
@@ -1611,10 +1592,6 @@ export const ConversationCommittedCreatePr: Story = {
           }),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Files pane in a conversation, maximized over the chat: all commits are on GitHub and no pull request is open, so Create PR is the main button in the pane header.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1846,8 +1823,9 @@ function StartingSandboxPlayground(
 }
 
 /**
- * A new conversation shows the default branch until its sandbox is ready.
- * Then the sandbox tree replaces it, with the open folders and the open file.
+ * Files pane in a new conversation. The default branch tree shows until the
+ * sandbox is ready. Then the sandbox tree replaces it and keeps the open
+ * folders and the open file.
  */
 export const DefaultBranchUntilSandboxReady: Story = {
   tags: ["required"],
@@ -1895,10 +1873,6 @@ export const DefaultBranchUntilSandboxReady: Story = {
           ...gitFilesHandlers,
         ],
       },
-    },
-    review: {
-      purpose:
-        "Files pane in a new conversation: the default branch tree shows until the sandbox is ready, then the sandbox tree keeps the open folders and file.",
     },
   },
   play: async ({ canvasElement, args }) => {

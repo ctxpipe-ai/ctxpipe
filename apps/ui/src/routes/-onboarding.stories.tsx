@@ -70,14 +70,14 @@ export const Loading: Story = {
   },
 }
 
-/** New admin user, no organization yet: the first slide, the welcome. */
+/**
+ * Onboarding screen, where a new user learns ctxpipe and an admin creates the
+ * organization: a new admin with no organization sees the first slide, the
+ * welcome.
+ */
 export const AdminFlowHowItWorks: Story = {
   render: () => <OnboardingPageContent />,
   parameters: {
-    review: {
-      purpose:
-        "Onboarding screen, where a new user learns ctxpipe and an admin creates the organization: a new admin with no organization sees the first welcome slide.",
-    },
     msw: {
       handlers: {
         session: [
@@ -159,7 +159,11 @@ async function finishJoiner(canvasElement: HTMLElement) {
 }
 
 const joinerSession = onboardingSession()
-/** A joiner finishes and lands on Home, where the setup guide is (AUTH-5). */
+/**
+ * Redirect after a joiner finishes onboarding: the user lands on the org home,
+ * where the setup guide is (AUTH-5). This story shows the landing as a plain
+ * route marker.
+ */
 export const JoinerFinishLandsInApp: Story = {
   tags: ["required"],
   render: () => <OnboardingJourney />,
@@ -168,11 +172,7 @@ export const JoinerFinishLandsInApp: Story = {
     visual: {
       skip: "Behavior test: it ends on a story route marker, which the product does not render.",
     },
-    review: {
-      kind: "component",
-      purpose:
-        "Redirect after a joiner finishes onboarding: the user lands on the org home, shown as a plain route marker.",
-    },
+    review: { kind: "component" },
     intent:
       "Catches a joiner who finishes onboarding and does not reach the app. The finish step completes onboarding and opens the organization. Not for the create-organization flow.",
     storyRoute: onboardingJourneyRoute,
@@ -201,7 +201,11 @@ export const JoinerFinishLandsInApp: Story = {
 }
 
 const staleSession = onboardingSession()
-/** The session still shows onboarding open: stay, and say so. */
+/**
+ * Onboarding page of a user who joined an org: the user pressed Get started,
+ * but the session still shows onboarding as open. The welcome slide stays, with
+ * an error toast that gives the next steps.
+ */
 export const JoinerFinishStaysWhenSessionIsStale: Story = {
   render: () => <OnboardingJourney />,
   decorators: [
@@ -214,10 +218,6 @@ export const JoinerFinishStaysWhenSessionIsStale: Story = {
   ],
   beforeEach: staleSession.reset,
   parameters: {
-    review: {
-      purpose:
-        "Onboarding page of a user who joined an org: the user pressed Get started and the finish did not save, so the welcome slide stays with an error toast and the next steps.",
-    },
     storyRoute: onboardingJourneyRoute,
     msw: {
       handlers: {
@@ -294,8 +294,9 @@ function creatorHandlers(
 const creatorSession = onboardingSession()
 const creatorState = { orgCreated: false, orgCompleted: false }
 /**
- * A new admin reads the welcome slide, creates the organization, and lands
- * on Home. There is no Connect GitHub slide: the Get started guide on Home
+ * Redirect after an admin creates the organization in onboarding: the user
+ * lands on the org home, which this story shows as a plain route marker.
+ * Onboarding has no Connect GitHub slide, because the Get started guide on Home
  * has that step.
  */
 export const AdminFlowCreateOrgLandsOnHome: Story = {
@@ -310,11 +311,7 @@ export const AdminFlowCreateOrgLandsOnHome: Story = {
     visual: {
       skip: "Behavior test: it ends on a story route marker, which the product does not render.",
     },
-    review: {
-      kind: "component",
-      purpose:
-        "Redirect after an admin creates the organization in onboarding: the user lands on the org home, shown as a plain route marker.",
-    },
+    review: { kind: "component" },
     intent:
       "Catches an admin onboarding that does not create the organization or open its home. Two steps, with the name and slug taken from the session email. Not for the joiner flow.",
     storyRoute: onboardingJourneyRoute,
@@ -360,9 +357,10 @@ const retrySession = onboardingSession()
 const retryState = { orgCreated: false, orgCompleted: false }
 const retryCreate = fn()
 /**
- * The organization exists, but onboarding does not complete on the first
- * try. The button reads "Continue" and completes onboarding; it does not
- * create the organization a second time.
+ * Redirect after an onboarding finish that failed once: the organization
+ * exists, so the button reads Continue and completes onboarding without a
+ * second create. The user lands on the org home, shown as a plain route marker,
+ * with one error toast.
  */
 export const AdminFinishFailureContinues: Story = {
   render: () => <OnboardingJourney />,
@@ -387,11 +385,7 @@ export const AdminFinishFailureContinues: Story = {
     visual: {
       skip: "Behavior test: it ends on a story route marker, which the product does not render.",
     },
-    review: {
-      kind: "component",
-      purpose:
-        "Redirect after an onboarding finish that failed once: Continue lands on the org home, shown as a plain route marker, with one error toast.",
-    },
+    review: { kind: "component" },
     storyRoute: onboardingJourneyRoute,
     msw: {
       handlers: {
@@ -452,10 +446,10 @@ export const AdminFinishFailureContinues: Story = {
 
 const doubleClickCreate = fn()
 /**
- * A double-click on a slide button moves one slide. The slide changes at
- * once, so the second click (detail 2) can land on the next slide's button.
- * Here that button creates the organization, so the second click must not
- * count.
+ * Onboarding screen, where a new user learns ctxpipe and an admin creates the
+ * organization: a double click on Next moved one slide to the create
+ * organization form and created nothing. The second click can land on the
+ * button of the next slide, so it must not count.
  */
 export const DoubleClickMovesOneSlide: Story = {
   tags: ["required"],
@@ -464,10 +458,6 @@ export const DoubleClickMovesOneSlide: Story = {
     doubleClickCreate.mockClear()
   },
   parameters: {
-    review: {
-      purpose:
-        "Onboarding screen, where a new user learns ctxpipe and an admin creates the organization: a double click on Next moves one slide to the create organization form and creates nothing.",
-    },
     intent:
       "Catches a fast double click on Next that skips a slide or creates an organization. One double click moves one slide and sends no create request. Not for the slide content.",
     msw: {

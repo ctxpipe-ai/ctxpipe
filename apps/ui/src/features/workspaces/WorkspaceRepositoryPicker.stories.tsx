@@ -138,16 +138,13 @@ export const SelectGitHubEmpty: Story = {
 }
 
 /**
- * The org has no GitHub connection. The tab offers "Connect GitHub" in
- * place, and "Paste a git URL" opens the Paste URL tab.
+ * Repository picker, where an owner chooses the Workspace repository. The org
+ * has no GitHub connection, so the GitHub tab offers "Connect GitHub" in place.
+ * The owner clicked "Paste a git URL", and the Paste URL tab is open.
  */
 export const NoGithubConnection: Story = {
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as PasteUrl." },
-    review: {
-      purpose:
-        "Repository picker, where an owner chooses the Workspace repository: the org has no GitHub connection, and the owner opened the Paste URL tab.",
-    },
     msw: {
       handlers: {
         page: [
@@ -198,16 +195,13 @@ export const SelectGitHubAllAccess: Story = {
 }
 
 /**
- * The app sees only selected repositories. The steps prefill the owner on
- * GitHub, link to giving the app access, and "Select the repository" goes
- * back to the list.
+ * Repository picker, where an owner chooses the Workspace repository. The app
+ * sees only selected repositories, so the Create on GitHub steps prefill the
+ * owner on GitHub and link to the app access. The owner read the steps and
+ * clicked "Select the repository" to go back to the list.
  */
 export const CreateOnGitHub: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Repository picker, where an owner chooses the Workspace repository: the owner read the Create on GitHub steps and went back to the list.",
-    },
     msw: {
       handlers: {
         page: [
@@ -248,13 +242,13 @@ export const CreateOnGitHub: Story = {
   },
 }
 
-/** The app sees every repository, so no access step shows. */
+/**
+ * Repository picker, where an owner chooses the Workspace repository. The
+ * Create on GitHub tab has no access step, because the GitHub App sees all
+ * repositories.
+ */
 export const CreateOnGitHubAllAccess: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Repository picker, where an owner chooses the Workspace repository: the Create on GitHub tab with no access step, because the app sees all repositories.",
-    },
     msw: {
       handlers: {
         page: [
@@ -285,13 +279,13 @@ export const CreateOnGitHubAllAccess: Story = {
   },
 }
 
-/** No GitHub connection: step 2 connects GitHub in place. */
+/**
+ * Repository picker, where an owner chooses the Workspace repository. The org
+ * has no GitHub connection, so in the Create on GitHub tab, step 2 connects
+ * GitHub in place.
+ */
 export const CreateOnGitHubNoConnection: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Repository picker, where an owner chooses the Workspace repository: the Create on GitHub tab, where step 2 connects GitHub in place.",
-    },
     msw: {
       handlers: {
         page: [
@@ -331,14 +325,13 @@ export const PasteUrl: Story = {
   },
 }
 
-/** A Workspace in a folder of a larger repository: the root folder goes with the choice. */
+/**
+ * Repository picker, where an owner chooses the Workspace repository. The owner
+ * pasted a git URL with a root folder and clicked Create Workspace. The
+ * Workspace is in a folder of a larger repository, so the root folder goes with
+ * the choice.
+ */
 export const PasteUrlWithRootFolder: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Repository picker, where an owner chooses the Workspace repository: the owner pasted a git URL with a root folder and clicked Create Workspace.",
-    },
-  },
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -366,14 +359,12 @@ export const PasteUrlWithRootFolder: Story = {
   },
 }
 
-/** The root folder is optional: an empty field sends "" for the whole repository. */
+/**
+ * Repository picker, where an owner chooses the Workspace repository. The owner
+ * pasted a git URL and left the optional root folder empty. The choice sends
+ * "", so the Workspace uses the whole repository.
+ */
 export const PasteUrlWithEmptyRootFolder: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Repository picker, where an owner chooses the Workspace repository: the owner pasted a git URL and left the root folder empty, so the Workspace uses the whole repository.",
-    },
-  },
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -410,17 +401,14 @@ export const SaveError: Story = {
 const memberRepoReads: string[] = []
 
 /**
- * A member: only an owner or admin can list the repositories of the GitHub
- * App. Select GitHub asks for an admin, and neither tab reads the list.
- * Paste URL still works.
+ * Repository picker, where a user chooses the Workspace repository. Only an
+ * owner or admin can list the repositories of the GitHub App. For a member,
+ * Select GitHub asks for an admin, and no tab reads the list. Paste URL still
+ * works, and it is open.
  */
 export const MemberAsksAnAdmin: Story = {
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as PasteUrl." },
-    review: {
-      purpose:
-        "Repository picker, where a user chooses the Workspace repository: a member cannot list the repositories, so it asks for an admin, and Paste URL is open.",
-    },
     msw: {
       handlers: {
         role: [activeMemberRoleHandler("member")],

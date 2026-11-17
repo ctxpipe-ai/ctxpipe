@@ -111,16 +111,13 @@ type Story = StoryObj<typeof meta>
 export const Settings: Story = {}
 
 /**
- * One card for each part, in this order: Upgrades, Sources, Knowledge graph,
- * Repository, Workspace, and Danger zone. Each card states its state in its
- * body. The Sources card shows three providers.
+ * Settings pane of a Workspace, where an owner manages its repository, sources,
+ * and upgrades. Every card is filled, in this order: Upgrades, Sources,
+ * Knowledge graph, Repository, Workspace, and Danger zone. Each card gives its
+ * state in its body, and the Sources card has three providers.
  */
 export const Populated: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace, where an owner manages its repository, sources, and upgrades: every card is filled, and the Sources card has three providers.",
-    },
     msw: {
       handlers: {
         sources: [
@@ -208,19 +205,12 @@ export const Populated: Story = {
 }
 
 /**
- * The Knowledge graph card lists every file that hydrate skipped, and marks
- * the card and the summary. A file that is only a legacy overlay
- * (knowledge from before Workspaces, built from the database) shows its
- * cause and no fix button, because no edit of the Workspace repository
- * changes it.
+ * Settings pane of a Workspace, where an owner checks the knowledge graph. The
+ * load skipped 3 files, so the Knowledge graph card and the summary have a
+ * mark, and the card lists each file with its cause. A legacy overlay file has
+ * no fix button, because no edit of the Workspace repository changes it.
  */
 export const SkippedFiles: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace, where an owner checks the knowledge graph: the load skipped 3 files, so the card lists each file with its cause; a legacy file has no fix button.",
-    },
-  },
   args: {
     workspace: skippedFilesWorkspaceDetail,
     onFixWithAgent: fn(),
@@ -272,13 +262,13 @@ export const SkippedFiles: Story = {
   },
 }
 
-/** A link with the upgrades hash lands on the Upgrades card: it gets the focus. */
+/**
+ * Settings pane of a Workspace, where an owner manages its repository, sources,
+ * and upgrades. A link with the upgrades hash landed on the Upgrades card and
+ * put the focus on it.
+ */
 export const LandsOnUpgrades: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace, where an owner manages its repository, sources, and upgrades: a link with the upgrades hash put focus on the Upgrades card.",
-    },
     storyRoute: {
       pattern: "orgIndex",
       orgSlug: "acme",
@@ -304,15 +294,14 @@ export const ReadOnly: Story = {
   },
 }
 
-/** A protected default branch: a neutral note, no warning and no "fix it". */
+/**
+ * Settings pane of a Workspace. The default branch is protected, so a neutral
+ * note says that changes go by pull request. No warning and no "fix it" show.
+ */
 export const ProtectedDefaultBranch: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as EmptyLinkedRepos.",
-    },
-    review: {
-      purpose:
-        "Settings pane of a Workspace: the default branch is protected, so a neutral note says changes go by pull request, with no warning.",
     },
   },
   args: {
@@ -336,15 +325,12 @@ export const ProtectedDefaultBranch: Story = {
 }
 
 /**
- * A Paste Workspace that no GitHub connection reads. "Select the repository
- * again" opens the context repository dialog, where Select GitHub binds it.
+ * Settings pane of a Paste Workspace that no GitHub connection reads. The owner
+ * clicked "Select the repository again", and the context repository dialog is
+ * open, where Select GitHub binds the repository.
  */
 export const ReadOnlyWithoutConnection: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace: no GitHub connection reads the repository, and the context repository dialog is open to select it again.",
-    },
     msw: { handlers: { github: [githubInstallationNoneHandler] } },
   },
   args: {
@@ -429,18 +415,15 @@ export const LinkedRepositoryWithIssues: Story = {
 }
 
 /**
- * The context repository picker and "Add repositories" share one cached
- * repository query. Opening one, then the other, lists the repositories.
+ * Settings pane of a Workspace. The owner opened the context repository picker
+ * and then the Add repositories dialog, which lists the repositories. The two
+ * dialogs share one cached repository query.
  */
 export const AddRepositories: Story = {
   args: {
     workspace: emptyLinkedWorkspaceDetail,
   },
   parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace: the owner opened the context repository picker and then the Add repositories dialog, which lists the repositories.",
-    },
     // Only an owner or admin sees the repository pickers. The Add
     // repositories dialog reads the Workspace and its format (2 or higher).
     msw: {
@@ -488,14 +471,12 @@ export const Hydrating: Story = {
   },
 }
 
-/** A hydrate that failed: the Knowledge graph card says it, with the reason. */
+/**
+ * Settings pane of a Workspace, where an owner checks the knowledge graph. The
+ * graph did not load, so the Knowledge graph card gives the next step and the
+ * raw reason, and the summary links to the card.
+ */
 export const HydrateFailed: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace, where an owner checks the knowledge graph: the graph did not load, so the card gives the next step and the raw reason, and the summary links to the card.",
-    },
-  },
   args: {
     workspace: failedHydrateWorkspaceDetail,
   },
@@ -512,16 +493,11 @@ export const HydrateFailed: Story = {
 }
 
 /**
- * A later load failed while an older graph still answers. No Prepare failed
- * page shows, so the card has its own Try again.
+ * Settings pane of a Workspace, where an owner checks the knowledge graph. The
+ * load of a new commit failed while the older graph still answers. No Prepare
+ * failed page shows, so the card has its own Try again.
  */
 export const HydrateFailedWithReadyGraph: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace, where an owner checks the knowledge graph: the load of a new commit failed while the older graph still answers, so the card has its own Try again.",
-    },
-  },
   args: {
     workspace: {
       ...failedHydrateWorkspaceDetail,
@@ -619,17 +595,14 @@ const busyIngestion = workspaceIngestionHandlers({
 })
 
 /**
- * Each source shows its live work in its own row: the word of the run that
- * is the furthest, and its time. "3 runs" opens each run with its stage, its
- * count, and why it waits. The Knowledge graph card shows the hydrate. The
- * summary names the parts at work and moves to a card.
+ * Settings pane of a Workspace. Each source shows its live work in its own row:
+ * the word of the run that is the furthest, and its time. The "3 runs" list of
+ * one source is open, with the stage, the count, and the wait reason of each
+ * run. The Knowledge graph card shows the hydrate, and the summary names the
+ * parts at work.
  */
 export const LiveWorkInSources: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace: each source shows its live runs in its own row, with the runs of one source open, and the Knowledge graph card shows its work.",
-    },
     msw: {
       handlers: {
         sources: [
@@ -672,16 +645,12 @@ export const LiveWorkInSources: Story = {
 }
 
 /**
- * A source with a problem shows the problem, also while its sync runs. The
- * summary counts the sources: the problem and the source that waits for its
- * merge.
+ * Settings pane of a Workspace. A source has a problem while its sync runs, and
+ * the problem still shows. The summary counts the sources that need the owner:
+ * the source with the problem and the source that waits for its merge.
  */
 export const SourceProblemsNeedYou: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace: a source has a problem while its sync runs, and the summary counts the sources that need the owner.",
-    },
     msw: {
       handlers: {
         sources: [
@@ -734,15 +703,12 @@ const longHistory = Array.from({ length: 12 }, (_, index) =>
 )
 
 /**
- * A long history keeps the card short: five rows show, "Show all" shows the
- * rest. A row opens to what it showed when the upgrade ran.
+ * Settings pane of a Workspace, with a long Upgrades history. The card stays
+ * short with five rows. The member clicked "Show all" to show all 12 rows, and
+ * opened the newest row, which gives what it showed when the upgrade ran.
  */
 export const LongUpgradeHistory: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace: the member opened the long Upgrades history, showed all 12 rows, and opened the newest row.",
-    },
     msw: {
       handlers: {
         upgrades: [
@@ -783,9 +749,10 @@ export const LongUpgradeHistory: Story = {
 const rootFolderPatches: unknown[] = []
 
 /**
- * The Workspace lives in docs/context of a larger repository. The root folder
- * field explains the setting, refuses a path that leaves the repository, and
- * saves a new folder on its own.
+ * Settings pane of a Workspace that lives in docs/context of a larger
+ * repository. The root folder field explains the setting and saves on its own.
+ * The owner saved a new root folder after the field refused a path outside the
+ * repository.
  */
 export const RootFolder: Story = {
   args: {
@@ -800,10 +767,6 @@ export const RootFolder: Story = {
     ),
   ],
   parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace that lives in a folder of a larger repository: the owner saved a new root folder after a path outside was refused.",
-    },
     msw: {
       handlers: {
         page: [
@@ -915,8 +878,9 @@ export const RelinkError: Story = {
 }
 
 /**
- * The server refuses a rename it cannot write to AGENTS.md (WS-5). The pane
- * shows the reason and stays on the current slug.
+ * Settings pane of a Workspace. The server refused a rename that it cannot
+ * write to AGENTS.md (WS-5), so a message gives the reason, and the URL name
+ * (slug) stays the same.
  */
 export const RenameRefused: Story = {
   decorators: [
@@ -928,10 +892,6 @@ export const RenameRefused: Story = {
     ),
   ],
   parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace: the server refused a rename, so a message gives the reason and the URL name stays the same.",
-    },
     msw: {
       handlers: {
         page: [
@@ -1071,8 +1031,10 @@ export const DeleteConfirmPending: Story = {
 }
 
 /**
- * Delete the only Workspace while Home reads the same list cache. Home must
- * show zero Workspaces at once, also when the list request does not complete.
+ * Settings pane of a Workspace above the org home body. The owner, who
+ * dismissed the setup guide, deleted the only Workspace. Home reads the same
+ * list cache and shows zero Workspaces at once, also when the list request does
+ * not complete.
  */
 export const DeleteLastWorkspaceEmptiesHome: Story = {
   // The owner dismissed the setup guide, so Home with no Workspace shows
@@ -1094,10 +1056,6 @@ export const DeleteLastWorkspaceEmptiesHome: Story = {
     </>
   ),
   parameters: {
-    review: {
-      purpose:
-        "Settings pane of a Workspace above the org home body: the owner, who dismissed the setup guide, deleted the only Workspace, and Home shows zero Workspaces at once.",
-    },
     msw: {
       handlers: {
         page: (() => {

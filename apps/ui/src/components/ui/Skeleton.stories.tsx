@@ -133,9 +133,10 @@ const waitAnimation = (bone: HTMLElement) => {
 }
 
 /**
- * No bone shows before the delay; the row keeps its final box all the time.
- * The play test pauses the wait animation and sets its time: one millisecond
- * before the delay the bones are hidden, at the delay they show.
+ * Skeleton row of a list that still loads after the user opened it: the
+ * one-second delay ended, so the bones show in the 32 px row box that the empty
+ * row kept. The play pauses the wait animation: one millisecond before the
+ * delay the bones are hidden, and at the delay they show.
  */
 export const WaitsForDelay: Story = {
   parameters: {
@@ -144,10 +145,6 @@ export const WaitsForDelay: Story = {
     },
     intent:
       "Catches a skeleton that shows before its delay ends, or that shifts the row height. Bones stay hidden until the delay ends. Not for hold time or content.",
-    review: {
-      purpose:
-        "Skeleton row of a list that still loads after the user opened it: the one-second delay ended, so the bones show in the 32 px row box that the empty row kept.",
-    },
   },
   tags: ["required"],
   render: () => (
@@ -203,10 +200,9 @@ const button = (canvasElement: HTMLElement, name: string) =>
   within(canvasElement).getByRole("button", { name })
 
 /**
- * The three hold stories below run on a manual clock (`skeletonClockStory`),
- * so they do not depend on the speed of the machine.
- *
- * A load that ends before the delay shows the content at once.
+ * Test panel for the skeleton hold, with load buttons: the load ended before
+ * the delay, so the content shows at once. The story runs on a manual clock
+ * (`skeletonClockStory`), so it does not depend on the speed of the machine.
  */
 export const FastLoadSkipsSkeleton: Story = {
   parameters: {
@@ -215,10 +211,6 @@ export const FastLoadSkipsSkeleton: Story = {
     },
     intent:
       "Catches a fast load that still holds a skeleton. Data that arrives before the skeleton shows must appear at once. Not for slow loads or skeleton layout.",
-    review: {
-      purpose:
-        "Test panel for the skeleton hold, with load buttons: the load ended before the delay, so the content shows at once.",
-    },
   },
   tags: ["required"],
   render: () => <HoldDemo />,
@@ -242,8 +234,10 @@ export const FastLoadSkipsSkeleton: Story = {
 }
 
 /**
- * A visible skeleton stays until `SKELETON_MIN_MS` after it showed, not after
- * the data arrived.
+ * Test panel for the skeleton hold, with load buttons: the skeleton stayed for
+ * its minimum time, and then the content shows. The hold counts
+ * `SKELETON_MIN_MS` from when the skeleton showed, not from when the data
+ * arrived. The story runs on a manual clock.
  */
 export const VisibleSkeletonHoldsMinimum: Story = {
   parameters: {
@@ -252,10 +246,6 @@ export const VisibleSkeletonHoldsMinimum: Story = {
     },
     intent:
       "Catches a visible skeleton that goes away too early. It stays for the minimum time after it showed, not after the data arrived. Not for fast loads.",
-    review: {
-      purpose:
-        "Test panel for the skeleton hold, with load buttons: the skeleton stayed for its minimum time, and then the content shows.",
-    },
   },
   tags: ["required"],
   render: () => <HoldDemo />,
@@ -280,7 +270,11 @@ export const VisibleSkeletonHoldsMinimum: Story = {
   },
 }
 
-/** After the hold ended, a later end of the load shows the content at once. */
+/**
+ * Test panel for the skeleton hold, with load buttons: the load ended after the
+ * hold, so the content shows at once. No second hold starts after the minimum
+ * time is over. The story runs on a manual clock.
+ */
 export const NoSecondHoldAfterMinimum: Story = {
   parameters: {
     visual: {
@@ -288,10 +282,6 @@ export const NoSecondHoldAfterMinimum: Story = {
     },
     intent:
       "Catches a second hold after the minimum time is over. Data that arrives later must show at once. Not for the first hold or skeleton layout.",
-    review: {
-      purpose:
-        "Test panel for the skeleton hold, with load buttons: the load ended after the hold, so the content shows at once.",
-    },
   },
   tags: ["required"],
   render: () => <HoldDemo />,
@@ -337,7 +327,12 @@ function SuspenseDemo() {
   )
 }
 
-/** `SkeletonSuspense` holds a visible fallback for the minimum time. */
+/**
+ * Test panel for the Suspense skeleton fallback: the fallback stayed for its
+ * minimum time, and then the loaded content shows. `SkeletonSuspense` holds a
+ * visible fallback for the minimum time, also when the content is ready
+ * earlier.
+ */
 export const SuspenseHoldsMinimum: Story = {
   parameters: {
     visual: {
@@ -345,10 +340,6 @@ export const SuspenseHoldsMinimum: Story = {
     },
     intent:
       "Catches a Suspense fallback that goes away before the minimum time. Ready content waits until the hold ends. Not for the data hook hold or fallback layout.",
-    review: {
-      purpose:
-        "Test panel for the Suspense skeleton fallback: the fallback stayed for its minimum time, and then the loaded content shows.",
-    },
   },
   tags: ["required"],
   render: () => <SuspenseDemo />,
@@ -377,8 +368,9 @@ export const SuspenseHoldsMinimum: Story = {
 }
 
 /**
- * CSS starts the delay, so it runs from the first paint of server HTML, not
- * from hydration.
+ * Skeleton row that holds the place of content while it loads: the bones are
+ * still hidden at first paint while the delay runs. CSS starts the delay, so
+ * the delay runs from the first paint of server HTML, not from hydration.
  */
 export const DelayStartsAtFirstPaint: Story = {
   parameters: {
@@ -387,10 +379,6 @@ export const DelayStartsAtFirstPaint: Story = {
     },
     intent:
       "Catches a skeleton delay that starts at hydration. CSS must start the wait at the first paint of the server HTML. Not for hold time or hand-over.",
-    review: {
-      purpose:
-        "Skeleton row that holds the place of content while it loads: the bones are still hidden at first paint while the delay runs.",
-    },
   },
   tags: ["required"],
   render: () => (
@@ -477,7 +465,11 @@ function HandOverDemoBody(props: {
   )
 }
 
-/** A visible skeleton that hands over to another one never goes blank. */
+/**
+ * Test panel for the hand-over from one skeleton to the next: the second
+ * skeleton took over and stays visible. A visible skeleton that hands over to
+ * another one never goes blank, at any frame.
+ */
 export const HandOverStaysVisible: Story = {
   parameters: {
     visual: {
@@ -485,10 +477,6 @@ export const HandOverStaysVisible: Story = {
     },
     intent:
       "Catches a hand-over between two skeletons that flashes hidden. The second skeleton stays visible at every frame. Not for timing values or loaded content.",
-    review: {
-      purpose:
-        "Test panel for the hand-over from one skeleton to the next: the second skeleton took over and stays visible.",
-    },
   },
   tags: ["required"],
   render: () => <HandOverDemo />,
@@ -514,7 +502,12 @@ export const HandOverStaysVisible: Story = {
 const waitOf = (bone: HTMLElement) =>
   Number.parseFloat(bone.style.getPropertyValue("--skeleton-wait"))
 
-/** A hand-over before the delay keeps the first start time. */
+/**
+ * Test panel for the hand-over from one skeleton to the next: the second
+ * skeleton took over before the delay ended. The hand-over keeps the first
+ * start time, so the second skeleton waits only for the rest of the first
+ * delay.
+ */
 export const HandOverKeepsDelayStart: Story = {
   parameters: {
     visual: {
@@ -522,10 +515,6 @@ export const HandOverKeepsDelayStart: Story = {
     },
     intent:
       "Catches a hand-over that restarts the delay. A second skeleton before the delay ends waits only for the rest of the first delay. Not for hold time.",
-    review: {
-      purpose:
-        "Test panel for the hand-over from one skeleton to the next: the second skeleton took over before the delay ended.",
-    },
   },
   tags: ["required"],
   render: () => <HandOverDemo idle />,
@@ -548,7 +537,11 @@ export const HandOverKeepsDelayStart: Story = {
   },
 }
 
-/** A fast load in another chain of the region does not inherit the start. */
+/**
+ * Test panel for the hand-over from one skeleton to the next: a fast load in
+ * another chain started and stopped again. That load does not inherit the start
+ * of the other chain, so its skeleton keeps its own delay and stays hidden.
+ */
 export const UnrelatedLoadKeepsItsDelay: Story = {
   parameters: {
     visual: {
@@ -556,10 +549,6 @@ export const UnrelatedLoadKeepsItsDelay: Story = {
     },
     intent:
       "Catches a fast load in another chain that inherits an earlier start and shows its skeleton at once. It keeps its own delay. Not for hand-over in one chain.",
-    review: {
-      purpose:
-        "Test panel for the hand-over from one skeleton to the next: a fast load in another chain started and stopped again.",
-    },
   },
   tags: ["required"],
   render: () => <HandOverDemo />,
@@ -577,7 +566,11 @@ export const UnrelatedLoadKeepsItsDelay: Story = {
   },
 }
 
-/** A query skeleton that takes over a visible one holds from that moment. */
+/**
+ * Test panel for the hand-over from one skeleton to the next: a query skeleton
+ * took over, held, and then the content shows. The hold counts from when the
+ * first skeleton showed.
+ */
 export const HandOverHoldsMinimum: Story = {
   parameters: {
     visual: {
@@ -585,10 +578,6 @@ export const HandOverHoldsMinimum: Story = {
     },
     intent:
       "Catches a query skeleton that takes over a visible one and holds from the wrong time. The hold counts from when the first skeleton showed. Not for the delay.",
-    review: {
-      purpose:
-        "Test panel for the hand-over from one skeleton to the next: a query skeleton took over, held, and then the content shows.",
-    },
   },
   tags: ["required"],
   render: () => <HandOverDemo idle />,
@@ -617,10 +606,10 @@ export const HandOverHoldsMinimum: Story = {
 }
 
 /**
- * The chain start comes from the CSS animation of the first bone, not from
- * its React mount. Here the first bone's wait began 600 ms before the mount,
- * as server HTML does before hydration, so the successor waits only the
- * 400 ms that are left.
+ * Test panel for the hand-over from one skeleton to the next: the first bone
+ * started before the mount, and the second took over. The chain start comes
+ * from the CSS animation of the first bone, which began 600 ms before the
+ * mount, so the second waits only 400 ms.
  */
 export const HandOverUsesPaintStart: Story = {
   parameters: {
@@ -629,10 +618,6 @@ export const HandOverUsesPaintStart: Story = {
     },
     intent:
       "Catches a hand-over that uses the React mount time as the chain start. It must use the CSS animation start of the first bone. Not for hold time.",
-    review: {
-      purpose:
-        "Test panel for the hand-over from one skeleton to the next: the first bone started before the mount, and the second took over.",
-    },
   },
   tags: ["required"],
   render: () => <HandOverDemo idle firstStyle={{ animationDelay: "-600ms" }} />,

@@ -134,8 +134,9 @@ const columnBox = (column: Element | null | undefined) => {
 }
 
 /**
- * The surface skeleton has the same chat and pane columns as the loaded
- * workspace, so nothing moves when the workspace arrives.
+ * Workspace page in the org shell, with the Files pane open. The loading
+ * skeleton has the same chat and pane columns as the loaded page, so nothing
+ * moves when the Workspace arrives.
  */
 export const SurfaceSkeletonMatches: Story = {
   tags: ["required"],
@@ -161,10 +162,6 @@ export const SurfaceSkeletonMatches: Story = {
           ...workspaceShellHandlers(),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with the Files pane open: the loading skeleton has the same chat and pane columns as the loaded page.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -205,8 +202,9 @@ export const NotFound: Story = {
 const failedTouch = { count: 0, rejections: [] as unknown[] }
 
 /**
- * The last-used touch fails with 404, as it can for an old slug just after a
- * slug rename. The page stays, and the failure is not an uncaught error.
+ * Workspace page in the org shell, where a member chats with the agent. The
+ * last-used request fails with 404, as it can for an old slug just after a slug
+ * rename. The page stays, and the failure is not an uncaught error.
  */
 export const FailedTouchIsCaught: Story = {
   tags: ["required"],
@@ -225,10 +223,6 @@ export const FailedTouchIsCaught: Story = {
           ...workspaceShellHandlers(),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, where a member chats with the agent: the last-used request fails with 404 after a slug rename, and the page stays.",
     },
   },
   beforeEach: () => {
@@ -364,9 +358,10 @@ export const Compose: Story = {
 }
 
 /**
- * A Workspace below the newest format (CTX-932): the banner stands at the top
- * of the page where the user works, with the next step. It is not only in
- * Settings.
+ * Workspace page in the org shell, with the new conversation composer. The
+ * Workspace is below the newest format, so a banner at the top of the page
+ * offers to start the upgrade (CTX-932). The banner is where the user works,
+ * not only in Settings.
  */
 export const ComposeNeedsFormatUpgrade: Story = {
   parameters: {
@@ -380,10 +375,6 @@ export const ComposeNeedsFormatUpgrade: Story = {
           ...workspaceShellHandlers(),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with the new conversation composer: the Workspace needs the format upgrade, so a banner offers to start it.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -400,7 +391,11 @@ export const ComposeNeedsFormatUpgrade: Story = {
   },
 }
 
-/** The banner also stands above an open conversation. */
+/**
+ * Workspace page in the org shell, with an open conversation. The Workspace
+ * needs the format upgrade, so the banner stands above the conversation and
+ * tells a member to ask an admin.
+ */
 export const ConversationNeedsFormatUpgrade: Story = {
   args: { conversationId: "conv_1" },
   parameters: {
@@ -414,10 +409,6 @@ export const ConversationNeedsFormatUpgrade: Story = {
           ...workspaceShellHandlers(),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with an open conversation: the Workspace needs the format upgrade, and the banner tells a member to ask an admin.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -468,8 +459,9 @@ function workspaceMovedStatus(ownChanges: boolean) {
 }
 
 /**
- * The Workspace moved, but the conversation has no changes of its own. Its
- * next turn moves it to the new commit, so no notice shows.
+ * Workspace page in the org shell, with an open conversation. The Workspace has
+ * new commits, but the conversation has no changes of its own. Its next turn
+ * moves it to the new commit, so no notice shows.
  */
 export const ConversationWorkspaceMovedNoChanges: Story = {
   args: { conversationId: "conv_1" },
@@ -480,10 +472,6 @@ export const ConversationWorkspaceMovedNoChanges: Story = {
       handlers: {
         page: [workspaceMovedStatus(false), ...workspaceShellHandlers()],
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with an open conversation: the Workspace has new commits, but the conversation has no changes, so no notice shows.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -498,8 +486,9 @@ export const ConversationWorkspaceMovedNoChanges: Story = {
 }
 
 /**
- * The Workspace moved under the conversation's own changes. The notice says
- * to send a message first and does not name a conflict.
+ * Workspace page in the org shell, with an open conversation. The Workspace has
+ * new commits under the changes of the conversation. A notice says to send a
+ * message first, and it does not name a conflict.
  */
 export const ConversationWorkspaceMovedWithChanges: Story = {
   args: { conversationId: "conv_1" },
@@ -510,10 +499,6 @@ export const ConversationWorkspaceMovedWithChanges: Story = {
       handlers: {
         page: [workspaceMovedStatus(true), ...workspaceShellHandlers()],
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with an open conversation: the Workspace has new commits under the conversation changes, so a notice says to send a message first.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -711,7 +696,11 @@ const cleanAheadStatus = () =>
     worktreeVersion: "wt-0",
   })
 
-/** A failed Sync shows why in a toast. */
+/**
+ * Workspace page in the org shell, with a conversation and the Files pane open.
+ * The member pressed Sync during a turn, so the push failed, and an error toast
+ * says why.
+ */
 export const PublishErrorsToast: Story = {
   tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
@@ -741,10 +730,6 @@ export const PublishErrorsToast: Story = {
           ...noPrHandlers(),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with a conversation and the Files pane open: the member pressed Sync during a turn, so the push failed and an error toast says why.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -782,7 +767,11 @@ export const PublishErrorsToast: Story = {
   },
 }
 
-/** A failed Create PR shows why in a toast. */
+/**
+ * Workspace page in the org shell, with a conversation and the Files pane open.
+ * Create PR failed because a GitHub App permission is missing, and a toast says
+ * why.
+ */
 export const PublishPrErrorToast: Story = {
   tags: ["required"],
   args: { conversationId: "conv_1", paneParam: "files" },
@@ -807,10 +796,6 @@ export const PublishPrErrorToast: Story = {
         ],
       },
     },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with a conversation and the Files pane open: Create PR failed for a missing GitHub App permission, and a toast says why.",
-    },
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
@@ -834,8 +819,10 @@ export const PublishPrErrorToast: Story = {
 }
 
 /**
- * A successful Sync shows no toast. The thread reads the stored Sync again
- * and shows it after the last turn, with a link to the branch on GitHub.
+ * Workspace page in the org shell, with an open conversation. The member
+ * pressed Sync and the push succeeded, so no toast shows. The thread reads the
+ * stored Sync again and adds a push entry after the last turn, with a link to
+ * the branch on GitHub.
  */
 export const SyncAddsThreadEntry: Story = {
   tags: ["required"],
@@ -898,10 +885,6 @@ export const SyncAddsThreadEntry: Story = {
         })(),
       },
     },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with an open conversation: the member pressed Sync and the push succeeded, so a push entry with a branch link shows after the last turn.",
-    },
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
@@ -948,9 +931,10 @@ export const SyncAddsThreadEntry: Story = {
 }
 
 /**
- * Sync shows once: in the conversation header while the tools pane is open
- * beside it, and in the pane header when the pane is maximized. Both share
- * one pending push.
+ * Workspace page in the org shell, with a conversation and the Files pane open.
+ * A Sync push runs, and each Sync button shows the same pending state. Sync is
+ * in the conversation header when the pane is beside it, and in the pane header
+ * when the pane is maximized.
  */
 export const SharedPublishPending: Story = {
   tags: ["required"],
@@ -985,10 +969,6 @@ export const SharedPublishPending: Story = {
           ...workspaceShellHandlers(),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with a conversation and the Files pane open: a Sync push runs, and each Sync button shows the same pending state.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1068,8 +1048,9 @@ export const SharedPublishPending: Story = {
 }
 
 /**
- * Create PR shows once, at the top right of the conversation. It has the
- * git-pull-request icon, and the buttons there have no border.
+ * Workspace page in the org shell, with a conversation and the Files pane open.
+ * Create PR shows one time, at the top right of the conversation header, with
+ * its git-pull-request icon. The buttons there have no border.
  */
 export const SingleCreatePr: Story = {
   tags: ["required"],
@@ -1085,10 +1066,6 @@ export const SingleCreatePr: Story = {
         // status adds Sync when it loads.
         page: [cleanAheadStatus(), ...noPrHandlers()],
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with a conversation and the Files pane open: only the conversation header shows Create PR, with its pull request icon.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1137,7 +1114,11 @@ export const SingleCreatePr: Story = {
   },
 }
 
-/** With the tools pane closed, Create PR shows once, in the conversation header. */
+/**
+ * Workspace page in the org shell, with an open conversation and the tools pane
+ * closed. The branch is synced and has no pull request, so Create PR shows one
+ * time, in the conversation header.
+ */
 export const SingleCreatePrPaneClosed: Story = {
   tags: ["required"],
   args: { conversationId: "conv_1" },
@@ -1152,10 +1133,6 @@ export const SingleCreatePrPaneClosed: Story = {
         // status adds Sync when it loads.
         page: [cleanAheadStatus(), ...noPrHandlers()],
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with an open conversation and the tools pane closed: the branch is synced and has no pull request, so Create PR shows one time, in the header.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1180,8 +1157,8 @@ export const SingleCreatePrPaneClosed: Story = {
 }
 
 /**
- * The pane is closed. Create PR and the pane triggers sit in the same header
- * row, and they look the same.
+ * Workspace page in the org shell, with the tools pane closed. Create PR and
+ * the pane triggers sit in one header row, and they look the same.
  */
 export const CreatePrMatchesPaneTriggers: Story = {
   tags: ["required"],
@@ -1198,10 +1175,6 @@ export const CreatePrMatchesPaneTriggers: Story = {
       handlers: {
         page: [cleanAheadStatus(), ...noPrHandlers()],
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with the tools pane closed: Create PR and the pane triggers sit in one header row and look the same.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1236,8 +1209,9 @@ export const CreatePrMatchesPaneTriggers: Story = {
 }
 
 /**
- * With the tools pane closed and the branch changed, the Diff trigger shows
- * beside Files, Graph and Settings, with the same style and the file-diff icon.
+ * Workspace page in the org shell, with the tools pane closed. The branch
+ * changed, so a Diff trigger with the file-diff icon shows beside Files, Graph,
+ * and Settings, in the same style.
  */
 export const DiffTriggerPaneClosed: Story = {
   tags: ["required"],
@@ -1251,10 +1225,6 @@ export const DiffTriggerPaneClosed: Story = {
       handlers: {
         page: [...workspaceShellHandlers(), conversationGitDiffHandler()],
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with the tools pane closed: the branch changed, so a Diff trigger shows beside Files, Graph, and Settings.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1292,8 +1262,9 @@ export const DiffTriggerPaneClosed: Story = {
 }
 
 /**
- * The Diff trigger shows with no changes on the branch, and its pane has an
- * empty state.
+ * Workspace page in the org shell, with a conversation and the tools pane open.
+ * The branch has no changes, but the Diff tab still shows. The member opened
+ * it, and the Diff pane has the empty state "No changes on this branch".
  */
 export const DiffTriggerNoChanges: Story = {
   tags: ["required"],
@@ -1307,10 +1278,6 @@ export const DiffTriggerNoChanges: Story = {
       handlers: {
         page: [...workspaceShellHandlers(), conversationGitDiffHandler([])],
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with a conversation and the Files pane open: the branch has no changes, so the Diff pane shows an empty state.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1327,9 +1294,10 @@ export const DiffTriggerNoChanges: Story = {
 }
 
 /**
- * A tab switch moves no tab. Each trigger keeps its box (x, y, width and
- * height) when another trigger becomes active. The tab that becomes active
- * keeps its x and width; it grows only to join the card.
+ * Workspace page in the org shell, with a conversation and the Files pane open.
+ * The member switched pane tabs and came back to Files, and no tab moved. Each
+ * trigger keeps its x, y, width, and height. The active tab grows only to join
+ * the card.
  */
 export const PaneTabsStayInPlace: Story = {
   tags: ["required"],
@@ -1343,10 +1311,6 @@ export const PaneTabsStayInPlace: Story = {
       handlers: {
         page: [...workspaceShellHandlers(), conversationGitDiffHandler()],
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with a conversation and the Files pane open: the member switched pane tabs and came back to Files, and no tab moved.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1391,8 +1355,9 @@ export const PaneTabsStayInPlace: Story = {
 }
 
 /**
- * The Diff tab uses the file-diff icon. When it is active, the top-left
- * corner of the pane card is round, as it is when Graph is active.
+ * Workspace page in the org shell, with a conversation and the Diff pane open.
+ * The Diff tab has the file-diff icon. When it is active, the top-left corner
+ * of the pane card is round, as it is when Graph is active.
  */
 export const DiffTabRoundedCorner: Story = {
   tags: ["required"],
@@ -1409,10 +1374,6 @@ export const DiffTabRoundedCorner: Story = {
       handlers: {
         page: [...workspaceShellHandlers(), conversationGitDiffHandler()],
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with a conversation and the Diff pane open: the pane card has a round top-left corner next to the active Diff tab.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1452,8 +1413,9 @@ const publishActionNames = (root: HTMLElement, hidden = false) =>
     .map((element) => element.getAttribute("aria-label") ?? element.textContent)
 
 /**
- * No sandbox runs and the branch is on GitHub. Maximized, the pane header
- * shows the same publish actions as the conversation header.
+ * Workspace page in the org shell, with a conversation and the Files pane
+ * maximized. No sandbox runs and the branch is on GitHub, so the pane header
+ * has the same Create PR action as the conversation header.
  */
 export const MaximizedPaneMatchesHeader: Story = {
   tags: ["required"],
@@ -1483,10 +1445,6 @@ export const MaximizedPaneMatchesHeader: Story = {
           ...noPrHandlers(),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with a conversation and the Files pane maximized: the pane header shows the same Create PR action as the conversation header.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1751,8 +1709,9 @@ export const SettingsPane: Story = {
 }
 
 /**
- * A link from Home lands on the Status group. Only the pane's own scroll
- * area moves: no outer box scrolls, so the pane keeps filling the panel.
+ * Workspace page in the org shell, with the Settings pane open. A link from
+ * Home lands on the upgrades in the Status group. Only the scroll area of the
+ * pane moves, so no outer box scrolls and the pane keeps filling the panel.
  */
 export const SettingsPaneLandsOnUpgrades: Story = {
   parameters: {
@@ -1764,10 +1723,6 @@ export const SettingsPaneLandsOnUpgrades: Story = {
           ...workspaceShellHandlers(),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with the Settings pane open: a link from Home lands on the upgrades in the Status group, and only the pane scroll area moves.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1799,7 +1754,11 @@ export const SettingsPaneLandsOnUpgrades: Story = {
   },
 }
 
-/** Fix using agent fills the composer of a new conversation and keeps the settings pane open. */
+/**
+ * Workspace page in the org shell, with the Settings pane open. The user clicks
+ * Fix using agent for a skipped file. The composer of a new conversation fills
+ * with a fix request, and the Settings pane stays open.
+ */
 export const FixUsingAgentOpensChat: Story = {
   parameters: {
     storyRoute: workspaceRoute({ pane: "settings" }),
@@ -1807,10 +1766,6 @@ export const FixUsingAgentOpensChat: Story = {
       handlers: {
         page: workspaceShellHandlers({ detail: skippedFilesWorkspaceDetail }),
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, with the Settings pane open: the user clicks Fix using agent for a skipped file, and the composer fills with a fix request.",
     },
   },
   beforeEach: () => {
@@ -2170,7 +2125,10 @@ const deleteFlowDecorators = [
   ),
 ]
 
-/** Deleting the open Workspace goes Home with a toast and no error page. */
+/**
+ * Test stage of the Workspace delete flow from Settings. The user deleted the
+ * open Workspace, and the stage goes Home with a toast and no error page.
+ */
 export const DeleteWorkspaceShowsNoError: Story = {
   tags: ["required", "!page"],
   args: { paneParam: "settings" },
@@ -2190,14 +2148,15 @@ export const DeleteWorkspaceShowsNoError: Story = {
     msw: { handlers: { page: deleteFlowHandlers([readOnlyWorkspace]) } },
     review: {
       kind: "component",
-      purpose:
-        "Test stage of the Workspace delete flow from Settings: the user deleted the open Workspace, and the stage goes Home with a toast and no error page.",
     },
   },
   play: ({ canvasElement }) => deleteOpenWorkspace(canvasElement),
 }
 
-/** The same, when the Workspace is the last one. */
+/**
+ * Test stage of the Workspace delete flow from Settings. The user deleted the
+ * last Workspace of the org, and the stage goes Home with no error page.
+ */
 export const DeleteLastWorkspaceShowsNoError: Story = {
   ...DeleteWorkspaceShowsNoError,
   tags: ["required", "!page"],
@@ -2212,13 +2171,15 @@ export const DeleteLastWorkspaceShowsNoError: Story = {
     msw: { handlers: { page: deleteFlowHandlers([]) } },
     review: {
       kind: "component",
-      purpose:
-        "Test stage of the Workspace delete flow from Settings: the user deleted the last Workspace of the org, and the stage goes Home with no error page.",
     },
   },
 }
 
-/** The same, from a conversation URL. */
+/**
+ * Test stage of the Workspace delete flow from Settings. The user deleted the
+ * Workspace from a conversation URL, and the stage goes Home with no error
+ * page.
+ */
 export const DeleteFromConversationShowsNoError: Story = {
   ...DeleteWorkspaceShowsNoError,
   tags: ["required", "!page"],
@@ -2238,8 +2199,6 @@ export const DeleteFromConversationShowsNoError: Story = {
     } satisfies StoryRouteParams,
     review: {
       kind: "component",
-      purpose:
-        "Test stage of the Workspace delete flow from Settings: the user deleted the Workspace from a conversation URL, and the stage goes Home with no error page.",
     },
   },
 }
@@ -2303,9 +2262,10 @@ function ingestionDemoState(seconds: number): Record<string, IngestionItem[]> {
 }
 
 /**
- * The demo of CTX-959 for a video: the sidebar shows the ingesting dot,
- * Workspace settings shows the progress move, and the list empties when the
- * work ends (about 30 s). The state changes with time, on each read.
+ * Workspace page in the org shell, made for a demo video of CTX-959. The
+ * sidebar shows the ingesting dot, and Workspace settings shows the progress
+ * move. The work list empties when the work ends, after about 30 seconds. The
+ * state changes with time, on each read.
  */
 export const IngestingDemo: Story = {
   beforeEach: () => {
@@ -2331,10 +2291,6 @@ export const IngestingDemo: Story = {
           ingestionDemoState((Date.now() - demoStart) / 1000),
         ),
       },
-    },
-    review: {
-      purpose:
-        "Workspace page in the org shell, made for a demo video: the sidebar shows the ingesting dot, and the work list empties after about 30 seconds.",
     },
   },
 }

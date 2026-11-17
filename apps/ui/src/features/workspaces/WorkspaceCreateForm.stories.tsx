@@ -325,15 +325,12 @@ function LeavablePage(props: { orgSlug: string }) {
 }
 
 /**
- * The user leaves the page while the create call runs. The Workspace still
- * exists, but the form must not change the page that the user opened since.
+ * Create form for a Workspace. The owner left the page while the create request
+ * ran. The Workspace still exists, but the form does not call back, so it does
+ * not change the page that the owner opened since.
  */
 export const LeaveWhileCreating: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Create form for a Workspace: the owner left the page while the create request ran, and the form did not call back after it.",
-    },
     msw: {
       handlers: {
         page: [

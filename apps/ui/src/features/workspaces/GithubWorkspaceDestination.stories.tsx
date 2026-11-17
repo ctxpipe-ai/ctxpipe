@@ -145,8 +145,9 @@ export const OnboardingEmpty: Story = {
 }
 
 /**
- * The loading skeleton has the same box as the page with three workspaces:
- * the button, the cards and the close button.
+ * Loading skeleton of the GitHub destination, next to its loaded list of three
+ * Workspaces. The two boxes must have the same size: the button, the cards, and
+ * the close button.
  */
 export const LoadingSkeletonMatches: Story = {
   parameters: {
@@ -156,8 +157,6 @@ export const LoadingSkeletonMatches: Story = {
       "Catches a workspace destination skeleton whose size differs from the loaded list. This causes layout shift. Not for workspace data or selection.",
     review: {
       kind: "component",
-      purpose:
-        "Loading skeleton of the GitHub destination next to its loaded list of three Workspaces: the two boxes must have the same size.",
     },
   },
   tags: ["required"],

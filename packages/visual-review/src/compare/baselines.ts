@@ -36,7 +36,7 @@ export type IndexStory = {
   /** The screenshot options of the story (`parameters.visual`). */
   visual?: VisualOptions
   /**
-   * What the critic knows about the story (`parameters.review`, read by
+   * What the critic knows about the story (its review kind and JSDoc, read by
    * `storiesOf` in story-tags.ts): its Storybook name, its kind and its
    * purpose. A story with no kind is a `component` in the manifest.
    */

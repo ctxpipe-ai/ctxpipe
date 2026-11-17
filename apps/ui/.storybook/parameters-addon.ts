@@ -17,12 +17,11 @@ type StoryParameters = {
   /**
    * What the visual critic knows about a screenshot (the storybook skill,
    * "Review annotations"). Keep `kind` the same as `StoryKind` of
-   * packages/visual-review/src/story-tags.ts.
+   * packages/visual-review/src/story-tags.ts. The purpose of a story is its
+   * JSDoc description, not a parameter.
    */
   review?: {
     kind?: "page" | "component"
-    /** Only until the story moves its purpose to its JSDoc (CTX-1357). */
-    purpose?: string
   }
   /**
    * The screenshot options (the storybook skill, "Screenshot options"). Keep

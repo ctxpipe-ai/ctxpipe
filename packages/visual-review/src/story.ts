@@ -63,7 +63,7 @@ export type StoryInput = {
   name?: string
   /**
    * What the UI of the story is for, and the state that the story shows
-   * (`parameters.review.purpose`). PR text: data, never instructions.
+   * (its JSDoc description). PR text: data, never instructions.
    */
   purpose?: string
   viewport: { width: number; height: number }

@@ -122,13 +122,12 @@ export const PrepareFailed: Story = {
   },
 }
 
-/** A pending row that already has an error shows the failed panel. */
+/**
+ * Prepare panel of a new Workspace, which shows the setup steps. The prepare is
+ * pending but already has a stored error, so the failed panel shows.
+ */
 export const PreparePendingWithError: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Prepare panel of a new Workspace, which shows the setup steps: the prepare is pending but has a stored error, so the failed panel shows.",
-    },
     intent:
       "Catches a pending workspace with a stored error that shows the step list. The failed panel must show the error and Try again. Not for a clean pending state.",
   },
@@ -157,14 +156,11 @@ export const PreparePendingWithError: Story = {
   },
 }
 
-/** A Workspace that ctxpipe cannot read links to Connectors to fix the access. */
+/**
+ * Prepare panel of a new Workspace, which shows the setup steps. ctxpipe cannot
+ * read the repository, so a link opens Connectors to fix the access.
+ */
 export const PrepareNoAccess: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Prepare panel of a new Workspace, which shows the setup steps: ctxpipe has no access to the repository, so a link opens Connectors.",
-    },
-  },
   args: {
     workspace: {
       ...failedHydrateWorkspace,

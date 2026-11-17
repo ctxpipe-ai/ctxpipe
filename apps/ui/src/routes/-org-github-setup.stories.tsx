@@ -48,13 +48,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-/** The installation check is still running. */
+/**
+ * Org GitHub setup page, where the user picks a Workspace for the GitHub App:
+ * the installation check is still running, so the page shows its loading state.
+ */
 export const Checking: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Org GitHub setup page, where the user picks a Workspace for the GitHub App: the installation check is still loading.",
-    },
     msw: {
       handlers: {
         page: [
@@ -82,13 +81,13 @@ export const Checking: Story = {
   },
 }
 
-/** The GitHub App is not installed: the page sends the user back to Connectors. */
+/**
+ * GitHub setup page, which opens after the GitHub App install, where an admin
+ * picks a Workspace: the App is not installed, so the page sends the admin back
+ * to Connectors.
+ */
 export const NotInstalled: Story = {
   parameters: {
-    review: {
-      purpose:
-        "GitHub setup page, which opens after the GitHub App install, where an admin picks a Workspace: the App is not installed, so the page sends the admin to Connectors.",
-    },
     msw: { handlers: { page: [githubInstallationNoneHandler] } },
   },
   play: async ({ canvasElement }) => {
@@ -101,13 +100,13 @@ export const NotInstalled: Story = {
   },
 }
 
-/** The check fails: the page offers a retry. */
+/**
+ * GitHub setup page, which opens after the GitHub App install, where an admin
+ * picks a Workspace: the check of the install failed, so the page gives the
+ * cause and Retry.
+ */
 export const CheckFails: Story = {
   parameters: {
-    review: {
-      purpose:
-        "GitHub setup page, which opens after the GitHub App install, where an admin picks a Workspace: the check of the install failed, so the page gives the cause and Retry.",
-    },
     msw: {
       handlers: {
         page: [
@@ -140,13 +139,13 @@ export const CheckFails: Story = {
   },
 }
 
-/** The App is installed: the user picks a Workspace destination. */
+/**
+ * Org GitHub setup page, where the user picks a Workspace for the GitHub App:
+ * the App is installed, so the user picks an existing Workspace as the
+ * destination.
+ */
 export const ChooseWorkspace: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Org GitHub setup page, where the user picks a Workspace for the GitHub App: the App is installed and the user picks an existing Workspace.",
-    },
     msw: {
       handlers: {
         page: [

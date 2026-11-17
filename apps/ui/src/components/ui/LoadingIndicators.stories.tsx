@@ -24,17 +24,14 @@ function expectLooping(style: CSSStyleDeclaration) {
 }
 
 /**
- * The play runner opens this story with `prefers-reduced-motion: reduce`.
- * Loading indicators must keep showing progress (DESIGN.md "Motion").
+ * Spinner, progress bar and skeleton that show a load in progress: the user
+ * prefers reduced motion, and each one still loops. The play runner opens this
+ * story with `prefers-reduced-motion: reduce` (DESIGN.md "Motion").
  */
 export const LoadingUnderReducedMotion: Story = {
   parameters: {
     intent:
       "Catches loading indicators that stop looping when the user prefers reduced motion. The spinner, progress bar, and skeleton must keep a visible loop. Not for color or size.",
-    review: {
-      purpose:
-        "Spinner, progress bar and skeleton that show a load in progress: the user prefers reduced motion, and each one still loops.",
-    },
   },
   tags: ["required", "reduced-motion"],
   render: () => (

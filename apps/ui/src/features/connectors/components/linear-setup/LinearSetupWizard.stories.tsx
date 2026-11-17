@@ -176,14 +176,14 @@ export const RegisterOauthAppSaved: Story = {
 const addCalls: { method: string; path: string; body: unknown }[] = []
 const onOpenChange = fn()
 
-/** After the OAuth grant, the wizard maps the connection into Workspaces. */
+/**
+ * Linear setup wizard after the OAuth grant, where the admin maps the
+ * connection into Workspaces: the admin adds a Linear team to a Workspace, and
+ * the wizard moves to the merge step.
+ */
 export const ChooseWorkspaces: Story = {
   args: { onOpenChange },
   parameters: {
-    review: {
-      purpose:
-        "Linear setup wizard after the OAuth grant: the admin adds a Linear team to a Workspace, and the wizard moves to the merge step.",
-    },
     msw: {
       handlers: {
         page: [
@@ -246,15 +246,12 @@ const pullRequestUrl = "https://github.com/acme/docs/pull/7"
 let merged = false
 
 /**
- * The user merges the pull request on GitHub. The merge step reads the
- * Workspace sources again and shows the merge.
+ * Linear setup wizard at the merge step: the admin merges the pull request on
+ * GitHub. The step reads the Workspace sources again and changes to Pull
+ * request merged.
  */
 export const MergeStepShowsTheMerge: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Linear setup wizard at the merge step: the admin merges the pull request on GitHub, and the step changes to Pull request merged.",
-    },
     msw: {
       handlers: {
         page: [
@@ -341,17 +338,14 @@ export const MergeStepShowsTheMerge: Story = {
 const manageCalls: typeof addCalls = []
 
 /**
- * The Docs Workspace already syncs the Engineering team through this
- * connection. Manage starts from that scope and saves a change.
+ * Linear setup wizard opened from Manage: the Docs Workspace already syncs the
+ * Engineering team, so the wizard starts with that Workspace and team checked.
+ * The admin saves one more team.
  */
 export const ManageKeepsTheCurrentScope: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as ChooseWorkspaces.",
-    },
-    review: {
-      purpose:
-        "Linear setup wizard opened from Manage: it starts with the current Workspace and team checked, and the admin saves one more team.",
     },
     msw: {
       handlers: {
@@ -447,8 +441,9 @@ function ManageButton(props: ComponentProps<typeof LinearSetupWizard>) {
 }
 
 /**
- * A merge changes the scope while the dialog is closed. Manage then starts
- * from the new scope, not from the scope of the first open.
+ * Linear setup wizard, opened a second time from Manage: a merge changed the
+ * saved scope to Operations while the dialog was closed. Add to Workspaces
+ * reads the new scope, not the scope of the first open.
  */
 export const ManageAgainShowsTheNewScope: Story = {
   // The close fade and the open fade of the dialog overlap on a slow runner,
@@ -457,10 +452,6 @@ export const ManageAgainShowsTheNewScope: Story = {
   tags: ["reduced-motion"],
   render: (args) => <ManageButton {...args} />,
   parameters: {
-    review: {
-      purpose:
-        "Linear setup wizard, opened a second time from Manage after the saved scope changed to Operations: Add to Workspaces reads the new scope, not the scope of the first open.",
-    },
     msw: {
       handlers: {
         page: [

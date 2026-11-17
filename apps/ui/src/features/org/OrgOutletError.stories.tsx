@@ -24,16 +24,15 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 /**
- * The connections read failed with a server error and no reason in the body.
- * The alert says where it failed and the next step, and does not say the
- * title again with the fallback message of the query.
+ * Error alert in the body of an org page: the connections read failed with a
+ * server error 503, a request id and no reason in the body. The alert says
+ * where it failed and the next step, and it does not repeat the title with the
+ * fallback message of the query.
  */
 export const ConnectorsFailed: Story = {
   parameters: {
     review: {
       kind: "component",
-      purpose:
-        "Error alert in the body of an org page: the connectors read failed with a server error 503 and a request id.",
     },
   },
   args: {
@@ -56,15 +55,14 @@ export const ConnectorsFailed: Story = {
 }
 
 /**
- * The product fetch hit its own timeout (ApiError status 0). The alert does
- * not blame the network connection, and the fetch error stays visible.
+ * Error alert in the body of an org page: the product fetch hit its own timeout
+ * (ApiError status 0). The alert does not blame the network connection, and the
+ * fetch error shows.
  */
 export const RequestTimedOut: Story = {
   parameters: {
     review: {
       kind: "component",
-      purpose:
-        "Error alert in the body of an org page: the request hit its own timeout, and the fetch error shows.",
     },
   },
   args: {
@@ -86,13 +84,14 @@ export const RequestTimedOut: Story = {
   },
 }
 
-/** The org gate timed out during the server render. */
+/**
+ * Error alert in the body of an org page, where the user can try the load
+ * again: the org check timed out during the server render.
+ */
 export const OrgGateFailed: Story = {
   parameters: {
     review: {
       kind: "component",
-      purpose:
-        "Error alert in the body of an org page: the org check timed out during the server render.",
     },
   },
   args: {
@@ -102,7 +101,11 @@ export const OrgGateFailed: Story = {
   },
 }
 
-/** The first org gate load fails. Try again runs the loader again, and the page loads. */
+/**
+ * Error screen of the org check in a test router: the first load failed, and
+ * the user pressed Try again. The loader ran again, and the org page text
+ * shows.
+ */
 export const OrgGateTryAgainLoads: Story = {
   parameters: {
     visual: {
@@ -112,8 +115,6 @@ export const OrgGateTryAgainLoads: Story = {
       "Catches an organization error screen whose Try again button does not load the page again. After a failed session check, a retry must show the organization page. Not for error text.",
     review: {
       kind: "component",
-      purpose:
-        "Error screen of the org check in a test router: the first load failed, the user pressed Try again, and the org page text shows.",
     },
   },
   tags: ["required"],

@@ -129,18 +129,15 @@ export const Collapsed: Story = {
 }
 
 /**
- * Proof for the global story reset. The story before this one collapses the
- * nav and stores that choice. This story must still start expanded.
+ * Main navigation of an org: the nav starts expanded, after the story before it
+ * collapsed the nav and stored that choice. This story is the proof for the
+ * global story reset.
  */
 export const ExpandedAfterCollapsedStory: Story = {
   parameters: {
     ...Collapsed.parameters,
     visual: {
       skip: "Behavior test: it ends in the same state as SingleWorkspace.",
-    },
-    review: {
-      purpose:
-        "Main navigation of an org: the nav starts expanded after the story before it collapsed it.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -152,8 +149,11 @@ export const ExpandedAfterCollapsedStory: Story = {
   },
 }
 
-/** A plain link (not a nav item) opens Connectors. The shell stays mounted, and
- * the current nav item moves from the Workspace to Connectors. */
+/**
+ * App shell with the main navigation and a test link in the page body: the user
+ * clicked the link, and Connectors became the current nav item. The shell stays
+ * mounted while the current item moves from the Workspace to Connectors.
+ */
 export const PlainLinkMovesCurrentNav: Story = {
   tags: ["required"],
   render: () => (
@@ -166,10 +166,6 @@ export const PlainLinkMovesCurrentNav: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: the page body is a test link, which the product does not render.",
-    },
-    review: {
-      purpose:
-        "App shell with the main navigation and a placeholder body link: the user clicked the link and Connectors became the current nav item.",
     },
     intent:
       "Catches a plain link in the page that does not move the current item in the main navigation. Not for nav styling or workspace list data.",

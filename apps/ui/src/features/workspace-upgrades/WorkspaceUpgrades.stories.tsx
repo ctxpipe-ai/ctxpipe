@@ -191,16 +191,11 @@ export const UpToDate: Story = {
 }
 
 /**
- * An item that waits for a person is in the Needs you list. Its Start button
- * says that it is ready: it has no "Ready to start" tag.
+ * Upgrades section of a Workspace: one format upgrade waits in the Needs you
+ * list with its Start button. The Start button says that the item is ready, so
+ * the item has no "Ready to start" tag.
  */
 export const PurposeLine: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: one format upgrade waits in the Needs you list with its Start button.",
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const needsYou = await expectGroup(canvas, "Needs you", 1)
@@ -213,13 +208,12 @@ export const PurposeLine: Story = {
   },
 }
 
-/** An admin sees Start. The click queues the item and shows the new status. */
+/**
+ * Upgrades section of a Workspace, for an admin: the admin pressed Start, and
+ * the upgrade is queued. The item changes to its new status after the click.
+ */
 export const AdminStartsUpgrade: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Upgrades section of a Workspace, for an admin: the admin pressed Start and the upgrade is queued.",
-    },
     msw: {
       handlers: {
         page: [
@@ -266,13 +260,13 @@ export const AdminStartsUpgrade: Story = {
   },
 }
 
-/** A member sees "Ask an admin" and no Start button. */
+/**
+ * Upgrades section of a Workspace, for a member: a format upgrade waits, and
+ * the member must ask an admin. The member sees "Ask an admin" and no Start
+ * button.
+ */
 export const MemberAsksAdmin: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Upgrades section of a Workspace, for a member: a format upgrade waits, and the member must ask an admin.",
-    },
     msw: {
       handlers: {
         page: [
@@ -313,7 +307,11 @@ export const Running: Story = {
   },
 }
 
-/** A re-ingestion that waits for a free sandbox slot (CTX-908). */
+/**
+ * Upgrades card in the Workspace settings: the admin started the re-ingestion,
+ * but all sandbox slots are busy, so the item waits for a free one and says how
+ * long it has waited (CTX-908).
+ */
 export const WaitingForSandbox: Story = {
   parameters: {
     ...withUpgrades(
@@ -334,10 +332,6 @@ export const WaitingForSandbox: Story = {
         ),
       ),
     ),
-    review: {
-      purpose:
-        "Upgrades card in the Workspace settings: the admin started the re-ingestion, but all sandbox slots are busy, so the item waits for a free one and says how long it has waited.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -355,7 +349,10 @@ export const WaitingForSandbox: Story = {
   },
 }
 
-/** A re-ingestion that runs: Working, its progress, and the spend so far (CTX-980). */
+/**
+ * Upgrades section of a Workspace: a re-ingestion runs, with the Working
+ * status, its progress, and the spend so far (CTX-980).
+ */
 export const ReingestWorkingWithSpend: Story = {
   parameters: {
     ...withUpgrades(
@@ -393,10 +390,6 @@ export const ReingestWorkingWithSpend: Story = {
         ),
       ),
     ),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: a re-ingestion runs, with its progress and the spend so far.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -411,7 +404,10 @@ export const ReingestWorkingWithSpend: Story = {
   },
 }
 
-/** The pull request is open. The step commits and the notes show. */
+/**
+ * Upgrades section of a Workspace: the format upgrade pull request is open,
+ * with the step commits and the notes.
+ */
 export const PullRequestOpen: Story = {
   parameters: {
     ...withUpgrades(
@@ -456,10 +452,6 @@ export const PullRequestOpen: Story = {
       ),
     ),
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: the format upgrade pull request is open, with the step commits and the notes.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -479,7 +471,11 @@ export const PullRequestOpen: Story = {
   },
 }
 
-/** The open item says what it waits for and what happens after the merge. */
+/**
+ * Upgrades card in the Workspace settings: ctxpipe opened the format upgrade
+ * pull request #42, so the item waits for the admin to merge it on GitHub. The
+ * item says what happens after the merge and gives a link and Check again.
+ */
 export const WaitingForMerge: Story = {
   parameters: {
     ...withUpgrades(
@@ -496,10 +492,6 @@ export const WaitingForMerge: Story = {
       ),
     ),
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
-    review: {
-      purpose:
-        "Upgrades card in the Workspace settings: ctxpipe opened the format upgrade pull request #42, so the item waits for the admin to merge it on GitHub, with a link to it and Check again.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -522,13 +514,13 @@ export const WaitingForMerge: Story = {
   },
 }
 
-/** Check again runs the tip check now. The card then shows the applied state. */
+/**
+ * Upgrades section of a Workspace, for an admin: after the merge, the admin
+ * pressed Check again, and the upgrade is applied. Check again runs the tip
+ * check at once and waits for the scan.
+ */
 export const CheckAgainAfterMerge: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Upgrades section of a Workspace, for an admin: after the merge the admin pressed Check again and the upgrade is applied.",
-    },
     msw: {
       handlers: {
         page: [
@@ -573,13 +565,13 @@ export const CheckAgainAfterMerge: Story = {
   },
 }
 
-/** A member cannot run the check. The card gives no button. */
+/**
+ * Upgrades section of a Workspace, for a member: the upgrade pull request is
+ * open, and there is no Check again button, because a member cannot run the
+ * check.
+ */
 export const MemberCannotCheck: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Upgrades section of a Workspace, for a member: the upgrade pull request is open and there is no Check again button.",
-    },
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
     msw: {
       handlers: {
@@ -610,18 +602,15 @@ export const MemberCannotCheck: Story = {
 }
 
 /**
- * The card shows only the actions and the risks, the action first. The
- * report lines, with their paths and counts, stay behind Details until the
- * user opens it.
+ * Upgrades section of a Workspace with an open upgrade pull request: the notes
+ * list the actions and the risks, the action first, and the user opened
+ * Details. The report lines, with their paths and counts, stay behind Details
+ * until the user opens it.
  */
 export const NotesWithDetails: Story = {
   parameters: {
     ...PullRequestOpen.parameters,
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
-    review: {
-      purpose:
-        "Upgrades section of a Workspace with an open upgrade pull request: the notes list actions and risks, and the user opened Details.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -737,7 +726,11 @@ function failedReingest(
 const REINGEST_START =
   "Start again: Fresh re-ingestion of the source repositories"
 
-/** The CTX-895 case: another run published first, and the merge failed. */
+/**
+ * Upgrades section of a Workspace: a re-ingestion failed, because another run
+ * published first and the merge failed (CTX-895). The item names the failed
+ * step and gives one sentence for the fix.
+ */
 export const FailedPublishConflict: Story = {
   parameters: {
     ...failedReingest({
@@ -747,10 +740,6 @@ export const FailedPublishConflict: Story = {
       summary:
         "The semantic merge failed: The model did not call the structured output tool",
     }),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: a re-ingestion failed because another run published first and the merge failed.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -778,7 +767,10 @@ export const FailedPublishConflict: Story = {
   },
 }
 
-/** CTX-896: the automatic retry failed too, so the card says that ctxpipe started it again once. */
+/**
+ * Upgrades section of a Workspace: a re-ingestion failed again after ctxpipe
+ * started it again once by itself, and the card says so (CTX-896).
+ */
 export const FailedAfterAutoRetry: Story = {
   parameters: {
     ...failedReingest(
@@ -790,10 +782,6 @@ export const FailedAfterAutoRetry: Story = {
       },
       true,
     ),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: a re-ingestion failed again after ctxpipe started it again once by itself.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -850,16 +838,13 @@ const tooManySources = {
 } as const
 
 /**
- * The admin removes sources first. The card shows the cause and the fix, then
- * Start again for the admin.
+ * Upgrades section of a Workspace, for an admin: a re-ingestion failed, because
+ * the Workspace has too many source repositories. The card gives the cause and
+ * the fix (remove some sources first), then Start again.
  */
 export const FailedTooManySources: Story = {
   parameters: {
     ...failedReingest(tooManySources),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace, for an admin: a re-ingestion failed because the Workspace has too many source repositories.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -884,13 +869,13 @@ export const FailedTooManySources: Story = {
   },
 }
 
-/** A member of the org keeps "Ask an admin" for that failure. */
+/**
+ * Upgrades card in the Workspace settings, seen by a member: the re-ingestion
+ * failed, because the Workspace has 40 source repositories and a run takes 25.
+ * Only an admin can start it again, so the member gets "Ask an admin".
+ */
 export const FailedTooManySourcesMember: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Upgrades card in the Workspace settings, seen by a member: the re-ingestion failed because the Workspace has 40 source repositories and a run takes 25, and only an admin can start it again.",
-    },
     msw: {
       handlers: {
         page: [
@@ -951,7 +936,10 @@ export const FailedUnknown: Story = {
   },
 }
 
-/** CTX-952: the server had no room for a Git process, so starting again is the fix. */
+/**
+ * Upgrades section of a Workspace: a re-ingestion failed, because the server
+ * had no room for a Git process, so Start again is the fix (CTX-952).
+ */
 export const FailedServerBusy: Story = {
   args: { onFixWithAgent: fixPrompts },
   parameters: {
@@ -961,10 +949,6 @@ export const FailedServerBusy: Story = {
       repository: "acme/ky",
       summary: "spawn EAGAIN",
     }),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: a re-ingestion failed because the server was busy, so Start again is the fix.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1019,7 +1003,12 @@ export const Blocked: Story = {
   },
 }
 
-/** A remote that is not GitHub: the note names the cause, with no GitHub App text. */
+/**
+ * Upgrades card in the Workspace settings: the Workspace repository is not on
+ * GitHub, so ctxpipe cannot open the format upgrade pull request, and the item
+ * says to relink to GitHub. The note names the cause and has no GitHub App
+ * text.
+ */
 export const BlockedNotGithub: Story = {
   parameters: {
     ...withUpgrades(
@@ -1033,10 +1022,6 @@ export const BlockedNotGithub: Story = {
         ]),
       ),
     ),
-    review: {
-      purpose:
-        "Upgrades card in the Workspace settings: the Workspace repository is not on GitHub, so ctxpipe cannot open the format upgrade pull request and the item says to relink to GitHub.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1049,7 +1034,10 @@ export const BlockedNotGithub: Story = {
   },
 }
 
-/** No reason and no note: the alert still says why, with no empty line. */
+/**
+ * Upgrades section of a Workspace: the format upgrade is blocked with no reason
+ * or note from the server. The alert still says why, and it has no empty line.
+ */
 export const BlockedWithoutReason: Story = {
   parameters: {
     ...withUpgrades(
@@ -1057,10 +1045,6 @@ export const BlockedWithoutReason: Story = {
         upgradesFixture([upgradeItemFixture({ status: "blocked" })]),
       ),
     ),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: the format upgrade is blocked with no reason or note from the server.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1157,16 +1141,13 @@ export const ReingestNeedsFormat: Story = {
 }
 
 /**
- * The block is short and has one action. The server note names two actions,
- * so the card does not show it.
+ * Upgrades section of a Workspace: the re-ingestion is blocked on the format,
+ * with one short next step. The server note names two actions, so the card does
+ * not use it.
  */
 export const ReingestBlockedNextStep: Story = {
   parameters: {
     ...blockedReingest("needs_format"),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: the re-ingestion is blocked on the format, with one short next step.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = await expectReingestCard(
@@ -1187,17 +1168,12 @@ export const ReingestBlockedNextStep: Story = {
 }
 
 /**
- * CTX-944. The hydrate read the new format, and the scan has not yet changed
- * the re-ingestion. The page shows one state: the item says that ctxpipe checks
- * the new format, and it has no blocked warning. The page reads the items
- * again by itself, so the item becomes ready to start with no refresh.
+ * Upgrades section of a Workspace: ctxpipe checks the new format for the
+ * re-ingestion, and then the item becomes ready to start with no refresh. While
+ * the check runs, the item has no blocked warning (CTX-944).
  */
 export const ReingestChecksNewFormat: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: ctxpipe checks the new format for the re-ingestion, then it becomes ready to start.",
-    },
     msw: {
       handlers: {
         page: [
@@ -1274,16 +1250,13 @@ export const ReingestSandboxUnavailable: Story = {
 }
 
 /**
- * ctxpipe has not read a valid format file at the tip yet: a wait on ctxpipe,
- * so the item is in Working now with no warning.
+ * Upgrades section of a Workspace: ctxpipe has not read a valid format file at
+ * the tip yet, so the re-ingestion is in Working now with no warning. The wait
+ * is on ctxpipe, not on a person.
  */
 export const ReingestIngestionV2Off: Story = {
   parameters: {
     ...blockedReingest("ingestion_v2_off"),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: ctxpipe has not read a valid format file yet, so the re-ingestion is in Working now.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1296,7 +1269,11 @@ export const ReingestIngestionV2Off: Story = {
   },
 }
 
-/** A read-only Workspace below format 3: the format item and the re-ingestion are both blocked. */
+/**
+ * Upgrades section of a read-only Workspace below format 3: the format upgrade
+ * and the re-ingestion are both blocked. The format card names the cause, and
+ * the re-ingestion gives one action.
+ */
 export const ReadOnlyBelowFormat: Story = {
   parameters: {
     ...withUpgrades(
@@ -1319,10 +1296,6 @@ export const ReadOnlyBelowFormat: Story = {
         ]),
       ),
     ),
-    review: {
-      purpose:
-        "Upgrades section of a read-only Workspace below format 3: the format upgrade and the re-ingestion are both blocked.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1345,8 +1318,10 @@ export const ReadOnlyBelowFormat: Story = {
 }
 
 /**
- * An applied upgrade leaves the list. It waits in History, which starts
- * collapsed, so the section says only that the repository is up to date.
+ * Upgrades section of a Workspace that is up to date: an applied upgrade is in
+ * the History list, and the user opened History and the upgrade row. History
+ * starts collapsed, so at first the section says only that the repository is up
+ * to date.
  */
 export const HistoryWithAppliedUpgrade: Story = {
   parameters: {
@@ -1357,10 +1332,6 @@ export const HistoryWithAppliedUpgrade: Story = {
         }),
       ),
     ),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace that is up to date: an applied upgrade is in the History list, which the user opened.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1422,8 +1393,9 @@ export const LoadError: Story = {
 }
 
 /**
- * The card says what the upgrade does to the Workspace repository. It shows
- * no cost or time estimate: the range was too wide to help (CTX-894).
+ * Upgrades section of a Workspace: a re-ingestion card says what it does to the
+ * Workspace repository, with no cost or time estimate. The range of the
+ * estimate was too wide to help (CTX-894).
  */
 export const DescriptionWithoutEstimate: Story = {
   parameters: {
@@ -1448,10 +1420,6 @@ export const DescriptionWithoutEstimate: Story = {
         ]),
       ),
     ),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: a re-ingestion card says what it does to the repository, with no cost or time estimate.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1471,13 +1439,13 @@ export const DescriptionWithoutEstimate: Story = {
   },
 }
 
-/** The server refuses the start (409). The card shows the reason in a toast. */
+/**
+ * Upgrades section of a Workspace: the server refused the start (409), so a
+ * toast gives the reason, and the card keeps its Start button because nothing
+ * was queued.
+ */
 export const StartRefused: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: the server refused the start, so a toast gives the reason and Start stays.",
-    },
     msw: {
       handlers: {
         page: [
@@ -1511,13 +1479,12 @@ export const StartRefused: Story = {
   },
 }
 
-/** The role never answers. Neither Start nor "Ask an admin" shows. */
+/**
+ * Upgrades section of a Workspace: the user role never loads, so neither Start
+ * nor "Ask an admin" is visible.
+ */
 export const RoleNeverAnswers: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: the user role never loads, so neither Start nor Ask an admin is visible.",
-    },
     msw: {
       handlers: {
         page: [
@@ -1537,9 +1504,10 @@ export const RoleNeverAnswers: Story = {
 }
 
 /**
- * CTX-980. The checking state ends after a minute. The row moves from Working
- * now to Needs you in one render: one clock drives both lists. The clock of
- * the page jumps a minute ahead, and the next tick shows the change.
+ * Upgrades section of a Workspace: the format check of a re-ingestion ended
+ * after a minute, so the item moved from Working now to Needs you. One clock
+ * drives both lists, so the row moves in one render (CTX-980). The play moves
+ * the page clock a minute ahead.
  */
 export const CheckingEndsAfterAMinute: Story = {
   // An own Workspace: the minute counts from the first sight of this item.
@@ -1565,10 +1533,6 @@ export const CheckingEndsAfterAMinute: Story = {
         ),
       ),
     ),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: the format check of a re-ingestion ended after a minute, so it moved to Needs you.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1595,7 +1559,12 @@ export const CheckingEndsAfterAMinute: Story = {
   },
 }
 
-/** A format file that ctxpipe cannot read needs a person, also with no item. */
+/**
+ * Upgrades section of a Workspace: the format file is not valid, so the card
+ * needs a person and names the fix, also with no upgrade item. The amber edge
+ * of the card marks that it needs a person, and the automatic upgrades line
+ * offers no button.
+ */
 export const InvalidFormatFile: Story = {
   beforeEach: () => {
     setting.mode = null
@@ -1605,10 +1574,6 @@ export const InvalidFormatFile: Story = {
     ...withUpgrades(
       workspaceUpgradesHandler(upgradesFixture([], { formatVersion: -1 })),
     ),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: the format file is not valid, so the card needs a person and names the fix.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1638,9 +1603,9 @@ export const InvalidFormatFile: Story = {
 }
 
 /**
- * The format pull request is merged, and ctxpipe has not read the new format
- * yet. The re-ingestion waits for it: it is in Working now with the format
- * upgrade, and the Working now list has both rows.
+ * Upgrades section of a Workspace: the format pull request merged, and ctxpipe
+ * has not read the new format yet. The re-ingestion waits for it, so the
+ * Working now list has both rows.
  */
 export const MergedFormatWithReingestWaiting: Story = {
   parameters: {
@@ -1671,10 +1636,6 @@ export const MergedFormatWithReingestWaiting: Story = {
       ),
     ),
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: the format pull request merged, and the re-ingestion waits for it in Working now.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1698,16 +1659,16 @@ export const MergedFormatWithReingestWaiting: Story = {
   },
 }
 
-/** An owner or admin turns automatic upgrades on with the switch, then off again (CTX-980). */
+/**
+ * Upgrades section of a Workspace, for an owner: the owner turned the automatic
+ * upgrades switch on and then off again (CTX-980). The line under the switch
+ * says who starts each upgrade.
+ */
 export const AutomaticUpgradesOnAndOff: Story = {
   parameters: {
     ...withUpgrades(
       workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
     ),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace, for an owner: the automatic upgrades switch turned on and then off again.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1754,13 +1715,12 @@ export const AutomaticUpgradesOnAndOff: Story = {
   },
 }
 
-/** A member sees the setting and cannot change it: the switch is disabled. */
+/**
+ * Upgrades section of a Workspace, for a member: the automatic upgrades switch
+ * is visible but disabled, because only an owner or admin can change it.
+ */
 export const MemberSeesAutomaticUpgrades: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Upgrades section of a Workspace, for a member: the automatic upgrades switch is visible but disabled.",
-    },
     msw: {
       handlers: {
         page: [
@@ -1789,7 +1749,11 @@ export const MemberSeesAutomaticUpgrades: Story = {
   },
 }
 
-/** The skeleton has the box of the Up to date state (DESIGN.md Loading, Match). */
+/**
+ * Upgrades section of a Workspace: the loading skeleton and the up to date
+ * state side by side, at the same size. The skeleton has the box of the Up to
+ * date state (DESIGN.md Loading, Match).
+ */
 export const SkeletonMatchesLoaded: Story = {
   parameters: {
     ...withUpgrades(
@@ -1799,10 +1763,6 @@ export const SkeletonMatchesLoaded: Story = {
         "docs",
       ),
     ),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace: the loading skeleton and the up to date state side by side, at the same size.",
-    },
   },
   render: () => (
     <SkeletonMatchFrame
@@ -1841,8 +1801,9 @@ function withIngestion(
 }
 
 /**
- * Ingestion runs and no upgrade is open: the card says "Up to date". Sources
- * show their own runs in the Sources card, so the Upgrades card shows none.
+ * Upgrades section of a Workspace while source ingestion runs: no upgrade is
+ * open, so the card says Up to date. Sources show their own runs in the Sources
+ * card, so the Upgrades card shows no run.
  */
 export const IngestionWorking: Story = {
   parameters: {
@@ -1851,10 +1812,6 @@ export const IngestionWorking: Story = {
       workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
       [ingestionItemFixture()],
     ),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace while source ingestion runs: no upgrade is open, so the card says Up to date.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -1864,7 +1821,10 @@ export const IngestionWorking: Story = {
   },
 }
 
-/** An upgrade needs the user while ingestion runs: the card shows the upgrade only. */
+/**
+ * Upgrades section of a Workspace while source ingestion runs: a format upgrade
+ * needs the user, and it is the only item. The card shows no ingestion run.
+ */
 export const IngestionWhileUpgradeNeedsYou: Story = {
   parameters: {
     visual: {
@@ -1874,10 +1834,6 @@ export const IngestionWhileUpgradeNeedsYou: Story = {
       workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
       [ingestionItemFixture()],
     ),
-    review: {
-      purpose:
-        "Upgrades section of a Workspace while source ingestion runs: a format upgrade needs the user and is the only item.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

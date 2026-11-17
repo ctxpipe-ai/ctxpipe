@@ -66,12 +66,12 @@ export const LinkedToAnotherUser: Story = {
 }
 ```
 
-Storybook shows the same JSDoc in its docs and in `storybook tools docs show-story`, so one text serves the critic, the docs and the agents. A story file that is not moved yet keeps its purpose in `parameters.review.purpose`, which wins over the JSDoc. The rollout plan for the move is in a comment of [CTX-1357](https://linear.app/ctxpipe/issue/CTX-1357). When you edit such a story, move its purpose to the JSDoc. Merge an older JSDoc of the story into the purpose: a story has one description.
+Storybook shows the same JSDoc in its docs and in `storybook tools docs show-story`, so one text serves the critic, the docs and the agents. A story has one description. `parameters.review` has only `kind`: the purpose is not a parameter.
 
 - `kind` is `"page"` or `"component"`. A `page` is a whole screen that a user lands on: a page with its shell, or a full popup or onboarding screen. A component, a dialog, a step of a flow, or a part of a page is a `component`. Put `kind` in the `meta` when it is the same for all stories of the file; a story's own `kind` wins.
 - Most stories with the `page` tag have the kind `page`. A page story that shows only one small step of its route (a popup step with a title and a paragraph) has the kind `component`. A story with the kind `page` needs no `page` tag (for example, a full screen that no route renders alone).
 - Choose the kind from what the screenshot shows, not from the file. The page-only qualities (for example, one primary action for each page) apply only to a `page`, so a wrong kind gives wrong findings.
-- The purpose is one sentence in the JSDoc of the story itself, of 40 to 240 characters. Wrap it over lines as you like: the line breaks count as spaces. The critic reads it first and judges the screenshot against it, so meaning matters more than form. A good purpose tells the critic:
+- The purpose is the JSDoc of the story itself: one sentence, or a short paragraph, of 40 to 500 characters. Wrap it over lines as you like: the line breaks count as spaces. The first sentence says what the story shows. A note on what the play of the story proves (a regression, a ticket id, a timing reason) can follow it in the same comment. The critic reads it first and judges the screenshot against it, so meaning matters more than form. A good purpose tells the critic:
   - what the UI is for, by the name that the user sees, and its real kind (do not call a page a wizard, or a section a dialog);
   - how the user uses it;
   - the state that the story shows, and how the user got there (what they pressed or opened). Name each state that a reviewer can take for a defect, such as a loading, pending, empty or error state.
@@ -81,7 +81,7 @@ Storybook shows the same JSDoc in its docs and in `storybook tools docs show-sto
 - The kind is a string literal: the check and the critic read the story file with the CSF parser, and the build does not run. They read the JSDoc with the same parser as Storybook (`extractStoryJSDocInfo` of `storybook/internal/csf-tools`). A JSDoc of the meta is not the purpose of a story.
 - The critic gets the Storybook name (`<title> / <name>`), the kind and the purpose with each screenshot. The kind gives the scope: the page-only qualities apply only to a `page`. The purpose goes into the prompt as data in a `<data>` block. It tells the critic what it looks at. It does not explain a change: that is the job of the brief.
 - `visual:review` reads the story file at the merge base (`--images`, the factory critic), or the manifest of `pnpm visual:check`. A new story that is not at the merge base has no kind or purpose there: its scope is `component`, and the verdict says so.
-- **Guard:** `node scripts/ci/check-story-review.mjs` runs in CI (the policy check `story-review`). It fails for each story with no valid `kind`, with no purpose of its own, or with a purpose that is not 40 to 240 characters or that starts with "Shows", "Displays" or "Renders". It cannot check that the purpose is meaningful or true: the critic does that.
+- **Guard:** `node scripts/ci/check-story-review.mjs` runs in CI (the policy check `story-review`). It fails for each story with no valid `kind`, with no purpose of its own, with a purpose that is not 40 to 500 characters or that starts with "Shows", "Displays" or "Renders", or with a key other than `kind` in `parameters.review`. It cannot check that the purpose is meaningful or true: the critic does that.
 
 ### Realistic story data
 

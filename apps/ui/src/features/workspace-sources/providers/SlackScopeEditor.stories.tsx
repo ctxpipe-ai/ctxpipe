@@ -64,14 +64,13 @@ export const SearchesAndPicksChannels: Story = {
   },
 }
 
-/** A channel can be chosen before the bot is invited; it says to invite the bot. */
+/**
+ * Slack scope editor in the Add source dialog: the user ticks #all-hands, a
+ * channel that the ctxpipe bot is not in yet, and the row tells the user to
+ * invite the bot there. The user can choose the channel before the bot is
+ * invited.
+ */
 export const ChannelWithoutTheBotCanBeSelected: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Slack scope editor in the Add source dialog: the user ticks #all-hands, a channel that the ctxpipe bot is not in yet, and the row tells the user to invite the bot there.",
-    },
-  },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     const allHands = await canvas.findByRole("checkbox", { name: /all-hands/ })
@@ -133,13 +132,13 @@ export const LoadError: Story = {
   },
 }
 
-/** Slack has more channels than the list holds, so the picker says so. */
+/**
+ * Slack scope editor, where the user picks the channels of a Workspace source:
+ * Slack has more channels than the list holds, so a note says that search finds
+ * only listed channels.
+ */
 export const ListIsTruncated: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Slack scope editor, where the user picks the channels of a Workspace source: Slack has more channels than the list holds, so a note says that search finds only listed channels.",
-    },
     msw: {
       handlers: {
         page: [slackChannelsHandler(slackStoryChannels, { truncated: true })],

@@ -17,14 +17,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-/** The server reason holds a token; the block shows it hidden. */
+/**
+ * Raw server reason in an error alert after a Workspace failed to load: the
+ * clone URL in the reason holds a GitHub token, and the block hides the token.
+ */
 export const ReasonWithToken: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Raw server reason in an error alert after a Workspace failed to load: the clone URL in the reason holds a GitHub token, and the block hides the token.",
-    },
-  },
   args: {
     tone: "error",
     children:

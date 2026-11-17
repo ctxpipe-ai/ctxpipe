@@ -117,15 +117,15 @@ export const ExistingPrEntry: Story = {
   },
 }
 
-/** The push succeeded, but GitHub did not open the pull request. */
+/**
+ * Sync entry in a conversation thread, which records a push to GitHub. The
+ * member pressed Create PR and the push succeeded, but GitHub did not open the
+ * pull request.
+ */
 export const CreatePrWithoutPrEntry: Story = {
   parameters: {
     intent:
       "Catches a push entry that shows a pull request link when GitHub did not open one. Only the branch link shows, and the entry says that no pull request opened. Not for a successful PR.",
-    review: {
-      purpose:
-        "Sync entry in a conversation thread, which records a push to GitHub: the member pressed Create PR and the push succeeded, but GitHub did not open the pull request.",
-    },
   },
   tags: ["required"],
   args: { sync: { ...base, trigger: "create_pr" } },

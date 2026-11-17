@@ -156,16 +156,13 @@ const addCalls: { method: string; path: string; body: unknown }[] = []
 const onOpenChange = fn()
 
 /**
- * After Slack and GitHub, the dialog maps the connection into Workspaces,
- * each with its own channels. No capture repository is needed.
+ * Slack setup dialog, after the Slack and GitHub steps: the admin adds a
+ * channel to a Workspace, and the dialog moves to the merge step. Each
+ * Workspace has its own channels, and no capture repository is necessary.
  */
 export const ChooseWorkspaces: Story = {
   args: { onOpenChange },
   parameters: {
-    review: {
-      purpose:
-        "Slack setup dialog at the Workspaces step: the admin adds a channel to a Workspace, and the dialog moves to the merge step.",
-    },
     msw: {
       handlers: {
         page: [
@@ -228,13 +225,13 @@ export const ChooseWorkspaces: Story = {
   },
 }
 
-/** The Workspaces step explains capture and offers no repository picker (ADR-050). */
+/**
+ * Slack setup dialog at its last step, Add to Workspaces: a box explains how an
+ * @mention of the bot saves a thread, and no Workspace is selected yet. The
+ * step has no repository picker (ADR-050).
+ */
 export const CaptureWorkspace: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Slack setup dialog at its last step, Add to Workspaces: a box explains how an @mention of the bot saves a thread, and no Workspace is selected yet.",
-    },
     msw: {
       handlers: {
         page: [
@@ -301,15 +298,15 @@ const manageHandlers = (calls: typeof addCalls) => [
 
 const manageCalls: typeof addCalls = []
 
-/** Manage starts from the current Workspaces and channels, and saves a change. */
+/**
+ * Slack setup dialog opened from Manage: it starts with the current Workspace
+ * and channel checked. The admin saves one more channel, and the dialog moves
+ * to the merge step.
+ */
 export const ManageKeepsTheCurrentScope: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as ChooseWorkspaces.",
-    },
-    review: {
-      purpose:
-        "Slack setup dialog opened from Manage: it starts with the current Workspace and channel checked, and the admin saves one more channel.",
     },
     msw: { handlers: { page: manageHandlers(manageCalls) } },
   },
@@ -351,15 +348,14 @@ export const ManageKeepsTheCurrentScope: Story = {
   },
 }
 
-/** Unchecking a Workspace on Manage removes its Slack source. */
+/**
+ * Slack setup dialog opened from Manage: the admin unchecks a Workspace and
+ * saves, which removes the Slack source of that Workspace.
+ */
 export const ManageRemovesAnUncheckedWorkspace: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as ChooseWorkspaces.",
-    },
-    review: {
-      purpose:
-        "Slack setup dialog opened from Manage: the admin unchecks a Workspace and saves, which removes its Slack source.",
     },
     msw: { handlers: { page: manageHandlers(manageCalls) } },
   },
@@ -423,8 +419,9 @@ function ManageButton(props: ComponentProps<typeof SlackSetupDialog>) {
 }
 
 /**
- * A merge changes the channels while the dialog is closed. Manage then
- * starts from the new channels, not from the channels of an earlier request.
+ * Slack setup dialog opened from Manage a second time: a merge changed the
+ * channels while the dialog was closed. The dialog starts from the new
+ * channels, not from the channels of the first open.
  */
 export const ManageAgainShowsTheNewScope: Story = {
   // The close fade and the open fade of the dialog overlap on a slow runner,
@@ -433,10 +430,6 @@ export const ManageAgainShowsTheNewScope: Story = {
   tags: ["reduced-motion"],
   render: (args) => <ManageButton {...args} />,
   parameters: {
-    review: {
-      purpose:
-        "Slack setup dialog opened from Manage a second time: it shows the channels after a merge, not the channels of the first open.",
-    },
     msw: {
       handlers: {
         page: [

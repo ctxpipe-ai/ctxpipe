@@ -141,8 +141,10 @@ const ingestingDocs = {
 }
 
 /**
- * Docs does not ingest: no pulse, and the row names only the Workspace. The
- * other row ingests, so the play knows that the read is applied.
+ * Two Workspace rows in the side nav, which open a Workspace. ctxpipe ingests
+ * only the second Workspace, so only its row has a pulsing teal dot. The Docs
+ * row has no pulse and names only the Workspace. The second row lets the play
+ * know that the read is applied.
  */
 export const NotIngesting: Story = {
   render: (args) => (
@@ -152,10 +154,6 @@ export const NotIngesting: Story = {
     </>
   ),
   parameters: {
-    review: {
-      purpose:
-        "Two Workspace rows in the side nav, which open a Workspace: ctxpipe ingests the second Workspace, so only its row has a pulsing teal dot.",
-    },
     msw: {
       handlers: {
         ingestion: workspaceIngestionHandlers({
@@ -177,15 +175,13 @@ export const NotIngesting: Story = {
 }
 
 /**
- * The Workspace ingests two sources: a teal pulse after the name, and the
- * text "Ingesting 2 sources" in a tooltip and in the row name (CTX-959).
+ * Workspace row in the side nav, which opens a Workspace. ctxpipe ingests two
+ * of its sources, so a teal dot pulses after the name. The pointer on the row
+ * opens a tooltip with "Ingesting 2 sources", and the row name has the same
+ * text (CTX-959).
  */
 export const Ingesting: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Workspace row in the side nav, which opens a Workspace: ctxpipe ingests two sources of it, so a teal dot pulses, and the pointer on the row opens the tooltip.",
-    },
     msw: {
       handlers: {
         ...ingestingDocs,
@@ -223,16 +219,13 @@ export const Ingesting: Story = {
 }
 
 /**
- * With reduced motion the dot stays, but it does not pulse. The play
- * runner opens this story with `prefers-reduced-motion: reduce`.
+ * Workspace row in the side nav, which opens a Workspace. ctxpipe ingests two
+ * of its sources with reduced motion, so the dot stays but does not pulse. The
+ * play runner opens this story with `prefers-reduced-motion: reduce`.
  */
 export const IngestingReducedMotion: Story = {
   tags: ["required", "reduced-motion"],
   parameters: {
-    review: {
-      purpose:
-        "Workspace row in the side nav, which opens a Workspace: it ingests two sources with reduced motion, so the dot does not pulse.",
-    },
     intent:
       "Catches an ingesting dot in the workspace nav row that keeps animating when the user prefers reduced motion. The dot must not animate. Not for the row label or link.",
     msw: { handlers: ingestingDocs },
@@ -253,14 +246,14 @@ export const IngestingReducedMotion: Story = {
   },
 }
 
-/** In the collapsed sidebar the dot sits on the folder icon; the row tooltip gives the text. */
+/**
+ * Workspace row in the collapsed side nav rail. ctxpipe ingests two of its
+ * sources, so a dot sits on the folder icon, and the open row tooltip gives the
+ * text.
+ */
 export const IngestingCollapsed: Story = {
   args: { navExpanded: false, current: true },
   parameters: {
-    review: {
-      purpose:
-        "Workspace row in the collapsed side nav rail: it ingests two sources, so a dot sits on the icon and the row tooltip is open.",
-    },
     msw: { handlers: ingestingDocs },
   },
   play: async ({ canvasElement }) => {

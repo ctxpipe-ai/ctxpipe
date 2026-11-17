@@ -324,16 +324,13 @@ const goneLinearSources = ["old-issues", "old-projects"].map((name) =>
 )
 
 /**
- * Two sources share one reason. The Linear header shows the reason once,
- * with the count, and the rows do not repeat it. A wide section shows the
- * table columns.
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: two Linear sources have the same missing connection, so the group
+ * header gives the reason once, with the count, and the rows do not repeat it.
+ * The wide section has the table columns.
  */
 export const SharedReasonShowsOnce: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: two Linear sources have the same missing connection, so the group header gives the reason once.",
-    },
     msw: {
       handlers: {
         page: [
@@ -363,8 +360,9 @@ export const SharedReasonShowsOnce: Story = {
 }
 
 /**
- * In a narrow pane the table folds: no column header, and each row shows
- * its connection and key under the title.
+ * Sources section of the Workspace settings in a narrow pane: the table folds,
+ * so it has no column header, and the Linear row puts its connection and file
+ * under the title, with the status and the row actions on the right.
  */
 export const NarrowPaneFoldsTable: Story = {
   decorators: [
@@ -375,10 +373,6 @@ export const NarrowPaneFoldsTable: Story = {
     ),
   ],
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings in a narrow pane: the table folds, so the Linear row puts its connection and file under the title, with the status and the row actions on the right.",
-    },
     msw: {
       handlers: {
         page: [
@@ -787,15 +781,12 @@ export const UnlinkSendsChange: Story = {
 }
 
 /**
- * A repository from a legacy `.ctxpipe/sources.yaml` row has no file that a
- * delete can name: the row shows a note and no unlink button.
+ * Sources section of the Workspace settings: a GitHub and a Confluence row come
+ * from the legacy `.ctxpipe/sources.yaml` file, so each has a note to edit that
+ * file and no row actions. A delete cannot name a file for such a row.
  */
 export const LegacyYamlRowNotRemovable: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings: a GitHub and a Confluence row come from the legacy .ctxpipe/sources.yaml file, so each has a note to edit that file and no row actions.",
-    },
     msw: {
       handlers: {
         page: [
@@ -849,8 +840,10 @@ export const LegacyYamlRowNotRemovable: Story = {
 const unlinkCalls: ChangeCall[] = []
 
 /**
- * A linked repository with a source file: the unlink deletes the file. The
- * unlink command does not run too, because the file change covers it.
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: the user unlinks a linked repository that has a source file, and
+ * only the file delete goes out. The unlink command does not run too, because
+ * the file change covers it.
  */
 export const UnlinkDeletesTheSourceFile: Story = {
   args: {
@@ -867,10 +860,6 @@ export const UnlinkDeletesTheSourceFile: Story = {
     ],
   },
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the user unlinks a linked repository that has a source file, and only the file delete goes out.",
-    },
     msw: {
       handlers: {
         page: [
@@ -1051,14 +1040,14 @@ export const AddSendsChange: Story = {
   },
 }
 
-/** Several repositories go to the server in one batch, so in one pull request. */
+/**
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: in the Add repositories dialog, the user picks two repositories.
+ * They go to the server in one batch request, so in one pull request.
+ */
 export const AddSeveralSendsOneBatch: Story = {
   tags: ["required"],
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add repositories dialog is open, and the user picks two repositories for one pull request.",
-    },
     visual: {
       skip: "Behavior test: it ends in the same state as AddSendsChange.",
     },
@@ -1118,16 +1107,13 @@ export const AddSeveralSendsOneBatch: Story = {
 }
 
 /**
- * Paste URL adds one plain git repository by its https URL. The form checks
- * the URL when the user leaves the field, and sends a `git` source with no
- * connection.
+ * Sources section of the Workspace settings: the Paste URL tab of the Add
+ * repositories dialog refuses an ssh URL, then adds an https URL. The form
+ * checks the URL when the user leaves the field, and sends a `git` source with
+ * no connection.
  */
 export const AddByUrlSendsGitSource: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Paste URL tab of the Add repositories dialog refuses an ssh URL, then adds an https URL.",
-    },
     visual: {
       skip: "Behavior test: it ends in the same state as AddSendsChange.",
     },
@@ -1188,13 +1174,13 @@ export const AddByUrlSendsGitSource: Story = {
   },
 }
 
-/** A URL that the backend refuses shows the backend's reason under the field. */
+/**
+ * Sources section of the Workspace settings: the Paste URL tab of the Add
+ * repositories dialog gives the server refusal of a URL under the field. The
+ * dialog stays open, so the user can fix the URL.
+ */
 export const AddByUrlShowsRefusal: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Paste URL tab of the Add repositories dialog gives the server refusal of a URL under the field.",
-    },
     msw: {
       handlers: {
         page: [
@@ -1383,16 +1369,13 @@ export const LoadFailed: Story = {
 }
 
 /**
- * The upgrades read fails: the page cannot tell whether the Workspace may take
- * a source, so it shows the error with Retry, not "No sources yet" and Add.
+ * Sources section of the Workspace settings: the format upgrade check did not
+ * load, so an error with Retry is visible and no Add button. The page cannot
+ * tell if the Workspace can take a source, so it does not say "No sources yet".
  */
 export const UpgradesLoadFailed: Story = {
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as LoadFailed." },
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the format upgrade check did not load, so an error with Retry is visible and no Add button.",
-    },
     msw: {
       handlers: {
         upgrades: [workspaceUpgradesHandler("error")],
@@ -1545,15 +1528,12 @@ export const PickerShowsConnectionNames: Story = {
 }
 
 /**
- * The GitHub group with no repositories yet: one primary "Add repositories"
- * button and a short line of text in the body (CTX-864).
+ * Sources section of the Workspace settings, which lists the sources of a
+ * Workspace: the GitHub group has no repositories yet, with one primary Add
+ * repositories button and a short note (CTX-864).
  */
 export const GithubNoRepositories: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the GitHub group has no repositories yet, with one Add repositories button and a short note.",
-    },
     msw: {
       handlers: {
         page: [
@@ -1619,15 +1599,12 @@ async function openAddRepositories(canvasElement: HTMLElement) {
 }
 
 /**
- * The dialog says what ctxpipe does with a repository and what "Open a pull
- * request" does. Under the list, a hint links to the GitHub App access.
+ * Sources section of the Workspace settings: the Add repositories dialog tells
+ * what ctxpipe does with a repository and what "Open a pull request" does.
+ * Under the list, a hint links to the GitHub App access.
  */
 export const AddRepositoriesExplains: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add repositories dialog tells what ctxpipe does with a repository and links to the app access.",
-    },
     msw: {
       handlers: {
         page: [
@@ -1664,13 +1641,13 @@ export const AddRepositoriesExplains: Story = {
   },
 }
 
-/** A search with no match: the hint shows the next step, not a dead end. */
+/**
+ * Sources section of the Workspace settings: a search in the Add repositories
+ * dialog has no match, so a hint gives the next step, with a link to give
+ * ctxpipe access on GitHub, not a dead end.
+ */
 export const AddRepositoriesEmptySearchHint: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: a search in the Add repositories dialog has no match, so a hint gives the next step.",
-    },
     msw: {
       handlers: {
         page: [
@@ -1698,15 +1675,12 @@ export const AddRepositoriesEmptySearchHint: Story = {
 }
 
 /**
- * The Workspace repository shows in the list, disabled, with a label. The
- * match ignores the letter case of the name.
+ * Sources section of the Workspace settings: the Add repositories dialog lists
+ * the Workspace repository as disabled, with a label. The match ignores the
+ * letter case of the repository name.
  */
 export const AddRepositoriesWorkspaceRepositoryDisabled: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add repositories dialog lists the Workspace repository as disabled, with a label.",
-    },
     visual: {
       skip: "Behavior test: it ends in the same state as AddRepositoriesExplains.",
     },
@@ -1739,11 +1713,10 @@ export const AddRepositoriesWorkspaceRepositoryDisabled: Story = {
 const accessReads = { count: 0 }
 const realDateNow = Date.now
 /**
- * The user ticks a repository, gives access on GitHub in another tab, then
- * comes back: the list loads again, and the new repository is first in it.
- * The tick stays on the repository the user chose, and the pull request adds
- * that one. The query client here keeps data fresh for 60 seconds, as the app
- * does, and the user is away for a minute, so the dialog list is stale.
+ * Sources section of the Workspace settings: the user ticks a repository, gives
+ * access on GitHub in another tab, and comes back. The dialog list loads again
+ * with the new repository first, and the tick stays on the chosen repository.
+ * The query client keeps data fresh for 60 seconds, as the app does.
  */
 export const AddRepositoriesRefreshesOnReturn: Story = {
   decorators: [
@@ -1770,10 +1743,6 @@ export const AddRepositoriesRefreshesOnReturn: Story = {
     }
   },
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the user comes back from GitHub, and the dialog list loads again with the new repository first.",
-    },
     visual: {
       skip: "Behavior test: it ends in the same state as AddSendsChange.",
     },
@@ -1858,15 +1827,12 @@ const ownerLine =
   "Only an owner of the GitHub organization can give access. If you are not an owner, ask one to do it."
 
 /**
- * Two GitHub connections: each has its own access link, named after the
- * connection, and a line tells a user who is not an owner what to do.
+ * Sources section of the Workspace settings: the Add repositories dialog has an
+ * access link for each of two GitHub connections, named after the connection. A
+ * line tells a user who is not an owner what to do.
  */
 export const AddRepositoriesHintLinksEachConnection: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add repositories dialog has an access link for each of two GitHub connections.",
-    },
     msw: {
       handlers: {
         page: [
@@ -1919,15 +1885,12 @@ export const AddRepositoriesHintLinksEachConnection: Story = {
 }
 
 /**
- * The list does not load: the hint still shows, with a link to the Connectors
- * page, because the access link comes with the list.
+ * Sources section of the Workspace settings: the Add repositories list did not
+ * load, but the hint stays, with a link to the Connectors page, because the
+ * access link comes with the list.
  */
 export const AddRepositoriesListFailsKeepsHint: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add repositories list did not load, but the hint with a Connectors link stays.",
-    },
     visual: {
       skip: "Behavior test: it ends in the same state as GithubNoRepositories.",
     },
@@ -1960,16 +1923,13 @@ const beforeUpgrade = (
 ) => workspaceUpgradesHandler(upgradesFixture(items, { formatVersion: 0 }))
 
 /**
- * A Workspace below the newest format (CTX-934, CTX-935): Sources says that
- * the sources move with the format upgrade, links to it, and offers no Add,
- * also with connected tools. It does not say "No sources yet".
+ * Sources section of the Workspace settings: the Workspace needs the format
+ * upgrade, so the section has no Add, also with connected tools, and does not
+ * say "No sources yet". After the admin pressed Start the upgrade, the notice
+ * says that ctxpipe prepares it (CTX-934, CTX-935).
  */
 export const BeforeFormatUpgrade: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings: the Workspace needs the format upgrade, so the section has no Add, and after the admin pressed Start the upgrade the notice says that ctxpipe prepares it.",
-    },
     msw: {
       handlers: {
         // After the start, the server lists the upgrade as queued.
@@ -2027,13 +1987,13 @@ export const BeforeFormatUpgrade: Story = {
   },
 }
 
-/** A member sees "Ask an admin" in place of Start. */
+/**
+ * Sources section of the Workspace settings, seen by a member: the Workspace
+ * needs the format upgrade, so the section has only the notice, with Review
+ * upgrade and "Ask an admin" in place of Start.
+ */
 export const BeforeFormatUpgradeMember: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, seen by a member: the Workspace needs the format upgrade, so the section has only the notice, with Review upgrade and Ask an admin in place of Start.",
-    },
     msw: {
       handlers: {
         role: [activeMemberRoleHandler("member")],
@@ -2053,13 +2013,12 @@ export const BeforeFormatUpgradeMember: Story = {
   },
 }
 
-/** Linked repositories still list, but with no Add, no Unlink and no Edit. */
+/**
+ * Sources section of the Workspace settings: the Workspace needs the format
+ * upgrade, so its sources still list, but with no Add, Unlink or Edit.
+ */
 export const BeforeFormatUpgradeWithSources: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Workspace needs the format upgrade, so its repositories list with no Add, Unlink or Edit.",
-    },
     msw: {
       handlers: {
         upgrades: [beforeUpgrade([upgradeItemFixture({ status: "pr_open" })])],
@@ -2086,13 +2045,13 @@ export const BeforeFormatUpgradeWithSources: Story = {
   },
 }
 
-/** A few repositories: every row shows, with no filter and no "Show all". */
+/**
+ * Sources section of the Workspace settings: the GitHub group has three
+ * repositories, each in its own source file, all visible with no filter and no
+ * Show all, and ctxpipe has not read them yet.
+ */
 export const GithubThreeRepositories: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings: the GitHub group has three repositories, each in its own source file, all visible with no filter and no Show all, and ctxpipe has not read them yet.",
-    },
     msw: {
       handlers: {
         page: [
@@ -2134,8 +2093,9 @@ export const GithubThreeRepositories: Story = {
 }
 
 /**
- * The GitHub installation lost one repository: its row says that it is not
- * indexed and gives the fix. The other repository is indexed.
+ * Sources section of the Workspace settings: the GitHub App installation lost
+ * one of two repositories, so that row comes first, says it is not indexed, and
+ * tells the user how to give access back. The other repository is indexed.
  */
 export const GithubRepositoryLostAccess: Story = {
   args: {
@@ -2164,10 +2124,6 @@ export const GithubRepositoryLostAccess: Story = {
     ],
   },
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the GitHub App installation lost one of two repositories, so that row needs attention, says it is not indexed, and tells the user how to give access back.",
-    },
     msw: {
       handlers: {
         page: [
@@ -2228,17 +2184,14 @@ const manyLinkedRepositories = Array.from({ length: 312 }, (_, index) => {
 })
 
 /**
- * Hundreds of repositories: the meta line counts them, the first 5 show
- * (rows that need attention first), "Show all" opens a scroll area, and the
- * filter narrows the list.
+ * Sources section of the Workspace settings: the GitHub group has hundreds of
+ * repositories, with a count, the first five (rows that need attention first),
+ * Show all and a filter. The play opens and closes Show all, then types a
+ * filter with no match, so the list says that no repository matches.
  */
 export const GithubManyRepositories: Story = {
   args: { linkedRepositories: manyLinkedRepositories },
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the GitHub group has hundreds of repositories, with a count, the first five, Show all and a filter.",
-    },
     msw: {
       handlers: {
         page: [
@@ -2312,13 +2265,13 @@ export const GithubManyRepositories: Story = {
   },
 }
 
-/** A file in a known provider folder that does not parse: the row shows why. */
+/**
+ * Sources section of the Workspace settings: one of two Linear source files
+ * does not parse, so its row has the Not valid status and the parse error. The
+ * invalid file is a real file, so the user can still edit or remove it.
+ */
 export const InvalidFile: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings: one of two Linear source files does not parse, so its row has the Not valid status and the parse error, and the user can still edit or remove it.",
-    },
     msw: {
       handlers: {
         page: [
@@ -2358,13 +2311,13 @@ export const InvalidFile: Story = {
   },
 }
 
-/** An open rename pull request shows on the old path. */
+/**
+ * Sources section of the Workspace settings: the user renamed a Linear source,
+ * so its row keeps the old path until the merge and links to the open rename
+ * pull request.
+ */
 export const PendingRename: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings: the user renamed a Linear source, so its row keeps the old path until the merge and links to the open rename pull request.",
-    },
     msw: {
       handlers: {
         page: [
@@ -2402,13 +2355,13 @@ export const PendingRename: Story = {
 
 const renameCalls: ChangeCall[] = []
 
-/** The rename dialog sends the new path and keeps the provider folder. */
+/**
+ * Sources section of the Workspace settings: the rename dialog of a Linear
+ * source is open, and it sends a new name in the same provider folder. The same
+ * name as before counts as no change.
+ */
 export const RenameSendsChange: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the rename dialog of a Linear source is open, and it sends a new name in the same provider folder.",
-    },
     visual: {
       skip: "Behavior test: it ends in the same state as EditSendsChange.",
     },
@@ -2460,13 +2413,13 @@ export const RenameSendsChange: Story = {
 
 const describeCalls: ChangeCall[] = []
 
-/** The editor sends the description with the change. */
+/**
+ * Sources section of the Workspace settings: the edit dialog of a Linear source
+ * is open, and the user changes the description. The editor sends the
+ * description with the change.
+ */
 export const EditDescriptionSendsChange: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the edit dialog of a Linear source is open, and the user changes the description.",
-    },
     visual: {
       skip: "Behavior test: it ends in the same state as EditSendsChange.",
     },
@@ -2518,13 +2471,13 @@ export const EditDescriptionSendsChange: Story = {
 
 const nameCalls: ChangeCall[] = []
 
-/** An add can name the file; the server names it otherwise. */
+/**
+ * Sources section of the Workspace settings: the Add Linear source dialog is
+ * open, and the user picks a team and gives the file a name. When the user
+ * gives no name, the server names the file.
+ */
 export const AddWithFileName: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add Linear source dialog is open, and the user picks a team and gives the file a name.",
-    },
     msw: {
       handlers: {
         page: [
@@ -2576,7 +2529,11 @@ const linkedRepository = (
   createdAt: "2026-10-01T10:00:00.000Z",
 })
 
-/** Each repository status explains itself on hover and on keyboard focus. */
+/**
+ * Sources section of the Workspace settings: each GitHub repository status,
+ * such as Indexing or Pending, has a tooltip on hover and on keyboard focus. A
+ * screen reader gets the same text with the status.
+ */
 export const StatusExplainsItself: Story = {
   args: {
     linkedRepositories: [
@@ -2586,10 +2543,6 @@ export const StatusExplainsItself: Story = {
     ],
   },
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: each GitHub repository status, such as Indexing or Pending, has a tooltip on hover and on focus.",
-    },
     msw: {
       handlers: {
         page: [
@@ -2663,16 +2616,12 @@ const recordPickerRead = http.get(
 )
 
 /**
- * A member can edit a source, but only an owner or admin can list the
- * Linear teams and projects. The dialog asks for an admin and sends no list
- * request.
+ * Sources section of the Workspace settings: a member opens the edit dialog of
+ * a Linear source, and a note asks for an admin. Only an owner or admin can
+ * list the Linear teams and projects, so the dialog sends no list request.
  */
 export const MemberEditAsksAnAdmin: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: a member opens the edit dialog of a Linear source, and a note asks for an admin.",
-    },
     msw: {
       handlers: {
         role: [activeMemberRoleHandler("member")],
@@ -2708,13 +2657,12 @@ export const MemberEditAsksAnAdmin: Story = {
   },
 }
 
-/** A member opens Add repositories: a note asks for an admin, and no list request goes out. */
+/**
+ * Sources section of the Workspace settings: a member opens the Add
+ * repositories dialog, and a note asks for an admin. No list request goes out.
+ */
 export const MemberAddRepositoriesAsksAnAdmin: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: a member opens the Add repositories dialog, and a note asks for an admin.",
-    },
     msw: {
       handlers: {
         role: [activeMemberRoleHandler("member")],

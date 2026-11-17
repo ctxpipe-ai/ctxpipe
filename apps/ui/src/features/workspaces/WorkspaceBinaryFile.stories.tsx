@@ -63,7 +63,10 @@ export const ImagePreview: Story = {
   },
 }
 
-/** An SVG shows only through `<img>`, never as markup in the page. */
+/**
+ * Binary file view in the Files pane, which previews or downloads a file. An
+ * SVG image shows as an image through `<img>`, never as markup in the page.
+ */
 export const SvgPreview: Story = {
   args: { path: "docs/diagram.svg", size: 412, rawUrl: diagramSvg },
   play: async ({ canvasElement }) => {
@@ -73,17 +76,12 @@ export const SvgPreview: Story = {
     await canvas.findByText("240 × 120 px")
     await expect(canvasElement.querySelector("circle")).toBeNull()
   },
-  parameters: {
-    review: {
-      purpose:
-        "Binary file view in the Files pane, which previews or downloads a file: an SVG image shows as an image, not as page markup.",
-    },
-  },
 }
 
 /**
- * A normal SVG is text, so the blob is not binary. The pane still shows the
- * image first, through `<img>`, and "View source" shows the text view.
+ * Binary file view in the Files pane, which previews or downloads a file. A
+ * normal SVG is a text file, but the pane shows the image first, through
+ * `<img>`. The View source button opens the text view.
  */
 export const SvgTextWithSource: Story = {
   args: {
@@ -108,12 +106,6 @@ export const SvgTextWithSource: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "View image" }))
     await canvas.findByRole("img", { name: "diagram.svg" })
     await expect(canvasElement.querySelector("circle")).toBeNull()
-  },
-  parameters: {
-    review: {
-      purpose:
-        "Binary file view in the Files pane, which previews or downloads a file: an SVG text file shows as an image, with a View source button.",
-    },
   },
 }
 
@@ -150,7 +142,11 @@ export const DownloadBinaryFile: Story = {
   },
 }
 
-/** An image over the preview limit downloads; the pane does not load it. */
+/**
+ * Binary file view in the Files pane, which previews or downloads a file. The
+ * image is over the 5 MB preview limit, so the pane does not load it and gives
+ * only a Download link.
+ */
 export const ImageOverPreviewLimit: Story = {
   args: {
     path: "assets/photo.jpg",
@@ -178,15 +174,13 @@ export const ImageOverPreviewLimit: Story = {
     ).toBeVisible()
     await expect(canvas.queryByRole("img")).toBeNull()
   },
-  parameters: {
-    review: {
-      purpose:
-        "Binary file view in the Files pane, which previews or downloads a file: the image is over the 5 MB preview limit, so only a Download link shows.",
-    },
-  },
 }
 
-/** A file over the raw file limit cannot download here, so the pane says how to get it. */
+/**
+ * Binary file view in the Files pane, which previews or downloads a file. The
+ * video is over the 10 MB raw file limit, so it cannot download here. An alert
+ * tells the user to clone the repository.
+ */
 export const FileOverDownloadLimit: Story = {
   args: {
     path: "media/demo.mp4",
@@ -201,15 +195,13 @@ export const FileOverDownloadLimit: Story = {
     )
     await expect(canvas.queryByRole("link")).toBeNull()
   },
-  parameters: {
-    review: {
-      purpose:
-        "Binary file view in the Files pane, which previews or downloads a file: the video is over the 10 MB limit, and an alert says to clone the repository.",
-    },
-  },
 }
 
-/** A broken image keeps the download, so the user can still open the file. */
+/**
+ * Binary file view in the Files pane, which previews or downloads a file. The
+ * image did not load, but the Download link stays, so the user can still get
+ * the file.
+ */
 export const ImageLoadError: Story = {
   args: { rawUrl: "data:image/png;base64,AAAA" },
   play: async ({ canvasElement }) => {
@@ -219,11 +211,5 @@ export const ImageLoadError: Story = {
     await expect(
       canvas.getByRole("link", { name: "Download logo.png" }),
     ).toBeVisible()
-  },
-  parameters: {
-    review: {
-      purpose:
-        "Binary file view in the Files pane, which previews or downloads a file: the image did not load, and the Download link stays.",
-    },
   },
 }

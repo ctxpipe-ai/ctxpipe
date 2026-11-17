@@ -185,14 +185,13 @@ const threeConversations = [
   "Refund rules",
 ].map((name, row) => ({ ...docsConversations[0], id: `conv_${row + 1}`, name }))
 
-/** The loading rows have the same box as three loaded conversations. */
+/**
+ * Conversation list of a Workspace in the side nav, with three loaded chats.
+ * The loaded rows fill the same box as the skeleton rows before them.
+ */
 export const ConversationListSkeletonMatches: Story = {
   tags: ["required"],
   parameters: {
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the side nav: three chats loaded in the same box as the skeleton rows before them.",
-    },
     intent:
       "Catches a conversation list skeleton whose box differs from the loaded list. This causes layout shift when the data arrives. Not for conversation titles or order.",
     msw: {
@@ -282,16 +281,15 @@ async function chooseAction(
   await userEvent.click(await body.findByRole("menuitem", { name: action }))
 }
 
-/** The Actions button shows on keyboard focus and opens a menu with Rename and Delete. */
+/**
+ * Conversation list of a Workspace in the side nav. Keyboard focus shows the
+ * Actions button of a chat, and its menu with Rename and Delete is open.
+ */
 export const ActionsMenuByKeyboard: Story = {
   beforeEach: () => {
     requests.length = 0
   },
   parameters: {
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the side nav: keyboard focus shows the Actions button of a chat, and its menu with Rename and Delete is open.",
-    },
     msw: {
       handlers: {
         page: conversationRequestHandlers({
@@ -326,16 +324,16 @@ export const ActionsMenuByKeyboard: Story = {
   },
 }
 
-/** Rename edits the name in the row. Enter saves it once, and the new name shows. */
+/**
+ * Conversation list of a Workspace in the side nav. The member renamed a chat
+ * in its row, and the new name shows. The play proves that Enter saves the name
+ * one time.
+ */
 export const RenameFromMenu: Story = {
   beforeEach: () => {
     requests.length = 0
   },
   parameters: {
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the side nav: a chat was renamed in its row, and the new name shows.",
-    },
     msw: {
       handlers: {
         page: conversationRequestHandlers({
@@ -364,16 +362,15 @@ export const RenameFromMenu: Story = {
   },
 }
 
-/** Escape cancels a rename. The old name stays and nothing is sent. */
+/**
+ * Conversation list of a Workspace in the side nav. The member pressed Escape
+ * during a rename, so the chat keeps its old name and no request goes out.
+ */
 export const RenameCancelWithEscape: Story = {
   beforeEach: () => {
     requests.length = 0
   },
   parameters: {
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the side nav: Escape canceled a rename, and the chat keeps its old name.",
-    },
     msw: {
       handlers: {
         page: conversationRequestHandlers({
@@ -394,7 +391,11 @@ export const RenameCancelWithEscape: Story = {
   },
 }
 
-/** Delete asks first. Cancel keeps the chat and sends nothing. */
+/**
+ * Conversation list of a Workspace in the side nav. Delete asks first, and the
+ * member canceled the dialog. The chat stays in the list, and no request goes
+ * out.
+ */
 export const DeleteCancel: Story = {
   beforeEach: () => {
     requests.length = 0
@@ -402,10 +403,6 @@ export const DeleteCancel: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as WithConversations, with only a focus ring more.",
-    },
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the side nav: the member canceled the delete dialog, and the chat stays in the list.",
     },
     msw: {
       handlers: {
@@ -427,16 +424,16 @@ export const DeleteCancel: Story = {
   },
 }
 
-/** Confirming a delete sends one DELETE and removes the chat from the list. */
+/**
+ * Conversation list of a Workspace in the side nav. The member deleted a chat
+ * from its menu and confirmed. One DELETE goes out, the chat is gone, and one
+ * chat stays.
+ */
 export const DeleteConfirm: Story = {
   beforeEach: () => {
     requests.length = 0
   },
   parameters: {
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the side nav: the member deleted a chat from its menu and confirmed, so the chat is gone and one chat stays.",
-    },
     msw: {
       handlers: {
         page: conversationRequestHandlers({
@@ -463,17 +460,16 @@ export const DeleteConfirm: Story = {
   },
 }
 
-/** Deleting a chat that has one after it moves focus to the next chat. */
+/**
+ * Conversation list of a Workspace in the side nav. The member deleted a chat
+ * that has a chat after it, and focus moved to the next chat.
+ */
 export const DeleteFirstFocusesNext: Story = {
   beforeEach: () => {
     requests.length = 0
   },
   args: { currentConversationId: "conv_2" },
   parameters: {
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the side nav: the member deleted a chat, and focus moved to the next chat.",
-    },
     msw: {
       handlers: {
         page: conversationRequestHandlers({
@@ -498,7 +494,10 @@ export const DeleteFirstFocusesNext: Story = {
   },
 }
 
-/** Deleting the open chat leaves it for the Workspace start page. */
+/**
+ * Conversation list of a Workspace in the side nav. The member deleted the open
+ * chat, and the app went to the Workspace start page.
+ */
 export const DeleteOpenChatNavigatesAway: Story = {
   beforeEach: () => {
     requests.length = 0
@@ -507,10 +506,6 @@ export const DeleteOpenChatNavigatesAway: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends on a story route marker, which the product does not render.",
-    },
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the side nav: the member deleted the open chat, and the app went to the Workspace start page.",
     },
     msw: {
       handlers: {
@@ -535,16 +530,15 @@ export const DeleteOpenChatNavigatesAway: Story = {
   },
 }
 
-/** A failed delete keeps the chat and shows the cause and a next step. */
+/**
+ * Conversation list of a Workspace in the side nav. The delete request of a
+ * chat failed, so the chat stays, and an alert gives the cause and a next step.
+ */
 export const DeleteError: Story = {
   beforeEach: () => {
     requests.length = 0
   },
   parameters: {
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the side nav: the delete request of a chat failed, so the chat stays and an alert gives the cause and a next step.",
-    },
     msw: {
       handlers: {
         page: conversationRequestHandlers({
@@ -574,16 +568,16 @@ export const DeleteError: Story = {
   },
 }
 
-/** A chat with a running turn is not deleted. The message says how to stop the turn. */
+/**
+ * Conversation list of a Workspace in the side nav. The delete failed because a
+ * turn runs in the chat, so the chat stays, and the message tells how to stop
+ * the turn.
+ */
 export const DeleteRefusedWhileTurnRuns: Story = {
   beforeEach: () => {
     requests.length = 0
   },
   parameters: {
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the side nav: the delete failed because a turn runs, and the message says how to stop it.",
-    },
     msw: {
       handlers: {
         page: conversationRequestHandlers({
@@ -615,9 +609,10 @@ export const DeleteRefusedWhileTurnRuns: Story = {
 let startingDeletes = 0
 
 /**
- * A prepare (sandbox resume) still holds the chat after the backend waited:
- * the delete answers 409 chat_starting. The message says the chat starts and
- * offers Try again. It does not tell the user to stop a turn.
+ * Conversation list of a Workspace in the side nav. The delete failed with 409
+ * `chat_starting`, because a prepare (sandbox resume) still holds the chat. The
+ * message says that the chat starts and offers Try again. It does not tell the
+ * user to stop a turn.
  */
 export const DeleteWhileChatStarts: Story = {
   beforeEach: () => {
@@ -627,10 +622,6 @@ export const DeleteWhileChatStarts: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as DeleteConfirm.",
-    },
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the side nav: the delete failed because the chat still starts, and the message offers Try again.",
     },
     msw: {
       handlers: {
@@ -707,15 +698,15 @@ const statusChats = (
     lastTurn,
   }))
 
-/** The four states, and each cause of "needs attention", with a label that is not only color. */
+/**
+ * Conversation list of a Workspace in the side nav. Each chat has a status dot
+ * for idle, unread, working, or needs attention, with a text label, so the
+ * state is not only a color. Each cause of needs attention has its own row.
+ */
 export const StatusDots: Story = {
   args: { currentConversationId: undefined },
   beforeEach: () => seedSeen({ conv_1: 100, conv_2: 100, conv_4: 100 }),
   parameters: {
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the side nav: each chat has a status dot for idle, unread, working, or needs attention, with a text label.",
-    },
     msw: {
       handlers: {
         page: [
@@ -768,14 +759,14 @@ export const StatusDots: Story = {
   },
 }
 
-/** A running row older than the backend turn limit is lost: orange, no spinner. */
+/**
+ * Conversation list of a Workspace in the side nav. A chat runs past the
+ * backend turn limit, so the chat counts as lost: its dot is orange, with no
+ * spinner.
+ */
 export const StaleRunningChat: Story = {
   args: { currentConversationId: undefined },
   parameters: {
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the side nav: a chat runs past the turn limit, so its dot is orange with no spinner.",
-    },
     msw: {
       handlers: {
         page: [
@@ -806,15 +797,14 @@ export const StaleRunningChat: Story = {
   },
 }
 
-/** The rail has no room for names, so each dot is a badge on the initials. */
+/**
+ * Conversation list of a Workspace in the collapsed side nav rail. The rail has
+ * no room for names, so each status dot is a badge on the chat initials.
+ */
 export const StatusDotsCollapsed: Story = {
   args: { navExpanded: false, currentConversationId: undefined },
   beforeEach: () => seedSeen({ conv_1: 100 }),
   parameters: {
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the collapsed side nav rail: each status dot is a badge on the chat initials.",
-    },
     msw: {
       handlers: {
         page: [
@@ -930,7 +920,10 @@ export const WorkingThenUnreadThenRead: Story = {
 }
 
 const failRequests = { count: 0 }
-/** A turn that works and then fails turns the dot orange. It stays orange after the chat is opened. */
+/**
+ * Conversation list of a Workspace in the side nav. A working chat failed, so
+ * its dot turned orange. The dot stays orange after the member opens the chat.
+ */
 export const WorkingThenNeedsAttention: Story = {
   beforeEach: () => {
     failRequests.count = 0
@@ -939,10 +932,6 @@ export const WorkingThenNeedsAttention: Story = {
   args: { currentConversationId: undefined },
   render: (args) => <OpensChats {...args} />,
   parameters: {
-    review: {
-      purpose:
-        "Conversation list of a Workspace in the side nav: a working chat failed, so its dot is orange and stays orange after the member opens it.",
-    },
     // Selecting a chat goes to its route. The list stays, as in the Workspace layout.
     storyRoute: {
       pattern: "orgWorkspace",

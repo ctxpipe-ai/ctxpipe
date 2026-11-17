@@ -203,7 +203,11 @@ export const CreatingOrganization: Story = {
   },
 }
 
-/** A work email prefills the name. The slug follows the name until edited. */
+/**
+ * Onboarding slide where a new user creates the first organization: a work
+ * email filled the name, and the user then edited the slug. The slug follows
+ * the name until the user edits it, and then the slug stays.
+ */
 export const PrefilledFromWorkEmail: Story = {
   args: { userEmail: "pat@initech.io" },
   parameters: {
@@ -211,10 +215,6 @@ export const PrefilledFromWorkEmail: Story = {
       handlers: {
         page: createOrgBaseMsw,
       },
-    },
-    review: {
-      purpose:
-        "Onboarding slide where a new user creates the first organization: a work email filled the name, and the user then edited the slug.",
     },
   },
   play: async ({ canvasElement }) => {

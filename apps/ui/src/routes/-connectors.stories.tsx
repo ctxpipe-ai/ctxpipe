@@ -449,9 +449,10 @@ export const Full: Story = {
 }
 
 /**
- * Each Workspace of the org is below the newest format (CTX-935): a source
- * cannot be saved in any of them. The page says so before a connect flow
- * starts, links to the upgrade, and turns off Add connection.
+ * Connectors page, where an admin adds and manages the sources of the org: each
+ * Workspace is below the newest format, so no source can be saved. The page
+ * links to the upgrade and turns off Add connection before a connect flow
+ * starts (CTX-935).
  */
 export const NeedsFormatUpgrade: Story = {
   render: pageRender,
@@ -472,10 +473,6 @@ export const NeedsFormatUpgrade: Story = {
       pendingWorkspaceUpgradesHandler({ docs: [upgradeItemFixture()] }),
       "owner",
     ),
-    review: {
-      purpose:
-        "Connectors page, where an admin adds and manages the sources of the org: each Workspace needs a format upgrade, so the page links to the upgrade and turns off Add connection.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -490,8 +487,10 @@ export const NeedsFormatUpgrade: Story = {
 }
 
 /**
- * The Workspace is below the newest format and the scan wrote no upgrade row
- * yet. The read still lists it with its format, so the page blocks the start.
+ * Connectors page, where an admin adds and manages the sources of the org: the
+ * Workspace is below the newest format and the scan wrote no upgrade row yet,
+ * so Add connection is off. The Workspace read gives the format, so the page
+ * blocks the start.
  */
 export const NeedsFormatUpgradeNoRowYet: Story = {
   render: pageRender,
@@ -517,10 +516,6 @@ export const NeedsFormatUpgradeNoRowYet: Story = {
       }),
       "owner",
     ),
-    review: {
-      purpose:
-        "Connectors page, where an admin adds and manages the sources of the org: the Workspace is below the newest format and has no upgrade row yet, so Add connection is off.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -531,7 +526,11 @@ export const NeedsFormatUpgradeNoRowYet: Story = {
   },
 }
 
-/** With no connection yet, the empty state offers no start either. */
+/**
+ * Connectors page of a member in an org with no connection: the Docs Workspace
+ * needs the format upgrade first, so the notice asks the member to upgrade and
+ * Add connection is off. The empty state offers no start either.
+ */
 export const NeedsFormatUpgradeNoConnections: Story = {
   render: pageRender,
   parameters: {
@@ -547,10 +546,6 @@ export const NeedsFormatUpgradeNoConnections: Story = {
       pendingWorkspaceUpgradesHandler({ docs: [upgradeItemFixture()] }),
       "member",
     ),
-    review: {
-      purpose:
-        "Connectors page of a member in an org with no connection: the Docs Workspace needs the format upgrade first, so the notice asks to upgrade and Add connection is off.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -683,7 +678,12 @@ export const CouldntLoad: Story = {
   },
 }
 
-/** The Atlassian account link returns here and opens the wizard again. */
+/**
+ * Connectors page, where an admin adds and manages the sources of the org: the
+ * Atlassian account link comes back, the Confluence setup opens again, and its
+ * install link failed to load. The alert keeps its detail inside the box and
+ * hides the signed query (CTX-1263).
+ */
 export const ReopensConfluenceWizardAfterAccountLink: Story = {
   render: () => <ConnectorsPageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
@@ -718,10 +718,6 @@ export const ReopensConfluenceWizardAfterAccountLink: Story = {
     )
   },
   parameters: {
-    review: {
-      purpose:
-        "Connectors page, where an admin adds and manages the sources of the org: the Atlassian link comes back, the Confluence setup opens again, and its install link failed to load.",
-    },
     storyRoute: {
       pattern: "orgConnectors",
       orgSlug,
@@ -764,7 +760,11 @@ export const ReopensConfluenceWizardAfterAccountLink: Story = {
   },
 }
 
-/** A Buildkite row shows its own card, and the catalog adds another one. */
+/**
+ * Connectors page, where an admin adds and manages the sources of the org: one
+ * Buildkite connection has its own card, and the catalog opens the setup of a
+ * second one with empty fields.
+ */
 export const BuildkiteFromCatalog: Story = {
   render: pageRender,
   parameters: {
@@ -790,10 +790,6 @@ export const BuildkiteFromCatalog: Story = {
       // The org shell lists the Workspaces.
       workspaceListHandler([]),
     ]),
-    review: {
-      purpose:
-        "Connectors page, where an admin adds and manages the sources of the org: one Buildkite connection exists, and the catalog opens the setup of a second one.",
-    },
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
@@ -818,7 +814,11 @@ export const BuildkiteFromCatalog: Story = {
   },
 }
 
-/** A Plain row shows its own card, and the catalog adds another one. */
+/**
+ * Connectors page, where an admin adds and manages the sources of the org: one
+ * Plain connection has its own card, and the catalog opens the setup of a
+ * second one with empty fields.
+ */
 export const PlainFromCatalog: Story = {
   render: pageRender,
   parameters: {
@@ -844,10 +844,6 @@ export const PlainFromCatalog: Story = {
       // The org shell lists the Workspaces.
       workspaceListHandler([]),
     ]),
-    review: {
-      purpose:
-        "Connectors page, where an admin adds and manages the sources of the org: one Plain connection exists, and the catalog opens the setup of a second one.",
-    },
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
@@ -887,9 +883,10 @@ function linearStatusFor(connectionId: string, status: object) {
 }
 
 /**
- * Two Linear connections: one needs a reconnect and one has an unfinished
- * setup. The catalog shows the worst state, and Fix takes the user to the
- * card of the connection that needs the reconnect.
+ * Connectors page, where an admin adds and manages the sources of the org: of
+ * two Linear connections, one needs a reconnect and one has an unfinished
+ * setup. The catalog shows the worst state, and Fix moves the focus to the card
+ * of the connection that needs the reconnect.
  */
 export const FixFromCatalog: Story = {
   render: pageRender,
@@ -949,10 +946,6 @@ export const FixFromCatalog: Story = {
       connectionUsageHandler([]),
       workspaceListHandler([]),
     ]),
-    review: {
-      purpose:
-        "Connectors page, where an admin adds and manages the sources of the org: a Linear connection needs a reconnect, and Fix in the catalog moves the focus to its card.",
-    },
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
