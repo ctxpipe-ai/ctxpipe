@@ -107,7 +107,7 @@ export type AvailableConnectorEntry = Extract<
 const openSetup = async (): Promise<SetupTarget> => ({})
 
 function ConfluenceOutlineMark({ className }: { className?: string }) {
-  return <ConfluenceMark className={className} variant="outline" />
+  return <ConfluenceMark className={className} />
 }
 
 export const CONNECTOR_REGISTRY: readonly ConnectorEntry[] = [

@@ -17,7 +17,7 @@ export const ProductMark: Story = {
   parameters: {
     review: {
       purpose:
-        "Plain product mark, the logo that names the provider on connector cards and dialogs: the mark alone at a large size.",
+        "Plain mark, the logo in the ink color that names Plain on its connector card and setup dialog: the mark alone, enlarged.",
     },
   },
 }

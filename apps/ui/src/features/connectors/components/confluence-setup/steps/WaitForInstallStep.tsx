@@ -1,4 +1,4 @@
-import { Spinner } from "@/components/ui/spinner"
+import { InlineLoader } from "@/components/ui/InlineLoader"
 
 export function WaitForInstallStep() {
   return (
@@ -8,17 +8,12 @@ export function WaitForInstallStep() {
           Waiting for installation
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
-          Hang tight—we are waiting for Atlassian to confirm the install, which
-          can take a few minutes even after their UI says that installation was
-          done.
+          Atlassian must confirm the install of the Forge app. This can take a
+          few minutes, also after the Atlassian page says that the install is
+          done. The next step opens when Atlassian confirms it.
         </p>
       </div>
-      <div className="flex items-center gap-3">
-        <Spinner className="size-4.5 text-muted-foreground" />
-        <span className="text-sm text-muted-foreground">
-          Waiting for confirmation from Atlassian...
-        </span>
-      </div>
+      <InlineLoader label="Waiting for Atlassian" />
     </div>
   )
 }

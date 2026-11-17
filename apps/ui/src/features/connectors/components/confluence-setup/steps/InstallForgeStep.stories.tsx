@@ -252,7 +252,7 @@ export const ProvisionSelfHosted: Story = {
   parameters: {
     review: {
       purpose:
-        "Step of the Confluence setup that installs the Forge app: the self-hosted provision form, before the user starts it.",
+        "Install step of the Confluence setup wizard on a self-hosted deployment, without the wizard frame: the admin fills in the site, email and token to provision the Forge app.",
     },
     msw: {
       handlers: {
@@ -294,7 +294,7 @@ export const ProvisionRunning: Story = {
   parameters: {
     review: {
       purpose:
-        "Step of the Confluence setup that installs the Forge app: the self-hosted provision of the app is running.",
+        "Install step of the Confluence setup wizard on a self-hosted deployment, without the wizard frame: after Start provisioning, the teal loader waits for the Forge app deploy.",
     },
     msw: {
       handlers: {
