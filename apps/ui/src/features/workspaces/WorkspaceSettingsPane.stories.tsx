@@ -524,6 +524,33 @@ export const HydrateFailed: Story = {
   },
 }
 
+/**
+ * A later load failed while an older graph still answers. No Prepare failed
+ * page shows, so the card has its own Try again.
+ */
+export const HydrateFailedWithReadyGraph: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace, where an owner checks the knowledge graph: the load of a new commit failed while the older graph still answers, so the card has its own Try again.",
+    },
+  },
+  args: {
+    workspace: {
+      ...failedHydrateWorkspaceDetail,
+      activeProjectionSha: "4f2a9c1d7e3b",
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("The knowledge graph did not load")
+    const retry = canvas.getByRole("button", { name: "Try again" })
+    await expect(retry).toBeVisible()
+    // The card sits below the fold of the pane: show it in the screenshot.
+    retry.scrollIntoView({ block: "center" })
+  },
+}
+
 /** A GitHub source of acme/app and a Linear source. */
 const appAndLinearSources = (linearStatus: "ok" | "out_of_access") =>
   workspaceSourceList({

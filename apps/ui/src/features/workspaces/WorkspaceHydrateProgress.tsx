@@ -10,27 +10,72 @@ import { workspaceHydrateView } from "./projection"
 import { retryPrepareWorkspace, workspaceKeys } from "./queries"
 import type { Workspace } from "./types"
 
-export function WorkspaceHydrateFailedBody(props: {
-  orgSlug: string
-  workspace: Workspace
-}) {
-  const { orgSlug, workspace } = props
+/** Starts a failed prepare of the Workspace again, then reads it again. */
+export function useRetryPrepare(orgSlug: string, workspaceSlug: string) {
   const queryClient = useQueryClient()
-  const retryMutation = useMutation({
-    mutationFn: () => retryPrepareWorkspace(orgSlug, workspace.slug),
+  return useMutation({
+    mutationFn: () => retryPrepareWorkspace(orgSlug, workspaceSlug),
     onSuccess: () => {
       void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.detail(orgSlug, workspace.slug),
+        queryKey: workspaceKeys.detail(orgSlug, workspaceSlug),
       })
       void queryClient.invalidateQueries({
         queryKey: workspaceKeys.list(orgSlug),
       })
     },
   })
-  // This reason is copy of ctxpipe for the user, with a link to the fix.
-  const noAccess = workspace.hydrateError?.startsWith(
-    "ctxpipe has no access to this repository.",
+}
+
+/**
+ * Why the prepare failed. The no-access reason is ctxpipe copy with its fix
+ * in Connectors. Any other reason is raw server text: `sentence` says what to
+ * do, and the reason sits below it in a mono block without secrets.
+ */
+export function HydrateFailureReason(props: {
+  orgSlug: string
+  hydrateError: string | null | undefined
+  sentence: string
+  tone: "error" | "muted"
+}) {
+  const { orgSlug, hydrateError } = props
+  if (hydrateError?.startsWith("ctxpipe has no access to this repository.")) {
+    return (
+      <p>
+        {hydrateError}{" "}
+        <Link
+          to="/$orgSlug/connectors"
+          params={{ orgSlug }}
+          search={{
+            error: undefined,
+            error_description: undefined,
+            pendingAccountClaim: undefined,
+            notionConnectionId: undefined,
+          }}
+          className="text-teal-500 underline-offset-2 hover:underline"
+        >
+          Open Connectors
+        </Link>
+      </p>
+    )
+  }
+  return (
+    <>
+      <p>{props.sentence}</p>
+      {hydrateError ? (
+        <TechnicalDetail tone={props.tone} className="mt-2">
+          {hideSecrets(hydrateError)}
+        </TechnicalDetail>
+      ) : null}
+    </>
   )
+}
+
+export function WorkspaceHydrateFailedBody(props: {
+  orgSlug: string
+  workspace: Workspace
+}) {
+  const { orgSlug, workspace } = props
+  const retryMutation = useRetryPrepare(orgSlug, workspace.slug)
 
   return (
     <div className="w-full max-w-md">
@@ -53,34 +98,12 @@ export function WorkspaceHydrateFailedBody(props: {
             </Button>
           }
         >
-          {noAccess ? (
-            <>
-              {workspace.hydrateError}{" "}
-              <Link
-                to="/$orgSlug/connectors"
-                params={{ orgSlug }}
-                search={{
-                  error: undefined,
-                  error_description: undefined,
-                  pendingAccountClaim: undefined,
-                  notionConnectionId: undefined,
-                }}
-                className="text-teal-500 underline-offset-2 hover:underline"
-              >
-                Open Connectors
-              </Link>
-            </>
-          ) : (
-            <>
-              <p>ctxpipe could not read this repository.</p>
-              {/* The server reason is raw machine text. */}
-              {workspace.hydrateError ? (
-                <TechnicalDetail tone="error" className="mt-2">
-                  {hideSecrets(workspace.hydrateError)}
-                </TechnicalDetail>
-              ) : null}
-            </>
-          )}
+          <HydrateFailureReason
+            orgSlug={orgSlug}
+            hydrateError={workspace.hydrateError}
+            sentence="ctxpipe could not read this repository."
+            tone="error"
+          />
         </InlineAlert>
       </div>
     </div>
@@ -93,18 +116,7 @@ export function WorkspaceHydrateProgress(props: {
 }) {
   const { orgSlug, workspace } = props
   const view = workspaceHydrateView(workspace)
-  const queryClient = useQueryClient()
-  const retryMutation = useMutation({
-    mutationFn: () => retryPrepareWorkspace(orgSlug, workspace.slug),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.detail(orgSlug, workspace.slug),
-      })
-      void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.list(orgSlug),
-      })
-    },
-  })
+  const retryMutation = useRetryPrepare(orgSlug, workspace.slug)
   const currentStage = view === "waiting_for_tip" ? 0 : 1
 
   if (view === "failed") {

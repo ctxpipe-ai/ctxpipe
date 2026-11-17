@@ -97,7 +97,7 @@ export function KnowledgeGraphExplorer({
   pending?: boolean
   error?: Error | null
   /** Asks for the graph again after a failed request. */
-  onRetry?: () => void
+  onRetry: () => void
   onOpenSource?: (path: string) => void
 }) {
   const data = graph
@@ -602,11 +602,9 @@ export function KnowledgeGraphExplorer({
             variant="error"
             title="Could not load graph"
             actions={
-              onRetry ? (
-                <Button variant="primary" onPress={onRetry}>
-                  Try again
-                </Button>
-              ) : null
+              <Button variant="primary" onPress={onRetry}>
+                Try again
+              </Button>
             }
           >
             <p>

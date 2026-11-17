@@ -24,6 +24,7 @@ const meta = {
     orgSlug: "acme",
     workspaceSlug: "docs",
     pending: false,
+    onRetry: () => undefined,
   },
   parameters: {
     msw: { handlers: { session: signedInHandlers } },

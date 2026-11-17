@@ -9,7 +9,7 @@ export function WorkspaceGraphPane(props: {
   pending: boolean
   error?: Error | null
   /** Asks for the graph again after a failed request. */
-  onRetry?: () => void
+  onRetry: () => void
   onOpenSource?: (path: string) => void
 }) {
   const nodeCount = props.graph?.metrics.totalNodes ?? 0

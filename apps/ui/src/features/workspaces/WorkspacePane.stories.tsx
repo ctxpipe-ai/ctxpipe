@@ -1131,7 +1131,7 @@ export const GraphPhaseFailed: Story = {
     )
     expect(
       canvas.getByText(
-        "ctxpipe builds the graph again by itself. You can also try again now.",
+        "ctxpipe rebuilds the graph automatically. You can also try again now.",
       ),
     ).toBeVisible()
     // The tab fades in for 100 ms when the pane mounts.

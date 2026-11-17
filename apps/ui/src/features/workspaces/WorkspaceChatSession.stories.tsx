@@ -176,6 +176,7 @@ export const Reasoning: Story = {
 function liveTurn(
   question: string,
   events: object[],
+  lastChunk: string,
 ): Pick<Story, "args" | "beforeEach" | "play"> {
   return {
     args: threadArgs(docsConversationDetail.messages, "Billing"),
@@ -200,10 +201,8 @@ function liveTurn(
           timeout: SEND_WAIT_MS,
         },
       )
-      // Each chunk comes 20 ms after the one before it.
-      await new Promise((resolve) =>
-        setTimeout(resolve, (events.length + 3) * 20 + 200),
-      )
+      // The text of the last chunk shows when the socket sent all of them.
+      await canvas.findByText(lastChunk, undefined, { timeout: SEND_WAIT_MS })
     },
   }
 }
@@ -262,9 +261,11 @@ const refundsThought =
   "**Finding the refund rules**\n\nThe ledger file names a refunds page. I should read it before I answer."
 
 export const ReasoningStreaming: Story = {
-  ...liveTurn("Who can approve a refund?", [
-    ...thoughtEvents("reason_live", refundsThought, true),
-  ]),
+  ...liveTurn(
+    "Who can approve a refund?",
+    [...thoughtEvents("reason_live", refundsThought, true)],
+    "Finding the refund rules",
+  ),
   parameters: {
     ...liveTurnParameters,
     review: {
@@ -299,15 +300,21 @@ export const ToolUseMany: Story = {
 }
 
 export const ToolUseStreaming: Story = {
-  ...liveTurn("Which file holds the refund rules?", [
-    ...toolEvents("tc_live_search", "hybrid_search", { query: "refund rules" }),
-    ...toolEvents(
-      "tc_live_read",
-      "get_file",
-      { filePath: "knowledge/payments/refunds.md" },
-      true,
-    ),
-  ]),
+  ...liveTurn(
+    "Which file holds the refund rules?",
+    [
+      ...toolEvents("tc_live_search", "hybrid_search", {
+        query: "refund rules",
+      }),
+      ...toolEvents(
+        "tc_live_read",
+        "get_file",
+        { filePath: "knowledge/payments/refunds.md" },
+        true,
+      ),
+    ],
+    "Read 1 file",
+  ),
   parameters: {
     ...liveTurnParameters,
     review: {
@@ -330,21 +337,25 @@ export const ReasoningAndTools: Story = {
 }
 
 export const ReasoningAndToolsStreaming: Story = {
-  ...liveTurn("Why ledger.md and not invoices.md?", [
-    ...thoughtEvents(
-      "reason_live",
-      "**Comparing the files**\n\nInvoice documents come from the ledger. I should check the billing docs.",
-    ),
-    ...toolEvents("tc_live_search", "hybrid_search", {
-      query: "ledger vs invoices",
-    }),
-    ...toolEvents(
-      "tc_live_read",
-      "get_file",
-      { filePath: "knowledge/billing/ledger.md" },
-      true,
-    ),
-  ]),
+  ...liveTurn(
+    "Why ledger.md and not invoices.md?",
+    [
+      ...thoughtEvents(
+        "reason_live",
+        "**Comparing the files**\n\nInvoice documents come from the ledger. I should check the billing docs.",
+      ),
+      ...toolEvents("tc_live_search", "hybrid_search", {
+        query: "ledger vs invoices",
+      }),
+      ...toolEvents(
+        "tc_live_read",
+        "get_file",
+        { filePath: "knowledge/billing/ledger.md" },
+        true,
+      ),
+    ],
+    "Read 1 file",
+  ),
   parameters: {
     ...liveTurnParameters,
     review: {
@@ -416,14 +427,18 @@ export const Waiting: Story = {
 }
 
 export const Streaming: Story = {
-  ...liveTurn("Where do refunds go?", [
-    { type: "TEXT_MESSAGE_START", messageId: "msg_live", role: "assistant" },
-    {
-      type: "TEXT_MESSAGE_CONTENT",
-      messageId: "msg_live",
-      delta: "Refunds go through the payments API and reverse the",
-    },
-  ]),
+  ...liveTurn(
+    "Where do refunds go?",
+    [
+      { type: "TEXT_MESSAGE_START", messageId: "msg_live", role: "assistant" },
+      {
+        type: "TEXT_MESSAGE_CONTENT",
+        messageId: "msg_live",
+        delta: "Refunds go through the payments API and reverse the",
+      },
+    ],
+    "Refunds go through the payments API and reverse the",
+  ),
   parameters: {
     ...liveTurnParameters,
     review: {
