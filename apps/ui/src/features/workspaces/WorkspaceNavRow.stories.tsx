@@ -121,7 +121,7 @@ export const OpenWithConversations: Story = {
   parameters: {
     review: {
       purpose:
-        "Workspace row in the side nav, which opens a Workspace: the row is open and lists its chats, with the open chat selected.",
+        "Workspace row in the side nav, which opens a Workspace: the member opened the Workspace, so the row lists its chats and the open chat is selected.",
     },
     msw: {
       handlers: {
@@ -160,7 +160,7 @@ export const NotIngesting: Story = {
   parameters: {
     review: {
       purpose:
-        "Workspace row in the side nav, which opens a Workspace: the first row does not ingest, so it has no pulse, and the second row ingests.",
+        "Two Workspace rows in the side nav, which open a Workspace: ctxpipe ingests the second Workspace, so only its row has a pulsing teal dot.",
     },
     msw: {
       handlers: {
@@ -190,7 +190,7 @@ export const Ingesting: Story = {
   parameters: {
     review: {
       purpose:
-        "Workspace row in the side nav, which opens a Workspace: it ingests two sources, so a teal dot pulses and its tooltip is open.",
+        "Workspace row in the side nav, which opens a Workspace: ctxpipe ingests two sources of it, so a teal dot pulses, and the pointer on the row opens the tooltip.",
     },
     msw: {
       handlers: {

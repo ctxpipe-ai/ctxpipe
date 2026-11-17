@@ -194,7 +194,6 @@ export const StatusError: Story = {
       purpose:
         "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the connection status request failed.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -218,7 +217,7 @@ export const RegisterAtlassianOauth: Story = {
   parameters: {
     review: {
       purpose:
-        "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the self-hosted first step, register the Atlassian OAuth app.",
+        "Confluence setup wizard on a self-hosted deployment: the first step tells the admin how to register an Atlassian OAuth app and asks for its Client ID and secret.",
     },
     msw: {
       handlers: {
@@ -261,7 +260,7 @@ export const LinkAtlassianGlobalEnv: Story = {
   parameters: {
     review: {
       purpose:
-        "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the link step on a managed deployment with its own OAuth app.",
+        "Confluence setup wizard on the hosted product, where ctxpipe supplies the Atlassian OAuth app: the first step asks the admin to link an Atlassian account.",
     },
     msw: {
       handlers: {
@@ -369,7 +368,10 @@ export const CloseCancelsTheSetup: Story = {
   parameters: {
     review: {
       purpose:
-        "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the user closes the install step and the empty draft is canceled.",
+        "Confluence setup wizard at the Install Forge app step: the user presses Close before the install, so ctxpipe deletes the empty draft connection.",
+    },
+    visual: {
+      skip: "Behavior test: the story keeps the modal open after Close, a state that the product does not render.",
     },
     msw: { handlers: { page: installHandlers } },
   },
@@ -483,12 +485,7 @@ export const ManageKeepsTheCurrentScope: Story = {
   parameters: {
     review: {
       purpose:
-        "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the Workspaces step of a Workspace that already syncs a space, with no changes.",
-    },
-    visual: {
-      allow: {
-        contrast: "Text below WCAG AA on main (CTX-1278).",
-      },
+        "Confluence setup wizard opened from Manage on the Confluence card: Add to Workspaces loads the saved scope (Docs syncs the ENG space), so Save changes stays off.",
     },
     msw: {
       handlers: {
@@ -591,7 +588,6 @@ export const MissingConnectionId: Story = {
       purpose:
         "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the wizard opened with no connection id.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [statusUnscoped(s0)],

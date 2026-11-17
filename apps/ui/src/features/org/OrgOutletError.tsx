@@ -2,7 +2,6 @@ import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { TechnicalDetail } from "@/components/ui/TechnicalDetail"
 import { ApiError } from "@/lib/api-result"
-import { hideSecrets } from "@/lib/hide-secrets"
 
 /**
  * What went wrong, in one short sentence that does not repeat the title. The
@@ -33,8 +32,8 @@ function errorSummary(error: unknown): string {
 
 /**
  * The raw reason (a server reason or an error message), or null. It can be
- * long machine text, so it shows in a small capped block, without the
- * secret-like values (R5).
+ * long machine text, so it shows in a small capped block. TechnicalDetail
+ * hides the secret-like values (R5).
  */
 function rawReason(error: unknown): string | null {
   const reason =
@@ -46,7 +45,7 @@ function rawReason(error: unknown): string | null {
       : error instanceof Error
         ? error.message
         : null
-  return reason?.trim() ? hideSecrets(reason) : null
+  return reason?.trim() ? reason : null
 }
 
 export function OrgOutletError(props: {

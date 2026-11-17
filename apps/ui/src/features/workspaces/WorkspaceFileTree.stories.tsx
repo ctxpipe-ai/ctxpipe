@@ -19,14 +19,68 @@ const nestedPaths = [
   "knowledge/auth/oauth.ts",
 ]
 
+/** The knowledge of a large org: one folder for each area, with its usual pages. */
 function largeTree(): string[] {
-  const paths: string[] = ["AGENTS.md"]
-  for (let index = 0; index < 40; index += 1) {
-    for (let file = 0; file < 50; file += 1) {
-      paths.push(`pkg-${index}/file-${file}.ts`)
-    }
-  }
-  return paths
+  const areas = [
+    "accounts",
+    "analytics",
+    "api-gateway",
+    "audit",
+    "auth",
+    "billing",
+    "checkout",
+    "ci",
+    "data-platform",
+    "deploy",
+    "design-system",
+    "email",
+    "experiments",
+    "feature-flags",
+    "growth",
+    "identity",
+    "infrastructure",
+    "invoices",
+    "ledger",
+    "logging",
+    "mobile",
+    "notifications",
+    "observability",
+    "onboarding",
+    "payments",
+    "payroll",
+    "permissions",
+    "pricing",
+    "refunds",
+    "search",
+    "security",
+    "sessions",
+    "storage",
+    "support",
+    "tax",
+    "uploads",
+    "warehouse",
+    "web",
+    "webhooks",
+    "workflows",
+  ]
+  const pages = [
+    "overview.md",
+    "architecture.md",
+    "decisions.md",
+    "runbook.md",
+    "on-call.md",
+    "api.md",
+    "glossary.md",
+    "metrics.md",
+    "migrations.md",
+    "testing.md",
+    "security.md",
+    "faq.md",
+  ]
+  return [
+    "AGENTS.md",
+    ...areas.flatMap((area) => pages.map((page) => `${area}/${page}`)),
+  ]
 }
 
 const meta = {
@@ -69,7 +123,6 @@ export const Nested: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: nested folders with one file selected.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
 }
 
@@ -79,7 +132,6 @@ export const SearchOpen: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: the file search field is open.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -94,7 +146,6 @@ export const LongNames: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: long file names in a narrow tree are cut with an ellipsis.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   decorators: [
     (Story) => (
@@ -128,7 +179,6 @@ export const GitShaped: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: the tree of a real git repository with AGENTS.md selected.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
     paths: docsWorkspaceGitTree.paths,
@@ -142,7 +192,6 @@ export const GitStatus: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: added and modified files show change markers and line counts.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   decorators: [
     (Story) => (
@@ -176,13 +225,12 @@ export const LargeTree: Story = {
   parameters: {
     review: {
       purpose:
-        "File tree of a Workspace, where a member browses and opens files: a very large tree with many folders and files.",
+        "File tree of a Workspace, where a member browses and opens files: a large org keeps one folder for each of its 40 areas, so the tree scrolls and only the top folders fit.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
     paths: largeTree(),
-    selectedPath: "pkg-0/file-0.ts",
+    selectedPath: "billing/overview.md",
   },
 }
 
@@ -217,9 +265,8 @@ export const PierreKeyboardFocus: Story = {
   parameters: {
     review: {
       purpose:
-        "File tree of a Workspace, where a member browses and opens files: a keyboard search selected a file, and Escape put focus back on that row.",
+        "File tree of a Workspace, where a member browses and opens files: the member found a file with the keyboard search, and Escape put focus back on that row.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a file tree search that loses keyboard focus. Typing then Enter selects a file, and Escape returns focus to the selected row. Not for the file list content.",
   },
@@ -297,7 +344,6 @@ export const DeletedFile: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: the member opened a folder, and a file deleted in this conversation shows as a struck-through row.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
     paths: ["AGENTS.md", "knowledge/billing.md"],
@@ -333,7 +379,6 @@ export const MixedAddedModifiedDeleted: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: one added, one modified, and one deleted file in one folder.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   decorators: [
     (Story) => (
@@ -373,7 +418,6 @@ export const DeletedLongNestedName: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: a deleted file with a long name deep in folders, in a narrow tree.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   decorators: [
     (Story) => (
@@ -475,7 +519,6 @@ export const ChangeMarkers: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: each added, modified, and deleted file has its marker, and folders mark a change inside.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches file tree rows that miss their change markers. Added, modified, and deleted files show the right marker and counts. Not for folder expansion.",
   },

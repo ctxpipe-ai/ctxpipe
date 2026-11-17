@@ -2,10 +2,12 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { ConversationThread } from "@/features/chat/ConversationThread"
 import { signedInHandlers } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import {
+  docsConversationDetail,
   docsWorkspace,
   pendingWriteWorkspace,
   readOnlyWorkspace,
@@ -34,13 +36,14 @@ const meta = {
   },
   args: {
     workspace: docsWorkspace,
-    title: "Repo layout",
+    title: "Billing structure",
+    // The header sits above the thread of the conversation, as in the chat.
     children: (
-      <div className="flex flex-1 items-center justify-center p-8">
-        <p className="text-sm text-muted-foreground">
-          What should ctxpipe do in this Workspace?
-        </p>
-      </div>
+      <ConversationThread
+        messages={docsConversationDetail.messages}
+        error={null}
+        status="ready"
+      />
     ),
   },
 } satisfies Meta<typeof WorkspaceChatChrome>
@@ -55,7 +58,7 @@ export const Writable: Story = {
   parameters: {
     review: {
       purpose:
-        "Chat header and body of a Workspace conversation, with its title and access badge: the Workspace is writable and has no branch yet.",
+        "Chat header of a Workspace conversation above its thread: the Workspace is writable and the conversation changed no files yet, so no access badge, no branch and no publish button show.",
     },
   },
 }
@@ -63,7 +66,7 @@ export const Writable: Story = {
 export const ReadOnly: Story = {
   args: {
     workspace: readOnlyWorkspace,
-    title: "Handbook",
+    title: "Billing structure",
   },
   play: async ({ canvasElement }) => {
     const pill = await within(canvasElement).findByText("Read-only")
@@ -75,7 +78,7 @@ export const ReadOnly: Story = {
   parameters: {
     review: {
       purpose:
-        "Chat header of a Workspace conversation, with its title and access badge: the GitHub App cannot write to the repository, so a Read-only badge shows.",
+        "Chat header of a Workspace conversation above its thread: the GitHub App cannot write to the repository, so a Read-only badge shows.",
     },
   },
 }
@@ -89,7 +92,7 @@ export const ProtectedDefaultBranch: Story = {
       readOnlyReason:
         "The default branch is protected. Jobs cannot push it; conversation chat can still push a session branch and open a pull request.",
     },
-    title: "Handbook",
+    title: "Billing structure",
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -111,7 +114,7 @@ export const ProtectedDefaultBranch: Story = {
 export const PendingProbe: Story = {
   args: {
     workspace: pendingWriteWorkspace,
-    title: "Repo layout",
+    title: "Billing structure",
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -139,7 +142,7 @@ export const PendingProbe: Story = {
 /** Uncommitted changes: Sync (cloud-upload icon) only. Create PR waits until the branch is synced. */
 export const DirtyCommitPush: Story = {
   args: {
-    title: "Repo layout",
+    title: "Billing structure",
     branch: {
       shortName: "chat/1",
     },
@@ -214,7 +217,7 @@ export const SyncDisabled: Story = {
 
 export const CommittedCreatePrOnly: Story = {
   args: {
-    title: "Repo layout",
+    title: "Billing structure",
     branch: {
       shortName: "chat/1",
     },
@@ -252,7 +255,7 @@ export const CommittedCreatePrOnly: Story = {
 
 export const CleanNoPublishActions: Story = {
   args: {
-    title: "Repo layout",
+    title: "Billing structure",
     branch: {
       shortName: "chat/1",
     },
@@ -273,7 +276,7 @@ export const CleanNoPublishActions: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("Repo layout")
+    await canvas.findByText("Billing structure")
     expect(
       canvas.queryByRole("button", { name: syncName }),
     ).not.toBeInTheDocument()
@@ -365,12 +368,12 @@ export const ShowPr: Story = {
       "Catches a chat header that hides the pull request link when a PR exists. It shows a Show PR link that opens in a new tab. Not for creating a PR or the sync button.",
     review: {
       purpose:
-        "Chat header of a Workspace conversation, with its publish buttons: a pull request is open, so a Show PR link with a pull request icon shows.",
+        "Chat header of a Workspace conversation above its thread: a pull request is open and the branch has no new changes, so Show PR and the branch show.",
     },
   },
   tags: ["required"],
   args: {
-    title: "Repo layout",
+    title: "Billing structure",
     branch: {
       shortName: "chat/1",
       href: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
@@ -420,7 +423,7 @@ export const ShowPr: Story = {
 /** A PR is open and the agent made commits it did not push: Sync and Show PR. */
 export const CommitPushWithOpenPr: Story = {
   args: {
-    title: "Repo layout",
+    title: "Billing structure",
     branch: {
       shortName: "chat/1",
       href: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
@@ -481,7 +484,7 @@ export const MergedCreatePrAgain: Story = {
 
 export const ChatError: Story = {
   args: {
-    title: "Repo layout",
+    title: "Billing structure",
     children: (
       <div className="flex flex-1 items-center justify-center p-8">
         <div className="max-w-sm">
@@ -523,7 +526,7 @@ export const CtaButtonStyle: Story = {
       "Catches a sync button with the wrong look. It needs a filled face, small text, a low height, no external-link icon, and a hover change. Not for button actions.",
     review: {
       purpose:
-        "Chat header of a Workspace conversation, with its publish buttons: the Sync button shows its filled light face, small text, and hover state.",
+        "Chat header of a Workspace conversation, with its publish buttons: the pointer rests on Sync, so the button shows its hover face and a tooltip says what Sync does.",
     },
   },
   tags: ["required"],
@@ -559,7 +562,7 @@ export const BranchLabel: Story = {
   },
   tags: ["required"],
   args: {
-    title: "Repo layout",
+    title: "Billing structure",
     branch: {
       shortName: "chat/a-very-long-branch-name-that-does-not-fit-in-the-label",
     },
@@ -631,7 +634,7 @@ export const DirtyShowsOnlySync: Story = {
       "Catches a dirty branch with no PR that shows Create PR. It must show only Sync. Not for clean branches or existing PRs.",
     review: {
       purpose:
-        "Chat header of a Workspace conversation, with its publish buttons: the branch is dirty and has no pull request, so only Sync shows and Create PR waits.",
+        "Chat header of a Workspace conversation, with its publish buttons: the conversation has changes that are not synced and no pull request, so only Sync shows; Create PR comes after the sync.",
     },
   },
   tags: ["required"],

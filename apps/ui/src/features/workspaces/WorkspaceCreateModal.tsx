@@ -26,7 +26,7 @@ export function WorkspaceCreateModal(props: {
       <Dialog className="pr-12">
         <Button
           slot="close"
-          variant="ghost"
+          variant="quiet"
           size="icon-sm"
           className="absolute top-3 right-3"
           aria-label="Close"

@@ -96,6 +96,7 @@ export function WorkspaceSettingsPane(props: {
           needsYou={sourcesNeedYou}
         />
         <GraphCard
+          orgSlug={orgSlug}
           workspace={workspace}
           hydrate={activity.hydrate}
           onOpenFile={props.onOpenFile}

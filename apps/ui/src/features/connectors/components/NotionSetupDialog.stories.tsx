@@ -266,7 +266,7 @@ export const ConnectNotionGlobalEnv: Story = {
   parameters: {
     review: {
       purpose:
-        "Notion setup dialog on the hosted product, where ctxpipe supplies the OAuth app: the dialog starts at the Connect Notion step.",
+        "Notion setup dialog on the hosted product, where ctxpipe supplies the OAuth app: the first step asks the admin to authorize ctxpipe in Notion.",
     },
     msw: {
       handlers: {

@@ -14,28 +14,38 @@ function pathnameOf(request: Request) {
 export function upgradeItemFixture(
   overrides: Partial<WorkspaceUpgradeItem> = {},
 ): WorkspaceUpgradeItem {
+  // The backend gives a re-ingestion its own title and no format steps.
+  const reingest = overrides.kind === "reingest"
   return {
     key: "format-3",
     kind: "format",
-    title: "Upgrade to format 3",
+    title: reingest
+      ? "Fresh re-ingestion of the source repositories"
+      : "Upgrade to format 3",
     // The descriptions of the backend registry.
-    description:
-      overrides.kind === "reingest"
-        ? "Ingests each source repository again with the new ingestion and publishes the new knowledge files under knowledge/. This uses model calls, so it costs money."
-        : "Moves the repository links from repositories/ into .ctxpipe/sources.yaml, and writes the old knowledge that a new ingestion cannot make again into files under knowledge/.",
+    description: reingest
+      ? "Ingests each source repository again with the new ingestion and publishes the new knowledge files under knowledge/. This uses model calls, so it costs money."
+      : "Moves the repository links from repositories/ into .ctxpipe/sources.yaml, and writes the old knowledge that a new ingestion cannot make again into files under knowledge/.",
     status: "awaiting_operator",
     fromFormat: 0,
     targetFormat: 3,
-    steps: [
-      { format: 1, title: "Export and sources", commitSha: null, report: [] },
-      {
-        format: 2,
-        title: "Move the context files",
-        commitSha: null,
-        report: [],
-      },
-      { format: 3, title: "Move the skills", commitSha: null, report: [] },
-    ],
+    steps: reingest
+      ? []
+      : [
+          {
+            format: 1,
+            title: "Export and sources",
+            commitSha: null,
+            report: [],
+          },
+          {
+            format: 2,
+            title: "Move the context files",
+            commitSha: null,
+            report: [],
+          },
+          { format: 3, title: "Move the skills", commitSha: null, report: [] },
+        ],
     pullRequest: null,
     estimate: null,
     repositories: [],

@@ -107,7 +107,7 @@ export const Settings: Story = {
   parameters: {
     review: {
       purpose:
-        "Settings pane of a Workspace, where an owner manages its repository, sources, and upgrades: the default Workspace with one GitHub source.",
+        "Settings pane of a Workspace, where an owner manages its upgrades, sources, graph and repository: everything is up to date, and one GitHub repository is a source.",
     },
   },
 }
@@ -220,7 +220,7 @@ export const SkippedFiles: Story = {
   parameters: {
     review: {
       purpose:
-        "Settings pane of a Workspace: the Knowledge graph card lists the files that the load skipped, and a legacy overlay file shows its cause with no fix button.",
+        "Settings pane of a Workspace, where an owner checks the knowledge graph: the load skipped 3 files, so the card lists each file with its cause; a legacy file has no fix button.",
     },
   },
   args: {
@@ -451,7 +451,6 @@ export const AddRepositories: Story = {
       purpose:
         "Settings pane of a Workspace: the owner opened the context repository picker and then the Add repositories dialog, which lists the repositories.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     // Only an owner or admin sees the repository pickers. The Add
     // repositories dialog reads the Workspace and its format (2 or higher).
     msw: {
@@ -506,7 +505,7 @@ export const HydrateFailed: Story = {
   parameters: {
     review: {
       purpose:
-        "Settings pane of a Workspace: the knowledge graph did not load, so the Knowledge graph card gives the reason and the summary links to it.",
+        "Settings pane of a Workspace, where an owner checks the knowledge graph: the graph did not load, so the card gives the next step and the raw reason, and the summary links to the card.",
     },
   },
   args: {
@@ -521,6 +520,33 @@ export const HydrateFailed: Story = {
         canvas.getByRole("link", { name: "Knowledge graph" }),
       ).toBeVisible(),
     )
+  },
+}
+
+/**
+ * A later load failed while an older graph still answers. No Prepare failed
+ * page shows, so the card has its own Try again.
+ */
+export const HydrateFailedWithReadyGraph: Story = {
+  parameters: {
+    review: {
+      purpose:
+        "Settings pane of a Workspace, where an owner checks the knowledge graph: the load of a new commit failed while the older graph still answers, so the card has its own Try again.",
+    },
+  },
+  args: {
+    workspace: {
+      ...failedHydrateWorkspaceDetail,
+      activeProjectionSha: "4f2a9c1d7e3b",
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("The knowledge graph did not load")
+    const retry = canvas.getByRole("button", { name: "Try again" })
+    await expect(retry).toBeVisible()
+    // The card sits below the fold of the pane: show it in the screenshot.
+    retry.scrollIntoView({ block: "center" })
   },
 }
 
@@ -729,7 +755,6 @@ export const LongUpgradeHistory: Story = {
       purpose:
         "Settings pane of a Workspace: the member opened the long Upgrades history, showed all 12 rows, and opened the newest row.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         upgrades: [
@@ -961,9 +986,12 @@ export const RenameRefused: Story = {
 
 export const DeleteConfirmOpen: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends after the delete, when the product leaves this page for Home; DeleteConfirmPending shows the confirmed dialog.",
+    },
     review: {
       purpose:
-        "Settings pane of a Workspace: the owner typed the Workspace name in the delete dialog and confirmed, so the dialog closed.",
+        "Settings pane of a Workspace: the owner typed the Workspace name in the delete dialog and confirmed, so the dialog closed and the delete starts.",
     },
     msw: {
       handlers: {

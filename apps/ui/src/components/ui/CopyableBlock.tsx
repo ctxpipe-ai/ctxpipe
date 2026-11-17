@@ -86,7 +86,7 @@ export function CopyableBlock({
             <div className="flex shrink-0 items-stretch border-l border-border">
               <Button
                 type="button"
-                variant="ghost"
+                variant="quiet"
                 size="icon-sm"
                 className="h-full min-h-10 w-10 shrink-0 rounded-md text-muted-foreground hover:bg-foreground/6 hover:text-foreground"
                 aria-label={isSecretVisible ? hideAriaLabel : revealAriaLabel}
@@ -106,7 +106,7 @@ export function CopyableBlock({
         <div className="flex shrink-0 items-stretch border-l border-border">
           <Button
             type="button"
-            variant="ghost"
+            variant="quiet"
             size="icon-sm"
             className={
               copyState === "copied"

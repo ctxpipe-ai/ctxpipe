@@ -172,7 +172,8 @@ export function PlainScopeEditor(props: SourceScopeEditorProps) {
           </div>
         )}
       </div>
-      {helpCenters.length + labels.length === 0 ? (
+      {/* A failed load shows its error alone: the user cannot select now. */}
+      {helpCenters.length + labels.length === 0 && !catalogQuery.isError ? (
         <p className="text-sm text-muted-foreground">
           Select at least one Help Center or label.
         </p>

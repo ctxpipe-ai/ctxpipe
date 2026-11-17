@@ -77,7 +77,6 @@ export const NotUsedInAnyWorkspace: Story = {
       purpose:
         "Used in section of a connector, which lists the Workspaces that use the connection: no Workspace uses the GitHub connection yet, and the Add to Workspaces dialog is open.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -210,7 +209,7 @@ export const UsedInManyWorkspaces: Story = {
   parameters: {
     review: {
       purpose:
-        "Used in section of a connector, which lists the Workspaces that use the connection: three Workspaces use the Confluence connection, each with its count of spaces.",
+        "Used in list of a Confluence connection card on the Connectors page: three Workspaces use the connection, and each row links to the Workspace with the count of spaces that it syncs.",
     },
     msw: {
       handlers: {

@@ -22,7 +22,7 @@ const meta = {
   decorators: [
     (Story) => (
       <div className="ctx-border ctx-surface w-[22rem] px-6 py-6">
-        <h2 className="mb-3 text-lg font-semibold text-zinc-100">
+        <h2 className="mb-3 text-lg font-medium text-zinc-100">
           Accept invitation
         </h2>
         <Story />
@@ -81,7 +81,7 @@ export const WrongRecipient: Story = {
   parameters: {
     review: {
       purpose:
-        "Error notice on the accept invitation card: the user is signed in with another email and must sign out to go on.",
+        "Error notice on the Accept invitation card: the user opened an invitation link while signed in with another email, so the notice names both emails and asks to sign out.",
     },
   },
   args: {

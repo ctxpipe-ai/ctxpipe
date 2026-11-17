@@ -113,7 +113,7 @@ export const Connected: Story = {
   parameters: {
     review: {
       purpose:
-        "Confluence connection card on the Connectors page: setup is complete and the connection is live.",
+        "Confluence card on the Connectors page, collapsed: the Forge app is installed, so the connection is live and the status is Connected.",
     },
     msw: {
       handlers: {
@@ -236,7 +236,7 @@ export const CouldntLoad: Story = {
   parameters: {
     review: {
       purpose:
-        "Confluence connection card on the Connectors page: the status request failed, so the card could not load.",
+        "Confluence card on the Connectors page: the status read failed, so a row under the head gives the cause and a Retry button without a click.",
     },
     msw: {
       handlers: {
@@ -268,11 +268,6 @@ export const PendingSetup: Story = {
     review: {
       purpose:
         "Confluence connection card on the Connectors page: setup is not finished, the card is open with a Link Atlassian account action.",
-    },
-    visual: {
-      allow: {
-        contrast: "Text below WCAG AA on main (CTX-1278).",
-      },
     },
     msw: {
       handlers: {
@@ -311,11 +306,6 @@ export const RemovePendingSetup: Story = {
     review: {
       purpose:
         "Confluence connection card on the Connectors page: the user removes an unfinished setup through a confirm dialog.",
-    },
-    visual: {
-      allow: {
-        contrast: "Text below WCAG AA on main (CTX-1278).",
-      },
     },
     msw: {
       handlers: {

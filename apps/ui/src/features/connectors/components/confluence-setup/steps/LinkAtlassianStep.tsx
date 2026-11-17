@@ -60,9 +60,8 @@ export function LinkAtlassianStep({
         </h3>
         {useGlobalOauth ? (
           <p className="mt-2 text-sm text-muted-foreground">
-            This deployment uses a single Atlassian OAuth app from its server
-            configuration. Connect your account — use the same account you will
-            use in the Confluence/Forge install flow.
+            Sign in with the Atlassian account that you will use to install the
+            Forge app in Confluence.
           </p>
         ) : meta.data?.oauthAppSaved ? (
           <p className="mt-2 text-sm text-muted-foreground">

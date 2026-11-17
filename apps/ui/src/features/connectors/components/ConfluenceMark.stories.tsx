@@ -5,9 +5,8 @@ import { ConfluenceMark } from "./ConfluenceMark"
 const meta = {
   title: "Components/Connections/Atlassian/Mark",
   component: ConfluenceMark,
-  parameters: {
-    layout: "centered",
-  },
+  parameters: { layout: "centered" },
+  args: { className: "size-10 text-foreground" },
 } satisfies Meta<typeof ConfluenceMark>
 
 export default meta
@@ -19,8 +18,7 @@ export const Mark: Story = {
     review: {
       kind: "component",
       purpose:
-        "Confluence logo mark that labels the Atlassian connector: the mark alone at a large size.",
+        "Confluence mark, the outline logo in the ink color that names Confluence on its connector card, setup dialog and Workspace sources: the mark alone, enlarged.",
     },
   },
-  render: () => <ConfluenceMark className="size-16" />,
 }

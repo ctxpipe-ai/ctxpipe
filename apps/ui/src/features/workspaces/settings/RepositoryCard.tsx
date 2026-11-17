@@ -180,7 +180,7 @@ export function RepositoryCard(props: {
             )}
           </div>
           <Button
-            variant="ghost"
+            variant="quiet"
             size="sm"
             className="shrink-0"
             aria-label="Change the context repository"

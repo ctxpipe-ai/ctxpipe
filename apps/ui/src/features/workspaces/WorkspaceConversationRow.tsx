@@ -285,7 +285,7 @@ export function WorkspaceConversationRow(props: {
       </SideNavTooltip>
       <MenuTrigger placement="bottom end">
         <Button
-          variant="ghost"
+          variant="quiet"
           size="icon-sm"
           aria-label={`Actions for ${item.name}`}
           isDisabled={remove.isPending}

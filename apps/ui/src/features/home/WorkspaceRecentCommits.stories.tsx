@@ -365,7 +365,7 @@ export const Loading: Story = {
   parameters: {
     review: {
       purpose:
-        "Recent commits list of a Workspace on the org home: the skeleton with three fading rows while the commits load.",
+        "Recent commits list of a Workspace on Home, which lists the latest commits of its repository: the commits still load, so three fading skeleton rows hold the place.",
     },
   },
   args: {

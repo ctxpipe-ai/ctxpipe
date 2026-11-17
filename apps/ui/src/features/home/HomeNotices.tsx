@@ -6,6 +6,7 @@ import { Button as RACButton } from "react-aria-components"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/Button"
+import { TechnicalDetail } from "@/components/ui/TechnicalDetail"
 import { ToastStack } from "@/components/ui/ToastStack"
 import { workspaceUpgradesHref } from "@/features/workspace-upgrades/format-gate"
 import {
@@ -109,11 +110,17 @@ function UpgradeToast(props: {
           {saving
             ? "ctxpipe saves the setting. It starts the upgrade when the setting is saved. You can leave this page."
             : saveFailed
-              ? `ctxpipe could not save the setting. ${job.data?.failureReason ?? ""} Press Update once to start the upgrade now, or press Review upgrade.`
+              ? "ctxpipe could not save the setting. Press Update once to start the upgrade now, or press Review upgrade."
               : jobStatus === "completed"
                 ? "ctxpipe saved the setting. The upgrade starts in a moment."
                 : upgradeToastLine(item)}
         </p>
+        {/* The cause is raw error text: the house block for machine detail. */}
+        {saveFailed && job.data?.failureReason ? (
+          <TechnicalDetail className="mt-1.5">
+            {job.data.failureReason}
+          </TechnicalDetail>
+        ) : null}
         {isAdmin === false ? (
           <p className="text-xs text-muted-foreground">{MEMBER_ASK_ADMIN}</p>
         ) : null}
@@ -151,7 +158,7 @@ function UpgradeToast(props: {
             />
           ) : null}
           <Button
-            variant="ghost"
+            variant="quiet"
             size="sm"
             isDisabled={busy}
             onPress={onDismiss}
@@ -236,7 +243,7 @@ function FailedUpgradeToast(props: {
           label={label}
         />
         <Button
-          variant="ghost"
+          variant="quiet"
           size="sm"
           onPress={onDismiss}
           aria-label={`Dismiss: ${label}`}
@@ -329,7 +336,7 @@ function HydrateProblemToast(props: {
           </Button>
         )}
         <Button
-          variant="ghost"
+          variant="quiet"
           size="sm"
           onPress={onDismiss}
           aria-label={`Dismiss: ${workspace.displayName}, skipped files`}

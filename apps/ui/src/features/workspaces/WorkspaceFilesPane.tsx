@@ -1001,7 +1001,7 @@ function WorkspaceFilesPaneContent(props: {
                 className="mt-4"
               />
               <div className="mt-6 flex justify-end gap-2">
-                <Button variant="ghost" onPress={close}>
+                <Button variant="quiet" onPress={close}>
                   Cancel
                 </Button>
                 <Button
@@ -1044,7 +1044,7 @@ function WorkspaceFilesPaneContent(props: {
                 from the conversation sandbox. Sync publishes it.
               </p>
               <div className="mt-6 flex justify-end gap-2">
-                <Button variant="ghost" onPress={close}>
+                <Button variant="quiet" onPress={close}>
                   Cancel
                 </Button>
                 <Button
@@ -1196,7 +1196,7 @@ function GitFilePreviewBody(props: {
         <div className="flex items-center justify-between gap-2 px-3 py-2">
           <p className="text-xs text-amber-200">Agent updated this file.</p>
           <Button
-            variant="ghost"
+            variant="quiet"
             className="h-7 px-2 text-xs"
             onPress={() => {
               setLoadedBody(data.body)

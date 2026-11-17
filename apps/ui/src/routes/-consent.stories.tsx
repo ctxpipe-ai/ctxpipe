@@ -50,7 +50,11 @@ const meta = {
           ),
           organizationListHandler([
             { id: "org_north", name: "North Labs", slug: "north-labs" },
-            { id: "org_south", name: "South Works", slug: "south-works" },
+            {
+              id: "org_harbor",
+              name: "Harbor Systems",
+              slug: "harbor-systems",
+            },
           ]),
           organizationFullWithOrgHandler,
           http.post("*/oauth2/consent", async ({ request }) => {
@@ -90,10 +94,12 @@ export const ConsentSendsTickedOrgs: Story = {
     const canvas = within(canvasElement)
     const north = await canvas.findByRole("checkbox", { name: /North Labs/ })
     await expect(north).toBeChecked()
-    await userEvent.click(canvas.getByRole("checkbox", { name: /South Works/ }))
+    await userEvent.click(
+      canvas.getByRole("checkbox", { name: /Harbor Systems/ }),
+    )
     await userEvent.click(canvas.getByRole("button", { name: "Allow" }))
     await waitFor(() => expect(consentRequests).toHaveLength(1))
-    await expect(consentRequests[0]?.organizations).toBe("org_north,org_south")
+    await expect(consentRequests[0]?.organizations).toBe("org_north,org_harbor")
     await expect(consentRequests[0]?.body).toMatchObject({
       accept: true,
       scope: "ctxpipe:read",

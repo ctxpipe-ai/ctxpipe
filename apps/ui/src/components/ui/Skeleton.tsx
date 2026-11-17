@@ -334,8 +334,9 @@ export function SkeletonText(props: {
   )
 }
 
+/** One line of a block skeleton: it takes its own line, as a text line does. */
 export function SkeletonLine({ className, ...props }: ComponentProps<"span">) {
-  return <Skeleton className={cn("h-3 w-2/3", className)} {...props} />
+  return <Skeleton className={cn("block h-3 w-2/3", className)} {...props} />
 }
 
 export function SkeletonRow(props: {
@@ -366,6 +367,16 @@ export function SkeletonRow(props: {
   )
 }
 
+/**
+ * The opacity of the rows of a list skeleton (DESIGN.md "Loading states",
+ * Rows): three rows that fade, so the skeleton does not guess the row count.
+ */
+export const SKELETON_ROW_OPACITY = [
+  "opacity-75",
+  "opacity-50",
+  "opacity-25",
+] as const
+
 export function PageBodySkeleton(props: { label: string; className?: string }) {
   return (
     <div className={cn("w-full max-w-2xl", props.className)} aria-busy>
@@ -374,9 +385,9 @@ export function PageBodySkeleton(props: { label: string; className?: string }) {
       <SkeletonLine className="mt-4 h-7 w-52" />
       <SkeletonLine className="mt-3 h-4 w-full max-w-md" />
       <div className="mt-10">
-        <SkeletonRow size="catalog" />
-        <SkeletonRow size="catalog" />
-        <SkeletonRow size="catalog" />
+        {SKELETON_ROW_OPACITY.map((opacity) => (
+          <SkeletonRow key={opacity} size="catalog" className={opacity} />
+        ))}
       </div>
     </div>
   )

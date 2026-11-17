@@ -66,7 +66,7 @@ export function WorkspaceBinaryFile(props: {
           <span className="truncate text-foreground">{name}</span>
           <span className="ml-auto">
             <Button
-              variant="ghost"
+              variant="quiet"
               size="sm"
               onPress={() => setShowSource(false)}
             >
@@ -142,7 +142,7 @@ function DownloadButton(props: { name: string; rawUrl: string }) {
 
 function ViewSourceButton(props: { onPress: () => void }) {
   return (
-    <Button variant="ghost" size="sm" onPress={props.onPress}>
+    <Button variant="quiet" size="sm" onPress={props.onPress}>
       View source
     </Button>
   )
@@ -200,7 +200,7 @@ function ImagePreview(props: {
           </span>
         ) : null}
         <span className="ml-auto flex items-center gap-2">
-          <Button variant="ghost" size="sm" onPress={() => setFit(!fit)}>
+          <Button variant="quiet" size="sm" onPress={() => setFit(!fit)}>
             {fit ? "Actual size" : "Zoom to fit"}
           </Button>
           {props.onViewSource ? (
@@ -213,14 +213,18 @@ function ImagePreview(props: {
         className={
           fit
             ? "flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-zinc-900/60 p-4"
-            : "min-h-0 flex-1 overflow-auto bg-zinc-900/60 p-4"
+            : "flex min-h-0 flex-1 overflow-auto bg-zinc-900/60 p-4"
         }
       >
         <img
           src={props.rawUrl}
           alt={props.name}
+          // At actual size, auto margins center a small image and let a
+          // large one scroll from its top-left corner.
           className={
-            fit ? "max-h-full max-w-full object-contain" : "max-w-none"
+            fit
+              ? "max-h-full max-w-full object-contain"
+              : "m-auto max-w-none shrink-0"
           }
           // A server-rendered image can finish before hydration, so the
           // load event never reaches React. The ref reads it then.

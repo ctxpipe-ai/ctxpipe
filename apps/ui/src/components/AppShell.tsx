@@ -39,8 +39,9 @@ function AppShellMain(props: { children: ReactNode }) {
     <main
       className={[
         "relative z-10 flex min-h-screen min-w-0 flex-1 flex-col",
-        // Room for the floating burger on non-workspace pages (workspace chrome owns its own).
-        !isWorkspaceSurface ? "max-md:pl-11" : "",
+        // A top strip for the floating burger on non-workspace pages
+        // (workspace chrome owns its own), so the content keeps the full width.
+        !isWorkspaceSurface ? "max-md:pt-10" : "",
       ].join(" ")}
     >
       {!isWorkspaceSurface ? (

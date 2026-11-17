@@ -96,7 +96,7 @@ function NavListError(props: { expanded: boolean; onRetry: () => void }) {
     return (
       <li className="mx-1.5 flex items-center justify-between gap-2 pl-2 text-xs text-muted-foreground">
         <p>Could not load Workspaces.</p>
-        <Button variant="ghost" onPress={props.onRetry}>
+        <Button variant="quiet" onPress={props.onRetry}>
           Retry
         </Button>
       </li>
@@ -105,7 +105,7 @@ function NavListError(props: { expanded: boolean; onRetry: () => void }) {
   return (
     <li className="flex w-full justify-center">
       <Button
-        variant="ghost"
+        variant="quiet"
         size="icon-sm"
         aria-label="Retry loading Workspaces"
         onPress={props.onRetry}
@@ -166,7 +166,7 @@ function WorkspaceNavListReady(props: {
           </p>
           <span ref={addRef} className="inline-flex">
             <Button
-              variant="ghost"
+              variant="quiet"
               size="icon-sm"
               aria-label="Add Workspace"
               onPress={() => setCreateOpenOn(pathname)}

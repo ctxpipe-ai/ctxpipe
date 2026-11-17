@@ -84,7 +84,7 @@ function AtlassianThreeLoSetupGuide({
             <div className="flex shrink-0 items-stretch border-l border-border">
               <Button
                 type="button"
-                variant="ghost"
+                variant="quiet"
                 size="icon-sm"
                 className={
                   copyState === "copied"

@@ -119,7 +119,7 @@ export const SelectGitHubEmpty: Story = {
   parameters: {
     review: {
       purpose:
-        "Repository picker, where an owner chooses the Workspace repository: no GitHub repository is free to use, so a link changes the access.",
+        "Repository picker, where an owner chooses the Workspace repository: the GitHub App sees no free repository, so the tab says how to give it access or paste a URL.",
     },
     msw: {
       handlers: {
@@ -374,7 +374,7 @@ export const PasteUrlWithEmptyRootFolder: Story = {
   parameters: {
     review: {
       purpose:
-        "Repository picker, where an owner chooses the Workspace repository: the owner pasted a git URL with an empty root folder and clicked Create Workspace.",
+        "Repository picker, where an owner chooses the Workspace repository: the owner pasted a git URL and left the root folder empty, so the Workspace uses the whole repository.",
     },
   },
   play: async ({ canvasElement, args }) => {

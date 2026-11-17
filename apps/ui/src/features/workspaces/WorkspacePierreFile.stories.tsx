@@ -44,7 +44,6 @@ export const Markdown: Story = {
       purpose:
         "File preview of a Workspace, where a member reads a file: a Markdown file.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
 }
 
@@ -54,7 +53,6 @@ export const TypeScript: Story = {
       purpose:
         "File preview of a Workspace, where a member reads a file: a short TypeScript file with syntax colors.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
     path: "apps/ui/src/main.tsx",
@@ -83,7 +81,7 @@ export const Editable: Story = {
   parameters: {
     review: {
       purpose:
-        "File preview of a Workspace, where a member reads and edits a file: the file is open for edits.",
+        "File preview of a Workspace, where a member reads and edits a file: the member opened a short Markdown file that the conversation can change, so it opens in the editor.",
     },
   },
   args: {
@@ -94,25 +92,63 @@ export const Editable: Story = {
   },
 }
 
-const longLine =
-  "A single row that is wider than the preview so the horizontal scrollbar sits on the pane, not under the last line of text. "
+/** A handbook page that is longer and wider than the preview. */
+const handbookBody = [
+  "# Handbook",
+  "",
+  "This page tells a new engineer how the team works.",
+  "",
+  "## First week",
+  "",
+  "- Get access to GitHub, the cloud console, and the on-call tool.",
+  "- Read knowledge/org/architecture.md and the decisions in knowledge/adr/.",
+  "- Pair with your buddy on one small change and ship it to production.",
+  "- Join the team channel and the incident channel.",
+  "",
+  "## How we plan",
+  "",
+  "We plan in two-week cycles. Each cycle starts on a Monday.",
+  "The team lead writes the cycle goal in the planning doc.",
+  "Each ticket has an owner, an estimate, and a link to its design.",
+  "We keep ten percent of each cycle for bugs and support.",
+  "",
+  "## How we review code",
+  "",
+  "- Each pull request has one reviewer from the owning team.",
+  "- A reviewer answers within one working day.",
+  "- Keep a pull request under 400 changed lines when you can.",
+  "- A change to billing or auth needs a second reviewer.",
+  "",
+  "## How we deploy",
+  "",
+  "Main deploys to production after CI passes.",
+  "A failed deploy rolls back by itself.",
+  "Use a feature flag for a change that users can see.",
+  "Remove the flag within two cycles after the full rollout.",
+  "",
+  "## On-call",
+  "",
+  "Each engineer is on call for one week in each rotation.",
+  "The on-call engineer answers a page within 15 minutes.",
+  "Write each incident in knowledge/incidents/ within two days.",
+  "",
+  "## Contacts",
+  "",
+  "| Area | Owner | Channel | Runbook | Escalation | Notes |",
+  "| --- | --- | --- | --- | --- | --- |",
+  "| Billing | Payments team | #team-payments | knowledge/billing/runbook.md | Page the payments on-call engineer, then the engineering manager of payments | Refunds above 1,000 USD need a second approval from finance before the ledger posts them |",
+].join("\n")
 
 export const LongFile: Story = {
   parameters: {
     review: {
       purpose:
-        "File preview of a Workspace, where a member reads a file: a long file with a wide last line, so the pane scrolls both ways.",
+        "File preview of a Workspace, where a member reads a file: a long handbook page with a wide table at its end, so the preview scrolls down and across.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
     path: "knowledge/handbook.md",
-    body: [
-      "# Handbook",
-      "",
-      ...Array.from({ length: 80 }, (_, index) => `Line ${index + 1}.`),
-      longLine.repeat(12).trimEnd(),
-    ].join("\n"),
+    body: handbookBody,
     cacheKey: "story:long:knowledge/handbook.md",
   },
 }

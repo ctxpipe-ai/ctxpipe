@@ -30,7 +30,7 @@ export function KnowledgeGraphIntroCallout({
           Using this view
         </p>
         <Button
-          variant="ghost"
+          variant="quiet"
           size="icon-sm"
           onPress={onDismiss}
           aria-label="Close tips"

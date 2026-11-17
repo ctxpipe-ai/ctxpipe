@@ -7,7 +7,11 @@ import {
   TooltipTrigger,
 } from "react-aria-components"
 
-import { Skeleton, SkeletonText } from "@/components/ui/Skeleton"
+import {
+  SKELETON_ROW_OPACITY,
+  Skeleton,
+  SkeletonText,
+} from "@/components/ui/Skeleton"
 import type { WorkspaceActivityCommit } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { formatDate } from "@/lib/format"
@@ -176,18 +180,12 @@ function CommitRow({
   )
 }
 
-/**
- * Three rows hold the place of the list. The opacity falls with each row, so
- * the skeleton does not guess how many commits come.
- */
-const skeletonRowOpacity = ["opacity-75", "opacity-50", "opacity-25"]
-
 export function WorkspaceRecentCommitsSkeleton() {
   return (
     <div aria-busy>
       <span className="sr-only">Loading recent commits</span>
       <ul className="list-none p-0">
-        {skeletonRowOpacity.map((opacity) => (
+        {SKELETON_ROW_OPACITY.map((opacity) => (
           <li key={opacity} className={cn("flex items-center gap-3", opacity)}>
             {/* The width of the line node, without a dot the list may not have. */}
             <span aria-hidden className="w-3 shrink-0" />

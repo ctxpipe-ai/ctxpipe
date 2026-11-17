@@ -24,6 +24,7 @@ import { OverlayNavMenuButton } from "@/components/OverlayNavButton"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SkeletonSuspense } from "@/components/ui/Skeleton"
+import { TechnicalDetail } from "@/components/ui/TechnicalDetail"
 import {
   Tooltip,
   TooltipContent,
@@ -262,7 +263,7 @@ export function WorkspacePane(props: {
               <OverlayNavMenuButton />
             </div>
             <Button
-              variant="ghost"
+              variant="quiet"
               onPress={props.onRestoreConversation}
               className={cn(
                 workspaceChromeTabIdleClassName,
@@ -529,9 +530,15 @@ function WorkspaceGraphPaneBody(props: {
               </Button>
             }
           >
-            Could not build the graph. It builds again automatically, or you can
-            try again now.
-            {rebuild.error ? <> {rebuild.error.message}</> : null}
+            <p>
+              ctxpipe rebuilds the graph automatically. You can also try again
+              now.
+            </p>
+            {rebuild.error ? (
+              <TechnicalDetail tone="error" className="mt-2">
+                {rebuild.error.message}
+              </TechnicalDetail>
+            ) : null}
           </InlineAlert>
         </div>
       </div>
@@ -544,6 +551,7 @@ function WorkspaceGraphPaneBody(props: {
         graph={workspaceGraphBuilding(query.data) ? undefined : query.data}
         pending={query.isPending}
         error={query.error instanceof Error ? query.error : null}
+        onRetry={() => void query.refetch()}
         onOpenSource={props.onOpenSource}
       />
     </SkeletonSuspense>

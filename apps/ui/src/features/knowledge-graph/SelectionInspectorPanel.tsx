@@ -76,7 +76,7 @@ export function SelectionInspectorPanel({
           </h2>
         </div>
         <Button
-          variant="ghost"
+          variant="quiet"
           size="icon-sm"
           onPress={onClose}
           aria-label="Close selection inspector"

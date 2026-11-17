@@ -140,7 +140,7 @@ export const CouldntLoad: Story = {
   parameters: {
     review: {
       purpose:
-        "Notion connection card on the Connectors page: the status request failed, so the card cannot show the connection.",
+        "Notion card on the Connectors page: the status read failed, so a row under the head gives the cause and a Retry button without a click.",
     },
     msw: {
       handlers: {
@@ -166,9 +166,8 @@ export const PendingSetup: Story = {
   parameters: {
     review: {
       purpose:
-        "Notion connection card on the Connectors page: the setup is not complete, so the card offers to continue or delete the draft.",
+        "Notion card on the Connectors page: the admin started the setup but did not finish it, so the card offers Remove and the next step, Register OAuth app.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [

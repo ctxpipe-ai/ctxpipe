@@ -212,12 +212,7 @@ export function ConfluenceSetupWizard({
       className="flex max-w-[min(92vw,720px)] flex-col"
     >
       <ConnectorSetupFrame
-        icon={
-          <ConfluenceMark
-            className="size-5 text-foreground"
-            variant="outline"
-          />
-        }
+        icon={<ConfluenceMark className="size-5 text-foreground" />}
         title="Set up Confluence connector"
         description="Connect Confluence, then select the spaces and pages for each Workspace."
         onClose={close}

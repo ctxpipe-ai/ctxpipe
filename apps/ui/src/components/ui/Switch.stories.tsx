@@ -47,8 +47,9 @@ export const Toggles = meta.story({
 })
 
 /**
- * Switch that turns a setting on or off: the switch is on and disabled, so a
- * press does not change it.
+ * Automatic upgrades switch of a Workspace, seen by a member who is not an
+ * admin: the setting is on, and the switch is disabled, so a press does not
+ * change it.
  */
 export const Disabled = meta.story({
   render: () => <Controlled defaultSelected isDisabled />,

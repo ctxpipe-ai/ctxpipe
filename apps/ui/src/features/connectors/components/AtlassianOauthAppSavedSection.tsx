@@ -99,9 +99,9 @@ export function AtlassianOauthAppSavedSection({
           </p>
         )}
         <p className="text-muted-foreground">
-          The client secret is stored on the server and is never returned. To
-          rotate it, enter a new secret below. To only change the client id,
-          update the field and save without a new secret.
+          The client secret stays on the server and does not show again. To
+          change it, enter a new secret below. To change only the Client ID,
+          edit it and leave the secret empty.
         </p>
       </div>
       <div className="space-y-3">

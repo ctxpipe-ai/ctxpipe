@@ -364,7 +364,7 @@ function EmailVerificationSent() {
             />
           </div>
           <div className="ctx-border ctx-surface shadow-none px-6 pt-24 pb-6 text-center">
-            <h2 className="text-lg font-semibold text-teal-400">
+            <h2 className="text-lg font-medium text-teal-400">
               Email verification sent
             </h2>
             <p className="mt-2 text-sm text-muted-foreground">
@@ -487,7 +487,7 @@ function AuthViewRoute() {
               />
             </div>
             <div className="ctx-border ctx-surface shadow-none px-6 pt-24 pb-6">
-              <h2 className="mb-3 text-lg font-semibold text-zinc-100">
+              <h2 className="mb-3 text-lg font-medium text-zinc-100">
                 Accept invitation
               </h2>
               <InviteAcceptSignUp />
@@ -511,7 +511,7 @@ function AuthViewRoute() {
               />
             </div>
             <div className="ctx-border ctx-surface shadow-none px-6 pt-24 pb-6">
-              <h2 className="mb-3 text-lg font-semibold text-zinc-100">
+              <h2 className="mb-3 text-lg font-medium text-zinc-100">
                 Join organization
               </h2>
               <InviteAcceptSignUp

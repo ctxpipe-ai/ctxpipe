@@ -113,11 +113,6 @@ export function SlackConnectionCard({
               : () => setSetupOpen(true)
         }
       >
-        {isError ? (
-          <p className="text-sm text-muted-foreground">
-            Status request failed. Retry, or open setup if this persists.
-          </p>
-        ) : null}
         {capturing ? (
           <p className="text-sm text-muted-foreground">
             Invite the bot with{" "}

@@ -9,7 +9,8 @@ The Connectors page shows each connection as a tile. Each provider card (`Github
 - **Head of the tile:** the mark and the name are one button, and it opens and closes the details. There is no chevron.
 - **Status:** a dot and its word (`connected`, `not yet connected`, `couldn't load`, `sync failed`, `config PR failed`) in one column of the same width on each tile. The color is on the dot only, and the word is muted. The dot pulses only for a live state (`checking`, `syncing`). A static state has a still dot. The word names the cause: do not use a generic "Error" chip or an orange alert icon.
 - **Actions:** the overflow menu is at the end of the head. A setup that is not finished shows Remove and its next step in a row below the head.
-- **Details:** "Used in", the account, and the text action link.
+- **Status read failed:** the tile shows the cause and a Retry button in a row below the head, so the user sees the next step without a click. The provider card gives no text of its own for this state.
+- **Details:** "Used in", the account, and the text action link (a React Aria button).
 - **Page:** "Add connection" is a labeled primary button. GitHub is first (`sortOrgConnectionsForDisplay`). Do not put setup steps on the list: they belong in the setup dialog.
 - **Linear and Notion:** "Manage scope" opens the scope editor (`manageScope`), not the "connected" screen.
 

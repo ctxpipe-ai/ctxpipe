@@ -114,11 +114,6 @@ export function PagerdutyConnectionCard({
           PagerDuty authorization is revoked. Reconnect the account.
         </p>
       ) : null}
-      {isError ? (
-        <p className="text-sm text-muted-foreground">
-          Status request failed. Retry, or open setup if this persists.
-        </p>
-      ) : null}
     </ConnectorListItem>
   )
 }

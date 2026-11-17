@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { WRITE_STATUS_REASONS } from "backend/domain/workspaces/write-status"
 import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
@@ -151,7 +152,7 @@ export const Loading: Story = {
     ...withUpgrades(workspaceUpgradesHandler("loading")),
     review: {
       purpose:
-        "Upgrades section of a Workspace, where admins apply format upgrades and re-ingestions: the list is loading.",
+        "Upgrades card in the Workspace settings, where an admin starts format upgrades and re-ingestions: the upgrade list still loads, so skeleton rows hold its place.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -318,22 +319,25 @@ export const WaitingForSandbox: Story = {
   parameters: {
     ...withUpgrades(
       workspaceUpgradesHandler(
-        upgradesFixture([
-          upgradeItemFixture({
-            kind: "reingest",
-            title: "Ingest the source repositories again",
-            status: "running",
-            waitingForSlot: {
-              reason: "The re-ingestion slots of this instance are full.",
-              since: new Date(Date.now() - 12 * 60_000 - 5_000).toISOString(),
-            },
-          }),
-        ]),
+        // A re-ingestion runs only on format 3.
+        upgradesFixture(
+          [
+            upgradeItemFixture({
+              kind: "reingest",
+              status: "running",
+              waitingForSlot: {
+                reason: "The re-ingestion slots of this instance are full.",
+                since: new Date(Date.now() - 12 * 60_000 - 5_000).toISOString(),
+              },
+            }),
+          ],
+          { formatVersion: 3 },
+        ),
       ),
     ),
     review: {
       purpose:
-        "Upgrades section of a Workspace: a re-ingestion waits for a free sandbox slot.",
+        "Upgrades card in the Workspace settings: the admin started the re-ingestion, but all sandbox slots are busy, so the item waits for a free one and says how long it has waited.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -342,7 +346,7 @@ export const WaitingForSandbox: Story = {
       expect(
         await canvas.findByText("Waiting for a free sandbox"),
       ).toBeVisible()
-      expect(await canvas.findByText(/for 12 min\./)).toBeVisible()
+      expect(await canvas.findByText(/has waited 12 min/)).toBeVisible()
     })
     await expectGroup(canvas, "Working now", 1)
     expect(canvas.queryByRole("list", { name: "Needs you" })).toBeNull()
@@ -362,7 +366,6 @@ export const ReingestWorkingWithSpend: Story = {
             upgradeItemFixture({
               key: "reingest-3",
               kind: "reingest",
-              title: "Ingest the source repositories again",
               status: "running",
               approvedAt: new Date(Date.now() - 72 * 60_000).toISOString(),
               repositories: [
@@ -496,7 +499,7 @@ export const WaitingForMerge: Story = {
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
     review: {
       purpose:
-        "Upgrades section of a Workspace: the format upgrade waits for the user to merge the pull request.",
+        "Upgrades card in the Workspace settings: ctxpipe opened the format upgrade pull request #42, so the item waits for the admin to merge it on GitHub, with a link to it and Check again.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -713,19 +716,21 @@ function failedReingest(
 ) {
   return withUpgrades(
     workspaceUpgradesHandler(
-      upgradesFixture([
-        upgradeItemFixture({
-          key: "reingest-3",
-          kind: "reingest",
-          title: "Fresh re-ingestion of the source repositories",
-          status: "failed",
-          steps: [],
-          failureReason:
-            "The re-ingestion did not finish for acme/ky. Start it again.",
-          failure,
-          autoRetried,
-        }),
-      ]),
+      // A re-ingestion runs only on format 3.
+      upgradesFixture(
+        [
+          upgradeItemFixture({
+            key: "reingest-3",
+            kind: "reingest",
+            status: "failed",
+            failureReason:
+              "The re-ingestion did not finish for acme/ky. Start it again.",
+            failure,
+            autoRetried,
+          }),
+        ],
+        { formatVersion: 3 },
+      ),
     ),
   )
 }
@@ -814,13 +819,16 @@ export const FailedSourceAccess: Story = {
     }),
     review: {
       purpose:
-        "Upgrades section of a Workspace: a re-ingestion failed because ctxpipe cannot read a source repository, with Reconnect GitHub.",
+        "Upgrades card in the Workspace settings, seen by an admin: the re-ingestion failed because ctxpipe cannot read the source repository acme/ky, so the item gives the cause, Reconnect GitHub and Start again.",
     },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const link = await canvas.findByRole("link", { name: "Reconnect GitHub" })
     expect(link).toHaveAttribute("href", "/acme/connectors")
+    // The title names the kind of the item that failed.
+    expect(canvas.getByText("The re-ingestion failed")).toBeVisible()
+    expect(canvas.queryByText("The upgrade failed")).toBeNull()
     expect(
       canvas.getByText("Failed step: Read the source repository (acme/ky)."),
     ).toBeVisible()
@@ -881,24 +889,26 @@ export const FailedTooManySourcesMember: Story = {
   parameters: {
     review: {
       purpose:
-        "Upgrades section of a Workspace, for a member: a re-ingestion failed on too many sources, and the member must ask an admin.",
+        "Upgrades card in the Workspace settings, seen by a member: the re-ingestion failed because the Workspace has 40 source repositories and a run takes 25, and only an admin can start it again.",
     },
     msw: {
       handlers: {
         page: [
           activeMemberRoleHandler("member"),
           workspaceUpgradesHandler(
-            upgradesFixture([
-              upgradeItemFixture({
-                key: "reingest-3",
-                kind: "reingest",
-                title: "Fresh re-ingestion of the source repositories",
-                status: "failed",
-                steps: [],
-                failureReason: "One re-ingestion run handles at most 25.",
-                failure: tooManySources,
-              }),
-            ]),
+            // A re-ingestion runs only on format 3.
+            upgradesFixture(
+              [
+                upgradeItemFixture({
+                  key: "reingest-3",
+                  kind: "reingest",
+                  status: "failed",
+                  failureReason: "One re-ingestion run handles at most 25.",
+                  failure: tooManySources,
+                }),
+              ],
+              { formatVersion: 3 },
+            ),
           ),
         ],
       },
@@ -936,7 +946,7 @@ export const FailedUnknown: Story = {
       await canvas.findByRole("button", { name: "Fix using agent" }),
     )
     expect(fixPrompts).toHaveBeenCalledWith(
-      'The upgrade "Fresh re-ingestion of the source repositories" of this Workspace failed at the step "Ingest the source repository (acme/ky)". ctxpipe recorded: The ingestion run failed: something odd happened Find the cause, and tell me how to fix it.',
+      'The upgrade "Fresh re-ingestion of the source repositories" of this Workspace failed at the step "Ingest the source repository (acme/ky)". ctxpipe recorded: The ingestion run failed: something odd happened. Find the cause, and tell me how to fix it.',
     )
   },
 }
@@ -988,7 +998,7 @@ export const Blocked: Story = {
     ),
     review: {
       purpose:
-        "Upgrades section of a Workspace: the format upgrade is blocked because the GitHub App has read access only.",
+        "Upgrades card in the Workspace settings: ctxpipe cannot open the format upgrade pull request because the GitHub App has read access only, so the item is blocked with no Start.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1017,14 +1027,14 @@ export const BlockedNotGithub: Story = {
           upgradeItemFixture({
             status: "blocked",
             blockedReason: "write_access",
-            note: "This remote is not GitHub. v1 can hydrate, search, and chat, but cannot commit or push. Relink to a GitHub repository the App can write.",
+            note: WRITE_STATUS_REASONS.nonGithubHost,
           }),
         ]),
       ),
     ),
     review: {
       purpose:
-        "Upgrades section of a Workspace: the format upgrade is blocked because the remote is not GitHub.",
+        "Upgrades card in the Workspace settings: the Workspace repository is not on GitHub, so ctxpipe cannot open the format upgrade pull request and the item says to relink to GitHub.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1130,7 +1140,7 @@ export const ReingestNeedsFormat: Story = {
     ...blockedReingest("needs_format"),
     review: {
       purpose:
-        "Upgrades section of a Workspace: the re-ingestion is blocked until the user applies the format upgrade.",
+        "Upgrades card in the Workspace settings: the Workspace has format 2, so the re-ingestion is blocked until the format upgrade to format 3 is merged, with Check again.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1575,7 +1585,11 @@ export const CheckingEndsAfterAMinute: Story = {
     // No await between the two checks: the card changed in the same render.
     const needsYou = within(canvas.getByRole("list", { name: "Needs you" }))
     expect(needsYou.getByText("Blocked")).toBeVisible()
-    expect(needsYou.getByText("Apply the format upgrade first")).toBeVisible()
+    // The Workspace has format 3, so the block does not ask for the format
+    // upgrade again (upgradeBlockedCopy).
+    expect(
+      needsYou.getByText("ctxpipe did not finish the format check"),
+    ).toBeVisible()
     expect(canvas.queryByText("Checking the new format")).toBeNull()
     expect(canvas.queryByRole("list", { name: "Working now" })).toBeNull()
   },
