@@ -21,13 +21,13 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Empty state of the Connectors list, which invites the user to add a
+ * connection: the org has no connections yet.
+ */
 export const EmptyState: Story = {
   parameters: {
-    review: {
-      kind: "component",
-      purpose:
-        "Empty state of the Connectors list, which invites the user to add a connection: the org has no connections yet.",
-    },
+    review: { kind: "component" },
   },
   args: { onAddConnection: () => {} },
   render: (args) => <ConnectorsEmptyState {...args} />,

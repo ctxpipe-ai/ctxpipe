@@ -7,7 +7,7 @@
 import { readdirSync } from "node:fs"
 import { join } from "node:path"
 
-/** The few Babel node fields that the parser reads. */
+/** The few ESTree node fields that the parser reads (Storybook 11 csf-tools). */
 type Node = {
   type: string
   value?: unknown
@@ -17,11 +17,31 @@ type Node = {
 }
 type Annotations = Record<string, Node | undefined> | undefined
 
-/** `loadCsf` of `storybook/internal/csf-tools`. */
-type LoadCsf = (
-  code: string,
-  options: { fileName: string; makeTitle: (title: string) => string },
-) => { parse(): unknown }
+/** The parsed story file: the fields of a `CsfFile` that the parser reads. */
+type CsfFile = {
+  _meta?: { title?: string }
+  _metaAnnotations: Annotations
+  _stories: Record<string, { name?: string }>
+  _storyAnnotations: Record<string, Annotations>
+  _storyStatements: Record<string, unknown>
+  editor: unknown
+}
+
+/**
+ * The functions of `storybook/internal/csf-tools` that the parser calls.
+ * `extractStoryJSDocInfo` reads the JSDoc description of a story, as
+ * Storybook does for its docs and for `storybook tools docs show-story`.
+ */
+type CsfTools = {
+  loadCsf: (
+    code: string,
+    options: { fileName: string; makeTitle: (title: string) => string },
+  ) => { parse(): unknown }
+  extractStoryJSDocInfo: (
+    statement: never,
+    editor: never,
+  ) => { description?: string }
+}
 
 /** How the critic judges a screenshot of the story (`parameters.review.kind`). */
 export type StoryKind = "page" | "component"
@@ -43,22 +63,26 @@ type StoryTags = {
 /** The strings of an array node, or `[]`. */
 const stringsOf = (node: Node | undefined) =>
   node?.type === "ArrayExpression"
-    ? (node.elements ?? []).flatMap((element) =>
-        element?.type === "StringLiteral" ? [String(element.value)] : [],
-      )
+    ? (node.elements ?? []).flatMap((element) => {
+        const text = stringOf(element ?? undefined)
+        return text === null ? [] : [text]
+      })
     : []
 
 /** The value node of the property `key` of an object node. */
 const propertyOf = (node: Node | undefined, key: string) =>
   node?.properties?.find(
     (property) =>
-      property.type === "ObjectProperty" &&
+      property.type === "Property" &&
       (property.key?.name ?? property.key?.value) === key,
   )?.value as Node | undefined
 
 /** The string of a string literal node, or null. */
-const stringOf = (node: Node | undefined) =>
-  node?.type === "StringLiteral" ? String(node.value) : null
+function stringOf(node: Node | undefined) {
+  return node?.type === "Literal" && typeof node.value === "string"
+    ? node.value
+    : null
+}
 
 /** The value node of `parameters.review.<key>` in an annotations object. */
 const reviewOf = (annotations: Annotations, key: "kind" | "purpose") =>
@@ -69,23 +93,20 @@ const reviewOf = (annotations: Annotations, key: "kind" | "purpose") =>
  * page tag when its `meta` or the story has it, and the story does not
  * remove it with `"!page"`. A story's own route wins over the route of the
  * `meta`. The kind (`parameters.review.kind`) comes from the story or else
- * from the `meta`. The purpose (`parameters.review.purpose`) comes only from
- * the story: it says what state that story shows.
+ * from the `meta`. The purpose comes only from the story: it says what state
+ * that story shows. It is the JSDoc description of the story, with its line
+ * breaks as spaces. While the stories move to the JSDoc (CTX-1357), a
+ * `parameters.review.purpose` of the story wins over the JSDoc.
  */
 export function storiesOf(
-  loadCsf: LoadCsf,
+  { loadCsf, extractStoryJSDocInfo }: CsfTools,
   file: string,
   code: string,
 ): StoryTags[] {
   const csf = loadCsf(code, {
     fileName: file,
     makeTitle: (title) => title ?? file,
-  }).parse() as {
-    _meta?: { title?: string }
-    _metaAnnotations: Annotations
-    _stories: Record<string, { name?: string }>
-    _storyAnnotations: Record<string, Annotations>
-  }
+  }).parse() as CsfFile
   const meta = csf._metaAnnotations
   return Object.entries(csf._stories).map(([name, story]) => {
     const annotations = csf._storyAnnotations[name]
@@ -102,7 +123,15 @@ export function storiesOf(
     const kind = stringOf(
       reviewOf(annotations, "kind") ?? reviewOf(meta, "kind"),
     )
-    const purpose = stringOf(reviewOf(annotations, "purpose"))?.trim()
+    const purpose = (
+      stringOf(reviewOf(annotations, "purpose")) ??
+      extractStoryJSDocInfo(
+        csf._storyStatements[name] as never,
+        csf.editor as never,
+      ).description
+    )
+      ?.replace(/\s+/g, " ")
+      .trim()
     return {
       name,
       storybookName: `${csf._meta?.title ?? file} / ${story.name ?? name}`,

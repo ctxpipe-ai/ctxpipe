@@ -55,9 +55,9 @@ export const Loading = { parameters: { review: { kind: "component" } } }`,
   assert.match(result.stderr, /story "Empty" has no parameters\.review\.kind/)
   assert.match(
     result.stderr,
-    /story "Loading" has no parameters\.review\.purpose/,
+    /story "Loading" has no purpose/,
   )
-  assert.doesNotMatch(result.stderr, /"Empty" has no parameters\.review\.purpose/)
+  assert.doesNotMatch(result.stderr, /"Empty" has no purpose/)
 })
 
 test("a kind that is not page or component, and a purpose that is not a sentence for the critic, fail", () => {
@@ -73,11 +73,11 @@ export const NotLiteral = { parameters: { review: { kind: "component", purpose: 
   })
   assert.equal(result.status, 1)
   assert.match(result.stderr, /story "Dialog" has no parameters\.review\.kind/)
-  assert.match(result.stderr, /story "Vague": parameters\.review\.purpose must/)
-  assert.match(result.stderr, /story "Long": parameters\.review\.purpose must/)
+  assert.match(result.stderr, /story "Vague": the purpose must/)
+  assert.match(result.stderr, /story "Long": the purpose must/)
   assert.match(
     result.stderr,
-    /story "NotLiteral" has no parameters\.review\.purpose/,
+    /story "NotLiteral" has no purpose/,
   )
 })
 
@@ -97,7 +97,51 @@ export const Longest = { parameters: { review: { purpose: "${text}: ${"a".repeat
   for (const name of ["Short", "Displays", "Renders"])
     assert.match(
       result.stderr,
-      new RegExp(`story "${name}": parameters\\.review\\.purpose must`),
+      new RegExp(`story "${name}": the purpose must`),
     )
   assert.doesNotMatch(result.stderr, /"NoColon"|"Longest"/)
+})
+
+test("the JSDoc of a story is its purpose, and its line breaks count as spaces", () => {
+  const result = check({
+    "Card.stories.tsx": storyFile(
+      `{ review: { kind: "component" } }`,
+      `/**
+ * Workspace card that a member opens to read its sources, before anyone
+ * added a source.
+ */
+export const Empty = {}
+/** Empty Workspace card. */
+export const Short = {}
+// A line comment is not a JSDoc description.
+export const LineComment = {}`,
+    ),
+  })
+  assert.equal(result.status, 1)
+  assert.doesNotMatch(result.stderr, /"Empty"/)
+  assert.match(result.stderr, /story "Short": the purpose must/)
+  assert.match(result.stderr, /story "LineComment" has no purpose/)
+})
+
+test("a JSDoc of the meta is not the purpose of a story", () => {
+  const result = check({
+    "Card.stories.tsx": `
+/** Workspace card that a member opens to read its sources, before anyone added a source. */
+const meta = { title: "Example", parameters: { review: { kind: "component" } } }
+export default meta
+export const Empty = {}`,
+  })
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /story "Empty" has no purpose/)
+})
+
+test("while the stories move to the JSDoc, parameters.review.purpose wins over the JSDoc", () => {
+  const result = check({
+    "Card.stories.tsx": storyFile(
+      `{ review: { kind: "component" } }`,
+      `/** A press opens the card. */
+export const Empty = { parameters: { review: { purpose: "Workspace card that a member opens to read its sources, before anyone added a source." } } }`,
+    ),
+  })
+  assert.equal(result.status, 0, result.stderr)
 })

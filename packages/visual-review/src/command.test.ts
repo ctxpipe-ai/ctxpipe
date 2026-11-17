@@ -720,7 +720,7 @@ describe("visual:review --images, for the factory", () => {
   describe("the kind, the name and the purpose come from the story file in the checkout", () => {
     // The command runs in the merge-base tree. Here, a small checkout: a
     // page story file whose meta has the kind page, a story that is a part of
-    // the page, and a component story file.
+    // the page (its purpose is its JSDoc), and a component story file.
     const home = process.cwd()
     beforeEach(async () => {
       const checkout = join(root, "checkout")
@@ -731,7 +731,8 @@ describe("visual:review --images, for the factory", () => {
         `const meta = { title: "Pages/Button", tags: ["page"], parameters: { route: "/", review: { kind: "page" } } }
 export default meta
 export const Primary = { parameters: { review: { purpose: "Home page with the primary button, signed in." } }, render: () => null }
-export const Step = { parameters: { review: { kind: "component", purpose: "Popup step of the button flow: the account is linked to another user." } }, render: () => null }
+/** Popup step of the button flow: the account is linked to another user. */
+export const Step = { parameters: { review: { kind: "component" } }, render: () => null }
 export const Bare = { tags: ["!page"], render: () => null }
 `,
       )
