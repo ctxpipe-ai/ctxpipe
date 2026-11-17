@@ -168,7 +168,6 @@ export const PendingSetup: Story = {
       purpose:
         "Notion card on the Connectors page: the admin started the setup but did not finish it, so the card offers Remove and the next step, Register OAuth app.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [

@@ -122,11 +122,6 @@ export const NotYetConnected: Story = {
       purpose:
         "GitHub connection card on the Connectors page: the GitHub App is not installed yet, so setup is not finished.",
     },
-    visual: {
-      allow: {
-        contrast: "Text below WCAG AA on main (CTX-1278).",
-      },
-    },
     msw: {
       handlers: {
         page: [

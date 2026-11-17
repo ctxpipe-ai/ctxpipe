@@ -118,7 +118,6 @@ export const Open: Story = {
       purpose:
         "Command palette, where a member searches Workspaces and pages to open one: the palette is open with the full list.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
 }
 
@@ -160,7 +159,6 @@ export const PaletteFiltersAtOnce: Story = {
       purpose:
         "Command palette, where a member searches Workspaces and pages: a search matches one Workspace by its slug, and that match is active.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a palette search that does not filter at once or miss a slug match. It reports the result count and makes the first match active. Not for navigation keys.",
   },
@@ -292,7 +290,6 @@ export const PaletteLoadingKeepsPages: Story = {
       purpose:
         "Command palette, where a member searches Workspaces and pages: the Workspace list still loads as a skeleton, and the pages stay usable.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a palette that shows a lone header or a flash while workspaces load. The header and skeleton wait for the same delay. Not for loaded results.",
     msw: {
@@ -457,7 +454,6 @@ export const PaletteArrowKeysWalkEveryItem: Story = {
       purpose:
         "Command palette, where a member searches Workspaces and pages: the org has 20 Workspaces; the member walked the list with the arrow keys, then typed pay, so the first match is active.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches arrow keys in a long palette that skip an item, stop at a section, or fail to wrap. Home, End, and page keys keep an item active. Not for search.",
     msw: { handlers: { page: [workspaceListHandler(manyWorkspaces)] } },
@@ -509,7 +505,6 @@ export const PaletteHoverAndKeysShareOneHighlight: Story = {
       purpose:
         "Command palette, where a member searches Workspaces and pages: the pointer is on one item and the keys moved to another, and only one has a fill.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a palette that shows two highlighted items, one from the pointer and one from the keys. Only the active item has a fill. Not for item content.",
   },

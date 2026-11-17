@@ -336,7 +336,6 @@ export const ConnectedAppsRevokeError: Story = {
       purpose:
         "Revoke dialog of the Connected apps view: the user pressed Revoke app and the server had an error, so the dialog stays open with the cause and a retry.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a failed revoke that closes the dialog or removes the app. The dialog stays open with the error and the app stays listed. Not for a successful revoke.",
     storyRoute: {

@@ -66,11 +66,6 @@ export const PendingSetup: Story = {
       purpose:
         "Connector row on the Connectors page, with health and actions for one connection: GitHub setup is not finished, the row is open.",
     },
-    visual: {
-      allow: {
-        contrast: "Text below WCAG AA on main (CTX-1278).",
-      },
-    },
   },
   args: {
     ...shared,
@@ -107,7 +102,6 @@ export const PendingSetupNarrow: Story = {
       purpose:
         "Connector row on the Connectors page at phone width: the Confluence setup is not finished, so the status moves under the name and Remove and the next step wrap below.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
     ...shared,

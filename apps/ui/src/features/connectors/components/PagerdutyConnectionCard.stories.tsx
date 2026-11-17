@@ -179,7 +179,6 @@ export const PendingSetup: Story = {
       purpose:
         "PagerDuty connection card on the Connectors page: the setup is not complete, so the card offers to continue or delete the draft.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [

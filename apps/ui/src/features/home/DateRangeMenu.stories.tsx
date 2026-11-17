@@ -55,7 +55,6 @@ export const TriggerHigh: Story = {
       purpose:
         "Date range menu that filters recent commits: the trigger is far from the bottom, so the open menu is below it.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   render: () => <AtHeight fromBottom={400} />,
   play: ({ canvasElement }) => expectWholeMenuInView(canvasElement),
@@ -68,7 +67,6 @@ export const TriggerNearBottom: Story = {
       purpose:
         "Date range menu that filters recent commits: the trigger is near the bottom, so the open menu is above it.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   render: () => <AtHeight fromBottom={200} />,
   play: ({ canvasElement }) => expectWholeMenuInView(canvasElement),

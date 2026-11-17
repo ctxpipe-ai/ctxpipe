@@ -77,7 +77,6 @@ export const NotUsedInAnyWorkspace: Story = {
       purpose:
         "Used in section of a connector, which lists the Workspaces that use the connection: no Workspace uses the GitHub connection yet, and the Add to Workspaces dialog is open.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [

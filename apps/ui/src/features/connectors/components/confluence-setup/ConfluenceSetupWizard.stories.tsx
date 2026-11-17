@@ -194,7 +194,6 @@ export const StatusError: Story = {
       purpose:
         "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the connection status request failed.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -589,7 +588,6 @@ export const MissingConnectionId: Story = {
       purpose:
         "Confluence setup wizard in a modal, which connects Confluence to ctxpipe: the wizard opened with no connection id.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [statusUnscoped(s0)],

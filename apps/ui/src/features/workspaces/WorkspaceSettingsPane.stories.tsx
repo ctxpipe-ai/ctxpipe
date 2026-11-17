@@ -451,7 +451,6 @@ export const AddRepositories: Story = {
       purpose:
         "Settings pane of a Workspace: the owner opened the context repository picker and then the Add repositories dialog, which lists the repositories.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     // Only an owner or admin sees the repository pickers. The Add
     // repositories dialog reads the Workspace and its format (2 or higher).
     msw: {
@@ -756,7 +755,6 @@ export const LongUpgradeHistory: Story = {
       purpose:
         "Settings pane of a Workspace: the member opened the long Upgrades history, showed all 12 rows, and opened the newest row.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         upgrades: [

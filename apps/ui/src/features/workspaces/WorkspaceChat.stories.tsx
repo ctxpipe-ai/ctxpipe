@@ -54,7 +54,6 @@ type Story = StoryObj<typeof meta>
 
 export const ComposeEmpty: Story = {
   parameters: {
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: workspaceShellHandlers(),

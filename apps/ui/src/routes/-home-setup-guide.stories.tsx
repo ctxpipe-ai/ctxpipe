@@ -731,7 +731,6 @@ async function openLinkRepositories(canvasElement: HTMLElement) {
  */
 export const GuideRepositoriesReadOnlyShowsReason: Story = {
   parameters: {
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     review: {
       purpose:
         "Add repositories dialog, opened from the Get started guide: the Workspace repository is read-only, so the dialog gives the reason and a link to Workspace settings.",
@@ -807,7 +806,6 @@ export const GuideRepositoriesWithoutConnectionLinksToConnectors: Story = {
       purpose:
         "Org home page with the setup guide, which leads a new org through its first steps: no GitHub connection yet, so the repositories dialog links to the Connectors page.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         session: sessionDefaults(1),
@@ -843,7 +841,6 @@ export const GuideRepositoriesConnectionsFailedShowsRetry: Story = {
     connectionReads = 0
   },
   parameters: {
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     review: {
       purpose:
         "Org home page with the setup guide, which leads a new org through its first steps: the connections failed to load, so the repositories dialog shows Retry.",

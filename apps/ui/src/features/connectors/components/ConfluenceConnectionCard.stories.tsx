@@ -269,11 +269,6 @@ export const PendingSetup: Story = {
       purpose:
         "Confluence connection card on the Connectors page: setup is not finished, the card is open with a Link Atlassian account action.",
     },
-    visual: {
-      allow: {
-        contrast: "Text below WCAG AA on main (CTX-1278).",
-      },
-    },
     msw: {
       handlers: {
         page: [
@@ -311,11 +306,6 @@ export const RemovePendingSetup: Story = {
     review: {
       purpose:
         "Confluence connection card on the Connectors page: the user removes an unfinished setup through a confirm dialog.",
-    },
-    visual: {
-      allow: {
-        contrast: "Text below WCAG AA on main (CTX-1278).",
-      },
     },
     msw: {
       handlers: {

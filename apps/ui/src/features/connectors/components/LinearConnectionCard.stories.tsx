@@ -158,11 +158,6 @@ export const PendingSetup: Story = {
       purpose:
         "Linear connection card on the Connectors page: Linear is not installed yet, so setup is not finished.",
     },
-    visual: {
-      allow: {
-        contrast: "Text below WCAG AA on main (CTX-1278).",
-      },
-    },
     msw: {
       handlers: {
         page: [

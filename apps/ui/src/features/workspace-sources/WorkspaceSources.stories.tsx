@@ -175,7 +175,6 @@ export const ConnectedWithoutSources: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the org has GitHub, Confluence and Linear connections, but the Workspace has no sources yet.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [workspaceSourcesHandler(workspaceSourceList()), connected],
@@ -206,7 +205,6 @@ export const SeveralProviders: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: four sources from GitHub, Confluence and Linear, with paths, descriptions and the connector count.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a source list that drops a provider or misstates the totals. It must show every source with its path and description and the connector count. Not for edits or empty states.",
     msw: {
@@ -264,7 +262,6 @@ export const OneProviderSeveralSources: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: three Linear sources from two Linear connections in one group.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -334,7 +331,6 @@ export const SharedReasonShowsOnce: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: two Linear sources have the same missing connection, so the group header gives the reason once.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -380,7 +376,6 @@ export const NarrowPaneFoldsTable: Story = {
       purpose:
         "Sources section of the Workspace settings in a narrow pane: the table folds, so the Linear row puts its connection and file under the title, with the status and the row actions on the right.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -409,7 +404,6 @@ export const NeedsAttention: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: one Linear source has a missing connection, so the summary and its group say it needs attention.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -455,7 +449,6 @@ export const PendingAdd: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: no sources yet, and a new Confluence source waits for its pull request to merge.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -506,7 +499,6 @@ export const EachStatus: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: sources in each status: OK, not valid, connection missing, out of access, and OK with a warning.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -571,7 +563,6 @@ export const AwaitingMerge: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: an edit, a removal and an add each wait for a pull request to merge, with links to them.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -642,7 +633,6 @@ export const ScrollsToSourceAnchor: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the URL names the Confluence section, so the list scrolls to it.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a source list that ignores the URL hash. The page must scroll the matching provider section into view. Not for the list content or edits.",
     msw: {
@@ -695,7 +685,6 @@ export const EditSendsChange: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the edit dialog of a Linear source is open, and the user adds a team and opens a pull request.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a source edit that sends the wrong change. The edit dialog must start from the saved scope and send a PUT with the new scope. Not for adding sources.",
     msw: {
@@ -755,7 +744,6 @@ export const UnlinkSendsChange: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the user unlinks a GitHub repository, which opens a pull request that deletes its source file.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -799,7 +787,6 @@ export const LegacyYamlRowNotRemovable: Story = {
       purpose:
         "Sources section of the Workspace settings: a GitHub and a Confluence row come from the legacy .ctxpipe/sources.yaml file, so each has a note to edit that file and no row actions.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -875,7 +862,6 @@ export const UnlinkDeletesTheSourceFile: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the user unlinks a linked repository that has a source file, and only the file delete goes out.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -951,7 +937,6 @@ export const LinkedRepositoryWithoutSourceShows: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: a linked repository with no source file is in the GitHub list next to a repository with a file.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -981,7 +966,6 @@ export const AddSendsChange: Story = {
       purpose:
         "Sources section of the Workspace settings: in the Add repositories dialog the user picked acme/api and pressed Open a pull request, so the list shows the change as awaiting merge and a toast links to the pull request.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1200,7 +1184,6 @@ export const AddByUrlShowsRefusal: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the Paste URL tab of the Add repositories dialog gives the server refusal of a URL under the field.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1249,7 +1232,6 @@ export const RemoveSendsChange: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the remove dialog of a Confluence source is open, and the user confirms with a pull request.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1290,7 +1272,6 @@ export const FileNotValid: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the legacy sources file is not valid, so an error names the problem.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1317,7 +1298,6 @@ export const RefusedRepositoryFile: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: a source with an unknown provider and a refused repository file give their errors.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1489,7 +1469,6 @@ export const PickerShowsConnectionNames: Story = {
       purpose:
         "Sources section of the Workspace settings: the Add repositories dialog lists the repositories of two GitHub connections, and the user picks one from each and opens one pull request.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a repository picker that mixes several GitHub connections. It lists the repositories of each connection and sends each repository with its own connection id. Not for the source list.",
     msw: {
@@ -1558,7 +1537,6 @@ export const GithubNoRepositories: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the GitHub group has no repositories yet, with one Add repositories button and a short note.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1633,7 +1611,6 @@ export const AddRepositoriesExplains: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add repositories dialog tells what ctxpipe does with a repository and links to the app access.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1677,7 +1654,6 @@ export const AddRepositoriesEmptySearchHint: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: a search in the Add repositories dialog has no match, so a hint gives the next step.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -1874,7 +1850,6 @@ export const AddRepositoriesHintLinksEachConnection: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add repositories dialog has an access link for each of two GitHub connections.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -2101,7 +2076,6 @@ export const GithubThreeRepositories: Story = {
       purpose:
         "Sources section of the Workspace settings: the GitHub group has three repositories, each in its own source file, all visible with no filter and no Show all, and ctxpipe has not read them yet.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -2177,7 +2151,6 @@ export const GithubRepositoryLostAccess: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the GitHub App installation lost one of two repositories, so that row needs attention, says it is not indexed, and tells the user how to give access back.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -2249,7 +2222,6 @@ export const GithubManyRepositories: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the GitHub group has hundreds of repositories, with a count, the first five, Show all and a filter.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -2330,7 +2302,6 @@ export const InvalidFile: Story = {
       purpose:
         "Sources section of the Workspace settings: one of two Linear source files does not parse, so its row has the Not valid status and the parse error, and the user can still edit or remove it.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -2377,7 +2348,6 @@ export const PendingRename: Story = {
       purpose:
         "Sources section of the Workspace settings: the user renamed a Linear source, so its row keeps the old path until the merge and links to the open rename pull request.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -2538,7 +2508,6 @@ export const AddWithFileName: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add Linear source dialog is open, and the user picks a team and gives the file a name.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -2604,7 +2573,6 @@ export const StatusExplainsItself: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: each GitHub repository status, such as Indexing or Pending, has a tooltip on hover and on focus.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -2688,7 +2656,6 @@ export const MemberEditAsksAnAdmin: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: a member opens the edit dialog of a Linear source, and a note asks for an admin.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         role: [activeMemberRoleHandler("member")],
@@ -2731,7 +2698,6 @@ export const MemberAddRepositoriesAsksAnAdmin: Story = {
       purpose:
         "Sources section of the Workspace settings, which lists the sources of a Workspace: a member opens the Add repositories dialog, and a note asks for an admin.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         role: [activeMemberRoleHandler("member")],

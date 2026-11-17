@@ -70,7 +70,6 @@ export const Connected: Story = {
       purpose:
         "Buildkite connection card on the Connectors page: connected with the webhook set up, card open with the Manage action.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [

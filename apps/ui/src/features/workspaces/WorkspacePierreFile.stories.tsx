@@ -44,7 +44,6 @@ export const Markdown: Story = {
       purpose:
         "File preview of a Workspace, where a member reads a file: a Markdown file.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
 }
 
@@ -54,7 +53,6 @@ export const TypeScript: Story = {
       purpose:
         "File preview of a Workspace, where a member reads a file: a short TypeScript file with syntax colors.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
     path: "apps/ui/src/main.tsx",
@@ -147,7 +145,6 @@ export const LongFile: Story = {
       purpose:
         "File preview of a Workspace, where a member reads a file: a long handbook page with a wide table at its end, so the preview scrolls down and across.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
     path: "knowledge/handbook.md",

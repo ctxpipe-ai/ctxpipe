@@ -138,7 +138,6 @@ export const LoadMore: Story = {
       purpose:
         "Conversation list of a Workspace in the side nav, where a member opens a chat: the server has more chats than the first page, so a Load more control shows.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -545,7 +544,6 @@ export const DeleteError: Story = {
       purpose:
         "Conversation list of a Workspace in the side nav: the delete request of a chat failed, so the chat stays and an alert gives the cause and a next step.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: conversationRequestHandlers({
@@ -585,7 +583,6 @@ export const DeleteRefusedWhileTurnRuns: Story = {
       purpose:
         "Conversation list of a Workspace in the side nav: the delete failed because a turn runs, and the message says how to stop it.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: conversationRequestHandlers({

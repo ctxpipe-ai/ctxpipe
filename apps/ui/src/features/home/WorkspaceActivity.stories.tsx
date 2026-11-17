@@ -275,7 +275,6 @@ export const KeyboardSelectsEmptyDay: Story = {
       purpose:
         "Workspace activity section on the org home: the user chose a day with no commits by keyboard, and Recent says so.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -311,7 +310,6 @@ export const AuthorFiltersRecent: Story = {
       purpose:
         "Workspace activity section on the org home: the user picked an author in the author menu, so Recent lists only their commits.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches an author filter that does not narrow the recent commits. Choosing an author must update the button and send the author to the activity request. Not for the date filter or commit rows.",
   },
@@ -376,7 +374,6 @@ export const DateRangeFiltersRecent: Story = {
       purpose:
         "Workspace activity section on the org home: the user picked a date range preset, so Recent lists commits since that date.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -419,7 +416,6 @@ export const CustomDateRange: Story = {
       purpose:
         "Workspace activity section on the org home: the user typed a custom start and end day in the date range picker.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a custom date range that does not reach the activity request. Typed start and end dates must send since and until values. Not for the author filter or commit rows.",
   },
@@ -788,7 +784,6 @@ export const AllWorkspaces: Story = {
       purpose:
         "Workspace activity section on the org home: the user chose All workspaces, so each commit names its Workspace.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
     workspaces: [

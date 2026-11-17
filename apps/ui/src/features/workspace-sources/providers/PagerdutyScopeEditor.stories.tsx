@@ -120,7 +120,6 @@ export const RemoveTheLastService: Story = {
       purpose:
         "PagerDuty scope editor, where the user picks the services of a Workspace source: the user removes the last selected service, so the scope is not ready.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: { initialScope: { services: ["PSVC002"] } },
   play: async ({ args, canvasElement }) => {
@@ -209,7 +208,6 @@ export const OverTheServiceLimit: Story = {
       purpose:
         "PagerDuty scope editor in the Add source dialog: 100 services are selected, the user ticks one more, so an error states the 100-service limit and the dialog cannot save.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [

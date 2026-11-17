@@ -123,7 +123,6 @@ export const Nested: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: nested folders with one file selected.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
 }
 
@@ -133,7 +132,6 @@ export const SearchOpen: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: the file search field is open.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -148,7 +146,6 @@ export const LongNames: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: long file names in a narrow tree are cut with an ellipsis.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   decorators: [
     (Story) => (
@@ -182,7 +179,6 @@ export const GitShaped: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: the tree of a real git repository with AGENTS.md selected.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
     paths: docsWorkspaceGitTree.paths,
@@ -196,7 +192,6 @@ export const GitStatus: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: added and modified files show change markers and line counts.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   decorators: [
     (Story) => (
@@ -232,7 +227,6 @@ export const LargeTree: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: a large org keeps one folder for each of its 40 areas, so the tree scrolls and only the top folders fit.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
     paths: largeTree(),
@@ -273,7 +267,6 @@ export const PierreKeyboardFocus: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: the member found a file with the keyboard search, and Escape put focus back on that row.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a file tree search that loses keyboard focus. Typing then Enter selects a file, and Escape returns focus to the selected row. Not for the file list content.",
   },
@@ -351,7 +344,6 @@ export const DeletedFile: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: the member opened a folder, and a file deleted in this conversation shows as a struck-through row.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
     paths: ["AGENTS.md", "knowledge/billing.md"],
@@ -387,7 +379,6 @@ export const MixedAddedModifiedDeleted: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: one added, one modified, and one deleted file in one folder.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   decorators: [
     (Story) => (
@@ -427,7 +418,6 @@ export const DeletedLongNestedName: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: a deleted file with a long name deep in folders, in a narrow tree.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   decorators: [
     (Story) => (
@@ -529,7 +519,6 @@ export const ChangeMarkers: Story = {
       purpose:
         "File tree of a Workspace, where a member browses and opens files: each added, modified, and deleted file has its marker, and folders mark a change inside.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches file tree rows that miss their change markers. Added, modified, and deleted files show the right marker and counts. Not for folder expansion.",
   },
