@@ -77,8 +77,6 @@ export async function nativeRenameRewriteFiles(
       })
       const currentTree = await packRootTree(directory, pack)
       if (!previousTree || !currentTree) return []
-      const previous = await filesAt(previousTree)
-      const current = await filesAt(currentTree)
       const diff = [
         "diff",
         "--find-renames=50%",
@@ -87,7 +85,13 @@ export async function nativeRenameRewriteFiles(
         previousTree,
         currentTree,
       ]
-      const candidates = renamePairs(await nativeGit(directory, diff)).filter(
+      // Most commits rename nothing. Then no file can change, so read none:
+      // a read of each file of a large Workspace takes minutes (CTX-1369).
+      const pairs = renamePairs(await nativeGit(directory, diff))
+      if (!pairs.length) return []
+      const previous = await filesAt(previousTree)
+      const current = await filesAt(currentTree)
+      const candidates = pairs.filter(
         (pair) => previous.has(pair.from) && current.has(pair.to),
       )
       const deleted = [...previous.keys()].filter((path) => !current.has(path))
