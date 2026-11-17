@@ -14,13 +14,21 @@ import type { StoryRouteParams } from "./decorators/with-story-route"
 type MswHandlers = RequestHandler | HttpHandler | WebSocketHandler
 
 type StoryParameters = {
-  /** What the visual critic knows about a screenshot (the storybook skill, "Review annotations"). */
+  /**
+   * What the visual critic knows about a screenshot (the storybook skill,
+   * "Review annotations"). Keep `kind` the same as `StoryKind` of
+   * packages/visual-review/src/story-tags.ts.
+   */
   review?: {
     kind?: "page" | "component"
     /** Only until the story moves its purpose to its JSDoc (CTX-1357). */
     purpose?: string
   }
-  /** The screenshot options (the storybook skill, "Screenshot options"). */
+  /**
+   * The screenshot options (the storybook skill, "Screenshot options"). Keep
+   * them the same as `parameterOptions` of scripts/checks/visual.mjs, which
+   * checks the values.
+   */
   visual?: {
     skip?: string
     duplicate?: string

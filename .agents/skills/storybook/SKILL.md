@@ -28,6 +28,7 @@ Storybook 11 has headless tools. They read the Storybook configuration and the s
 - The docgen of `docs list` builds a TypeScript program of the whole app and takes about 45 s. It needs a heap of 6 GB: `apps/ui/.npmrc` sets it for each `npx` and `pnpm` command that starts in `apps/ui`. With less, the docgen stops at its timeout and `docs list` drops most descriptions, with no error. `docs show` for one component takes about 7 s.
 - `docs list` has only the components that are the `component` of a story file meta. A component with no story file is not in it: read its source.
 - The descriptions come from the JSDoc comments. The JSDoc of a component (above its export) is its description: say what it is for and when to use it instead of a similar component. The JSDoc of a story is its purpose (see Review annotations).
+- The tools read only local files and need no network (`core.disableTelemetry` in `main.ts` turns off their one outbound event). Do not ask for an unsandboxed run for them, although the `component-docs` skill says so.
 - `stories preview` and `review create` need a running dev server. We do not use them: the visual review runs on the static build (`pnpm visual:check`).
 
 ## Mandatory: a story for every new component and page
@@ -65,7 +66,7 @@ export const LinkedToAnotherUser: Story = {
 }
 ```
 
-Storybook shows the same JSDoc in its docs and in `storybook tools docs show-story`, so one text serves the critic, the docs and the agents. A story file that is not moved yet keeps its purpose in `parameters.review.purpose`, which wins over the JSDoc (CTX-1357). When you edit such a story, move its purpose to the JSDoc. Merge an older JSDoc of the story into the purpose: a story has one description.
+Storybook shows the same JSDoc in its docs and in `storybook tools docs show-story`, so one text serves the critic, the docs and the agents. A story file that is not moved yet keeps its purpose in `parameters.review.purpose`, which wins over the JSDoc. The rollout plan for the move is in a comment of [CTX-1357](https://linear.app/ctxpipe/issue/CTX-1357). When you edit such a story, move its purpose to the JSDoc. Merge an older JSDoc of the story into the purpose: a story has one description.
 
 - `kind` is `"page"` or `"component"`. A `page` is a whole screen that a user lands on: a page with its shell, or a full popup or onboarding screen. A component, a dialog, a step of a flow, or a part of a page is a `component`. Put `kind` in the `meta` when it is the same for all stories of the file; a story's own `kind` wins.
 - Most stories with the `page` tag have the kind `page`. A page story that shows only one small step of its route (a popup step with a title and a paragraph) has the kind `component`. A story with the kind `page` needs no `page` tag (for example, a full screen that no route renders alone).

@@ -7,6 +7,8 @@
 import { readdirSync } from "node:fs"
 import { join } from "node:path"
 
+import type { extractStoryJSDocInfo } from "storybook/internal/csf-tools"
+
 /** The few ESTree node fields that the parser reads (Storybook 11 csf-tools). */
 type Node = {
   type: string
@@ -23,8 +25,8 @@ type CsfFile = {
   _metaAnnotations: Annotations
   _stories: Record<string, { name?: string }>
   _storyAnnotations: Record<string, Annotations>
-  _storyStatements: Record<string, unknown>
-  editor: unknown
+  _storyStatements: Record<string, Parameters<typeof extractStoryJSDocInfo>[0]>
+  editor: Parameters<typeof extractStoryJSDocInfo>[1]
 }
 
 /**
@@ -37,10 +39,7 @@ type CsfTools = {
     code: string,
     options: { fileName: string; makeTitle: (title: string) => string },
   ) => { parse(): unknown }
-  extractStoryJSDocInfo: (
-    statement: never,
-    editor: never,
-  ) => { description?: string }
+  extractStoryJSDocInfo: typeof extractStoryJSDocInfo
 }
 
 /** How the critic judges a screenshot of the story (`parameters.review.kind`). */
@@ -125,10 +124,7 @@ export function storiesOf(
     )
     const purpose = (
       stringOf(reviewOf(annotations, "purpose")) ??
-      extractStoryJSDocInfo(
-        csf._storyStatements[name] as never,
-        csf.editor as never,
-      ).description
+      extractStoryJSDocInfo(csf._storyStatements[name], csf.editor).description
     )
       ?.replace(/\s+/g, " ")
       .trim()

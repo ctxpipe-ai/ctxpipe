@@ -1,0 +1,81 @@
+diff --git a/dist/index.browser.d.ts b/dist/index.browser.d.ts
+index c84278f9e05d109624d3ca946d85700f3f7d3806..f2a25d69fe2255597f415f5a6bc32f44330805b3 100644
+--- a/dist/index.browser.d.ts
++++ b/dist/index.browser.d.ts
+@@ -1,15 +1,18 @@
+-import { RequestHandler } from 'msw';
++import { RequestHandler, WebSocketHandler } from 'msw';
++
++// ctxpipe patch: the worker applies WebSocket handlers too, so the types allow them.
++type Handler = RequestHandler | WebSocketHandler;
+ import { setupWorker } from 'msw/browser';
+ 
+ type SetupWorker = ReturnType<typeof setupWorker>;
+ type InitializeOptions = Parameters<SetupWorker['start']>[0];
+-declare function initialize(options?: InitializeOptions, initialHandlers?: RequestHandler[]): SetupWorker;
++declare function initialize(options?: InitializeOptions, initialHandlers?: Handler[]): SetupWorker;
+ declare function getWorker(): SetupWorker;
+ 
+ type MswParameters = {
+     [key: string]: any;
+-    msw?: RequestHandler[] | {
+-        handlers: RequestHandler[] | Record<string, RequestHandler | RequestHandler[]>;
++    msw?: Handler[] | {
++        handlers: Handler[] | Record<string, Handler | Handler[]>;
+     };
+ };
+ type Context = {
+diff --git a/dist/index.node.d.cts b/dist/index.node.d.cts
+index 6fe0b027f4a9d4f233f8470e13bfdf9f53d36001..3a80f1adf7d60fde92f5174261680018a7d1a915 100644
+--- a/dist/index.node.d.cts
++++ b/dist/index.node.d.cts
+@@ -1,15 +1,18 @@
+-import { RequestHandler } from 'msw';
++import { RequestHandler, WebSocketHandler } from 'msw';
++
++// ctxpipe patch: the worker applies WebSocket handlers too, so the types allow them.
++type Handler = RequestHandler | WebSocketHandler;
+ import { setupServer } from 'msw/node';
+ 
+ type SetupServer = ReturnType<typeof setupServer>;
+ type InitializeOptions = Parameters<SetupServer['listen']>[0];
+-declare function initialize(options?: InitializeOptions, initialHandlers?: RequestHandler[]): SetupServer;
++declare function initialize(options?: InitializeOptions, initialHandlers?: Handler[]): SetupServer;
+ declare function getWorker(): SetupServer;
+ 
+ type MswParameters = {
+     [key: string]: any;
+-    msw?: RequestHandler[] | {
+-        handlers: RequestHandler[] | Record<string, RequestHandler | RequestHandler[]>;
++    msw?: Handler[] | {
++        handlers: Handler[] | Record<string, Handler | Handler[]>;
+     };
+ };
+ type Context = {
+diff --git a/dist/index.react-native.d.ts b/dist/index.react-native.d.ts
+index cdc893b792ba7a909fb149bbe6c50c2f752328cb..c296c151d6eb4094b532fab2980b3dfe47ed52af 100644
+--- a/dist/index.react-native.d.ts
++++ b/dist/index.react-native.d.ts
+@@ -1,15 +1,18 @@
+-import { RequestHandler } from 'msw';
++import { RequestHandler, WebSocketHandler } from 'msw';
++
++// ctxpipe patch: the worker applies WebSocket handlers too, so the types allow them.
++type Handler = RequestHandler | WebSocketHandler;
+ import { setupServer } from 'msw/native';
+ 
+ type SetupServer = ReturnType<typeof setupServer>;
+ type InitializeOptions = Parameters<SetupServer['listen']>[0];
+-declare function initialize(options?: InitializeOptions, initialHandlers?: RequestHandler[]): SetupServer;
++declare function initialize(options?: InitializeOptions, initialHandlers?: Handler[]): SetupServer;
+ declare function getWorker(): SetupServer;
+ 
+ type MswParameters = {
+     [key: string]: any;
+-    msw?: RequestHandler[] | {
+-        handlers: RequestHandler[] | Record<string, RequestHandler | RequestHandler[]>;
++    msw?: Handler[] | {
++        handlers: Handler[] | Record<string, Handler | Handler[]>;
+     };
+ };
+ type Context = {

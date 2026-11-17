@@ -64,6 +64,9 @@ export default defineMain({
     getAbsolutePath("@storybook/addon-docs"),
   ],
   framework: getAbsolutePath("@storybook/react-vite"),
+  // No usage events: `storybook tools` and the build then make no outbound
+  // request, so an agent runs them in its sandbox.
+  core: { disableTelemetry: true },
   staticDirs: ["../public"],
   async viteFinal(viteConfig) {
     const withoutTanStackApp = {

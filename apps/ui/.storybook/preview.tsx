@@ -63,8 +63,6 @@ initialize(
       throw HttpResponse.error()
     },
   },
-  // @ts-expect-error msw-storybook-addon 2 types its handlers without the
-  // WebSocket handlers of msw, which it applies all the same.
   [unhandledSocketHandler],
 )
 
@@ -103,12 +101,7 @@ export default definePreview({
   },
   // `mswLoader` applies the handlers of the story (`parameters.msw`).
   // `storyRouteLoader` builds the router of `parameters.storyRoute`.
-  // The cast: `parameters.msw` of a story can hold WebSocket handlers too
-  // (parameters-addon.ts), and msw-storybook-addon 2 types it without them.
-  loaders: [
-    mswLoader as (context: unknown) => Promise<object>,
-    storyRouteLoader,
-  ],
+  loaders: [mswLoader, storyRouteLoader],
   // Each decorator is a no-op until the story file sets its parameter. The
   // first decorator is the innermost.
   decorators: [

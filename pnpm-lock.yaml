@@ -25,6 +25,9 @@ patchedDependencies:
   '@tanstack/ai-opencode@0.4.14':
     hash: 597b8afdb9d93bdcbd8a9dfc29b7bf98dc77673dc23e6061722741dd2dea7dd2
     path: patches/@tanstack__ai-opencode@0.4.14.patch
+  msw-storybook-addon@2.0.7:
+    hash: 74d496d3cc26a5085d5b84e632a0d5d2695b934c32ac46b8f865c6cbb581cae1
+    path: patches/msw-storybook-addon@2.0.7.patch
   opencode-ai@1.19.5:
     hash: fbd7620d4152b3a7a000c2155af5372fb864fca5340d609c0ed34f9bce14c2d1
     path: patches/opencode-ai@1.19.5.patch
@@ -665,7 +668,7 @@ importers:
         version: 2.13.6(@types/node@25.3.0)(typescript@6.0.3)
       msw-storybook-addon:
         specifier: ^2.0.7
-        version: 2.0.7(msw@2.13.6(@types/node@25.3.0)(typescript@6.0.3))
+        version: 2.0.7(patch_hash=74d496d3cc26a5085d5b84e632a0d5d2695b934c32ac46b8f865c6cbb581cae1)(msw@2.13.6(@types/node@25.3.0)(typescript@6.0.3))
       playwright:
         specifier: ^1.63.0
         version: 1.63.0
@@ -29713,7 +29716,7 @@ snapshots:
       - supports-color
     optional: true
 
-  msw-storybook-addon@2.0.7(msw@2.13.6(@types/node@25.3.0)(typescript@6.0.3)):
+  msw-storybook-addon@2.0.7(patch_hash=74d496d3cc26a5085d5b84e632a0d5d2695b934c32ac46b8f865c6cbb581cae1)(msw@2.13.6(@types/node@25.3.0)(typescript@6.0.3)):
     dependencies:
       is-node-process: 1.2.0
       msw: 2.13.6(@types/node@25.3.0)(typescript@6.0.3)
