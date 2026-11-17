@@ -7,7 +7,6 @@ import { betterAuthShellClassNames } from "@/features/auth/betterAuthShellClassN
 import { ConnectedAppsCard } from "@/features/auth/ConnectedAppsCard"
 import { PersonalApiKeysCard } from "@/features/organization/OrganizationApiKeysCard"
 import { useListOrganizations } from "@/lib/auth-client"
-import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute("/.auth/account/$accountView")({
   component: AccountViewRoute,
@@ -45,33 +44,33 @@ export function AccountSettingsBody(props: { accountView: string }) {
   }
 
   return (
-    <main
-      className={cn(
-        "mx-auto px-2 py-2 text-zinc-100 sm:py-10 sm:pl-9 sm:pr-6",
-        isApiKeys || isConnectedApps ? "max-w-4xl" : "max-w-3xl",
-      )}
-    >
+    <main className="mx-auto max-w-4xl px-2 py-2 text-zinc-100 sm:py-10 sm:pl-9 sm:pr-6">
       <h1 className="mb-6 text-xl font-medium text-foreground sm:mb-8">
         User account
       </h1>
-      {isApiKeys || isConnectedApps ? (
-        <div className="flex w-full grow flex-col gap-4 md:flex-row md:gap-12">
-          <AccountSettingsNav current={accountView} />
-          {isApiKeys ? <PersonalApiKeysCard /> : <ConnectedAppsCard />}
-        </div>
-      ) : (
-        <AccountView
-          pathname={accountView}
-          localization={{
-            PROVIDERS: "OAuth Providers",
-            PROVIDERS_DESCRIPTION:
-              "Connect your account with third-party OAuth services. Manage the GitHub App in Connectors.",
-            LINK: "Link OAuth",
-            UNLINK: "Unlink OAuth",
-          }}
-          classNames={betterAuthShellClassNames}
-        />
-      )}
+      {/* One local nav for every view, also the views of better-auth-ui:
+          its own nav does not list Connected apps. */}
+      <div className="flex w-full grow flex-col gap-4 md:flex-row md:gap-12">
+        <AccountSettingsNav current={accountView} />
+        {isApiKeys ? (
+          <PersonalApiKeysCard />
+        ) : isConnectedApps ? (
+          <ConnectedAppsCard />
+        ) : (
+          <AccountView
+            pathname={accountView}
+            hideNav
+            localization={{
+              PROVIDERS: "OAuth Providers",
+              PROVIDERS_DESCRIPTION:
+                "Connect your account with third-party OAuth services. Manage the GitHub App in Connectors.",
+              LINK: "Link OAuth",
+              UNLINK: "Unlink OAuth",
+            }}
+            classNames={betterAuthShellClassNames}
+          />
+        )}
+      </div>
     </main>
   )
 }

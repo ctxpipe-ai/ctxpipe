@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   calendarMonthTicks,
   commitLevel,
+  formatCalendarRange,
   formatCommitTooltip,
   toCalendarCells,
   utcSundayCount,
@@ -56,6 +57,25 @@ describe("calendar-days", () => {
     )
     expect(formatCommitTooltip(3, "2026-08-12")).toBe(
       "3 commits on Aug 12, 2026",
+    )
+  })
+
+  it("formats a date range without a repeated month or year", () => {
+    expect(formatCalendarRange("2026-08-10", "2026-08-13")).toBe(
+      "Aug 10 – 13, 2026",
+    )
+    expect(formatCalendarRange("2026-08-12", "2026-08-12")).toBe("Aug 12, 2026")
+    expect(formatCalendarRange("2026-08-05", "2026-09-02")).toBe(
+      "Aug 5 – Sep 2, 2026",
+    )
+    expect(formatCalendarRange("2025-12-28", "2026-01-03")).toBe(
+      "Dec 28, 2025 – Jan 3, 2026",
+    )
+  })
+
+  it("formats a reversed range from a hand-made URL in date order", () => {
+    expect(formatCalendarRange("2026-08-20", "2026-08-05")).toBe(
+      "Aug 5 – 20, 2026",
     )
   })
 

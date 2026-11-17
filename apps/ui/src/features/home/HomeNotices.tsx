@@ -6,6 +6,7 @@ import { Button as RACButton } from "react-aria-components"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/Button"
+import { TechnicalDetail } from "@/components/ui/TechnicalDetail"
 import { ToastStack } from "@/components/ui/ToastStack"
 import { workspaceUpgradesHref } from "@/features/workspace-upgrades/format-gate"
 import {
@@ -33,6 +34,7 @@ import type {
   WorkspaceSkippedFile,
 } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
+import { hideSecrets } from "@/lib/hide-secrets"
 import { useIsOrgAdmin } from "@/lib/org-member-role"
 import {
   withDismissedUpgrade,
@@ -109,11 +111,17 @@ function UpgradeToast(props: {
           {saving
             ? "ctxpipe saves the setting. It starts the upgrade when the setting is saved. You can leave this page."
             : saveFailed
-              ? `ctxpipe could not save the setting. ${job.data?.failureReason ?? ""} Press Update once to start the upgrade now, or press Review upgrade.`
+              ? "ctxpipe could not save the setting. Press Update once to start the upgrade now, or press Review upgrade."
               : jobStatus === "completed"
                 ? "ctxpipe saved the setting. The upgrade starts in a moment."
                 : upgradeToastLine(item)}
         </p>
+        {/* The cause is raw error text: the house block for machine detail. */}
+        {saveFailed && job.data?.failureReason ? (
+          <TechnicalDetail className="mt-1.5">
+            {hideSecrets(job.data.failureReason)}
+          </TechnicalDetail>
+        ) : null}
         {isAdmin === false ? (
           <p className="text-xs text-muted-foreground">{MEMBER_ASK_ADMIN}</p>
         ) : null}

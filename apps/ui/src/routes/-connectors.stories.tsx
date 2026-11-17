@@ -549,7 +549,7 @@ export const NeedsFormatUpgradeNoConnections: Story = {
     ),
     review: {
       purpose:
-        "Connectors page, where an admin adds and manages the sources of the org: no connections and a Workspace that needs an upgrade, so a member sees Ask an admin and no start.",
+        "Connectors page of a member in an org with no connection: the Docs Workspace needs the format upgrade first, so the notice asks to upgrade and Add connection is off.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -619,7 +619,7 @@ export const InProgress: Story = {
     ]),
     review: {
       purpose:
-        "Connectors page, where an admin adds and manages the sources of the org: several connectors have an unfinished setup or wait for a pull request merge.",
+        "Connectors page, where an admin connects the tools of the org: the GitHub App install and the Linear connection are not finished, so each row shows its next step.",
     },
   },
 }

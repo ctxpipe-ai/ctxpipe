@@ -92,7 +92,7 @@ export const Settings: Story = {
     review: {
       kind: "page",
       purpose:
-        "User account page with the app shell, where a user manages the account: the index route opens the Settings view.",
+        "User account page with the app shell, where a user edits the name and email: the user opened Settings from the user menu, so the Account view shows.",
     },
     route: "/.auth/account/",
     storyRoute: {
@@ -169,14 +169,14 @@ const legacyApp = {
   clientName: "Old Agent",
   scopes: ["openid"],
   organizations: [
-    { id: "org_south", slug: "south-works", name: "South Works" },
+    { id: "org_harbor", slug: "harbor-systems", name: "Harbor Systems" },
   ],
   connectedAt: "2026-01-01T10:00:00.000Z",
 }
 
 const storyOrganizations = [
   { id: "org_north", name: "North Labs", slug: "north-labs" },
-  { id: "org_south", name: "South Works", slug: "south-works" },
+  { id: "org_harbor", name: "Harbor Systems", slug: "harbor-systems" },
 ]
 
 /**
@@ -225,10 +225,8 @@ function connectedAppsHandlers(options: { failRevoke?: boolean } = {}) {
       http.delete("*/api/v1/me/connected-apps/:id", ({ params }) => {
         requests.push({ method: "DELETE" })
         if (options.failRevoke) {
-          return HttpResponse.json(
-            { error: "The server could not revoke the app" },
-            { status: 500 },
-          )
+          // An unhandled server error: a plain text body, no error field.
+          return new HttpResponse("Internal Server Error", { status: 500 })
         }
         apps = apps.filter((app) => app.id !== params.id)
         return new HttpResponse(null, { status: 204 })
@@ -275,21 +273,21 @@ export const ConnectedAppsEditOrgs: Story = {
     )
     const dialog = within(await body.findByRole("dialog"))
     const north = await dialog.findByRole("checkbox", { name: /North Labs/ })
-    const south = dialog.getByRole("checkbox", { name: /South Works/ })
+    const harbor = dialog.getByRole("checkbox", { name: /Harbor Systems/ })
     await expect(north).toBeChecked()
     // At least one org: with none ticked, Save is off.
     await userEvent.click(north)
     await expect(dialog.getByRole("button", { name: "Save" })).toBeDisabled()
-    await userEvent.click(south)
+    await userEvent.click(harbor)
     await userEvent.click(dialog.getByRole("button", { name: "Save" }))
     await waitFor(() =>
       expect(editBackend.requests).toContainEqual({
         method: "PUT",
-        body: { organizationIds: ["org_south"] },
+        body: { organizationIds: ["org_harbor"] },
       }),
     )
     await waitFor(() => expect(canvas.queryByText("north-labs")).toBeNull())
-    await expect(canvas.getAllByText("south-works")).toHaveLength(2)
+    await expect(canvas.getAllByText("harbor-systems")).toHaveLength(2)
   },
 }
 
@@ -302,7 +300,7 @@ export const ConnectedAppsRevoke: Story = {
   parameters: {
     review: {
       purpose:
-        "Body of the user account Connected apps view: the user revokes one app and it leaves the list.",
+        "Connected apps view of the user account, where a user removes the access of OAuth apps: the user revoked one app in its dialog, and the list keeps the other app.",
     },
     intent:
       "Catches a revoke that leaves the app in the list or leaves the dialog open. Confirming sends a DELETE request and removes only that app. Not for revoke errors.",
@@ -336,7 +334,7 @@ export const ConnectedAppsRevokeError: Story = {
   parameters: {
     review: {
       purpose:
-        "Body of the user account Connected apps view: the revoke request failed, so the dialog stays open with the error.",
+        "Revoke dialog of the Connected apps view: the user pressed Revoke app and the server had an error, so the dialog stays open with the cause and a retry.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
@@ -359,7 +357,7 @@ export const ConnectedAppsRevokeError: Story = {
     // The dialog stays open and shows the error.
     await waitFor(() =>
       expect(
-        dialog.getByText("The server could not revoke the app"),
+        dialog.getByText("The server had an error. Try again."),
       ).toBeVisible(),
     )
     await expect(body.getByRole("alertdialog")).toBeVisible()
@@ -529,7 +527,9 @@ export const ApiKeysCreateWithOrganizations: Story = {
         dialog.getByRole("button", { name: "Create API key" }),
       ).toBeDisabled(),
     )
-    await userEvent.click(dialog.getByRole("checkbox", { name: /South Works/ }))
+    await userEvent.click(
+      dialog.getByRole("checkbox", { name: /Harbor Systems/ }),
+    )
     await waitFor(() =>
       expect(
         dialog.getByRole("button", { name: "Create API key" }),
@@ -542,14 +542,14 @@ export const ApiKeysCreateWithOrganizations: Story = {
       expect(body.getByText("ctx_personal_plaintext_shown_once")).toBeVisible(),
     )
     await expect(createKeyBackend.requests).toEqual([
-      { kind: "create", organizations: "org_south" },
+      { kind: "create", organizations: "org_harbor" },
     ])
     // The list shows the set of the new key.
     await waitFor(() =>
       expect(canvas.getByText("ci-agent")).toBeInTheDocument(),
     )
     await waitFor(() =>
-      expect(canvas.getByText("south-works")).toBeInTheDocument(),
+      expect(canvas.getByText("harbor-systems")).toBeInTheDocument(),
     )
   },
 }
@@ -587,16 +587,18 @@ export const ApiKeysEditOrganizations: Story = {
     await waitFor(() =>
       expect(dialog.getByRole("button", { name: "Save" })).toBeDisabled(),
     )
-    await userEvent.click(dialog.getByRole("checkbox", { name: /South Works/ }))
+    await userEvent.click(
+      dialog.getByRole("checkbox", { name: /Harbor Systems/ }),
+    )
     await userEvent.click(dialog.getByRole("button", { name: "Save" }))
     await waitFor(() =>
       expect(editKeyBackend.requests).toContainEqual({
         kind: "put",
-        organizations: ["org_south"],
+        organizations: ["org_harbor"],
       }),
     )
     await waitFor(() => expect(canvas.queryByText("north-labs")).toBeNull())
-    await expect(canvas.getByText("south-works")).toBeVisible()
+    await expect(canvas.getByText("harbor-systems")).toBeVisible()
   },
 }
 
@@ -660,7 +662,7 @@ export const OrganizationDeletedStaleSelection: Story = {
     review: {
       kind: "page",
       purpose:
-        "User account page with the app shell, Organizations view: the stored organization was deleted, so the shell falls back to the first one.",
+        "Organizations view of the user account, with the app shell: the org that the user last used was deleted, so the shell opens the first other org.",
     },
     intent:
       "Catches a deleted organization that stays selected in the shell. The shell must switch to the first remaining organization and stop requesting the deleted one. Not for the last organization.",

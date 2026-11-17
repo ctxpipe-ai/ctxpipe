@@ -5,7 +5,7 @@ import {
   useLocation,
   useNavigate,
 } from "@tanstack/react-router"
-import { useMemo } from "react"
+import { type ReactNode, useMemo } from "react"
 
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -109,7 +109,7 @@ export function GitHubSetupPageContent({ orgSlug }: { orgSlug: string }) {
 
   if (installationQuery.isError) {
     return (
-      <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
+      <FinishConnectingFrame>
         <InlineAlert
           variant="error"
           title="Could not check GitHub"
@@ -123,33 +123,32 @@ export function GitHubSetupPageContent({ orgSlug }: { orgSlug: string }) {
             </Button>
           }
         >
-          Try again, or close the wizard.
+          ctxpipe could not read the GitHub App installation of this
+          organization. Try again, or close the wizard.
         </InlineAlert>
         <div className="mt-6">
           <Button variant="quiet" onPress={goBack}>
             Close wizard
           </Button>
         </div>
-      </main>
+      </FinishConnectingFrame>
     )
   }
 
   if (!installationLinked) {
     return (
-      <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-        <h1 className="text-xl font-medium tracking-tight text-foreground">
-          Finish connecting GitHub
-        </h1>
-        <p className="mt-3 max-w-prose text-sm leading-relaxed text-muted-foreground">
-          The GitHub App is not installed yet. Close this wizard and complete
-          the install from Connectors.
+      <FinishConnectingFrame>
+        <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">
+          The GitHub App is not installed yet. Complete the install on the
+          Connectors page.
         </p>
         <div className="mt-8">
-          <Button variant="quiet" onPress={goBack}>
-            Close wizard
+          {/* The one next step: the button names where it goes. */}
+          <Button variant="secondary" onPress={goBack}>
+            Open Connectors
           </Button>
         </div>
-      </main>
+      </FinishConnectingFrame>
     )
   }
 
@@ -167,6 +166,18 @@ export function GitHubSetupPageContent({ orgSlug }: { orgSlug: string }) {
         }}
         onClose={goBack}
       />
+    </main>
+  )
+}
+
+/** The page frame and title of the states before the user picks a Workspace. */
+function FinishConnectingFrame(props: { children: ReactNode }) {
+  return (
+    <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
+      <h1 className="mb-3 text-xl font-medium tracking-tight text-foreground">
+        Finish connecting GitHub
+      </h1>
+      {props.children}
     </main>
   )
 }

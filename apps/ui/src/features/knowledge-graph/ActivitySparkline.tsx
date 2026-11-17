@@ -4,12 +4,7 @@ import { scaleBand } from "@tanstack/charts/scales/band"
 import { scaleLinear } from "@tanstack/charts/scales/linear"
 import { useMemo } from "react"
 
-export type ActivityBuckets = {
-  counts: number[]
-  rangeStart: number
-  rangeEnd: number
-  total: number
-}
+import type { ActivityBuckets } from "./activity-buckets"
 
 const DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
   month: "short",
@@ -17,8 +12,11 @@ const DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
 })
 
 const ZERO_BAR_FRACTION = 0.08
-const BAR_FILL = "#2dd4bf"
-const BAR_FILL_HOVER = "#5eead4"
+// Quiet bars (DESIGN.md: no large bright area). zinc-500 keeps 3:1 on the
+// drawer surface, and the white count keeps 4.5:1 on the bar and on the
+// darker bar under the pointer.
+const BAR_FILL = "#71717a"
+const BAR_FILL_HOVER = "#52525b"
 
 type ActivityRow = {
   key: string
@@ -70,7 +68,7 @@ export function ActivitySparkline({ buckets }: { buckets: ActivityBuckets }) {
             x: "key",
             y: "bar",
             text: "count",
-            fill: "#000",
+            fill: "#fafafa",
             fontSize: 12,
             fontWeight: 500,
             anchor: "middle",

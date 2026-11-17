@@ -127,12 +127,23 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/** The layout settled, so the controls and the legends show. */
 export const NativeLegends: Story = {
+  // The WebGL canvas draws a new frame at each shot, and the cluster labels
+  // of Cosmograph move with it. The capture hides both.
   parameters: {
+    visual: { masks: ["canvas", ".css-label--labels-container"] },
     review: {
       purpose:
-        "Graph canvas of the knowledge graph, where a user explores how the files of a Workspace link: six nodes with the legends in a wide frame.",
+        "Graph canvas of the knowledge graph, where a user explores how the knowledge of a Workspace links: the layout settled, so the controls, the search, the legends and the timeline show.",
     },
+  },
+  play: async ({ canvasElement }) => {
+    await within(canvasElement).findByLabelText(
+      "Search nodes",
+      {},
+      { timeout: layoutSettleTimeout },
+    )
   },
 }
 

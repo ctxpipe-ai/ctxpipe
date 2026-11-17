@@ -111,7 +111,7 @@ export const SelectGitHub: Story = {
   parameters: {
     review: {
       purpose:
-        "Add Workspace page, where an admin picks the Workspace repository and adds sources: step 1 with the list of GitHub repositories to pick from.",
+        "Add Workspace page, where an admin creates a Workspace in two steps: step 1, where the admin picks the Workspace repository from the GitHub repositories of the org.",
     },
   },
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
@@ -403,7 +403,7 @@ export const StepTwoFormatNotValid: Story = {
     ),
     review: {
       purpose:
-        "Add Workspace page, where an admin picks the Workspace repository and adds sources: step 2 for a repository whose format file is not valid, with no upgrade text.",
+        "Add Workspace page, step 2: the admin picked a repository whose format file is not valid, so the Workspace is read-only and the notice names the fix in the file.",
     },
   },
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
