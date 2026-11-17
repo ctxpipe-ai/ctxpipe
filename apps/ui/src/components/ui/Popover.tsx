@@ -27,11 +27,12 @@ const styles = tv({
 })
 
 /**
- * A floating panel next to its trigger that does not block the page, with an
- * optional arrow (`showArrow`). Use it for a small panel, such as a date picker
- * or an onboarding hint, and put a `Dialog` in it for interactive content. Use
- * `Modal` when the user must finish or cancel a task first, and `Tooltip` for a
- * short label on hover.
+ * A small floating panel next to its trigger, such as a date picker, with an
+ * optional arrow (`showArrow`); put a `Dialog` in it for interactive content.
+ * It is modal until a click outside closes it: set `isNonModal` for a panel
+ * that stays while the user works on the page, such as an onboarding hint. Use
+ * `Modal` when the user must finish or cancel a task first, and `Tooltip` for
+ * a short label on hover.
  */
 export function Popover({
   children,

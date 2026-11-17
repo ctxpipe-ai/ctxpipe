@@ -2,11 +2,11 @@ import type { ComponentProps } from "react"
 import { twMerge } from "tailwind-merge"
 
 /**
- * A tile on a page that holds one subject, such as the API keys of an org: a
- * lighter surface with a hairline edge. Compose it from `CardHeader`,
- * `CardContent` and `CardFooter`; `size="sm"` gives less space. In the
- * Workspace settings, use `SettingsCard`, which adds the state edge and the
- * status word.
+ * A tile on a page that holds one subject, such as the API keys of an
+ * organization: a lighter surface with a hairline edge. Compose it from
+ * `CardHeader`, `CardContent` and `CardFooter`; `size="sm"` gives less space.
+ * In the Workspace settings, use `SettingsCard`, which adds the state edge and
+ * the status word.
  */
 function Card({
   className,

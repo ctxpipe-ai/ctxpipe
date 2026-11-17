@@ -16,8 +16,8 @@ import { composeTailwindRenderProps, focusRing } from "@/lib/react-aria-utils"
 /**
  * A bordered list of rows that the keyboard moves through, where each row can
  * hold its own buttons. Use it for a list of records with actions, such as the
- * API keys of an org. Use a `Menu` for a list of commands, and a `Select` to
- * choose one value.
+ * API keys of an organization. Use a `Menu` for a list of commands, and a
+ * `Select` to choose one value.
  */
 export function GridList<T extends object>({
   children,

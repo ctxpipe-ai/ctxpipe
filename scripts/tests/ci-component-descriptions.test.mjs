@@ -50,6 +50,13 @@ export { CardBody }
 /** The page of the route. */
 export default function Page() { return <main /> }
 
+/** A row in parentheses. */
+export const Row = (() => <div />) satisfies React.FC
+
+/** A row that a wrapper call holds by name. */
+export const MemoRow = memo(Body)
+function Body() { return <div /> }
+
 export function cardClassName() { return "card" }
 export const SIZE = "sm"
 export type CardProps = { title: string }
@@ -63,7 +70,7 @@ function Local() { return <span /> }
   assert.equal(result.status, 0, result.stderr)
   assert.match(
     result.stdout,
-    /Component description check passed \(5 components\)/,
+    /Component description check passed \(7 components\)/,
   )
 })
 
@@ -78,10 +85,14 @@ export const OldRow = () => <div />
 // A line comment is not a JSDoc.
 function TreeRow() { return <div /> }
 export { TreeRow }
+
+export const WrappedRow = (() => <div />) as React.FC
+function Inner() { return <div /> }
+export const MemoRow = memo(Inner)
 `,
   })
   assert.equal(result.status, 1)
-  for (const name of ["Row", "OldRow", "TreeRow"])
+  for (const name of ["Row", "OldRow", "TreeRow", "WrappedRow", "MemoRow"])
     assert.match(
       result.stderr,
       new RegExp(
