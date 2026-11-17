@@ -89,7 +89,7 @@ const steps = {
   reminder: ["merge-gate", "Remind the author of the MCP evals"],
 }
 
-const run = (script, dir, env, args = [], cwd = undefined) => {
+const run = (script, dir, env, cwd = undefined) => {
   const log = (name) =>
     existsSync(join(dir, name))
       ? readFileSync(join(dir, name), "utf8").trim().split("\n")
@@ -97,7 +97,7 @@ const run = (script, dir, env, args = [], cwd = undefined) => {
   const command =
     script in steps
       ? ["-c", `set -eo pipefail\n${stepShell(...steps[script])}`]
-      : [join(root, "scripts/ci", script), ...args]
+      : [join(root, "scripts/ci", script)]
   const result = spawnSync("bash", command, {
     cwd,
     encoding: "utf8",
@@ -175,7 +175,6 @@ const remind = ({ change, labels }) => {
     "mcp-evals-reminder.sh",
     dir,
     { REPO: repo, PR: "7" },
-    [],
     mergeRevision(change),
   )
 }
@@ -239,7 +238,6 @@ test("the reminder step adds the reminder to the job summary, and to summary.md 
       "reminder",
       dir,
       { REPO: repo, PR: "7", GITHUB_STEP_SUMMARY: stepSummary },
-      [],
       cwd,
     )
     assert.equal(result.status, 0, result.stderr)
