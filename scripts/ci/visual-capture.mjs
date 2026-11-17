@@ -355,9 +355,9 @@ export async function capturePlan(ids) {
   const stories = Object.values(index.entries).filter((entry) =>
     ids.includes(entry.id),
   )
-  const { loadCsf } = await csfTools()
-  const options = visualOptions(stories, loadCsf)
-  const reviews = storyReviews(stories, loadCsf)
+  const csf = await csfTools()
+  const options = visualOptions(stories, csf.loadCsf)
+  const reviews = storyReviews(stories, csf)
   return ids.map((id) => ({
     ...options.get(id),
     kind: reviews.get(id)?.kind,
@@ -369,7 +369,7 @@ export async function capturePlan(ids) {
 // packages/visual-review/src/story-tags.ts), by story id: its Storybook name,
 // its kind and its purpose. The capture crops a component story by its
 // kind, and the critic reads all three from the manifest.
-export function storyReviews(stories, loadCsf) {
+export function storyReviews(stories, csf) {
   const reviews = new Map()
   for (const [importPath, inFile] of Map.groupBy(
     stories,
@@ -377,7 +377,7 @@ export function storyReviews(stories, loadCsf) {
   )) {
     const file = join("apps/ui", importPath)
     const tags = storiesOf(
-      loadCsf,
+      csf,
       file,
       readFileSync(join(root, file), "utf8"),
     )

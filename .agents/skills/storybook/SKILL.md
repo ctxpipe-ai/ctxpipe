@@ -1,6 +1,6 @@
 ---
 name: storybook
-description: Work with Storybook in apps/ui (colocated stories, MSW, TanStack Start, Storybook MCP). Use when writing or updating stories, using the ctxpipe-storybook MCP, previewing components in Storybook, or when adding new UI components or pages in apps/ui.
+description: Work with Storybook in apps/ui (colocated stories, MSW, TanStack Start, component docs with `storybook tools`). Use when writing or updating stories, looking up a component and its props, previewing components in Storybook, or when adding new UI components or pages in apps/ui.
 license: MIT
 metadata:
   author: ctxpipe
@@ -11,14 +11,25 @@ metadata:
 
 This repo’s UI lives in **`apps/ui`**. Storybook is configured under **`apps/ui/.storybook/`**; run from the repo root with **`pnpm --filter @ctxpipe/ui storybook`** (dev server on **http://127.0.0.1:6006** by default).
 
-## Storybook MCP (`ctxpipe-storybook`)
+## Component docs (`storybook tools`)
 
-The project registers the Storybook MCP in **[.mcp.json](../../../.mcp.json)** as **`ctxpipe-storybook`**, pointing at **`http://127.0.0.1:6006/mcp`**.
+Storybook 11 has headless tools. They read the Storybook configuration and the source, and need no dev server. Run them in `apps/ui`. The [`component-docs`](../component-docs/SKILL.md) skill is the Storybook skill for them: run `npx storybook skills component-docs` and follow its output.
 
-- **The Storybook dev server must be running** for the MCP to respond. Start it with `pnpm --filter @ctxpipe/ui storybook` before relying on the tools. If the port changed, update the URL in `.mcp.json`, `.codex/config.toml`, and `.cursor/mcp.json` to match.
-- **What it’s for**: browse manifests, doc toolsets, story authoring help, and (when [Storybook Test](https://storybook.js.org/docs/writing-tests) is wired) test runs. Official overview: [Storybook MCP](https://storybook.js.org/docs/ai/mcp/overview).
-- **Do not guess design-system or app props** when a component might have non-obvious APIs. Use MCP tools (e.g. `list-all-documentation`, `get-documentation`, `get-documentation-for-story`) before using props. Call **`get-storybook-story-instructions`** when creating or changing stories to align with Storybook’s current guidance. Use **`run-story-tests`** to validate when the test addon is available (this project does not yet ship Storybook’s Vitest test runner; see “Testing in Storybook” below).
-- If tools fail, confirm the dev server is up and the URL still matches the script’s port in **`apps/ui/package.json`**.
+| Command | Use |
+| --- | --- |
+| `npx storybook tools docs list` | Each component that has a story file, with its id and the first part of its description. |
+| `npx storybook tools docs show --id <id>` | The description, the props (from the TypeScript types) and each story of one component, with its code and its description. |
+| `npx storybook tools docs show-story --storyId <id>` | The description and the code of one story. |
+| `npx storybook tools stories find-by-component --input '{"componentPaths":["src/components/ui/Switch.tsx"]}'` | The stories that render a component file, by import distance. |
+| `npx storybook tools stories changed` | The stories that the uncommitted changes touch. |
+
+- Do not guess an id or a prop. Take the id from `docs list` or `find-by-component`, and use only the props that `docs show` gives.
+- `--json` gives the result as JSON. `--input '<json>'` gives the arguments. An array argument works only with `--input`.
+- The docgen of `docs list` builds a TypeScript program of the whole app and takes about 45 s. It needs a heap of 6 GB: `apps/ui/.npmrc` sets it for each `npx` and `pnpm` command that starts in `apps/ui`. With less, the docgen stops at its timeout and `docs list` drops most descriptions, with no error. `docs show` for one component takes about 7 s.
+- `docs list` has only the components that are the `component` of a story file meta. A component with no story file is not in it: read its source.
+- The descriptions come from the JSDoc comments. The JSDoc of a component (above its export) is its description: say what it is for and when to use it instead of a similar component. The JSDoc of a story is its purpose (see Review annotations).
+- The tools read only local files and need no network (`core.disableTelemetry` in `main.ts` turns off their one outbound event). Do not ask for an unsandboxed run for them, although the `component-docs` skill says so.
+- `stories preview` and `review create` need a running dev server. We do not use them: the visual review runs on the static build (`pnpm visual:check`).
 
 ## Mandatory: a story for every new component and page
 
@@ -41,34 +52,36 @@ Every route that renders a page has a page story. Tag it `page` and name its rou
 
 ## Review annotations
 
-Each story says what it shows, so that the visual critic knows what it looks at. Put `parameters.review` in each story:
+Each story says what it shows, so that the visual critic knows what it looks at. The JSDoc comment of the story is its purpose, and `parameters.review.kind` is its kind:
 
 ```ts
+/**
+ * Popup step of the GitHub account link: the user signed in to GitHub to link
+ * it to ctxpipe, but the account is already linked to another ctxpipe user.
+ */
 export const LinkedToAnotherUser: Story = {
   parameters: {
-    review: {
-      kind: "component",
-      purpose:
-        "Popup step of the GitHub account link: the user signed in to GitHub to link it to ctxpipe, but the account is already linked to another ctxpipe user.",
-    },
+    review: { kind: "component" },
   },
 }
 ```
 
+Storybook shows the same JSDoc in its docs and in `storybook tools docs show-story`, so one text serves the critic, the docs and the agents. A story file that is not moved yet keeps its purpose in `parameters.review.purpose`, which wins over the JSDoc. The rollout plan for the move is in a comment of [CTX-1357](https://linear.app/ctxpipe/issue/CTX-1357). When you edit such a story, move its purpose to the JSDoc. Merge an older JSDoc of the story into the purpose: a story has one description.
+
 - `kind` is `"page"` or `"component"`. A `page` is a whole screen that a user lands on: a page with its shell, or a full popup or onboarding screen. A component, a dialog, a step of a flow, or a part of a page is a `component`. Put `kind` in the `meta` when it is the same for all stories of the file; a story's own `kind` wins.
 - Most stories with the `page` tag have the kind `page`. A page story that shows only one small step of its route (a popup step with a title and a paragraph) has the kind `component`. A story with the kind `page` needs no `page` tag (for example, a full screen that no route renders alone).
 - Choose the kind from what the screenshot shows, not from the file. The page-only qualities (for example, one primary action for each page) apply only to a `page`, so a wrong kind gives wrong findings.
-- `purpose` is one sentence in the story itself, on one line of at most 240 characters. The critic reads it first and judges the screenshot against it, so meaning matters more than form. A good purpose tells the critic:
+- The purpose is one sentence in the JSDoc of the story itself, of 40 to 240 characters. Wrap it over lines as you like: the line breaks count as spaces. The critic reads it first and judges the screenshot against it, so meaning matters more than form. A good purpose tells the critic:
   - what the UI is for, by the name that the user sees, and its real kind (do not call a page a wizard, or a section a dialog);
   - how the user uses it;
   - the state that the story shows, and how the user got there (what they pressed or opened). Name each state that a reviewer can take for a defect, such as a loading, pending, empty or error state.
 - Examples: "After the member presses Publish, the Workspace page waits for the push, so the Publish button shows its spinner." "Connectors page where an admin adds the tools of the org: two connections still wait for the end of their setup." Not "Workspace page with a pending button" (no use, no user step), and not "Shows the pending state" (no UI).
 - Describe the UI, not the story: do not start with "Shows", "Displays" or "Renders".
 - The purpose names a state that the product renders, and the screenshot shows that state (see Plausible stories). Before you write it, find the route or the caller that renders this state with these props. If you cannot find one, do not write the story. If the screenshot does not show the state of the purpose, fix the story, not the purpose.
-- Both values are string literals: the check and the critic read the story file with the CSF parser, and the build does not run.
+- The kind is a string literal: the check and the critic read the story file with the CSF parser, and the build does not run. They read the JSDoc with the same parser as Storybook (`extractStoryJSDocInfo` of `storybook/internal/csf-tools`). A JSDoc of the meta is not the purpose of a story.
 - The critic gets the Storybook name (`<title> / <name>`), the kind and the purpose with each screenshot. The kind gives the scope: the page-only qualities apply only to a `page`. The purpose goes into the prompt as data in a `<data>` block. It tells the critic what it looks at. It does not explain a change: that is the job of the brief.
 - `visual:review` reads the story file at the merge base (`--images`, the factory critic), or the manifest of `pnpm visual:check`. A new story that is not at the merge base has no kind or purpose there: its scope is `component`, and the verdict says so.
-- **Guard:** `node scripts/ci/check-story-review.mjs` runs in CI (the policy check `story-review`). It fails for each story with no valid `kind`, with no `purpose` of its own, or with a purpose that is not one line of 40 to 240 characters or that starts with "Shows", "Displays" or "Renders". It cannot check that the purpose is meaningful or true: the critic does that.
+- **Guard:** `node scripts/ci/check-story-review.mjs` runs in CI (the policy check `story-review`). It fails for each story with no valid `kind`, with no purpose of its own, or with a purpose that is not 40 to 240 characters or that starts with "Shows", "Displays" or "Renders". It cannot check that the purpose is meaningful or true: the critic does that.
 
 ### Realistic story data
 
@@ -107,6 +120,10 @@ Each UI state has one story. Two stories of one state give two screenshots to re
 - **Route file naming**: use **`-` prefix** for story files next to routes (e.g. `-connectors.stories.tsx`) so they are not picked up as route modules.
 - **Story export names (CSF)**: **Do not** name a story export `Default`. Each export should describe the **visible state or scenario** (e.g. `Empty`, `Loading`, `WelcomeAnimation`, `ValidationError`, `Installed`). If the surface fetches, export **`Loading`** (or `Checking` / `Hydrating` when that is the real wait). If you need a particular story first in the sidebar, use **`parameters` / story sort** (or Storybook’s ordering options)—not a `Default` name.
 
+## Story format (CSF 3 and CSF 4)
+
+Most story files use CSF 3 (`satisfies Meta<typeof X>`, `StoryObj`). A few use CSF 4 (the CTX-1357 pilot): `const meta = preview.meta({...})` with `preview` imported from `.storybook/preview`, and `export const X = meta.story({...})`. The local addon [`parameters-addon.ts`](../../../apps/ui/.storybook/parameters-addon.ts) types the ctxpipe parameters of a CSF 4 file (`review`, `visual`, `route`, `intent`, `msw`, `app`, `storyRoute`, `queryClient`), so a wrong value fails the typecheck. A key with a typo is not found: Storybook types `parameters` with an index signature. A CSF 3 file gets no parameter types. Do not mix the two formats in one file.
+
 ## Render real components; mock data, not components
 
 - **Do not** replace production components with “story-only” fakes. Stories should import and render the **same** components the app uses so visuals and types stay honest.
@@ -138,7 +155,7 @@ The mocks and the wrappers of a story are in its story file: in its meta or in i
 A story mocks each network request of its page. A request that no MSW handler answers fails the story: the play check, the screenshot capture and the nightly trace. No story shows a state that comes from a missing mock. Thus each screenshot shows a state that a user can see, and the visual review is accurate.
 
 - **The rule.** [`preview.tsx`](../../../apps/ui/.storybook/preview.tsx) records each request that no handler answers, and the request fails with a network error. The play runner ([`scripts/ci/storybook-play.mjs`](../../../scripts/ci/storybook-play.mjs)) then fails the story, and its message names each request. A static asset (a script, a style, a font, an image, a WebAssembly module) of the Storybook server or of a CDN goes to the network. A path with `/api/` is never an asset.
-- **Give each request a state that fits the purpose of the story**: the data of a success, `"loading"` (the request does not end) or `"error"`. Use the state that `parameters.review.purpose` names. A story about a list shows the list; a story about a failed load shows the error of that request.
+- **Give each request a state that fits the purpose of the story**: the data of a success, `"loading"` (the request does not end) or `"error"`. Use the state that the purpose names. A story about a list shows the list; a story about a failed load shows the error of that request.
 - **Use the shared handlers.** They are in [`apps/ui/src/mocks/`](../../../apps/ui/src/mocks/), one module for each API area: `handlers.ts` (session, org, GitHub App), `workspace-handlers.ts` (Workspaces, files, conversations), `workspace-sources-handlers.ts` (sources, connections, member role), `workspace-upgrades-handlers.ts`, `workspace-ingestion-handlers.ts`, `setup-guide-handlers.ts`, and one module for each connector (`linear-handlers.ts` and others). Most take a `MockState<T>` from [`mock-state.ts`](../../../apps/ui/src/mocks/mock-state.ts): the data, `"loading"` or `"error"`. Do not copy a handler into a story. When a second story file needs a request contract, move its handler into the area module. A handler that only one story needs (a request counter, a reply that changes after a click) can stay in the story.
 - **Compositions** mock a whole surface:
   - `signedInHandlers`: the signed-in story user, an admin of the org `acme`: the auth config, the session, the org list and the full org. The app providers (`parameters.app`) read them on each page.
@@ -162,7 +179,7 @@ A story mocks each network request of its page. A request that no MSW handler an
 Storybook interaction tests in its Playwright-powered browser are the primary UI
 component and page behavior tests. Put scenarios in colocated stories and drive
 the real production surface through the story `play` function. Use Storybook's
-portable/browser test facilities and `run-story-tests` when available.
+portable/browser test facilities.
 
 - Mock only external network boundaries with MSW. Render the real component,
   router, Query client, hooks, transport binding, and user controls.
@@ -193,8 +210,7 @@ a longer timeout. A modal renders in a portal, so query it from
 are buttons with an `aria-label`, not text.
 
 Keep security and request-contract assertions in focused Vitest tests. Use
-**`@storybook/addon-a11y`** for Storybook accessibility verification. The MCP
-**`run-story-tests`** tool applies when that integration exists.
+**`@storybook/addon-a11y`** for Storybook accessibility verification.
 
 ## Play timing
 
@@ -286,6 +302,7 @@ Fix the layout. When the story must break a rule (for example a fixture), accept
 | Build static | `pnpm --filter @ctxpipe/ui build-storybook` |
 | Required plays (uses `STORYBOOK_URL` if set) | `pnpm test:storybook-required` |
 | Every play, one shard | `STORYBOOK_PLAYS=all STORYBOOK_SHARD=1/4 node scripts/ci/storybook-plays.mjs` |
+| Components and their docs (no dev server) | `cd apps/ui && npx storybook tools docs list` |
 
 ## Related docs in-repo
 

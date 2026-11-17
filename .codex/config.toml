@@ -22,9 +22,6 @@ command = "bash \"$(git rev-parse --show-toplevel)/.agents/hooks/memory-capture.
 url = "https://app.ctxpipe.ai/mcp?orgSlug=ctx-tev"
 env_http_headers = { "x-api-key" = "CTXPIPE_API_KEY" }
 
-[mcp_servers.ctxpipe-storybook]
-url = "http://127.0.0.1:6006/mcp"
-
 [mcp_servers.hyperdx]
 url = "https://hyperdx.ctxpipe.dev/api/mcp"
 bearer_token_env_var = "HYPERDX_ACCESS_KEY"

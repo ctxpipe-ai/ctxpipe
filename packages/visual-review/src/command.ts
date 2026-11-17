@@ -713,13 +713,13 @@ async function aboutStory(
     })
     dot = name.indexOf(".", dot + 1)
   }
-  const { loadCsf } = await import("storybook/internal/csf-tools")
+  const csfTools = await import("storybook/internal/csf-tools")
   for (const { file, story } of candidates) {
     // A story file that is not there, or that does not parse, is not the
     // story file of this screenshot.
     const found = await readFile(insideRoot(process.cwd(), file), "utf8")
       .then((code) =>
-        storiesOf(loadCsf, file, code).find(({ name }) => name === story),
+        storiesOf(csfTools, file, code).find(({ name }) => name === story),
       )
       .catch(() => undefined)
     if (found?.kind)

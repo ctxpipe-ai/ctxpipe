@@ -1,8 +1,7 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
-
+import preview from "../../../../.storybook/preview"
 import { ConnectorsEmptyState } from "./ConnectorsEmptyState"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Connections/EmptyState",
   component: ConnectorsEmptyState,
   decorators: [
@@ -15,20 +14,16 @@ const meta = {
   parameters: {
     layout: "centered",
   },
-} satisfies Meta<typeof ConnectorsEmptyState>
+})
 
-export default meta
-
-type Story = StoryObj<typeof meta>
-
-export const EmptyState: Story = {
+/**
+ * Empty state of the Connectors list, which invites the user to add a
+ * connection: the org has no connections yet.
+ */
+export const EmptyState = meta.story({
   parameters: {
-    review: {
-      kind: "component",
-      purpose:
-        "Empty state of the Connectors list, which invites the user to add a connection: the org has no connections yet.",
-    },
+    review: { kind: "component" },
   },
   args: { onAddConnection: () => {} },
   render: (args) => <ConnectorsEmptyState {...args} />,
-}
+})

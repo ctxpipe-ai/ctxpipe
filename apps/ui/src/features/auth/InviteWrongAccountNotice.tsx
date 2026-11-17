@@ -1,6 +1,11 @@
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 
+/**
+ * The join organization card when the user is signed in with an email other
+ * than the invited one: a warning with both emails and a button to sign out.
+ * Use `InviteAcceptErrorNotice` for an accept that failed for another reason.
+ */
 export function InviteWrongAccountNotice({
   sessionEmail,
   invitationEmail,

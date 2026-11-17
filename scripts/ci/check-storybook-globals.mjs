@@ -104,13 +104,13 @@ const preview = parse(previewPath)
 let previewObject
 visit(preview, (node) => {
   if (
-    ts.isVariableDeclaration(node) &&
-    ts.isIdentifier(node.name) &&
-    node.name.text === "preview" &&
-    node.initializer &&
-    ts.isObjectLiteralExpression(node.initializer)
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "definePreview" &&
+    node.arguments[0] &&
+    ts.isObjectLiteralExpression(node.arguments[0])
   )
-    previewObject = node.initializer
+    previewObject = node.arguments[0]
   if (
     ts.isCallExpression(node) &&
     ts.isIdentifier(node.expression) &&
@@ -133,7 +133,7 @@ visit(preview, (node) => {
 
 if (!previewObject)
   errors.push(
-    `${relative(root, previewPath)}: found no \`const preview = { ... }\` object to check.`,
+    `${relative(root, previewPath)}: found no \`definePreview({ ... })\` object to check.`,
   )
 else
   for (const property of previewObject.properties) {

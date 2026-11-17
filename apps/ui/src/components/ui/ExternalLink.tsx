@@ -3,6 +3,11 @@ import type { ReactNode } from "react"
 
 import { Link } from "@/components/ui/Link"
 
+/**
+ * A link to a page outside ctxpipe (docs, a provider console). It opens in a
+ * new tab, shows an external-link icon and tells a screen reader about the
+ * new tab. Use `Link` for a page inside ctxpipe.
+ */
 export function ExternalLink(props: { href: string; children: ReactNode }) {
   return (
     <Link href={props.href} target="_blank" rel="noreferrer">

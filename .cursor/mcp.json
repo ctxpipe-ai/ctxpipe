@@ -4,10 +4,6 @@
       "type": "streamable-http",
       "url": "https://app.ctxpipe.ai/mcp?orgSlug=ctx-tev"
     },
-    "ctxpipe-storybook": {
-      "type": "streamable-http",
-      "url": "http://127.0.0.1:6006/mcp"
-    },
     "hyperdx": {
       "type": "streamable-http",
       "url": "https://hyperdx.ctxpipe.dev/api/mcp",

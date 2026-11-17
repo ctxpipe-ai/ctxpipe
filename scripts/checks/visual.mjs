@@ -202,12 +202,15 @@ export function visualOptions(
 const property = (node, key) =>
   node?.properties?.find(
     (item) =>
-      item.type === "ObjectProperty" && (item.key.name ?? item.key.value) === key,
+      item.type === "Property" && (item.key.name ?? item.key.value) === key,
   )
 
+// Storybook 11 csf-tools gives ESTree nodes: a literal is a `Literal`.
+const isString = (node) =>
+  node?.type === "Literal" && typeof node.value === "string"
+
 const strings = (node) =>
-  node?.type === "ArrayExpression" &&
-  node.elements.every((item) => item?.type === "StringLiteral")
+  node?.type === "ArrayExpression" && node.elements.every(isString)
     ? node.elements.map((item) => item.value)
     : undefined
 
@@ -223,13 +226,13 @@ function parameterOptions(file, name, annotations) {
   for (const item of visual.properties) {
     const key = item.key?.name ?? item.key?.value
     const value = item.value
-    if (item.type !== "ObjectProperty") fail(" must have literal keys.")
+    if (item.type !== "Property") fail(" must have literal keys.")
     if (key === "skip" || key === "duplicate") {
-      if (value.type !== "StringLiteral" || !value.value.trim())
+      if (!isString(value) || !value.value.trim())
         fail(`.${key} needs a reason (a string literal).`)
       options[key] = value.value
     } else if (key === "maxDiffPixels") {
-      if (value.type !== "NumericLiteral" || !Number.isInteger(value.value))
+      if (value.type !== "Literal" || !Number.isInteger(value.value))
         fail(".maxDiffPixels must be a whole number literal.")
       options.maxDiffPixels = value.value
     } else if (key === "viewports") {
@@ -254,9 +257,9 @@ function parameterOptions(file, name, annotations) {
       for (const rule of value.properties) {
         const name = rule.key?.name ?? rule.key?.value
         if (
-          rule.type !== "ObjectProperty" ||
+          rule.type !== "Property" ||
           !["overflow", "axes", "contrast"].includes(name) ||
-          rule.value.type !== "StringLiteral" ||
+          !isString(rule.value) ||
           !rule.value.value.trim()
         )
           fail(
@@ -289,7 +292,7 @@ function snapshotNames(story, play) {
       node.callee.name === "snapshot"
     ) {
       const [argument] = node.arguments
-      const name = argument?.type === "StringLiteral" ? argument.value : null
+      const name = isString(argument) ? argument.value : null
       if (!name || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name))
         throw new Error(
           `${story}: snapshot() needs a name in kebab case (a string literal), for example snapshot("menu-open").`,

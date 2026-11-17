@@ -17,16 +17,11 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 /**
- * The link opens in a new tab, and a screen reader announces it. It sits in a
- * setup step as its real callers render it.
+ * Link in a connector setup step that the admin follows to a page outside
+ * ctxpipe: the icon and the screen reader name tell that the Atlassian
+ * developer console opens in a new tab.
  */
 export const OpensInNewTab: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Link in a connector setup step that the admin follows to a page outside ctxpipe: the icon and the screen reader name tell that the Atlassian developer console opens in a new tab.",
-    },
-  },
   args: {
     href: "https://developer.atlassian.com/console/myapps/create-3lo-app",
     children: "Atlassian developer console",
