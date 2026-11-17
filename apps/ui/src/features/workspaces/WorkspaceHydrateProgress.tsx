@@ -3,6 +3,8 @@ import { Link } from "@tanstack/react-router"
 
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { TechnicalDetail } from "@/components/ui/TechnicalDetail"
+import { hideSecrets } from "@/lib/hide-secrets"
 
 import { workspaceHydrateView } from "./projection"
 import { retryPrepareWorkspace, workspaceKeys } from "./queries"
@@ -25,6 +27,10 @@ export function WorkspaceHydrateFailedBody(props: {
       })
     },
   })
+  // This reason is copy of ctxpipe for the user, with a link to the fix.
+  const noAccess = workspace.hydrateError?.startsWith(
+    "ctxpipe has no access to this repository.",
+  )
 
   return (
     <div className="w-full max-w-md">
@@ -47,12 +53,9 @@ export function WorkspaceHydrateFailedBody(props: {
             </Button>
           }
         >
-          {workspace.hydrateError ?? "ctxpipe could not read this repository."}
-          {workspace.hydrateError?.startsWith(
-            "ctxpipe has no access to this repository.",
-          ) ? (
+          {noAccess ? (
             <>
-              {" "}
+              {workspace.hydrateError}{" "}
               <Link
                 to="/$orgSlug/connectors"
                 params={{ orgSlug }}
@@ -67,7 +70,17 @@ export function WorkspaceHydrateFailedBody(props: {
                 Open Connectors
               </Link>
             </>
-          ) : null}
+          ) : (
+            <>
+              <p>ctxpipe could not read this repository.</p>
+              {/* The server reason is raw machine text. */}
+              {workspace.hydrateError ? (
+                <TechnicalDetail tone="error" className="mt-2">
+                  {hideSecrets(workspace.hydrateError)}
+                </TechnicalDetail>
+              ) : null}
+            </>
+          )}
         </InlineAlert>
       </div>
     </div>

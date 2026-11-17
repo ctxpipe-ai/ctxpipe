@@ -1,7 +1,9 @@
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Link as TextLink } from "@/components/ui/Link"
+import { TechnicalDetail } from "@/components/ui/TechnicalDetail"
 import { formatElapsed } from "@/features/workspace-upgrades/upgrade-progress"
+import { hideSecrets } from "@/lib/hide-secrets"
 import { useNow } from "@/lib/useNow"
 import { cn } from "@/lib/utils"
 
@@ -73,7 +75,15 @@ export function GraphCard(props: {
             framed={false}
             title="The knowledge graph did not load"
           >
-            {workspace.hydrateError ?? "ctxpipe gives no reason."}
+            <p>
+              Select Try again on the Workspace page. If it fails again, change
+              the Workspace repository.
+            </p>
+            {workspace.hydrateError ? (
+              <TechnicalDetail tone="muted" className="mt-2">
+                {hideSecrets(workspace.hydrateError)}
+              </TechnicalDetail>
+            ) : null}
           </InlineAlert>
         ) : (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">

@@ -208,7 +208,7 @@ export const LoadFailsCollapsed: Story = {
     ...loadFailsParameters,
     review: {
       purpose:
-        "Workspace list in the collapsed side nav rail, where a member opens a Workspace: the first load failed, and Retry loaded the Workspace.",
+        "Workspace list in the collapsed side nav rail, where a member opens a Workspace: the first load failed, the member pressed Retry, and the Workspace and its chats show as icons.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -234,7 +234,7 @@ export const AddWorkspace: Story = {
   parameters: {
     review: {
       purpose:
-        "Workspace list in the side nav, where a member opens a Workspace or its chats: the Add Workspace dialog is open.",
+        "Workspace list in the side nav, where a member opens a Workspace: the member pressed Add Workspace, so the dialog opens at its first step, before a repository is chosen.",
     },
     msw: {
       handlers: {

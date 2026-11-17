@@ -60,7 +60,7 @@ export const ImagePreview: Story = {
   parameters: {
     review: {
       purpose:
-        "Binary file view in the Files pane, which previews or downloads a file: a small PNG image shows, with its size and an Actual size zoom.",
+        "Image preview in the Files pane, where a member views or downloads a file: the member chose Actual size, so a small PNG shows at its own 96 × 64 px.",
     },
   },
 }

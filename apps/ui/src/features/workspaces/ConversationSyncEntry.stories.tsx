@@ -121,17 +121,17 @@ export const ExistingPrEntry: Story = {
 export const CreatePrWithoutPrEntry: Story = {
   parameters: {
     intent:
-      "Catches a push entry that shows a pull request link when GitHub did not open one. Only the branch link shows. Not for a successful PR.",
+      "Catches a push entry that shows a pull request link when GitHub did not open one. Only the branch link shows, and the entry says that no pull request opened. Not for a successful PR.",
     review: {
       purpose:
-        "Sync entry in a conversation thread, which records a push to GitHub: the push succeeded, but GitHub did not open the pull request.",
+        "Sync entry in a conversation thread, which records a push to GitHub: the member pressed Create PR and the push succeeded, but GitHub did not open the pull request.",
     },
   },
   tags: ["required"],
   args: { sync: { ...base, trigger: "create_pr" } },
   play: async ({ canvasElement }) => {
     const entry = within(canvasElement).getByRole("region", {
-      name: `Pushed 3 files to ${branch}`,
+      name: `Pushed 3 files to ${branch} but GitHub did not open a pull request`,
     })
     await expectLink(entry, branch, treeUrl)
     await expect(within(entry).getAllByRole("link")).toHaveLength(1)

@@ -44,10 +44,13 @@ export function ConversationSyncEntry(props: { sync: ConversationSync }) {
   const { sync } = props
   const pr = sync.pullRequest
   const prText = pr ? `PR #${pr.number}` : ""
+  // Create PR pushed the branch, but GitHub refused or failed the pull request.
+  const prNotOpened = sync.trigger === "create_pr" && !pr
   const summary = [
     pushedText(sync),
     sync.branch,
     pr ? `${pr.opened ? "and opened" : "for"} ${prText}` : "",
+    prNotOpened ? "but GitHub did not open a pull request" : "",
   ]
     .filter(Boolean)
     .join(" ")
@@ -81,6 +84,11 @@ export function ConversationSyncEntry(props: { sync: ConversationSync }) {
             />
           </span>
         </>
+      ) : null}
+      {prNotOpened ? (
+        <span className="shrink-0 text-muted-foreground">
+          but GitHub did not open a pull request
+        </span>
       ) : null}
     </section>
   )

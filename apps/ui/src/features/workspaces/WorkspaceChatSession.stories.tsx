@@ -26,9 +26,6 @@ import {
   reasoningAndToolsMessages,
   reasoningMessages,
   sourceLinkMessages,
-  streamingReasoningAndToolsMessages,
-  streamingReasoningMessages,
-  streamingToolMessages,
 } from "./workspace-fixtures"
 import { WorkspaceChatSession } from "./WorkspaceChatSession"
 
@@ -106,12 +103,12 @@ function threadHandlers(messages: typeof docsConversationDetail.messages) {
 }
 
 export const ThreadLong: Story = {
-  args: threadArgs(longThreadMessages),
+  args: threadArgs(longThreadMessages, "Billing"),
   parameters: {
     msw: threadHandlers(longThreadMessages),
     review: {
       purpose:
-        "Chat session of a Workspace, where a member asks about the code: a long thread with many turns that scrolls to the latest answer.",
+        "Chat session of a Workspace, where a member asks about the code: a member opened a long thread, so it scrolls to the latest answer and the first turns are above the view.",
     },
     storyRoute: threadRoute,
   },
@@ -171,15 +168,109 @@ export const Reasoning: Story = {
   },
 }
 
+/**
+ * A follow-up turn that runs in the screenshot: the member sends `question`,
+ * and the socket answers with `events` after the start of the run. The run
+ * never finishes, so the thread shows the live turn and the Stop button.
+ */
+function liveTurn(
+  question: string,
+  events: object[],
+): Pick<Story, "args" | "beforeEach" | "play"> {
+  return {
+    args: threadArgs(docsConversationDetail.messages, "Billing"),
+    beforeEach: () =>
+      installAguiWebSocket((threadId, runId) => [
+        { type: "RUN_STARTED", threadId, runId },
+        { type: "CUSTOM", name: "sandbox-setup", value: { phase: "starting" } },
+        { type: "CUSTOM", name: "sandbox-setup", value: { phase: "ready" } },
+        ...events,
+      ]).restore,
+    play: async ({ canvasElement }) => {
+      const canvas = within(canvasElement)
+      await userEvent.type(
+        canvas.getByPlaceholderText(/continue the conversation/i),
+        question,
+      )
+      await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+      await canvas.findByRole(
+        "button",
+        { name: "Stop" },
+        {
+          timeout: SEND_WAIT_MS,
+        },
+      )
+      // Each chunk comes 20 ms after the one before it.
+      await new Promise((resolve) =>
+        setTimeout(resolve, (events.length + 3) * 20 + 200),
+      )
+    },
+  }
+}
+
+const liveTurnParameters = {
+  storyRoute: threadRoute,
+  msw: { handlers: { page: [...workspaceShellHandlers()] } },
+}
+
+/** A thought as the backend streams it; an open thought has no end yet. */
+function thoughtEvents(id: string, text: string, open = false): object[] {
+  return [
+    { type: "REASONING_START", messageId: id },
+    { type: "REASONING_MESSAGE_START", messageId: id, role: "reasoning" },
+    { type: "REASONING_MESSAGE_CONTENT", messageId: id, delta: text },
+    ...(open
+      ? []
+      : [
+          { type: "REASONING_MESSAGE_END", messageId: id },
+          { type: "REASONING_END", messageId: id },
+        ]),
+  ]
+}
+
+/** A tool call as the backend streams it; a running call has no result yet. */
+function toolEvents(
+  id: string,
+  name: string,
+  input: object,
+  running = false,
+): object[] {
+  return [
+    {
+      type: "TOOL_CALL_START",
+      toolCallId: id,
+      toolCallName: name,
+      parentMessageId: "msg_live",
+    },
+    { type: "TOOL_CALL_ARGS", toolCallId: id, delta: JSON.stringify(input) },
+    { type: "TOOL_CALL_END", toolCallId: id },
+    ...(running
+      ? []
+      : [
+          {
+            type: "TOOL_CALL_RESULT",
+            messageId: `${id}_result`,
+            toolCallId: id,
+            content: "done",
+            role: "tool",
+          },
+        ]),
+  ]
+}
+
+const refundsThought =
+  "**Finding the refund rules**\n\nThe ledger file names a refunds page. I should read it before I answer."
+
 export const ReasoningStreaming: Story = {
-  args: threadArgs(streamingReasoningMessages, "Ledger"),
+  ...liveTurn("Who can approve a refund?", [
+    ...thoughtEvents("reason_live", refundsThought, true),
+  ]),
   parameters: {
-    msw: threadHandlers(streamingReasoningMessages),
+    ...liveTurnParameters,
     review: {
       purpose:
-        "Chat session of a Workspace, where a member asks about the code: the agent still streams its reasoning block.",
+        "Chat session of a Workspace, where a member asks about the code: the agent still writes its first thought, so the status line names the thought and Stop shows.",
     },
-    storyRoute: threadRoute,
   },
 }
 
@@ -208,14 +299,21 @@ export const ToolUseMany: Story = {
 }
 
 export const ToolUseStreaming: Story = {
-  args: threadArgs(streamingToolMessages, "Repo"),
+  ...liveTurn("Which file holds the refund rules?", [
+    ...toolEvents("tc_live_search", "hybrid_search", { query: "refund rules" }),
+    ...toolEvents(
+      "tc_live_read",
+      "get_file",
+      { filePath: "knowledge/payments/refunds.md" },
+      true,
+    ),
+  ]),
   parameters: {
-    msw: threadHandlers(streamingToolMessages),
+    ...liveTurnParameters,
     review: {
       purpose:
-        "Chat session of a Workspace, where a member asks about the code: a tool call still runs while the answer streams.",
+        "Chat session of a Workspace, where a member asks about the code: the agent searched and still reads a file, so the log counts both tools and Stop shows.",
     },
-    storyRoute: threadRoute,
   },
 }
 
@@ -232,14 +330,27 @@ export const ReasoningAndTools: Story = {
 }
 
 export const ReasoningAndToolsStreaming: Story = {
-  args: threadArgs(streamingReasoningAndToolsMessages, "Ledger"),
+  ...liveTurn("Why ledger.md and not invoices.md?", [
+    ...thoughtEvents(
+      "reason_live",
+      "**Comparing the files**\n\nInvoice documents come from the ledger. I should check the billing docs.",
+    ),
+    ...toolEvents("tc_live_search", "hybrid_search", {
+      query: "ledger vs invoices",
+    }),
+    ...toolEvents(
+      "tc_live_read",
+      "get_file",
+      { filePath: "knowledge/billing/ledger.md" },
+      true,
+    ),
+  ]),
   parameters: {
-    msw: threadHandlers(streamingReasoningAndToolsMessages),
+    ...liveTurnParameters,
     review: {
       purpose:
-        "Chat session of a Workspace, where a member asks about the code: reasoning and tool calls still stream.",
+        "Chat session of a Workspace, where a member asks about the code: the agent thought, searched, and still reads a file, so the log counts each step and Stop shows.",
     },
-    storyRoute: threadRoute,
   },
 }
 
@@ -305,38 +416,20 @@ export const Waiting: Story = {
 }
 
 export const Streaming: Story = {
-  args: threadArgs(docsConversationDetail.messages),
-  beforeEach: () =>
-    installAguiWebSocket((threadId, runId) =>
-      conversationAguiTextEvents({
-        threadId,
-        runId,
-        messageId: "msg_socket",
-        text: "Socket token",
-      }),
-    ).restore,
+  ...liveTurn("Where do refunds go?", [
+    { type: "TEXT_MESSAGE_START", messageId: "msg_live", role: "assistant" },
+    {
+      type: "TEXT_MESSAGE_CONTENT",
+      messageId: "msg_live",
+      delta: "Refunds go through the payments API and reverse the",
+    },
+  ]),
   parameters: {
+    ...liveTurnParameters,
     review: {
       purpose:
-        "Chat session of a Workspace, where a member asks about the code: the member sent a question and the answer streams in.",
+        "Chat session of a Workspace, where a member asks about the code: the member sent a follow-up question, and the first words of the answer stream in while Stop shows.",
     },
-    storyRoute: threadRoute,
-    msw: {
-      handlers: {
-        page: [...workspaceShellHandlers()],
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await userEvent.type(
-      canvas.getByPlaceholderText(/continue the conversation/i),
-      "Stream this",
-    )
-    await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-    await waitFor(() => canvas.getByText(/Socket token/), {
-      timeout: SEND_WAIT_MS,
-    })
   },
 }
 
@@ -440,7 +533,7 @@ export const StoppedBeforeFirstAnswer: Story = {
   parameters: {
     review: {
       purpose:
-        "Chat session of a Workspace, where a member asks about the code: the turn stopped before an answer, and Retry got the answer.",
+        "Chat session of a Workspace, where a member asks about the code: the turn stopped before an answer, the member pressed Retry, and the answer arrived.",
     },
     storyRoute: threadRoute,
     msw: {

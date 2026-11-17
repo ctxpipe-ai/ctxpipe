@@ -341,7 +341,7 @@ export const PrepareFailed: Story = {
     },
     review: {
       purpose:
-        "Workspace page in the org shell, where a member chats with the agent: ctxpipe could not read the repository into this Workspace.",
+        "Workspace page in the org shell, where a member chats with the agent: ctxpipe could not read the repository, so Prepare failed shows Try again and the raw reason beside the settings.",
     },
   },
 }
@@ -748,7 +748,7 @@ export const PublishErrorsToast: Story = {
     },
     review: {
       purpose:
-        "Workspace page in the org shell, with a conversation and the Files pane open: the Sync push failed, and a toast says why.",
+        "Workspace page in the org shell, with a conversation and the Files pane open: the member pressed Sync during a turn, so the push failed and an error toast says why.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -905,7 +905,7 @@ export const SyncAddsThreadEntry: Story = {
     },
     review: {
       purpose:
-        "Workspace page in the org shell, with an open conversation: the Sync push succeeded, and a push entry with a branch link shows after the last turn.",
+        "Workspace page in the org shell, with an open conversation: the member pressed Sync and the push succeeded, so a push entry with a branch link shows after the last turn.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1162,7 +1162,7 @@ export const SingleCreatePrPaneClosed: Story = {
     },
     review: {
       purpose:
-        "Workspace page in the org shell, with an open conversation and the tools pane closed: Create PR shows one time, in the conversation header.",
+        "Workspace page in the org shell, with an open conversation and the tools pane closed: the branch is synced and has no pull request, so Create PR shows one time, in the header.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1354,7 +1354,7 @@ export const PaneTabsStayInPlace: Story = {
     },
     review: {
       purpose:
-        "Workspace page in the org shell, with a conversation and the tools pane open: the user switches pane tabs, and no tab moves.",
+        "Workspace page in the org shell, with a conversation and the Files pane open: the member switched pane tabs and came back to Files, and no tab moved.",
     },
   },
   play: async ({ canvasElement }) => {

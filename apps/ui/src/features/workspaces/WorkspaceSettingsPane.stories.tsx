@@ -107,7 +107,7 @@ export const Settings: Story = {
   parameters: {
     review: {
       purpose:
-        "Settings pane of a Workspace, where an owner manages its repository, sources, and upgrades: the default Workspace with one GitHub source.",
+        "Settings pane of a Workspace, where an owner manages its upgrades, sources, graph and repository: everything is up to date, and one GitHub repository is a source.",
     },
   },
 }
@@ -220,7 +220,7 @@ export const SkippedFiles: Story = {
   parameters: {
     review: {
       purpose:
-        "Settings pane of a Workspace: the Knowledge graph card lists the files that the load skipped, and a legacy overlay file shows its cause with no fix button.",
+        "Settings pane of a Workspace, where an owner checks the knowledge graph: the load skipped 3 files, so the card lists each file with its cause; a legacy file has no fix button.",
     },
   },
   args: {
@@ -506,7 +506,7 @@ export const HydrateFailed: Story = {
   parameters: {
     review: {
       purpose:
-        "Settings pane of a Workspace: the knowledge graph did not load, so the Knowledge graph card gives the reason and the summary links to it.",
+        "Settings pane of a Workspace, where an owner checks the knowledge graph: the graph did not load, so the card gives the next step and the raw reason, and the summary links to the card.",
     },
   },
   args: {
@@ -961,9 +961,12 @@ export const RenameRefused: Story = {
 
 export const DeleteConfirmOpen: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends after the delete, when the product leaves this page for Home; DeleteConfirmPending shows the confirmed dialog.",
+    },
     review: {
       purpose:
-        "Settings pane of a Workspace: the owner typed the Workspace name in the delete dialog and confirmed, so the dialog closed.",
+        "Settings pane of a Workspace: the owner typed the Workspace name in the delete dialog and confirmed, so the dialog closed and the delete starts.",
     },
     msw: {
       handlers: {

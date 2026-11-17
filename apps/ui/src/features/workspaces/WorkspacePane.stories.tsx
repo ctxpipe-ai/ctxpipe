@@ -676,7 +676,7 @@ export const LegacyKnowledgeReadOnly: Story = {
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     review: {
       purpose:
-        "Files pane in a conversation, which browses and edits its files: a legacy knowledge file is open, so the reason shows and no editor.",
+        "Files pane in a conversation, which browses and edits its files: the member opened a legacy knowledge file, so the reason shows and the file is read-only.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1121,7 +1121,7 @@ export const GraphPhaseFailed: Story = {
     },
     review: {
       purpose:
-        "Graph pane of a Workspace, which shows its knowledge graph: the graph build failed, so plain error copy and a Try again button show.",
+        "Graph pane of a Workspace, which shows its knowledge graph: the graph build failed, so an error says that ctxpipe builds it again and offers Try again.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1131,7 +1131,7 @@ export const GraphPhaseFailed: Story = {
     )
     expect(
       canvas.getByText(
-        "Could not build the graph. It builds again automatically, or you can try again now.",
+        "ctxpipe builds the graph again by itself. You can also try again now.",
       ),
     ).toBeVisible()
     // The tab fades in for 100 ms when the pane mounts.
@@ -1244,7 +1244,7 @@ export const GraphPhaseReadyStoreUnavailable: Story = {
     },
     review: {
       purpose:
-        "Graph pane of a Workspace, which shows its knowledge graph: the graph is ready, but the graph request fails, so the error shows.",
+        "Graph pane of a Workspace, which shows its knowledge graph: the graph is ready, but the graph request failed, so an error gives a next step, Try again and the server reason.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1461,7 +1461,7 @@ export const ConversationSandboxFiles: Story = {
         page: [
           conversationGitTreeHandler({
             sha: "sandboxsha",
-            paths: ["e2e-session-branch-note.md", "AGENTS.md"],
+            paths: ["refund-policy.md", "AGENTS.md"],
             branch: "ctxpipe/chat/conv_1/1",
           }),
           conversationGitStatusHandler(),
@@ -1479,7 +1479,7 @@ export const ConversationSandboxFiles: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expectWorkspaceFiles(canvas, /e2e-session-branch-note/)
+    await expectWorkspaceFiles(canvas, /refund-policy/)
     // At a wide viewport the conversation header has Create PR, so the pane hides its copy.
     expect(
       canvas.queryByRole("button", { name: "Create PR" }),
@@ -1506,7 +1506,7 @@ export const ConversationMaximizedSync: Story = {
       "Catches a maximized pane with a dirty branch that lacks Sync or shows Create PR. Sync must be the only call to action. Not for a clean branch.",
     review: {
       purpose:
-        "Files pane in a conversation, maximized over the chat: the branch has unpushed changes, so the pane header shows only the Sync button.",
+        "Files pane in a conversation, maximized over the chat: the agent changed files that are not on GitHub yet, so the pane header shows only the Sync button.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -1627,7 +1627,7 @@ export const ConversationCommittedCreatePr: Story = {
     },
     review: {
       purpose:
-        "Files pane in a conversation, maximized over the chat: all commits are on GitHub, so Create PR is the main button in the pane header.",
+        "Files pane in a conversation, maximized over the chat: all commits are on GitHub and no pull request is open, so Create PR is the main button in the pane header.",
     },
   },
   play: async ({ canvasElement }) => {

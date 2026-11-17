@@ -529,8 +529,8 @@ function WorkspaceGraphPaneBody(props: {
               </Button>
             }
           >
-            Could not build the graph. It builds again automatically, or you can
-            try again now.
+            ctxpipe builds the graph again by itself. You can also try again
+            now.
             {rebuild.error ? <> {rebuild.error.message}</> : null}
           </InlineAlert>
         </div>
@@ -544,6 +544,7 @@ function WorkspaceGraphPaneBody(props: {
         graph={workspaceGraphBuilding(query.data) ? undefined : query.data}
         pending={query.isPending}
         error={query.error instanceof Error ? query.error : null}
+        onRetry={() => void query.refetch()}
         onOpenSource={props.onOpenSource}
       />
     </SkeletonSuspense>
