@@ -459,7 +459,7 @@ export const ManageAgainShowsTheNewScope: Story = {
   parameters: {
     review: {
       purpose:
-        "Linear setup wizard opened from Manage a second time: it shows the teams after a merge, not the teams of the first open.",
+        "Linear setup wizard, opened a second time from Manage after the saved scope changed to Operations: Add to Workspaces reads the new scope, not the scope of the first open.",
     },
     msw: {
       handlers: {

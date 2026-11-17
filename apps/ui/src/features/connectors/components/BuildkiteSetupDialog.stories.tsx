@@ -138,7 +138,7 @@ export const TokenRefused: Story = {
   parameters: {
     review: {
       purpose:
-        "Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the connect step shows an error because the token lacks a scope.",
+        "Buildkite setup dialog at the Connect Buildkite step: the admin pressed Connect Buildkite, and Buildkite refused the token because it lacks the read_builds scope.",
     },
     msw: {
       handlers: {
