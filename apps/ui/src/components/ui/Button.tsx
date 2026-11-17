@@ -80,6 +80,11 @@ const button = tv({
       class:
         "border-white/35 bg-transparent text-zinc-500 hover:border-white/35 hover:bg-transparent dark:border-white/35 dark:hover:border-white/35",
     },
+    // Last, so that no text color above shows the label under the spinner.
+    {
+      isPending: true,
+      class: "text-transparent hover:text-transparent",
+    },
   ],
 })
 
