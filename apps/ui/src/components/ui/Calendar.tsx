@@ -37,7 +37,7 @@ export function CalendarGridHeader() {
   return (
     <AriaCalendarGridHeader>
       {(day) => (
-        <CalendarHeaderCell className="text-xs text-neutral-500 font-semibold">
+        <CalendarHeaderCell className="text-xs font-medium text-muted-foreground">
           {day}
         </CalendarHeaderCell>
       )}

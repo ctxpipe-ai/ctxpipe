@@ -40,7 +40,7 @@ const button = tv({
       destructive:
         "bg-destructive font-medium text-white hover:bg-destructive/90 pressed:bg-destructive/80",
       quiet:
-        "border-0 bg-transparent text-zinc-500 hover:bg-foreground/[0.06] hover:text-foreground pressed:bg-foreground/[0.08]",
+        "border-0 bg-transparent text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground pressed:bg-foreground/[0.08]",
       ghost:
         "border-0 bg-transparent text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground pressed:bg-foreground/[0.08]",
       outline:

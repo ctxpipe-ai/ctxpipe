@@ -83,7 +83,8 @@ export const sideNavAccountOrgViewClassNames = {
   avatar: sideNavAccountAvatarClassNames,
   content: "min-w-0 gap-0 leading-none",
   title: "truncate text-sm !font-normal !leading-none text-zinc-300",
-  subtitle: "mt-0.5 truncate text-xs !font-normal !leading-none text-zinc-500",
+  subtitle:
+    "mt-0.5 truncate text-xs !font-normal !leading-none text-muted-foreground",
 }
 
 export const sideNavAccountUserViewClassNames = {
@@ -91,5 +92,6 @@ export const sideNavAccountUserViewClassNames = {
   avatar: sideNavAccountAvatarClassNames,
   content: "min-w-0 gap-0 leading-none",
   title: "truncate text-sm !font-normal !leading-none text-zinc-300",
-  subtitle: "mt-0.5 truncate text-xs !font-normal !leading-none text-zinc-500",
+  subtitle:
+    "mt-0.5 truncate text-xs !font-normal !leading-none text-muted-foreground",
 }
