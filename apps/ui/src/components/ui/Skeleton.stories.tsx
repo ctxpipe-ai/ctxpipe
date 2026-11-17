@@ -79,24 +79,6 @@ export const Row: Story = {
   ),
 }
 
-export const NavList: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Skeleton placeholder that holds the place of content while it loads: four rows of the Workspace list in the nav.",
-    },
-  },
-  render: () => (
-    <div className="w-64 space-y-0.5 bg-zinc-950 py-2" aria-busy>
-      <span className="sr-only">Loading workspaces</span>
-      <SkeletonRow />
-      <SkeletonRow />
-      <SkeletonRow />
-      <SkeletonRow />
-    </div>
-  ),
-}
-
 export const Catalog: Story = {
   parameters: {
     review: {
@@ -167,11 +149,14 @@ const waitAnimation = (bone: HTMLElement) => {
  */
 export const WaitsForDelay: Story = {
   parameters: {
+    visual: {
+      skip: "Behavior test: it ends in the same state as Row.",
+    },
     intent:
       "Catches a skeleton that shows before its delay ends, or that shifts the row height. Bones stay hidden until the delay ends. Not for hold time or content.",
     review: {
       purpose:
-        "Skeleton row that holds the place of content while it loads: the delay just ended and the bones show at the same row height.",
+        "Skeleton row of a list that still loads after the user opened it: the one-second delay ended, so the bones show in the 32 px row box that the empty row kept.",
     },
   },
   tags: ["required"],
@@ -408,7 +393,7 @@ export const SuspenseHoldsMinimum: Story = {
 export const DelayStartsAtFirstPaint: Story = {
   parameters: {
     visual: {
-      skip: "Behavior test: it ends in the same state as WaitsForDelay.",
+      skip: "Behavior test: it ends in the same state as Row.",
     },
     intent:
       "Catches a skeleton delay that starts at hydration. CSS must start the wait at the first paint of the server HTML. Not for hold time or hand-over.",
