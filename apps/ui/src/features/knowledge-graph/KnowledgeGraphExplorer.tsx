@@ -2,10 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { InlineAlert } from "@/components/ui/InlineAlert"
 
-import {
-  type ActivityBuckets,
-  activityBuckets as bucketStamps,
-} from "./activity-buckets"
+import { type ActivityBuckets, activityBuckets } from "./activity-buckets"
 import { GraphWaitState } from "./GraphWaitState"
 import {
   type GraphLinkRow,
@@ -398,9 +395,9 @@ export function KnowledgeGraphExplorer({
   const emptyReason: EmptyReason | null =
     !isLoading && !error && graphPoints.length === 0 ? "no-projection" : null
 
-  const activityBuckets = useMemo<ActivityBuckets | null>(
+  const edgeActivity = useMemo<ActivityBuckets | null>(
     () =>
-      bucketStamps(
+      activityBuckets(
         edgeTimeIndex.map((edge) => edge.stamp),
         { minBuckets: 6, maxBuckets: 24 },
       ),
@@ -498,7 +495,7 @@ export function KnowledgeGraphExplorer({
   const inferredLastUpdatedMs =
     data?.metrics.lastUpdatedAt != null
       ? Date.parse(data.metrics.lastUpdatedAt)
-      : (activityBuckets?.lastStamp ?? null)
+      : (edgeActivity?.lastStamp ?? null)
   const hasLastUpdated =
     inferredLastUpdatedMs != null && Number.isFinite(inferredLastUpdatedMs)
 

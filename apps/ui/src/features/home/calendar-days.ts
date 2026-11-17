@@ -115,13 +115,15 @@ export function formatCalendarDate(date: string): string {
  * One day is one date. The spaces around the dash are plain spaces.
  */
 export function formatCalendarRange(since: string, until: string): string {
+  // A hand-made URL can give the days in reverse; formatRange throws then.
+  const [first, last] = since <= until ? [since, until] : [until, since]
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
     timeZone: "UTC",
   })
-    .formatRange(parseUtcDate(since), parseUtcDate(until))
+    .formatRange(parseUtcDate(first), parseUtcDate(last))
     .replaceAll("\u2009", " ")
 }
 

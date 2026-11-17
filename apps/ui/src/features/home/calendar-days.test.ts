@@ -73,6 +73,12 @@ describe("calendar-days", () => {
     )
   })
 
+  it("formats a reversed range from a hand-made URL in date order", () => {
+    expect(formatCalendarRange("2026-08-20", "2026-08-05")).toBe(
+      "Aug 5 – 20, 2026",
+    )
+  })
+
   it("uses contribution-style levels", () => {
     expect(commitLevel(0)).toBe("none")
     expect(commitLevel(1)).toBe("low")

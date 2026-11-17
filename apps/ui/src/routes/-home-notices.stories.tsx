@@ -83,11 +83,14 @@ const reingest = upgradeItemFixture({
 function homeHandlers(
   role: string,
   items: Parameters<typeof pendingWorkspaceUpgradesHandler>[0],
-  skippedFiles: Record<string, WorkspaceSkippedFile[]> = {},
-  automaticJob?: { status: string; failureReason: string | null },
-  /** Runs when the start request succeeds, so the pending items can change. */
-  onStarted?: () => void,
+  options: {
+    skippedFiles?: Record<string, WorkspaceSkippedFile[]>
+    automaticJob?: { status: string; failureReason: string | null }
+    /** Runs when the start request succeeds, so the pending items can change. */
+    onStarted?: () => void
+  } = {},
 ) {
+  const { skippedFiles = {}, automaticJob, onStarted } = options
   return {
     msw: {
       handlers: {
@@ -267,8 +270,10 @@ export const UpdateOnce: Story = {
     ),
   ],
   parameters: {
-    ...homeHandlers("owner", updateOnceItems, {}, undefined, () => {
-      updateOnceItems.docs = [upgradeItemFixture({ status: "queued" })]
+    ...homeHandlers("owner", updateOnceItems, {
+      onStarted: () => {
+        updateOnceItems.docs = [upgradeItemFixture({ status: "queued" })]
+      },
     }),
     review: {
       purpose:
@@ -343,8 +348,7 @@ export const AlwaysUpdateSlowSave: Story = {
     ...homeHandlers(
       "owner",
       { docs: [upgradeItemFixture()] },
-      {},
-      { status: "running", failureReason: null },
+      { automaticJob: { status: "running", failureReason: null } },
     ),
     review: {
       purpose:
@@ -375,11 +379,12 @@ export const AlwaysUpdateSaveFails: Story = {
     ...homeHandlers(
       "owner",
       { docs: [upgradeItemFixture()] },
-      {},
       {
-        status: "failed",
-        failureReason:
-          "The write stopped before it finished. stdout maxBuffer length exceeded",
+        automaticJob: {
+          status: "failed",
+          failureReason:
+            "The write stopped before it finished. stdout maxBuffer length exceeded",
+        },
       },
     ),
     review: {
@@ -742,7 +747,7 @@ const taxFile: WorkspaceSkippedFile = {
  */
 export const ProblemOnly: Story = {
   parameters: {
-    ...homeHandlers("owner", {}, { handbook: [taxFile] }),
+    ...homeHandlers("owner", {}, { skippedFiles: { handbook: [taxFile] } }),
     review: {
       purpose:
         "Org home page with upgrade and problem notices as toasts: a hydrate problem shows as a warning toast with Fix using agent.",
@@ -797,7 +802,7 @@ export const ProblemLegacyOverlayAndFile: Story = {
     ...homeHandlers(
       "owner",
       {},
-      { handbook: [taxFile, legacyOverlaySkippedFile] },
+      { skippedFiles: { handbook: [taxFile, legacyOverlaySkippedFile] } },
     ),
     review: {
       purpose:
@@ -846,7 +851,11 @@ export const ProblemLegacyOverlayAndFile: Story = {
 /** Only a legacy overlay file: no fix exists, so the toast opens settings. */
 export const ProblemLegacyOverlayOnly: Story = {
   parameters: {
-    ...homeHandlers("owner", {}, { handbook: [legacyOverlaySkippedFile] }),
+    ...homeHandlers(
+      "owner",
+      {},
+      { skippedFiles: { handbook: [legacyOverlaySkippedFile] } },
+    ),
     review: {
       purpose:
         "Org home page with upgrade and problem notices as toasts: only a legacy overlay file has a problem, so the toast opens the settings.",
@@ -874,10 +883,12 @@ export const MixedStack: Story = {
       "owner",
       { docs: [upgradeItemFixture()] },
       {
-        handbook: [
-          taxFile,
-          { path: "knowledge/legal.md", reason: "malformed" },
-        ],
+        skippedFiles: {
+          handbook: [
+            taxFile,
+            { path: "knowledge/legal.md", reason: "malformed" },
+          ],
+        },
       },
     ),
     review: {
@@ -918,7 +929,7 @@ export const CollapsedBothTypes: Story = {
     ...homeHandlers(
       "owner",
       { docs: [upgradeItemFixture(), reingest] },
-      { handbook: [taxFile] },
+      { skippedFiles: { handbook: [taxFile] } },
     ),
     review: {
       purpose:
