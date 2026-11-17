@@ -106,10 +106,6 @@ export type AvailableConnectorEntry = Extract<
 /** The start of a setup that needs no first request. */
 const openSetup = async (): Promise<SetupTarget> => ({})
 
-function ConfluenceOutlineMark({ className }: { className?: string }) {
-  return <ConfluenceMark className={className} variant="outline" />
-}
-
 export const CONNECTOR_REGISTRY: readonly ConnectorEntry[] = [
   {
     id: "github",
@@ -145,7 +141,7 @@ export const CONNECTOR_REGISTRY: readonly ConnectorEntry[] = [
     name: "Confluence",
     description: "Sync pages from selected Confluence spaces.",
     group: "docs",
-    Mark: ConfluenceOutlineMark,
+    Mark: ConfluenceMark,
     availability: "available",
     start: async ({ orgSlug }) => {
       const intent = await registerAtlassianInstallIntent(orgSlug)

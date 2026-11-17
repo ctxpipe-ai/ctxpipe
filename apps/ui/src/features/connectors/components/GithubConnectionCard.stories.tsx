@@ -150,7 +150,7 @@ export const CouldntLoad: Story = {
   parameters: {
     review: {
       purpose:
-        "GitHub connection card on the Connectors page: the installation request failed, so the card could not load.",
+        "GitHub card on the Connectors page: the installation read failed, so a row under the head gives the cause and a Retry button without a click.",
     },
     msw: {
       handlers: {

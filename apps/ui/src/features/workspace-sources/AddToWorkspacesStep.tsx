@@ -63,13 +63,13 @@ export function AddToWorkspacesStep({
         </p>
       </div>
       {replacedConfigPullUrl ? (
-        <InlineAlert variant="warning">
-          This setup was replaced. ctxpipe no longer uses the{" "}
+        <InlineAlert variant="warning" title="This setup was replaced">
+          ctxpipe no longer uses the{" "}
           <ExternalLink href={replacedConfigPullUrl}>
             configuration pull request
           </ExternalLink>{" "}
-          of the earlier setup. Close it, and add {items} to a Workspace here
-          instead.
+          of the earlier setup. Close that pull request on GitHub, then add{" "}
+          {items} to a Workspace below.
         </InlineAlert>
       ) : null}
       {adding.loadFailed ? (

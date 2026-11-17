@@ -26,7 +26,7 @@ export const WaitForInstall: Story = {
     review: {
       kind: "component",
       purpose:
-        "Step of the Confluence setup wizard that waits for the Forge app install: the wizard waits for the install to finish.",
+        "Wait step of the Confluence setup wizard, without the wizard frame: the user opened the Forge install, and the teal loader waits until Atlassian confirms it.",
     },
   },
   render: () => <WaitForInstallStep />,

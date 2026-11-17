@@ -6,7 +6,7 @@ describe("oauthErrorMessage", () => {
   it("maps a known error without description", () => {
     const m = oauthErrorMessage("invalid_code")
     expect(m.title).toBeTruthy()
-    expect(m.description).toContain("Connectors")
+    expect(m.description).toContain("Start the connection again")
   })
 
   it("uses description when present for a known key", () => {
@@ -43,7 +43,20 @@ describe("oauthErrorMessage", () => {
 
   it("falls back for unknown error keys", () => {
     const m = oauthErrorMessage("weird_key_xyz")
-    expect(m.title).toBe("Connection issue")
-    expect(m.description).toContain("weird key xyz")
+    expect(m.title).toBe("Could not link the account")
+    // The next step comes first, then the code for a support request.
+    expect(m.description).toBe(
+      "Start the connection again. The error code is weird_key_xyz.",
+    )
+  })
+
+  it("adds the next step after the text of the provider", () => {
+    const m = oauthErrorMessage(
+      "custom_provider_error",
+      "The app is suspended.",
+    )
+    expect(m.description).toBe(
+      "The app is suspended. Start the connection again.",
+    )
   })
 })

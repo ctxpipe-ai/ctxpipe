@@ -7,6 +7,7 @@ import {
   SkeletonMatchFrame,
 } from "@/components/ui/skeletonMatchStory"
 
+import { ConfluenceMark } from "./ConfluenceMark"
 import {
   ConnectorListItem,
   ConnectorListItemSkeleton,
@@ -104,13 +105,14 @@ export const PendingSetupNarrow: Story = {
   parameters: {
     review: {
       purpose:
-        "Connector row on the Connectors page, with health and actions for one connection: Confluence setup is not finished, at phone width.",
+        "Connector row on the Connectors page at phone width: the Confluence setup is not finished, so the status moves under the name and Remove and the next step wrap below.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
     ...shared,
     name: "Confluence",
+    icon: <ConfluenceMark className="size-5 text-foreground" />,
     health: "setup_pending",
     actionLabel: "Link Atlassian account",
   },
@@ -123,7 +125,8 @@ export const PendingSetupNarrow: Story = {
   ],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const name = await canvas.findByText("Confluence")
+    // The mark has its own <title>; the name is the span of the trigger.
+    const name = await canvas.findByText("Confluence", { selector: "span" })
     await document.fonts.ready
     expect(name.scrollWidth).toBeLessThanOrEqual(name.clientWidth)
     const remove = canvas.getByRole("button", {
@@ -144,26 +147,6 @@ export const PendingSetupNarrow: Story = {
       name: "Link Atlassian account for Confluence",
     })
     expect(action.scrollHeight).toBeLessThanOrEqual(action.clientHeight)
-  },
-}
-
-export const CouldntLoad: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Connector row on the Connectors page, with health and actions for one connection: the status could not load, the row is open with a Retry action.",
-    },
-  },
-  args: {
-    ...shared,
-    health: "couldnt_load",
-    defaultExpanded: true,
-    actionLabel: "Retry",
-    children: (
-      <p className="text-sm text-muted-foreground">
-        Status request failed. Retry, or open setup if this persists.
-      </p>
-    ),
   },
 }
 
@@ -212,7 +195,7 @@ export const ConnectorRowSkeletonMatches: Story = {
   parameters: {
     review: {
       purpose:
-        "Connector row on the Connectors page and its loading skeleton, side by side: the skeleton must have the same size as the loaded row.",
+        "Proof frame for the Connectors page list: the loading skeleton row above a loaded, collapsed GitHub row, which must have the same box so the list does not jump.",
     },
     intent:
       "Catches a connector list skeleton row whose size differs from the loaded row. This causes layout shift. Not for connector data or health states.",

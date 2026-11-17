@@ -23,7 +23,7 @@ export const MidFlow: Story = {
   parameters: {
     review: {
       purpose:
-        "Step list of the Confluence connector setup, which shows progress through the setup: the user is on the third step.",
+        "Step list at the top of the Confluence setup wizard: the first two steps are done, and the user works on the third step, Add to Workspaces.",
     },
   },
   render: () => (

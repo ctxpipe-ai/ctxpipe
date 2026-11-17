@@ -233,7 +233,7 @@ export const CaptureWorkspace: Story = {
   parameters: {
     review: {
       purpose:
-        "Slack setup dialog at the Workspaces step: the step explains how an @mention captures a thread and offers no repository picker.",
+        "Slack setup dialog at its last step, Add to Workspaces: a box explains how an @mention of the bot saves a thread, and no Workspace is selected yet.",
     },
     msw: {
       handlers: {

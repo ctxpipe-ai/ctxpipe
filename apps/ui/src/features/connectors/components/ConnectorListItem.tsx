@@ -9,6 +9,7 @@ import {
   useRef,
   useState,
 } from "react"
+import { Button as AriaButton } from "react-aria-components"
 
 import { AlertDialog } from "@/components/ui/AlertDialog"
 import { Button } from "@/components/ui/Button"
@@ -23,6 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Modal, useIsModalOpen } from "@/components/ui/Modal"
 import { Skeleton, SkeletonChain, SkeletonText } from "@/components/ui/Skeleton"
+import { focusRing } from "@/lib/react-aria-utils"
 
 import { connectionAnchorId, scrollToConnection } from "../connectionAnchor"
 import type { ConnectorHealth } from "../connectorHealth"
@@ -191,7 +193,20 @@ export function ConnectorListItem({
 }) {
   const [removeOpen, setRemoveOpen] = useState(false)
   const pending = health === "setup_pending"
+  // The status read failed: the cause and Retry show without a click.
+  const failed = health === "couldnt_load"
   const action = actionLabel && onAction ? { actionLabel, onAction } : null
+  // The step action of a row below the head (a draft, or a failed status).
+  const rowAction = action ? (
+    <Button
+      variant="secondary"
+      className="whitespace-nowrap"
+      aria-label={`${action.actionLabel} for ${name}`}
+      onPress={action.onAction}
+    >
+      {action.actionLabel}
+    </Button>
+  ) : null
   const triggerRef = useRef<HTMLButtonElement>(null)
   const markedHintId = useId()
   const modalOpen = useIsModalOpen()
@@ -258,16 +273,15 @@ export function ConnectorListItem({
                 >
                   Remove
                 </Button>
-                {action ? (
-                  <Button
-                    variant="secondary"
-                    className="whitespace-nowrap"
-                    aria-label={`${action.actionLabel} for ${name}`}
-                    onPress={action.onAction}
-                  >
-                    {action.actionLabel}
-                  </Button>
-                ) : null}
+                {rowAction}
+              </div>
+            ) : null}
+            {failed ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] px-3 py-2.5 sm:pl-14">
+                <p className="text-sm text-muted-foreground">
+                  The status check of this connection failed.
+                </p>
+                {rowAction}
               </div>
             ) : null}
           </div>
@@ -281,15 +295,20 @@ export function ConnectorListItem({
                   <dd className="mt-1 text-foreground">{workspace}</dd>
                 </div>
               </dl>
-              {action && !pending ? (
+              {action && !pending && !failed ? (
                 <div className="flex justify-end">
-                  <button
-                    type="button"
-                    className="text-sm text-teal-400 underline-offset-4 transition-colors hover:text-teal-300 hover:underline"
-                    onClick={action.onAction}
+                  <AriaButton
+                    className={(renderProps) =>
+                      focusRing({
+                        ...renderProps,
+                        className:
+                          "rounded-md text-sm text-teal-400 underline-offset-4 transition-colors hover:text-teal-300 hover:underline",
+                      })
+                    }
+                    onPress={action.onAction}
                   >
                     {action.actionLabel}
-                  </button>
+                  </AriaButton>
                 </div>
               ) : null}
             </div>
