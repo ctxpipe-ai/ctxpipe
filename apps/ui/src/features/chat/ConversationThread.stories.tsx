@@ -368,29 +368,31 @@ export const ChatProgressSpacing: Story = {
 }
 
 /** Three earlier turns about the Docker setup, long enough to scroll. */
-const earlierTurns: ChatMessage[] = [
+const earlierTurns: ChatMessage[] = (
   [
-    "Where is the local Docker setup described?",
-    "The knowledge unit knowledge/dev/docker.md describes the local setup. It lists the services of docker-compose.yml: Postgres on port 5433, FalkorDB on port 6379, and the OpenTelemetry collector on port 4318. It also says that `pnpm dev:infra` starts these services and that `pnpm dev` starts the backend and the UI on the host.",
-  ],
-  [
-    "Which profile starts the production images?",
-    "The deploy profile starts the production images. Run `pnpm start` to use it. The infra profile starts only the databases and the collector, so you run the backend and the UI on the host. Two more units, knowledge/dev/compose-profiles.md and knowledge/ops/deploy.md, repeat parts of this text with older port numbers.",
-  ],
-  [
-    "Are the older port numbers still used anywhere?",
-    "No. The compose file uses port 5433 for Postgres since the change to parallel worktrees. The older units still name port 5432. They also describe a database per developer, which the setup no longer uses: each linked worktree now gets its own database on the shared Postgres.",
-  ],
-].flatMap(([question, answer], index) => [
+    [
+      "Where is the local Docker setup described?",
+      "The knowledge unit knowledge/dev/docker.md describes the local setup. It lists the services of docker-compose.yml: Postgres on port 5433, FalkorDB on port 6379, and the OpenTelemetry collector on port 4318. It also says that `pnpm dev:infra` starts these services and that `pnpm dev` starts the backend and the UI on the host.",
+    ],
+    [
+      "Which profile starts the production images?",
+      "The deploy profile starts the production images. Run `pnpm start` to use it. The infra profile starts only the databases and the collector, so you run the backend and the UI on the host. Two more units, knowledge/dev/compose-profiles.md and knowledge/ops/deploy.md, repeat parts of this text with older port numbers.",
+    ],
+    [
+      "Are the older port numbers still used anywhere?",
+      "No. The compose file uses port 5433 for Postgres since the change to parallel worktrees. The older units still name port 5432. They also describe a database per developer, which the setup no longer uses: each linked worktree now gets its own database on the shared Postgres.",
+    ],
+  ] satisfies [string, string][]
+).flatMap(([question, answer], index) => [
   {
     id: `msg_scroll_u${index}`,
     role: "user" as const,
-    parts: [{ type: "text" as const, content: question ?? "" }],
+    parts: [{ type: "text" as const, content: question }],
   },
   {
     id: `msg_scroll_a${index}`,
     role: "assistant" as const,
-    parts: [{ type: "text" as const, content: answer ?? "" }],
+    parts: [{ type: "text" as const, content: answer }],
   },
 ])
 

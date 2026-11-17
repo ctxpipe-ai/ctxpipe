@@ -28,6 +28,7 @@ import { OrganizationPicker } from "@/features/auth/OrganizationPicker"
 import { userClient } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
 import { useListOrganizations } from "@/lib/auth-client"
+import { asSentence } from "@/lib/sentence"
 import { cn } from "@/lib/utils"
 import { useHyperDxScreenError } from "@/providers/HyperDxProvider"
 
@@ -96,7 +97,10 @@ export function ConnectedAppsCard() {
       ].$delete({ param: { consentId: id } })
       // The message of an answer with no error text: the cause, not the
       // title of the alert again.
+      // A 404: the app was revoked already, so the revoke is done.
       await readApiJson(res, {
+        emptyOn: [404],
+        empty: undefined,
         message: "The server had an error",
       })
     },
@@ -383,7 +387,7 @@ function RevokeModal(props: {
           </DialogHeader>
           {error ? (
             <InlineAlert variant="error" title="The app still has access">
-              {error}. Try again.
+              {asSentence(error)} Try again.
             </InlineAlert>
           ) : null}
           <div className="flex justify-end gap-2">

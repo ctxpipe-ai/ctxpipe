@@ -85,6 +85,8 @@ function homeHandlers(
   items: Parameters<typeof pendingWorkspaceUpgradesHandler>[0],
   skippedFiles: Record<string, WorkspaceSkippedFile[]> = {},
   automaticJob?: { status: string; failureReason: string | null },
+  /** Runs when the start request succeeds, so the pending items can change. */
+  onStarted?: () => void,
 ) {
   return {
     msw: {
@@ -114,7 +116,7 @@ function homeHandlers(
               skippedFiles: skippedFiles[slug] ?? [],
             })
           }),
-          workspaceUpgradeStartHandler({ requests }),
+          workspaceUpgradeStartHandler({ requests, onStarted }),
           ...workspaceUpgradeAutomaticHandlers({
             requests,
             ...(automaticJob ? { job: automaticJob } : {}),
@@ -246,7 +248,6 @@ export const ToastTakesNoSpaceAfterItGoes: Story = {
 
 /** The pending items of UpdateOnce: the start queues the item. */
 const updateOnceItems = { docs: [upgradeItemFixture()] }
-const updateOnceHandlers = homeHandlers("owner", updateOnceItems)
 
 /**
  * Update once starts this item with the existing start API. The server
@@ -260,24 +261,15 @@ export const UpdateOnce: Story = {
     (Story) => (
       <>
         <Story />
-        <Toaster />
+        {/* The props of the Toaster of the app root. */}
+        <Toaster richColors position="top-center" />
       </>
     ),
   ],
   parameters: {
-    msw: {
-      handlers: {
-        ...updateOnceHandlers.msw.handlers,
-        page: [
-          // The server queues the item. No answer here: the start handler
-          // below answers and records the request.
-          http.post(/\/upgrades\/[^/]+\/start$/, () => {
-            updateOnceItems.docs = [upgradeItemFixture({ status: "queued" })]
-          }),
-          ...updateOnceHandlers.msw.handlers.page,
-        ],
-      },
-    },
+    ...homeHandlers("owner", updateOnceItems, {}, undefined, () => {
+      updateOnceItems.docs = [upgradeItemFixture({ status: "queued" })]
+    }),
     review: {
       purpose:
         "Home with an upgrade toast: the owner pressed Update once, so the upgrade is queued, the toast went away, and a message says that ctxpipe prepares a pull request.",

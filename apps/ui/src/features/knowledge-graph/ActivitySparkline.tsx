@@ -4,12 +4,7 @@ import { scaleBand } from "@tanstack/charts/scales/band"
 import { scaleLinear } from "@tanstack/charts/scales/linear"
 import { useMemo } from "react"
 
-export type ActivityBuckets = {
-  counts: number[]
-  rangeStart: number
-  rangeEnd: number
-  total: number
-}
+import type { ActivityBuckets } from "./activity-buckets"
 
 const DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
   month: "short",

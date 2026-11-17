@@ -705,22 +705,24 @@ export const ResetClearsEveryFilter: Story = {
 }
 
 /** Twelve Docs commits, one per day back from Aug 26. */
-const twelveCommits: WorkspaceActivityCommit[] = [
-  ["3f9c2a1e", "Document billing ledger rules"],
-  ["b71d04c6", "Clarify session cookie policy"],
-  ["0e5a9f23", "Add on-call severity notes"],
-  ["c48b17d9", "Refresh payments API claims"],
-  ["9a2e6b70", "Describe the refund approval flow"],
-  ["5d13f8ce", "Fix links in the deploy runbook"],
-  ["e6047b2a", "Add the Postgres backup schedule"],
-  ["71c9ad35", "Merge the two Docker setup units"],
-  ["2b8e51f4", "Rename the incident review template"],
-  ["d4f0c6a8", "Note the new rate limits of the API"],
-  ["8c37e19b", "Remove the retired search service"],
-  ["a95b2d07", "Import handbook welcome page"],
-].map(([sha, subject], index) => ({
+const twelveCommits: WorkspaceActivityCommit[] = (
+  [
+    ["3f9c2a1e", "Document billing ledger rules"],
+    ["b71d04c6", "Clarify session cookie policy"],
+    ["0e5a9f23", "Add on-call severity notes"],
+    ["c48b17d9", "Refresh payments API claims"],
+    ["9a2e6b70", "Describe the refund approval flow"],
+    ["5d13f8ce", "Fix links in the deploy runbook"],
+    ["e6047b2a", "Add the Postgres backup schedule"],
+    ["71c9ad35", "Merge the two Docker setup units"],
+    ["2b8e51f4", "Rename the incident review template"],
+    ["d4f0c6a8", "Note the new rate limits of the API"],
+    ["8c37e19b", "Remove the retired search service"],
+    ["a95b2d07", "Import handbook welcome page"],
+  ] satisfies [string, string][]
+).map(([sha, subject], index) => ({
   sha: `${sha}${"0".repeat(32)}`,
-  subject: subject ?? "",
+  subject,
   authorName: index % 2 ? "Lin" : "Ada",
   committedAt: new Date(Date.UTC(2026, 7, 26 - index, 12)).toISOString(),
   htmlUrl: null,

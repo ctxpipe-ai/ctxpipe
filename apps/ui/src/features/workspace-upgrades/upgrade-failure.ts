@@ -1,3 +1,5 @@
+import { asSentence } from "@/lib/sentence"
+
 import type { WorkspaceUpgradeItem } from "./queries"
 
 export type UpgradeFailure = NonNullable<WorkspaceUpgradeItem["failure"]>
@@ -103,11 +105,6 @@ export function upgradeFailureAllowsStartAgain(
   item: Pick<WorkspaceUpgradeItem, "failure">,
 ): boolean {
   return !item.failure || upgradeFailureCopy(item.failure).startAgain !== false
-}
-
-/** A recorded cause as a sentence: raw error text often has no period. */
-function asSentence(text: string): string {
-  return text.replace(/[.!?]?\s*$/, ".")
 }
 
 /** The chat prompt of "Fix using agent" for a failed upgrade. */

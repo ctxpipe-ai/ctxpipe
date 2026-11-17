@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { InlineAlert } from "@/components/ui/InlineAlert"
 
-import type { ActivityBuckets } from "./ActivitySparkline"
+import {
+  type ActivityBuckets,
+  activityBuckets as bucketStamps,
+} from "./activity-buckets"
 import { GraphWaitState } from "./GraphWaitState"
 import {
   type GraphLinkRow,
@@ -395,29 +398,14 @@ export function KnowledgeGraphExplorer({
   const emptyReason: EmptyReason | null =
     !isLoading && !error && graphPoints.length === 0 ? "no-projection" : null
 
-  const activityBuckets = useMemo<ActivityBuckets | null>(() => {
-    if (edgeTimeIndex.length === 0) return null
-    const min = edgeTimeIndex[0]?.stamp
-    const max = edgeTimeIndex.at(-1)?.stamp
-    if (min == null || max == null) return null
-    const WEEK = 7 * 24 * 60 * 60 * 1000
-    const span = Math.max(max - min, WEEK)
-    const bucketCount = Math.min(24, Math.max(6, Math.ceil(span / WEEK)))
-    const bucketSize = span / bucketCount
-    const counts = new Array<number>(bucketCount).fill(0)
-    for (const { stamp: t } of edgeTimeIndex) {
-      const idx = Math.min(bucketCount - 1, Math.floor((t - min) / bucketSize))
-      counts[idx] = (counts[idx] ?? 0) + 1
-    }
-    // The buckets cover `span`, which is at least one week, also when all
-    // the stamps are on one day.
-    return {
-      counts,
-      rangeStart: min,
-      rangeEnd: min + span,
-      total: edgeTimeIndex.length,
-    }
-  }, [edgeTimeIndex])
+  const activityBuckets = useMemo<ActivityBuckets | null>(
+    () =>
+      bucketStamps(
+        edgeTimeIndex.map((edge) => edge.stamp),
+        { minBuckets: 6, maxBuckets: 24 },
+      ),
+    [edgeTimeIndex],
+  )
 
   const selectionInspector = useMemo<SelectionInspectorModel | null>(() => {
     if (!graphSelection) return null
@@ -510,7 +498,7 @@ export function KnowledgeGraphExplorer({
   const inferredLastUpdatedMs =
     data?.metrics.lastUpdatedAt != null
       ? Date.parse(data.metrics.lastUpdatedAt)
-      : (activityBuckets?.rangeEnd ?? null)
+      : (activityBuckets?.lastStamp ?? null)
   const hasLastUpdated =
     inferredLastUpdatedMs != null && Number.isFinite(inferredLastUpdatedMs)
 

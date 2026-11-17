@@ -5,7 +5,7 @@ import {
   useLocation,
   useNavigate,
 } from "@tanstack/react-router"
-import { useMemo } from "react"
+import { type ReactNode, useMemo } from "react"
 
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -109,10 +109,7 @@ export function GitHubSetupPageContent({ orgSlug }: { orgSlug: string }) {
 
   if (installationQuery.isError) {
     return (
-      <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-        <h1 className="mb-6 text-xl font-medium tracking-tight text-foreground">
-          Finish connecting GitHub
-        </h1>
+      <FinishConnectingFrame>
         <InlineAlert
           variant="error"
           title="Could not check GitHub"
@@ -134,17 +131,14 @@ export function GitHubSetupPageContent({ orgSlug }: { orgSlug: string }) {
             Close wizard
           </Button>
         </div>
-      </main>
+      </FinishConnectingFrame>
     )
   }
 
   if (!installationLinked) {
     return (
-      <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-        <h1 className="text-xl font-medium tracking-tight text-foreground">
-          Finish connecting GitHub
-        </h1>
-        <p className="mt-3 max-w-prose text-sm leading-relaxed text-muted-foreground">
+      <FinishConnectingFrame>
+        <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">
           The GitHub App is not installed yet. Complete the install on the
           Connectors page.
         </p>
@@ -154,7 +148,7 @@ export function GitHubSetupPageContent({ orgSlug }: { orgSlug: string }) {
             Open Connectors
           </Button>
         </div>
-      </main>
+      </FinishConnectingFrame>
     )
   }
 
@@ -172,6 +166,18 @@ export function GitHubSetupPageContent({ orgSlug }: { orgSlug: string }) {
         }}
         onClose={goBack}
       />
+    </main>
+  )
+}
+
+/** The page frame and title of the states before the user picks a Workspace. */
+function FinishConnectingFrame(props: { children: ReactNode }) {
+  return (
+    <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
+      <h1 className="mb-3 text-xl font-medium tracking-tight text-foreground">
+        Finish connecting GitHub
+      </h1>
+      {props.children}
     </main>
   )
 }

@@ -6,6 +6,7 @@ import { Button as RACButton } from "react-aria-components"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/Button"
+import { TechnicalDetail } from "@/components/ui/TechnicalDetail"
 import { ToastStack } from "@/components/ui/ToastStack"
 import { workspaceUpgradesHref } from "@/features/workspace-upgrades/format-gate"
 import {
@@ -33,6 +34,7 @@ import type {
   WorkspaceSkippedFile,
 } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
+import { hideSecrets } from "@/lib/hide-secrets"
 import { useIsOrgAdmin } from "@/lib/org-member-role"
 import {
   withDismissedUpgrade,
@@ -114,11 +116,11 @@ function UpgradeToast(props: {
                 ? "ctxpipe saved the setting. The upgrade starts in a moment."
                 : upgradeToastLine(item)}
         </p>
-        {/* The cause is raw error text: a mono line under the message. */}
+        {/* The cause is raw error text: the house block for machine detail. */}
         {saveFailed && job.data?.failureReason ? (
-          <p className="mt-1 max-h-10 overflow-y-auto break-words font-mono text-xs text-muted-foreground">
-            {job.data.failureReason}
-          </p>
+          <TechnicalDetail className="mt-1.5">
+            {hideSecrets(job.data.failureReason)}
+          </TechnicalDetail>
         ) : null}
         {isAdmin === false ? (
           <p className="text-xs text-muted-foreground">{MEMBER_ASK_ADMIN}</p>
