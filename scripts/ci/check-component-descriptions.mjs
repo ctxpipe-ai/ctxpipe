@@ -7,12 +7,15 @@
 // component with the same meaning.
 //
 // A component is an exported PascalCase function in a `.tsx` file under
-// apps/ui/src (not a story or a test): a function declaration, a `const` with
-// an arrow or function expression, or a `const` with a function of the file or
-// a call that wraps one (`memo(Body)`), or a `const` with a `memo` or
-// `forwardRef` call of any component, also an imported one. Parentheses,
-// `as` and `satisfies` around the value do not change it. The JSDoc must have
-// text before its tags.
+// apps/ui/src (not a story or a test). It has one of these forms:
+//   - a function declaration;
+//   - a `const` with an arrow function or a function expression;
+//   - a `const` with a function of the file, or with a call that wraps one
+//     (`memo(Body)`);
+//   - a `const` with a `memo` or `forwardRef` call, also of an imported
+//     component.
+// Parentheses, `as` and `satisfies` around the value do not change the form.
+// The JSDoc must have text before its tags.
 //
 // The components that had no description before the check are in
 // component-descriptions-allowlist.json. The check fails for a component that
