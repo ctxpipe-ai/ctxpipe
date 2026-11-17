@@ -568,7 +568,7 @@ function WorkspaceFileTreeMenu(props: {
         popoverClassName="rounded-md border-zinc-800 bg-zinc-900"
       >
         <Button
-          variant="ghost"
+          variant="quiet"
           size="icon-sm"
           aria-label={`${props.item.name} actions`}
           className="sr-only"

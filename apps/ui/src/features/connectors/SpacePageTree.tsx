@@ -262,7 +262,7 @@ function SpaceNode({
         >
           <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 wrap-break-word">
             <span className="min-w-0">{space.name}</span>
-            <span className="shrink-0 text-xs font-mono font-normal text-zinc-500">
+            <span className="shrink-0 text-xs font-mono font-normal text-muted-foreground">
               {space.key}
             </span>
           </span>
@@ -281,15 +281,12 @@ function SpaceNode({
       {showPanel ? (
         <div className="border-t border-border pb-2">
           {isSelected && isAllPages && !isSearching ? (
-            <p className="px-4 pb-1 pt-2 text-xs text-zinc-600">
-              All pages included.{" "}
-              <span className="text-zinc-500">
-                Click a page to select specific pages instead.
-              </span>
+            <p className="px-4 pb-1 pt-2 text-xs text-muted-foreground">
+              All pages included. Click a page to select specific pages instead.
             </p>
           ) : null}
           {isSpecific && !isSearching ? (
-            <p className="px-4 pb-1 pt-2 text-xs text-zinc-600">
+            <p className="px-4 pb-1 pt-2 text-xs text-muted-foreground">
               Specific pages selected.{" "}
               <button
                 type="button"
@@ -311,7 +308,7 @@ function SpaceNode({
             </div>
           ) : null}
           {!isFetching && displayPages.length === 0 ? (
-            <p className="px-4 py-2 text-xs text-zinc-600">
+            <p className="px-4 py-2 text-xs text-muted-foreground">
               {isSearching
                 ? `No pages match "${search}".`
                 : "No root-level pages found."}
@@ -398,7 +395,9 @@ function PersonalSpacesGroup({
             ].join(" ")}
           />
           Personal spaces
-          <span className="text-xs text-zinc-600">({spaces.length})</span>
+          <span className="text-xs text-muted-foreground">
+            ({spaces.length})
+          </span>
         </span>
         {selectedCount > 0 ? (
           <span className="rounded-md border border-border px-1.5 py-0.5 text-xs text-foreground">
@@ -564,7 +563,7 @@ export function SpacePageTree({
   const personalSpaces = spaces.filter((space) => space.key.startsWith("~"))
 
   return (
-    <div className="flex h-full min-w-0 flex-col gap-3">
+    <div className="flex h-full min-h-0 min-w-0 flex-col gap-3">
       <div className="relative shrink-0">
         <IconSearch className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
         <input
@@ -579,7 +578,7 @@ export function SpacePageTree({
       <div className="min-h-0 min-w-0 flex-1 space-y-2 overflow-x-hidden overflow-y-auto">
         <div className="min-w-0 overflow-hidden rounded-md border border-border">
           {globalSpaces.length === 0 ? (
-            <p className="px-3 py-2 text-sm text-zinc-500">
+            <p className="px-3 py-2 text-sm text-muted-foreground">
               No team spaces found.
             </p>
           ) : null}

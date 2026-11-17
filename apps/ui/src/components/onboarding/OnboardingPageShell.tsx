@@ -49,7 +49,7 @@ export function OnboardingPageShell({
 
       <a
         href="/.auth/sign-out"
-        className="fixed left-4 top-4 z-20 text-xs text-zinc-500 transition-colors hover:text-teal-400 sm:left-6 sm:top-6"
+        className="fixed left-4 top-4 z-20 text-xs text-muted-foreground transition-colors hover:text-teal-400 sm:left-6 sm:top-6"
       >
         Sign out
       </a>

@@ -4,6 +4,7 @@ import { useState } from "react"
 
 import { Button } from "@/components/ui/Button"
 import { Checkbox } from "@/components/ui/Checkbox"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 import { InlineLoader } from "@/components/ui/InlineLoader"
 import { LinearScopeChecklist } from "@/features/connectors/components/linear-setup/LinearScopeChecklist"
 import { LinearMark } from "@/features/connectors/components/LinearMark"
@@ -59,18 +60,19 @@ export function LinearScopeEditor(props: SourceScopeEditorProps) {
     return <InlineLoader label="Loading Linear teams and projects" />
   if (scopesQuery.isError)
     return (
-      <div className="flex flex-col items-start gap-2 text-sm">
-        <p className="text-destructive">
-          Could not load the Linear teams and projects.
-        </p>
-        <Button
-          variant="secondary"
-          className="rounded-md"
-          onPress={() => void scopesQuery.refetch()}
-        >
-          Retry
-        </Button>
-      </div>
+      <InlineAlert
+        variant="error"
+        actions={
+          <Button
+            variant="secondary"
+            onPress={() => void scopesQuery.refetch()}
+          >
+            Retry
+          </Button>
+        }
+      >
+        Could not load the Linear teams and projects.
+      </InlineAlert>
     )
 
   const items = linearChecklistItems(scopesQuery.data, selection)

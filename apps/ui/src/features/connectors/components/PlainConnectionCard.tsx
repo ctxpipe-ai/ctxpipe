@@ -108,11 +108,6 @@ export function PlainConnectionCard({
           Plain to try again.
         </p>
       ) : null}
-      {isError ? (
-        <p className="text-sm text-muted-foreground">
-          Status request failed. Retry, or open setup if this persists.
-        </p>
-      ) : null}
     </ConnectorListItem>
   )
 }

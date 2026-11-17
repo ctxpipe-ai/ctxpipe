@@ -1,43 +1,17 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { type ComponentProps, useState } from "react"
-import { expect, userEvent, waitFor, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { signedInHandlers } from "@/mocks/handlers"
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import { sourceDialogStoryFrame } from "../source-dialog-story-frame"
 import { LinearScopeEditor } from "./linear"
-
-/** The editor with the last scope it reported, as a form holds it. */
-function EditorWithOutput(
-  props: Omit<ComponentProps<typeof LinearScopeEditor>, "onChange">,
-) {
-  const [scope, setScope] = useState<Record<string, unknown> | null>(
-    props.initialScope,
-  )
-  return (
-    <>
-      <LinearScopeEditor {...props} onChange={setScope} />
-      <output
-        aria-label="Scope"
-        className="mt-4 block text-xs text-muted-foreground"
-      >
-        {JSON.stringify(scope)}
-      </output>
-    </>
-  )
-}
 
 const meta = {
   title: "Components/WorkspaceSources/LinearScopeEditor",
-  component: EditorWithOutput,
-  decorators: [
-    (Story) => (
-      <div className="max-w-lg bg-zinc-950 p-4">
-        <Story />
-      </div>
-    ),
-  ],
+  component: LinearScopeEditor,
+  decorators: [sourceDialogStoryFrame],
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -58,15 +32,13 @@ const meta = {
     provider: "linear",
     connectionId: "con_li1",
     initialScope: {},
+    onChange: fn(),
   },
-} satisfies Meta<typeof EditorWithOutput>
+} satisfies Meta<typeof LinearScopeEditor>
 
 export default meta
 
 type Story = StoryObj<typeof meta>
-
-const scopeText = (canvasElement: HTMLElement) =>
-  within(canvasElement).getByRole("status", { name: "Scope" }).textContent
 
 export const PicksTeamsAndProjects: Story = {
   parameters: {
@@ -75,20 +47,20 @@ export const PicksTeamsAndProjects: Story = {
         "Linear scope editor, where the user picks the teams and projects of a Workspace source: the user picks a team and a project and turns off customer requests.",
     },
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: /Engineering/ }),
     )
     await userEvent.click(canvas.getByRole("checkbox", { name: /Q3 launch/ }))
-    await expect(JSON.parse(scopeText(canvasElement) ?? "")).toEqual({
+    await expect(args.onChange).toHaveBeenLastCalledWith({
       teams: ["ENG"],
       projects: ["project-launch"],
     })
     await userEvent.click(
       canvas.getByRole("checkbox", { name: "Include customer requests" }),
     )
-    await expect(JSON.parse(scopeText(canvasElement) ?? "")).toEqual({
+    await expect(args.onChange).toHaveBeenLastCalledWith({
       teams: ["ENG"],
       projects: ["project-launch"],
       customerRequests: "exclude",
@@ -104,12 +76,12 @@ export const EmptySelectionIsNotReady: Story = {
     },
   },
   args: { initialScope: { teams: ["ENG"] } },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     const team = await canvas.findByRole("checkbox", { name: /Engineering/ })
     await expect(team).toBeChecked()
     await userEvent.click(team)
-    await expect(scopeText(canvasElement)).toBe("null")
+    await expect(args.onChange).toHaveBeenLastCalledWith(null)
     await expect(
       canvas.getByText("Select at least one team or project."),
     ).toBeVisible()
@@ -126,7 +98,7 @@ export const EditsAnExistingScope: Story = {
   args: {
     initialScope: { teams: ["ops", "OLD"], customerRequests: "exclude" },
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
       expect(
@@ -140,7 +112,7 @@ export const EditsAnExistingScope: Story = {
       canvas.getByRole("checkbox", { name: "Include customer requests" }),
     ).not.toBeChecked()
     await userEvent.click(missing)
-    await expect(JSON.parse(scopeText(canvasElement) ?? "")).toEqual({
+    await expect(args.onChange).toHaveBeenLastCalledWith({
       teams: ["OPS"],
       customerRequests: "exclude",
     })
@@ -151,17 +123,16 @@ export const LoadError: Story = {
   parameters: {
     review: {
       purpose:
-        "Linear scope editor, where the user picks the teams and projects of a Workspace source: the teams and projects did not load, so an error with Retry shows.",
+        "Linear scope editor in the Add source dialog: the request for the Linear teams and projects failed, so an error alert with Retry stands in place of the list.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: { handlers: { page: [linearAvailableScopesHandler("error")] } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
-      expect(
-        canvas.getByText("Could not load the Linear teams and projects."),
-      ).toBeVisible(),
+      expect(canvas.getByRole("alert")).toHaveTextContent(
+        "Could not load the Linear teams and projects.",
+      ),
     )
     await expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible()
   },

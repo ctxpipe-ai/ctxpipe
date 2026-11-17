@@ -107,9 +107,7 @@ export function ConfluenceConnectionCard({
       }
       sync={sync}
       name="Confluence"
-      icon={
-        <ConfluenceMark className="size-5 text-foreground" variant="outline" />
-      }
+      icon={<ConfluenceMark className="size-5 text-foreground" />}
       health={health}
       remove={{
         description:
@@ -131,12 +129,6 @@ export function ConfluenceConnectionCard({
             ? undefined
             : onOpenWizard
       }
-    >
-      {isError ? (
-        <p className="text-sm text-muted-foreground">
-          Status request failed. Retry, or open setup if this persists.
-        </p>
-      ) : null}
-    </ConnectorListItem>
+    />
   )
 }

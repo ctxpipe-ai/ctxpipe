@@ -8,7 +8,7 @@ import { OAuthConsent } from "./OAuthConsent"
 
 const organizations = [
   { id: "org_north", name: "North Labs", slug: "north-labs" },
-  { id: "org_south", name: "South Works", slug: "south-works" },
+  { id: "org_harbor", name: "Harbor Systems", slug: "harbor-systems" },
 ]
 
 const meta = {
@@ -51,15 +51,15 @@ export const ConsentOrgPicker: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
     const north = await canvas.findByRole("checkbox", { name: /North Labs/ })
-    const south = canvas.getByRole("checkbox", { name: /South Works/ })
+    const harbor = canvas.getByRole("checkbox", { name: /Harbor Systems/ })
     // The current org is ticked; the other org is not.
     await expect(north).toBeChecked()
-    await expect(south).not.toBeChecked()
-    await userEvent.click(south)
+    await expect(harbor).not.toBeChecked()
+    await userEvent.click(harbor)
     await userEvent.click(canvas.getByRole("button", { name: "Allow" }))
     await expect(args.onAllow).toHaveBeenCalledWith(
       ["ctxpipe:read", "offline_access"],
-      ["org_north", "org_south"],
+      ["org_north", "org_harbor"],
     )
   },
 }

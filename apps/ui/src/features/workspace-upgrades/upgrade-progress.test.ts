@@ -168,6 +168,19 @@ describe("upgradeCheckResult", () => {
         2,
       ),
     ).toContain("The Workspace uses format 2. This item needs format 3.")
+    // The Workspace already has the format: the block says that the check is
+    // stale, so the line gives only the time and does not contradict it.
+    expect(
+      upgradeCheckResult(
+        upgradeItemFixture({
+          kind: "reingest",
+          status: "blocked",
+          blockedReason: "needs_format",
+          checkedAt,
+        }),
+        3,
+      ),
+    ).toMatch(/^Last check at [^.]+\.$/)
     expect(
       upgradeCheckResult(
         upgradeItemFixture({ status: "completed", checkedAt }),

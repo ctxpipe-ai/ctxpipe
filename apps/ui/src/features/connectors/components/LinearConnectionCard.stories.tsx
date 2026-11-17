@@ -158,11 +158,6 @@ export const PendingSetup: Story = {
       purpose:
         "Linear connection card on the Connectors page: Linear is not installed yet, so setup is not finished.",
     },
-    visual: {
-      allow: {
-        contrast: "Text below WCAG AA on main (CTX-1278).",
-      },
-    },
     msw: {
       handlers: {
         page: [
@@ -331,7 +326,7 @@ export const SyncNowHiddenForMember: Story = {
   parameters: {
     review: {
       purpose:
-        "Linear connection card on the Connectors page: a plain member opens the actions menu, which has no Sync now item.",
+        "Linear card on the Connectors page: a member who is not an admin opens the actions menu, which holds only Remove connector because Sync now is for admins.",
     },
     msw: {
       handlers: {

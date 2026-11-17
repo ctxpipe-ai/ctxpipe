@@ -393,20 +393,21 @@ function SelectGitHubPanel(props: {
       )}
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-2">
         {accessLine}
-        {props.selectedRepoUrl ? (
-          <Button
-            variant="primary"
-            className="ml-auto shrink-0"
-            isDisabled={props.pending || !props.githubConnectionId}
-            onPress={() => {
-              if (props.selectedRepoUrl) {
-                props.onSubmit(props.selectedRepoUrl, props.githubConnectionId)
-              }
-            }}
-          >
-            {props.submitLabel}
-          </Button>
-        ) : null}
+        {/* Always in view, so the next step shows before a repository is chosen. */}
+        <Button
+          variant="primary"
+          className="ml-auto shrink-0"
+          isDisabled={
+            !props.selectedRepoUrl || props.pending || !props.githubConnectionId
+          }
+          onPress={() => {
+            if (props.selectedRepoUrl) {
+              props.onSubmit(props.selectedRepoUrl, props.githubConnectionId)
+            }
+          }}
+        >
+          {props.submitLabel}
+        </Button>
       </div>
     </div>
   )

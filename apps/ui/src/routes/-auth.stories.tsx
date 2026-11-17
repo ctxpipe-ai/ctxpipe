@@ -80,7 +80,7 @@ export const SignIn: Story = {
   parameters: {
     review: {
       purpose:
-        "Sign-in screen, where a user signs in with email and password: the user is signed out and the form is empty.",
+        "Sign-in page, where a user signs in with email and password: the user is signed out and the form is empty, with links to reset the password and to sign up.",
     },
     route: "/.auth/sign-in",
     storyRoute: {
@@ -144,7 +144,7 @@ export const SignInUnverifiedEmail: Story = {
       "member@example.com",
     )
     await userEvent.type(canvas.getByLabelText("Password"), "password-1234")
-    const login = canvas.getByRole("button", { name: "Login" })
+    const login = canvas.getByRole("button", { name: "Sign in" })
     await userEvent.click(login)
     await waitFor(() =>
       expect(
@@ -287,7 +287,7 @@ export const SelectOrganization: Story = {
   parameters: {
     review: {
       purpose:
-        "OAuth screen, where a signed-in user picks the organization for an app connection: the user has two organizations to choose from.",
+        "OAuth page where a signed-in user picks the org that an app such as Claude can read: the user has two orgs, none is picked yet, so Continue is off.",
     },
     route: "/.auth/select-organization",
     storyRoute: {
@@ -304,7 +304,11 @@ export const SelectOrganization: Story = {
           }),
           organizationListHandler([
             { id: "org_north", name: "North Labs", slug: "north-labs" },
-            { id: "org_south", name: "South Works", slug: "south-works" },
+            {
+              id: "org_harbor",
+              name: "Harbor Systems",
+              slug: "harbor-systems",
+            },
           ]),
           organizationFullWithOrgHandler,
         ],
@@ -322,7 +326,9 @@ export const SelectOrganization: Story = {
       expect(canvas.getByRole("radio", { name: /North Labs/ })).toBeVisible(),
     )
     await waitFor(() =>
-      expect(canvas.getByRole("radio", { name: /South Works/ })).toBeVisible(),
+      expect(
+        canvas.getByRole("radio", { name: /Harbor Systems/ }),
+      ).toBeVisible(),
     )
   },
 }

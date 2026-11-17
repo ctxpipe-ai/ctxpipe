@@ -17,7 +17,8 @@ export const Route = createFileRoute("/onboarding")({
   component: OnboardingPageContent,
 })
 
-const FINISH_ERROR = "Could not finish onboarding. Try again."
+const FINISH_ERROR =
+  "Could not finish onboarding. Try again. If it fails again, sign out, then sign in."
 
 /**
  * A user with no organization reads the welcome slide, then creates one. A

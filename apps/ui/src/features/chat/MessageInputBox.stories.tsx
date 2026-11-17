@@ -88,7 +88,6 @@ export const SuggestionFillsComposer: Story = {
       purpose:
         "Chat message composer with suggested prompts: the user opened the list and picked one, which fills the composer.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   beforeEach: () => {
     writeChatDraft(draftKey, "")

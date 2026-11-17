@@ -1,4 +1,10 @@
-import { IconBrain, IconFile, IconSearch, IconTool } from "@tabler/icons-react"
+import {
+  IconBrain,
+  IconChevronRight,
+  IconFile,
+  IconSearch,
+  IconTool,
+} from "@tabler/icons-react"
 import {
   Fragment,
   type ReactElement,
@@ -181,6 +187,18 @@ function ActivityLog(props: { entries: ActivityEntry[]; status: ReactNode }) {
             <span className="tabular-nums">{chip.label}</span>
           </span>
         ))}
+        {/* The chevron tells that the row opens the log. The shared
+            DisclosureHeader does not fit here: it puts a Heading and a
+            text-sm button with the chevron at the far right, while a chat
+            turn has no heading, the counters are quiet text-xs, and the
+            chevron sits next to them. The press also stops the scroll. */}
+        <IconChevronRight
+          className={cn(
+            "size-3.5 shrink-0 transition-transform",
+            expanded && "rotate-90",
+          )}
+          aria-hidden
+        />
       </AriaButton>
       {expanded ? (
         <section

@@ -453,7 +453,7 @@ export const GuideAdminCreatesWorkspaceOnHome: Story = {
   parameters: {
     review: {
       purpose:
-        "Org home page with the setup guide, which leads a new org through its first steps: Create Workspace opens Add Workspace on Home, and after Done the guide shows the build.",
+        "Home with the Get started guide of a new org: the admin created the first Workspace from the guide, so its row is done and shows the build, and Link code repositories is next.",
     },
     intent:
       "Catches a first workspace creation on the home page that does not update the guide and home. Create must add the workspace and move the guide forward. Not for the guide copy.",
@@ -733,7 +733,7 @@ export const GuideRepositoriesReadOnlyShowsReason: Story = {
   parameters: {
     review: {
       purpose:
-        "Org home page with the setup guide, which leads a new org through its first steps: the Workspace is read-only, so the repositories dialog gives the reason and the next step.",
+        "Add repositories dialog, opened from the Get started guide: the Workspace repository is read-only, so the dialog gives the reason and a link to Workspace settings.",
     },
     msw: {
       handlers: {
@@ -806,7 +806,6 @@ export const GuideRepositoriesWithoutConnectionLinksToConnectors: Story = {
       purpose:
         "Org home page with the setup guide, which leads a new org through its first steps: no GitHub connection yet, so the repositories dialog links to the Connectors page.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         session: sessionDefaults(1),
@@ -935,7 +934,7 @@ export const GuideMemberView: Story = {
   parameters: {
     review: {
       purpose:
-        "Org home page with the setup guide, which leads a new org through its first steps: a member sees only the member steps, and Ask fills the composer.",
+        "Home with the Get started guide of a member: the guide lists only the steps that a member can do, and the member pressed Ask, which put a question into the composer.",
     },
     intent:
       "Catches a member guide that shows admin steps. A member sees only the two member steps, and Ask fills and focuses the composer each time. Not for admin guides.",
@@ -1440,7 +1439,7 @@ export const GuideMemberNoWorkspace: Story = {
   parameters: {
     review: {
       purpose:
-        "Org home page with the setup guide, which leads a new org through its first steps: a member in an org with no Workspace, so the row asks for an admin and has no Create button.",
+        "Home with the Get started guide of a member in an org with no Workspace: the first row asks the member to ask an admin, and the empty activity of the org shows below.",
     },
     msw: {
       handlers: {

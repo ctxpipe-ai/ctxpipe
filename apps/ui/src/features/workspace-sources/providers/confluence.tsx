@@ -56,7 +56,7 @@ export function ConfluenceScopeEditor(props: SourceScopeEditorProps) {
   return (
     <section aria-label={heading} className="flex flex-col gap-2">
       <h3 className="text-sm font-medium text-foreground">{heading}</h3>
-      <div className="flex h-[min(360px,calc(var(--visual-viewport-height)*0.5))] min-h-0 flex-col">
+      <div className="flex max-h-[min(360px,calc(var(--visual-viewport-height)*0.5))] min-h-0 flex-col">
         <SpacePageTree
           orgSlug={orgSlug}
           atlassianConnectionId={connectionId}
@@ -82,9 +82,7 @@ export function ConfluenceScopeEditor(props: SourceScopeEditorProps) {
 
 /** Confluence source UI: the space and page tree of the connection. */
 export const confluenceSourceUi: SourceProviderUi = {
-  Icon: ({ className }) => (
-    <ConfluenceMark className={className} variant="outline" />
-  ),
+  Icon: ConfluenceMark,
   ScopeEditor: ConfluenceScopeEditor,
   memberCanPick: true,
 }

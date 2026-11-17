@@ -87,7 +87,7 @@ export const NotInstalled: Story = {
   parameters: {
     review: {
       purpose:
-        "Org GitHub setup page, where the user picks a Workspace for the GitHub App: the App is not installed, so the page asks to finish the connection.",
+        "GitHub setup page, which opens after the GitHub App install, where an admin picks a Workspace: the App is not installed, so the page sends the admin to Connectors.",
     },
     msw: { handlers: { page: [githubInstallationNoneHandler] } },
   },
@@ -106,7 +106,7 @@ export const CheckFails: Story = {
   parameters: {
     review: {
       purpose:
-        "Org GitHub setup page, where the user picks a Workspace for the GitHub App: the installation check failed and the page offers a retry.",
+        "GitHub setup page, which opens after the GitHub App install, where an admin picks a Workspace: the check of the install failed, so the page gives the cause and Retry.",
     },
     msw: {
       handlers: {

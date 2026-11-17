@@ -214,7 +214,7 @@ export function CompactSourceRow(props: {
           {props.actions.length ? (
             <MenuTrigger placement="bottom end">
               <Button
-                variant="ghost"
+                variant="quiet"
                 size="icon-sm"
                 aria-label={`Actions of ${props.name}`}
                 className="text-muted-foreground opacity-60 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100"
@@ -311,7 +311,7 @@ export function SourceGroupAddButton(props: {
   return (
     <TooltipTrigger delay={200}>
       <Button
-        variant="ghost"
+        variant="quiet"
         size="icon-sm"
         aria-label={props.label}
         onPress={props.onPress}

@@ -176,7 +176,7 @@ export const AddWorkspaceHintWaitsForDialog: Story = {
     },
     review: {
       purpose:
-        "Onboarding hint popover next to the Workspace list in the nav: a dialog closed, and the Add Workspace hint shows after it.",
+        "Workspace list in the side nav, with the one-time hint beside its Add Workspace button: a dialog was open when the hint was due, so the hint showed after it closed.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -243,9 +243,12 @@ export const AddWorkspaceHintSkippedAfterCreating: Story = {
         ],
       },
     },
+    visual: {
+      skip: "Behavior test: it ends on its control, the hint after the session flag is cleared. That is the hint state of AddWorkspaceHintWaitsForDialog.",
+    },
     review: {
       purpose:
-        "Onboarding hint popover next to the Workspace list in the nav: the user created a Workspace, and the hint shows only without the flag.",
+        "Workspace list in the side nav: the user created a Workspace with Add Workspace, so the Add Workspace hint does not show when the dialog closes.",
     },
   },
   play: async ({ canvasElement }) => {

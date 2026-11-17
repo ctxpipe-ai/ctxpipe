@@ -124,8 +124,7 @@ export function NotionSetupDialog({
               Connect Notion
             </h3>
             <p className="mt-2 text-sm text-muted-foreground">
-              Authorize ctxpipe to read the Notion workspace. Then select the
-              pages and databases for each Workspace.
+              Authorize ctxpipe to read your Notion workspace.
             </p>
           </div>
           <Button

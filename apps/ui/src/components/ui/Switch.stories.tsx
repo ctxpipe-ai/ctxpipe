@@ -58,7 +58,7 @@ export const Disabled: Story = {
   parameters: {
     review: {
       purpose:
-        "Switch that turns a setting on or off: the switch is on and disabled, so a press does not change it.",
+        "Automatic upgrades switch of a Workspace, seen by a member who is not an admin: the setting is on, and the switch is disabled, so a press does not change it.",
     },
   },
   render: () => <Controlled defaultSelected isDisabled />,

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
+import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { TechnicalDetail } from "@/components/ui/TechnicalDetail"
 
-import type { ActivityBuckets } from "./ActivitySparkline"
+import { type ActivityBuckets, activityBuckets } from "./activity-buckets"
 import { GraphWaitState } from "./GraphWaitState"
 import {
   type GraphLinkRow,
@@ -86,12 +88,15 @@ export function KnowledgeGraphExplorer({
   graph,
   pending = false,
   error = null,
+  onRetry,
   onOpenSource,
 }: {
   orgSlug: string
   graph: KnowledgeGraphPayload | undefined
   pending?: boolean
   error?: Error | null
+  /** Asks for the graph again after a failed request. */
+  onRetry: () => void
   onOpenSource?: (path: string) => void
 }) {
   const data = graph
@@ -395,27 +400,14 @@ export function KnowledgeGraphExplorer({
   const emptyReason: EmptyReason | null =
     !isLoading && !error && graphPoints.length === 0 ? "no-projection" : null
 
-  const activityBuckets = useMemo<ActivityBuckets | null>(() => {
-    if (edgeTimeIndex.length === 0) return null
-    const min = edgeTimeIndex[0]?.stamp
-    const max = edgeTimeIndex.at(-1)?.stamp
-    if (min == null || max == null) return null
-    const WEEK = 7 * 24 * 60 * 60 * 1000
-    const span = Math.max(max - min, WEEK)
-    const bucketCount = Math.min(24, Math.max(6, Math.ceil(span / WEEK)))
-    const bucketSize = span / bucketCount
-    const counts = new Array<number>(bucketCount).fill(0)
-    for (const { stamp: t } of edgeTimeIndex) {
-      const idx = Math.min(bucketCount - 1, Math.floor((t - min) / bucketSize))
-      counts[idx] = (counts[idx] ?? 0) + 1
-    }
-    return {
-      counts,
-      rangeStart: min,
-      rangeEnd: max,
-      total: edgeTimeIndex.length,
-    }
-  }, [edgeTimeIndex])
+  const edgeActivity = useMemo<ActivityBuckets | null>(
+    () =>
+      activityBuckets(
+        edgeTimeIndex.map((edge) => edge.stamp),
+        { minBuckets: 6, maxBuckets: 24 },
+      ),
+    [edgeTimeIndex],
+  )
 
   const selectionInspector = useMemo<SelectionInspectorModel | null>(() => {
     if (!graphSelection) return null
@@ -508,7 +500,7 @@ export function KnowledgeGraphExplorer({
   const inferredLastUpdatedMs =
     data?.metrics.lastUpdatedAt != null
       ? Date.parse(data.metrics.lastUpdatedAt)
-      : (activityBuckets?.rangeEnd ?? null)
+      : (edgeActivity?.lastStamp ?? null)
   const hasLastUpdated =
     inferredLastUpdatedMs != null && Number.isFinite(inferredLastUpdatedMs)
 
@@ -592,8 +584,24 @@ export function KnowledgeGraphExplorer({
 
       {error ? (
         <div className="absolute left-4 right-4 top-24 z-20 mx-auto max-w-md">
-          <InlineAlert variant="error" title="Could not load graph">
-            {error instanceof Error ? error.message : "Failed to load graph."}
+          <InlineAlert
+            variant="error"
+            title="Could not load graph"
+            actions={
+              <Button variant="primary" onPress={onRetry}>
+                Try again
+              </Button>
+            }
+          >
+            <p>
+              The graph request failed. Try again. If it fails again, reload the
+              page.
+            </p>
+            {error.message ? (
+              <TechnicalDetail tone="error" className="mt-2">
+                {error.message}
+              </TechnicalDetail>
+            ) : null}
           </InlineAlert>
         </div>
       ) : null}

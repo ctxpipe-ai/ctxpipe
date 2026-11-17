@@ -70,7 +70,6 @@ export const Connected: Story = {
       purpose:
         "Buildkite connection card on the Connectors page: connected with the webhook set up, card open with the Manage action.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
@@ -171,7 +170,7 @@ export const RevokedOpensReconnect: Story = {
   parameters: {
     review: {
       purpose:
-        "Buildkite connection card on the Connectors page: Buildkite does not accept the saved token, so the card needs a reconnect.",
+        "Buildkite card on the Connectors page, opened by the admin: Buildkite no longer accepts the saved token, so the status is Needs reconnect and the details end with Reconnect Buildkite.",
     },
     msw: {
       handlers: {

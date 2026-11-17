@@ -1158,7 +1158,7 @@ function GraphControlButton({
 }) {
   return (
     <Button
-      variant="ghost"
+      variant="quiet"
       size="icon-sm"
       aria-label={label}
       aria-pressed={active}

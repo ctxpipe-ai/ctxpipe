@@ -100,7 +100,7 @@ export function RepositoryCard({
             popoverClassName="rounded-md border-border bg-card"
           >
             <Button
-              variant="ghost"
+              variant="quiet"
               size="icon-sm"
               className="rounded-md"
               aria-label="Repository actions"

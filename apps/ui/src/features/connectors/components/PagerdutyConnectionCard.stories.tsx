@@ -114,7 +114,7 @@ export const Connected: Story = {
   parameters: {
     review: {
       purpose:
-        "PagerDuty connection card on the Connectors page: the PagerDuty account is connected and syncs two services to a context repository.",
+        "PagerDuty card on the Connectors page, collapsed: the PagerDuty account is connected, so the status is Connected.",
     },
     msw: { handlers: { page: [pagerdutyStatus(statusComplete)] } },
   },
@@ -179,7 +179,6 @@ export const PendingSetup: Story = {
       purpose:
         "PagerDuty connection card on the Connectors page: the setup is not complete, so the card offers to continue or delete the draft.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [

@@ -65,7 +65,7 @@ export const Connected: Story = {
   parameters: {
     review: {
       purpose:
-        "Plain connection card on the Connectors page: the Plain workspace is connected and the admin opens Manage from the card menu.",
+        "Plain card on the Connectors page, opened by the admin: the Plain workspace is connected and used in one Workspace, and the details end with Manage.",
     },
     msw: { handlers: { page: [plainStatusHandler(plainStoryStatus())] } },
   },
@@ -209,7 +209,7 @@ export const Checking: Story = {
   parameters: {
     review: {
       purpose:
-        "Plain connection card on the Connectors page: the status request is still loading.",
+        "Plain card on the Connectors page right after the page opens: the status read has not returned, so a pulsing gray dot shows Checking.",
     },
     msw: {
       handlers: {

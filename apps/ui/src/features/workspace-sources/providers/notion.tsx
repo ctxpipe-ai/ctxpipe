@@ -175,7 +175,8 @@ export function NotionScopeEditor(props: SourceScopeEditorProps) {
           </CheckboxGroup>
         )}
       </div>
-      {items.length === 0 ? (
+      {/* A failed search shows its error alone: the user cannot select now. */}
+      {items.length === 0 && !resultsQuery.isError ? (
         <p className="text-sm text-muted-foreground">
           Select at least one page or database.
         </p>

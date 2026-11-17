@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/Disclosure"
 import { ExternalLink } from "@/components/ui/ExternalLink"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Spinner } from "@/components/ui/spinner"
 import { TechnicalDetail } from "@/components/ui/TechnicalDetail"
 import { TextField } from "@/components/ui/TextField"
@@ -406,7 +407,7 @@ export function InstallForgeStep({
             />
             <TextField
               label="Atlassian account email"
-              description="Your Atlassian account email—the same address you use for Atlassian. To double-check, click your avatar in the top-right and look in the menu for your email."
+              description="The email of the Atlassian account that creates the API token below. The avatar menu in Atlassian shows it."
               type="email"
               value={forgeOperatorEmail}
               onChange={setForgeOperatorEmail}
@@ -417,14 +418,12 @@ export function InstallForgeStep({
               label="Forge scoped API token"
               description={
                 <>
-                  Go to{" "}
+                  In{" "}
                   <ExternalLink href="https://id.atlassian.com/manage-profile/security/api-tokens">
-                    https://id.atlassian.com/manage-profile/security/api-tokens
+                    Atlassian API tokens
                   </ExternalLink>
-                  {" -> "}
-                  create an API token{" -> "}select the Forge app integration
-                  {" -> "}enable all scopes offered{" -> "}paste the generated
-                  token here.
+                  , create an API token for the Forge app with all the scopes
+                  that it offers. Paste the token here.
                 </>
               }
               type="password"
@@ -434,17 +433,12 @@ export function InstallForgeStep({
               isDisabled={formLocked}
             />
             {isProvisioningBusy ? (
-              <div className="mt-6 flex items-start gap-3 rounded-md border border-border p-3">
-                <Spinner className="mt-0.5 size-4.5 shrink-0 text-muted-foreground" />
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground">
-                    Provisioning Forge app
-                  </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Creating and deploying the app on your behalf. This may take
-                    a minute or two—you can leave this dialog open.
-                  </p>
-                </div>
+              <div className="mt-6 space-y-2">
+                <InlineLoader label="Provisioning the Forge app" />
+                <p className="text-center text-sm text-muted-foreground">
+                  ctxpipe creates and deploys the app. This can take a few
+                  minutes. You can keep this dialog open.
+                </p>
               </div>
             ) : provisionSuccessVisible ? null : (
               <div className="mt-6 flex flex-wrap items-center gap-2">

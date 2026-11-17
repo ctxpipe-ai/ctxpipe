@@ -1,34 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, http } from "msw"
-import { type ComponentProps, useState } from "react"
-import { expect, userEvent, waitFor, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { signedInHandlers } from "@/mocks/handlers"
 import { githubInstallationReposHandler } from "@/mocks/workspace-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import { sourceDialogStoryFrame } from "../source-dialog-story-frame"
 import { GithubScopeEditor } from "./github"
-
-/** The editor with the last scope it gave, as a dialog holds it. */
-function EditorWithOutput(
-  props: Omit<ComponentProps<typeof GithubScopeEditor>, "onChange">,
-) {
-  const [scope, setScope] = useState<string>("No change")
-  return (
-    <>
-      <GithubScopeEditor
-        {...props}
-        onChange={(next) => setScope(JSON.stringify(next))}
-      />
-      <output
-        aria-label="Scope"
-        className="mt-4 block text-xs text-muted-foreground"
-      >
-        {scope}
-      </output>
-    </>
-  )
-}
 
 const repos = [
   { id: 11, name: "api", full_name: "acme/api", clone_url: "x" },
@@ -41,14 +20,8 @@ const repos = [
 
 const meta = {
   title: "Components/WorkspaceSources/GithubScopeEditor",
-  component: EditorWithOutput,
-  decorators: [
-    (Story) => (
-      <div className="max-w-lg bg-zinc-950 p-4">
-        <Story />
-      </div>
-    ),
-  ],
+  component: GithubScopeEditor,
+  decorators: [sourceDialogStoryFrame],
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -69,8 +42,9 @@ const meta = {
     provider: "github",
     connectionId: "con_gh1",
     initialScope: {},
+    onChange: fn(),
   },
-} satisfies Meta<typeof EditorWithOutput>
+} satisfies Meta<typeof GithubScopeEditor>
 
 export default meta
 
@@ -107,17 +81,15 @@ export const SelectTwoRepositories: Story = {
         "GitHub scope editor, where the user picks the repositories of a Workspace source: the user picks two repositories.",
     },
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: "acme/api" }),
     )
     await userEvent.click(canvas.getByRole("checkbox", { name: "acme/web" }))
-    await expect(
-      canvas.getByRole("status", { name: "Scope" }),
-    ).toHaveTextContent(
-      JSON.stringify({ repositories: ["acme/api", "acme/web"] }),
-    )
+    await expect(args.onChange).toHaveBeenLastCalledWith({
+      repositories: ["acme/api", "acme/web"],
+    })
     await expect(canvas.getByText("2 selected")).toBeVisible()
   },
 }
@@ -126,11 +98,11 @@ export const InitialScopeSelected: Story = {
   parameters: {
     review: {
       purpose:
-        "GitHub scope editor, where the user picks the repositories of a Workspace source: a saved scope is selected, with one repository that the connection can no longer see.",
+        "GitHub scope editor in the Edit source dialog: the saved scope has acme/web and acme/gone, a repository that the connection can no longer see, and the user unticks acme/gone.",
     },
   },
   args: { initialScope: { repositories: ["acme/web", "acme/gone"] } },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
       expect(canvas.getByRole("checkbox", { name: "acme/web" })).toBeChecked(),
@@ -145,9 +117,9 @@ export const InitialScopeSelected: Story = {
     const gone = canvas.getByRole("checkbox", { name: "acme/gone" })
     await expect(gone).toBeChecked()
     await userEvent.click(gone)
-    await expect(
-      canvas.getByRole("status", { name: "Scope" }),
-    ).toHaveTextContent(JSON.stringify({ repositories: ["acme/web"] }))
+    await expect(args.onChange).toHaveBeenLastCalledWith({
+      repositories: ["acme/web"],
+    })
   },
 }
 
@@ -159,14 +131,12 @@ export const EmptyGivesNull: Story = {
     },
   },
   args: { initialScope: { repositories: ["acme/api"] } },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: "acme/api" }),
     )
-    await expect(
-      canvas.getByRole("status", { name: "Scope" }),
-    ).toHaveTextContent("null")
+    await expect(args.onChange).toHaveBeenLastCalledWith(null)
     await expect(
       canvas.getByText("Select at least one repository."),
     ).toBeVisible()

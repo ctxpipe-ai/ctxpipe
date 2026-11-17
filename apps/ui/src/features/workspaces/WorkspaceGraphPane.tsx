@@ -8,6 +8,8 @@ export function WorkspaceGraphPane(props: {
   graph: WorkspaceGraphPayload | undefined
   pending: boolean
   error?: Error | null
+  /** Asks for the graph again after a failed request. */
+  onRetry: () => void
   onOpenSource?: (path: string) => void
 }) {
   const nodeCount = props.graph?.metrics.totalNodes ?? 0
@@ -21,6 +23,7 @@ export function WorkspaceGraphPane(props: {
         graph={props.graph}
         pending={props.pending}
         error={props.error ?? null}
+        onRetry={props.onRetry}
         onOpenSource={props.onOpenSource}
       />
       {noEdges ? (

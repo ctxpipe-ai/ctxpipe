@@ -6,12 +6,17 @@ import { useNow } from "@/lib/useNow"
 import { cn } from "@/lib/utils"
 
 import type { IngestionItem } from "../ingestion"
+import { workspaceProjectionReady } from "../projection"
 import {
   skippedFileCopy,
   skippedFileFixable,
   skippedFilesFixPrompt,
 } from "../skipped-files"
 import type { WorkspaceDetail } from "../types"
+import {
+  HydrateFailureReason,
+  useRetryPrepare,
+} from "../WorkspaceHydrateProgress"
 import { SettingsCard } from "./SettingsCard"
 
 /** Does the knowledge graph need the user, and does ctxpipe work on it now. */
@@ -33,6 +38,7 @@ export function graphStatus(
  * and which files it skipped.
  */
 export function GraphCard(props: {
+  orgSlug: string
   workspace: WorkspaceDetail
   /** The hydrate of the newest commit that runs now. */
   hydrate: IngestionItem | null
@@ -41,7 +47,9 @@ export function GraphCard(props: {
   /** Opens the Workspace chat with this prompt in the composer. */
   onFixWithAgent?: ((prompt: string) => void) | undefined
 }) {
-  const { workspace, hydrate, onFixWithAgent } = props
+  const { orgSlug, workspace, hydrate, onFixWithAgent } = props
+  const retry = useRetryPrepare(orgSlug, workspace.slug)
+  const projectionReady = workspaceProjectionReady(workspace)
   const skipped = workspace.skippedFiles ?? []
   const failed = workspace.hydrateStatus === "failed"
   const now = useNow(hydrate !== null)
@@ -72,8 +80,29 @@ export function GraphCard(props: {
             variant="error"
             framed={false}
             title="The knowledge graph did not load"
+            actions={
+              // Without a ready graph, the Prepare failed page has Try again.
+              projectionReady ? (
+                <Button
+                  variant="outline"
+                  isPending={retry.isPending}
+                  onPress={() => retry.mutate()}
+                >
+                  Try again
+                </Button>
+              ) : null
+            }
           >
-            {workspace.hydrateError ?? "ctxpipe gives no reason."}
+            <HydrateFailureReason
+              orgSlug={orgSlug}
+              hydrateError={workspace.hydrateError}
+              sentence={
+                projectionReady
+                  ? "Try again. If it fails again, change the Workspace repository below."
+                  : "Select Try again on the Workspace page. If it fails again, change the Workspace repository below."
+              }
+              tone="muted"
+            />
           </InlineAlert>
         ) : (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">

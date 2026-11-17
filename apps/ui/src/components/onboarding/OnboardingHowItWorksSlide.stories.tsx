@@ -50,7 +50,7 @@ export const NewOrganization: Story = {
   parameters: {
     review: {
       purpose:
-        "Welcome slide of onboarding that explains how ctxpipe works in three steps: a new organization, with the Next action.",
+        "Welcome slide of onboarding, which tells a new user how ctxpipe works in three steps: a user with no org pressed Next, which opens the step that creates the org.",
     },
   },
   play: async ({ args, canvasElement }) => {
@@ -137,7 +137,7 @@ export const Joiner: Story = {
   parameters: {
     review: {
       purpose:
-        "Welcome slide of onboarding that explains how ctxpipe works in three steps: a user who joins an org, with the Get started action.",
+        "Welcome slide of onboarding, which tells a new user how ctxpipe works in three steps: a user who joined an org reads it, and Get started opens Home.",
     },
   },
   args: { actionLabel: "Get started" },

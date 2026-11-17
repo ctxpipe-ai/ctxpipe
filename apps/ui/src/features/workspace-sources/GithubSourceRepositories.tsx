@@ -790,15 +790,18 @@ export function WorkspaceAddRepositoriesDialog(props: {
             ctxpipe reads the default branch of each repository. It uses the
             code to answer questions and to keep this Workspace current.
           </p>
-          <p>
-            <strong className="font-medium text-foreground">
-              Open a pull request
-            </strong>{" "}
-            adds one file for each repository under{" "}
-            <code className="font-mono text-xs">sources/</code> in the Workspace
-            repository. Each repository becomes active when you merge the pull
-            request that adds it.
-          </p>
+          {/* Only the picker has the Open a pull request button. */}
+          {showPicker ? (
+            <p>
+              <strong className="font-medium text-foreground">
+                Open a pull request
+              </strong>{" "}
+              adds one file for each repository under{" "}
+              <code className="font-mono text-xs">sources/</code> in the
+              Workspace repository. Each repository becomes active when you
+              merge the pull request that adds it.
+            </p>
+          ) : null}
         </div>
 
         <div className="mt-5 space-y-3">
@@ -1003,7 +1006,8 @@ export function WorkspaceAddRepositoriesDialog(props: {
               isDisabled={addMutation.isPending}
               onPress={close}
             >
-              Cancel
+              {/* With no picker, there is nothing to cancel. */}
+              {showPicker ? "Cancel" : "Close"}
             </Button>
             {showPicker && connectionIds.length > 0 ? (
               <Button

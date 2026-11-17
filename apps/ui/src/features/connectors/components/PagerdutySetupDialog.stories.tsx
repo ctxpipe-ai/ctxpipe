@@ -285,7 +285,7 @@ export const ReplacedSetup: Story = {
   parameters: {
     review: {
       purpose:
-        "PagerDuty setup dialog for a connected account: a newer setup replaced this one and a config pull request waits for a merge.",
+        "PagerDuty setup dialog at Add to Workspaces for a connection from an earlier setup: a warning says ctxpipe no longer uses its open configuration pull request.",
     },
     msw: {
       handlers: {

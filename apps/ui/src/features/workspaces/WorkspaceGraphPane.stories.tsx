@@ -24,6 +24,7 @@ const meta = {
     orgSlug: "acme",
     workspaceSlug: "docs",
     pending: false,
+    onRetry: () => undefined,
   },
   parameters: {
     msw: { handlers: { session: signedInHandlers } },
@@ -69,7 +70,7 @@ export const Loading: Story = {
   parameters: {
     review: {
       purpose:
-        "Knowledge graph pane of a Workspace, where a member explores how the knowledge links: the graph still loads.",
+        "Knowledge graph pane of a Workspace, where a member explores how the knowledge links: the graph request still runs, so a progress bar and its status show.",
     },
   },
   args: { graph: undefined, pending: true },
@@ -96,7 +97,7 @@ export const NarrowPane: Story = {
   parameters: {
     review: {
       purpose:
-        "Knowledge graph pane of a Workspace, where a member explores how the knowledge links: a full graph in a narrow pane.",
+        "Knowledge graph pane of a Workspace in a narrow pane, where a member explores how the knowledge links: the graph data arrived, and ctxpipe prepares the view.",
     },
   },
   args: {

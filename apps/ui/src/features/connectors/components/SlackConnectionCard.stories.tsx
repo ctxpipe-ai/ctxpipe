@@ -166,7 +166,7 @@ export const StatusError: Story = {
   parameters: {
     review: {
       purpose:
-        "Slack connection card on the Connectors page: the status request failed with a server error.",
+        "Slack card on the Connectors page: the status read failed with a server error, so a row under the head gives the cause and a Retry button without a click.",
     },
     msw: {
       handlers: {

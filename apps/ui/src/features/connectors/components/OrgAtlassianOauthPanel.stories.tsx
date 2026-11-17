@@ -114,7 +114,7 @@ export const EmbeddedOauthConfigured: Story = {
   parameters: {
     review: {
       purpose:
-        "Atlassian OAuth panel inside the Atlassian setup wizard, where the admin registers a private OAuth app: an OAuth app is already saved.",
+        "Register step of the Confluence setup wizard, opened again from the step list after the save: the panel names the saved Client ID and lets the admin change it or the secret.",
     },
     msw: {
       handlers: {

@@ -47,7 +47,7 @@ export function atlassianOauthHandler(
         HttpResponse.json({
           oauthAppSaved: app.oauthAppSaved,
           atlassianOAuthClientId: app.oauthAppSaved
-            ? "atlassian-oauth-client-id-story"
+            ? "q7Hc2LmN4pXw9RtB3vKe6YsJ8aDf1GzU"
             : null,
           globalAtlassianOAuthConfigured:
             app.globalAtlassianOAuthConfigured ?? false,

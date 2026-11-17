@@ -54,7 +54,6 @@ type Story = StoryObj<typeof meta>
 
 export const ComposeEmpty: Story = {
   parameters: {
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: workspaceShellHandlers(),
@@ -104,7 +103,7 @@ export const ConversationMissing: Story = {
     },
     review: {
       purpose:
-        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the conversation does not exist, so a not found heading shows and no composer.",
+        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the member opened a link to a conversation that does not exist, so a not found message and New conversation show.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -170,7 +169,7 @@ export const ConversationReady: Story = {
     },
     review: {
       purpose:
-        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: a stored conversation loaded, with its messages and the follow-up composer.",
+        "Chat panel of a Workspace, where a member talks to the ctxpipe agent: the member opened a stored conversation, so its messages and the follow-up composer show.",
     },
   },
 }

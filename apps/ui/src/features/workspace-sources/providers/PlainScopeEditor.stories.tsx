@@ -1,50 +1,21 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import { useState } from "react"
-import { expect, userEvent, waitFor, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { signedInHandlers } from "@/mocks/handlers"
 import { plainCatalogHandler } from "@/mocks/plain-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import { sourceDialogStoryFrame } from "../source-dialog-story-frame"
 import { PlainScopeEditor } from "./plain"
-
-/** The editor with the scope it reports, as the Add to Workspaces step holds it. */
-function EditorWithOutput(props: {
-  initialScope: Record<string, unknown>
-  label?: string
-}) {
-  const [scope, setScope] = useState<Record<string, unknown> | null>(null)
-  return (
-    <>
-      <PlainScopeEditor
-        orgSlug="acme"
-        provider="plain"
-        connectionId="con_plain1"
-        initialScope={props.initialScope}
-        label={props.label}
-        onChange={setScope}
-      />
-      <output className="mt-4 block text-xs text-muted-foreground">
-        {scope ? JSON.stringify(scope) : "Not ready"}
-      </output>
-    </>
-  )
-}
 
 const catalogPath = ({ request }: { request: Request }) =>
   new URL(request.url).pathname.endsWith("/api/v1/connectors/plain/catalog")
 
 const meta = {
   title: "Components/WorkspaceSources/PlainScopeEditor",
-  component: EditorWithOutput,
-  decorators: [
-    (Story) => (
-      <div className="max-w-lg bg-zinc-950 p-4">
-        <Story />
-      </div>
-    ),
-  ],
+  component: PlainScopeEditor,
+  decorators: [sourceDialogStoryFrame],
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -57,8 +28,14 @@ const meta = {
       handlers: { session: signedInHandlers, page: [plainCatalogHandler] },
     },
   },
-  args: { initialScope: {} },
-} satisfies Meta<typeof EditorWithOutput>
+  args: {
+    orgSlug: "acme",
+    provider: "plain",
+    connectionId: "con_plain1",
+    initialScope: {},
+    onChange: fn(),
+  },
+} satisfies Meta<typeof PlainScopeEditor>
 
 export default meta
 
@@ -71,23 +48,24 @@ export const SelectHelpCentersAndLabels: Story = {
         "Plain scope editor, where the user picks the Help Centers and labels of a Workspace source: nothing is picked at first, with notes on limits and personal data, then the user picks two items.",
     },
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await waitFor(() => expect(canvas.getByText("Not ready")).toBeVisible())
-    await expect(
-      canvas.getByText("Select at least one Help Center or label."),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText("Select at least one Help Center or label."),
+      ).toBeVisible(),
+    )
+    await expect(args.onChange).not.toHaveBeenCalled()
     await expect(canvas.getByText(/100 newest threads/)).toBeVisible()
     await expect(canvas.getByText(/can hold personal data/)).toBeVisible()
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: "Product docs" }),
     )
     await userEvent.click(canvas.getByRole("checkbox", { name: "Bug" }))
-    await expect(
-      canvas.getByText(
-        JSON.stringify({ helpCenters: ["hc_docs"], labels: ["lt_bug"] }),
-      ),
-    ).toBeVisible()
+    await expect(args.onChange).toHaveBeenLastCalledWith({
+      helpCenters: ["hc_docs"],
+      labels: ["lt_bug"],
+    })
   },
 }
 
@@ -95,11 +73,11 @@ export const FilterKeepsTheSelection: Story = {
   parameters: {
     review: {
       purpose:
-        "Plain scope editor, where the user picks the Help Centers and labels of a Workspace source: a filter hides a selected Help Center, but it stays in the list and stays selected.",
+        "Plain scope editor in the Add source dialog: Product docs is selected, the user filters for feat and ticks Feature request, and Product docs stays in the list as selected.",
     },
   },
   args: { label: "Support", initialScope: { helpCenters: ["hc_docs"] } },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
     await waitFor(() =>
       expect(
@@ -120,11 +98,10 @@ export const FilterKeepsTheSelection: Story = {
     await expect(
       canvas.getByRole("checkbox", { name: "Product docs" }),
     ).toBeChecked()
-    await expect(
-      canvas.getByText(
-        JSON.stringify({ helpCenters: ["hc_docs"], labels: ["lt_feature"] }),
-      ),
-    ).toBeVisible()
+    await expect(args.onChange).toHaveBeenLastCalledWith({
+      helpCenters: ["hc_docs"],
+      labels: ["lt_feature"],
+    })
   },
 }
 
@@ -136,15 +113,13 @@ export const RemovedItemCanBeCleared: Story = {
     },
   },
   args: { initialScope: { labels: ["lt_gone", "lt_bug"] } },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
     // A selected id that Plain no longer lists shows by its id.
     const old = await canvas.findByRole("checkbox", { name: "Label lt_gone" })
     await expect(old).toBeChecked()
     await userEvent.click(old)
-    await expect(
-      canvas.getByText(JSON.stringify({ labels: ["lt_bug"] })),
-    ).toBeVisible()
+    await expect(args.onChange).toHaveBeenLastCalledWith({ labels: ["lt_bug"] })
   },
 }
 
@@ -177,7 +152,7 @@ export const LoadError: Story = {
   parameters: {
     review: {
       purpose:
-        "Plain scope editor, where the user picks the Help Centers and labels of a Workspace source: Plain refuses the API key, so an error asks the user to reconnect Plain.",
+        "Plain scope editor in the Add source dialog: Plain refuses the API key of the connection, so an error alert in place of the list tells the user to reconnect Plain.",
     },
     msw: {
       handlers: {
@@ -200,5 +175,9 @@ export const LoadError: Story = {
     await waitFor(() =>
       expect(canvas.getByText(/Reconnect Plain/)).toBeVisible(),
     )
+    // The error is the one message: no hint asks for a selection.
+    await expect(
+      canvas.queryByText("Select at least one Help Center or label."),
+    ).toBeNull()
   },
 }

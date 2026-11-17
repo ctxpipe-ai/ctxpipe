@@ -114,7 +114,7 @@ function CatalogContent(
           }}
         />
         <Button
-          variant="ghost"
+          variant="quiet"
           size="icon-sm"
           aria-label="Close"
           className="ml-auto sm:ml-0"
@@ -282,7 +282,7 @@ function RowStateAndActions({
           </StatusColumn>
           <div className="flex shrink-0 gap-2 sm:ml-3 sm:w-36">
             <Button
-              variant="ghost"
+              variant="quiet"
               size="sm"
               aria-label={`Ask for ${row.entry.name}`}
               onPress={() => askFor(row.entry.id, row.entry.name)}

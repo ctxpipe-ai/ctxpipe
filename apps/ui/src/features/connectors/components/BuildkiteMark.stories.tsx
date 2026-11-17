@@ -18,7 +18,7 @@ export const ProductMark: Story = {
     review: {
       kind: "component",
       purpose:
-        "Buildkite logo mark that labels the Buildkite connector: the mark alone at icon size.",
+        "Buildkite mark, the logo in the ink color that names Buildkite on its connector card and setup dialog: the mark alone, enlarged.",
     },
   },
 }

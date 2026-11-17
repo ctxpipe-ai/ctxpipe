@@ -169,7 +169,8 @@ export const failedHydrateWorkspace: Workspace = {
   displayName: "Knowledge",
   hydrateStatus: "failed",
   desiredSha: null,
-  hydrateError: "getLogger: no logger in context.",
+  hydrateError:
+    "git fetch failed: fatal: could not read Username for 'https://github.com': terminal prompts disabled",
 }
 
 export const docsWorkspaceDetail: WorkspaceDetail = {
@@ -376,6 +377,60 @@ export const longThreadMessages: ChatMessage[] = [
     ],
     createdAt: new Date("2026-08-16T09:32:10.000Z"),
   },
+  {
+    id: "msg_long_u4",
+    role: "user",
+    parts: [{ type: "text", content: "Who can change the ledger rules?" }],
+    createdAt: new Date("2026-08-16T09:33:00.000Z"),
+  },
+  {
+    id: "msg_long_a4",
+    role: "assistant",
+    parts: [
+      {
+        type: "text",
+        content:
+          "The billing team owns knowledge/billing/. A change goes through a pull request, and CODEOWNERS asks the team for a review.",
+      },
+    ],
+    createdAt: new Date("2026-08-16T09:33:14.000Z"),
+  },
+  {
+    id: "msg_long_u5",
+    role: "user",
+    parts: [{ type: "text", content: "How often do invoices run?" }],
+    createdAt: new Date("2026-08-16T09:34:00.000Z"),
+  },
+  {
+    id: "msg_long_a5",
+    role: "assistant",
+    parts: [
+      {
+        type: "text",
+        content:
+          "Invoices run on the first day of each month. The schedule is in knowledge/billing/schedule.md.",
+      },
+    ],
+    createdAt: new Date("2026-08-16T09:34:09.000Z"),
+  },
+  {
+    id: "msg_long_u6",
+    role: "user",
+    parts: [{ type: "text", content: "What happens to a failed payment?" }],
+    createdAt: new Date("2026-08-16T09:35:00.000Z"),
+  },
+  {
+    id: "msg_long_a6",
+    role: "assistant",
+    parts: [
+      {
+        type: "text",
+        content:
+          "A failed payment retries three times in one week. Then the account moves to dunning, as knowledge/payments/dunning.md says.",
+      },
+    ],
+    createdAt: new Date("2026-08-16T09:35:16.000Z"),
+  },
 ]
 
 export const markdownAnswerMessages: ChatMessage[] = [
@@ -460,27 +515,6 @@ export const reasoningMessages: ChatMessage[] = [
       },
     ],
     createdAt: new Date("2026-08-16T09:42:16.000Z"),
-  },
-]
-
-export const streamingReasoningMessages: ChatMessage[] = [
-  {
-    id: "msg_think_live_u1",
-    role: "user",
-    parts: [{ type: "text", content: "What's in this Workspace?" }],
-    createdAt: new Date("2026-08-16T09:42:20.000Z"),
-  },
-  {
-    id: "msg_think_live_a1",
-    role: "assistant",
-    parts: [
-      {
-        type: "thinking",
-        content:
-          "**Inspecting documentation steps**\n\nI need to inspect further and possibly gather more docs before I move forward carefully.\n**Implementing document updates**\n\nI should consolidate the original documents so the docker guide is properly addressed.\n**Consolidating documents**\n\nEditing docker.md and updating root claims next.",
-      },
-    ],
-    createdAt: new Date("2026-08-16T09:42:21.000Z"),
   },
 ]
 
@@ -712,39 +746,6 @@ export const reasoningAndToolsMessages: ChatMessage[] = [
       },
     ],
     createdAt: new Date("2026-08-16T09:47:16.000Z"),
-  },
-]
-
-export const streamingReasoningAndToolsMessages: ChatMessage[] = [
-  {
-    id: "msg_all_live_u1",
-    role: "user",
-    parts: [{ type: "text", content: "Why ledger.md and not invoices.md?" }],
-    createdAt: new Date("2026-08-16T09:47:20.000Z"),
-  },
-  {
-    id: "msg_all_live_a1",
-    role: "assistant",
-    parts: [
-      {
-        type: "thinking",
-        content:
-          "**Inspecting repository options**\n\nThe payments API claims DEPENDS_ON ledger.md. Invoice documents are generated from that file, so they are a derived view. Searching billing docs next.",
-      },
-      {
-        type: "tool-call",
-        id: "tc_all_live_1",
-        name: "hybrid_search",
-        input: { query: "ledger vs invoices" },
-      },
-      {
-        type: "tool-call",
-        id: "tc_all_live_2",
-        name: "get_file",
-        input: { filePath: "knowledge/billing/ledger.md" },
-      },
-    ],
-    createdAt: new Date("2026-08-16T09:47:21.000Z"),
   },
 ]
 

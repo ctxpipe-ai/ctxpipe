@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, http } from "msw"
 import { type ComponentProps, useState } from "react"
-import { expect, userEvent, waitFor, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { signedInHandlers } from "@/mocks/handlers"
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
@@ -26,38 +26,43 @@ import {
   CHOOSE_WORKSPACES_HINT,
   ChooseWorkspacesStep,
 } from "./ChooseWorkspacesStep"
+import { sourceDialogStoryFrame } from "./source-dialog-story-frame"
+
+type StepProps = Omit<ComponentProps<typeof ChooseWorkspacesStep>, "value">
 
 /** The step with its state, as a wizard holds it. */
-function StepWithState(
-  props: Omit<
-    ComponentProps<typeof ChooseWorkspacesStep>,
-    "value" | "onChange"
-  >,
-) {
+function StepWithState(props: StepProps) {
   const [value, setValue] = useState<ChooseWorkspacesValue>(
     emptyChooseWorkspaces,
   )
-  const requests = chooseWorkspacesRequests(value, props)
   return (
-    <>
-      <ChooseWorkspacesStep {...props} value={value} onChange={setValue} />
-      <output className="mt-4 block text-xs text-muted-foreground">
-        {requests ? `${requests.length} ready` : "Not ready"}
-      </output>
-    </>
+    <ChooseWorkspacesStep
+      {...props}
+      value={value}
+      onChange={(next) => {
+        setValue(next)
+        props.onChange(next)
+      }}
+    />
   )
+}
+
+/** The onChange of the step: each value that the step gives to the wizard. */
+const onStepChange = fn<(value: ChooseWorkspacesValue) => void>()
+
+/**
+ * The requests that the wizard sends for the last value of the step, or null
+ * while the step is not ready.
+ */
+function lastRequests(args: StepProps) {
+  const value = onStepChange.mock.lastCall?.[0] ?? emptyChooseWorkspaces()
+  return chooseWorkspacesRequests(value, args)
 }
 
 const meta = {
   title: "Components/WorkspaceSources/ChooseWorkspacesStep",
   component: StepWithState,
-  decorators: [
-    (Story) => (
-      <div className="max-w-lg bg-zinc-950 p-4">
-        <Story />
-      </div>
-    ),
-  ],
+  decorators: [sourceDialogStoryFrame],
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -77,7 +82,15 @@ const meta = {
       },
     },
   },
-  args: { orgSlug: "acme", provider: "linear", connectionId: "con_li1" },
+  args: {
+    orgSlug: "acme",
+    provider: "linear",
+    connectionId: "con_li1",
+    onChange: onStepChange,
+  },
+  beforeEach: () => {
+    onStepChange.mockClear()
+  },
 } satisfies Meta<typeof StepWithState>
 
 export default meta
@@ -111,14 +124,14 @@ export const ShowsHint: Story = {
   parameters: {
     review: {
       purpose:
-        "Choose Workspaces step of a connector setup, where the user adds a source to Workspaces: the Workspace list loaded, nothing is picked yet, and the hint is visible.",
+        "Add to Workspaces step of a connector setup, where the user ticks the Workspaces that get the new source: the list loaded and nothing is ticked yet, so no scope editor shows, only a hint.",
     },
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("checkbox", { name: docsWorkspace.displayName })
     await expect(canvas.getByText(CHOOSE_WORKSPACES_HINT)).toBeVisible()
-    await expect(canvas.getByText("Not ready")).toBeVisible()
+    await expect(lastRequests(args)).toBeNull()
   },
 }
 
@@ -149,17 +162,17 @@ export const SingleWorkspace: Story = {
         "Choose Workspaces step of a connector setup, where the user adds a source to Workspaces: the user picks one Workspace and one Linear team, so the step is ready.",
     },
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: docsWorkspace.displayName }),
     )
     await expect(canvas.queryByRole("radiogroup")).toBeNull()
-    await expect(canvas.getByText("Not ready")).toBeVisible()
+    await expect(lastRequests(args)).toBeNull()
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: /Engineering/ }),
     )
-    await expect(canvas.getByText("1 ready")).toBeVisible()
+    await expect(lastRequests(args)).toHaveLength(1)
   },
 }
 
@@ -173,7 +186,7 @@ export const ChooseWorkspacesMulti: Story = {
       "Catches a multi-workspace connector step that mixes the shared and per-workspace scope. Same scope shows one picker, different scope shows one for each workspace. Not for connector sign-in.",
   },
   tags: ["required"],
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: docsWorkspace.displayName }),
@@ -190,7 +203,7 @@ export const ChooseWorkspacesMulti: Story = {
       }),
     ).toHaveLength(1)
     await userEvent.click(canvas.getByRole("checkbox", { name: /Engineering/ }))
-    await expect(canvas.getByText("2 ready")).toBeVisible()
+    await expect(lastRequests(args)).toHaveLength(2)
 
     await userEvent.click(
       canvas.getByRole("radio", { name: /different scope/ }),
@@ -205,7 +218,7 @@ export const ChooseWorkspacesMulti: Story = {
       }),
     )
     await expect(await own(readOnlyWorkspace.displayName)).toBeVisible()
-    await expect(canvas.getByText("Not ready")).toBeVisible()
+    await expect(lastRequests(args)).toBeNull()
     await expect(canvas.getByText(CHOOSE_WORKSPACES_HINT)).toBeVisible()
   },
 }
@@ -268,7 +281,7 @@ export const AllWorkspacesNeedUpgrade: Story = {
   parameters: {
     review: {
       purpose:
-        "Choose Workspaces step of a connector setup, where the user adds a source to Workspaces: each Workspace needs the format upgrade, so no row can be picked and a member must ask an admin.",
+        "Add to Workspaces step of a connector setup, seen by a member: each Workspace needs the format upgrade, so a warning tells the member to ask an admin and each row is off with its upgrade link.",
     },
     msw: {
       handlers: {
@@ -288,7 +301,7 @@ export const AllWorkspacesNeedUpgrade: Story = {
       },
     },
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Upgrade a Workspace before you add a source")
     for (const workspace of [docsWorkspace, readOnlyWorkspace])
@@ -296,7 +309,11 @@ export const AllWorkspacesNeedUpgrade: Story = {
         canvas.getByRole("checkbox", { name: workspace.displayName }),
       ).toBeDisabled()
     await waitFor(() => expect(canvas.getByText("Ask an admin")).toBeVisible())
-    await expect(canvas.getByText("Not ready")).toBeVisible()
+    // The rows link to each upgrade, so the warning has no second link.
+    await expect(
+      canvas.getAllByRole("link", { name: /Review upgrade/ }),
+    ).toHaveLength(2)
+    await expect(lastRequests(args)).toBeNull()
   },
 }
 

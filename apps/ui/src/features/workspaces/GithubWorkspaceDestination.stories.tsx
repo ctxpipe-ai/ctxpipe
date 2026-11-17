@@ -78,7 +78,7 @@ export const Loading: Story = {
     msw: { handlers: { page: [workspaceListHandler("loading")] } },
     review: {
       purpose:
-        "GitHub destination page in the app shell, where a member picks or creates a Workspace: the Workspace list is loading.",
+        "GitHub setup page after GitHub connects, where a member creates a Workspace or opens one to add repositories: the Workspace list still loads, so skeleton rows show.",
     },
   },
 }
@@ -98,21 +98,30 @@ export const LoadError: Story = {
   },
 }
 
+/** A second Workspace that keeps its knowledge in its own repository. */
+const handbookWorkspace = {
+  ...docsWorkspace,
+  id: "ws_handbook",
+  slug: "handbook",
+  displayName: "Handbook",
+  workspaceRepositoryUrl: "https://github.com/acme/handbook",
+}
+
 export const Populated: Story = {
   args: {
     status: "ready",
-    workspaces: [docsWorkspace, readOnlyWorkspace],
+    workspaces: [docsWorkspace, handbookWorkspace],
   },
   parameters: {
     // The app shell lists the same Workspaces as the page.
     msw: {
       handlers: {
-        page: [workspaceListHandler([docsWorkspace, readOnlyWorkspace])],
+        page: [workspaceListHandler([docsWorkspace, handbookWorkspace])],
       },
     },
     review: {
       purpose:
-        "GitHub destination page in the app shell, where a member picks or creates a Workspace: the org has two Workspaces, and one is read-only.",
+        "GitHub setup page after GitHub connects, where a member creates a Workspace or opens one to add repositories: the org has two Workspaces, each row opens its settings.",
     },
   },
 }
@@ -141,7 +150,6 @@ export const LoadingSkeletonMatches: Story = {
   parameters: {
     // The app shell lists the same Workspaces as the page.
     msw: { handlers: { page: [workspaceListHandler("loading")] } },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a workspace destination skeleton whose size differs from the loaded list. This causes layout shift. Not for workspace data or selection.",
     review: {

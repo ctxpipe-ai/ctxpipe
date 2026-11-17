@@ -40,7 +40,7 @@ import {
   activitySearchKey,
   utcDayBefore,
 } from "./activity-search"
-import { formatCalendarDate } from "./calendar-days"
+import { formatCalendarDate, formatCalendarRange } from "./calendar-days"
 import {
   WorkspaceActivityHeatmap,
   WorkspaceActivityHeatmapSkeleton,
@@ -391,7 +391,7 @@ function rangeLabel(since: string | undefined, until: string | undefined) {
     return `Since ${formatCalendarDate(since ?? "")}`
   }
   if (!since) return `Until ${formatCalendarDate(until)}`
-  return `${formatCalendarDate(since)} – ${formatCalendarDate(until)}`
+  return formatCalendarRange(since, until)
 }
 
 const segmentClassName =

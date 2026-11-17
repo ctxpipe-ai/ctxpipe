@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
+import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import type { WorkspaceSkippedFile } from "@/features/workspaces/types"
@@ -82,9 +83,14 @@ const reingest = upgradeItemFixture({
 function homeHandlers(
   role: string,
   items: Parameters<typeof pendingWorkspaceUpgradesHandler>[0],
-  skippedFiles: Record<string, WorkspaceSkippedFile[]> = {},
-  automaticJob?: { status: string; failureReason: string | null },
+  options: {
+    skippedFiles?: Record<string, WorkspaceSkippedFile[]>
+    automaticJob?: { status: string; failureReason: string | null }
+    /** Runs when the start request succeeds, so the pending items can change. */
+    onStarted?: () => void
+  } = {},
 ) {
+  const { skippedFiles = {}, automaticJob, onStarted } = options
   return {
     msw: {
       handlers: {
@@ -113,7 +119,7 @@ function homeHandlers(
               skippedFiles: skippedFiles[slug] ?? [],
             })
           }),
-          workspaceUpgradeStartHandler({ requests }),
+          workspaceUpgradeStartHandler({ requests, onStarted }),
           ...workspaceUpgradeAutomaticHandlers({
             requests,
             ...(automaticJob ? { job: automaticJob } : {}),
@@ -243,13 +249,35 @@ export const ToastTakesNoSpaceAfterItGoes: Story = {
   },
 }
 
-/** Update once starts this item with the existing start API. */
+/** The pending items of UpdateOnce: the start queues the item. */
+const updateOnceItems = { docs: [upgradeItemFixture()] }
+
+/**
+ * Update once starts this item with the existing start API. The server
+ * queues it, so the toast goes and a short message says what happens next.
+ */
 export const UpdateOnce: Story = {
+  beforeEach: () => {
+    updateOnceItems.docs = [upgradeItemFixture()]
+  },
+  decorators: [
+    (Story) => (
+      <>
+        <Story />
+        {/* The props of the Toaster of the app root. */}
+        <Toaster richColors position="top-center" />
+      </>
+    ),
+  ],
   parameters: {
-    ...homeHandlers("owner", { docs: [upgradeItemFixture()] }),
+    ...homeHandlers("owner", updateOnceItems, {
+      onStarted: () => {
+        updateOnceItems.docs = [upgradeItemFixture({ status: "queued" })]
+      },
+    }),
     review: {
       purpose:
-        "Org home page with upgrade and problem notices as toasts: the owner pressed Update once and the upgrade starts.",
+        "Home with an upgrade toast: the owner pressed Update once, so the upgrade is queued, the toast went away, and a message says that ctxpipe prepares a pull request.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -263,6 +291,15 @@ export const UpdateOnce: Story = {
       expect(requests).toEqual([
         "/acme/api/v1/workspaces/docs/upgrades/format-3/start",
       ]),
+    )
+    const body = within(canvasElement.ownerDocument.body)
+    await body.findByText(
+      "The upgrade is queued. ctxpipe prepares a pull request.",
+    )
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("region", { name: "Workspace notices" }),
+      ).toBeNull(),
     )
   },
 }
@@ -311,8 +348,7 @@ export const AlwaysUpdateSlowSave: Story = {
     ...homeHandlers(
       "owner",
       { docs: [upgradeItemFixture()] },
-      {},
-      { status: "running", failureReason: null },
+      { automaticJob: { status: "running", failureReason: null } },
     ),
     review: {
       purpose:
@@ -343,16 +379,17 @@ export const AlwaysUpdateSaveFails: Story = {
     ...homeHandlers(
       "owner",
       { docs: [upgradeItemFixture()] },
-      {},
       {
-        status: "failed",
-        failureReason:
-          "The write stopped before it finished. stdout maxBuffer length exceeded",
+        automaticJob: {
+          status: "failed",
+          failureReason:
+            "The write stopped before it finished. stdout maxBuffer length exceeded",
+        },
       },
     ),
     review: {
       purpose:
-        "Org home page with upgrade and problem notices as toasts: the Always update save failed, and the toast shows the cause and the next steps.",
+        "Home with an upgrade toast: the owner pressed Always update and the setting did not save, so the toast gives the next steps and the cause as raw error text.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -384,11 +421,12 @@ export const AlwaysUpdateSaveFails: Story = {
   },
 }
 
+// The server names this Git error a known cause: the repository is too large.
 const failedUpgrade = upgradeItemFixture({
   status: "failed",
   failureReason: "stdout maxBuffer length exceeded",
   failure: {
-    code: "unknown",
+    code: "repository_too_large",
     step: null,
     repository: null,
     summary: "stdout maxBuffer length exceeded",
@@ -405,7 +443,7 @@ export const FailedUpgrade: Story = {
     ...homeHandlers("owner", { docs: [failedUpgrade] }),
     review: {
       purpose:
-        "Org home page with upgrade and problem notices as toasts: an upgrade failed, so the owner sees the cause and two next steps, with no update buttons.",
+        "Home with a toast for a failed Workspace upgrade: the owner pressed Ask the agent, so the composer holds a prompt with the cause of the failure.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -709,7 +747,7 @@ const taxFile: WorkspaceSkippedFile = {
  */
 export const ProblemOnly: Story = {
   parameters: {
-    ...homeHandlers("owner", {}, { handbook: [taxFile] }),
+    ...homeHandlers("owner", {}, { skippedFiles: { handbook: [taxFile] } }),
     review: {
       purpose:
         "Org home page with upgrade and problem notices as toasts: a hydrate problem shows as a warning toast with Fix using agent.",
@@ -764,7 +802,7 @@ export const ProblemLegacyOverlayAndFile: Story = {
     ...homeHandlers(
       "owner",
       {},
-      { handbook: [taxFile, legacyOverlaySkippedFile] },
+      { skippedFiles: { handbook: [taxFile, legacyOverlaySkippedFile] } },
     ),
     review: {
       purpose:
@@ -813,7 +851,11 @@ export const ProblemLegacyOverlayAndFile: Story = {
 /** Only a legacy overlay file: no fix exists, so the toast opens settings. */
 export const ProblemLegacyOverlayOnly: Story = {
   parameters: {
-    ...homeHandlers("owner", {}, { handbook: [legacyOverlaySkippedFile] }),
+    ...homeHandlers(
+      "owner",
+      {},
+      { skippedFiles: { handbook: [legacyOverlaySkippedFile] } },
+    ),
     review: {
       purpose:
         "Org home page with upgrade and problem notices as toasts: only a legacy overlay file has a problem, so the toast opens the settings.",
@@ -841,15 +883,17 @@ export const MixedStack: Story = {
       "owner",
       { docs: [upgradeItemFixture()] },
       {
-        handbook: [
-          taxFile,
-          { path: "knowledge/legal.md", reason: "malformed" },
-        ],
+        skippedFiles: {
+          handbook: [
+            taxFile,
+            { path: "knowledge/legal.md", reason: "malformed" },
+          ],
+        },
       },
     ),
     review: {
       purpose:
-        "Org home page with upgrade and problem notices as toasts: a problem and an upgrade in one stack, with the problem in front.",
+        "Home with two notices in one toast stack, a skipped-files problem in front of an upgrade: the user moved the pointer onto the stack, so it opened and shows both.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -885,7 +929,7 @@ export const CollapsedBothTypes: Story = {
     ...homeHandlers(
       "owner",
       { docs: [upgradeItemFixture(), reingest] },
-      { handbook: [taxFile] },
+      { skippedFiles: { handbook: [taxFile] } },
     ),
     review: {
       purpose:

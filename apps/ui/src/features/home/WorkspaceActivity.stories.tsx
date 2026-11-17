@@ -103,10 +103,17 @@ function activityHandlers(docsCommits: readonly WorkspaceActivityCommit[]) {
 
 const activityByDayHandlers = activityHandlers(docsWorkspaceActivityRecent)
 
-/** Shows the search string of the story router, so a play can read the URL. */
+/**
+ * Holds the search string of the story router, so a play can read the URL.
+ * It is hidden: the product does not show the URL state in the page.
+ */
 function UrlProbe() {
   const search = useRouterState({ select: (state) => state.location.search })
-  return <output data-testid="url-search">{JSON.stringify(search)}</output>
+  return (
+    <output hidden data-testid="url-search">
+      {JSON.stringify(search)}
+    </output>
+  )
 }
 
 function urlSearch(canvasElement: HTMLElement): Record<string, unknown> {
@@ -179,7 +186,7 @@ export const MonthLabelsStayInTheChart: Story = {
   parameters: {
     review: {
       purpose:
-        "Workspace activity section on the org home: the commit heatmap with its month labels inside the chart, above the Recent list.",
+        "Activity section on Home, where a member sees the commits of a Workspace: the heatmap of the last year with its day and month labels, above the Recent list.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -268,7 +275,6 @@ export const KeyboardSelectsEmptyDay: Story = {
       purpose:
         "Workspace activity section on the org home: the user chose a day with no commits by keyboard, and Recent says so.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -304,7 +310,6 @@ export const AuthorFiltersRecent: Story = {
       purpose:
         "Workspace activity section on the org home: the user picked an author in the author menu, so Recent lists only their commits.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches an author filter that does not narrow the recent commits. Choosing an author must update the button and send the author to the activity request. Not for the date filter or commit rows.",
   },
@@ -369,7 +374,6 @@ export const DateRangeFiltersRecent: Story = {
       purpose:
         "Workspace activity section on the org home: the user picked a date range preset, so Recent lists commits since that date.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -412,7 +416,6 @@ export const CustomDateRange: Story = {
       purpose:
         "Workspace activity section on the org home: the user typed a custom start and end day in the date range picker.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a custom date range that does not reach the activity request. Typed start and end dates must send since and until values. Not for the author filter or commit rows.",
   },
@@ -456,7 +459,7 @@ export const CustomDateRange: Story = {
     await waitFor(() =>
       expect(
         canvas.getByRole("button", {
-          name: "Filter commits by date: Aug 1, 2026 – Aug 20, 2026",
+          name: "Filter commits by date: Aug 1 – 20, 2026",
         }),
       ).toBeVisible(),
     )
@@ -497,7 +500,7 @@ export const OneDayRange: Story = {
   parameters: {
     review: {
       purpose:
-        "Date range calendar of the Workspace activity section: a one-day range is selected and its cell keeps round corners.",
+        "Date filter of the Recent commits list on Home: the user opened the date menu and its calendar for a range of one day, Aug 12, which shows as one round cell.",
     },
     storyRoute: {
       pattern: "orgIndex",
@@ -506,10 +509,7 @@ export const OneDayRange: Story = {
     } satisfies StoryRouteParams,
   },
   play: async ({ canvasElement }) => {
-    const page = await openCalendar(
-      canvasElement,
-      "Aug 12, 2026 – Aug 12, 2026",
-    )
+    const page = await openCalendar(canvasElement, "Aug 12, 2026")
     await waitFor(() => {
       const cells = selectedCells(page)
       expect(cells).toHaveLength(1)
@@ -523,7 +523,7 @@ export const MultiDayRange: Story = {
   parameters: {
     review: {
       purpose:
-        "Date range calendar of the Workspace activity section: a range inside one week is selected as one band.",
+        "Date filter of the Recent commits list on Home: the user opened the date menu and its calendar, and the range Aug 10 to 13 shows as one band.",
     },
     storyRoute: {
       pattern: "orgIndex",
@@ -532,10 +532,7 @@ export const MultiDayRange: Story = {
     } satisfies StoryRouteParams,
   },
   play: async ({ canvasElement }) => {
-    const page = await openCalendar(
-      canvasElement,
-      "Aug 10, 2026 – Aug 13, 2026",
-    )
+    const page = await openCalendar(canvasElement, "Aug 10 – 13, 2026")
     await waitFor(() => {
       const cells = selectedCells(page)
       expect(cells).toHaveLength(4)
@@ -563,7 +560,7 @@ export const RangeAcrossWeeks: Story = {
     } satisfies StoryRouteParams,
   },
   play: async ({ canvasElement }) => {
-    const page = await openCalendar(canvasElement, "Aug 5, 2026 – Aug 20, 2026")
+    const page = await openCalendar(canvasElement, "Aug 5 – 20, 2026")
     await waitFor(() => {
       const cells = selectedCells(page)
       expect(cells).toHaveLength(16)
@@ -591,7 +588,7 @@ export const CalendarOnShortViewport: Story = {
     } satisfies StoryRouteParams,
   },
   play: async ({ canvasElement }) => {
-    const page = await openCalendar(canvasElement, "Aug 5, 2026 – Aug 20, 2026")
+    const page = await openCalendar(canvasElement, "Aug 5 – 20, 2026")
     await document.fonts.ready
     await waitFor(() => {
       const popover = page.getByRole("grid").closest("[data-trigger]")
@@ -628,7 +625,7 @@ export const GermanLocale: Story = {
     const page = within(canvasElement.ownerDocument.body)
     await userEvent.click(
       await canvas.findByRole("button", {
-        name: "Filter commits by date: Aug 5, 2026 – Aug 20, 2026",
+        name: "Filter commits by date: Aug 5 – 20, 2026",
       }),
     )
     const dialog = await page.findByRole("dialog", { name: "Date range" })
@@ -673,7 +670,7 @@ export const ResetClearsEveryFilter: Story = {
     ).toBeVisible()
     expect(
       canvas.getByRole("button", {
-        name: "Filter commits by date: Aug 1, 2026 – Aug 31, 2026",
+        name: "Filter commits by date: Aug 1 – 31, 2026",
       }),
     ).toBeVisible()
     await waitFor(() =>
@@ -704,18 +701,30 @@ export const ResetClearsEveryFilter: Story = {
 }
 
 /** Twelve Docs commits, one per day back from Aug 26. */
-const twelveCommits: WorkspaceActivityCommit[] = Array.from(
-  { length: 12 },
-  (_, index) => ({
-    sha: `${String(index).padStart(2, "0")}aa${"0".repeat(36)}`,
-    subject: `Commit number ${index + 1}`,
-    authorName: index % 2 ? "Lin" : "Ada",
-    committedAt: new Date(Date.UTC(2026, 7, 26 - index, 12)).toISOString(),
-    htmlUrl: null,
-    workspaceSlug: "docs",
-    workspaceName: "Docs",
-  }),
-)
+const twelveCommits: WorkspaceActivityCommit[] = (
+  [
+    ["3f9c2a1e", "Document billing ledger rules"],
+    ["b71d04c6", "Clarify session cookie policy"],
+    ["0e5a9f23", "Add on-call severity notes"],
+    ["c48b17d9", "Refresh payments API claims"],
+    ["9a2e6b70", "Describe the refund approval flow"],
+    ["5d13f8ce", "Fix links in the deploy runbook"],
+    ["e6047b2a", "Add the Postgres backup schedule"],
+    ["71c9ad35", "Merge the two Docker setup units"],
+    ["2b8e51f4", "Rename the incident review template"],
+    ["d4f0c6a8", "Note the new rate limits of the API"],
+    ["8c37e19b", "Remove the retired search service"],
+    ["a95b2d07", "Import handbook welcome page"],
+  ] satisfies [string, string][]
+).map(([sha, subject], index) => ({
+  sha: `${sha}${"0".repeat(32)}`,
+  subject,
+  authorName: index % 2 ? "Lin" : "Ada",
+  committedAt: new Date(Date.UTC(2026, 7, 26 - index, 12)).toISOString(),
+  htmlUrl: null,
+  workspaceSlug: "docs",
+  workspaceName: "Docs",
+}))
 
 function beadTops(canvasElement: HTMLElement): number[] {
   return [...canvasElement.querySelectorAll("[data-commit-line]")].map(
@@ -732,7 +741,7 @@ export const LoadMorePages: Story = {
   parameters: {
     review: {
       purpose:
-        "Recent commits list of the Workspace activity section: the user pressed Load more and the next page came under the first ten.",
+        "Recent commits list under the activity heatmap on Home: the user pressed Load more, so commits 11 and 12 came under the first ten and the button went away.",
     },
     intent:
       "Catches Load more that replaces or moves earlier commits. New commits append after the first ten and the button goes away at the end. Not for filters or row content.",
@@ -741,16 +750,20 @@ export const LoadMorePages: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
-      expect(canvas.getByText("Commit number 10")).toBeVisible(),
+      expect(
+        canvas.getByText("Note the new rate limits of the API"),
+      ).toBeVisible(),
     )
-    expect(canvas.queryByText("Commit number 11")).not.toBeInTheDocument()
+    expect(
+      canvas.queryByText("Remove the retired search service"),
+    ).not.toBeInTheDocument()
     expect(canvas.getAllByRole("listitem")).toHaveLength(10)
     const before = beadTops(canvasElement)
 
     await userEvent.click(canvas.getByRole("button", { name: "Load more" }))
 
     await waitFor(() =>
-      expect(canvas.getByText("Commit number 12")).toBeVisible(),
+      expect(canvas.getByText("Import handbook welcome page")).toBeVisible(),
     )
     expect(canvas.getAllByRole("listitem")).toHaveLength(12)
     expect(beadTops(canvasElement).slice(0, 10)).toEqual(before)
@@ -771,7 +784,6 @@ export const AllWorkspaces: Story = {
       purpose:
         "Workspace activity section on the org home: the user chose All workspaces, so each commit names its Workspace.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
   },
   args: {
     workspaces: [

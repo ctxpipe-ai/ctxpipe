@@ -250,7 +250,7 @@ export const ReconnectForTheWebhook: Story = {
   parameters: {
     review: {
       purpose:
-        "Plain setup dialog opened to reconnect a working connection: the dialog asks for the key again so that ctxpipe can add the webhook.",
+        "Plain setup dialog opened from Reconnect on a connected card with no webhook: a warning says live updates are off and asks for the API key again.",
     },
     msw: {
       handlers: {

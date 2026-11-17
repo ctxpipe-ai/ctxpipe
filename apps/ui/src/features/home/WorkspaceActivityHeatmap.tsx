@@ -82,6 +82,8 @@ export function WorkspaceActivityHeatmap(props: {
                 padding: 4,
                 format: (week: number) => monthTicks.labels.get(week) ?? "",
               },
+              // The house minimum (text-xs). The chart default is 11 px.
+              tickLabels: { fontSize: 12 },
             },
           },
           y: {
@@ -96,6 +98,7 @@ export function WorkspaceActivityHeatmap(props: {
                 size: 0,
                 padding: 4,
               },
+              tickLabels: { fontSize: 12 },
             },
           },
           theme: {

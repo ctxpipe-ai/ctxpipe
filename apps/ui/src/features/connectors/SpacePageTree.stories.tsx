@@ -56,7 +56,6 @@ export const List: Story = {
       purpose:
         "Tree where the user picks the Confluence spaces and pages to import: two spaces loaded, none selected yet.",
     },
-    visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [

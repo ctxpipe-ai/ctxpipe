@@ -143,7 +143,9 @@ describe("upgrade copy", () => {
         },
         Date.parse("2026-10-20T11:05:30.000Z"),
       ),
-    ).toMatch(/Waiting for a free sandbox for 1 h 5 min\. The slots are full\./)
+    ).toBe(
+      "The slots are full. ctxpipe has waited 1 h 5 min and checks again every minute. The run starts when its turn comes.",
+    )
     const blocked = {
       kind: "reingest",
       status: "blocked",
@@ -225,6 +227,18 @@ describe("a re-ingestion that waits for the scan after the format changed (CTX-9
       })
     expect(blocked(3).body).toContain("needs format 3.")
     expect(blocked(4).body).toContain("needs format 4.")
+  })
+
+  it("does not ask for the format upgrade when the Workspace has the format", () => {
+    const item = { ...blockedForFormat, note: null }
+    // The check after the hydrate did not finish: the block is stale.
+    expect(upgradeBlockedCopy(item, 3)).toEqual({
+      title: "ctxpipe did not finish the format check",
+      body: "The Workspace has format 3 now, but this item did not see it yet. Press Check again.",
+    })
+    // A lower or unread format keeps the needs-format line.
+    expect(upgradeBlockedCopy(item, 2).body).toContain("needs format 3.")
+    expect(upgradeBlockedCopy(item, null).body).toContain("needs format 3.")
   })
 })
 

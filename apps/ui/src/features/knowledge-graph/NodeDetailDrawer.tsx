@@ -11,7 +11,8 @@ import { type ReactNode, useMemo, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { cn } from "@/lib/utils"
 
-import { type ActivityBuckets, ActivitySparkline } from "./ActivitySparkline"
+import { type ActivityBuckets, activityBuckets } from "./activity-buckets"
+import { ActivitySparkline } from "./ActivitySparkline"
 import { KIND_FALLBACK_COLOR } from "./theme"
 import type { KnowledgeGraphNode, NodeClaim, NodeFacts } from "./types"
 
@@ -65,30 +66,14 @@ function computePeerRank(
   return { percentile, rankFromTop, totalPeers: peerDegrees.length }
 }
 
-/** Bucket claim observedAt timestamps into a weekly histogram for the
- * per-node activity sparkline. Mirrors the global `activityBuckets` math in
- * the explorer so the widget looks/behaves identically. */
+/** The weekly histogram of the claim stamps, for the node activity sparkline. */
 function buildNodeActivityBuckets(claims: NodeClaim[]): ActivityBuckets | null {
-  const stamps: number[] = []
-  let min = Number.POSITIVE_INFINITY
-  let max = Number.NEGATIVE_INFINITY
-  for (const c of claims) {
-    if (c.observedAt == null) continue
-    stamps.push(c.observedAt)
-    if (c.observedAt < min) min = c.observedAt
-    if (c.observedAt > max) max = c.observedAt
-  }
-  if (stamps.length === 0) return null
-  const WEEK = 7 * 24 * 60 * 60 * 1000
-  const span = Math.max(max - min, WEEK)
-  const bucketCount = Math.min(16, Math.max(4, Math.ceil(span / WEEK)))
-  const bucketSize = span / bucketCount
-  const counts = new Array<number>(bucketCount).fill(0)
-  for (const t of stamps) {
-    const idx = Math.min(bucketCount - 1, Math.floor((t - min) / bucketSize))
-    counts[idx] = (counts[idx] ?? 0) + 1
-  }
-  return { counts, rangeStart: min, rangeEnd: max, total: stamps.length }
+  return activityBuckets(
+    claims.flatMap((claim) =>
+      claim.observedAt == null ? [] : [claim.observedAt],
+    ),
+    { minBuckets: 4, maxBuckets: 16 },
+  )
 }
 
 /** Known node-payload fields worth showing as "kind-aware" chips. Anything
@@ -276,7 +261,7 @@ function NodeDetailDrawerBody({
       <div className="flex items-start gap-2 border-b border-border px-4 py-3">
         <div className="min-w-0 flex-1">
           <Button
-            variant="ghost"
+            variant="quiet"
             onPress={onFocus}
             aria-label={`Focus ${title} on the graph`}
             className="-ml-1 h-auto max-w-full justify-start px-1 py-0 text-left"
@@ -316,7 +301,7 @@ function NodeDetailDrawerBody({
           </div>
         </div>
         <Button
-          variant="ghost"
+          variant="quiet"
           size="icon-sm"
           onPress={onClose}
           aria-label="Close details"
@@ -430,7 +415,7 @@ function NodeDetailDrawerBody({
                 return (
                   <li key={nid}>
                     <Button
-                      variant="ghost"
+                      variant="quiet"
                       onPress={() => onNeighborSelect(nid)}
                       className="h-auto w-full justify-start gap-2 px-2 py-1.5"
                     >
@@ -464,7 +449,7 @@ function NodeDetailDrawerBody({
                 return (
                   <Button
                     key={pred}
-                    variant={active ? "secondary" : "ghost"}
+                    variant={active ? "secondary" : "quiet"}
                     onPress={() => setPredicateFilter(active ? null : pred)}
                     aria-pressed={active}
                     className="h-7 px-2"
@@ -599,7 +584,7 @@ function ClaimList({
         return (
           <li key={key}>
             <Button
-              variant="ghost"
+              variant="quiet"
               onPress={() => onNeighborSelect(c.neighborId)}
               className="h-auto w-full flex-col items-stretch gap-0.5 rounded-md px-2 py-1.5"
             >
