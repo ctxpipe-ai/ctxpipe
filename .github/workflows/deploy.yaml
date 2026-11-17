@@ -284,9 +284,9 @@ jobs:
   # (CTX-1215 X2). crane copies the manifest list by digest, so the ECR
   # digest equals the source digest. It writes the per-platform images first
   # and the tagged list last, so the newest tagged image is always complete.
-  # Each production push starts the factory digest workflow through
-  # EventBridge, which deploys AWS by image digest; this repo holds no
-  # factory credential. No job waits for this one.
+  # Each production push dispatches a hosted release in the factory repo
+  # through EventBridge, which deploys AWS by image digest; this repo holds
+  # no factory credential. No job waits for this one.
   copy_images_to_ecr:
     timeout-minutes: 15
     name: Copy images to the ECR
@@ -313,31 +313,25 @@ jobs:
           echo "898c0cff975f898a33e8c4580bdafb0e7c02c7faa33374e946762f97c4ab7110  $RUNNER_TEMP/crane.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/crane.tar.gz" -C "$RUNNER_TEMP" crane
 
-      # Each target has its own repository variable. A person sets it to
-      # `enabled` after the push role of that account exists: aws-core makes
-      # the production role, and factory previews/base makes the preview role.
-      # Until then, the copy step only checks the sources of that target (a
-      # dry run) and warns. With the variable set, a failed login or copy
-      # fails the job: an ECR push starts deploys, so a failure must show.
-      # The crane login keeps the registry token for the later steps, so the
-      # next AWS login can replace the session.
-      - if: vars.ECR_MIRROR == 'enabled'
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+      # Production deploys only what this job pushes, so it always copies to
+      # both accounts, and a failed login or copy fails the job. The push
+      # roles come from factory: hosted makes the production role, and
+      # previews/base makes the preview role. The crane login keeps the
+      # registry token for the later steps, so the next AWS login can
+      # replace the session.
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: arn:aws:iam::213102790567:role/ctxpipe/ctxpipe-ecr-push
           aws-region: us-west-2
-      - if: vars.ECR_MIRROR == 'enabled'
-        run: |
+      - run: |
           set -o pipefail
           aws ecr get-login-password | "$RUNNER_TEMP/crane" auth login "$PRODUCTION_ECR" -u AWS --password-stdin
 
-      - if: vars.ECR_MIRROR_PREVIEW == 'enabled'
-        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: arn:aws:iam::573018602187:role/ctxpipe/preview-mirror-push
           aws-region: us-west-2
-      - if: vars.ECR_MIRROR_PREVIEW == 'enabled'
-        run: |
+      - run: |
           set -o pipefail
           aws ecr get-login-password | "$RUNNER_TEMP/crane" auth login "$PREVIEW_ECR" -u AWS --password-stdin
 
@@ -345,8 +339,6 @@ jobs:
         env:
           DIGESTS: ${{ needs.ecr_digests.outputs.digests }}
           GH_TOKEN: ${{ github.token }}
-          PUSH_PRODUCTION: ${{ vars.ECR_MIRROR == 'enabled' }}
-          PUSH_PREVIEW: ${{ vars.ECR_MIRROR_PREVIEW == 'enabled' }}
         run: |
           set -o pipefail
           # A late rerun of an older run must not make an older build the
@@ -358,27 +350,20 @@ jobs:
           fi
           crane="$RUNNER_TEMP/crane"
           echo "$GH_TOKEN" | "$crane" auth login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          [ "$PUSH_PRODUCTION" = true ] || echo "::warning::The repository variable ECR_MIRROR is not enabled: a dry run checks the production sources and copies nothing."
-          [ "$PUSH_PREVIEW" = true ] || echo "::warning::The repository variable ECR_MIRROR_PREVIEW is not enabled: a dry run checks the preview sources and copies nothing."
           # The tags are immutable. A rerun skips a tag that already holds
           # the same digest, and fails on a tag that holds another digest.
           # With <missing> = skip, a repository that does not exist yet
           # (registry error NAME_UNKNOWN) is skipped with a warning.
-          copy() { # <push> <missing> <source>@<digest> <target repository>:<tag>
-            source="$3"
-            target="$4"
+          copy() { # <missing> <source>@<digest> <target repository>:<tag>
+            source="$2"
+            target="$3"
             digest="${source#*@}"
-            if [ "$1" != true ]; then
-              [ "$("$crane" digest "$source")" = "$digest" ]
-              echo "dry run: $source -> $target" | tee -a "$GITHUB_STEP_SUMMARY"
-              return 0
-            fi
             if existing="$("$crane" digest "$target" 2> "$RUNNER_TEMP/lookup")"; then
               [ "$existing" = "$digest" ] || { echo "::error::$target holds $existing, not $digest"; return 1; }
               echo "$target already holds $existing"
               return 0
             fi
-            if [ "$2" = skip ] && grep -q NAME_UNKNOWN "$RUNNER_TEMP/lookup"; then
+            if [ "$1" = skip ] && grep -q NAME_UNKNOWN "$RUNNER_TEMP/lookup"; then
               echo "::warning::${target%:*} does not exist yet: $source is not copied" | tee -a "$GITHUB_STEP_SUMMARY"
               return 0
             fi
@@ -392,7 +377,7 @@ jobs:
           while read -r image digest; do
             missing=fail
             [ "$image" != cost-telemetry ] || missing=skip
-            copy "$PUSH_PRODUCTION" "$missing" "ghcr.io/ctxpipe-ai/$image@$digest" "$PRODUCTION_ECR/ctxpipe/$image:$GITHUB_SHA"
+            copy "$missing" "ghcr.io/ctxpipe-ai/$image@$digest" "$PRODUCTION_ECR/ctxpipe/$image:$GITHUB_SHA"
           done < <(jq -r 'to_entries[] | "\(.key) \(.value)"' <<< "$DIGESTS")
           # The hosted, observability and preview stacks run these upstream
           # images. Each pin is a multi-platform index digest, and the copy
@@ -404,8 +389,8 @@ jobs:
           # with the service that uses it, so a pin skips a repository that
           # does not exist yet.
           while read -r targets name tag source; do
-            [[ ",$targets," != *,production,* ]] || copy "$PUSH_PRODUCTION" skip "$source" "$PRODUCTION_ECR/ctxpipe/$name:$tag"
-            [[ ",$targets," != *,preview,* ]] || copy "$PUSH_PREVIEW" skip "$source" "$PREVIEW_ECR/mirror/$name:$tag"
+            [[ ",$targets," != *,production,* ]] || copy skip "$source" "$PRODUCTION_ECR/ctxpipe/$name:$tag"
+            [[ ",$targets," != *,preview,* ]] || copy skip "$source" "$PREVIEW_ECR/mirror/$name:$tag"
           done <<'PINS'
           production,preview cloudflared 2026.10.7 docker.io/cloudflare/cloudflared@sha256:4955524aeaa379e154023d5a027c250f7b35041a2e7e950cf13f144bc9b9c5ba
           production,preview falkordb v4.20.7 docker.io/falkordb/falkordb@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
