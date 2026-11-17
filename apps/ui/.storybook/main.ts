@@ -1,6 +1,8 @@
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { defineMain } from "@storybook/react-vite/node"
+
 const useSyncExternalStoreWithSelectorShim = fileURLToPath(
   new URL("./shims/use-sync-external-store-with-selector.ts", import.meta.url),
 )
@@ -12,8 +14,6 @@ const tanstackReactRouterEsm = fileURLToPath(
     import.meta.url,
   ),
 )
-
-import type { StorybookConfig } from "@storybook/react-vite"
 import tailwindcss from "@tailwindcss/vite"
 import { tanstackStartPlugin } from "storybook-addon-tanstack-start/plugin"
 import type { Plugin, PluginOption } from "vite"
@@ -57,7 +57,7 @@ function stripTanStackAppPlugins(
   })
 }
 
-const config: StorybookConfig = {
+export default defineMain({
   stories: ["../src/**/*.stories.@(js|jsx|mjs|ts|tsx)"],
   addons: [
     getAbsolutePath("@storybook/addon-a11y"),
@@ -121,6 +121,4 @@ const config: StorybookConfig = {
       ],
     })
   },
-}
-
-export default config
+})

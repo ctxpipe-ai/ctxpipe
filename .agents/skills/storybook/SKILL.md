@@ -119,6 +119,10 @@ Each UI state has one story. Two stories of one state give two screenshots to re
 - **Route file naming**: use **`-` prefix** for story files next to routes (e.g. `-connectors.stories.tsx`) so they are not picked up as route modules.
 - **Story export names (CSF)**: **Do not** name a story export `Default`. Each export should describe the **visible state or scenario** (e.g. `Empty`, `Loading`, `WelcomeAnimation`, `ValidationError`, `Installed`). If the surface fetches, export **`Loading`** (or `Checking` / `Hydrating` when that is the real wait). If you need a particular story first in the sidebar, use **`parameters` / story sort** (or Storybook’s ordering options)—not a `Default` name.
 
+## Story format (CSF 3 and CSF 4)
+
+Most story files use CSF 3 (`satisfies Meta<typeof X>`, `StoryObj`). A few use CSF 4 (the CTX-1357 pilot): `const meta = preview.meta({...})` with `preview` imported from `.storybook/preview`, and `export const X = meta.story({...})`. The local addon [`parameters-addon.ts`](../../../apps/ui/.storybook/parameters-addon.ts) types the ctxpipe parameters of a CSF 4 file (`review`, `visual`, `route`, `intent`, `msw`, `app`, `storyRoute`, `queryClient`), so a wrong value fails the typecheck. A key with a typo is not found: Storybook types `parameters` with an index signature. A CSF 3 file gets no parameter types. Do not mix the two formats in one file.
+
 ## Render real components; mock data, not components
 
 - **Do not** replace production components with “story-only” fakes. Stories should import and render the **same** components the app uses so visuals and types stay honest.

@@ -34,12 +34,12 @@ import { initialize, mswLoader } from "msw-storybook-addon"
 import { optIn } from "./decorators/opt-in"
 const unhandledSocketHandler = ws.link(/.*/)
 ${initialize}
-const preview = {
+export default definePreview({
+  addons: [],
   loaders: [mswLoader],
   decorators: ${decorators},
   parameters: ${parameters},
-}
-export default preview
+})
 `
 
 test("opt-in decorators and only the socket enforcement handler pass", () => {

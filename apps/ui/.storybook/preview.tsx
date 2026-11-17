@@ -1,4 +1,6 @@
-import type { Preview } from "@storybook/react-vite"
+import addonA11y from "@storybook/addon-a11y"
+import addonDocs from "@storybook/addon-docs"
+import { definePreview } from "@storybook/react-vite"
 import { HttpResponse, isCommonAssetRequest, WebSocketHandler, ws } from "msw"
 import { getWorker, initialize, mswLoader } from "msw-storybook-addon"
 
@@ -7,6 +9,7 @@ import { optIn } from "./decorators/opt-in"
 import { withApp } from "./decorators/with-app"
 import { withQueryClient } from "./decorators/with-query-client"
 import { storyRouteLoader, withStoryRoute } from "./decorators/with-story-route"
+import parametersAddon from "./parameters-addon"
 
 import "../src/styles.css"
 
@@ -60,6 +63,8 @@ initialize(
       throw HttpResponse.error()
     },
   },
+  // @ts-expect-error msw-storybook-addon 2 types its handlers without the
+  // WebSocket handlers of msw, which it applies all the same.
   [unhandledSocketHandler],
 )
 
@@ -78,7 +83,11 @@ Object.assign(window, {
       ),
 })
 
-const preview: Preview = {
+// `definePreview` types the CSF 4 story files (`preview.meta`): each addon
+// gives the types of its parameters. `parametersAddon` gives the ctxpipe
+// parameters.
+export default definePreview({
+  addons: [addonA11y(), addonDocs(), parametersAddon()],
   // One browser runs every story, so stored UI state would leak to the next
   // story. The user preferences hold the SideNav width and collapse, the
   // setup-guide dismissal and the seen hints. Session storage holds drafts.
@@ -94,7 +103,12 @@ const preview: Preview = {
   },
   // `mswLoader` applies the handlers of the story (`parameters.msw`).
   // `storyRouteLoader` builds the router of `parameters.storyRoute`.
-  loaders: [mswLoader, storyRouteLoader],
+  // The cast: `parameters.msw` of a story can hold WebSocket handlers too
+  // (parameters-addon.ts), and msw-storybook-addon 2 types it without them.
+  loaders: [
+    mswLoader as (context: unknown) => Promise<object>,
+    storyRouteLoader,
+  ],
   // Each decorator is a no-op until the story file sets its parameter. The
   // first decorator is the innermost.
   decorators: [
@@ -111,6 +125,4 @@ const preview: Preview = {
       },
     },
   },
-}
-
-export default preview
+})

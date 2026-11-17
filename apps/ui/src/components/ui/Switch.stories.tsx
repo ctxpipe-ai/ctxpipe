@@ -1,21 +1,17 @@
-import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import preview from "../../../.storybook/preview"
 import { Switch } from "./Switch"
 
-const meta = {
+const meta = preview.meta({
   title: "Components/Switch",
   component: Switch,
   parameters: {
     layout: "centered",
     review: { kind: "component" },
   },
-} satisfies Meta<typeof Switch>
-
-export default meta
-
-type Story = StoryObj<typeof meta>
+})
 
 function Controlled(props: {
   isDisabled?: boolean
@@ -37,7 +33,7 @@ function Controlled(props: {
  * Switch that turns a setting on or off: the user turned it on and then off
  * again with the Space key.
  */
-export const Toggles: Story = {
+export const Toggles = meta.story({
   render: () => <Controlled />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -48,13 +44,13 @@ export const Toggles: Story = {
     await userEvent.keyboard(" ")
     await waitFor(() => expect(toggle).not.toBeChecked())
   },
-}
+})
 
 /**
  * Switch that turns a setting on or off: the switch is on and disabled, so a
  * press does not change it.
  */
-export const Disabled: Story = {
+export const Disabled = meta.story({
   render: () => <Controlled defaultSelected isDisabled />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -64,4 +60,4 @@ export const Disabled: Story = {
     await userEvent.click(toggle, { pointerEventsCheck: 0 })
     await waitFor(() => expect(toggle).toBeChecked())
   },
-}
+})

@@ -1,6 +1,6 @@
 import type { Decorator } from "@storybook/react-vite"
 
-/** The parameters that turn on a global decorator (story-parameters.d.ts). */
+/** The parameters that turn on a global decorator (parameters-addon.ts). */
 type OptInParameter = "app" | "queryClient" | "storyRoute"
 
 /**
