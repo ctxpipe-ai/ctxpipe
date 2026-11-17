@@ -1,6 +1,6 @@
 "use client"
 
-import { IconFolder, IconPlus } from "@tabler/icons-react"
+import { IconChevronRight, IconFolder, IconPlus } from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
 import { Button as RACButton } from "react-aria-components"
 
@@ -75,7 +75,7 @@ export function GithubWorkspaceDestination({
               {[0, 1, 2].map((row) => (
                 <div
                   key={row}
-                  className="flex items-start gap-3 rounded-md border border-transparent p-4"
+                  className="flex items-center gap-3 rounded-md border border-transparent p-4"
                 >
                   <Skeleton className="size-9 shrink-0" />
                   <div className="min-w-0 flex-1">
@@ -152,7 +152,7 @@ export function GithubWorkspaceDestination({
               <li key={workspace.id}>
                 <RACButton
                   className={cn(
-                    "flex w-full items-start gap-3 rounded-md border border-border bg-card/40 p-4 text-left transition-colors",
+                    "flex w-full items-center gap-3 rounded-md border border-border bg-card/40 p-4 text-left transition-colors",
                     "hover:border-teal-400/40 hover:bg-foreground/[0.03]",
                     focusVisibleClassName,
                   )}
@@ -164,7 +164,7 @@ export function GithubWorkspaceDestination({
                       aria-hidden
                     />
                   </span>
-                  <span className="min-w-0">
+                  <span className="min-w-0 flex-1">
                     <span className="block font-medium text-foreground">
                       {workspace.displayName}
                     </span>
@@ -172,6 +172,11 @@ export function GithubWorkspaceDestination({
                       {workspaceRepoLine(workspace)}
                     </span>
                   </span>
+                  {/* The row opens the settings of this Workspace. */}
+                  <IconChevronRight
+                    className="size-4 shrink-0 text-muted-foreground"
+                    aria-hidden
+                  />
                 </RACButton>
               </li>
             ))}

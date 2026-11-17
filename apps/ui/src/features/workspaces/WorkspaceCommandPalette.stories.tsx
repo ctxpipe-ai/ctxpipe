@@ -386,14 +386,31 @@ export const PaletteSkeletonHandsOverOnce: Story = {
   },
 }
 
-const manyWorkspaces = Array.from({ length: 20 }, (_, index) => {
-  const number = String(index + 1).padStart(2, "0")
-  return {
-    ...docsWorkspace,
-    id: `ws_team_${number}`,
-    slug: `team-${number}`,
-    displayName: `Team ${number}`,
-  }
+/** The Workspaces of a large org, one for each team, in alphabetical order. */
+const manyWorkspaces = [
+  "Analytics",
+  "API gateway",
+  "Billing",
+  "Checkout",
+  "Data platform",
+  "Design system",
+  "Growth",
+  "Handbook",
+  "Identity",
+  "Infrastructure",
+  "Mobile app",
+  "Notifications",
+  "Onboarding",
+  "Payments",
+  "Payroll",
+  "Search",
+  "Security",
+  "Support",
+  "Warehouse",
+  "Web app",
+].map((displayName) => {
+  const slug = displayName.toLowerCase().replace(/ /g, "-")
+  return { ...docsWorkspace, id: `ws_${slug}`, slug, displayName }
 })
 
 /** The active item is fully inside the scroll area of the list. */
@@ -438,7 +455,7 @@ export const PaletteArrowKeysWalkEveryItem: Story = {
   parameters: {
     review: {
       purpose:
-        "Command palette, where a member searches Workspaces and pages: a long list of 20 Workspaces where arrow keys move through each item.",
+        "Command palette, where a member searches Workspaces and pages: the org has 20 Workspaces; the member walked the list with the arrow keys, then typed pay, so the first match is active.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
@@ -448,7 +465,7 @@ export const PaletteArrowKeysWalkEveryItem: Story = {
   play: async () => {
     await screen.findByRole(
       "menuitem",
-      { name: /Team 20/ },
+      { name: /Web app/ },
       { timeout: 15_000 },
     )
     const field = await searchField()
@@ -462,12 +479,12 @@ export const PaletteArrowKeysWalkEveryItem: Story = {
     await pressAndExpect("{ArrowDown}", /^Home$/)
     await pressAndExpect("{ArrowDown}", /^Connectors$/)
     // The list wraps at both ends.
-    await pressAndExpect("{ArrowDown}", /^Team 01/)
+    await pressAndExpect("{ArrowDown}", /^Analytics/)
     await pressAndExpect("{ArrowUp}", /^Connectors$/)
     await pressAndExpect("{ArrowUp}", /^Home$/)
-    await pressAndExpect("{ArrowUp}", /^Team 20/)
+    await pressAndExpect("{ArrowUp}", /^Web app/)
     // Home and End go to the first and the last item.
-    await pressAndExpect("{Home}", /^Team 01/)
+    await pressAndExpect("{Home}", /^Analytics/)
     await pressAndExpect("{End}", /^Connectors$/)
     // Page keys keep an item active and do not close the dialog.
     await userEvent.keyboard("{PageUp}")
@@ -480,8 +497,8 @@ export const PaletteArrowKeysWalkEveryItem: Story = {
     await userEvent.keyboard("{Shift>}{Tab}{/Shift}")
     await expect(field).toHaveFocus()
     // Typing after an arrow press makes the first match active.
-    await userEvent.type(field, "1")
-    await waitFor(() => expect(focusedItem()?.textContent).toMatch(/^Team 01/))
+    await userEvent.type(field, "pay")
+    await waitFor(() => expect(focusedItem()?.textContent).toMatch(/^Payments/))
     await expect(screen.getByRole("dialog")).toBeInTheDocument()
   },
 }

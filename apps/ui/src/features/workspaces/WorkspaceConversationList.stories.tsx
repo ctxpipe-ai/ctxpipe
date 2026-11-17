@@ -108,7 +108,7 @@ export const Empty: Story = {
   parameters: {
     review: {
       purpose:
-        "Conversation list of a Workspace in the side nav, where a member opens a chat: the Workspace has no chats yet.",
+        "Conversation list of a Workspace in the side nav, where a member opens a chat: the Workspace has no chats yet, so a short line says so.",
     },
     msw: {
       handlers: {
@@ -136,7 +136,7 @@ export const LoadMore: Story = {
   parameters: {
     review: {
       purpose:
-        "Conversation list of a Workspace in the side nav, where a member opens a chat: more chats are on the server, so a load more control shows.",
+        "Conversation list of a Workspace in the side nav, where a member opens a chat: the server has more chats than the first page, so a Load more control shows.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
@@ -179,11 +179,11 @@ export const Collapsed: Story = {
 }
 
 const conversationsGate = responseGate()
-const threeConversations = [0, 1, 2].map((row) => ({
-  ...docsConversations[0],
-  id: `conv_${row + 1}`,
-  name: `Conversation ${row + 1}`,
-}))
+const threeConversations = [
+  "Billing structure",
+  "Auth claims",
+  "Refund rules",
+].map((name, row) => ({ ...docsConversations[0], id: `conv_${row + 1}`, name }))
 
 /** The loading rows have the same box as three loaded conversations. */
 export const ConversationListSkeletonMatches: Story = {
@@ -191,7 +191,7 @@ export const ConversationListSkeletonMatches: Story = {
   parameters: {
     review: {
       purpose:
-        "Conversation list of a Workspace in the side nav: three loaded chats that take the same box as the skeleton rows before them.",
+        "Conversation list of a Workspace in the side nav: three chats loaded in the same box as the skeleton rows before them.",
     },
     intent:
       "Catches a conversation list skeleton whose box differs from the loaded list. This causes layout shift when the data arrives. Not for conversation titles or order.",
@@ -222,7 +222,7 @@ export const ConversationListSkeletonMatches: Story = {
       await conversationsGate.release()
       await waitFor(() =>
         expect(
-          canvas.getByRole("link", { name: "Conversation 3" }),
+          canvas.getByRole("link", { name: "Refund rules" }),
         ).toBeVisible(),
       )
     })
@@ -435,7 +435,7 @@ export const DeleteConfirm: Story = {
   parameters: {
     review: {
       purpose:
-        "Conversation list of a Workspace in the side nav: the member confirmed a delete, and the chat is gone from the list.",
+        "Conversation list of a Workspace in the side nav: the member deleted a chat from its menu and confirmed, so the chat is gone and one chat stays.",
     },
     msw: {
       handlers: {
@@ -543,7 +543,7 @@ export const DeleteError: Story = {
   parameters: {
     review: {
       purpose:
-        "Conversation list of a Workspace in the side nav: the delete request failed, so the chat stays and a message gives the cause and a next step.",
+        "Conversation list of a Workspace in the side nav: the delete request of a chat failed, so the chat stays and an alert gives the cause and a next step.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
+import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { TechnicalDetail } from "@/components/ui/TechnicalDetail"
+import { hideSecrets } from "@/lib/hide-secrets"
 
 import type { ActivityBuckets } from "./ActivitySparkline"
 import { GraphWaitState } from "./GraphWaitState"
@@ -86,12 +89,15 @@ export function KnowledgeGraphExplorer({
   graph,
   pending = false,
   error = null,
+  onRetry,
   onOpenSource,
 }: {
   orgSlug: string
   graph: KnowledgeGraphPayload | undefined
   pending?: boolean
   error?: Error | null
+  /** Asks for the graph again after a failed request. */
+  onRetry: () => void
   onOpenSource?: (path: string) => void
 }) {
   const data = graph
@@ -592,8 +598,24 @@ export function KnowledgeGraphExplorer({
 
       {error ? (
         <div className="absolute left-4 right-4 top-24 z-20 mx-auto max-w-md">
-          <InlineAlert variant="error" title="Could not load graph">
-            {error instanceof Error ? error.message : "Failed to load graph."}
+          <InlineAlert
+            variant="error"
+            title="Could not load graph"
+            actions={
+              <Button variant="primary" onPress={onRetry}>
+                Try again
+              </Button>
+            }
+          >
+            <p>
+              The graph request failed. Try again. If it fails again, reload the
+              page.
+            </p>
+            {error.message ? (
+              <TechnicalDetail tone="error" className="mt-2">
+                {hideSecrets(error.message)}
+              </TechnicalDetail>
+            ) : null}
           </InlineAlert>
         </div>
       ) : null}
