@@ -18,7 +18,7 @@ The shared window is the last 3 UTC days, today included. OpenRouter lags by one
 
 ## Sources
 
-`billing.source` tells a dashboard where a cost figure comes from. Each sum of `billing.cost` over all rows is the spend (for AWS, before credits); no row counts a charge that another row counts too.
+`billing.source` tells a dashboard where a cost figure comes from. Each sum of `billing.cost` over all rows is the spend (for AWS, the cost before credits); no row counts a charge that another row counts too, except on the AWS cutover days below.
 
 - `reported`: the provider's own figure of what it bills (AWS Cost Explorer, the Cloudflare billing history, GitHub billing usage, OpenRouter, Blacksmith). Cost Explorer still revises the current month until the bill is final.
 - `derived`: no cost API exists, so the figure is the plan's seats × the committed list price per seat per month in `src/rates.ts`, spread evenly over the days of the month (Linear, the GitHub plan). Each window day takes today's seat count. Update a price when its pricing page changes (each has a checked date and its URL).
@@ -39,7 +39,7 @@ Before this version, the job sent AWS rows of the management account only, with 
 
 AWS Cost Explorer is billed at $0.01 for each paginated `GetCostAndUsage` request and updates at least daily, so the job calls it only in the 12:17 UTC slot. Other hours send no AWS rows (the last 12:17 payload stays in ClickHouse). A failed 12:17 slot tries again the next day. The client signs with the official SDK and sends over fetch with `maxAttempts: 1`, so a retry does not multiply the charge, and Bun and MSW see the HTTP call. Cost Explorer and STS are at `us-east-1`. `NetUnblendedCost` is the documented metric; `UnblendedCost` is the fallback. Two queries cost $0.02 a day, or more when a query has more than one page.
 
-The AWS rows leave out credits (records of type `Credit`). A credit record cancels the usage that it pays, so with credits the rows summed to about $0 each day. Now the AWS rows show the cost of what the organization uses, and their sum is the bill before credits. A refund stays in as a negative row. The AWS rows of the days before the first run of this change stay net of credits: no newer row replaces them. On the days that both versions sent, an older row of a service with no usage in the window (for example a support plan) stays next to the newer row of its record type.
+The AWS rows do not include credits (records of type `Credit`). A credit record cancels the usage that it pays, so with credits the sum of the rows was about $0 each day. Now the AWS rows show the cost of what the organization uses, and their sum is the bill before credits. A refund is a negative row. The AWS rows of the days before the first run of this change stay net of credits: no newer row replaces them. On the days that both versions sent, an older row of a service with no usage in the window (for example a support plan) stays next to the newer row of its record type. To see those days exactly, keep only the AWS rows of the last run of each day (the greatest `billing.observed_at_unix_ms` of the AWS rows of that day): each run sends all rows of its window.
 
 ## Environment
 

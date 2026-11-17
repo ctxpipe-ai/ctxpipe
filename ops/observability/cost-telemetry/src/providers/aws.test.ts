@@ -78,7 +78,7 @@ describe("aws rows", () => {
     expect(signed).toEqual([assumedCall, assumedCall])
   })
 
-  test("reports gross usage by account and service, and every other record type but Credit by account", async () => {
+  test("reports gross usage by account and service, and every other record type except Credit by account", async () => {
     setSystemTime(FETCH_AT)
     const bodies: unknown[] = []
     server.use(

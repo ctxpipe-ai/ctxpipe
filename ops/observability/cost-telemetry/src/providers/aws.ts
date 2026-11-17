@@ -25,8 +25,8 @@ const ACCOUNT_NAMES: Record<string, string> = {
  * https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_GetCostAndUsage.html):
  * - TimePeriod start is inclusive, end is exclusive. The shared 3-day window becomes
  *   Start=first day, End=day after last day.
- * - The rows are the gross cost: credits are left out (RECORD_TYPE Credit). A credit record cancels the usage
- *   that it pays, so with credits the daily total is about 0.
+ * - The rows are the cost before credits: they do not include records of RECORD_TYPE Credit. A credit record
+ *   cancels the usage that it pays, so with credits the daily total is about 0.
  * - GroupBy takes at most two keys, so the run makes two queries with a RECORD_TYPE filter:
  *   1. RECORD_TYPE = Usage, grouped by LINKED_ACCOUNT and SERVICE: sku is the service, scope is
  *      `{account}/{service}`.
@@ -72,13 +72,13 @@ export async function rows(days: string[]): Promise<CostRow[]> {
     maxAttempts: 1,
   })
   try {
-    const usage = await groups(client, window, "SERVICE", {
+    const usage = await queryRows(client, window, "SERVICE", {
       Dimensions: { Key: "RECORD_TYPE", Values: ["Usage"] },
     })
-    const other = await groups(client, window, "RECORD_TYPE", {
+    const otherRecordTypes = await queryRows(client, window, "RECORD_TYPE", {
       Not: { Dimensions: { Key: "RECORD_TYPE", Values: ["Usage", "Credit"] } },
     })
-    return [...usage, ...other]
+    return [...usage, ...otherRecordTypes]
   } finally {
     client.destroy()
   }
@@ -87,7 +87,7 @@ export async function rows(days: string[]): Promise<CostRow[]> {
 type Window = { start: string; end: string; days: Set<string> }
 
 /** Every page of one daily query, grouped by LINKED_ACCOUNT and `key`: one row per group and day of the window. */
-async function groups(
+async function queryRows(
   client: CostExplorerClient,
   window: Window,
   key: "SERVICE" | "RECORD_TYPE",
