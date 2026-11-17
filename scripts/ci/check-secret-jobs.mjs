@@ -20,9 +20,6 @@
 //   A job that runs untrusted code and reads MODEL_PROVIDER_API_KEY uses
 //   `environment: workbench`. To add a paid or outside check, put the job in
 //   `workbench`: this guard enforces it.
-//   `pr-preview` is only a record of the Deployments API: the PR page shows
-//   the AWS PR preview in it. It holds no secret, and no job runs in it
-//   (preview-deployments.yaml only sets the status of its deployments).
 // - RAILWAY_WORKSPACE_TOKEN and NEON_API_KEY never go to a job in `workbench`.
 // - A sticky disk or an actions/cache key that a job with a secret mounts or
 //   restores is not written by a job that runs untrusted code. The check

@@ -15,7 +15,7 @@ on:
 permissions: {}
 
 jobs:
-  inactive:
+  set-inactive:
     # github-hosted: a few GitHub API calls, without Docker (ADR-065)
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
@@ -25,6 +25,9 @@ jobs:
     steps:
       # A deployment is live when its newest status is success, in_progress,
       # queued or pending: an `up` that stopped half-way stays in_progress.
+      # Only the deployments of the last 7 days: the TTL is 3 days, and an
+      # earlier run set the older ones inactive. So the calls do not grow with
+      # every `up`.
       # The list goes into a variable first, so a failed call fails the step
       # and is never read as "nothing to do". A failed call for one deployment
       # does not stop the others; the step fails at the end.
@@ -36,7 +39,9 @@ jobs:
           set -euo pipefail
           now=$(date +%s)
           deployments=$(gh api --paginate "repos/$REPO/deployments?environment=pr-preview&per_page=100")
-          deployment_prs=$(jq -r '.[] | select(.task | test("^preview-pr-[1-9][0-9]*$")) | "\(.id) \(.task | ltrimstr("preview-pr-"))"' <<< "$deployments")
+          deployment_prs=$(jq -r --argjson since "$(( now - 7 * 86400 ))" '.[]
+            | select((.task | test("^preview-pr-[1-9][0-9]*$")) and (.created_at | fromdateiso8601) > $since)
+            | "\(.id) \(.task | ltrimstr("preview-pr-"))"' <<< "$deployments")
           failed=0
           while read -r id pr; do
             [[ -n $id ]] || continue
