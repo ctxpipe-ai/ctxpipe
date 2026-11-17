@@ -1,6 +1,8 @@
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { defineMain } from "@storybook/react-vite/node"
+
 const useSyncExternalStoreWithSelectorShim = fileURLToPath(
   new URL("./shims/use-sync-external-store-with-selector.ts", import.meta.url),
 )
@@ -12,8 +14,6 @@ const tanstackReactRouterEsm = fileURLToPath(
     import.meta.url,
   ),
 )
-
-import type { StorybookConfig } from "@storybook/react-vite"
 import tailwindcss from "@tailwindcss/vite"
 import { tanstackStartPlugin } from "storybook-addon-tanstack-start/plugin"
 import type { Plugin, PluginOption } from "vite"
@@ -57,14 +57,16 @@ function stripTanStackAppPlugins(
   })
 }
 
-const config: StorybookConfig = {
+export default defineMain({
   stories: ["../src/**/*.stories.@(js|jsx|mjs|ts|tsx)"],
   addons: [
     getAbsolutePath("@storybook/addon-a11y"),
     getAbsolutePath("@storybook/addon-docs"),
-    getAbsolutePath("@storybook/addon-mcp"),
   ],
   framework: getAbsolutePath("@storybook/react-vite"),
+  // No usage events: `storybook tools` and the build then make no outbound
+  // request, so an agent runs them in its sandbox.
+  core: { disableTelemetry: true },
   staticDirs: ["../public"],
   async viteFinal(viteConfig) {
     const withoutTanStackApp = {
@@ -122,6 +124,4 @@ const config: StorybookConfig = {
       ],
     })
   },
-}
-
-export default config
+})

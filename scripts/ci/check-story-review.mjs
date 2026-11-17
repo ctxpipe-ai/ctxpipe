@@ -1,15 +1,19 @@
 // Every story says what it shows, so that the visual critic knows what it
 // looks at (the Storybook skill, "Review annotations").
 //
-// Each story has `parameters.review` with two string literals:
-//   - `kind`: "page" for a whole screen that a user lands on, or "component"
-//     for a part of the UI (a component, a dialog, a step, a part of a page).
-//     It can be in the story or in the `meta` of the file; the story wins.
-//   - `purpose`: one sentence in the story itself, on one line of 40 to 240
-//     characters: what the UI is for, how the user uses it, and the state
-//     that the story shows. It describes the UI, so it does not start with
-//     "Shows", "Displays" or "Renders". The check cannot judge the meaning:
-//     the critic reads it.
+// Each story has a kind and a purpose:
+//   - `parameters.review.kind`, a string literal: "page" for a whole screen
+//     that a user lands on, or "component" for a part of the UI (a
+//     component, a dialog, a step, a part of a page). It can be in the story
+//     or in the `meta` of the file; the story wins.
+//   - the purpose: the JSDoc description of the story itself, one sentence
+//     of 40 to 240 characters (line breaks count as spaces): what the UI is
+//     for, how the user uses it, and the state that the story shows. It
+//     describes the UI, so it does not start with "Shows", "Displays" or
+//     "Renders". The check cannot judge the meaning: the critic reads it.
+//     Storybook shows the same text in its docs and in
+//     `storybook tools docs show-story`. A story that is not moved yet keeps
+//     its purpose in `parameters.review.purpose`, which wins (CTX-1357).
 //
 // The check fails for each story with no valid kind or purpose.
 //
@@ -28,13 +32,13 @@ import {
 const root = resolve(
   process.argv[2] ?? fileURLToPath(new URL("../..", import.meta.url)),
 )
-const { loadCsf } = await csfTools()
+const csf = await csfTools()
 
 const errors = []
 let count = 0
 for (const path of storyFiles(join(root, "apps/ui/src"))) {
   const file = relative(root, path)
-  for (const story of storiesOf(loadCsf, file, readFileSync(path, "utf8"))) {
+  for (const story of storiesOf(csf, file, readFileSync(path, "utf8"))) {
     count += 1
     const where = `${file}: story "${story.name}"`
     if (!story.kind)
@@ -43,16 +47,15 @@ for (const path of storyFiles(join(root, "apps/ui/src"))) {
       )
     if (!story.purpose)
       errors.push(
-        `${where} has no parameters.review.purpose. Write one sentence (a string literal) in the story: what the UI is for, how the user uses it, and the state that the story shows.`,
+        `${where} has no purpose. Write one sentence in the JSDoc comment of the story (/** ... */ above its export): what the UI is for, how the user uses it, and the state that the story shows.`,
       )
     else if (
       story.purpose.length < 40 ||
       story.purpose.length > 240 ||
-      story.purpose.includes("\n") ||
       /^(Shows|Displays|Renders)\b/i.test(story.purpose)
     )
       errors.push(
-        `${where}: parameters.review.purpose must be one line of 40 to 240 characters that does not start with "Shows", "Displays" or "Renders". Say what the UI is for, how the user uses it, and the state that the story shows.`,
+        `${where}: the purpose must be 40 to 240 characters and must not start with "Shows", "Displays" or "Renders". Say what the UI is for, how the user uses it, and the state that the story shows.`,
       )
   }
 }

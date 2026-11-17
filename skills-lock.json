@@ -29,6 +29,13 @@
       "skillPath": "skills/engineering/codebase-design/SKILL.md",
       "computedHash": "e6394592ecf4b5aa5bc93f95a20d0a56314788bde2e1221f87296d3becb734a2"
     },
+    "component-docs": {
+      "source": "storybookjs/skills",
+      "sourceType": "github",
+      "skillPath": "skills/component-docs/SKILL.md",
+      "ref": "v11.0.0-beta.3",
+      "computedHash": "9a48761943ed65d101ca015475ae2e5471f903f7c74d426e541e676581f78707"
+    },
     "create-auth-skill": {
       "source": "better-auth/skills",
       "sourceType": "github",

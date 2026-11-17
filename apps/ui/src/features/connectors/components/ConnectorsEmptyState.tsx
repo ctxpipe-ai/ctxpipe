@@ -6,6 +6,12 @@ type ConnectorsEmptyStateProps = {
   isDisabled?: boolean
 }
 
+/**
+ * The Connectors page of an org that has no connection yet: a title, one
+ * sentence and the "Add connection" button. Use it only when the list is
+ * empty. When the list has connections, the page shows a `ConnectorListItem`
+ * for each one.
+ */
 export function ConnectorsEmptyState({
   onAddConnection,
   isDisabled,

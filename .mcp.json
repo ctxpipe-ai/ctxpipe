@@ -7,10 +7,6 @@
         "x-api-key": "${CTXPIPE_API_KEY:-}"
       }
     },
-    "ctxpipe-storybook": {
-      "type": "http",
-      "url": "http://127.0.0.1:6006/mcp"
-    },
     "hyperdx": {
       "type": "http",
       "url": "https://hyperdx.ctxpipe.dev/api/mcp",

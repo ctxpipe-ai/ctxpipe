@@ -51,6 +51,12 @@ function LoaderShell({
   )
 }
 
+/**
+ * A process wait: a teal label and a sliding bar for work that has no known
+ * end, such as a fetch that the user started. Use `ProgressLoader` when the
+ * percent is known. Use `Skeleton` for a region whose content loads (a list, a
+ * pane): it keeps the box of the loaded content.
+ */
 export function InlineLoader({
   label,
   sublabel,
@@ -74,6 +80,11 @@ export function InlineLoader({
   )
 }
 
+/**
+ * A process wait with a known percent: a teal label and a bar that fills to
+ * `progress`, with a count below it. Use `InlineLoader` when the end is not
+ * known.
+ */
 export function ProgressLoader({
   label,
   sublabel,

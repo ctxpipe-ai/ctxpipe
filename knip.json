@@ -49,6 +49,7 @@
         "src/routes/**/*.{ts,tsx}",
         "src/**/*.stories.tsx",
         "src/**/*.test.{ts,tsx}",
+        "src/**/*.typecheck.ts",
         ".storybook/*.{ts,tsx}"
       ],
       "project": ["src/**/*.{ts,tsx}", ".storybook/**/*.{ts,tsx}"],

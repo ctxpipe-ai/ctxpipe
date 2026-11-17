@@ -115,10 +115,11 @@ function intents(file, loadCsf) {
   for (const [name, annotations] of Object.entries(csf._storyAnnotations)) {
     const intent = annotations.parameters?.properties?.find(
       (property) =>
-        property.type === "ObjectProperty" &&
+        property.type === "Property" &&
         (property.key.name ?? property.key.value) === "intent",
     )?.value
-    if (intent?.type === "StringLiteral") found.set(name, intent.value)
+    if (intent?.type === "Literal" && typeof intent.value === "string")
+      found.set(name, intent.value)
   }
   return found
 }

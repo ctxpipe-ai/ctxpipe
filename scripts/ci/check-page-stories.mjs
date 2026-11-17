@@ -32,7 +32,7 @@ import {
 const root = resolve(
   process.argv[2] ?? fileURLToPath(new URL("../..", import.meta.url)),
 )
-const { loadCsf } = await csfTools()
+const csf = await csfTools()
 
 const ids = [
   ...readFileSync(join(root, "apps/ui/src/routeTree.gen.ts"), "utf8")
@@ -46,7 +46,7 @@ const errors = []
 const covered = new Set()
 for (const path of storyFiles(join(root, "apps/ui/src"))) {
   const file = relative(root, path)
-  for (const story of storiesOf(loadCsf, file, readFileSync(path, "utf8"))) {
+  for (const story of storiesOf(csf, file, readFileSync(path, "utf8"))) {
     if (!story.page) continue
     const where = `${file}: story "${story.name}"`
     if (!story.route)

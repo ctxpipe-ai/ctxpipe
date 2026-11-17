@@ -88,12 +88,12 @@ const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root })
 const stories = Object.values(index.entries).filter(
   (entry) => entry.type === "story",
 )
-const { loadCsf } = await csfTools()
-const options = visualOptions(stories, loadCsf)
+const csf = await csfTools()
+const options = visualOptions(stories, csf.loadCsf)
 // The name, kind and purpose of each story (parameters.review), for the
 // crop of a component story and for the critic: `visual:review` reads them
 // from the manifest.
-const reviews = storyReviews(stories, loadCsf)
+const reviews = storyReviews(stories, csf)
 for (const [id, { skip }] of options)
   if (skip)
     process.stdout.write(`skipped: ${id} (parameters.visual.skip: ${skip})\n`)
