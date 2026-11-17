@@ -39,10 +39,9 @@ const button = tv({
         "border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 pressed:bg-secondary/70",
       destructive:
         "bg-destructive font-medium text-white hover:bg-destructive/90 pressed:bg-destructive/80",
-      quiet:
-        "border-0 bg-transparent text-zinc-500 hover:bg-foreground/[0.06] hover:text-foreground pressed:bg-foreground/[0.08]",
-      ghost:
-        "border-0 bg-transparent text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground pressed:bg-foreground/[0.08]",
+      // One look with two names; see the compound variants.
+      quiet: "",
+      ghost: "",
       outline:
         "rounded-sm border border-white/75 bg-transparent text-zinc-100 dark:border-white/75 hover:border-white/88 hover:bg-white/[0.08] dark:hover:border-white/88 pressed:border-white/88 pressed:bg-white/10",
     },
@@ -65,21 +64,26 @@ const button = tv({
   },
   compoundVariants: [
     {
-      variant: "quiet",
-      isDisabled: true,
-      class: "bg-transparent dark:bg-transparent",
+      variant: ["quiet", "ghost"],
+      class:
+        "border-0 bg-transparent text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground pressed:bg-foreground/[0.08]",
     },
     {
-      variant: "ghost",
+      variant: ["quiet", "ghost"],
       isDisabled: true,
       class:
-        "bg-transparent hover:bg-transparent pressed:bg-transparent text-muted-foreground",
+        "bg-transparent hover:bg-transparent pressed:bg-transparent text-muted-foreground hover:text-muted-foreground",
     },
     {
       variant: "outline",
       isDisabled: true,
       class:
         "border-white/35 bg-transparent text-zinc-500 hover:border-white/35 hover:bg-transparent dark:border-white/35 dark:hover:border-white/35",
+    },
+    // Last, so that no text color above shows the label under the spinner.
+    {
+      isPending: true,
+      class: "text-transparent hover:text-transparent",
     },
   ],
 })

@@ -17,7 +17,7 @@ export const Route = createFileRoute("/$orgSlug/workspaces/new")({
   component: NewWorkspaceRoute,
 })
 
-const pageClassName = "mx-auto min-h-screen w-full max-w-2xl px-6 py-16"
+const pageClassName = "mx-auto w-full max-w-2xl flex-1 px-6 py-16"
 
 /**
  * The page before the session answers. It shows the step that the URL names,
