@@ -50,8 +50,8 @@ export function oauthErrorMessage(
   }
   return {
     title: "Could not link the account",
-    description:
-      errorDescription?.trim() ||
-      `Start the connection again. The error code is ${error}.`,
+    description: errorDescription?.trim()
+      ? `${errorDescription.trim()} Start the connection again.`
+      : `Start the connection again. The error code is ${error}.`,
   }
 }

@@ -150,20 +150,6 @@ export const PendingSetupNarrow: Story = {
   },
 }
 
-export const CouldntLoad: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Connector row on the Connectors page, with health and actions for one connection: the status read failed, so a row under the head gives the cause and Retry.",
-    },
-  },
-  args: {
-    ...shared,
-    health: "couldnt_load",
-    actionLabel: "Retry",
-  },
-}
-
 export const SyncFailed: Story = {
   parameters: {
     review: {

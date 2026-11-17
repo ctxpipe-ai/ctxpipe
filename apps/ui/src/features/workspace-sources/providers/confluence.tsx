@@ -82,7 +82,7 @@ export function ConfluenceScopeEditor(props: SourceScopeEditorProps) {
 
 /** Confluence source UI: the space and page tree of the connection. */
 export const confluenceSourceUi: SourceProviderUi = {
-  Icon: ({ className }) => <ConfluenceMark className={className} />,
+  Icon: ConfluenceMark,
   ScopeEditor: ConfluenceScopeEditor,
   memberCanPick: true,
 }

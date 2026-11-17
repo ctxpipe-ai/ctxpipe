@@ -49,4 +49,14 @@ describe("oauthErrorMessage", () => {
       "Start the connection again. The error code is weird_key_xyz.",
     )
   })
+
+  it("adds the next step after the text of the provider", () => {
+    const m = oauthErrorMessage(
+      "custom_provider_error",
+      "The app is suspended.",
+    )
+    expect(m.description).toBe(
+      "The app is suspended. Start the connection again.",
+    )
+  })
 })

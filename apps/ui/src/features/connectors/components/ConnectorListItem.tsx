@@ -196,6 +196,17 @@ export function ConnectorListItem({
   // The status read failed: the cause and Retry show without a click.
   const failed = health === "couldnt_load"
   const action = actionLabel && onAction ? { actionLabel, onAction } : null
+  // The step action of a row below the head (a draft, or a failed status).
+  const rowAction = action ? (
+    <Button
+      variant="secondary"
+      className="whitespace-nowrap"
+      aria-label={`${action.actionLabel} for ${name}`}
+      onPress={action.onAction}
+    >
+      {action.actionLabel}
+    </Button>
+  ) : null
   const triggerRef = useRef<HTMLButtonElement>(null)
   const markedHintId = useId()
   const modalOpen = useIsModalOpen()
@@ -262,16 +273,7 @@ export function ConnectorListItem({
                 >
                   Remove
                 </Button>
-                {action ? (
-                  <Button
-                    variant="secondary"
-                    className="whitespace-nowrap"
-                    aria-label={`${action.actionLabel} for ${name}`}
-                    onPress={action.onAction}
-                  >
-                    {action.actionLabel}
-                  </Button>
-                ) : null}
+                {rowAction}
               </div>
             ) : null}
             {failed ? (
@@ -279,16 +281,7 @@ export function ConnectorListItem({
                 <p className="text-sm text-muted-foreground">
                   The status check of this connection failed.
                 </p>
-                {action ? (
-                  <Button
-                    variant="secondary"
-                    className="whitespace-nowrap"
-                    aria-label={`${action.actionLabel} for ${name}`}
-                    onPress={action.onAction}
-                  >
-                    {action.actionLabel}
-                  </Button>
-                ) : null}
+                {rowAction}
               </div>
             ) : null}
           </div>
