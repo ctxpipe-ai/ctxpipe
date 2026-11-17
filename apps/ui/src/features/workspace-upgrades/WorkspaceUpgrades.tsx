@@ -178,6 +178,13 @@ function PullRequestLink(props: {
   )
 }
 
+/** The title of a failed item names its kind: a format upgrade or a re-ingestion. */
+function upgradeFailedTitle(item: Pick<WorkspaceUpgradeItem, "kind">) {
+  return item.kind === "reingest"
+    ? "The re-ingestion failed"
+    : "The upgrade failed"
+}
+
 /**
  * The problem of one upgrade row (blocked or failed) as quiet text, with its
  * fix next to it. It is not an `InlineAlert`: the amber edge of the card is
@@ -350,7 +357,7 @@ function UpgradeDetail(props: {
             onFixWithAgent={props.onFixWithAgent}
           />
         ) : (
-          <ItemProblem title="The upgrade failed">
+          <ItemProblem title={upgradeFailedTitle(item)}>
             <p>{item.failureReason ?? "ctxpipe gives no reason."}</p>
           </ItemProblem>
         )
@@ -525,7 +532,7 @@ function UpgradeFailureDetail(props: {
     ) : null
   return (
     <ItemProblem
-      title="The upgrade failed"
+      title={upgradeFailedTitle(item)}
       actions={
         link || agent ? (
           <>
