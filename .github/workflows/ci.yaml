@@ -1827,7 +1827,7 @@ jobs:
         run: |
           out="$RUNNER_TEMP/out"
           # No URL or credential-like text of the stderr reaches the log or
-          # the PR comment (a test checks the rules). gate.mjs shows the cause
+          # the gate report (a test checks the rules). gate.mjs shows the cause
           # as it is. The job runs no repository script, so it uses sed.
           redact() {
             local name='["'\'']?[A-Za-z_]*([Kk][Ee][Yy]|[Tt][Oo][Kk][Ee][Nn]|[Ss][Ee][Cc][Rr][Ee][Tt]|[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd]|[Cc][Rr][Ee][Dd][Ee][Nn][Tt][Ii][Aa][Ll]|[Aa][Uu][Tt][Hh][Oo][Rr][Ii][Zz][Aa][Tt][Ii][Oo][Nn])[A-Za-z_]*["'\'']?[[:space:]]*[=:][[:space:]]*'
@@ -1848,7 +1848,7 @@ jobs:
             # The artifact keeps only the fields that gate.mjs reads: the
             # status of each critic, the commits of its verdicts, and each
             # override, dismissal and raised spend limit with its writer and
-            # commit, so that none is silent in the PR comment, and the
+            # commit, so that none is silent in the gate report, and the
             # section of a command critic (its changed screenshots, which the
             # factory makes). It drops the rest (for example the disputes and
             # the store details). A test runs this filter on the factory
@@ -2235,8 +2235,8 @@ jobs:
           path: ${{ runner.temp }}/plan/plan.json
           if-no-files-found: ignore
 
-  # Publishes the decision of each PR run: the job summary, the artifact
-  # merge-gate-decision, and one PR comment that it updates. In gate mode
+  # Publishes the decision of each PR run: the job summary and the artifact
+  # merge-gate-decision (with the same text as summary.md). In gate mode
   # this job is the verdict: it fails when the gated run fails (or, on a
   # full run, when the full run fails), and it writes the passes of this run
   # to the PR store. In shadow mode the full run gates; this job computes
@@ -2249,8 +2249,9 @@ jobs:
     # A fixed name: this job is the required status, also when the plan job
     # failed and gave no outputs (then the run is full). It has no
     # continue-on-error: a failed verdict fails it only in gate mode, but an
-    # error in gate.mjs decide or a failed PR comment step fails it in each
-    # mode.
+    # error in gate.mjs decide fails it in each mode. It posts no PR comment
+    # (each new comment notifies the subscribers of the PR): the job summary
+    # and the artifact `merge-gate-decision` hold the report.
     name: Merge gate
     needs:
       [
@@ -2281,7 +2282,7 @@ jobs:
     permissions:
       contents: read
       actions: read
-      pull-requests: write
+      pull-requests: read
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -2449,17 +2450,9 @@ jobs:
             node "scripts/ci/check-$script.mjs" || code=1
           done
           exit "$code"
-      - name: Preserve the decision
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: merge-gate-decision
-          path: |
-            ${{ runner.temp }}/decision/decision.json
-            ${{ runner.temp }}/inputs/selection.json
-          if-no-files-found: warn
       # The evals call paid models: only the label starts them. The reminder
-      # reads the PR files and labels, so it shows in every mode.
+      # reads the PR files and labels, so it shows in every mode. It goes into
+      # the job summary and into summary.md of the artifact.
       - name: Remind the author of the MCP evals
         if: always() && github.event.pull_request.head.repo.full_name == github.repository
         continue-on-error: true
@@ -2467,56 +2460,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
-        run: bash scripts/ci/mcp-evals-reminder.sh "$RUNNER_TEMP/decision/comment.md"
-      # A fork PR has a read-only token, so it gets only the summary. A rate
-      # limit that stays after the wait does not fail the job: the job
-      # summary and the status of the job have the decision.
-      - name: Post or update the PR comment
-        if: always() && github.event.pull_request.head.repo.full_name == github.repository
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
         run: |
-          # gh_retry runs `gh "$@"`. On a GitHub API rate limit, it waits until the
-          # reset time that GitHub gives (one minute for a secondary limit), at most 5
-          # minutes, and runs the call again one time. Exit code 2: the limit stays.
-          # Each step that calls the API holds this same text (a test checks it).
-          gh_retry() {
-            local err="$RUNNER_TEMP/gh-retry.err" out wait try
-            for try in 1 2; do
-              if out=$(gh "$@" 2> "$err"); then
-                [ -z "$out" ] || printf '%s\n' "$out"
-                return 0
-              fi
-              grep -qi 'rate limit' "$err" || { cat "$err" >&2; return 1; }
-              [ "$try" = 1 ] || break
-              wait=$(gh api rate_limit --jq '.resources.core |
-                if .remaining > 0 then 60 else .reset - now + 1 | floor end') || break
-              [ "$wait" -le 300 ] || break
-              wait=$((wait > 1 ? wait : 1))
-              echo "::notice::GitHub API rate limit: the call runs again in ${wait}s" >&2
-              sleep "$wait"
-            done
-            cat "$err" >&2
-            return 2
-          }
-          limited() {
-            echo "::warning::The GitHub API rate limit stays; the PR comment is not updated. The job summary has the decision."
-            exit 0
-          }
-          body="$(cat "$RUNNER_TEMP/decision/comment.md")"
-          ids=$(gh_retry api "repos/$REPO/issues/$PR/comments" --paginate \
-            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- merge-gate -->"))) | .id') ||
-            { [ $? = 2 ] && limited; exit 1; }
-          existing=$(head -1 <<<"$ids")
-          if [ -n "$existing" ]; then
-            gh_retry api --method PATCH "repos/$REPO/issues/comments/$existing" -f body="$body" > /dev/null ||
-              { [ $? = 2 ] && limited; exit 1; }
-          else
-            gh_retry api --method POST "repos/$REPO/issues/$PR/comments" -f body="$body" > /dev/null ||
-              { [ $? = 2 ] && limited; exit 1; }
-          fi
+          set -o pipefail
+          bash scripts/ci/mcp-evals-reminder.sh |
+            tee -a "$RUNNER_TEMP/decision/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      # The report for an agent: summary.md is the text of the job summary,
+      # which the GitHub API does not give (scripts/checks/README.md, Merge
+      # gate).
+      - name: Preserve the decision
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: merge-gate-decision
+          path: |
+            ${{ runner.temp }}/decision/decision.json
+            ${{ runner.temp }}/decision/summary.md
+            ${{ runner.temp }}/inputs/selection.json
+          if-no-files-found: warn
 
   # The trusted writer of the result store, after a full run on main (the
   # nightly schedule, or a run by hand on main). It stores each pass as the CI

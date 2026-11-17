@@ -20,7 +20,6 @@ import {
   fullVerdict,
   gateDecision,
   gateText,
-  marker,
 } from "../checks/gate.mjs"
 import {
   jobPlans,
@@ -537,7 +536,7 @@ test("a change to the gate code or its pin runs every test of the CI scripts, an
     describe({ kind: "gate", inputs: [".github/merge-gate.json"] }),
     "gate input .github/merge-gate.json changed",
   )
-  // The merge gate comment says why.
+  // The merge gate summary says why.
   const { decision } = gateDecision({
     config: config(),
     planned,
@@ -595,7 +594,7 @@ test("a change to a definition of checks reuses each stored pass whose definitio
     changed: [],
   })
   assert.match(planned.reason, /definitions of checks changed \(scripts\/checks\/lanes\.mjs\)/)
-  // The merge gate comment says why.
+  // The merge gate summary says why.
   const { decision } = gateDecision({
     config: config(),
     planned,
@@ -1108,30 +1107,27 @@ test("a failed check with a stored pass runs again, and a second failure quarant
   assert.equal(flake.decision.gatedRun.verdict, "fail")
 })
 
-test("the PR comment shows the selection, the hits, the LLM decisions and the minutes", () => {
+test("the summary shows the selection, the hits, the LLM decisions and the minutes", () => {
   const { decision } = decide()
-  const text = gateText(decision, "https://example.test/run", {
-    limit: 40,
-    comment: true,
-  })
-  assert.ok(text.startsWith(marker))
+  const text = gateText(decision, "https://example.test/run")
+  assert.ok(text.startsWith("## Merge gate\n"))
   for (const part of [
     "**Verdict:** pass",
     "3 ran, 2 hits (ci 1, agent 1), 2 in other workflows",
     "**Cache hits:** ci 1, pr 0, agent 1 of ",
     "renames a UI prop",
     "dropped 1, added 1",
-    "<summary>LLM decisions (2)</summary>",
+    "### LLM decisions",
     "`same path`",
-    "<summary>Omitted (2)</summary>",
+    "### Omitted",
     "a full run about",
     "**Shards:** `test-shards` 1 of 9 (about",
   ])
     assert.ok(text.includes(part), part)
 })
 
-test("the PR comment counts by family the selected checks that no store had a pass for", () => {
-  const text = (decision) => gateText(decision, undefined, { comment: true })
+test("the summary counts by family the selected checks that no store had a pass for", () => {
+  const text = (decision) => gateText(decision)
   const { decision } = decide()
   // ui and contract have a key and no stored pass; the image build has no
   // key, so it is not a miss.
@@ -1253,13 +1249,9 @@ test("the CLI plans a gated run and fails the merge gate on a failed verdict", (
   ])
   assert.equal(decided.status, 1, decided.stderr)
   assert.match(decided.stdout, /config gate; mode gate; verdict fail/)
-  for (const file of [
-    "decision.json",
-    "summary.md",
-    "comment.md",
-    "store.json",
-  ])
+  for (const file of ["decision.json", "summary.md", "store.json"])
     assert.ok(existsSync(join(out, file)), file)
+  assert.ok(!existsSync(join(out, "comment.md")))
 })
 
 test("a check that fails in a full run loses its stored pass: gated, full, gated", () => {

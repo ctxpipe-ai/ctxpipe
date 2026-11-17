@@ -35,6 +35,7 @@ The contract of the checks is public: [`scripts/checks/README.md`](../../../scri
    ```
 
 7. Push when the last line says that the checks and the critics passed. The merge gate shows each reused pass as a hit with class `agent`, and each critic as `carried` or `not-applicable`.
+8. Read the gate report: the job summary of the `Merge gate` check run. The gate posts no PR comment. The GitHub API does not give a job summary, so read the same text from `summary.md` in the artifact `merge-gate-decision` of the run (the commands are in [`scripts/checks/README.md`](../../../scripts/checks/README.md), "The gate report").
 
 The verdicts belong to the branch (`<owner>/<repo>@<branch>`, from the `origin` remote), so you can run the critics before the pull request exists.
 
