@@ -42,6 +42,12 @@ interface SelectProps<T extends object> extends Omit<
   children: React.ReactNode | ((item: T) => React.ReactNode)
 }
 
+/**
+ * A field where the user chooses one value from a list in a popover, with a
+ * label, a description and an error message. Put a `SelectItem` in it for each
+ * option. Use `RadioGroup` for a few options that the user must see together,
+ * and a `Menu` for a list of commands.
+ */
 export function Select<T extends object>({
   label,
   description,
@@ -84,6 +90,7 @@ export function Select<T extends object>({
   )
 }
 
+/** One option of a `Select`, with a check mark when it is selected. */
 export function SelectItem(props: ListBoxItemProps) {
   return <DropdownItem {...props} />
 }

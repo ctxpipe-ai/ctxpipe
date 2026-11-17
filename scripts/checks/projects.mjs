@@ -211,6 +211,14 @@ const definitions = () => [
       "Catches a story with no review kind (page or component) or no purpose sentence for the visual critic. Run it when a story under apps/ui/src changes; never for a change outside it.",
     ],
     [
+      "component-descriptions",
+      [
+        "apps/ui/src/**",
+        "scripts/ci/component-descriptions-allowlist.json",
+      ],
+      "Catches an exported React component under apps/ui/src with no JSDoc description that the allowlist does not have, and an allowlist entry that is no longer necessary. Run it when a .tsx file under apps/ui/src or the allowlist changes; never for a change outside them.",
+    ],
+    [
       "storybook-globals",
       ["apps/ui/.storybook/**"],
       "Catches a mock or a wrapper above the story file: MSW handlers in the Storybook preview, or a global decorator that is not an opt-in. Run it when a file under apps/ui/.storybook changes; never for a change outside it.",

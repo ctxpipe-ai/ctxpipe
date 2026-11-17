@@ -4,14 +4,24 @@ import { Menu as MenuPrimitive } from "@base-ui/react/menu"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * A Base UI menu: a `DropdownMenuTrigger`, then a `DropdownMenuContent` with
+ * `DropdownMenuItem` items. The SideNav menus and the actions of a connector
+ * row use it. For a new menu, use the React Aria `MenuTrigger` and `Menu`.
+ */
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props) {
   return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />
 }
 
+/** The button that opens a `DropdownMenu`. Pass your own button in `render`. */
 function DropdownMenuTrigger({ ...props }: MenuPrimitive.Trigger.Props) {
   return <MenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />
 }
 
+/**
+ * The popup of a `DropdownMenu` that holds its items, on the `side` of the
+ * trigger with its `align`.
+ */
 function DropdownMenuContent({
   align = "start",
   alignOffset = 0,
@@ -46,6 +56,10 @@ function DropdownMenuContent({
   )
 }
 
+/**
+ * One command of a `DropdownMenu`. `variant="destructive"` makes a delete or
+ * disconnect item red. `onSelect` is an alias of `onClick`.
+ */
 function DropdownMenuItem({
   className,
   inset,
@@ -77,6 +91,7 @@ function DropdownMenuItem({
   )
 }
 
+/** A line between groups of items in a `DropdownMenuContent`. */
 function DropdownMenuSeparator({
   className,
   ...props

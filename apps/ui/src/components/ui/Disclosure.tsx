@@ -38,6 +38,12 @@ interface DisclosureProps extends AriaDisclosureProps {
   children: React.ReactNode
 }
 
+/**
+ * A section that the user expands and collapses: a `DisclosureHeader` and a
+ * `DisclosurePanel`. Use it for detail that most users do not need at first,
+ * such as the manual steps of a setup. Use `TechnicalDetail` for raw machine
+ * text, such as a server error.
+ */
 export function Disclosure({ children, ...props }: DisclosureProps) {
   return (
     <AriaDisclosure
@@ -60,6 +66,10 @@ interface DisclosureHeaderProps {
   trailingPill?: string
 }
 
+/**
+ * The trigger row of a `Disclosure`: its text and a chevron that turns when the
+ * panel opens. `trailingPill` shows a short label in place of the chevron.
+ */
 export function DisclosureHeader({
   children,
   trailingPill,
@@ -103,6 +113,10 @@ interface DisclosurePanelProps extends AriaDisclosurePanelProps {
   children: React.ReactNode
 }
 
+/**
+ * The content of a `Disclosure`. It shows only while the disclosure is
+ * expanded.
+ */
 export function DisclosurePanel({ children, ...props }: DisclosurePanelProps) {
   return (
     <AriaDisclosurePanel

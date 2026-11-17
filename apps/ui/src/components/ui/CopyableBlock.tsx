@@ -19,6 +19,12 @@ type CopyableBlockProps = {
   hideAriaLabel?: string
 }
 
+/**
+ * A value in a mono box with a copy button, such as a command, a URL or a
+ * token. Use `variant="secret"` for a key or a secret: dots hide the value
+ * until the user presses the eye button. The button shows a check after the
+ * copy, and a short error line when the browser refuses it.
+ */
 export function CopyableBlock({
   value,
   copiedAriaLabel,

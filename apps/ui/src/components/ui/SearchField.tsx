@@ -23,6 +23,11 @@ interface SearchFieldProps extends AriaSearchFieldProps {
   placeholder?: string
 }
 
+/**
+ * A text field for a search or a filter: a search icon, the input and a clear
+ * button. Use it above the list that it filters, such as the connector catalog
+ * or the repository picker. Use `TextField` for a value that the form keeps.
+ */
 export function SearchField({
   label,
   description,

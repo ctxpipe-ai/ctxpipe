@@ -11,6 +11,12 @@ interface ProgressBarProps extends AriaProgressBarProps {
   label?: string
 }
 
+/**
+ * The generic React Aria progress bar: a label, a value text and a blue bar.
+ * Use it only for a bar that you style yourself and that needs the
+ * `progressbar` role. For a process wait, use `ProgressLoader` (a known
+ * percent) or `InlineLoader` (no known end), which have the house look.
+ */
 export function ProgressBar({ label, ...props }: ProgressBarProps) {
   return (
     <AriaProgressBar

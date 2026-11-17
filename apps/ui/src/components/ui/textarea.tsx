@@ -2,6 +2,12 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * A plain text area with the field style. Use it only when you control the
+ * label and the validation yourself, such as a private key that the user can
+ * also drop as a file. Use `TextField` with `rows` for a text area with a label
+ * and an error message.
+ */
 function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
   return (
     <textarea

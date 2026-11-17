@@ -16,6 +16,11 @@ interface CheckboxGroupProps extends Omit<AriaCheckboxGroupProps, "children"> {
   errorMessage?: string | ((validation: ValidationResult) => string)
 }
 
+/**
+ * A labeled group of `Checkbox` options where the user chooses zero or more,
+ * with a description and an error message. Use `RadioGroup` when the user must
+ * choose exactly one, and `Select` for one value from a long list.
+ */
 export function CheckboxGroup(props: CheckboxGroupProps) {
   return (
     <AriaCheckboxGroup

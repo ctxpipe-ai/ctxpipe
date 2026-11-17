@@ -27,6 +27,11 @@ const tabsStyles = tv({
   },
 })
 
+/**
+ * A React Aria tab set: a `TabList` of `Tab` items and a `TabPanel` for each
+ * tab. Use it to change between views of one subject in place, such as the
+ * panes of a Workspace. Use navigation links when each view is its own page.
+ */
 export function Tabs(props: TabsProps) {
   return (
     <RACTabs
@@ -48,6 +53,10 @@ const tabListStyles = tv({
   },
 })
 
+/**
+ * The row of `Tab` items of `Tabs`. It scrolls sideways when the tabs do not
+ * fit.
+ */
 export function TabList<T extends object>(props: TabListProps<T>) {
   return (
     <RACTabList
@@ -69,6 +78,7 @@ const tabProps = tv({
   },
 })
 
+/** One tab of a `TabList`. The selected tab has a highlight behind its label. */
 export function Tab(props: TabProps) {
   return (
     <RACTab
@@ -92,6 +102,7 @@ const tabPanelStyles = tv({
   base: "flex-1 box-border p-4 text-sm text-neutral-900 dark:text-neutral-100",
 })
 
+/** The content of one tab of `Tabs`. Give it the `id` of its `Tab`. */
 export function TabPanel(props: TabPanelProps) {
   return (
     <RACTabPanel

@@ -20,6 +20,11 @@ let button = tv({
   },
 })
 
+/**
+ * A small quiet button inside a field, such as the clear button of
+ * `SearchField`. Use `Button` with `variant="quiet"` for a button outside a
+ * field.
+ */
 export function FieldButton(props: ButtonProps) {
   return (
     <RACButton

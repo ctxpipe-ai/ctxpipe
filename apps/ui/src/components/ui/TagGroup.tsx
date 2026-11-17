@@ -72,6 +72,11 @@ interface TagProps extends AriaTagProps {
   color?: Color
 }
 
+/**
+ * A labeled group of small tags, such as the services that a source includes.
+ * With `onRemove`, each tag gets a remove button. Use a status pill
+ * (`RepositoryStatus`) for a state, not a tag.
+ */
 export function TagGroup<T extends object>({
   label,
   description,
@@ -111,6 +116,10 @@ const removeButtonStyles = tv({
   base: "cursor-default rounded-full transition-[background-color] p-0.5 flex items-center justify-center bg-transparent text-[inherit] border-0 hover:bg-black/10 dark:hover:bg-white/10 pressed:bg-black/20 dark:pressed:bg-white/20",
 })
 
+/**
+ * One tag of a `TagGroup`, in gray, green, yellow or blue. A remove button
+ * shows when the group has `onRemove`.
+ */
 export function Tag({ children, color, ...props }: TagProps) {
   const textValue = typeof children === "string" ? children : undefined
   const groupColor = useContext(ColorContext)

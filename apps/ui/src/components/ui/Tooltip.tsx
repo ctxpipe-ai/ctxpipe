@@ -2,6 +2,11 @@ import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip"
 
 import { cn } from "@/lib/utils"
 
+/**
+ * Shares the open delay of the tooltips in it, so that a tooltip opens at once
+ * when the pointer moves from one trigger to the next. Put it around a group of
+ * tooltips.
+ */
 function TooltipProvider({
   delay = 0,
   ...props
@@ -15,14 +20,28 @@ function TooltipProvider({
   )
 }
 
+/**
+ * A short label that shows when the user hovers over or focuses its trigger,
+ * for an icon button or a truncated value. Compose it from `TooltipTrigger` and
+ * `TooltipContent`. Do not put a control or information that the user must have
+ * in a tooltip: use a `Popover`.
+ */
 function Tooltip({ ...props }: TooltipPrimitive.Root.Props) {
   return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
 }
 
+/**
+ * The element that opens a `Tooltip` on hover or focus. Use `render` to make an
+ * existing button the trigger.
+ */
 function TooltipTrigger({ ...props }: TooltipPrimitive.Trigger.Props) {
   return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />
 }
 
+/**
+ * The dark bubble of a `Tooltip`, with an arrow, on the `side` of the trigger
+ * (the top by default).
+ */
 function TooltipContent({
   className,
   arrowClassName,

@@ -35,6 +35,11 @@ interface TextFieldProps extends AriaTextFieldProps {
   rows?: number
 }
 
+/**
+ * A text field with a label, a description and an error message. Set `rows` for
+ * a text area in mono text, such as a key or a JSON value. Use `SearchField`
+ * for a search or a filter.
+ */
 export function TextField({
   label,
   description,

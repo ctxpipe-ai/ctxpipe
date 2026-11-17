@@ -16,6 +16,12 @@ interface AlertDialogProps extends Omit<DialogProps, "children"> {
   onAction?: () => void
 }
 
+/**
+ * A confirm step in a `Modal`: a title, a short text, a Cancel button and one
+ * action button. Use it before an action that the user cannot undo, such as a
+ * revoke, a disconnect or a delete. Use a `Dialog` for a modal that holds a
+ * form or other content.
+ */
 export function AlertDialog({
   title,
   variant,
