@@ -34,7 +34,6 @@ import type {
   WorkspaceSkippedFile,
 } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
-import { hideSecrets } from "@/lib/hide-secrets"
 import { useIsOrgAdmin } from "@/lib/org-member-role"
 import {
   withDismissedUpgrade,
@@ -119,7 +118,7 @@ function UpgradeToast(props: {
         {/* The cause is raw error text: the house block for machine detail. */}
         {saveFailed && job.data?.failureReason ? (
           <TechnicalDetail className="mt-1.5">
-            {hideSecrets(job.data.failureReason)}
+            {job.data.failureReason}
           </TechnicalDetail>
         ) : null}
         {isAdmin === false ? (

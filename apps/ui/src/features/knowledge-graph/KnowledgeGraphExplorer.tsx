@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { TechnicalDetail } from "@/components/ui/TechnicalDetail"
-import { hideSecrets } from "@/lib/hide-secrets"
 
 import { type ActivityBuckets, activityBuckets } from "./activity-buckets"
 import { GraphWaitState } from "./GraphWaitState"
@@ -600,7 +599,7 @@ export function KnowledgeGraphExplorer({
             </p>
             {error.message ? (
               <TechnicalDetail tone="error" className="mt-2">
-                {hideSecrets(error.message)}
+                {error.message}
               </TechnicalDetail>
             ) : null}
           </InlineAlert>

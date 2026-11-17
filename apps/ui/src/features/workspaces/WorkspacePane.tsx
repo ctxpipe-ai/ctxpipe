@@ -34,7 +34,6 @@ import {
 import { OnboardingHint } from "@/features/hints/OnboardingHint"
 import { GraphWaitState } from "@/features/knowledge-graph/GraphWaitState"
 import { focusVisibleClassName } from "@/lib/focus-styles"
-import { hideSecrets } from "@/lib/hide-secrets"
 import { useMarkWorkspaceExplored } from "@/lib/useOrgGuide"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
@@ -537,7 +536,7 @@ function WorkspaceGraphPaneBody(props: {
             </p>
             {rebuild.error ? (
               <TechnicalDetail tone="error" className="mt-2">
-                {hideSecrets(rebuild.error.message)}
+                {rebuild.error.message}
               </TechnicalDetail>
             ) : null}
           </InlineAlert>

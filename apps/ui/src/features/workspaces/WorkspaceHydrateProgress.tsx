@@ -4,7 +4,6 @@ import { Link } from "@tanstack/react-router"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { TechnicalDetail } from "@/components/ui/TechnicalDetail"
-import { hideSecrets } from "@/lib/hide-secrets"
 
 import { workspaceHydrateView } from "./projection"
 import { retryPrepareWorkspace, workspaceKeys } from "./queries"
@@ -63,7 +62,7 @@ export function HydrateFailureReason(props: {
       <p>{props.sentence}</p>
       {hydrateError ? (
         <TechnicalDetail tone={props.tone} className="mt-2">
-          {hideSecrets(hydrateError)}
+          {hydrateError}
         </TechnicalDetail>
       ) : null}
     </>

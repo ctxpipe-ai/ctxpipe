@@ -229,6 +229,9 @@ export const CreateMovesToStepTwoUrl: Story = {
       purpose:
         "Add Workspace page, where an admin picks the Workspace repository and adds sources: the user creates the Workspace in step 1, and step 2 shows with a new address.",
     },
+    visual: {
+      skip: "Behavior test: it ends on the location probe. StepTwoFromUrl shows step 2.",
+    },
     msw: { handlers: { page: stepTwoHandlers } },
   },
   render: () => (
