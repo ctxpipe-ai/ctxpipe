@@ -374,23 +374,34 @@ function providers() {
         `<AssumeRoleResponse><AssumeRoleResult><Credentials><AccessKeyId>ASIAASSUMED</AccessKeyId><SecretAccessKey>s</SecretAccessKey><SessionToken>t</SessionToken><Expiration>2026-09-26T13:17:00Z</Expiration></Credentials></AssumeRoleResult></AssumeRoleResponse>`,
       ),
     ),
-    http.post(/https:\/\/ce\.us-east-1\.amazonaws\.com\/?$/, () =>
-      HttpResponse.json(
-        {
-          ResultsByTime: [
-            {
-              TimePeriod: { Start: "2026-09-26", End: "2026-09-27" },
-              Groups: [
-                {
-                  Keys: ["213102790567", "AWS Lambda"],
-                  Metrics: { NetUnblendedCost: { Amount: "1", Unit: "USD" } },
-                },
-              ],
-            },
-          ],
-        },
-        { headers: { "Content-Type": "application/x-amz-json-1.1" } },
-      ),
+    // The usage query groups by SERVICE; the query of the other record types groups by RECORD_TYPE.
+    http.post(
+      /https:\/\/ce\.us-east-1\.amazonaws\.com\/?$/,
+      async ({ request }) => {
+        const body = (await request.json()) as {
+          GroupBy: { Key: string }[]
+        }
+        const key =
+          body.GroupBy[1]?.Key === "RECORD_TYPE" ? "Tax" : "AWS Lambda"
+        return HttpResponse.json(
+          {
+            ResultsByTime: [
+              {
+                TimePeriod: { Start: "2026-09-26", End: "2026-09-27" },
+                Groups: [
+                  {
+                    Keys: ["213102790567", key],
+                    Metrics: {
+                      NetUnblendedCost: { Amount: "1", Unit: "USD" },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+          { headers: { "Content-Type": "application/x-amz-json-1.1" } },
+        )
+      },
     ),
   ]
 }

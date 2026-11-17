@@ -11,6 +11,7 @@ import {
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 
+import type { CostRow } from "../rows"
 import { useEnv } from "../test-env"
 import { due, rows } from "./aws"
 
@@ -69,15 +70,15 @@ describe("aws rows", () => {
       "ctxpipe-cost-telemetry",
     )
     expect(assumed[0]?.authorization).toContain("Credential=AKIATASKROLE/")
-    expect(signed).toEqual([
-      {
-        authorization: expect.stringContaining("Credential=ASIAASSUMED/"),
-        token: "assumed-token",
-      },
-    ])
+    // Two queries (usage, and the other record types) with one assumed role.
+    const assumedCall = {
+      authorization: expect.stringContaining("Credential=ASIAASSUMED/"),
+      token: "assumed-token",
+    }
+    expect(signed).toEqual([assumedCall, assumedCall])
   })
 
-  test("groups every account by LINKED_ACCOUNT and SERVICE and names each account", async () => {
+  test("reports gross usage by account and service, and every other record type but Credit by account", async () => {
     setSystemTime(FETCH_AT)
     const bodies: unknown[] = []
     server.use(
@@ -86,75 +87,86 @@ describe("aws rows", () => {
         expect(request.headers.get("x-amz-target")).toBe(
           "AWSInsightsIndexService.GetCostAndUsage",
         )
-        bodies.push(await request.json())
+        const body = (await request.json()) as CeBody
+        bodies.push(body)
+        if (groupKey(body) === "SERVICE") {
+          return ceJson({
+            ResultsByTime: [
+              result("2026-09-24", [
+                group(
+                  "213102790567",
+                  "Amazon Elastic Container Service",
+                  "1.25",
+                ),
+                group("999999999999", "Amazon Simple Storage Service", "0.02"),
+              ]),
+              result("2026-09-25", [
+                group("007664619564", "AWS Cost Explorer", "0.01"),
+              ]),
+            ],
+          })
+        }
         return ceJson({
           ResultsByTime: [
             result("2026-09-24", [
-              group("213102790567", "Amazon Elastic Container Service", "1.25"),
-              group("134416647419", "AWS Lambda", "-0.25"),
-              group("999999999999", "Amazon Simple Storage Service", "0.02"),
+              group("213102790567", "Tax", "0.13"),
+              group("134416647419", "Refund", "-0.25"),
             ]),
-            result("2026-09-25", [
-              group("007664619564", "AWS Cost Explorer", "0.01"),
-            ]),
+            result("2026-09-25", [group("007664619564", "Support", "29")]),
           ],
         })
       }),
     )
     await expect(rows(DAYS)).resolves.toEqual([
-      {
-        day: "2026-09-24",
-        provider: "aws",
-        sku: "Amazon Elastic Container Service",
-        scope: "213102790567/Amazon Elastic Container Service",
-        usage: 0,
-        unit: "",
-        costUsd: 1.25,
-        source: "reported",
-        account: "production",
-      },
-      {
-        day: "2026-09-24",
-        provider: "aws",
-        sku: "AWS Lambda",
-        scope: "134416647419/AWS Lambda",
-        usage: 0,
-        unit: "",
-        costUsd: -0.25,
-        source: "reported",
-        account: "factory",
-      },
-      {
-        day: "2026-09-24",
-        provider: "aws",
-        sku: "Amazon Simple Storage Service",
-        scope: "999999999999/Amazon Simple Storage Service",
-        usage: 0,
-        unit: "",
-        costUsd: 0.02,
-        source: "reported",
-        account: "999999999999",
-      },
-      {
-        day: "2026-09-25",
-        provider: "aws",
-        sku: "AWS Cost Explorer",
-        scope: "007664619564/AWS Cost Explorer",
-        usage: 0,
-        unit: "",
-        costUsd: 0.01,
-        source: "reported",
-        account: "management",
-      },
+      awsRow(
+        "2026-09-24",
+        "213102790567",
+        "Amazon Elastic Container Service",
+        1.25,
+        "production",
+      ),
+      awsRow(
+        "2026-09-24",
+        "999999999999",
+        "Amazon Simple Storage Service",
+        0.02,
+        "999999999999",
+      ),
+      awsRow(
+        "2026-09-25",
+        "007664619564",
+        "AWS Cost Explorer",
+        0.01,
+        "management",
+      ),
+      awsRow("2026-09-24", "213102790567", "Tax", 0.13, "production"),
+      awsRow("2026-09-24", "134416647419", "Refund", -0.25, "factory"),
+      awsRow("2026-09-25", "007664619564", "Support", 29, "management"),
     ])
+    const request = {
+      TimePeriod: { Start: "2026-09-24", End: "2026-09-27" },
+      Granularity: "DAILY",
+      Metrics: ["NetUnblendedCost", "UnblendedCost"],
+    }
     expect(bodies).toEqual([
       {
-        TimePeriod: { Start: "2026-09-24", End: "2026-09-27" },
-        Granularity: "DAILY",
-        Metrics: ["NetUnblendedCost", "UnblendedCost"],
+        ...request,
+        Filter: { Dimensions: { Key: "RECORD_TYPE", Values: ["Usage"] } },
         GroupBy: [
           { Type: "DIMENSION", Key: "LINKED_ACCOUNT" },
           { Type: "DIMENSION", Key: "SERVICE" },
+        ],
+      },
+      {
+        ...request,
+        Filter: {
+          Not: {
+            Dimensions: { Key: "RECORD_TYPE", Values: ["Usage", "Credit"] },
+          },
+        },
+        GroupBy: [
+          { Type: "DIMENSION", Key: "LINKED_ACCOUNT" },
+          { Type: "DIMENSION", Key: "RECORD_TYPE" },
         ],
       },
     ])
@@ -166,21 +178,25 @@ describe("aws rows", () => {
     expect(due(new Date("2026-09-26T11:17:00.000Z"))).toBe(false)
   })
 
-  test("pages through NextPageToken and falls back to UnblendedCost", async () => {
+  test("pages through NextPageToken of each query and falls back to UnblendedCost", async () => {
     setSystemTime(FETCH_AT)
-    const tokens: Array<string | undefined> = []
+    const pages: Array<[string | undefined, string | undefined]> = []
     server.use(
       http.post(STS, () => assumeRoleXml()),
       http.post(CE, async ({ request }) => {
-        const body = (await request.json()) as { NextPageToken?: string }
-        tokens.push(body.NextPageToken)
+        const body = (await request.json()) as CeBody
+        const key = groupKey(body)
+        pages.push([key, body.NextPageToken])
         if (!body.NextPageToken) {
           return ceJson({
-            NextPageToken: "page-2",
+            NextPageToken: `${key}-page-2`,
             ResultsByTime: [
               result("2026-09-26", [
                 {
-                  Keys: ["573018602187", "AmazonCloudWatch"],
+                  Keys: [
+                    "573018602187",
+                    key === "SERVICE" ? "AmazonCloudWatch" : "Tax",
+                  ],
                   Metrics: { UnblendedCost: { Amount: "0.12", Unit: "USD" } },
                 },
               ]),
@@ -189,36 +205,29 @@ describe("aws rows", () => {
         }
         return ceJson({
           ResultsByTime: [
-            result("2026-09-26", [group("787752212265", "AWS Glue", "1.5")]),
+            result("2026-09-26", [
+              group(
+                "787752212265",
+                key === "SERVICE" ? "AWS Glue" : "Fee",
+                "1.5",
+              ),
+            ]),
           ],
         })
       }),
     )
     await expect(rows(DAYS)).resolves.toEqual([
-      {
-        day: "2026-09-26",
-        provider: "aws",
-        sku: "AmazonCloudWatch",
-        scope: "573018602187/AmazonCloudWatch",
-        usage: 0,
-        unit: "",
-        costUsd: 0.12,
-        source: "reported",
-        account: "preview",
-      },
-      {
-        day: "2026-09-26",
-        provider: "aws",
-        sku: "AWS Glue",
-        scope: "787752212265/AWS Glue",
-        usage: 0,
-        unit: "",
-        costUsd: 1.5,
-        source: "reported",
-        account: "selfhost-sandbox",
-      },
+      awsRow("2026-09-26", "573018602187", "AmazonCloudWatch", 0.12, "preview"),
+      awsRow("2026-09-26", "787752212265", "AWS Glue", 1.5, "selfhost-sandbox"),
+      awsRow("2026-09-26", "573018602187", "Tax", 0.12, "preview"),
+      awsRow("2026-09-26", "787752212265", "Fee", 1.5, "selfhost-sandbox"),
     ])
-    expect(tokens).toEqual([undefined, "page-2"])
+    expect(pages).toEqual([
+      ["SERVICE", undefined],
+      ["SERVICE", "SERVICE-page-2"],
+      ["RECORD_TYPE", undefined],
+      ["RECORD_TYPE", "RECORD_TYPE-page-2"],
+    ])
   })
 
   test("throws when the role cannot be assumed, on an error response and on a group with no cost metric", async () => {
@@ -294,9 +303,36 @@ function assumeRoleXml() {
 </AssumeRoleResponse>`)
 }
 
-function group(account: string, service: string, cost: string) {
+type CeBody = { GroupBy: { Key: string }[]; NextPageToken?: string }
+
+/** The second GroupBy key: SERVICE for the usage query, RECORD_TYPE for the query of the other record types. */
+function groupKey(body: CeBody): string | undefined {
+  return body.GroupBy[1]?.Key
+}
+
+function awsRow(
+  day: string,
+  accountId: string,
+  sku: string,
+  costUsd: number,
+  account: string,
+): CostRow {
   return {
-    Keys: [account, service],
+    day,
+    provider: "aws",
+    sku,
+    scope: `${accountId}/${sku}`,
+    usage: 0,
+    unit: "",
+    costUsd,
+    source: "reported",
+    account,
+  }
+}
+
+function group(account: string, key: string, cost: string) {
+  return {
+    Keys: [account, key],
     Metrics: { NetUnblendedCost: { Amount: cost, Unit: "USD" } },
   }
 }
