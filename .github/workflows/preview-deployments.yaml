@@ -1,0 +1,48 @@
+# The PR page shows an AWS PR preview as a GitHub Deployment in the environment
+# `pr-preview` (CTX-1377). `factory preview up` and `factory preview down` write
+# it (factory repo, machines/cli README, "Previews"). The factory's hourly
+# expire runs delete the preview of a closed PR, and a preview 72 hours after
+# its last `up`. They have no token for this repository, so this job sets
+# `inactive` on such a deployment each hour. The 72 hours are the TTL of the
+# previews (factory machines/previews/pr/src/names.ts): change both together.
+name: Preview deployments
+
+on:
+  schedule:
+    - cron: "41 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  inactive:
+    # github-hosted: a few GitHub API calls, no Docker
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    permissions:
+      deployments: write
+      pull-requests: read
+    steps:
+      # Each list goes into a variable first, so a failed call fails the step
+      # and is never read as "nothing to do".
+      - name: Inactive deployments of closed PRs and expired previews
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          now=$(date +%s)
+          deployments=$(gh api "repos/$REPO/deployments?environment=pr-preview&per_page=100")
+          list=$(jq -r '.[] | select(.payload.pr | type == "number") | "\(.id) \(.payload.pr)"' <<< "$deployments")
+          while read -r id pr; do
+            [[ -n $id ]] || continue
+            newest=$(gh api "repos/$REPO/deployments/$id/statuses?per_page=1" --jq '.[0] // {} | "\(.state) \(.created_at // "1970-01-01T00:00:00Z" | fromdateiso8601)"')
+            read -r state at <<< "$newest"
+            [[ $state == success ]] || continue
+            age=$(( now - at ))
+            pr_state=$(gh api "repos/$REPO/pulls/$pr" --jq .state)
+            if [[ $pr_state == closed ]] || (( age > 72 * 3600 )); then
+              gh api --method POST "repos/$REPO/deployments/$id/statuses" -f state=inactive -F auto_inactive=false > /dev/null
+              echo "PR $pr: deployment $id is inactive (PR $pr_state, success $(( age / 3600 )) hours ago)" | tee -a "$GITHUB_STEP_SUMMARY"
+            fi
+          done <<< "$list"
