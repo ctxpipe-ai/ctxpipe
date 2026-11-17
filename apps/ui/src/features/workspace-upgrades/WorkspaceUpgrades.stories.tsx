@@ -1585,7 +1585,11 @@ export const CheckingEndsAfterAMinute: Story = {
     // No await between the two checks: the card changed in the same render.
     const needsYou = within(canvas.getByRole("list", { name: "Needs you" }))
     expect(needsYou.getByText("Blocked")).toBeVisible()
-    expect(needsYou.getByText("Apply the format upgrade first")).toBeVisible()
+    // The Workspace has format 3, so the block does not ask for the format
+    // upgrade again (upgradeBlockedCopy).
+    expect(
+      needsYou.getByText("ctxpipe did not finish the format check"),
+    ).toBeVisible()
     expect(canvas.queryByText("Checking the new format")).toBeNull()
     expect(canvas.queryByRole("list", { name: "Working now" })).toBeNull()
   },
