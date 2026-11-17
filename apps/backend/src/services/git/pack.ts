@@ -282,6 +282,7 @@ function describeGitFailure(
   const failure = error as Error & {
     code?: unknown
     signal?: NodeJS.Signals | null
+    stdout?: Buffer | string
     stderr?: Buffer | string
   }
   // Only a Git process that ran has an exit status; execFile sets `cmd`.
@@ -307,8 +308,18 @@ function describeGitFailure(
   // the code (CTX-1089).
   if (exitCode === 1 && (command === "merge-base" || command === "merge-tree"))
     return error
+  // `push --porcelain` writes each ref and why it was rejected to stdout
+  // (`!\t<from>:<to>\t[rejected] (fetch first)`), not to the error output.
+  const rejections =
+    command === "push"
+      ? String(failure.stdout ?? "")
+          .split("\n")
+          .filter((line) => line.startsWith("!"))
+          .join("\n")
+          .slice(0, STDERR_LIMIT)
+      : ""
   const firstLine = failure.message.split("\n", 1)[0]
-  failure.message = `${firstLine}\ngit ${command} ${status} after ${Math.round(elapsedMs / 1000)} s${shownStderr ? `: ${shownStderr}` : " with no error output"}`
+  failure.message = `${firstLine}\ngit ${command} ${status} after ${Math.round(elapsedMs / 1000)} s${shownStderr ? `: ${shownStderr}` : " with no error output"}${rejections ? `\n${rejections}` : ""}`
   const details = {
     "git.command": command,
     "git.exit_code": exitCode,
@@ -316,6 +327,7 @@ function describeGitFailure(
     "git.timed_out": timedOut,
     "git.duration_ms": elapsedMs,
     "git.stderr": shownStderr,
+    ...(rejections ? { "git.push_rejections": rejections } : {}),
   }
   trace.getActiveSpan()?.setAttributes(details)
   log.warn({

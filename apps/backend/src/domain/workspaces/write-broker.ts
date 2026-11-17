@@ -67,6 +67,14 @@ import {
   WRITE_STATUS_REASONS,
 } from "./write-status.js"
 
+/**
+ * Git's reason for a rejected push whose old tip is stale (the rejected refs
+ * of `push --porcelain`, in the error of `nativeGit`): another writer moved
+ * the branch. Git checks it before the push, GitHub when it updates the ref.
+ */
+const STALE_TIP_REJECTION =
+  /\[rejected\] \((fetch first|non-fast-forward)\)|\[remote rejected\] \((failed to update ref|cannot lock ref|incorrect old value)/
+
 class WorkspaceTipAdvancedError extends Error {
   constructor() {
     super("Default branch advanced; semantic merge is required")
@@ -200,22 +208,42 @@ export async function pushWorkspaceCommit(
         )
       if (input.mirror)
         await assertConnectorMirrorBinding(input.orgId, input.mirror, revision)
-      await nativeGit(
-        directory,
-        [
-          "push",
-          "--porcelain",
-          "--",
-          revision.remote.url,
-          `${committed.sha}:refs/heads/${revision.defaultBranch}`,
-        ],
-        undefined,
-        gitRemoteEnvironment({ url: revision.remote.url, token }),
-      ).catch((error: unknown) => {
+      try {
+        await nativeGit(
+          directory,
+          [
+            "push",
+            "--porcelain",
+            "--",
+            revision.remote.url,
+            `${committed.sha}:refs/heads/${revision.defaultBranch}`,
+          ],
+          undefined,
+          gitRemoteEnvironment({ url: revision.remote.url, token }),
+        )
+      } catch (error) {
         const reason = writeAccessDenialReason(error)
         if (reason) throw new WorkspaceWriteAccessUnavailableError(reason)
+        // Another writer can push between the tip check and this push. Then
+        // the remote rejects this push because its old tip is stale. That is
+        // a lost race: the caller merges again (CTX-1355).
+        let after: Awaited<ReturnType<typeof resolveGitRemoteTip>> | undefined
+        try {
+          after = await resolveGitRemoteTip({ url: revision.remote.url, token })
+        } catch {
+          after = undefined
+        }
+        if (after?.branch === revision.defaultBranch) {
+          if (after.sha === committed.sha) return
+          if (
+            after.sha !== revision.sha &&
+            error instanceof Error &&
+            STALE_TIP_REJECTION.test(error.message)
+          )
+            throw new WorkspaceTipAdvancedError()
+        }
         throw error
-      })
+      }
     },
     // The commit comes from its job ref (CTX-1235).
     writeCommitPack(committed, revision.remote.url),
