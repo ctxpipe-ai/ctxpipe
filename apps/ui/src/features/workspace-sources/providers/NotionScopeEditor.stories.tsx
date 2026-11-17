@@ -1,50 +1,21 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
-import { useState } from "react"
-import { expect, userEvent, waitFor, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { signedInHandlers } from "@/mocks/handlers"
 import { notionResourcesHandler } from "@/mocks/notion-handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { NotionScopeEditor } from "./notion"
+import { scopeEditorStoryFrame } from "./scope-editor-story-frame"
 
 const HANDBOOK = "1a2b3c4d-0000-4000-8000-000000000001"
 const INCIDENTS = "1a2b3c4d-0000-4000-8000-000000000002"
 
-/** The editor with the scope it reports, as the Add to Workspaces step holds it. */
-function EditorWithOutput(props: {
-  initialScope: Record<string, unknown>
-  label?: string
-}) {
-  const [scope, setScope] = useState<Record<string, unknown> | null>(null)
-  return (
-    <>
-      <NotionScopeEditor
-        orgSlug="acme"
-        provider="notion"
-        connectionId="con_notion1"
-        initialScope={props.initialScope}
-        label={props.label}
-        onChange={setScope}
-      />
-      <output className="mt-4 block text-xs text-muted-foreground">
-        {scope ? JSON.stringify(scope) : "Not ready"}
-      </output>
-    </>
-  )
-}
-
 const meta = {
   title: "Components/WorkspaceSources/NotionScopeEditor",
-  component: EditorWithOutput,
-  decorators: [
-    (Story) => (
-      <div className="max-w-lg bg-zinc-950 p-4">
-        <Story />
-      </div>
-    ),
-  ],
+  component: NotionScopeEditor,
+  decorators: [scopeEditorStoryFrame],
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -57,8 +28,14 @@ const meta = {
       handlers: { session: signedInHandlers, page: [notionResourcesHandler] },
     },
   },
-  args: { initialScope: {} },
-} satisfies Meta<typeof EditorWithOutput>
+  args: {
+    orgSlug: "acme",
+    provider: "notion",
+    connectionId: "con_notion1",
+    initialScope: {},
+    onChange: fn(),
+  },
+} satisfies Meta<typeof NotionScopeEditor>
 
 export default meta
 
@@ -68,29 +45,25 @@ export const SelectAPageAndADatabase: Story = {
   parameters: {
     review: {
       purpose:
-        "Notion scope editor, where the user picks the pages and databases of a Workspace source: nothing is picked at first, then the user picks a page and a database.",
+        "Notion scope editor in the Add source dialog, where the user picks the pages and databases that a Workspace source syncs: the user ticks a page and a database from the shared list.",
     },
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await waitFor(() => expect(canvas.getByText("Not ready")).toBeVisible())
     await expect(
-      canvas.getByText("Select at least one page or database."),
+      await canvas.findByText("Select at least one page or database."),
     ).toBeVisible()
+    await expect(args.onChange).not.toHaveBeenCalled()
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: /Engineering handbook/ }),
     )
     await userEvent.click(
       canvas.getByRole("checkbox", { name: /Incident log/ }),
     )
-    await expect(
-      canvas.getByText(
-        JSON.stringify({
-          pages: [{ id: HANDBOOK, title: "Engineering handbook" }],
-          databases: [{ id: INCIDENTS, title: "Incident log" }],
-        }),
-      ),
-    ).toBeVisible()
+    await expect(args.onChange).toHaveBeenLastCalledWith({
+      pages: [{ id: HANDBOOK, title: "Engineering handbook" }],
+      databases: [{ id: INCIDENTS, title: "Incident log" }],
+    })
   },
 }
 
@@ -151,12 +124,12 @@ export const RemoveTheLastRoot: Story = {
   args: {
     initialScope: { databases: [{ id: INCIDENTS, title: "Incident log" }] },
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: /Incident log/ }),
     )
-    await expect(canvas.getByText("Not ready")).toBeVisible()
+    await expect(args.onChange).toHaveBeenLastCalledWith(null)
     await expect(
       canvas.getByText("Select at least one page or database."),
     ).toBeVisible()
@@ -167,7 +140,7 @@ export const SearchFails: Story = {
   parameters: {
     review: {
       purpose:
-        "Notion scope editor, where the user picks the pages and databases of a Workspace source: the Notion search failed, so an error shows.",
+        "Notion scope editor in the Add source dialog: the Notion search request failed, so an error alert stands in place of the results, and the user can search again.",
     },
     msw: {
       handlers: {
@@ -190,5 +163,9 @@ export const SearchFails: Story = {
         canvas.getByText("Could not search Notion. Try again."),
       ).toBeVisible(),
     )
+    // The error is the one message: no hint asks for a selection.
+    await expect(
+      canvas.queryByText("Select at least one page or database."),
+    ).toBeNull()
   },
 }

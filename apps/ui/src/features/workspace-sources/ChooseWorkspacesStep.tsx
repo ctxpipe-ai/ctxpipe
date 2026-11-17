@@ -119,9 +119,11 @@ export function ChooseWorkspacesStep(props: {
             </InlineAlert>
           ) : null}
           {blocked.length === workspaces.length ? (
+            // Each row below links to the upgrade of its Workspace.
             <FormatUpgradeWorkspacesNotice
               orgSlug={orgSlug}
               workspaces={blocked}
+              upgradeButtons={false}
             />
           ) : null}
           <CheckboxGroup

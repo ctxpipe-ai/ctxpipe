@@ -1,48 +1,17 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { useState } from "react"
-import { expect, userEvent, waitFor, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { confluenceTreeHandlers } from "@/mocks/confluence-handlers"
 import { signedInHandlers } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { ConfluenceScopeEditor } from "./confluence"
-
-const connectionId = "con_conf1"
-
-/** The editor with the scope it reports, as the Add to Workspaces step holds it. */
-function EditorWithOutput(props: {
-  initialScope: Record<string, unknown>
-  label?: string
-}) {
-  const [scope, setScope] = useState<Record<string, unknown> | null>(null)
-  return (
-    <>
-      <ConfluenceScopeEditor
-        orgSlug="acme"
-        provider="confluence"
-        connectionId={connectionId}
-        initialScope={props.initialScope}
-        label={props.label}
-        onChange={setScope}
-      />
-      <output className="mt-4 block text-xs text-muted-foreground">
-        {scope ? JSON.stringify(scope) : "Not ready"}
-      </output>
-    </>
-  )
-}
+import { scopeEditorStoryFrame } from "./scope-editor-story-frame"
 
 const meta = {
   title: "Components/WorkspaceSources/ConfluenceScopeEditor",
-  component: EditorWithOutput,
-  decorators: [
-    (Story) => (
-      <div className="max-w-lg bg-zinc-950 p-4">
-        <Story />
-      </div>
-    ),
-  ],
+  component: ConfluenceScopeEditor,
+  decorators: [scopeEditorStoryFrame],
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -55,8 +24,14 @@ const meta = {
       handlers: { session: signedInHandlers, page: confluenceTreeHandlers },
     },
   },
-  args: { initialScope: {} },
-} satisfies Meta<typeof EditorWithOutput>
+  args: {
+    orgSlug: "acme",
+    provider: "confluence",
+    connectionId: "con_conf1",
+    initialScope: {},
+    onChange: fn(),
+  },
+} satisfies Meta<typeof ConfluenceScopeEditor>
 
 export default meta
 
@@ -66,24 +41,26 @@ export const SelectAllPagesOfASpace: Story = {
   parameters: {
     review: {
       purpose:
-        "Confluence scope editor, where the user picks the spaces and pages of a Workspace source: no space is picked at first, then the user picks a space with all its pages.",
+        "Confluence scope editor in the Add source dialog, where the user picks the spaces and pages that a Workspace source syncs: from an empty selection, the user ticks the Engineering space.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
       "Catches a Confluence scope that stays not ready after the user picks a space. Picking a space must select all its pages in the scope. Not for saved page lists.",
   },
   tags: ["required"],
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     // The auth decorator renders the story after the session loads.
-    await waitFor(() => expect(canvas.getByText("Not ready")).toBeVisible())
-    await expect(canvas.getByText(/Select at least one space/)).toBeVisible()
+    await expect(
+      await canvas.findByText(/Select at least one space/),
+    ).toBeVisible()
+    await expect(args.onChange).not.toHaveBeenCalled()
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: /Engineering/ }),
     )
-    await expect(
-      canvas.getByText('{"spaces":[{"key":"ENG","pages":"all"}]}'),
-    ).toBeVisible()
+    await expect(args.onChange).toHaveBeenLastCalledWith({
+      spaces: [{ key: "ENG", pages: "all" }],
+    })
     await expect(canvas.queryByText(/Select at least one space/)).toBeNull()
   },
 }
@@ -92,7 +69,7 @@ export const EditsASavedPageList: Story = {
   parameters: {
     review: {
       purpose:
-        "Confluence scope editor, where the user picks the spaces and pages of a Workspace source: a saved scope has some pages of a space, so the space is partly selected until the user picks all.",
+        "Confluence scope editor in the Edit source dialog: the saved scope had some pages of the Operations space, and the user ticked the space, so the source now syncs all its pages.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
@@ -103,7 +80,7 @@ export const EditsASavedPageList: Story = {
     label: "Docs",
     initialScope: { spaces: [{ key: "OPS", pages: ["101"] }] },
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
       expect(
@@ -116,8 +93,8 @@ export const EditsASavedPageList: Story = {
     // Some pages selected: the space shows as partly selected.
     await expect(operations).toBePartiallyChecked()
     await userEvent.click(operations)
-    await expect(
-      canvas.getByText('{"spaces":[{"key":"OPS","pages":"all"}]}'),
-    ).toBeVisible()
+    await expect(args.onChange).toHaveBeenLastCalledWith({
+      spaces: [{ key: "OPS", pages: "all" }],
+    })
   },
 }

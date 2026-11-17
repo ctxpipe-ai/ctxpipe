@@ -10,6 +10,7 @@ import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { emptyLinkedWorkspaceDetail } from "@/features/workspaces/workspace-fixtures"
+import { snapshot } from "@/lib/visual-snapshot"
 import { signedInHandlers } from "@/mocks/handlers"
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 import {
@@ -37,9 +38,11 @@ import { WorkspaceSources } from "./WorkspaceSources"
 const meta = {
   title: "Components/WorkspaceSources/Sources",
   component: WorkspaceSources,
+  // The width of the Sources card in the Workspace settings pane, and no
+  // fixed height: the shot holds the section, not an empty area below it.
   decorators: [
     (Story) => (
-      <div className="h-[40rem] overflow-auto bg-zinc-950 p-4">
+      <div className="max-w-6xl bg-zinc-950 p-4">
         <Story />
         <Toaster />
       </div>
@@ -375,7 +378,7 @@ export const NarrowPaneFoldsTable: Story = {
   parameters: {
     review: {
       purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: a narrow pane folds the table, so each row puts its connection under the title.",
+        "Sources section of the Workspace settings in a narrow pane: the table folds, so the Linear row puts its connection and file under the title, with the status and the row actions on the right.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
@@ -794,7 +797,7 @@ export const LegacyYamlRowNotRemovable: Story = {
   parameters: {
     review: {
       purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: rows from the legacy sources.yaml file have a note and no unlink, remove, edit or rename buttons.",
+        "Sources section of the Workspace settings: a GitHub and a Confluence row come from the legacy .ctxpipe/sources.yaml file, so each has a note to edit that file and no row actions.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
@@ -816,6 +819,7 @@ export const LegacyYamlRowNotRemovable: Story = {
                   path: "eng-docs",
                   provider: "confluence",
                   connectionId: "con_cf1",
+                  connectionName: "acme.atlassian.net",
                   scopeSummary: "3 spaces",
                   removable: false,
                 }),
@@ -975,13 +979,32 @@ export const AddSendsChange: Story = {
   parameters: {
     review: {
       purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add repositories dialog is open, and the user picks one repository and opens a pull request.",
+        "Sources section of the Workspace settings: in the Add repositories dialog the user picked acme/api and pressed Open a pull request, so the list shows the change as awaiting merge and a toast links to the pull request.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
       handlers: {
         page: [
-          workspaceSourcesHandler(workspaceSourceList()),
+          // After the add, the server lists the change of the pull request.
+          http.get(/\/api\/v1\/workspaces\/[^/]+\/sources$/, () =>
+            HttpResponse.json(
+              workspaceSourceList(
+                addCalls.length === 0
+                  ? {}
+                  : {
+                      pendingChanges: [
+                        {
+                          path: "sources/github/acme/api.md",
+                          provider: "github",
+                          action: "add",
+                          pullRequestUrl: "https://github.com/acme/docs/pull/7",
+                          createdAt: "2026-10-10T10:00:00.000Z",
+                        },
+                      ],
+                    },
+              ),
+            ),
+          ),
           connected,
           githubInstallationReposHandler([
             {
@@ -1030,6 +1053,8 @@ export const AddSendsChange: Story = {
     await within(canvasElement.ownerDocument.body).findByRole("button", {
       name: "View pull request",
     })
+    // The list reads the sources again and shows the change of the pull request.
+    await canvas.findByText("No sources yet · 1 change awaiting merge")
   },
 }
 
@@ -1351,7 +1376,7 @@ export const LoadFailed: Story = {
   parameters: {
     review: {
       purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the source list did not load, so an error is visible.",
+        "Sources section of the Workspace settings card: the request for the source list failed, so an error line with Retry below it stands in place of the list.",
     },
     msw: {
       handlers: { page: [workspaceSourcesHandler("error"), connected] },
@@ -1464,7 +1489,7 @@ export const PickerShowsConnectionNames: Story = {
   parameters: {
     review: {
       purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Add repositories dialog lists the repositories of two GitHub connections by name.",
+        "Sources section of the Workspace settings: the Add repositories dialog lists the repositories of two GitHub connections, and the user picks one from each and opens one pull request.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     intent:
@@ -1497,6 +1522,8 @@ export const PickerShowsConnectionNames: Story = {
       await dialog.findByRole("checkbox", { name: "acme/api" }),
     )
     await userEvent.click(dialog.getByRole("checkbox", { name: "labs/tool" }))
+    // The state of the purpose: the dialog with a pick from each connection.
+    await snapshot("picker")
     await userEvent.click(
       dialog.getByRole("button", { name: "Open a pull request" }),
     )
@@ -1951,11 +1978,23 @@ export const BeforeFormatUpgrade: Story = {
   parameters: {
     review: {
       purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Workspace needs the format upgrade, so the section links to the upgrade and has no Add.",
+        "Sources section of the Workspace settings: the Workspace needs the format upgrade, so the section has no Add, and after the admin pressed Start the upgrade the notice says that ctxpipe prepares it.",
     },
     msw: {
       handlers: {
-        upgrades: [beforeUpgrade()],
+        // After the start, the server lists the upgrade as queued.
+        upgrades: [
+          workspaceUpgradesHandler(() =>
+            upgradesFixture(
+              [
+                upgradeItemFixture(
+                  upgradeStartRequests.length > 0 ? { status: "queued" } : {},
+                ),
+              ],
+              { formatVersion: 0 },
+            ),
+          ),
+        ],
         page: [
           workspaceSourcesHandler(workspaceSourceList()),
           connected,
@@ -1988,6 +2027,13 @@ export const BeforeFormatUpgrade: Story = {
         "/acme/api/v1/workspaces/docs/upgrades/format-3/start",
       ]),
     )
+    // The notice reads the upgrade again: it is queued, so Start goes away.
+    await canvas.findByText(
+      "ctxpipe is preparing the upgrade pull request now.",
+    )
+    await expect(
+      canvas.queryByRole("button", { name: "Start the upgrade" }),
+    ).toBeNull()
   },
 }
 
@@ -1996,7 +2042,7 @@ export const BeforeFormatUpgradeMember: Story = {
   parameters: {
     review: {
       purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the Workspace needs the format upgrade, and a member sees Ask an admin in place of Start.",
+        "Sources section of the Workspace settings, seen by a member: the Workspace needs the format upgrade, so the section has only the notice, with Review upgrade and Ask an admin in place of Start.",
     },
     msw: {
       handlers: {
@@ -2055,7 +2101,7 @@ export const GithubThreeRepositories: Story = {
   parameters: {
     review: {
       purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: the GitHub group has three repositories, all visible, with no filter and no Show all.",
+        "Sources section of the Workspace settings: the GitHub group has three repositories, each in its own source file, all visible with no filter and no Show all, and ctxpipe has not read them yet.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
@@ -2063,12 +2109,18 @@ export const GithubThreeRepositories: Story = {
         page: [
           workspaceSourcesHandler(
             workspaceSourceList({
+              // Add repositories writes one source file for each repository.
               items: [
-                {
-                  ...githubSource,
-                  scope: { repositories: ["acme/api", "acme/web", "acme/cli"] },
-                  scopeSummary: "3 repositories",
-                },
+                githubSource,
+                githubWebSource,
+                workspaceSourceFixture({
+                  path: "sources/github/acme/cli.md",
+                  provider: "github",
+                  connectionId: "con_gh1",
+                  connectionName: "acme-gh",
+                  scope: { repository: "acme/cli" },
+                  scopeSummary: "acme/cli",
+                }),
               ],
             }),
           ),
@@ -2278,7 +2330,7 @@ export const InvalidFile: Story = {
   parameters: {
     review: {
       purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: a file in a provider folder does not parse, so its row says why.",
+        "Sources section of the Workspace settings: one of two Linear source files does not parse, so its row has the Not valid status and the parse error, and the user can still edit or remove it.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {
@@ -2325,7 +2377,7 @@ export const PendingRename: Story = {
   parameters: {
     review: {
       purpose:
-        "Sources section of the Workspace settings, which lists the sources of a Workspace: an open pull request renames a Linear source, and the row with the old path links to it.",
+        "Sources section of the Workspace settings: the user renamed a Linear source, so its row keeps the old path until the merge and links to the open rename pull request.",
     },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     msw: {

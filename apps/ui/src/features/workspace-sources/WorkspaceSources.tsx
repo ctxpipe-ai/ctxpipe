@@ -698,12 +698,13 @@ export function WorkspaceSources(props: {
         <SourcesSkeleton />
       ) : loadFailed ? (
         <div className="mt-4">
-          {/* One line: the icon, the text and Retry. The Sources card (or
-              the form around it) is the frame, so the alert has none. */}
+          {/* The icon and the text, with Retry below the text: on a wide
+              card, Retry at the far edge is away from the error that it
+              fixes. The Sources card (or the form around it) is the frame,
+              so the alert has none. */}
           <InlineAlert
             variant="error"
             framed={false}
-            actionsPlacement="end"
             actions={
               <Button
                 variant="secondary"

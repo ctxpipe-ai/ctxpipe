@@ -210,7 +210,7 @@ export const UsedInManyWorkspaces: Story = {
   parameters: {
     review: {
       purpose:
-        "Used in section of a connector, which lists the Workspaces that use the connection: three Workspaces use the Confluence connection, each with its count of spaces.",
+        "Used in list of a Confluence connection card on the Connectors page: three Workspaces use the connection, and each row links to the Workspace with the count of spaces that it syncs.",
     },
     msw: {
       handlers: {

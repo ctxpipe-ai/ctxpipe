@@ -98,13 +98,27 @@ const UPGRADE_BLOCKED_COPY: Record<
   },
 }
 
-/** The title and the short reason of a blocked item. */
+/**
+ * The title and the short reason of a blocked item. `readFormat` is the
+ * format that ctxpipe read last. When it is already the format that the item
+ * needs, the block is stale: the check after the hydrate did not finish.
+ */
 export function upgradeBlockedCopy(
   item: Pick<
     WorkspaceUpgradeItem,
     "kind" | "blockedReason" | "note" | "targetFormat"
   >,
+  readFormat?: number | null,
 ): BlockedCopy {
+  if (
+    item.blockedReason === "needs_format" &&
+    typeof readFormat === "number" &&
+    readFormat >= item.targetFormat
+  )
+    return {
+      title: "ctxpipe did not finish the format check",
+      body: `The Workspace has format ${readFormat} now, but this item did not see it yet. Press Check again.`,
+    }
   const copy = item.blockedReason
     ? UPGRADE_BLOCKED_COPY[item.kind]?.[item.blockedReason]
     : undefined
@@ -176,7 +190,7 @@ export function upgradeWaitingCopy(
   now = Date.now(),
 ): string | null {
   if (item.status === "running" && item.waitingForSlot)
-    return `Waiting for a free sandbox for ${waitedFor(item.waitingForSlot.since, now)}. ${item.waitingForSlot.reason} ctxpipe checks again every minute and starts the run when its turn comes.`
+    return `${item.waitingForSlot.reason} ctxpipe has waited ${waitedFor(item.waitingForSlot.since, now)} and checks again every minute. The run starts when its turn comes.`
   // The progress block of a merged pull request says what ctxpipe does now.
   if (item.status !== "pr_open" || item.mergedAt) return null
   const pullRequest = item.pullRequest?.number

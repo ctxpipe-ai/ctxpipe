@@ -66,7 +66,11 @@ import {
   upgradeFailureCopy,
   upgradeFailurePrompt,
 } from "./upgrade-failure"
-import { upgradeCheckResult, upgradeProgress } from "./upgrade-progress"
+import {
+  upgradeCheckResult,
+  upgradeCheckTime,
+  upgradeProgress,
+} from "./upgrade-progress"
 import { UpgradeRunProgress } from "./UpgradeRunProgress"
 import { useStartWorkspaceUpgrade } from "./use-start-upgrade"
 
@@ -227,6 +231,8 @@ function UpgradeDetail(props: {
   blockedAction?: ReactNode
   /** The status word of the row ("Blocked"), in front of the block title. */
   blockedStatus?: string
+  /** The format that ctxpipe read last: a block on it can be stale. */
+  readFormat?: number | null
   orgSlug?: string | undefined
   onFixWithAgent?: ((prompt: string) => void) | undefined
 }) {
@@ -234,15 +240,16 @@ function UpgradeDetail(props: {
   const notices = upgradeNotices(item)
   const progress = upgradeProgress(item)
   const stepsWithReport = item.steps.filter((step) => step.report.length > 0)
+  const blocked = upgradeBlockedCopy(item, props.readFormat)
   return (
     <>
       {props.showBlocked && item.status === "blocked" ? (
         <ItemProblem
           status={props.blockedStatus}
-          title={upgradeBlockedCopy(item).title}
+          title={blocked.title}
           actions={props.blockedAction}
         >
-          <p>{upgradeBlockedCopy(item).body}</p>
+          <p>{blocked.body}</p>
         </ItemProblem>
       ) : null}
 
@@ -398,16 +405,23 @@ function UpgradeItemCard(props: {
   const showBlocked = !checkingFormat && !blockedWaits
   // The fix of a block sits next to the block, not on the title row.
   const actionAtProblem = showBlocked && item.status === "blocked"
+  // A merged pull request has its progress block, which names the state and
+  // what comes next. The muted line keeps only the time of the last check.
+  const merged = item.status === "pr_open" && Boolean(item.mergedAt)
   // One muted line of facts. A waiting item has its Start button (or "Ask an
   // admin"), so its tag does not repeat it.
   const meta = [
     // A shown block names the status in front of its title.
-    item.status === "awaiting_operator" || actionAtProblem ? null : status,
+    item.status === "awaiting_operator" || actionAtProblem || merged
+      ? null
+      : status,
     checkingFormat || blockedWaits || item.status === "blocked"
       ? null
       : item.note,
     waiting,
-    upgradeCheckResult(item, props.formatVersion),
+    merged
+      ? upgradeCheckTime(item)
+      : upgradeCheckResult(item, props.formatVersion),
     spend,
   ].filter((line): line is string => Boolean(line))
   const action =
@@ -476,6 +490,7 @@ function UpgradeItemCard(props: {
           showBlocked={showBlocked}
           blockedAction={actionAtProblem ? action : undefined}
           blockedStatus={status}
+          readFormat={props.formatVersion}
           orgSlug={props.orgSlug}
           onFixWithAgent={props.onFixWithAgent}
         />

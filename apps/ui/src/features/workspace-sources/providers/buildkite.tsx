@@ -128,7 +128,8 @@ export function BuildkiteScopeEditor(props: SourceScopeEditorProps) {
           The organization has more pipelines than this list shows.
         </p>
       ) : null}
-      {selected.length === 0 ? (
+      {/* A failed load shows its error alone: the user cannot select now. */}
+      {selected.length === 0 && !pipelinesQuery.isError ? (
         <p className="text-sm text-muted-foreground">
           Select at least one pipeline.
         </p>

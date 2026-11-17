@@ -86,7 +86,7 @@ export const RemoveAndScopeChange: Story = {
   parameters: {
     review: {
       purpose:
-        "Merge step at the end of a Slack connector setup, which lists the pull requests to merge: one of two pull requests is merged first, then both are merged.",
+        "Last step of the Slack connector setup, which lists the pull requests that the setup opened: the user merged both on GitHub, so the step says Pull requests merged and each link says Merged.",
     },
     msw: {
       handlers: {

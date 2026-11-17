@@ -1,37 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { BUILDKITE_SOURCE_MAX_PIPELINES } from "backend/domain/workspace-sources/providers/buildkite"
 import { delay, HttpResponse, http } from "msw"
-import { useState } from "react"
-import { expect, userEvent, waitFor, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { buildkitePipelinesHandler } from "@/mocks/buildkite-handlers"
 import { signedInHandlers } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { BuildkiteScopeEditor } from "./buildkite"
-
-/** The editor with the scope it reports, as the Add to Workspaces step holds it. */
-function EditorWithOutput(props: {
-  initialScope: Record<string, unknown>
-  label?: string
-}) {
-  const [scope, setScope] = useState<Record<string, unknown> | null>(null)
-  return (
-    <>
-      <BuildkiteScopeEditor
-        orgSlug="acme"
-        provider="buildkite"
-        connectionId="con_buildkite1"
-        initialScope={props.initialScope}
-        label={props.label}
-        onChange={setScope}
-      />
-      <output className="mt-4 block text-xs text-muted-foreground">
-        {scope ? JSON.stringify(scope) : "Not ready"}
-      </output>
-    </>
-  )
-}
+import { scopeEditorStoryFrame } from "./scope-editor-story-frame"
 
 const pipelinesPath = ({ request }: { request: Request }) =>
   new URL(request.url).pathname.endsWith(
@@ -40,14 +17,8 @@ const pipelinesPath = ({ request }: { request: Request }) =>
 
 const meta = {
   title: "Components/WorkspaceSources/BuildkiteScopeEditor",
-  component: EditorWithOutput,
-  decorators: [
-    (Story) => (
-      <div className="max-w-lg bg-zinc-950 p-4">
-        <Story />
-      </div>
-    ),
-  ],
+  component: BuildkiteScopeEditor,
+  decorators: [scopeEditorStoryFrame],
   parameters: {
     app: "root",
     review: { kind: "component" },
@@ -63,8 +34,14 @@ const meta = {
       },
     },
   },
-  args: { initialScope: {} },
-} satisfies Meta<typeof EditorWithOutput>
+  args: {
+    orgSlug: "acme",
+    provider: "buildkite",
+    connectionId: "con_buildkite1",
+    initialScope: {},
+    onChange: fn(),
+  },
+} satisfies Meta<typeof BuildkiteScopeEditor>
 
 export default meta
 
@@ -74,22 +51,22 @@ export const SelectPipelines: Story = {
   parameters: {
     review: {
       purpose:
-        "Buildkite scope editor, where the user picks the pipelines of a Workspace source: nothing is picked at first, then the user picks two pipelines.",
+        "Buildkite scope editor in the Add source dialog, where the user picks the pipelines that a Workspace source syncs: from an empty selection, the user ticks Web App and API.",
     },
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await waitFor(() => expect(canvas.getByText("Not ready")).toBeVisible())
     await expect(
-      canvas.getByText("Select at least one pipeline."),
+      await canvas.findByText("Select at least one pipeline."),
     ).toBeVisible()
+    await expect(args.onChange).not.toHaveBeenCalled()
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: "Web App" }),
     )
     await userEvent.click(canvas.getByRole("checkbox", { name: "API" }))
-    await expect(
-      canvas.getByText(JSON.stringify({ pipelines: ["web-app", "api"] })),
-    ).toBeVisible()
+    await expect(args.onChange).toHaveBeenLastCalledWith({
+      pipelines: ["web-app", "api"],
+    })
   },
 }
 
@@ -97,11 +74,11 @@ export const FilterKeepsTheSelection: Story = {
   parameters: {
     review: {
       purpose:
-        "Buildkite scope editor, where the user picks the pipelines of a Workspace source: a filter hides a selected pipeline, but it stays in the list and stays selected.",
+        "Buildkite scope editor in the Add source dialog: Web App is selected, the user filters for deploy and ticks Deploy production, and Web App stays in the list as selected.",
     },
   },
   args: { label: "CI", initialScope: { pipelines: ["web-app"] } },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
     await waitFor(() =>
       expect(canvas.getByRole("checkbox", { name: "Web App" })).toBeChecked(),
@@ -122,11 +99,9 @@ export const FilterKeepsTheSelection: Story = {
     await expect(
       canvas.getByRole("checkbox", { name: "Web App" }),
     ).toBeChecked()
-    await expect(
-      canvas.getByText(
-        JSON.stringify({ pipelines: ["web-app", "deploy-production"] }),
-      ),
-    ).toBeVisible()
+    await expect(args.onChange).toHaveBeenLastCalledWith({
+      pipelines: ["web-app", "deploy-production"],
+    })
   },
 }
 
@@ -134,54 +109,83 @@ export const RemovedPipelineCanBeCleared: Story = {
   parameters: {
     review: {
       purpose:
-        "Buildkite scope editor, where the user picks the pipelines of a Workspace source: a selected pipeline that Buildkite no longer lists shows by its slug, and the user clears it.",
+        "Buildkite scope editor in the Edit source dialog: the saved scope has a pipeline that Buildkite no longer lists, which shows by its slug, and the user clears it.",
     },
   },
   args: { initialScope: { pipelines: ["old-pipeline", "api"] } },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
     // A selected slug that Buildkite no longer lists shows by its slug.
     const old = await canvas.findByRole("checkbox", { name: "old-pipeline" })
     await expect(old).toBeChecked()
     await userEvent.click(old)
-    await expect(
-      canvas.getByText(JSON.stringify({ pipelines: ["api"] })),
-    ).toBeVisible()
+    await expect(args.onChange).toHaveBeenLastCalledWith({
+      pipelines: ["api"],
+    })
   },
 }
+
+// One more pipeline than a source can hold. Each service has a build and
+// two deploy pipelines, as in a real Buildkite organization.
+const manyPipelines = [
+  "Admin console",
+  "Analytics",
+  "API",
+  "Auth",
+  "Billing",
+  "Docs site",
+  "Exports",
+  "Gateway",
+  "Imports",
+  "Mobile",
+  "Notifications",
+  "Payments",
+  "Scheduler",
+  "Search",
+  "Web App",
+  "Webhooks",
+  "Worker",
+].flatMap((service) =>
+  ["build", "deploy staging", "deploy production"].map((pipeline) => {
+    const name = `${service} ${pipeline}`
+    return { slug: name.toLowerCase().replaceAll(" ", "-"), name }
+  }),
+)
 
 export const OverThePipelineLimit: Story = {
   parameters: {
     review: {
       purpose:
-        "Buildkite scope editor, where the user picks the pipelines of a Workspace source: the selection goes above the pipeline limit, so an error shows and the scope is not ready.",
+        "Buildkite scope editor in the Add source dialog: 50 pipelines are selected, the user ticks one more, so an error states the 50-pipeline limit and the dialog cannot save.",
+    },
+    msw: {
+      handlers: {
+        page: [
+          http.get(pipelinesPath, () =>
+            HttpResponse.json({ items: manyPipelines, truncated: false }),
+          ),
+        ],
+      },
     },
   },
   args: {
-    // A full selection: one more pipeline goes above the cap.
+    // A full selection: all pipelines but the first.
     initialScope: {
-      pipelines: Array.from(
-        { length: BUILDKITE_SOURCE_MAX_PIPELINES },
-        (_, i) => `px-${String(i).padStart(3, "0")}`,
-      ),
+      pipelines: manyPipelines.slice(1).map((pipeline) => pipeline.slug),
     },
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
+    await expect(manyPipelines).toHaveLength(BUILDKITE_SOURCE_MAX_PIPELINES + 1)
     const canvas = within(canvasElement.ownerDocument.body)
     const limit = `Select at most ${BUILDKITE_SOURCE_MAX_PIPELINES} Buildkite pipelines.`
-    const webApp = await canvas.findByRole("checkbox", { name: "Web App" })
+    const first = await canvas.findByRole("checkbox", {
+      name: manyPipelines[0]?.name,
+    })
     await expect(canvas.queryByText(limit)).not.toBeInTheDocument()
-    await userEvent.click(webApp)
+    await userEvent.click(first)
     await waitFor(() => expect(canvas.getByText(limit)).toBeVisible())
-    await expect(canvas.getByText("Not ready")).toBeVisible()
-    // One pipeline less is in the cap again, and the scope is ready.
-    await userEvent.click(canvas.getByRole("checkbox", { name: "Web App" }))
-    await waitFor(() =>
-      expect(canvas.getByText(/^\{"pipelines":\["px-000",/)).toBeVisible(),
-    )
-    await waitFor(() =>
-      expect(canvas.queryByText(limit)).not.toBeInTheDocument(),
-    )
+    // Above the cap, the scope is not ready, so the dialog cannot save.
+    await expect(args.onChange).toHaveBeenLastCalledWith(null)
   },
 }
 

@@ -133,6 +133,13 @@ type CheckItem = Pick<
   | "targetFormat"
 >
 
+/** "Last check at 10:42." Null before the first check. */
+export function upgradeCheckTime(
+  item: Pick<WorkspaceUpgradeItem, "checkedAt">,
+): string | null {
+  return item.checkedAt ? `Last check at ${formatClock(item.checkedAt)}.` : null
+}
+
 /**
  * What the last check found, in one line. The check is the scan that Check
  * again starts. Null before the first check, and while a run works (the run
@@ -142,8 +149,8 @@ export function upgradeCheckResult(
   item: CheckItem,
   formatVersion: number | null,
 ): string | null {
-  if (!item.checkedAt) return null
-  const at = `Last check at ${formatClock(item.checkedAt)}.`
+  const at = upgradeCheckTime(item)
+  if (!at) return null
   const number = item.pullRequest?.number
   const pullRequest = number ? `Pull request #${number}` : "The pull request"
   switch (item.status) {
