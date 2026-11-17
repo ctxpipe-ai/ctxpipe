@@ -18,7 +18,7 @@ The shared window is the last 3 UTC days, today included. OpenRouter lags by one
 
 ## Sources
 
-`billing.source` tells a dashboard where a cost figure comes from. Each sum of `billing.cost` over all rows is the spend; no row counts a charge that another row counts too.
+`billing.source` tells a dashboard where a cost figure comes from. Each sum of `billing.cost` over all rows is the spend (for AWS, the cost before credits); no row counts a charge that another row counts too, except on the AWS cutover days below.
 
 - `reported`: the provider's own figure of what it bills (AWS Cost Explorer, the Cloudflare billing history, GitHub billing usage, OpenRouter, Blacksmith). Cost Explorer still revises the current month until the bill is final.
 - `derived`: no cost API exists, so the figure is the plan's seats × the committed list price per seat per month in `src/rates.ts`, spread evenly over the days of the month (Linear, the GitHub plan). Each window day takes today's seat count. Update a price when its pricing page changes (each has a checked date and its URL).
@@ -30,14 +30,16 @@ Before this version, the job sent AWS rows of the management account only, with 
 
 | Provider | Rows | Source |
 | --- | --- | --- |
-| AWS | Cost Explorer of the management account (the payer view of all accounts), grouped by `LINKED_ACCOUNT` and `SERVICE`. sku = service, scope = `<account id>/<service>`, `billing.account` = the account's name (`ACCOUNT_NAMES` in `src/providers/aws.ts`; an unknown account keeps its id). No usage: a service sums usage types of different units, so `billing.usage` is 0. | `reported` |
+| AWS | Cost Explorer of the management account (the payer view of all accounts), before credits. Two queries: records of type `Usage` grouped by `LINKED_ACCOUNT` and `SERVICE` (sku = service, scope = `<account id>/<service>`), and records of each other type except `Credit` (for example `Tax`, `Support`, `Refund`, `Fee`) grouped by `LINKED_ACCOUNT` and `RECORD_TYPE` (sku = record type, scope = `<account id>/<record type>`). `billing.account` = the account's name (`ACCOUNT_NAMES` in `src/providers/aws.ts`; an unknown account keeps its id). No usage: a service sums usage types of different units, so `billing.usage` is 0. | `reported` |
 | Cloudflare | One row per item of type `charge` in the account billing history (sku = description, scope = billing item id, day = date of the charge). The API documents no other type, so a refund or a credit is not counted. R2 rows (`r2_storage`, `r2_class_a`, `r2_class_b` per bucket) are usage only, with cost 0: the R2 charge is in the billing history. | `reported` |
 | GitHub | Billing usage of the organization: metered products, `netAmount` is the spend. The plan's paid seats (`GET /orgs/{org}`, `plan.seats`) × the seat price, sku `plan/<name>`. The plan rows are a separate entry (`github-plan`), so a token that cannot see the plan fails only them (`billing.error=no_plan`). | `reported`; plan `derived` |
 | Linear | The workspace's paid subscription (`organization { subscription { type seats seatsMinimum seatsMaximum } }`): the billed seats × the seat price of the subscription type (yearly or monthly billing), sku = the type. A type without a price in `src/rates.ts` fails the provider. | `derived` |
 | OpenRouter | Activity per model and provider. | `reported` |
 | Blacksmith | The CLI's `daily` rows: Actions cost at organization scope. Its workflow and runner breakdowns cannot be joined to a day. | `reported` |
 
-AWS Cost Explorer is billed at $0.01 for each paginated `GetCostAndUsage` request and updates at least daily, so the job calls it only in the 12:17 UTC slot. Other hours send no AWS rows (the last 12:17 payload stays in ClickHouse). A failed 12:17 slot tries again the next day. The client signs with the official SDK and sends over fetch with `maxAttempts: 1`, so a retry does not multiply the charge, and Bun and MSW see the HTTP call. Cost Explorer and STS are at `us-east-1`. `NetUnblendedCost` is the documented metric; `UnblendedCost` is the fallback. Credits and other negative amounts stay in.
+AWS Cost Explorer is billed at $0.01 for each paginated `GetCostAndUsage` request and updates at least daily, so the job calls it only in the 12:17 UTC slot. Other hours send no AWS rows (the last 12:17 payload stays in ClickHouse). A failed 12:17 slot tries again the next day. The client signs with the official SDK and sends over fetch with `maxAttempts: 1`, so a retry does not multiply the charge, and Bun and MSW see the HTTP call. Cost Explorer and STS are at `us-east-1`. `NetUnblendedCost` is the documented metric; `UnblendedCost` is the fallback. Two queries cost $0.02 a day, or more when a query has more than one page.
+
+The AWS rows do not include credits (records of type `Credit`). A credit record cancels the usage that it pays, so with credits the sum of the rows was about $0 each day. Now the AWS rows show the cost of what the organization uses, and their sum is the bill before credits. A refund is a negative row. The AWS rows of the days before the first run of this change stay net of credits: no newer row replaces them. On the days that both versions sent, an older row of a service with no usage in the window (for example a support plan) stays next to the newer row of its record type. To see those days exactly, keep only the AWS rows of the last run of each day (the greatest `billing.observed_at_unix_ms` of the AWS rows of that day): each run sends all rows of its window.
 
 ## Environment
 
