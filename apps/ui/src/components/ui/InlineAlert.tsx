@@ -28,11 +28,10 @@ const plainIconClass: Record<InlineAlertVariant, string> = {
 }
 
 /**
- * An error, warning or success message in the page, next to the content that it
- * is about: an icon, an optional title, the text and optional actions. An error
- * gives its cause and a next step. Use a toast in a `ToastStack` for a notice
- * that waits for an action on the Home page, and `framed={false}` in a block
- * that already shows the state.
+ * An error, warning or success message next to the content that it is about,
+ * with an optional title and actions; an error gives its cause and a next
+ * step. Use a toast in a `ToastStack` for a notice that waits for an action on
+ * the Home page. In a block that already shows the state, set `framed={false}`.
  */
 export function InlineAlert({
   variant,

@@ -89,10 +89,18 @@ export { TreeRow }
 export const WrappedRow = (() => <div />) as React.FC
 function Inner() { return <div /> }
 export const MemoRow = memo(Inner)
+export const MemoButton = React.memo(Button)
 `,
   })
   assert.equal(result.status, 1)
-  for (const name of ["Row", "OldRow", "TreeRow", "WrappedRow", "MemoRow"])
+  for (const name of [
+    "Row",
+    "OldRow",
+    "TreeRow",
+    "WrappedRow",
+    "MemoRow",
+    "MemoButton",
+  ])
     assert.match(
       result.stderr,
       new RegExp(

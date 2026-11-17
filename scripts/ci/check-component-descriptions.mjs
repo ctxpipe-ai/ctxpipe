@@ -9,7 +9,8 @@
 // A component is an exported PascalCase function in a `.tsx` file under
 // apps/ui/src (not a story or a test): a function declaration, a `const` with
 // an arrow or function expression, or a `const` with a function of the file or
-// a call that wraps one (`forwardRef(...)`, `memo(Body)`). Parentheses,
+// a call that wraps one (`memo(Body)`), or a `const` with a `memo` or
+// `forwardRef` call of any component, also an imported one. Parentheses,
 // `as` and `satisfies` around the value do not change it. The JSDoc must have
 // text before its tags.
 //
@@ -53,8 +54,7 @@ function components(fileName, text) {
       node &&
       (ts.isParenthesizedExpression(node) ||
         ts.isAsExpression(node) ||
-        ts.isSatisfiesExpression(node) ||
-        ts.isNonNullExpression(node))
+        ts.isSatisfiesExpression(node))
     )
       node = node.expression
     return (
@@ -62,7 +62,9 @@ function components(fileName, text) {
       (ts.isArrowFunction(node) ||
         ts.isFunctionExpression(node) ||
         (ts.isIdentifier(node) && local.has(node.text)) ||
-        (ts.isCallExpression(node) && node.arguments.some(isComponentValue)))
+        (ts.isCallExpression(node) &&
+          (/(^|\.)(memo|forwardRef)$/.test(node.expression.getText(source)) ||
+            node.arguments.some(isComponentValue))))
     )
   }
   // Function declarations first: a wrapper call can name one that is below it.
