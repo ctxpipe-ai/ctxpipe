@@ -93,16 +93,6 @@ type Shot = {
 /** The default count of pixels that may differ. */
 const maxDiffPixels = 10
 
-/** True when two PNGs have the same size and the same pixels. */
-const samePixels = (a: Uint8Array, b: Uint8Array) => {
-  const [x, y] = [decode(a), decode(b)]
-  return (
-    x.width === y.width &&
-    x.height === y.height &&
-    Buffer.from(x.data).equals(Buffer.from(y.data))
-  )
-}
-
 const shotKey = (shot: Shot) =>
   shot.snapshot ? `${shot.story.id}@${shot.snapshot}` : shot.story.id
 
@@ -335,12 +325,18 @@ export async function runVisual({
       // A story named with `only` is accepted on purpose: any changed pixel
       // writes its baseline. Else the tolerance of the check keeps a
       // baseline that the check calls unchanged.
-      if (
+      if (old && only) {
+        const [before, after] = [decode(old), decode(result.png)]
+        if (
+          before.width === after.width &&
+          before.height === after.height &&
+          Buffer.from(before.data).equals(Buffer.from(after.data))
+        )
+          continue
+      } else if (
         old &&
-        (only
-          ? samePixels(old, result.png)
-          : (await diff(old, result.png, { maxDiffPixels: shot.maxDiffPixels }))
-              .status === "unchanged")
+        (await diff(old, result.png, { maxDiffPixels: shot.maxDiffPixels }))
+          .status === "unchanged"
       )
         continue
       await mkdir(join(path, ".."), { recursive: true })
