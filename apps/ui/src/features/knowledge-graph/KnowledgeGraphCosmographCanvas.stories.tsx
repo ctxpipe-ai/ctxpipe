@@ -226,16 +226,23 @@ export const TimelinePlaysWithoutRange: Story = {
     await waitFor(() => expect(playButton).toBeEnabled(), {
       timeout: layoutSettleTimeout,
     })
+    // The timeline moves the window one step on each tick of a 50 ms
+    // interval. A pause after a wait can come one or two steps late, and then
+    // the screenshot changes. Thus the play pauses in the third selection
+    // callback, which is in the tick: the next tick does not occur.
+    const steps = 3
+    let labelWhilePlaying: string | null = null
     timelineSelections.mockClear()
-    await userEvent.click(playButton)
-    const pauseButton = await canvas.findByRole("button", {
-      name: "Pause history",
+    timelineSelections.mockImplementation(() => {
+      if (timelineSelections.mock.calls.length !== steps) return
+      labelWhilePlaying = playButton.getAttribute("aria-label")
+      playButton.click()
     })
-    await waitFor(() =>
-      expect(timelineSelections.mock.calls.length).toBeGreaterThanOrEqual(3),
-    )
-    await userEvent.click(pauseButton)
+    await userEvent.click(playButton)
+    await waitFor(() => expect(timelineSelections).toHaveBeenCalledTimes(steps))
     await canvas.findByRole("button", { name: "Play history" })
+    await expect(labelWhilePlaying).toBe("Pause history")
+    await expect(timelineSelections).toHaveBeenCalledTimes(steps)
 
     const starts = timelineSelections.mock.calls.map(([selection]) => {
       if (selection?.source !== "timeline") {
