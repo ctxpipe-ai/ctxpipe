@@ -180,26 +180,38 @@ export function defineWorkspaceHydrateWorkflow() {
       })
       if (!org) throw new Error(`Organization not found: ${input.orgId}`)
 
-      return withOrgIdContext({ id: org.id, slug: org.slug }, () =>
-        // One hydrate of a Workspace runs at a time. A run that waits here
-        // then hydrates the tip, or ends as a no-op when an earlier run
-        // already hydrated it.
-        //
-        // The sandbox lock store is a generic lease here: a Postgres row with
-        // a 30-second expiry that the holder renews. The lesson "Durable
-        // repository indexing and admission" forbids cross-step leases for
-        // repository ingestion, where a lease would replace a step boundary
-        // or a capacity queue. This lease does neither: each step stays
-        // durable, and correctness does not depend on the lease (the commit
-        // locks the Workspace row and checks its base, and the graph delta
-        // is a compare-and-set). The lease only stops two runs of one
-        // Workspace from doing the same work at once. When a worker stops,
-        // the lease expires in 30 seconds and the retry takes it again.
-        postgresSandboxLocks(input.orgId).withLock(
-          `workspace-hydrate:${input.workspaceId}`,
-          (lockSignal) => hydrateUnderLock(lockSignal),
-        ),
+      const result = await withOrgIdContext(
+        { id: org.id, slug: org.slug },
+        () =>
+          // One hydrate of a Workspace runs at a time. A run that waits here
+          // then hydrates the tip, or ends as a no-op when an earlier run
+          // already hydrated it.
+          //
+          // The sandbox lock store is a generic lease here: a Postgres row with
+          // a 30-second expiry that the holder renews. The lesson "Durable
+          // repository indexing and admission" forbids cross-step leases for
+          // repository ingestion, where a lease would replace a step boundary
+          // or a capacity queue. This lease does neither: each step stays
+          // durable, and correctness does not depend on the lease (the commit
+          // locks the Workspace row and checks its base, and the graph delta
+          // is a compare-and-set). The lease only stops two runs of one
+          // Workspace from doing the same work at once. When a worker stops,
+          // the lease expires in 30 seconds and the retry takes it again.
+          postgresSandboxLocks(input.orgId).withLock(
+            `workspace-hydrate:${input.workspaceId}`,
+            (lockSignal) => hydrateUnderLock(lockSignal),
+          ),
       )
+      // One event for each run: its outcome, and what it read and wrote. The
+      // workflow logger emits a wide event only when it has a `step`.
+      getLogger().set({
+        step: "workspace-hydrate.result",
+        hydrate: {
+          reason: "reason" in result ? result.reason : "hydrated",
+          ...("writes" in result ? result.writes : {}),
+        },
+      })
+      return result
       async function hydrateUnderLock(lockSignal: AbortSignal) {
         const orgSql = <T>(fn: () => Promise<T>) =>
           withOrgDbContext(input.orgId, fn)
@@ -842,8 +854,7 @@ export function defineWorkspaceHydrateWorkflow() {
           }
 
           await enqueueRemainingWrites()
-          // The production proof of the partial hydrate: one wide event for
-          // each run says what the run read and wrote.
+          // What the run read and wrote, for the result event of the run.
           const writes = {
             mode: committed?.mode ?? "none",
             ...(committed?.mode === "full"
@@ -864,7 +875,6 @@ export function defineWorkspaceHydrateWorkflow() {
             graphEdgesWritten: graphWrite?.edgesWritten ?? 0,
             embeddingTexts,
           }
-          log.set({ hydrate: writes })
           return {
             writes,
             hydrated: activated,

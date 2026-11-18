@@ -2,6 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 
 import { asc, eq, sql } from "drizzle-orm"
+import { initLogger } from "evlog"
 import { FalkorDB } from "falkordb"
 import { expect, it, vi } from "vitest"
 
@@ -354,6 +355,46 @@ it(
       expect(["noop", "index_lag"]).toContain(other?.reason)
       expect((await projected(f)).revision.sha).toBe(tip)
     }),
+)
+
+it(
+  "each run logs one event with its outcome and what it read and wrote",
+  { timeout: 120_000 },
+  async () => {
+    const events: Array<Record<string, unknown>> = []
+    initLogger({
+      env: { service: "ctxpipe-backend", environment: "test" },
+      pretty: false,
+      drain: (ctx) => {
+        const event = ctx.event as Record<string, unknown>
+        if (event.step === "workspace-hydrate.result") events.push(event)
+      },
+    })
+    try {
+      await withNativeHydrationFixture({ files }, async (f) => {
+        await f.publish()
+        await commit(f, { write: { "doc-02.md": "# Doc 2\nChanged.\n" } })
+        await f.resolveRevision(true)
+        await hydrate(f)
+        await settleIndex(f)
+        await hydrate(f)
+      })
+    } finally {
+      initLogger({ enabled: false, env: { service: "ctxpipe-backend-test" } })
+    }
+    expect(events.map((event) => event.hydrate)).toMatchObject([
+      // The first hydrate of the fixture.
+      { reason: "hydrated", mode: "full", fullReason: "no_base" },
+      {
+        reason: "hydrated",
+        mode: "partial",
+        filesParsed: 24,
+        unitRowsWritten: 1,
+        graphMode: "partial",
+      },
+      { reason: "noop" },
+    ])
+  },
 )
 
 it(
