@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "13845b1c-0743-4cbc-b53f-cb09d6342452",
-  "prevIds": ["ce494660-e6ce-4567-9b1b-720eaa0461b9"],
+  "id": "8f050c41-941b-4103-8696-56b7370643cd",
+  "prevIds": ["9ee5b98c-eb71-44af-96a7-a97ff2f61f66"],
   "ddl": [
     {
       "values": [
@@ -10028,6 +10028,39 @@
       "entityType": "policies",
       "schema": "public",
       "table": "workspaces"
+    },
+    {
+      "definition": "SELECT workspace_id, unit_id, chunk_hash, occurrence, search FROM workspace_knowledge_chunks WHERE org_id = current_setting('app.organization_id', true)",
+      "with": {
+        "checkOption": "cascaded",
+        "securityBarrier": null,
+        "securityInvoker": null,
+        "autovacuumEnabled": null,
+        "autovacuumFreezeMaxAge": null,
+        "autovacuumFreezeMinAge": null,
+        "autovacuumFreezeTableAge": null,
+        "autovacuumMultixactFreezeMaxAge": null,
+        "autovacuumMultixactFreezeMinAge": null,
+        "autovacuumMultixactFreezeTableAge": null,
+        "autovacuumVacuumCostDelay": null,
+        "autovacuumVacuumCostLimit": null,
+        "autovacuumVacuumScaleFactor": null,
+        "autovacuumVacuumThreshold": null,
+        "fillfactor": null,
+        "logAutovacuumMinDuration": null,
+        "parallelWorkers": null,
+        "toastTupleTarget": null,
+        "userCatalogTable": null,
+        "vacuumIndexCleanup": null,
+        "vacuumTruncate": null
+      },
+      "withNoData": null,
+      "using": null,
+      "tablespace": null,
+      "materialized": false,
+      "name": "workspace_knowledge_chunk_search",
+      "entityType": "views",
+      "schema": "public"
     }
   ],
   "renames": []
