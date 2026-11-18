@@ -834,6 +834,121 @@ export const Old = { parameters: { review: { purpose: "An old purpose parameter.
         `${regression.summary} The scope is component: the story of this screenshot, with its kind, is not in apps/ui/src/components/Card.stories.tsx at the merge base, so the critic had no kind or purpose of the story, and the page-only qualities were not judged.`,
       )
     })
+
+    describe("--head-stories: the story files that the PR changes, as the factory copies them", () => {
+      // The factory copies the head version of each changed story file to
+      // `head/<path>` of the review folder (CTX-1311). The command reads a
+      // story file there first, and else from the merge-base tree.
+      let head: string
+      beforeEach(async () => {
+        head = join(root, "head")
+        await mkdir(join(head, "apps/ui/src/components"), { recursive: true })
+      })
+      const card =
+        "apps/ui/src/components/screenshots/Card.Primary.desktop.screenshot.png"
+
+      test("a story that the PR adds has the kind and the purpose of its head story file", async () => {
+        await writeFile(
+          join(head, "apps/ui/src/components/Card.stories.tsx"),
+          `const meta = { title: "Pages/Card", parameters: { review: { kind: "page" } } }
+export default meta
+/** Card page with one project, signed in. */
+export const Primary = { render: () => null }
+`,
+        )
+        await put("base", card, before)
+        await put("head", card, after)
+
+        await run(
+          "--json",
+          "--head-stories",
+          head,
+          "--images",
+          images,
+          "--",
+          card,
+        )
+
+        expect(scope(0)).toBe("page")
+        expect(JSON.stringify(chats[0])).toContain(
+          "Name: Pages/Card / Primary\\nPurpose: Card page with one project, signed in.",
+        )
+        expect(verdicts()[0]?.summary).toBe(regression.summary)
+      })
+
+      test("a head story file wins over the story file of the merge base", async () => {
+        await writeFile(
+          join(head, "apps/ui/src/components/Link.stories.tsx"),
+          `const meta = { title: "Link", parameters: { review: { kind: "component" } } }
+export default meta
+/** Inline text link, underlined on hover. */
+export const Primary = { render: () => null }
+`,
+        )
+        await put("base", link, before)
+        await put("head", link, after)
+
+        await run(
+          "--json",
+          "--head-stories",
+          head,
+          "--images",
+          images,
+          "--",
+          link,
+        )
+
+        expect(JSON.stringify(chats[0])).toContain(
+          "Purpose: Inline text link, underlined on hover.",
+        )
+      })
+
+      test("a story file that the PR does not change comes from the merge base", async () => {
+        await put("base", button, before)
+        await put("head", button, after)
+
+        await run(
+          "--json",
+          "--head-stories",
+          head,
+          "--images",
+          images,
+          "--",
+          button,
+        )
+
+        expect(scope(0)).toBe("page")
+        expect(JSON.stringify(chats[0])).toContain(
+          "Purpose: Home page with the primary button, signed in.",
+        )
+      })
+
+      test("a head story file that is a symbolic link stops the review", async () => {
+        await symlink(
+          join(process.cwd(), "apps/ui/src/components/Button.stories.tsx"),
+          join(head, "apps/ui/src/components/Card.stories.tsx"),
+        )
+        await put("base", card, before)
+        await put("head", card, after)
+
+        const code = await run(
+          "--json",
+          "--head-stories",
+          head,
+          "--images",
+          images,
+          "--",
+          card,
+        )
+
+        expect(code).toBe(2)
+        expect(chats).toHaveLength(0)
+        expect(output.join("\n")).toContain(
+          "Cannot read the head story file apps/ui/src/components/Card.stories.tsx: ",
+        )
+        expect(output.join("\n")).toContain("is not a regular file")
+      })
+    })
   })
 
   test("a changed screenshot gets a verdict with its path; a major regression gives exit code 1", async () => {

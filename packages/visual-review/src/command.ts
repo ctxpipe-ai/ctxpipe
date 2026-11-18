@@ -67,7 +67,7 @@ const unknownJevCallUsd = 0.002
 const unknownExplainerUsd = 0.005
 
 const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|agent] [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--rubric <file>] [--session <folder>] [--json]
-       pnpm visual:review --images <folder> [--judge model|jev] [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--rubric <file>] [--json] -- <path>...
+       pnpm visual:review --images <folder> [--head-stories <folder>] [--judge model|jev] [--model <id>] [--filter jev|none] [--budget-usd <n>] [--brief <file>] [--rubric <file>] [--json] -- <path>...
 
   --manifest  The manifest of the visual run. Default: .ci-results/visual/manifest.json
               The command judges each changed story, and each new story on
@@ -81,6 +81,13 @@ const usage = `Usage: pnpm visual:review [--manifest <path>] [--judge model|jev|
               screenshot is unsure. Only with --judge model or jev. Without
               MODEL_PROVIDER_API_KEY, the exit code is 2, also when no
               screenshot needs a model.
+  --head-stories A folder with the head version of each story file that
+              the PR changes, at its path in the repo, as the factory writes
+              it. The kind and the purpose of a story come from its story
+              file there, else from the current folder (the merge base). A
+              story file there that is not a regular file gives exit code 2.
+              The file is data: the command only parses it. Only with
+              --images.
   --budget-usd The most that the model calls of this run can spend, in USD.
               Before each call, the command adds the cost of the calls so far:
               usage.cost of each reply, or for a reply with no cost
@@ -157,6 +164,7 @@ export async function visualReview(
       options: {
         manifest: { type: "string" },
         images: { type: "string" },
+        "head-stories": { type: "string" },
         judge: { type: "string", default: "model" },
         model: { type: "string" },
         filter: { type: "string", default: "none" },
@@ -195,11 +203,12 @@ export async function visualReview(
     (judge !== "model" && (filter === "jev" || options.model !== undefined)) ||
     (judge !== "agent" && options.session !== undefined) ||
     (options.images !== undefined) !== paths.length > 0 ||
+    (options["head-stories"] !== undefined && options.images === undefined) ||
     (options.images !== undefined &&
       (options.manifest !== undefined || judge === "agent"))
   ) {
     print(
-      `--judge must be model, jev or agent, and --filter must be jev or none (--filter jev and --model only with --judge model, --session only with --judge agent). --images needs the paths after --, and only goes with --judge model or jev and no --manifest.\n\n${usage}`,
+      `--judge must be model, jev or agent, and --filter must be jev or none (--filter jev and --model only with --judge model, --session only with --judge agent). --images needs the paths after --, and only goes with --judge model or jev and no --manifest. --head-stories only goes with --images.\n\n${usage}`,
     )
     return 2
   }
@@ -310,11 +319,17 @@ export async function visualReview(
           options.brief === undefined
             ? undefined
             : await readFile(resolve(options.brief), "utf8")
+        const headStories = options["head-stories"]
         screenshots = await compareImages(
           resolve(options.images),
           paths,
           work,
-          { brief, rubric },
+          {
+            brief,
+            rubric,
+            headStories:
+              headStories === undefined ? undefined : resolve(headStories),
+          },
         )
       } catch (error) {
         print((error as Error).message)
@@ -690,14 +705,18 @@ async function judgeNewScreenshots(
 /**
  * What the critic knows about the story of the screenshot `path`
  * (`<dir>/screenshots/<story file>.<story>[@<snapshot>].<viewport>.screenshot.png`),
- * from its story in `<dir>/<story file>.stories.tsx` of the current folder
- * (the merge-base tree): the scope from `parameters.review.kind`, the
- * Storybook name, and the purpose. When that story is not there, or has no
- * kind (a merge base from before the story review check), the scope is
- * `component`, with a note that says so.
+ * from its story in `<dir>/<story file>.stories.tsx`: the scope from
+ * `parameters.review.kind`, the Storybook name, and the purpose. The story
+ * file comes from `headStories` (the head version of each story file that
+ * the PR changes, CTX-1311) when it is there, else from the current folder
+ * (the merge-base tree). When that story is not there, or has no kind (a
+ * merge base from before the story review check), the scope is `component`,
+ * with a note that says so. A story file in `headStories` that is not a
+ * regular file throws.
  */
 async function aboutStory(
   path: string,
+  headStories: string | undefined,
 ): Promise<Pick<StoryInput, "scope" | "name" | "purpose"> & { note?: string }> {
   const name = /^(.+)\.(?:desktop|mobile)\.screenshot\.png$/.exec(
     posix.basename(path),
@@ -717,11 +736,27 @@ async function aboutStory(
   for (const { file, story } of candidates) {
     // A story file that is not there, or that does not parse, is not the
     // story file of this screenshot.
-    const found = await readFile(insideRoot(process.cwd(), file), "utf8")
-      .then((code) =>
-        storiesOf(csfTools, file, code).find(({ name }) => name === story),
-      )
-      .catch(() => undefined)
+    const head =
+      headStories === undefined
+        ? undefined
+        : await readRegularInside(headStories, file).catch((error) => {
+            throw new HeadStoryError(
+              `Cannot read the head story file ${file}: ${(error as Error).message}`,
+            )
+          })
+    const code =
+      head ??
+      (await readFile(insideRoot(process.cwd(), file)).catch(() => undefined))
+    let found
+    try {
+      found = code
+        ? storiesOf(csfTools, file, code.toString("utf8")).find(
+            ({ name }) => name === story,
+          )
+        : undefined
+    } catch {
+      found = undefined
+    }
     if (found?.kind)
       return {
         scope: found.kind,
@@ -732,8 +767,28 @@ async function aboutStory(
   const files = candidates.map(({ file }) => file).join(" or ")
   return {
     scope: "component",
-    note: `The scope is component: the story of this screenshot, with its kind, is not in ${files || "a story file"} at the merge base, so the critic had no kind or purpose of the story, and the page-only qualities were not judged.`,
+    note: `The scope is component: the story of this screenshot, with its kind, is not in ${files || "a story file"} at the ${headStories ? "head" : "merge base"}, so the critic had no kind or purpose of the story, and the page-only qualities were not judged.`,
   }
+}
+
+/** A head story file that `--head-stories` has, but that cannot be read. */
+class HeadStoryError extends Error {}
+
+/**
+ * The bytes of the file `path` in the folder `root` (data of the PR author),
+ * or undefined when it is not there. A file that is not a regular file, or
+ * whose real path is outside `root`, throws.
+ */
+async function readRegularInside(
+  root: string,
+  path: string,
+): Promise<Buffer | undefined> {
+  const file = insideRoot(root, path)
+  const info = await lstat(file).catch(() => undefined)
+  if (!info) return undefined
+  if (!info.isFile()) throw new Error(`${file} is not a regular file.`)
+  await realInside(root, file)
+  return readFile(file)
 }
 
 /**
@@ -755,20 +810,23 @@ async function compareImages(
   folder: string,
   paths: readonly string[],
   work: string,
-  { brief, rubric }: { brief: string | undefined; rubric: Rubric },
+  {
+    brief,
+    rubric,
+    headStories,
+  }: {
+    brief: string | undefined
+    rubric: Rubric
+    headStories: string | undefined
+  },
 ): Promise<Screenshot[]> {
   const screenshots: Screenshot[] = []
   for (const [index, path] of paths.entries()) {
     try {
-      const read = async (side: "base" | "head") => {
-        const file = insideRoot(join(folder, side), path)
-        const info = await lstat(file).catch(() => undefined)
-        if (!info) return undefined
-        if (!info.isFile()) throw new Error(`${file} is not a regular file.`)
-        await realInside(folder, file)
-        return readFile(file)
-      }
-      const [before, after] = [await read("base"), await read("head")]
+      const [before, after] = [
+        await readRegularInside(join(folder, "base"), path),
+        await readRegularInside(join(folder, "head"), path),
+      ]
       const plain = (verdict: Verdict["verdict"], summary: string) => ({
         path,
         verdict: {
@@ -793,7 +851,7 @@ async function compareImages(
         const head = join(work, `${index}-new.png`)
         await writeFile(head, after)
         const key = path.replace(/\.(?:desktop|mobile)\.screenshot\.png$/, "")
-        const { note, ...about } = await aboutStory(path)
+        const { note, ...about } = await aboutStory(path, headStories)
         screenshots.push({
           path,
           ...(note ? { note } : {}),
@@ -830,7 +888,7 @@ async function compareImages(
         comparison.status === "size-changed"
           ? { size: comparison.after, regions: [], signature: null }
           : comparison
-      const { note, ...about } = await aboutStory(path)
+      const { note, ...about } = await aboutStory(path, headStories)
       screenshots.push({
         path,
         ...(note ? { note } : {}),
@@ -849,6 +907,7 @@ async function compareImages(
         }),
       })
     } catch (error) {
+      if (error instanceof HeadStoryError) throw error
       throw new Error(
         `Cannot read the image of ${path}: ${(error as Error).message}`,
       )
