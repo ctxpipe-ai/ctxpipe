@@ -1,8 +1,7 @@
 import pg from "pg"
-import { afterAll, beforeAll, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, expect, it } from "vitest"
 
-import { log } from "../observability/logger.js"
-import { logKnowledgeSearchPlan } from "./knowledge-search-plan.js"
+import { checkKnowledgeSearchPlan } from "./knowledge-search-plan.js"
 import { ownerUrlForMigrate } from "./owner-migrate-url.js"
 import { APP_ROLE_NAME } from "./provision-app-role.js"
 
@@ -19,21 +18,13 @@ afterAll(async () => {
   await pool.end()
 })
 
-it("logs that the GIN index serves the org and the full-text match as the app role", async () => {
-  const info = vi.spyOn(log, "info")
-  const warn = vi.spyOn(log, "warn")
-  try {
-    await logKnowledgeSearchPlan(pool, APP_ROLE_NAME)
-    expect(warn).not.toHaveBeenCalled()
-    expect(info).toHaveBeenCalledWith(
-      expect.objectContaining({
-        message: expect.stringContaining(
-          "workspace_knowledge_chunks_search_idx serves the org and the full-text match",
-        ),
-      }),
-    )
-  } finally {
-    info.mockRestore()
-    warn.mockRestore()
-  }
+it("finds that the GIN index serves the org and the full-text match as the app role", async () => {
+  const plan = await checkKnowledgeSearchPlan(pool, APP_ROLE_NAME)
+  expect(plan?.served).toBe(true)
+})
+
+it("gives no plan, and does not throw, when the check cannot run", async () => {
+  expect(
+    await checkKnowledgeSearchPlan(pool, "ctxpipe_no_such_role"),
+  ).toBeUndefined()
 })

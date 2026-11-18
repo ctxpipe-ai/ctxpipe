@@ -6,7 +6,10 @@ import { inArray, sql } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { closeDb, initDb, withOrgDbContext } from "../../db/client.js"
-import { searchIndexConditions } from "../../db/knowledge-search-plan.js"
+import {
+  searchIndexConditions,
+  servesOrgAndMatch,
+} from "../../db/knowledge-search-plan.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { analyzeAsOwner } from "../../test/analyze-as-owner.js"
 import {
@@ -199,8 +202,7 @@ describe("searchKnowledge on a large shared index (Postgres)", () => {
       }
       const conditions = await indexConditions()
       expect(conditions, `analyze: ${analyze}`).toHaveLength(1)
-      expect(conditions[0]).toContain("current_setting('app.organization_id'")
-      expect(conditions[0]).toContain("@@")
+      expect(conditions[0], `analyze: ${analyze}`).toSatisfy(servesOrgAndMatch)
     }
   }, 120_000)
 })

@@ -144,6 +144,9 @@ const tsvector = customType<{ data: string }>({
   dataType: () => "tsvector",
 })
 
+/** The org of a chunk for its full-text match; equal to `org_id` (byte equality). */
+const chunkSearchOrg = sql`("org_id" COLLATE "C")`
+
 /**
  * Search chunks of the active projection's knowledge units (ADR-051). A row
  * stays across projection SHAs while its unit still has that chunk, so an
@@ -152,9 +155,6 @@ const tsvector = customType<{ data: string }>({
  * replaced in that transaction, and a new chunk copies the embedding of an
  * old chunk with the same hash before the old one goes.
  */
-/** The org of a chunk for its full-text match; equal to `org_id` (byte equality). */
-const chunkSearchOrg = sql`("org_id" COLLATE "C")`
-
 export const workspaceKnowledgeChunks = pgTable.withRLS(
   "workspace_knowledge_chunks",
   {

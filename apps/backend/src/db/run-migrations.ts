@@ -8,7 +8,7 @@ import { log } from "../observability/logger.js"
 import { backfillNullOrgIds } from "./backfill-null-org-ids.js"
 import { backfillRepositoryIngestionRequests } from "./backfill-repository-ingestion-requests.js"
 import { clearRetiredWriteStepOutputs } from "./clear-retired-write-step-outputs.js"
-import { logKnowledgeSearchPlan } from "./knowledge-search-plan.js"
+import { checkKnowledgeSearchPlan } from "./knowledge-search-plan.js"
 import { migrateOpenWorkflow } from "./migrate-openworkflow.js"
 import { APP_ROLE_NAME, provisionAppRole } from "./provision-app-role.js"
 import { reconcileConnectionDirectory } from "./reconcile-connection-directory.js"
@@ -90,7 +90,7 @@ export async function runMigrations(options: {
 
     // Again after the migrations, for the tables and schemas they added.
     await provisionAppRole(pool, undefined, roleName)
-    await logKnowledgeSearchPlan(pool, roleName)
+    await checkKnowledgeSearchPlan(pool, roleName)
   } catch (error) {
     if (!(error instanceof LockRetriesExhaustedError) && isLockTimeout(error))
       throw new Error(
