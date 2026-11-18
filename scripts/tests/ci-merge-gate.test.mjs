@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -16,13 +17,11 @@ import { parse as parseYaml } from "yaml"
 
 import {
   code,
-  comment,
   critics,
   criticsFail,
   criticsText,
   decideMode,
   describe,
-  marker,
   offPullRequestJobs,
   sameInEachRunJobs,
   shadow,
@@ -1408,10 +1407,7 @@ test("the published text escapes PR values and names no writer", () => {
   assert.ok(!/^::/m.test(text))
   assert.ok(!text.includes("‮"))
   assert.ok(!text.includes("email-sha256"))
-  const note = comment(decision, "https://example.com/run")
-  assert.ok(note.startsWith(`${marker}\n`))
-  assert.ok(!note.includes("email-sha256"))
-  assert.match(note, /Gated run would: \*\*fail\*\*/)
+  assert.match(text, /gated run would: \*\*fail\*\*/)
   assert.equal(code("a`b|c"), "`a'b\\|c`")
 })
 
@@ -1734,10 +1730,11 @@ test("the CLI writes the decision files from artifacts", () => {
       "## Merge gate (shadow)",
     ),
   )
-  assert.ok(readFileSync(join(out, "comment.md"), "utf8").startsWith(marker))
+  // The merge gate posts no PR comment: the job summary is the report.
+  assert.ok(!existsSync(join(out, "comment.md")))
 })
 
-test("a critic with no stored verdict fails the gate, and the comment links each verdict", () => {
+test("a critic with no stored verdict fails the gate, and the summary links each verdict", () => {
   const verdict = {
     commit: sha(7),
     createdAt: "2026-11-04T10:00:00Z",
@@ -1805,20 +1802,20 @@ test("a critic with no stored verdict fails the gate, and the comment links each
     return {
       status: run.status,
       stderr: run.stderr,
-      comment: readFileSync(join(out, "comment.md"), "utf8"),
+      summary: readFileSync(join(out, "summary.md"), "utf8"),
     }
   }
   const missing = decideWith("gate", {
     "critics.json": record("missing"),
   })
   assert.equal(missing.status, 1, missing.stderr)
-  assert.ok(missing.comment.includes("#### Review critics"))
+  assert.ok(missing.summary.includes("#### Review critics"))
   assert.ok(
-    missing.comment.includes(
+    missing.summary.includes(
       `[${sha(7).slice(0, 7)}](https://github.com/o/r/commit/${sha(7)})`,
     ),
   )
-  assert.ok(missing.comment.includes("Fix: run `factory check` on the PR head"))
+  assert.ok(missing.summary.includes("Fix: run `factory check` on the PR head"))
   // Shadow mode only reports it; a gate whose critics all have a verdict passes.
   assert.equal(
     decideWith("shadow", { "critics.json": record("missing") }).status,
@@ -1828,6 +1825,57 @@ test("a critic with no stored verdict fails the gate, and the comment links each
     decideWith("gate", { "critics.json": record("not-applicable") }).status,
     0,
   )
+})
+
+test("the summary stays under the size limit of a GitHub job summary, and a cut ends at a line", () => {
+  // 100 critics with a section of about 14 KB each: about 1.4 MB of text.
+  // Each line holds a two-byte character, so a cut by bytes can split one.
+  const section = Array.from(
+    { length: 1000 },
+    (_, n) => `| é${n} | x |`,
+  ).join("\n")
+  const directory = inputs({
+    "mode.json": { mode: "select", reason: "shadow" },
+    "selection.json": selection(),
+    "critics.json": {
+      critics: Array.from({ length: 100 }, (_, n) => ({
+        critic: `critic:c${n}`,
+        status: "carried",
+        reason: "r",
+        section,
+      })),
+    },
+  })
+  writeFileSync(join(directory, "needs.json"), JSON.stringify(needs()))
+  writeFileSync(join(directory, "config.json"), JSON.stringify(pinned))
+  const out = join(directory, "out")
+  const run = spawnSync(
+    process.execPath,
+    [
+      join(root, "scripts/checks/gate.mjs"),
+      "decide",
+      "--config",
+      join(directory, "config.json"),
+      "--inputs",
+      directory,
+      "--results",
+      join(directory, "results"),
+      "--needs",
+      join(directory, "needs.json"),
+      "--out",
+      out,
+    ],
+    { encoding: "utf8", env: { PATH: process.env.PATH } },
+  )
+  assert.equal(run.status, 0, run.stderr)
+  const bytes = readFileSync(join(out, "summary.md"))
+  // GitHub refuses a step summary over 1 MiB; the MCP evals reminder adds a
+  // line after the decision.
+  assert.ok(bytes.length <= 1000 * 1024, `${bytes.length} bytes`)
+  const text = bytes.toString("utf8")
+  assert.ok(!text.includes("\uFFFD"), "no split character")
+  assert.match(text, /\n\nThe summary is cut at the size limit of GitHub/)
+  assert.match(text, /`decision\.json` in the artifact `merge-gate-decision`/)
 })
 
 test("a same-repo PR whose critics were not checked fails the gate with the cause; a fork PR does not", () => {
@@ -1940,7 +1988,7 @@ test("each override of a visual verdict shows its reason, writer and commit; non
     text,
   )
   assert.ok(text.includes(`by writer \`${"a".repeat(64)}\``), text)
-  // A writer or a commit of another shape never reaches the comment.
+  // A writer or a commit of another shape never reaches the summary.
   assert.ok(!text.includes("someone@example.com"), text)
   assert.ok(text.includes("by writer `unknown` at `unknown`"), text)
   // A reason at the limit, with pipes, shows in full. A list item is not a
@@ -1964,7 +2012,7 @@ test("each override of a visual verdict shows its reason, writer and commit; non
   assert.ok(!plain.includes("Overridden verdicts"), plain)
 })
 
-test("the comment reads the JSON of `factory review gate --json`: each override and each raised limit", () => {
+test("the summary reads the JSON of `factory review gate --json`: each override and each raised limit", () => {
   // The output of the factory binary, from the factory CLI test
   // `the_gate_json_of_the_binary_names_each_override_and_raised_limit`
   // (run it with `--nocapture`). A change of the factory shape fails here.
@@ -2016,7 +2064,7 @@ test("the comment reads the JSON of `factory review gate --json`: each override 
   assert.ok(piped.includes("`a \\| b`"), piped)
 })
 
-test("the critics job projection keeps each override and raised limit for the comment", () => {
+test("the critics job projection keeps each override and raised limit for the summary", () => {
   // The same jq filter as the critics job in ci.yaml, on the output of the
   // factory binary.
   const workflow = readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8")
@@ -2099,7 +2147,7 @@ test("each dismissed finding shows its reason, writer and commit; none is silent
   )
   // The full reason, with no backtick that ends the span.
   assert.ok(text.includes(reason.replace(/`/g, "'")), text)
-  // A writer or a commit of another shape never reaches the comment.
+  // A writer or a commit of another shape never reaches the summary.
   assert.ok(!text.includes("someone@example.com"), text)
   assert.ok(text.includes("by writer `unknown` at `unknown`"), text)
   const plain = criticsText(
@@ -2117,7 +2165,7 @@ test("each dismissed finding shows its reason, writer and commit; none is silent
   assert.ok(!plain.includes("Dismissed findings"), plain)
 })
 
-test("the critics job projection keeps each dismissal of `factory review gate --json` for the comment", () => {
+test("the critics job projection keeps each dismissal of `factory review gate --json` for the summary", () => {
   // The output of the factory binary, from the factory CLI test
   // `a_dismissed_finding_ends_its_hold_and_the_gate_shows_it_with_its_reason`.
   // A change of the factory shape fails here.
@@ -2151,7 +2199,7 @@ test("the critics job projection keeps each dismissal of `factory review gate --
   )
 })
 
-test("the comment includes the screenshots section that the factory makes for a command critic", () => {
+test("the summary includes the screenshots section that the factory makes for a command critic", () => {
   // The output of the factory binary, from the factory CLI test
   // `the_gate_json_of_a_command_critic_holds_the_section_of_its_changed_images`
   // (run it with `--nocapture`), through the jq filter of the critics job.
@@ -2177,7 +2225,7 @@ test("the comment includes the screenshots section that the factory makes for a 
   )
   const text = criticsText(critics(inputs({ "critics.json": record })))
   assert.ok(text.includes(`##### \`critic:visual\`\n\n${section}`), text)
-  // A section that is not text never reaches the comment.
+  // A section that is not text never reaches the summary.
   const odd = criticsText(
     critics(
       inputs({
@@ -2216,7 +2264,7 @@ test("the comment includes the screenshots section that the factory makes for a 
   assert.ok(!long.includes("x".repeat(25001)), "bound")
 })
 
-test("a raised limit of another shape never reaches the comment", () => {
+test("a raised limit of another shape never reaches the summary", () => {
   const text = criticsText(
     critics(
       inputs({

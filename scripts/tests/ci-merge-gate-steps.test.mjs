@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -27,9 +28,8 @@ const repo = "acme/widgets"
 // `gh api <path> [--paginate|--silent] [--jq <expr>]` prints the file of that
 // path (slashes become underscores), through jq when --jq is given, or fails
 // with the text in `<name>.error`, or one time with the text in
-// `<name>.error-once`. `gh api --method <verb>` appends its arguments to
-// calls.log. The fake `sleep` appends its argument to sleeps.log and does not
-// wait.
+// `<name>.error-once`. The fake `sleep` appends its argument to sleeps.log and
+// does not wait.
 const fakeGh = `#!/usr/bin/env bash
 set -euo pipefail
 dir="$FAKE_GH_DIR"
@@ -42,10 +42,6 @@ fi
 if [ -f "$dir/$name.error" ]; then
   cat "$dir/$name.error" >&2
   exit 1
-fi
-if [ "$2" = --method ]; then
-  echo "$*" >> "$dir/calls.log"
-  exit 0
 fi
 expr=""
 args=("\${@:3}")
@@ -89,11 +85,11 @@ const stepShell = (job, stepName) => {
 }
 
 const steps = {
-  "post-comment": ["merge-gate", "Post or update the PR comment"],
   "jobs-of-the-run": ["merge-gate", "The jobs of this run"],
+  reminder: ["merge-gate", "Remind the author of the MCP evals"],
 }
 
-const run = (script, dir, env, args = [], cwd = undefined) => {
+const run = (script, dir, env, cwd = undefined) => {
   const log = (name) =>
     existsSync(join(dir, name))
       ? readFileSync(join(dir, name), "utf8").trim().split("\n")
@@ -101,7 +97,7 @@ const run = (script, dir, env, args = [], cwd = undefined) => {
   const command =
     script in steps
       ? ["-c", `set -eo pipefail\n${stepShell(...steps[script])}`]
-      : [join(root, "scripts/ci", script), ...args]
+      : [join(root, "scripts/ci", script)]
   const result = spawnSync("bash", command, {
     cwd,
     encoding: "utf8",
@@ -116,7 +112,6 @@ const run = (script, dir, env, args = [], cwd = undefined) => {
     status: result.status,
     stdout: result.stdout,
     stderr: result.stderr,
-    calls: log("calls.log"),
     sleeps: log("sleeps.log"),
   }
 }
@@ -170,39 +165,18 @@ const mergeRevision = (change) => {
   return dir
 }
 
-test("each step that calls the GitHub API holds the same gh_retry", () => {
-  const all = Object.values(steps)
-  const texts = all.map((step) => {
-    const text = stepShell(...step)
-    const from = text.indexOf("# gh_retry runs")
-    assert.ok(from >= 0, step.join(": "))
-    return text.slice(from, text.indexOf("\n}\n", from) + 3)
-  })
-  for (const [index, text] of texts.entries())
-    assert.equal(text, texts[0], all[index].join(": "))
-  // No step of the workflow calls the GitHub API to list the PR files.
-  assert.doesNotMatch(
-    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
-    /pulls\/\$PR\/files/,
-  )
-})
-
 const remind = ({ change, labels }) => {
   const dir = setup({
     api: {
       [`repos/${repo}/issues/7/labels`]: labels.map((name) => ({ name })),
     },
   })
-  const comment = join(dir, "comment.md")
-  writeFileSync(comment, "<!-- merge-gate -->\n### Merge gate\n")
-  const result = run(
+  return run(
     "mcp-evals-reminder.sh",
     dir,
     { REPO: repo, PR: "7" },
-    [comment],
     mergeRevision(change),
   )
-  return { ...result, comment: readFileSync(comment, "utf8") }
 }
 
 test("the evals reminder shows for a change under apps/backend/src/mcp/ without the label", () => {
@@ -218,8 +192,8 @@ test("the evals reminder shows for a change under apps/backend/src/mcp/ without 
   ]) {
     const result = remind({ change, labels: ["bug"] })
     assert.equal(result.status, 0, result.stderr)
-    assert.match(result.comment, /\*\*MCP evals:\*\*/)
-    assert.match(result.comment, /label `mcp-evals`/)
+    assert.match(result.stdout, /\*\*MCP evals:\*\*/)
+    assert.match(result.stdout, /label `mcp-evals`/)
   }
 })
 
@@ -229,7 +203,7 @@ test("the evals reminder stays away with the label or without an MCP change", ()
     labels: ["bug", "mcp-evals"],
   })
   assert.equal(labeled.status, 0, labeled.stderr)
-  assert.doesNotMatch(labeled.comment, /MCP evals/)
+  assert.equal(labeled.stdout, "")
   for (const change of [
     ({ write }) => write("pnpm-lock.yaml"),
     ({ write }) => {
@@ -239,73 +213,101 @@ test("the evals reminder stays away with the label or without an MCP change", ()
   ]) {
     const result = remind({ change, labels: [] })
     assert.equal(result.status, 0, result.stderr)
-    assert.doesNotMatch(result.comment, /MCP evals/)
+    assert.equal(result.stdout, "")
   }
 })
 
-const postComment = ({ api, ...options } = {}) => {
+test("the reminder step adds the reminder to the job summary, and to summary.md only when the decision wrote it", () => {
+  const step = (decided) => {
+    const dir = setup({ api: { [`repos/${repo}/issues/7/labels`]: [] } })
+    const cwd = mergeRevision(({ write }) =>
+      write("apps/backend/src/mcp/tools.ts", "changed"),
+    )
+    mkdirSync(join(cwd, "scripts/ci"), { recursive: true })
+    copyFileSync(
+      join(root, "scripts/ci/mcp-evals-reminder.sh"),
+      join(cwd, "scripts/ci/mcp-evals-reminder.sh"),
+    )
+    const summary = join(dir, "decision/summary.md")
+    if (decided) {
+      mkdirSync(join(dir, "decision"))
+      writeFileSync(summary, "## Merge gate\n")
+    }
+    const stepSummary = join(dir, "step-summary.md")
+    const result = run(
+      "reminder",
+      dir,
+      { REPO: repo, PR: "7", GITHUB_STEP_SUMMARY: stepSummary },
+      cwd,
+    )
+    assert.equal(result.status, 0, result.stderr)
+    return {
+      stepSummary: readFileSync(stepSummary, "utf8"),
+      summary: existsSync(summary) ? readFileSync(summary, "utf8") : null,
+    }
+  }
+  const decided = step(true)
+  assert.match(decided.stepSummary, /^\n\*\*MCP evals:\*\*/)
+  assert.match(decided.summary, /^## Merge gate\n\n\*\*MCP evals:\*\*/)
+  const failed = step(false)
+  assert.match(failed.stepSummary, /\*\*MCP evals:\*\*/)
+  assert.equal(failed.summary, null)
+})
+
+// The step that reads the jobs of this run attempt, with no earlier attempt.
+const jobsPath = `repos/${repo}/actions/runs/9/attempts/1/jobs?per_page=100`
+const readJobs = ({ api, ...options } = {}) => {
   const dir = setup({
     api: {
-      [`repos/${repo}/issues/7/comments`]: [
-        {
-          id: 5,
-          user: { login: "github-actions[bot]" },
-          body: "<!-- merge-gate -->\nold",
-        },
-      ],
+      [jobsPath]: { jobs: [{ id: 1, name: "Merge gate" }] },
       rate_limit: { resources: { core: { remaining: 0, reset: 0 } } },
       ...api,
     },
     ...options,
   })
-  mkdirSync(join(dir, "decision"))
-  writeFileSync(join(dir, "decision/comment.md"), "<!-- merge-gate -->\nnew")
-  return run("post-comment", dir, { REPO: repo, PR: "7" })
+  const result = run("jobs-of-the-run", dir, {
+    REPO: repo,
+    RUN: "9",
+    ATTEMPT: "1",
+  })
+  const jobs = join(dir, "jobs.json")
+  return {
+    ...result,
+    jobs: result.status === 0 ? JSON.parse(readFileSync(jobs, "utf8")) : null,
+  }
 }
 
-test("the PR comment waits for the rate limit reset, and a limit that stays does not fail the job", () => {
+test("gh_retry waits for the rate limit reset, and a limit that stays fails the call", () => {
   const limit = "API rate limit exceeded for installation ID 1 (HTTP 403)"
-  const once = postComment({
-    errorsOnce: { [`repos/${repo}/issues/7/comments`]: limit },
-  })
+  const once = readJobs({ errorsOnce: { [jobsPath]: limit } })
   assert.equal(once.status, 0, once.stderr)
   assert.match(once.stderr, /the call runs again in 1s/)
   assert.deepEqual(once.sleeps, ["1"])
-  assert.equal(
-    once.calls[0],
-    `api --method PATCH repos/${repo}/issues/comments/5 -f body=<!-- merge-gate -->`,
-  )
-  const stays = postComment({
-    errors: { [`repos/${repo}/issues/7/comments`]: limit },
+  assert.deepEqual(once.jobs, { jobs: [{ id: 1, name: "Merge gate" }] })
+  // The step continues on error: the decision runs without the jobs.
+  const stays = readJobs({ errors: { [jobsPath]: limit } })
+  assert.notEqual(stays.status, 0)
+  assert.match(stays.stderr, /API rate limit exceeded/)
+  assert.deepEqual(stays.sleeps, ["1"])
+  const broken = readJobs({
+    errors: { [jobsPath]: "gh: Server Error (HTTP 500)" },
   })
-  assert.equal(stays.status, 0, stays.stderr)
-  assert.match(stays.stdout, /::warning::The GitHub API rate limit stays/)
-  assert.deepEqual(stays.calls, [])
-  const broken = postComment({
-    errors: {
-      [`repos/${repo}/issues/7/comments`]: "gh: Server Error (HTTP 500)",
-    },
-  })
-  assert.equal(broken.status, 1)
+  assert.notEqual(broken.status, 0)
   assert.match(broken.stderr, /HTTP 500/)
+  assert.deepEqual(broken.sleeps, [])
 })
 
 test("gh_retry waits one minute for a secondary limit, does not wait for a far reset, and fails on another error after the wait", () => {
-  const comments = `repos/${repo}/issues/7/comments`
-  const secondary = postComment({
+  const secondary = readJobs({
     api: { rate_limit: { resources: { core: { remaining: 10, reset: 0 } } } },
     errorsOnce: {
-      [comments]: "You have exceeded a secondary rate limit (HTTP 403)",
+      [jobsPath]: "You have exceeded a secondary rate limit (HTTP 403)",
     },
   })
   assert.equal(secondary.status, 0, secondary.stderr)
   assert.deepEqual(secondary.sleeps, ["60"])
-  assert.equal(
-    secondary.calls[0],
-    `api --method PATCH repos/${repo}/issues/comments/5 -f body=<!-- merge-gate -->`,
-  )
-  // A reset more than 5 minutes away: no wait, and no failure.
-  const far = postComment({
+  // A reset more than 5 minutes away: no wait.
+  const far = readJobs({
     api: {
       rate_limit: {
         resources: {
@@ -313,28 +315,40 @@ test("gh_retry waits one minute for a secondary limit, does not wait for a far r
         },
       },
     },
-    errorsOnce: { [comments]: "API rate limit exceeded (HTTP 403)" },
+    errorsOnce: { [jobsPath]: "API rate limit exceeded (HTTP 403)" },
   })
-  assert.equal(far.status, 0, far.stderr)
+  assert.notEqual(far.status, 0)
   assert.doesNotMatch(far.stderr, /runs again/)
   assert.deepEqual(far.sleeps, [])
-  assert.match(far.stdout, /rate limit stays/)
   // The call hits the limit, then a server error: not a rate limit.
-  const broken = postComment({
-    errorsOnce: { [comments]: "API rate limit exceeded (HTTP 403)" },
-    errors: { [comments]: "gh: Server Error (HTTP 500)" },
+  const broken = readJobs({
+    errorsOnce: { [jobsPath]: "API rate limit exceeded (HTTP 403)" },
+    errors: { [jobsPath]: "gh: Server Error (HTTP 500)" },
   })
-  assert.equal(broken.status, 1)
+  assert.notEqual(broken.status, 0)
   assert.match(broken.stderr, /HTTP 500/)
-  assert.doesNotMatch(broken.stdout, /rate limit stays/)
+  assert.deepEqual(broken.sleeps, ["1"])
 })
 
-test("the evals reminder writes nothing when the comment file is missing", () => {
-  const dir = setup()
-  const comment = join(dir, "missing.md")
-  const result = run("mcp-evals-reminder.sh", dir, { REPO: repo, PR: "7" }, [
-    comment,
-  ])
-  assert.equal(result.status, 0)
-  assert.equal(existsSync(comment), false)
+test("the merge gate posts no PR comment, and its job summary and artifact hold the report", () => {
+  const workflow = parseYaml(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+  )
+  const job = workflow.jobs["merge-gate"]
+  // The job only reads the PR: it writes no comment.
+  assert.equal(job.permissions["pull-requests"], "read")
+  const step = (name) => job.steps.find((item) => item.name === name)
+  assert.match(step("Decision").run, /summary\.md" >> "\$GITHUB_STEP_SUMMARY"/)
+  assert.match(step("Preserve the decision").with.path, /decision\/summary\.md/)
+  // No step of the workflow calls the GitHub API to list the PR files.
+  assert.doesNotMatch(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+    /pulls\/\$PR\/files/,
+  )
+  // The reminder is in the artifact too: it runs before the upload.
+  const names = job.steps.map((item) => item.name)
+  assert.ok(
+    names.indexOf("Remind the author of the MCP evals") <
+      names.indexOf("Preserve the decision"),
+  )
 })

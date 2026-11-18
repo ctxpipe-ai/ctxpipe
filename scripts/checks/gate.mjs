@@ -61,12 +61,12 @@ import {
 //     exit code is 1 when its verdict is fail. In shadow mode the full run
 //     gates; this computes what a gated run would decide from the same
 //     results. In gate mode with a full run, the exit code is 1 when the full
-//     run fails. It writes decision.json, summary.md, comment.md and the next
-//     PR store (store.json) to <dir>. <inputs> holds the artifacts of the
-//     manifest, select, LLM and plan jobs, <results> the test artifacts,
-//     <needs> the `needs` context, <jobs> the jobs of this run attempt from
-//     the GitHub API, <earlier> the jobs of the earlier attempts of this
-//     run.
+//     run fails. It writes decision.json, summary.md (the gate report: the
+//     job summary) and the next PR store (store.json) to <dir>. <inputs>
+//     holds the artifacts of the manifest, select, LLM and plan jobs,
+//     <results> the test artifacts, <needs> the `needs` context, <jobs> the
+//     jobs of this run attempt from the GitHub API, <earlier> the jobs of the
+//     earlier attempts of this run.
 //     The decision also holds the review critics (critics.json of the
 //     critics job). In gate mode, the exit code is 1 when a critic has no
 //     stored verdict, or when a same-repo PR has no critics record.
@@ -599,9 +599,9 @@ export function criticsFail(checked) {
 }
 
 // The writer and the commit of an override, a dismissal or a raised limit,
-// for a public comment. The writer is the SHA-256 of the store identity in the
-// S3 path of the record (or `ci`), and the commit is a full commit id. Any
-// other value never reaches the comment.
+// for the public summary. The writer is the SHA-256 of the store identity in
+// the S3 path of the record (or `ci`), and the commit is a full commit id. Any
+// other value never reaches the summary.
 function provenance(record, repoUrl) {
   return {
     writer: code(
@@ -621,8 +621,8 @@ function commitLink(commit, repoUrl) {
     : commit.slice(0, 7)
 }
 
-// The critics section of the summary and the PR comment. Each stored verdict
-// links to the commit that the agent reviewed.
+// The critics section of the summary. Each stored verdict links to the commit
+// that the agent reviewed.
 export function criticsText(checked, repoUrl) {
   const lines = ["", "#### Review critics", ""]
   // The verdicts are attested, not verified: any writer of the agent class,
@@ -668,7 +668,7 @@ export function criticsText(checked, repoUrl) {
     )
     for (const override of overrides) {
       const { writer, commit } = provenance(override, repoUrl)
-      // The factory bounds the reason (300 characters), so the comment shows
+      // The factory bounds the reason (300 characters), so the summary shows
       // all of it.
       lines.push(
         `- ${item(override.critic)} ${item(override.finding)} on ${item(override.path)}, by writer ${writer} at ${commit}: ${item(override.reason, Infinity)}`,
@@ -691,7 +691,7 @@ export function criticsText(checked, repoUrl) {
     )
     for (const dismissal of dismissals) {
       const { writer, commit } = provenance(dismissal, repoUrl)
-      // The factory bounds the reason (300 characters), so the comment shows
+      // The factory bounds the reason (300 characters), so the summary shows
       // all of it.
       lines.push(
         `- ${item(dismissal.critic)} ${item(dismissal.finding)}, by writer ${writer} at ${commit}: ${item(dismissal.reason, Infinity)}`,
@@ -1147,16 +1147,12 @@ export function nextStore({ store, selection, ran, contradictions, run, now }) {
   }
 }
 
-// The text of a gate-mode decision: the job summary (`limit` rows for each
-// table) or the PR comment (fewer rows, in collapsed sections).
-export function gateText(
-  decision,
-  runUrl,
-  { limit = 300, comment = false } = {},
-) {
+// The text of a gate-mode decision for the job summary, with at most 300 rows
+// for each table.
+export function gateText(decision, runUrl) {
   const s = decision.selection
   const g = decision.gatedRun
-  const lines = comment ? [marker, "### Merge gate"] : ["## Merge gate"]
+  const lines = ["## Merge gate"]
   const classes = {}
   for (const hit of decision.hits)
     classes[hit.class] = (classes[hit.class] ?? 0) + 1
@@ -1220,25 +1216,17 @@ export function gateText(
       "",
       `**Contradictions** (a stored pass, and the check failed): ${decision.contradictions.map((item) => `${code(item.id)} (rerun ${item.rerun}${item.confirmed ? ", quarantined in this PR" : ""})`).join(", ")}.`,
     )
+  const limit = 300
   const table = (title, header, rows) => {
-    if (comment)
+    lines.push("", `### ${title}`, "")
+    if (!rows.length) return lines.push("None.")
+    lines.push(header, header.replace(/[^|]+/g, " --- "))
+    for (const row of rows.slice(0, limit)) lines.push(row)
+    if (rows.length > limit)
       lines.push(
         "",
-        `<details><summary>${title} (${rows.length})</summary>`,
-        "",
+        `And ${rows.length - limit} more: see the artifact \`merge-gate-decision\`.`,
       )
-    else lines.push("", `### ${title}`, "")
-    if (!rows.length) lines.push("None.")
-    else {
-      lines.push(header, header.replace(/[^|]+/g, " --- "))
-      for (const row of rows.slice(0, limit)) lines.push(row)
-      if (rows.length > limit)
-        lines.push(
-          "",
-          `And ${rows.length - limit} more: see the job summary or the artifact \`merge-gate-decision\`.`,
-        )
-    }
-    if (comment) lines.push("", "</details>")
   }
   const order = (item) =>
     ["failed", "error"].includes(item.result) ||
@@ -1289,19 +1277,13 @@ export function gateText(
       ),
     ),
   )
-  if (!comment) {
-    const notes = [...s.notes, ...s.cacheNotes]
-    if (notes.length) {
-      lines.push("", "### Notes", "")
-      for (const note of notes.slice(0, 50)) lines.push(`- ${code(note)}`)
-    }
+  const notes = [...s.notes, ...s.cacheNotes]
+  if (notes.length) {
+    lines.push("", "### Notes", "")
+    for (const note of notes.slice(0, 50)) lines.push(`- ${code(note)}`)
   }
   if (runUrl) lines.push("", `[Run](${runUrl})`)
-  const text = `${lines.join("\n")}\n`
-  // GitHub refuses a comment over 65536 characters.
-  return comment && text.length > 60000
-    ? `${text.slice(0, 60000)}\n\n</details>\n\nThe comment is cut: see the job summary.${runUrl ? ` [Run](${runUrl})` : ""}\n`
-    : text
+  return `${lines.join("\n")}\n`
 }
 
 export function summary(decision, runUrl) {
@@ -1406,36 +1388,16 @@ export function summary(decision, runUrl) {
   return `${lines.join("\n")}\n`
 }
 
-export const marker = "<!-- merge-gate -->"
-
-export function comment(decision, runUrl) {
-  const lines = [marker, "### Merge gate (shadow)", ""]
-  if (decision.mode === "full")
-    lines.push(
-      `Mode: full (${code(decision.reason)}). The full run gates: **${decision.fullRun.verdict}**.`,
-    )
-  else {
-    const s = decision.selection
-    const m = decision.metrics
-    lines.push(
-      `Mode: full (shadow). Full run: **${decision.fullRun.verdict}**. Gated run would: **${decision.gatedRun.verdict}**.`,
-      "",
-      `Selected ${s.counts.selected} of ${s.counts.total} checks (variant ${s.variant}): ${decision.ran.length} would run, ${decision.hits.length} hits (${
-        Object.entries(decision.hitClasses)
-          .map(([k, v]) => `${k} ${v}`)
-          .join(", ") || "none"
-      }), ${s.counts.total - s.counts.selected} omitted.`,
-      "",
-      `Runner minutes: gated about ${m.cost.gatedRunMinutes}, full run ${m.cost.fullRunMinutes}.`,
-    )
-    if (m.contradictions.length)
-      lines.push(
-        "",
-        `Hit contradictions: ${m.contradictions.map((item) => code(item.id)).join(", ")}.`,
-      )
-  }
-  if (runUrl) lines.push("", `[Decision details](${runUrl})`)
-  return `${lines.join("\n")}\n`
+// GitHub refuses a job summary over 1 MiB for each step. The cut leaves room
+// for the MCP evals reminder, ends at a line, and says where the rest is.
+function bounded(text) {
+  const max = 1000 * 1024
+  if (Buffer.byteLength(text) <= max) return text
+  // The note after the cut takes less than 1 KiB.
+  const head = Buffer.from(text)
+    .subarray(0, max - 1024)
+    .toString("utf8")
+  return `${head.slice(0, head.lastIndexOf("\n") + 1)}\nThe summary is cut at the size limit of GitHub: see \`decision.json\` in the artifact \`merge-gate-decision\`.\n`
 }
 
 function git(args) {
@@ -1603,7 +1565,6 @@ if (
         env.GITHUB_SERVER_URL && env.GITHUB_REPOSITORY
           ? `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}`
           : undefined
-      const reviewText = criticsText(decision.critics, repoUrl)
       mkdirSync(options.out, { recursive: true })
       writeFileSync(
         join(options.out, "decision.json"),
@@ -1616,14 +1577,10 @@ if (
       const gated = decision.mode === "gate"
       writeFileSync(
         join(options.out, "summary.md"),
-        (gated ? gateText(decision, runUrl) : summary(decision, runUrl)) +
-          reviewText,
-      )
-      writeFileSync(
-        join(options.out, "comment.md"),
-        (gated
-          ? gateText(decision, runUrl, { limit: 25, comment: true })
-          : comment(decision, runUrl)) + reviewText,
+        bounded(
+          (gated ? gateText(decision, runUrl) : summary(decision, runUrl)) +
+            criticsText(decision.critics, repoUrl),
+        ),
       )
       // In gate mode this job is the required status: it fails with the
       // gated verdict, or with the verdict of a full run.
