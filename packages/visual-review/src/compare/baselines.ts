@@ -121,7 +121,8 @@ const shotKey = (shot: Shot) =>
  * - `update` captures the selected stories (all, `only`, or with `failed`
  *   the stories of the last check that were not unchanged), writes each
  *   baseline that changed (recompressed without loss), and deletes the
- *   orphans.
+ *   orphans. With `only`, a baseline changed when one pixel differs; else
+ *   when the check would not call it unchanged.
  *
  * Both fail (code 1) when a baseline is above the size `budget`. `check`
  * also fails on each story that is not unchanged or that has a layout
@@ -321,7 +322,19 @@ export async function runVisual({
       }
       const path = join(root, shot.baseline)
       const old = await readFile(path).catch(() => null)
-      if (
+      // A story named with `only` is accepted on purpose: any changed pixel
+      // writes its baseline. Else the tolerance of the check keeps a
+      // baseline that the check calls unchanged.
+      const after = decode(result.png)
+      if (old && only) {
+        const before = decode(old)
+        if (
+          before.width === after.width &&
+          before.height === after.height &&
+          Buffer.from(before.data).equals(Buffer.from(after.data))
+        )
+          continue
+      } else if (
         old &&
         (await diff(old, result.png, { maxDiffPixels: shot.maxDiffPixels }))
           .status === "unchanged"
@@ -331,10 +344,7 @@ export async function runVisual({
       // No row filter: the flat colors of the UI compress best without one
       // (about 17% smaller than the adaptive filter, and smaller than
       // oxipng -o max on a sample of 40 baselines).
-      await writeFile(
-        path,
-        encode(decode(result.png), { compression: 12, filter: "none" }),
-      )
+      await writeFile(path, encode(after, { compression: 12, filter: "none" }))
       written++
     }
     for (const orphan of orphans) {

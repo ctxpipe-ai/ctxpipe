@@ -487,6 +487,28 @@ describe("visual:update", () => {
     )
   })
 
+  test("--only writes a change that is within the tolerance", async () => {
+    await visual("update")
+    // 3 pixels change: fewer than the tolerance of 10, so the check
+    // calls the screenshot unchanged.
+    const small = screenshot(40, 30, [
+      { box: { x: 4, y: 4, width: 20, height: 10 }, color: [0, 0, 255] },
+      { box: { x: 30, y: 20, width: 3, height: 1 }, color: [0, 0, 255] },
+    ])
+    shots.set(`${card.id} desktop`, { status: "captured", png: small })
+    expect(await visual("check")).toBe(0)
+    const before = await tree()
+    expect(await visual("update")).toBe(0)
+    expect(await visual("update", { failed: true })).toBe(0)
+    expect(await tree()).toEqual(before)
+
+    expect(await visual("update", { only: [card.id] })).toBe(0)
+    expect(decode(await readFile(join(root, cardDesktop)))).toEqual(
+      decode(small),
+    )
+    expect(lines).toContain("1 baselines written, 0 orphan baselines deleted.")
+  })
+
   test("--only refuses a story id that is not in the build", async () => {
     await expect(
       visual("update", { only: ["features-card--nothing"] }),

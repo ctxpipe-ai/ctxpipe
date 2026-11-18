@@ -41,7 +41,8 @@ import pin from "./visual-container.json" with { type: "json" }
 //   shard 1 also looks for the orphans and checks the total size.
 // - update: writes the baselines of the selected stories (all, the story ids
 //   of --only, or with --failed the stories that the last check failed), and
-//   deletes the orphan baselines.
+//   deletes the orphan baselines. With --only, it writes each baseline that
+//   differs by one pixel or more, also a change within the tolerance.
 //
 // The stories in scripts/ci/visual-unstable-stories.json have no baseline
 // yet. Both commands skip them and name their ticket. The options of a story
