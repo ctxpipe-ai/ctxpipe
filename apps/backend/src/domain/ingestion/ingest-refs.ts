@@ -5,6 +5,7 @@ import { setTimeout as sleep } from "node:timers/promises"
 
 import { stringify } from "yaml"
 
+import { measuredGitFetch } from "../../services/git/fetch-bytes.js"
 import { workspaceRelativePath } from "../../services/git/root-folder.js"
 import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
 import {
@@ -986,19 +987,21 @@ async function fetchCommits(
   shas: string[],
   options: { blobs: boolean },
 ): Promise<void> {
-  await runGit(
-    repoDir,
-    [
-      "fetch",
-      "--quiet",
-      "--no-tags",
-      "--depth=1",
-      ...(options.blobs ? [] : ["--filter=tree:0"]),
-      "--",
-      remote.url,
-      ...shas,
-    ],
-    { env: remote.env },
+  await measuredGitFetch("git.fetch-commits", (traced) =>
+    runGit(
+      repoDir,
+      [
+        "fetch",
+        "--quiet",
+        "--no-tags",
+        "--depth=1",
+        ...(options.blobs ? [] : ["--filter=tree:0"]),
+        "--",
+        remote.url,
+        ...shas,
+      ],
+      { env: { ...remote.env, ...traced } },
+    ),
   )
 }
 
