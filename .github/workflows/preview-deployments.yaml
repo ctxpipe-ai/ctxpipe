@@ -14,7 +14,7 @@
 #   deployment of the PR is `inactive`. GitHub never cancels the newest
 #   dispatch, so the last run of a PR sees each event. A state never replaces
 #   `inactive`.
-# - A closed PR has no live deployment, and an `up` run whose newest event is
+# - A closed PR has no live deployment, and an `up` run whose first event is
 #   older than 72 hours has expired: the factory's expire runs delete those
 #   previews, but they have no token for this repository. The 72 hours are
 #   the TTL of the previews (factory machines/previews/pr/src/names.ts):
@@ -91,8 +91,11 @@ jobs:
             "repos/$REPO/actions/workflows/preview-deployments.yaml/runs?event=workflow_dispatch&created=%3E%3D$since&per_page=100")
           jq -se '(map(.workflow_runs | length) | add // 0) >= (.[0].total_count // 0)' <<< "$runs" > /dev/null ||
             { echo "::error::More dispatch runs than GitHub lists: the events are not complete"; exit 1; }
-          # The newest up run after the newest down, if its newest event is at
-          # most 72 hours old: "<factory run> <its last state> <commit>".
+          # The newest up run after the newest down, if it is at most 72 hours
+          # old: "<factory run> <its last state> <commit>". Its time is the time
+          # of its first event, so that a late event does not make an expired
+          # run new. (The preview expires 72 hours after the run's end, at most
+          # 90 minutes later.)
           latest_up=$(jq -rn --arg pr "$PR" --arg runs "$factory_runs" --argjson now "$now" '
             [inputs.workflow_runs[] | (.created_at | fromdateiso8601) as $at | .display_title
               | capture("^preview deployments pr-(?<pr>[0-9]+) (?<state>[a-z_]+) (?<url>\\S+) ?(?<sha>[0-9a-f]{40})?$")?
@@ -102,7 +105,7 @@ jobs:
             | ([$events[] | select(.run > $down and .sha != null and (.state | IN("in_progress", "success", "failure")))
                 | .run] | max // empty) as $run
             | [$events[] | select(.run == $run)]
-            | select($now - (map(.at) | max) <= 72 * 3600)
+            | select($now - (map(.at) | min) <= 72 * 3600)
             | "\($run) \(([.[] | select(.state != "in_progress")][0].state) // "in_progress") \(.[0].sha)"' <<< "$runs")
           read -r run state sha <<< "$latest_up"
           pr_state=$(gh api "repos/$REPO/pulls/$PR" --jq .state)
