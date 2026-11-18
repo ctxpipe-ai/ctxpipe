@@ -20,16 +20,16 @@ export function measuredGitFetch<T>(
     .getTracer("ctxpipe-backend")
     .startActiveSpan(name, async (span) => {
       const scratch = await mkdtemp(join(tmpdir(), "ctxpipe-fetch-bytes-"))
+      const file = join(scratch, "received.pack")
       try {
-        const file = join(scratch, "received.pack")
-        const result = await fetch({ GIT_TRACE_PACKFILE: file })
-        // A fetch that needs no object receives no pack and writes no file.
+        return await fetch({ GIT_TRACE_PACKFILE: file })
+      } finally {
+        // Also a fetch that fails can have received a pack. A fetch that
+        // needs no object receives no pack and writes no file.
         span.setAttribute(
           "git.fetch.bytes",
           (await stat(file).catch(() => ({ size: 0 }))).size,
         )
-        return result
-      } finally {
         span.end()
         await rm(scratch, { recursive: true, force: true })
       }

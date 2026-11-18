@@ -21,6 +21,20 @@ afterEach(async () => {
   remote = undefined
 })
 
+/** Run git in `dir` with a commit identity; return its trimmed output. */
+async function git(dir: string, ...args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync("git", [
+    "-C",
+    dir,
+    "-c",
+    "user.name=Contract",
+    "-c",
+    "user.email=contract@example.test",
+    ...args,
+  ])
+  return stdout.trim()
+}
+
 /**
  * A remote with one Markdown file of 256 KiB of random base64 text. Random
  * base64 compresses to no less than 3/4 of its size, so a fetch of the file
@@ -29,31 +43,19 @@ afterEach(async () => {
 async function remoteWithLargeFile() {
   remote = await mkdtemp(join(tmpdir(), "ctxpipe-fetch-bytes-"))
   const dir = remote
-  const git = async (...args: string[]) =>
-    (
-      await execFileAsync("git", [
-        "-C",
-        dir,
-        "-c",
-        "user.name=Contract",
-        "-c",
-        "user.email=contract@example.test",
-        ...args,
-      ])
-    ).stdout.trim()
-  await git("init", "-b", "main")
-  await git("config", "uploadpack.allowFilter", "true")
-  await git("config", "uploadpack.allowAnySHA1InWant", "true")
+  await git(dir, "init", "-b", "main")
+  await git(dir, "config", "uploadpack.allowFilter", "true")
+  await git(dir, "config", "uploadpack.allowAnySHA1InWant", "true")
   await writeFile(join(dir, "small.md"), "# Small\n")
-  await git("add", ".")
-  await git("commit", "-q", "-m", "Small")
+  await git(dir, "add", ".")
+  await git(dir, "commit", "-q", "-m", "Small")
   await writeFile(
     join(dir, "large.md"),
     randomBytes(192 * 1024).toString("base64"),
   )
-  await git("add", ".")
-  await git("commit", "-q", "-m", "Large")
-  return { url: dir, sha: await git("rev-parse", "HEAD") }
+  await git(dir, "add", ".")
+  await git(dir, "commit", "-q", "-m", "Large")
+  return { url: dir, sha: await git(dir, "rev-parse", "HEAD") }
 }
 
 function fetchedBytes(name: string): number {
@@ -75,19 +77,9 @@ it("records the bytes that each fetch of a hydrate tree read downloads", async (
 
 it("records the thin pack that Git receives, not the delta bases that Git adds to it", async () => {
   const { url, sha: first } = await remoteWithLargeFile()
-  const git = (...args: string[]) =>
-    execFileAsync("git", [
-      "-C",
-      url,
-      "-c",
-      "user.name=Contract",
-      "-c",
-      "user.email=contract@example.test",
-      ...args,
-    ])
   await appendFile(join(url, "large.md"), "\nOne more line.\n")
-  await git("commit", "-q", "-am", "Edit")
-  const second = (await git("rev-parse", "HEAD")).stdout.trim()
+  await git(url, "commit", "-q", "-am", "Edit")
+  const second = await git(url, "rev-parse", "HEAD")
   await withGitDirectory(
     second,
     async (directory) => {
@@ -101,25 +93,13 @@ it("records the thin pack that Git receives, not the delta bases that Git adds t
       expect(fetchedBytes("git.fetch-test")).toBeGreaterThanOrEqual(192 * 1024)
       // Git offers only the commits that a ref names. With a ref on the
       // first commit, the edit comes as a small delta against its blob.
-      await execFileAsync("git", [
-        "-C",
-        directory,
-        "update-ref",
-        "refs/heads/base",
-        first,
-      ])
+      await git(directory, "update-ref", "refs/heads/base", first)
       spans.reset()
       await fetch(second)
       expect(fetchedBytes("git.fetch-test")).toBeGreaterThan(0)
       expect(fetchedBytes("git.fetch-test")).toBeLessThan(16 * 1024)
       // A fetch of a commit that a ref names downloads nothing.
-      await execFileAsync("git", [
-        "-C",
-        directory,
-        "update-ref",
-        "refs/heads/base",
-        second,
-      ])
+      await git(directory, "update-ref", "refs/heads/base", second)
       spans.reset()
       await fetch(second)
       expect(fetchedBytes("git.fetch-test")).toBe(0)
@@ -144,6 +124,30 @@ it("records that a fetch at depth 1 downloads each blob again, also one that the
       expect(fetchedBytes("git.fetch-commits")).toBeGreaterThanOrEqual(
         192 * 1024,
       )
+    },
+    undefined,
+    null,
+  )
+})
+
+it("records the bytes of a fetch that fails after it received the pack", async () => {
+  const { url, sha } = await remoteWithLargeFile()
+  await withGitDirectory(
+    sha,
+    async (directory) => {
+      // A lock file on the target ref makes the ref update fail after Git
+      // received and stored the pack.
+      await writeFile(join(directory, ".git", "refs", "heads", "x.lock"), "")
+      await expect(
+        measuredGitFetch("git.fetch-test", (traced) =>
+          execFileAsync(
+            "git",
+            ["-C", directory, "fetch", "-q", url, `${sha}:refs/heads/x`],
+            { env: { ...process.env, ...traced } },
+          ),
+        ),
+      ).rejects.toThrow()
+      expect(fetchedBytes("git.fetch-test")).toBeGreaterThanOrEqual(192 * 1024)
     },
     undefined,
     null,
