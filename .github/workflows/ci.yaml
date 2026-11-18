@@ -463,8 +463,9 @@ jobs:
     name: Tests
     # A gated run has no full inventory: the merge gate is its check.
     needs: [merge-gate-plan, nightly-change, test-shards, package-tests]
+    # It runs when a test job failed, and not in a cancelled run.
     if: |
-      always() && needs.nightly-change.outputs.run != 'false' && (github.event_name == 'workflow_dispatch' ||
+      !cancelled() && needs.nightly-change.outputs.run != 'false' && (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       needs.merge-gate-plan.outputs.mode != 'gate'
@@ -2431,24 +2432,21 @@ jobs:
           path: ${{ runner.temp }}/plan/plan.json
           if-no-files-found: ignore
 
-  # Publishes the decision of each PR run: the job summary and the artifact
-  # merge-gate-decision (with the same text as summary.md). In gate mode
-  # this job is the verdict: it fails when the gated run fails (or, on a
-  # full run, when the full run fails), and it writes the passes of this run
-  # to the PR store. In shadow mode the full run gates; this job computes
-  # what a gated run would decide from the same results, and the agreement
-  # record (scripts/checks/README.md). It runs only the public gate.mjs,
-  # with no package.
-  # outside-gate: the merge gate itself: the verdict, the required status and the workflow guards
-  merge-gate:
-    timeout-minutes: 15
-    # A fixed name: this job is the required status, also when the plan job
-    # failed and gave no outputs (then the run is full). It has no
-    # continue-on-error: a failed verdict fails it only in gate mode, but an
-    # error in gate.mjs decide fails it in each mode. It posts no PR comment
-    # (each new comment notifies the subscribers of the PR): the job summary
-    # and the artifact `merge-gate-decision` hold the report.
-    name: Merge gate
+  # A newer run of the same pull request cancels this run (the concurrency
+  # group above). For example, `gh pr create --draft` and then `gh pr ready`
+  # start two runs of one commit within seconds (CTX-1307). The jobs Tests and
+  # Merge gate start after a cancellation too, and they failed there because
+  # their needs were cancelled. A failed "Merge gate" blocked the merge,
+  # although the newer run passed. This job starts only in a cancelled pull
+  # request run, after each job that the gate needs. It gives
+  # `superseded=true` when a newer CI run of the same head commit exists: that
+  # run gives the verdict of the commit, so the Merge gate of this run is
+  # skipped. A run cancelled by hand has no newer run, so its Merge gate still
+  # runs and fails: a skipped required check counts as a pass.
+  # outside-gate: it starts only in a cancelled run and makes one API call
+  merge-gate-superseded:
+    timeout-minutes: 5
+    name: Superseded run
     needs:
       [
         merge-gate-manifest,
@@ -2471,8 +2469,73 @@ jobs:
         migrate,
         upgrade-from-previous-release,
       ]
+    if: cancelled() && github.event_name == 'pull_request'
+    # github-hosted: one API call with no checkout (ADR-065)
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      actions: read
+    outputs:
+      superseded: ${{ steps.newer.outputs.superseded }}
+    steps:
+      # The run ids grow with the time of the event.
+      - name: A newer run of this commit
+        id: newer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN: ${{ github.run_id }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          newer=$(gh api "repos/$REPO/actions/workflows/ci.yaml/runs?event=pull_request&head_sha=$SHA&per_page=100" \
+            --jq "[.workflow_runs[] | select(.id > $RUN)] | length")
+          if [ "$newer" -gt 0 ]; then superseded=true; else superseded=false; fi
+          echo "superseded=$superseded" >> "$GITHUB_OUTPUT"
+
+  # Publishes the decision of each PR run: the job summary and the artifact
+  # merge-gate-decision (with the same text as summary.md). In gate mode
+  # this job is the verdict: it fails when the gated run fails (or, on a
+  # full run, when the full run fails), and it writes the passes of this run
+  # to the PR store. In shadow mode the full run gates; this job computes
+  # what a gated run would decide from the same results, and the agreement
+  # record (scripts/checks/README.md). It runs only the public gate.mjs,
+  # with no package.
+  # outside-gate: the merge gate itself: the verdict, the required status and the workflow guards
+  merge-gate:
+    timeout-minutes: 15
+    # A fixed name: this job is the required status, also when the plan job
+    # failed and gave no outputs (then the run is full). It has no
+    # continue-on-error: a failed verdict fails it only in gate mode, but an
+    # error in gate.mjs decide fails it in each mode. It posts no PR comment
+    # (each new comment notifies the subscribers of the PR): the job summary
+    # and the artifact `merge-gate-decision` hold the report.
+    name: Merge gate
+    needs:
+      [
+        merge-gate-superseded,
+        merge-gate-manifest,
+        merge-gate-select,
+        merge-gate-llm,
+        merge-gate-plan,
+        merge-gate-critics,
+        lint,
+        typecheck,
+        test-shards,
+        package-tests,
+        test,
+        production-builds,
+        packages,
+        storybook-build,
+        storybook-required,
+        storybook-plays,
+        storybook-visual,
+        codesearch,
+        migrate,
+        upgrade-from-previous-release,
+      ]
+    # A superseded run skips it (see Superseded run).
     if: |
-      always() && github.event_name == 'pull_request'
+      always() && github.event_name == 'pull_request' &&
+      needs.merge-gate-superseded.outputs.superseded != 'true'
     # github-hosted: a short job; it shares the merge-gate-pr cache with Merge gate plan (ADR-065)
     runs-on: ubuntu-24.04-arm
     permissions:

@@ -87,6 +87,7 @@ const stepShell = (job, stepName) => {
 const steps = {
   "jobs-of-the-run": ["merge-gate", "The jobs of this run"],
   reminder: ["merge-gate", "Remind the author of the MCP evals"],
+  superseded: ["merge-gate-superseded", "A newer run of this commit"],
 }
 
 const run = (script, dir, env, cwd = undefined) => {
@@ -351,4 +352,61 @@ test("the merge gate posts no PR comment, and its job summary and artifact hold 
     names.indexOf("Remind the author of the MCP evals") <
       names.indexOf("Preserve the decision"),
   )
+})
+
+// A newer run of the same PR cancels this run (the concurrency group of
+// ci.yaml). Then the step asks if a newer CI run of the same head commit
+// exists: that run gives the Merge gate verdict of the commit.
+const runsPath = `repos/${repo}/actions/workflows/ci.yaml/runs?event=pull_request&head_sha=abc123&per_page=100`
+const superseded = (runs) => {
+  const dir = setup({ api: { [runsPath]: { workflow_runs: runs } } })
+  const output = join(dir, "github-output")
+  writeFileSync(output, "")
+  const result = run("superseded", dir, {
+    REPO: repo,
+    RUN: "9",
+    SHA: "abc123",
+    GITHUB_OUTPUT: output,
+  })
+  assert.equal(result.status, 0, result.stderr)
+  return readFileSync(output, "utf8")
+}
+
+test("a cancelled run is superseded only when a newer run of the same commit exists", () => {
+  // `gh pr create --draft` and then `gh pr ready`: run 10 cancels run 9.
+  assert.equal(
+    superseded([{ id: 10 }, { id: 9 }]),
+    "superseded=true\n",
+  )
+  // A run cancelled by hand: no newer run gives a verdict, so the merge gate
+  // of this run still runs and fails.
+  assert.equal(superseded([{ id: 9 }, { id: 8 }]), "superseded=false\n")
+  assert.equal(superseded([]), "superseded=false\n")
+})
+
+test("in a superseded run, Tests and Merge gate skip; a run cancelled by hand still fails the merge gate", () => {
+  const { jobs } = parseYaml(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+  )
+  const check = jobs["merge-gate-superseded"]
+  // It starts only in a cancelled PR run, after each job the gate needs.
+  assert.match(check.if, /^cancelled\(\) && github\.event_name == 'pull_request'$/)
+  assert.deepEqual(
+    [...check.needs].sort(),
+    jobs["merge-gate"].needs.filter((need) => need !== "merge-gate-superseded").sort(),
+  )
+  assert.deepEqual(check.permissions, { actions: "read" })
+  assert.equal(
+    check.steps.find((step) => step.name === "A newer run of this commit").env.SHA,
+    "${{ github.event.pull_request.head.sha }}",
+  )
+  const gate = jobs["merge-gate"]
+  assert.ok(gate.needs.includes("merge-gate-superseded"))
+  assert.match(gate.if, /^always\(\) &&/)
+  assert.match(
+    gate.if,
+    /needs\.merge-gate-superseded\.outputs\.superseded != 'true'/,
+  )
+  // Tests is not the required check: a cancelled run skips it.
+  assert.match(jobs.test.if, /^!cancelled\(\) &&/)
 })
