@@ -450,7 +450,10 @@ export function defineWorkspaceHydrateWorkflow() {
             const base = writeBaseOf(false)
             if (!("revision" in base)) return readFull("full_write")
             const stored = await getStoredReferenceIndex(workspace.id)
-            const storedReason = storedIndexFullReason(stored)
+            const storedReason = storedIndexFullReason(
+              stored,
+              embeddingModelId(),
+            )
             if (storedReason) return readFull(storedReason)
             const skippedPaths = new Set(
               stored.skipped.map((skip) => skip.path),

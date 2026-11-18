@@ -1390,13 +1390,15 @@ export type StoredIndexedUnit = {
 }
 
 /**
- * The stored units of the Workspace without their bodies, and the skips of
- * the active projection: the input of a partial parse. Each stored unit row
- * belongs to the active projection.
+ * The stored units of the Workspace without their bodies, and the skips and
+ * the embedding model of the active projection: the input of a partial
+ * parse. Each stored unit row belongs to the active projection.
  */
 export async function getStoredReferenceIndex(workspaceId: string): Promise<{
   units: StoredIndexedUnit[]
   skipped: HydrateSkip[]
+  /** Null for a projection of a hydrate before the value came. */
+  embeddingModel: string | null
 }> {
   return orgSql(async () => {
     const db = getOrgDb()
@@ -1424,6 +1426,7 @@ export async function getStoredReferenceIndex(workspaceId: string): Promise<{
         updatedAt: unit.updatedAt.toISOString(),
       })),
       skipped: workspace?.hydratePhases?.skipped ?? [],
+      embeddingModel: workspace?.hydratePhases?.embeddingModel ?? null,
     }
   })
 }
@@ -1573,6 +1576,7 @@ export async function commitHydrateProjection(input: {
               revision: input.revision,
             }),
             skipped: input.skipped,
+            embeddingModel: input.embeddingModel,
           })}::jsonb || jsonb_build_object('publishedIndex', coalesce(
             ${workspaces.hydratePhases}->'publishedIndex',
             case when ${workspaces.hydratePhases}->'index'->'result'->>'kind' = 'ready'

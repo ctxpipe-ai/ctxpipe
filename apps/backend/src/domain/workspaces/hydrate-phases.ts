@@ -7,6 +7,12 @@ export type HydratePhaseRecord = {
   /** Committed files that this projection skipped. Each hydrate commit replaces the list. */
   skipped?: HydrateSkip[]
   embeddings: boolean
+  /**
+   * The embedding model of the chunks that the hydrate commit wrote. A
+   * partial parse needs the current model; else the hydrate parses all
+   * files once.
+   */
+  embeddingModel?: string
   embeddingError?: string
   revision?: WorkspaceRevision
   publishedIndex?: WorkspaceRevision | null

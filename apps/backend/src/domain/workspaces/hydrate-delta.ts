@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 
-import type { HydrateUnit } from "./hydrate.js"
+import { type HydrateUnit, REFERENCE_INDEX_VERSION } from "./hydrate.js"
 import {
   type PublishedProjection,
   sameWorkspaceBinding,
@@ -86,8 +86,9 @@ export function partialUnitBound(storedUnits: number): number {
  * A hash of each value that hydrate stores for a unit or derives from it:
  * the row columns with the reference index, the first body line, which sets
  * the chunk lines, and the embedding model, which sets the chunk hashes and
- * vectors. When the model changes, each stored hash differs, so the next
- * hydrate writes all units (`unit_bound`) and embeds them again.
+ * vectors. When the model changes, the next hydrate parses all files
+ * (`embedding_model`). Each stored hash then differs, so the hydrate writes
+ * all units (`unit_bound`) and embeds them again.
  */
 export function hydrateUnitHash(
   unit: HydrateUnit,
@@ -96,8 +97,11 @@ export function hydrateUnitHash(
   return createHash("sha256")
     .update(
       JSON.stringify([
-        // The hash version. Increase it when the hashed values change.
-        2,
+        // The parse version. A partial parse keeps the stored rows of the
+        // files that did not change, so the hash has no version of its own:
+        // a change of the hashed values raises `REFERENCE_INDEX_VERSION`,
+        // which gives a full parse.
+        REFERENCE_INDEX_VERSION,
         embeddingModel,
         unit.servingId,
         unit.path,

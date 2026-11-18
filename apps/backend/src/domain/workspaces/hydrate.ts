@@ -181,9 +181,19 @@ export type KnowledgePlanFacts = {
 }
 
 /**
- * Increase this number when the shape of `UnitReferenceIndex` or the
- * extraction of a value in it changes. A partial hydrate needs the current
- * version on each stored unit; else the hydrate parses all files once.
+ * The version of each value that the parse of one file gives and that
+ * hydrate stores: the row columns of the unit (kind, title, source, body,
+ * the commit times) and each value of `UnitReferenceIndex`. A partial parse
+ * keeps the stored row of each file that did not change, so it needs the
+ * current version on each stored unit; else the hydrate parses all files
+ * once. The unit hash holds this version too.
+ *
+ * Increase this number when the parse of one file gives another value for
+ * the same file (`parseKnowledgeFile`, the history read that gives the
+ * commit times), or when the shape of the index changes. A change in
+ * `deriveKnowledgeUnits` (the links, the claims and the plan facts that
+ * depend on other files) needs no new version: each hydrate computes those
+ * values again for all units from the indexes.
  */
 export const REFERENCE_INDEX_VERSION = 1
 

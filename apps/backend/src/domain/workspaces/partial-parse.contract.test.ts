@@ -1,9 +1,9 @@
 import { execFileSync } from "node:child_process"
-import { readFileSync } from "node:fs"
+import { readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
 import { eq, type SQL, sql } from "drizzle-orm"
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -13,6 +13,7 @@ import { readGitFiles, readGitPackFromRemote } from "../../services/git/pack.js"
 import {
   type Change,
   commit,
+  countEmbeddings,
   expectPartialEqualsFull,
   type HydrateResult,
   hydrate,
@@ -272,6 +273,53 @@ it.each(cases)(
 )
 
 it(
+  "a partial parse across a merge commit gives the projection of a full hydrate",
+  { timeout: 180_000 },
+  async () =>
+    withFixture(async (f) => {
+      await f.publish()
+      // Each commit has its own time, so the commit times of the changed
+      // files show which commit the read takes.
+      const commitAt = (date: string, path: string, body: string) => {
+        vi.stubEnv("GIT_AUTHOR_DATE", date)
+        vi.stubEnv("GIT_COMMITTER_DATE", date)
+        writeFileSync(join(f.directory, path), body)
+        f.git("add", "-A")
+        f.git("commit", "-q", "-m", `Change ${path}`)
+      }
+      try {
+        f.git("checkout", "--", ".")
+        const trunk = f.git("rev-parse", "--abbrev-ref", "HEAD")
+        f.git("checkout", "-q", "-b", "side")
+        commitAt(
+          "2026-01-01T00:00:00Z",
+          "knowledge/doc-05.md",
+          "# Doc 5\nSide.\n",
+        )
+        f.git("checkout", "-q", trunk)
+        commitAt(
+          "2026-01-02T00:00:00Z",
+          "knowledge/doc-06.md",
+          "# Doc 6\nTrunk.\n",
+        )
+        vi.stubEnv("GIT_AUTHOR_DATE", "2026-01-03T00:00:00Z")
+        vi.stubEnv("GIT_COMMITTER_DATE", "2026-01-03T00:00:00Z")
+        f.git("merge", "-q", "--no-ff", "-m", "Merge side", "side")
+        f.git("push", "-q", f.remote, "HEAD:refs/heads/main")
+      } finally {
+        vi.unstubAllEnvs()
+      }
+      await f.resolveRevision(true)
+      const partial = await hydrate(f)
+      expect(partial.writes).toMatchObject({
+        parseMode: "partial",
+        filesParsed: 2,
+      })
+      await expectPartialEqualsFull(f, partial)
+    }),
+)
+
+it(
   "a one-file commit in a large Workspace reads and parses only the changed file and the control files",
   { timeout: 300_000 },
   async () =>
@@ -306,7 +354,7 @@ it(
  */
 const editRow = (
   f: NativeHydrationFixture,
-  values: { referenceIndex?: SQL | null; source?: string },
+  values: { referenceIndex?: SQL | null; source?: string; title?: string },
 ) =>
   withOrgDbContext(f.org.id, (db) =>
     db
@@ -322,10 +370,13 @@ it.each([
       editRow(f, { referenceIndex: null }),
   },
   {
+    // A row of an older parser: another version and another title. The
+    // title is not in the index, but the version covers it too.
     reason: "reference_index_version",
     prepare: (f: NativeHydrationFixture) =>
       editRow(f, {
         referenceIndex: sql`jsonb_set(${workspaceKnowledgeUnits.referenceIndex}, '{version}', '0')`,
+        title: "A title of an older parser",
       }),
   },
   {
@@ -358,6 +409,13 @@ it.each([
         hydrated: true,
         writes: { parseMode: "full", parseFullReason: reason },
       })
+      const [notes] = await withOrgDbContext(f.org.id, (db) =>
+        db
+          .select({ title: workspaceKnowledgeUnits.title })
+          .from(workspaceKnowledgeUnits)
+          .where(eq(workspaceKnowledgeUnits.path, "knowledge/notes.md")),
+      )
+      expect(notes?.title).toBe("Notes")
       // The full parse writes the index again: the next commit parses only
       // its file.
       await commit(f, {
@@ -395,5 +453,43 @@ it(
           parseFullReason: "full_write",
         },
       })
+    }),
+)
+
+it(
+  "a hydrate after a change of the embedding model parses all files and embeds each chunk again",
+  { timeout: 180_000 },
+  async () =>
+    withFixture(async (f) => {
+      await f.publish()
+      await f.handle.result()
+      vi.stubEnv("MODEL_EMBEDDING_NAME", "openai/fixture-other-embedding")
+      try {
+        const embedded = countEmbeddings(f)
+        await commit(f, {
+          write: { "knowledge/doc-02.md": "# Doc 2\nChanged.\n" },
+        })
+        await f.resolveRevision(true)
+        expect((await hydrate(f)).writes).toMatchObject({
+          parseMode: "full",
+          parseFullReason: "embedding_model",
+          mode: "full",
+          fullReason: "unit_bound",
+          unitRowsWritten: files.length,
+        })
+        // Each unit has more than one chunk, so the hydrate embeds more
+        // texts than units.
+        expect(embedded.length).toBeGreaterThan(files.length)
+        await commit(f, {
+          write: { "knowledge/doc-03.md": "# Doc 3\nChanged too.\n" },
+        })
+        await f.resolveRevision(true)
+        expect((await hydrate(f)).writes).toMatchObject({
+          parseMode: "partial",
+          filesParsed: 1,
+        })
+      } finally {
+        vi.unstubAllEnvs()
+      }
     }),
 )

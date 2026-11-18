@@ -21,7 +21,9 @@ import {
  * - `no_reference_index`: a stored unit has no reference index (the first
  *   hydrate after the index came).
  * - `reference_index_version`: a stored index has another
- *   `REFERENCE_INDEX_VERSION`.
+ *   `REFERENCE_INDEX_VERSION` (a parser change).
+ * - `embedding_model`: the stored chunks have another embedding model. Each
+ *   unit needs new chunk hashes and vectors.
  * - `legacy_overlay`: the projection holds or can get main-era knowledge
  *   from Postgres (`legacyKnowledgeOverlay`). The overlay reads each file.
  * - `base_not_ancestor`: the base SHA is not an ancestor of the new SHA in
@@ -32,6 +34,7 @@ export type HydrateParseFullReason =
   | "full_write"
   | "no_reference_index"
   | "reference_index_version"
+  | "embedding_model"
   | "legacy_overlay"
   | "base_not_ancestor"
 
@@ -39,10 +42,14 @@ export type HydrateParseFullReason =
  * The reason for a full parse that the stored index gives before any read,
  * or null when a partial parse can start.
  */
-export function storedIndexFullReason(stored: {
-  units: readonly StoredIndexedUnit[]
-  skipped: readonly HydrateSkip[]
-}): HydrateParseFullReason | null {
+export function storedIndexFullReason(
+  stored: {
+    units: readonly StoredIndexedUnit[]
+    skipped: readonly HydrateSkip[]
+    embeddingModel: string | null
+  },
+  embeddingModel: string,
+): HydrateParseFullReason | null {
   if (stored.units.some((unit) => unit.referenceIndex === null))
     return "no_reference_index"
   if (
@@ -51,6 +58,7 @@ export function storedIndexFullReason(stored: {
     )
   )
     return "reference_index_version"
+  if (stored.embeddingModel !== embeddingModel) return "embedding_model"
   if (
     stored.units.some((unit) => unit.source === LEGACY_UNIT_SOURCE) ||
     stored.skipped.some((skip) => skip.source === "legacy-overlay")
