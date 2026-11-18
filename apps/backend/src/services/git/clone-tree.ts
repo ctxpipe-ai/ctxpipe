@@ -4,8 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 
-import { trace } from "@opentelemetry/api"
-
+import { KEEP_FETCHED_PACK, measuredGitFetch } from "./fetch-bytes.js"
 import { withGitProcessSlot } from "./process-slot.js"
 import {
   workspaceRelativePath,
@@ -273,19 +272,6 @@ function isSafeGitPath(path: string): boolean {
   return parts.every((part) => part !== "" && part !== "." && part !== "..")
 }
 
-/** Time one git call in a span, so a trace shows which fetch is slow. */
-function timedGit<T>(name: string, work: () => Promise<T>): Promise<T> {
-  return trace
-    .getTracer("ctxpipe-backend")
-    .startActiveSpan(name, async (span) => {
-      try {
-        return await work()
-      } finally {
-        span.end()
-      }
-    })
-}
-
 async function withFetchedGitSha<T>(
   input: {
     url: string
@@ -328,9 +314,19 @@ async function withFetchedGitSha<T>(
     }
     // A remote without filter support sends every blob; the read still works.
     const filter = input.treesOnly ? ["--filter=blob:none"] : []
-    await timedGit("git.fetch-tip", () =>
+    await measuredGitFetch("git.fetch-tip", dir, () =>
       gitExec(
-        ["-C", dir, "fetch", ...filter, "--depth", "1", "origin", input.sha],
+        [
+          "-C",
+          dir,
+          ...KEEP_FETCHED_PACK,
+          "fetch",
+          ...filter,
+          "--depth",
+          "1",
+          "origin",
+          input.sha,
+        ],
         {
           timeout: 60_000,
           env,
@@ -341,9 +337,10 @@ async function withFetchedGitSha<T>(
       // The history walk reads commits and trees only. It needs no old blob,
       // and the blobs of a large history are most of its bytes. The tip
       // blobs came with the fetch above, so the walk adds only the rest.
-      await timedGit("git.fetch-history", () =>
+      await measuredGitFetch("git.fetch-history", dir, () =>
         gitExec(
           [
+            ...KEEP_FETCHED_PACK,
             // Settings for this command only, so the budget of native Git
             // commands per tree does not grow.
             "-c",
@@ -368,9 +365,20 @@ async function withFetchedGitSha<T>(
     return await read(dir, async (shas) => {
       if (!input.treesOnly || shas.length === 0) return
       // One fetch for all the blobs, not one lazy fetch for each blob.
-      await gitExec(
-        ["-C", dir, "fetch", "--no-tags", ...filter, "origin", ...shas],
-        { timeout: 60_000, env },
+      await measuredGitFetch("git.fetch-blobs", dir, () =>
+        gitExec(
+          [
+            "-C",
+            dir,
+            ...KEEP_FETCHED_PACK,
+            "fetch",
+            "--no-tags",
+            ...filter,
+            "origin",
+            ...shas,
+          ],
+          { timeout: 60_000, env },
+        ),
       )
     })
   } finally {

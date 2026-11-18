@@ -10,6 +10,7 @@ import { trace } from "@opentelemetry/api"
 
 import { log } from "../../observability/logger.js"
 import { gitRemoteEnvironment } from "./clone-tree.js"
+import { KEEP_FETCHED_PACK, measuredGitFetch } from "./fetch-bytes.js"
 import { withGitProcessSlot } from "./process-slot.js"
 
 const execute = promisify(execFile)
@@ -155,18 +156,21 @@ export async function fetchGitCommits(
 ): Promise<void> {
   for (let attempt = 1; ; attempt++) {
     try {
-      await nativeGit(
-        directory,
-        [
-          "fetch",
-          "--depth",
-          String(input.depth ?? 1),
-          "--",
-          input.url,
-          ...input.shas,
-        ],
-        undefined,
-        gitRemoteEnvironment({ url: input.url, token: input.token }),
+      await measuredGitFetch("git.fetch-commits", directory, () =>
+        nativeGit(
+          directory,
+          [
+            ...KEEP_FETCHED_PACK,
+            "fetch",
+            "--depth",
+            String(input.depth ?? 1),
+            "--",
+            input.url,
+            ...input.shas,
+          ],
+          undefined,
+          gitRemoteEnvironment({ url: input.url, token: input.token }),
+        ),
       )
       return
     } catch (error) {
