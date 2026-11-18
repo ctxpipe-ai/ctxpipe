@@ -39,22 +39,26 @@ const csf = await csfTools()
 
 const errors = []
 let count = 0
+/** The keys other than `kind` of a `parameters.review`, one time each. */
+const othersOf = (keys) => [...new Set(keys)].filter((key) => key !== "kind")
+const reviewError = (where, others) =>
+  `${where}: parameters.review has ${others.map((key) => `"${key}"`).join(", ")}. It has only "kind": write the purpose in the JSDoc comment of the story (/** ... */ above its export).`
+
 for (const path of storyFiles(join(root, "apps/ui/src"))) {
   const file = relative(root, path)
-  for (const story of storiesOf(csf, file, readFileSync(path, "utf8"))) {
+  const stories = storiesOf(csf, file, readFileSync(path, "utf8"))
+  const metaOthers = othersOf(stories[0]?.reviewKeys.meta ?? [])
+  if (metaOthers.length)
+    errors.push(reviewError(`${file}: the meta`, metaOthers))
+  for (const story of stories) {
     count += 1
     const where = `${file}: story "${story.name}"`
     if (!story.kind)
       errors.push(
         `${where} has no parameters.review.kind. Set "page" (a whole screen that a user lands on) or "component" (a component, a dialog, a step or a part of a page), in the story or in the meta.`,
       )
-    const others = [...new Set(story.reviewKeys)].filter(
-      (key) => key !== "kind",
-    )
-    if (others.length)
-      errors.push(
-        `${where}: parameters.review has ${others.map((key) => `"${key}"`).join(", ")}. It has only "kind": write the purpose in the JSDoc comment of the story (/** ... */ above its export).`,
-      )
+    const others = othersOf(story.reviewKeys.story)
+    if (others.length) errors.push(reviewError(where, others))
     if (!story.purpose)
       errors.push(
         `${where} has no purpose. Write one sentence or a short paragraph in the JSDoc comment of the story (/** ... */ above its export): what the UI is for, how the user uses it, and the state that the story shows.`,

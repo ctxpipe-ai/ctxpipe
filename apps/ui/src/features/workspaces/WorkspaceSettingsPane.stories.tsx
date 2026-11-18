@@ -599,7 +599,7 @@ const busyIngestion = workspaceIngestionHandlers({
  * the word of the run that is the furthest, and its time. The "3 runs" list of
  * one source is open, with the stage, the count, and the wait reason of each
  * run. The Knowledge graph card shows the hydrate, and the summary names the
- * parts at work.
+ * parts at work. A press on a part of the summary moves the focus to its card.
  */
 export const LiveWorkInSources: Story = {
   parameters: {

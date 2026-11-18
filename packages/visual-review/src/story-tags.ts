@@ -16,6 +16,7 @@ type Node = {
   elements?: readonly (Node | null)[]
   properties?: readonly Node[]
   key?: { name?: string; value?: unknown }
+  computed?: boolean
 }
 type Annotations = Record<string, Node | undefined> | undefined
 
@@ -50,7 +51,7 @@ export type StoryKind = "page" | "component"
  * page tag, its route string, and its review annotations. `kind` is null
  * when the story does not have a valid literal value, and `purpose` is null
  * when the story has no JSDoc description. `reviewKeys` are the keys of
- * `parameters.review` of the story and of the `meta`.
+ * `parameters.review` of the `meta` and of the story, apart.
  */
 type StoryTags = {
   name: string
@@ -59,7 +60,7 @@ type StoryTags = {
   route: string | null
   kind: StoryKind | null
   purpose: string | null
-  reviewKeys: string[]
+  reviewKeys: { meta: string[]; story: string[] }
 }
 
 /** The strings of an array node, or `[]`. */
@@ -73,7 +74,7 @@ const stringsOf = (node: Node | undefined) =>
 
 /** The key of a property node, or undefined for a spread or a computed key. */
 const keyOf = (property: Node) =>
-  property.type === "Property"
+  property.type === "Property" && !property.computed
     ? (property.key?.name ?? property.key?.value)
     : undefined
 
@@ -154,7 +155,10 @@ export function storiesOf(
       route: stringOf(route),
       kind: kind === "page" || kind === "component" ? kind : null,
       purpose: purpose || null,
-      reviewKeys: [...reviewKeysOf(meta), ...reviewKeysOf(annotations)],
+      reviewKeys: {
+        meta: reviewKeysOf(meta),
+        story: reviewKeysOf(annotations),
+      },
     }
   })
 }
