@@ -392,6 +392,39 @@ export type WorkspaceProjectionSnapshot = {
   chunksMissing: boolean
 }
 
+/**
+ * The projection's metadata and repository membership without its units. The units' bodies (one jsonb value of all of
+ * a Workspace's knowledge) are the heaviest read of a Workspace, so a caller that does not use them reads this.
+ */
+export async function getWorkspaceProjectionState(
+  workspaceId: string,
+): Promise<Omit<WorkspaceProjectionSnapshot, "units">> {
+  const { units: _units, ...state } = await readWorkspaceProjectionSnapshot(
+    workspaceId,
+    false,
+  )
+  return state
+}
+
+/** How many units the projection at `projectionSha` has. */
+export async function countWorkspaceProjectionUnits(
+  workspaceId: string,
+  projectionSha: string,
+): Promise<number> {
+  return orgSql(async () => {
+    const [row] = await getOrgDb()
+      .select({ count: sql<number>`count(*)::int` })
+      .from(workspaceKnowledgeUnits)
+      .where(
+        and(
+          eq(workspaceKnowledgeUnits.workspaceId, workspaceId),
+          eq(workspaceKnowledgeUnits.projectionSha, projectionSha),
+        ),
+      )
+    return row?.count ?? 0
+  })
+}
+
 /** Metadata, units, vectors and repository membership share one SQL snapshot. */
 export async function getWorkspaceProjectionSnapshot(
   workspaceId: string,
@@ -1974,11 +2007,13 @@ export async function persistEmbeddingFailure(input: {
 }
 
 /** SQL: the unit has text but no chunk row. */
+// The chunks first: a CASE fixes the order, so the body (TOAST, the heaviest column) is read only for a unit without
+// chunks, not for every unit (with `and`, Postgres may test the cheaper-looking btrim first).
 function unitWithoutChunks(workspaceId: SQL, servingId: SQL, body: SQL) {
-  return sql`btrim(${body}, E' \t\r\n') <> '' and not exists (
+  return sql`case when exists (
     select 1 from workspace_knowledge_chunks as c
     where c.workspace_id = ${workspaceId} and c.unit_id = ${servingId}
-  )`
+  ) then false else btrim(${body}, E' \t\r\n') <> '' end`
 }
 
 type OrgTransaction = Parameters<

@@ -62,7 +62,8 @@ import {
   commitHydrateProjection,
   embedKnowledgeChunks,
   getLinkedReadBinding,
-  getWorkspaceProjectionSnapshot,
+  countWorkspaceProjectionUnits,
+  getWorkspaceProjectionState,
   listLinkedRepositories,
   markKnowledgeEmbeddingsReady,
   persistEmbeddingFailure,
@@ -223,7 +224,9 @@ export function defineWorkspaceHydrateWorkflow() {
           const { revision, token, workspace } = resolved
           failingRevision = revision
           const desiredSha = revision.sha
-          const snapshot = await getWorkspaceProjectionSnapshot(workspace.id)
+          // Not the units: their bodies are the heaviest read of a Workspace, and only a run that reuses the active
+          // projection (below) reads them. A no-op, an index lag and a new revision do not.
+          const snapshot = await getWorkspaceProjectionState(workspace.id)
           const projection = publishedProjection(snapshot.projection)
           // A projection made before knowledge chunks existed is
           // published again, once, so that it gets its chunks.
@@ -550,7 +553,9 @@ export function defineWorkspaceHydrateWorkflow() {
                 githubConnectionIds: new Set(githubConnectionIds),
                 confluenceSiteHosts: new Set(confluenceSiteHosts),
               })
-            : { units: snapshot.units, linked: [], skipped: [] }
+            : // The active projection of this revision is reused: its units stay in Postgres, and the run reports
+              // only how many there are (below). Their bodies are not read.
+              { units: [], linked: [], skipped: [] }
           const parsed = {
             ...hydrated,
             skipped: markLegacyOverlaySkips(hydrated.skipped, legacyPaths),
@@ -759,7 +764,14 @@ export function defineWorkspaceHydrateWorkflow() {
           await enqueueRemainingWrites()
           return {
             hydrated: activated,
-            units: parsed.units.length,
+            units: pending.postgres
+              ? parsed.units.length
+              : active
+                ? await countWorkspaceProjectionUnits(
+                    workspace.id,
+                    active.revision.sha,
+                  )
+                : 0,
             skipped: parsed.skipped.length,
             diagnostics: parsed.skipped,
           }
