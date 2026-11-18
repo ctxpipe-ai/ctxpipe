@@ -262,7 +262,7 @@ export const listWorkspaces = defineMcpReadTool({
                   and(
                     eq(workspaceKnowledgeUnits.orgId, org.id),
                     eq(workspaceKnowledgeUnits.workspaceId, resolved.id),
-                    sql`${activeProjectionSha} = ${servedSha}`,
+                    sql`${activeProjectionSha()} = ${servedSha}`,
                   ),
                 )
                 .groupBy(workspaceKnowledgeUnits.kind)

@@ -5,9 +5,11 @@ import { withOrgDbContext } from "../../db/client.js"
 import {
   workspaceKnowledgeChunks,
   workspaceKnowledgeUnits,
+  workspaces,
 } from "../../db/schema/workspaces.js"
 import { fetchCheckoutFileBytes } from "../../domain/codeIngestion/codesearchClient.js"
 import { chunkKnowledgeBody } from "../../domain/workspaces/knowledge-chunks.js"
+import { activeProjectionSha } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { fitPage, measureResult, truncateText } from "../framework/budget.js"
 import {
@@ -86,7 +88,9 @@ async function readUnit(
       .select({
         servingId: workspaceKnowledgeUnits.servingId,
         body: workspaceKnowledgeUnits.body,
-        projectionSha: workspaceKnowledgeUnits.projectionSha,
+        // The unit row belongs to the active projection. Its own
+        // `projection_sha` can be older after a partial hydrate.
+        sha: activeProjectionSha(),
         kind: workspaceKnowledgeUnits.kind,
         title: workspaceKnowledgeUnits.title,
         source: workspaceKnowledgeUnits.source,
@@ -94,6 +98,10 @@ async function readUnit(
         claims: workspaceKnowledgeUnits.claims,
       })
       .from(workspaceKnowledgeUnits)
+      .innerJoin(
+        workspaces,
+        eq(workspaces.id, workspaceKnowledgeUnits.workspaceId),
+      )
       .where(
         and(
           eq(workspaceKnowledgeUnits.orgId, org.id),
@@ -135,7 +143,7 @@ async function readUnit(
     return {
       text: row.body,
       lineOffset,
-      sha: row.projectionSha,
+      sha: row.sha,
       frontMatter: {
         ...(row.kind ? { kind: row.kind } : {}),
         ...(row.title

@@ -3,7 +3,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
-import { workspaceKnowledgeUnits } from "../../db/schema/workspaces.js"
+import {
+  workspaceKnowledgeUnits,
+  workspaces,
+} from "../../db/schema/workspaces.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
 import { hydrateKnowledgeTree } from "../workspaces/hydrate.js"
 import {
@@ -45,12 +48,17 @@ async function project(sha: string, files: Record<string, string>) {
     workspaceId,
     files: Object.entries(files).map(([path, content]) => ({ path, content })),
   })
-  // A projection replaces the earlier one, as commitHydrateProjection does.
-  await withOrgDbContext(ctx.orgId, (db) =>
-    db
+  // A projection replaces the earlier one and becomes active, as
+  // commitHydrateProjection does.
+  await withOrgDbContext(ctx.orgId, async (db) => {
+    await db
       .delete(workspaceKnowledgeUnits)
-      .where(eq(workspaceKnowledgeUnits.workspaceId, workspaceId)),
-  )
+      .where(eq(workspaceKnowledgeUnits.workspaceId, workspaceId))
+    await db
+      .update(workspaces)
+      .set({ activeProjectionSha: sha })
+      .where(eq(workspaces.id, workspaceId))
+  })
   await withOrgDbContext(ctx.orgId, (db) =>
     db.insert(workspaceKnowledgeUnits).values(
       units.map((unit) => ({

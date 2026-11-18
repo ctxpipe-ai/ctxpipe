@@ -304,8 +304,8 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
           projectionSha: sha1,
         })),
       ])
-      // The row of this unit is from a later projection than the Workspace
-      // serves, and its chunks hold file lines that count the front matter.
+      // The row of this unit holds another SHA than the Workspace serves, and
+      // its chunks hold file lines that count the front matter.
       const frontMatterId = generateObjectId("wku")
       await db.insert(workspaceKnowledgeUnits).values({
         servingId: frontMatterId,
@@ -627,8 +627,10 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
       const result = await call("read_file", { ref: FRONT_MATTER_UNIT.path })
       expect(result.structuredContent).toEqual({
         ref: FRONT_MATTER_UNIT.path,
-        // The row of the unit, not the Workspace, states the revision.
-        served: { branch: "main", sha: sha2 },
+        // The Workspace's active projection states the revision. The row
+        // holds another SHA, as an unchanged row does after a partial
+        // hydrate.
+        served: { branch: "main", sha: sha1 },
         // The front matter is its own field, not lines of content.
         frontMatter: {
           kind: "Standard",

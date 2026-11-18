@@ -414,11 +414,17 @@ export async function getWorkspaceProjectionState(
 }
 
 /**
- * The SHA of the active projection of the joined Workspace. Each unit row
+ * The SHA of the active projection of the joined Workspace: of the
+ * `workspaces` table, or of its alias `alias` in a raw query. Each unit row
  * belongs to that projection, also when a partial hydrate did not write it
  * (its `projection_sha` is then older).
  */
-export const activeProjectionSha = sql<string>`coalesce(${workspaces.activeRevision}->>'sha', ${workspaces.activeProjectionSha})`
+export function activeProjectionSha(alias?: string): SQL<string> {
+  if (!alias)
+    return sql<string>`coalesce(${workspaces.activeRevision}->>'sha', ${workspaces.activeProjectionSha})`
+  const w = sql.identifier(alias)
+  return sql<string>`coalesce(${w}.active_revision->>'sha', ${w}.active_projection_sha)`
+}
 
 /** How many units the projection at `projectionSha` has (0 when that projection is not active). */
 export async function countWorkspaceProjectionUnits(
@@ -436,7 +442,7 @@ export async function countWorkspaceProjectionUnits(
       .where(
         and(
           eq(workspaceKnowledgeUnits.workspaceId, workspaceId),
-          sql`${activeProjectionSha} = ${projectionSha}`,
+          sql`${activeProjectionSha()} = ${projectionSha}`,
         ),
       )
     return row?.count ?? 0
@@ -489,13 +495,11 @@ async function readWorkspaceProjectionSnapshot(
           ) order by ${qualified(workspaceKnowledgeUnits.path)})
           from ${workspaceKnowledgeUnits}
           where ${qualified(workspaceKnowledgeUnits.workspaceId)} = ${qualified(workspaces.id)}
-          and coalesce(${qualified(workspaces.activeRevision)}->>'sha', ${qualified(workspaces.activeProjectionSha)}) is not null
         ), '[]'::jsonb)`
           : sql<WorkspaceProjectionSnapshot["units"]>`'[]'::jsonb`,
         chunksMissing: sql<boolean>`exists (
           select 1 from ${workspaceKnowledgeUnits}
           where ${qualified(workspaceKnowledgeUnits.workspaceId)} = ${qualified(workspaces.id)}
-          and coalesce(${qualified(workspaces.activeRevision)}->>'sha', ${qualified(workspaces.activeProjectionSha)}) is not null
           and ${unitWithoutChunks(qualified(workspaceKnowledgeUnits.workspaceId), qualified(workspaceKnowledgeUnits.servingId), qualified(workspaceKnowledgeUnits.body))}
         )`,
         linkedSources: servedSourceStatesSql(qualified(workspaces.id)),
@@ -1337,16 +1341,7 @@ export async function workspaceKnowledgeFolderCounts(
         total: sql<number>`(sum(count(*)) over ())::int`,
       })
       .from(workspaceKnowledgeUnits)
-      .innerJoin(
-        workspaces,
-        eq(workspaces.id, workspaceKnowledgeUnits.workspaceId),
-      )
-      .where(
-        and(
-          eq(workspaceKnowledgeUnits.workspaceId, workspaceId),
-          sql`${activeProjectionSha} is not null`,
-        ),
-      )
+      .where(eq(workspaceKnowledgeUnits.workspaceId, workspaceId))
       .groupBy(sql`1`)
       .orderBy(desc(files), asc(folder))
       .limit(limit)
@@ -1373,7 +1368,7 @@ export async function listWorkspaceUnitsAtRevision(
       .where(
         and(
           eq(workspaceKnowledgeUnits.workspaceId, workspaceId),
-          sql`${activeProjectionSha} = ${sha}`,
+          sql`${activeProjectionSha()} = ${sha}`,
         ),
       )
       .orderBy(workspaceKnowledgeUnits.path),

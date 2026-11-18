@@ -693,14 +693,16 @@ it(
       expect(runs).toBe(2)
       const graph = (await projected(f)).graph
       expect(read.nodes).toEqual(
-        graph.nodes.map((node) => ({ id: node.id, summary: node.summary })),
+        graph.nodes.map((node) => ({
+          id: (node as { id: string }).id,
+          summary: (node as { summary: string | null }).summary,
+        })),
       )
       expect(read.edges).toEqual(
-        graph.edges.map((edge) => ({
-          id: edge.id,
-          subject: edge.subject,
-          object: edge.object,
-        })),
+        graph.edges.map((edge) => {
+          const { id, subject, object } = edge as Record<string, unknown>
+          return { id, subject, object }
+        }),
       )
     }),
 )

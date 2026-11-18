@@ -343,7 +343,7 @@ async function resolveSeeds(
         and(
           eq(workspaceKnowledgeUnits.orgId, org.id),
           eq(workspaceKnowledgeUnits.workspaceId, workspaceId),
-          sql`${activeProjectionSha} = ${sha}`,
+          sql`${activeProjectionSha()} = ${sha}`,
           inArray(workspaceKnowledgeUnits.path, paths),
         ),
       ),
@@ -568,7 +568,7 @@ export async function rankWorkspaceRelated(
             and(
               eq(workspaceKnowledgeUnits.orgId, org.id),
               eq(workspaceKnowledgeUnits.workspaceId, workspace.id),
-              sql`${activeProjectionSha} = ${sha}`,
+              sql`${activeProjectionSha()} = ${sha}`,
               inArray(
                 workspaceKnowledgeUnits.servingId,
                 ranked.map((result) => result.id),

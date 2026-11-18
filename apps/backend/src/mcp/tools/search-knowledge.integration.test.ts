@@ -152,6 +152,23 @@ describe("search_knowledge through the MCP client", () => {
       ],
     })
   })
+  it("serves the active SHA for a unit that the last partial hydrate did not write", async () => {
+    // A partial hydrate moved the active projection and kept the row, so the
+    // row still holds the older SHA.
+    const next = "b".repeat(40)
+    await withOrgDbContext(seed.orgId, (db) =>
+      db
+        .update(workspaces)
+        .set({ activeProjectionSha: next })
+        .where(eq(workspaces.id, workspaceId)),
+    )
+    const result = await call({ workspaces: ["handbook"] })
+    expect(result.structuredContent).toMatchObject({
+      hits: [
+        { ref: "runbooks/gateway.md", served: { branch: "main", sha: next } },
+      ],
+    })
+  })
   it("defaults to 8 hits, allows at most 20, and sums up the claims of each hit", async () => {
     await seedKnowledgeUnits(
       seed.orgId,
