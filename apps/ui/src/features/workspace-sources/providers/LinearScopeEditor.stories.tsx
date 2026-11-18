@@ -40,13 +40,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Linear scope editor, where the user picks the teams and projects of a
+ * Workspace source: the user picks a team and a project and turns off customer
+ * requests.
+ */
 export const PicksTeamsAndProjects: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Linear scope editor, where the user picks the teams and projects of a Workspace source: the user picks a team and a project and turns off customer requests.",
-    },
-  },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
@@ -68,13 +67,12 @@ export const PicksTeamsAndProjects: Story = {
   },
 }
 
+/**
+ * Linear scope editor, where the user picks the teams and projects of a
+ * Workspace source: the user clears the last team, so the scope is not ready
+ * and a hint asks for one.
+ */
 export const EmptySelectionIsNotReady: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Linear scope editor, where the user picks the teams and projects of a Workspace source: the user clears the last team, so the scope is not ready and a hint asks for one.",
-    },
-  },
   args: { initialScope: { teams: ["ENG"] } },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
@@ -88,13 +86,12 @@ export const EmptySelectionIsNotReady: Story = {
   },
 }
 
+/**
+ * Linear scope editor, where the user picks the teams and projects of a
+ * Workspace source: a saved scope has a team that Linear no longer has, marked
+ * as not found.
+ */
 export const EditsAnExistingScope: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Linear scope editor, where the user picks the teams and projects of a Workspace source: a saved scope has a team that Linear no longer has, marked as not found.",
-    },
-  },
   args: {
     initialScope: { teams: ["ops", "OLD"], customerRequests: "exclude" },
   },
@@ -119,12 +116,13 @@ export const EditsAnExistingScope: Story = {
   },
 }
 
+/**
+ * Linear scope editor in the Add source dialog: the request for the Linear
+ * teams and projects failed, so an error alert with Retry stands in place of
+ * the list.
+ */
 export const LoadError: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Linear scope editor in the Add source dialog: the request for the Linear teams and projects failed, so an error alert with Retry stands in place of the list.",
-    },
     msw: { handlers: { page: [linearAvailableScopesHandler("error")] } },
   },
   play: async ({ canvasElement }) => {

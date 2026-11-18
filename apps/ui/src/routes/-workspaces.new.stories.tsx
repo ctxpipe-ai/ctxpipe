@@ -74,13 +74,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Add Workspace page, where an admin picks the Workspace repository and adds
+ * sources: the session is still loading, so step 1 shows its skeleton.
+ */
 export const Loading: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Add Workspace page, where an admin picks the Workspace repository and adds sources: the session is still loading, so step 1 shows its skeleton.",
-    },
-  },
   render: () => <NewWorkspaceSessionFallback />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -93,13 +91,11 @@ export const Loading: Story = {
   },
 }
 
+/**
+ * Add Workspace page, where an admin picks the Workspace repository and adds
+ * sources: step 1 with the Paste URL tab open.
+ */
 export const PasteUrl: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Add Workspace page, where an admin picks the Workspace repository and adds sources: step 1 with the Paste URL tab open.",
-    },
-  },
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -107,13 +103,12 @@ export const PasteUrl: Story = {
   },
 }
 
+/**
+ * Add Workspace page, where an admin creates a Workspace in two steps: step 1,
+ * where the admin picks the Workspace repository from the GitHub repositories
+ * of the org.
+ */
 export const SelectGitHub: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Add Workspace page, where an admin creates a Workspace in two steps: step 1, where the admin picks the Workspace repository from the GitHub repositories of the org.",
-    },
-  },
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -121,13 +116,11 @@ export const SelectGitHub: Story = {
   },
 }
 
+/**
+ * Add Workspace page, where an admin picks the Workspace repository and adds
+ * sources: step 1 with the Create on GitHub tab open.
+ */
 export const CreateOnGitHub: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Add Workspace page, where an admin picks the Workspace repository and adds sources: step 1 with the Create on GitHub tab open.",
-    },
-  },
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -191,13 +184,14 @@ const slowSessionDefaults = [
   organizationFullWithOrgHandler,
 ]
 
-/** Opened at the URL that Add Workspace uses once the Workspace exists. */
+/**
+ * Add Workspace page, where an admin picks the Workspace repository and adds
+ * sources: the address names an existing Workspace, as Add Workspace does after
+ * the create, so step 2 opens to add repositories. Step 1 is gone, and no
+ * Workspace is created.
+ */
 export const StepTwoFromUrl: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Add Workspace page, where an admin picks the Workspace repository and adds sources: the address names an existing Workspace, so step 2 opens to add repositories.",
-    },
     storyRoute: {
       pattern: "orgWorkspaceNew",
       orgSlug,
@@ -222,13 +216,13 @@ export const StepTwoFromUrl: Story = {
   },
 }
 
-/** Create a Workspace in step 1: the URL changes, and step 2 shows. */
+/**
+ * Add Workspace page, where an admin picks the Workspace repository and adds
+ * sources: the user creates the Workspace in step 1, so the address changes and
+ * step 2 shows.
+ */
 export const CreateMovesToStepTwoUrl: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Add Workspace page, where an admin picks the Workspace repository and adds sources: the user creates the Workspace in step 1, and step 2 shows with a new address.",
-    },
     visual: {
       skip: "Behavior test: it ends on the location probe. StepTwoFromUrl shows step 2.",
     },
@@ -259,15 +253,15 @@ export const CreateMovesToStepTwoUrl: Story = {
   },
 }
 
-/** The user opens a link for a Workspace that does not exist (or is not theirs). */
+/**
+ * Add Workspace page, where an admin picks the Workspace repository and adds
+ * sources: the address names a Workspace that does not exist or is not the
+ * user's. Start again goes back to step 1 and clears the address.
+ */
 export const UnknownWorkspaceInUrl: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as SelectGitHub.",
-    },
-    review: {
-      purpose:
-        "Add Workspace page, where an admin picks the Workspace repository and adds sources: the address names a Workspace that does not exist, and Start again goes back to step 1.",
     },
     storyRoute: {
       pattern: "orgWorkspaceNew",
@@ -302,17 +296,14 @@ export const UnknownWorkspaceInUrl: Story = {
 }
 
 /**
- * A reload at the step 2 URL: the session fallback already shows step 2, so
- * step 1 never flashes before it.
+ * Add Workspace page, where an admin picks the Workspace repository and adds
+ * sources: the user reloads at the step 2 address, so the session fallback
+ * already shows step 2. Step 1 never flashes before it.
  */
 export const LoadingStepTwo: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as StepTwoFromUrl.",
-    },
-    review: {
-      purpose:
-        "Add Workspace page, where an admin picks the Workspace repository and adds sources: a reload at the step 2 address, so the loading state already shows step 2.",
     },
     storyRoute: {
       pattern: "orgWorkspaceNew",
@@ -363,16 +354,17 @@ function stepTwoWith(upgradesHandler: ReturnType<typeof http.get>) {
   }
 }
 
-/** Step 2 for a repository that already had files: it has no format file yet. */
+/**
+ * Add Workspace page, where an admin picks the Workspace repository and adds
+ * sources: step 2 for a repository that already had files and has no format
+ * file, so it asks for an upgrade first. Review upgrades opens the Workspace
+ * settings.
+ */
 export const StepTwoNeedsUpgrade: Story = {
   parameters: {
     ...stepTwoWith(
       workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 0 })),
     ),
-    review: {
-      purpose:
-        "Add Workspace page, where an admin picks the Workspace repository and adds sources: step 2 for a repository with no format file, so it asks for an upgrade first.",
-    },
   },
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement, loaded }) => {
@@ -398,16 +390,16 @@ export const StepTwoNeedsUpgrade: Story = {
   },
 }
 
-/** The format file is not valid: an upgrade does not fix it, so no upgrade text. */
+/**
+ * Add Workspace page, step 2: the admin picked a repository whose format file
+ * is not valid, so the Workspace is read-only and the notice names the fix in
+ * the file. An upgrade does not fix it, so no upgrade text shows.
+ */
 export const StepTwoFormatNotValid: Story = {
   parameters: {
     ...stepTwoWith(
       workspaceUpgradesHandler(upgradesFixture([], { formatVersion: -1 })),
     ),
-    review: {
-      purpose:
-        "Add Workspace page, step 2: the admin picked a repository whose format file is not valid, so the Workspace is read-only and the notice names the fix in the file.",
-    },
   },
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
@@ -422,16 +414,16 @@ export const StepTwoFormatNotValid: Story = {
   },
 }
 
-/** The repository has a newer format than ctxpipe reads: the Workspace is read-only. */
+/**
+ * Add Workspace page, where an admin picks the Workspace repository and adds
+ * sources: step 2 for a repository with a newer format than ctxpipe reads, so
+ * the Workspace is read-only and offers no upgrade.
+ */
 export const StepTwoFormatAhead: Story = {
   parameters: {
     ...stepTwoWith(
       workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 4 })),
     ),
-    review: {
-      purpose:
-        "Add Workspace page, where an admin picks the Workspace repository and adds sources: step 2 for a repository with a newer format than ctxpipe reads, so it is read-only.",
-    },
   },
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
@@ -446,7 +438,11 @@ export const StepTwoFormatAhead: Story = {
   },
 }
 
-/** The first read of the upgrades fails: Retry reads again, and sources show. */
+/**
+ * Add Workspace page, where an admin picks the Workspace repository and adds
+ * sources: step 2 after the first read of the upgrades failed. Retry reads
+ * again, and the sources show.
+ */
 export const StepTwoUpgradesReadFails: Story = {
   beforeEach: () => {
     upgradeReads.count = 0
@@ -465,10 +461,6 @@ export const StepTwoUpgradesReadFails: Story = {
             : HttpResponse.json(upgradesFixture([], { formatVersion: 3 })),
       ),
     ),
-    review: {
-      purpose:
-        "Add Workspace page, where an admin picks the Workspace repository and adds sources: step 2 after the upgrades read failed once, and Retry shows the sources.",
-    },
   },
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
@@ -485,7 +477,11 @@ export const StepTwoUpgradesReadFails: Story = {
   },
 }
 
-/** A new empty repository: the format file lands a few seconds after the create. */
+/**
+ * Add Workspace page, where an admin picks the Workspace repository and adds
+ * sources: step 2 for a new empty repository waits for its format file, which
+ * lands a few seconds after the create. Then the sources show.
+ */
 export const StepTwoWaitsForFormat: Story = {
   beforeEach: () => {
     upgradeReads.count = 0
@@ -502,10 +498,6 @@ export const StepTwoWaitsForFormat: Story = {
         }),
       ),
     ),
-    review: {
-      purpose:
-        "Add Workspace page, where an admin picks the Workspace repository and adds sources: step 2 for a new empty repository that waits for its format file.",
-    },
   },
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
@@ -541,18 +533,16 @@ function placement(canvas: ReturnType<typeof within>): Placement {
 }
 
 /**
- * The heading and the step card keep their top while the page loads and the
- * user goes from step 1 to step 2.
+ * Add Workspace page, where an admin picks the Workspace repository and adds
+ * sources: the page loads slowly and the user goes from step 1 to step 2. The
+ * play proves that the heading and the step card keep their top through each
+ * state.
  */
 export const KeepsPlaceBetweenSteps: Story = {
   tags: ["required"],
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as StepTwoFromUrl.",
-    },
-    review: {
-      purpose:
-        "Add Workspace page, where an admin picks the Workspace repository and adds sources: the page loads slowly and moves to step 2, and the heading and step card keep their place.",
     },
     intent:
       "Catches layout shift between the loading skeleton and the loaded steps of the new workspace page. The step keeps its place while data loads. Not for step content.",

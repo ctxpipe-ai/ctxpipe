@@ -51,12 +51,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Main navigation of an org: the org has one Workspace and the Workspace page
+ * is current.
+ */
 export const SingleWorkspace: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Main navigation of an org: the org has one Workspace and the Workspace page is current.",
-    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
@@ -75,12 +75,11 @@ export const SingleWorkspace: Story = {
   },
 }
 
+/**
+ * Main navigation of an org: the org has two Workspaces, one of them read-only.
+ */
 export const MultipleWorkspaces: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Main navigation of an org: the org has two Workspaces, one of them read-only.",
-    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
@@ -99,12 +98,12 @@ export const MultipleWorkspaces: Story = {
   },
 }
 
+/**
+ * Main navigation of an org: the user collapsed the nav to the narrow icon
+ * rail.
+ */
 export const Collapsed: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Main navigation of an org: the user collapsed the nav to the narrow icon rail.",
-    },
     visual: { allow: { contrast: "Text below WCAG AA on main (CTX-1278)." } },
     storyRoute: {
       pattern: "orgWorkspace",
@@ -130,18 +129,15 @@ export const Collapsed: Story = {
 }
 
 /**
- * Proof for the global story reset. The story before this one collapses the
- * nav and stores that choice. This story must still start expanded.
+ * Main navigation of an org: the nav starts expanded, after the story before it
+ * collapsed the nav and stored that choice. This story is the proof for the
+ * global story reset.
  */
 export const ExpandedAfterCollapsedStory: Story = {
   parameters: {
     ...Collapsed.parameters,
     visual: {
       skip: "Behavior test: it ends in the same state as SingleWorkspace.",
-    },
-    review: {
-      purpose:
-        "Main navigation of an org: the nav starts expanded after the story before it collapsed it.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -153,8 +149,11 @@ export const ExpandedAfterCollapsedStory: Story = {
   },
 }
 
-/** A plain link (not a nav item) opens Connectors. The shell stays mounted, and
- * the current nav item moves from the Workspace to Connectors. */
+/**
+ * App shell with the main navigation and a test link in the page body: the user
+ * clicked the link, and Connectors became the current nav item. The shell stays
+ * mounted while the current item moves from the Workspace to Connectors.
+ */
 export const PlainLinkMovesCurrentNav: Story = {
   tags: ["required"],
   render: () => (
@@ -167,10 +166,6 @@ export const PlainLinkMovesCurrentNav: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: the page body is a test link, which the product does not render.",
-    },
-    review: {
-      purpose:
-        "App shell with the main navigation and a placeholder body link: the user clicked the link and Connectors became the current nav item.",
     },
     intent:
       "Catches a plain link in the page that does not move the current item in the main navigation. Not for nav styling or workspace list data.",
@@ -209,16 +204,16 @@ export const PlainLinkMovesCurrentNav: Story = {
   },
 }
 
+/**
+ * Main navigation of an org: the nav is collapsed to the icon rail after a
+ * check of the Docs link.
+ */
 export const DocsLinkOpensProductDocs: Story = {
   parameters: {
     ...SingleWorkspace.parameters,
     visual: { skip: "Behavior test: it ends in the same state as Collapsed." },
     intent:
       "Catches a Docs link that is missing from the Help list of the main navigation. Also catches a Docs link that does not open the product docs in a new tab, or that has no name in the collapsed rail. Not for the other footer items.",
-    review: {
-      purpose:
-        "Main navigation of an org: the nav is collapsed to the icon rail after a check of the Docs link.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -239,6 +234,11 @@ export const DocsLinkOpensProductDocs: Story = {
   },
 }
 
+/**
+ * Side nav of an org: the user pressed their name at the bottom, and the user
+ * menu opened with Settings, Connected apps and Sign out, the focus on
+ * Settings.
+ */
 export const UserMenuLinksConnectedApps: Story = {
   tags: ["required"],
   parameters: {
@@ -246,10 +246,6 @@ export const UserMenuLinksConnectedApps: Story = {
     ...SingleWorkspace.parameters,
     intent:
       "Catches a user menu whose Connected apps item does not link to the connected apps page in the auth area. Not for other menu items or account data.",
-    review: {
-      purpose:
-        "Side nav of an org: the user pressed their name at the bottom, and the user menu opened with Settings, Connected apps and Sign out, the focus on Settings.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

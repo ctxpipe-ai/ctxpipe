@@ -51,6 +51,10 @@ const homeRoute = {
   orgSlug: "acme",
 } satisfies StoryRouteParams
 
+/**
+ * Org home page, where a member asks the agent and opens a Workspace: the
+ * session is still loading.
+ */
 export const Loading: Story = {
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
@@ -71,10 +75,6 @@ export const Loading: Story = {
     ).not.toBeInTheDocument()
   },
   parameters: {
-    review: {
-      purpose:
-        "Org home page, where a member asks the agent and opens a Workspace: the session is still loading.",
-    },
     intent:
       "Catches an org home that shows content or a Create button while the session loads. The shell shows the selector and the activity loading text. Not for loaded data.",
     storyRoute: homeRoute,
@@ -95,7 +95,12 @@ export const Loading: Story = {
   },
 }
 
-/** The workspace list is still loading: the composer and activity skeleton hold their place. */
+/**
+ * Home, where a member asks the agent and sees the commits of a Workspace: the
+ * Workspace list still loads, so the activity shows its loading state. The
+ * composer and the activity skeleton hold their place, and no Create Workspace
+ * button shows.
+ */
 export const WorkspacesLoading: Story = {
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
@@ -118,10 +123,6 @@ export const WorkspacesLoading: Story = {
     ).not.toBeInTheDocument()
   },
   parameters: {
-    review: {
-      purpose:
-        "Home, where a member asks the agent and sees the commits of a Workspace: the Workspace list still loads, so the nav, the activity and the commits show skeletons.",
-    },
     // At the mobile width the screenshot is the same as Loading.
     visual: { viewports: ["desktop"] },
     intent:
@@ -145,8 +146,9 @@ export const WorkspacesLoading: Story = {
 }
 
 /**
- * No Workspace, and the user dismissed the guide: the Create Workspace
- * button, then the empty activity.
+ * Org home page, where a member asks the agent and opens a Workspace: the org
+ * has no Workspace and the user dismissed the guide, so the Create Workspace
+ * button shows above the empty activity.
  */
 export const Empty: Story = {
   tags: ["required"],
@@ -186,10 +188,6 @@ export const Empty: Story = {
     )
   },
   parameters: {
-    review: {
-      purpose:
-        "Org home page, where a member asks the agent and opens a Workspace: the org has no Workspace and the guide is dismissed, so Create Workspace shows with the empty activity.",
-    },
     intent:
       "Catches an org home with no workspace that shows no way to start. It shows Create Workspace and the empty activity. Not for populated homes or the guide.",
     storyRoute: homeRoute,
@@ -204,9 +202,10 @@ export const Empty: Story = {
 let listReadFails = true
 
 /**
- * The Workspace list read fails: Home shows an error with a Retry. It does
- * not show the Create Workspace button or the setup guide, which would say
- * the organization has no Workspace.
+ * Org home page, where a member asks the agent and opens a Workspace: the
+ * Workspace list failed to load, so an alert with Retry shows. Home shows no
+ * Create Workspace button and no setup guide, because they would say that the
+ * org has no Workspace.
  */
 export const WorkspacesLoadFails: Story = {
   tags: ["required"],
@@ -242,10 +241,6 @@ export const WorkspacesLoadFails: Story = {
   },
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Empty." },
-    review: {
-      purpose:
-        "Org home page, where a member asks the agent and opens a Workspace: the Workspace list failed to load, so an alert with Retry shows.",
-    },
     intent:
       "Catches a failed workspace list that shows the guide or a Create button. It shows an alert with Retry, and Retry loads the home again. Not for loaded lists.",
     storyRoute: homeRoute,
@@ -268,8 +263,9 @@ export const WorkspacesLoadFails: Story = {
 }
 
 /**
- * No Workspace, so no commits: Recent shows the empty text at once, while
- * the heatmap still loads. It shows no commit rows that then go away.
+ * Org home page, where a member asks the agent and opens a Workspace: the org
+ * has no Workspace, so Recent shows its empty text at once while the activity
+ * heatmap still loads. Recent shows no commit rows that then go away.
  */
 export const EmptyRecentWhileActivityLoads: Story = {
   tags: ["required"],
@@ -296,10 +292,6 @@ export const EmptyRecentWhileActivityLoads: Story = {
     )
   },
   parameters: {
-    review: {
-      purpose:
-        "Org home page, where a member asks the agent and opens a Workspace: no Workspace, so Recent shows its empty text while the activity still loads.",
-    },
     intent:
       "Catches a recent commits area that shows a loading state when the workspace list is empty. The empty text shows while activity still loads. Not for populated homes.",
     storyRoute: homeRoute,
@@ -321,6 +313,10 @@ export const EmptyRecentWhileActivityLoads: Story = {
   },
 }
 
+/**
+ * Org home page, where a member asks the agent and opens a Workspace: the org
+ * has Workspaces with activity and recent commits.
+ */
 export const Populated: Story = {
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
@@ -345,10 +341,6 @@ export const Populated: Story = {
     )
   },
   parameters: {
-    review: {
-      purpose:
-        "Org home page, where a member asks the agent and opens a Workspace: the org has Workspaces with activity and recent commits.",
-    },
     intent:
       "Catches an org home that shows wrong headings or no commits. It shows the selector, Activity and Recent headings in the plain style, and recent commits. Not for loading states.",
     storyRoute: homeRoute,
@@ -361,8 +353,9 @@ export const Populated: Story = {
 }
 
 /**
- * Activity and Recent have the same 40 px gap as the other Home blocks. The
- * view-transition wrapper around them must not remove it.
+ * Org home page, where a member asks the agent and opens a Workspace: Activity
+ * and Recent keep the same 40 px gap as the other Home blocks. The
+ * view-transition wrapper around them must not remove that gap.
  */
 export const ActivityAndRecentKeepTheirGap: Story = {
   render: () => <OrgHomePageContent orgSlug="acme" />,
@@ -381,10 +374,6 @@ export const ActivityAndRecentKeepTheirGap: Story = {
   },
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Populated." },
-    review: {
-      purpose:
-        "Org home page, where a member asks the agent and opens a Workspace: Activity and Recent keep the same gap as the other blocks.",
-    },
     storyRoute: homeRoute,
     msw: {
       handlers: {
@@ -394,6 +383,10 @@ export const ActivityAndRecentKeepTheirGap: Story = {
   },
 }
 
+/**
+ * Org home page, where a member asks the agent and opens a Workspace: the
+ * activity is still loading while the selector shows.
+ */
 export const ActivityLoading: Story = {
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
@@ -412,10 +405,6 @@ export const ActivityLoading: Story = {
     expect(canvas.queryByText("Loading…")).not.toBeInTheDocument()
   },
   parameters: {
-    review: {
-      purpose:
-        "Org home page, where a member asks the agent and opens a Workspace: the activity is still loading while the selector shows.",
-    },
     intent:
       "Catches an activity area that shows a bare Loading text. It shows the activity loading text while the selector is already visible. Not for loaded activity.",
     storyRoute: homeRoute,
@@ -427,17 +416,17 @@ export const ActivityLoading: Story = {
   },
 }
 
-/** The composer opens the new conversation, which sends the message. */
+/**
+ * Org home page, where a member asks the agent and opens a Workspace: the user
+ * sends a first message from the composer, and the new conversation opens and
+ * sends the message.
+ */
 export const FirstMessageOpensConversation: Story = {
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   parameters: {
     visual: {
       skip: "Behavior test: it ends on a story route with no page, so the screenshot is empty.",
-    },
-    review: {
-      purpose:
-        "Org home page, where a member asks the agent and opens a Workspace: the user sends a first message, and the new conversation opens.",
     },
     intent:
       "Catches a first message in the home composer that does not open a new conversation. Sending opens the conversation with the message. Not for the composer layout.",
@@ -485,6 +474,10 @@ export const FirstMessageOpensConversation: Story = {
   },
 }
 
+/**
+ * Org home page, where a member asks the agent and opens a Workspace: the
+ * Workspace has no commit history, so the empty commits text shows at once.
+ */
 export const NoHistory: Story = {
   tags: ["required"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
@@ -505,10 +498,6 @@ export const NoHistory: Story = {
     )
   },
   parameters: {
-    review: {
-      purpose:
-        "Org home page, where a member asks the agent and opens a Workspace: the Workspace has no commit history, so the empty commits text shows at once.",
-    },
     intent:
       "Catches an org home with no commit history that waits on a hanging list read. The empty commits text shows at once. Not for populated commits.",
     storyRoute: homeRoute,

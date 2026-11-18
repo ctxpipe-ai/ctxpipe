@@ -79,15 +79,13 @@ type Story = StoryObj<typeof meta>
 let scopeMerged = false
 
 /**
- * A save removed the source of one Workspace and changed the scope in
- * another. The remove is merged first, then the scope change.
+ * Last step of the Slack connector setup, which lists the pull requests that
+ * the setup opened: the user merged both on GitHub, so the step says Pull
+ * requests merged and each link says Merged. One pull request removes a source,
+ * and the other changes a scope. The remove merges first.
  */
 export const RemoveAndScopeChange: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Last step of the Slack connector setup, which lists the pull requests that the setup opened: the user merged both on GitHub, so the step says Pull requests merged and each link says Merged.",
-    },
     msw: {
       handlers: {
         page: [

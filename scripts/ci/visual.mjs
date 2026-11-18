@@ -90,9 +90,9 @@ const stories = Object.values(index.entries).filter(
 )
 const csf = await csfTools()
 const options = visualOptions(stories, csf.loadCsf)
-// The name, kind and purpose of each story (parameters.review), for the
-// crop of a component story and for the critic: `visual:review` reads them
-// from the manifest.
+// The name, kind and purpose of each story (its parameters.review.kind and
+// its JSDoc), for the crop of a component story and for the critic:
+// `visual:review` reads them from the manifest.
 const reviews = storyReviews(stories, csf)
 for (const [id, { skip }] of options)
   if (skip)

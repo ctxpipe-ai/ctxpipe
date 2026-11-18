@@ -60,13 +60,13 @@ const card = () =>
     />,
   )
 
+/**
+ * Plain card on the Connectors page, opened by the admin: the Plain workspace
+ * is connected and used in one Workspace, and the details end with Manage.
+ */
 export const Connected: Story = {
   render: card,
   parameters: {
-    review: {
-      purpose:
-        "Plain card on the Connectors page, opened by the admin: the Plain workspace is connected and used in one Workspace, and the details end with Manage.",
-    },
     msw: { handlers: { page: [plainStatusHandler(plainStoryStatus())] } },
   },
   play: async ({ canvasElement }) => {
@@ -86,14 +86,14 @@ export const Connected: Story = {
   },
 }
 
+/**
+ * Plain connection card on the Connectors page: Plain did not accept the
+ * webhook, so threads sync once a day and the card offers a reconnect.
+ */
 export const WebhookMissing: Story = {
   name: "No webhook, a reconnect adds it",
   render: card,
   parameters: {
-    review: {
-      purpose:
-        "Plain connection card on the Connectors page: Plain did not accept the webhook, so threads sync once a day and the card offers a reconnect.",
-    },
     msw: {
       handlers: {
         page: [
@@ -121,14 +121,14 @@ export const WebhookMissing: Story = {
   },
 }
 
+/**
+ * Plain connection card on the Connectors page: Plain no longer accepts the
+ * saved key, so the card shows Needs reconnect.
+ */
 export const RevokedOpensReconnect: Story = {
   name: "Revoked, reconnect opens setup",
   render: card,
   parameters: {
-    review: {
-      purpose:
-        "Plain connection card on the Connectors page: Plain no longer accepts the saved key, so the card shows Needs reconnect.",
-    },
     msw: {
       handlers: {
         page: [plainStatusHandler(plainStoryStatus({ status: "revoked" }))],
@@ -154,13 +154,13 @@ export const RevokedOpensReconnect: Story = {
 
 const deleted = fn()
 
+/**
+ * Plain connection card on the Connectors page: the admin removes the connector
+ * and confirms in the remove dialog.
+ */
 export const Remove: Story = {
   render: card,
   parameters: {
-    review: {
-      purpose:
-        "Plain connection card on the Connectors page: the admin removes the connector and confirms in the remove dialog.",
-    },
     msw: {
       handlers: {
         page: [
@@ -204,13 +204,13 @@ export const Remove: Story = {
   },
 }
 
+/**
+ * Plain card on the Connectors page right after the page opens: the status read
+ * has not returned, so a pulsing gray dot shows Checking.
+ */
 export const Checking: Story = {
   render: card,
   parameters: {
-    review: {
-      purpose:
-        "Plain card on the Connectors page right after the page opens: the status read has not returned, so a pulsing gray dot shows Checking.",
-    },
     msw: {
       handlers: {
         page: [

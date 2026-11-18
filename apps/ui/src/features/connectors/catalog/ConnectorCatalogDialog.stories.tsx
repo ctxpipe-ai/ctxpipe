@@ -79,14 +79,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-/** The org connected GitHub during onboarding and nothing else. */
+/**
+ * Add connection dialog, where the user picks a connector to set up: a new org
+ * that connected only GitHub during onboarding.
+ */
 export const NewOrg: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Add connection dialog, where the user picks a connector to set up: a new org with only GitHub connected.",
-    },
-  },
   args: {
     connections: [connection("con_gh", "github", "connected")],
   },
@@ -118,16 +115,12 @@ export const NewOrg: Story = {
 }
 
 /**
- * Two Linear connections: one needs a reconnect and one has an unfinished
- * setup. The row shows the worst state and offers Fix next to Add another.
+ * Add connection dialog, where the user picks a connector to set up: the
+ * Connected tab of an org with many connections. Of two Linear connections, one
+ * needs a reconnect and one has an unfinished setup, so the row shows the worst
+ * state and offers Fix next to Add another.
  */
 export const BusyOrg: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Add connection dialog, where the user picks a connector to set up: the Connected tab of an org with many connections, some that need a fix.",
-    },
-  },
   args: {
     connections: [
       connection("con_gh_1", "github", "connected"),
@@ -174,14 +167,11 @@ export const BusyOrg: Story = {
   },
 }
 
-/** The planned connectors, each with "Ask for it". */
+/**
+ * Add connection dialog, where the user picks a connector to set up: the Coming
+ * soon tab lists the planned connectors, each with an Ask for it button.
+ */
 export const ComingSoon: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Add connection dialog, where the user picks a connector to set up: the Coming soon tab, with an Ask for it button on each planned connector.",
-    },
-  },
   play: async ({ canvasElement }) => {
     const dialog = within(
       await within(canvasElement.ownerDocument.body).findByRole("dialog", {
@@ -206,14 +196,11 @@ export const ComingSoon: Story = {
   },
 }
 
-/** A search looks in every group, and says when nothing matches. */
+/**
+ * Add connection dialog, where the user picks a connector to set up: the search
+ * looks in every group, matches no connector, and says so.
+ */
 export const SearchNoMatch: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Add connection dialog, where the user picks a connector to set up: a search that matches no connector.",
-    },
-  },
   play: async ({ canvasElement }) => {
     const dialog = within(
       await within(canvasElement.ownerDocument.body).findByRole("dialog", {
@@ -247,14 +234,12 @@ export const SearchNoMatch: Story = {
   },
 }
 
-/** "Ask for it" records the request and thanks the user in a toast. */
+/**
+ * Add connection dialog, where the user picks a connector to set up: the user
+ * asked for a planned connector. ctxpipe records the request, and a thank-you
+ * toast shows.
+ */
 export const AskForIt: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Add connection dialog, where the user picks a connector to set up: the user asked for a planned connector and a thank-you toast shows.",
-    },
-  },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
     const dialog = within(

@@ -42,13 +42,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Knowledge graph pane of a Workspace, where a member explores how the
+ * knowledge links: the graph has no nodes yet.
+ */
 export const EmptyProjection: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Knowledge graph pane of a Workspace, where a member explores how the knowledge links: the graph has no nodes yet.",
-    },
-  },
   args: {
     pending: false,
     graph: {
@@ -66,23 +64,20 @@ export const EmptyProjection: Story = {
   },
 }
 
+/**
+ * Knowledge graph pane of a Workspace, where a member explores how the
+ * knowledge links: the graph request still runs, so a progress bar and its
+ * status show.
+ */
 export const Loading: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Knowledge graph pane of a Workspace, where a member explores how the knowledge links: the graph request still runs, so a progress bar and its status show.",
-    },
-  },
   args: { graph: undefined, pending: true },
 }
 
+/**
+ * Knowledge graph pane of a Workspace, where a member explores how the
+ * knowledge links: a full graph with nodes and edges.
+ */
 export const Populated: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Knowledge graph pane of a Workspace, where a member explores how the knowledge links: a full graph with nodes and edges.",
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(canvas.queryByText(/but no edges yet/)).toBeNull() // play-timing: ok the pane draws this note from props, with no request
@@ -93,13 +88,12 @@ export const Populated: Story = {
   },
 }
 
+/**
+ * Knowledge graph pane of a Workspace in a narrow pane, where a member explores
+ * how the knowledge links: the graph data arrived, and ctxpipe prepares the
+ * view.
+ */
 export const NarrowPane: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Knowledge graph pane of a Workspace in a narrow pane, where a member explores how the knowledge links: the graph data arrived, and ctxpipe prepares the view.",
-    },
-  },
   args: {
     pending: false,
     graph: docsWorkspaceGraph,
@@ -107,13 +101,11 @@ export const NarrowPane: Story = {
   decorators: [paneFrame("w-96")],
 }
 
+/**
+ * Knowledge graph pane of a Workspace, where a member explores how the
+ * knowledge links: a full graph in a wide pane.
+ */
 export const WidePane: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Knowledge graph pane of a Workspace, where a member explores how the knowledge links: a full graph in a wide pane.",
-    },
-  },
   args: {
     pending: false,
     graph: docsWorkspaceGraph,
@@ -121,12 +113,12 @@ export const WidePane: Story = {
   decorators: [paneFrame("w-full max-w-5xl")],
 }
 
+/**
+ * Knowledge graph pane of a Workspace, where a member explores how the
+ * knowledge links: the graph has nodes but no edges, and a note says so.
+ */
 export const NodesWithoutRelationships: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Knowledge graph pane of a Workspace, where a member explores how the knowledge links: the graph has nodes but no edges, and a note says so.",
-    },
     intent:
       "Catches a graph with nodes but no edges that shows a blank pane. It says how many nodes it has and that it has no edges yet. Not for graphs with edges.",
   },
@@ -152,8 +144,10 @@ export const NodesWithoutRelationships: Story = {
 }
 
 /**
- * Close the tips, or hide them on the tool rail: the browser keeps the
- * choice for the org, so the tips do not open again on the next visit.
+ * Knowledge graph pane of a Workspace, where a member explores how the
+ * knowledge links. The member closed the tips. The browser keeps that choice
+ * for the org, so the tips do not open on the next visit. To hide them on the
+ * tool rail has the same result.
  */
 export const ClosingTipsIsRemembered: Story = {
   args: {
@@ -161,10 +155,6 @@ export const ClosingTipsIsRemembered: Story = {
     graph: docsWorkspaceGraph,
   },
   parameters: {
-    review: {
-      purpose:
-        "Knowledge graph pane of a Workspace, where a member explores how the knowledge links: the member closed the tips, and the browser keeps that choice.",
-    },
     visual: {
       skip: "The end state is the graph without the tips panel, as in TipsClosedEarlier.",
     },
@@ -199,17 +189,17 @@ export const ClosingTipsIsRemembered: Story = {
   },
 }
 
-/** The user closed the tips on an earlier visit: the graph opens without them. */
+/**
+ * Knowledge graph pane of a Workspace, where a member explores how the
+ * knowledge links. The member closed the tips on an earlier visit, so the graph
+ * opens without them.
+ */
 export const TipsClosedEarlier: Story = {
   args: {
     pending: false,
     graph: docsWorkspaceGraph,
   },
   parameters: {
-    review: {
-      purpose:
-        "Knowledge graph pane of a Workspace, where a member explores how the knowledge links: the tips were closed on an earlier visit, so they do not open.",
-    },
     visual: {
       skip: "Without the tips panel, the graph labels still move when the play ends. The play checks the behavior.",
     },

@@ -76,21 +76,25 @@ function statusHandler(body: unknown) {
   )
 }
 
+/**
+ * Slack connection card on the Connectors page: the Slack workspace is
+ * connected and captures to a context repository.
+ */
 export const Connected: Story = {
   render: () =>
     shell(
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
     ),
   parameters: {
-    review: {
-      purpose:
-        "Slack connection card on the Connectors page: the Slack workspace is connected and captures to a context repository.",
-    },
     msw: { handlers: { page: [statusHandler(statusLive)] } },
   },
 }
 
-/** Installed without an @mention capture repository: the connection is ready for Workspace sources. */
+/**
+ * Slack connection card on the Connectors page: Slack is installed without an
+ * @mention capture repository. The card shows no setup warning, and the
+ * connection is ready for Workspace sources.
+ */
 export const ConnectedWithoutCaptureRepository: Story = {
   render: () =>
     shell(
@@ -98,10 +102,6 @@ export const ConnectedWithoutCaptureRepository: Story = {
     ),
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Connected." },
-    review: {
-      purpose:
-        "Slack connection card on the Connectors page: Slack is installed without a capture repository, and the connection is ready for Workspace sources.",
-    },
     msw: {
       handlers: {
         page: [
@@ -126,16 +126,16 @@ export const ConnectedWithoutCaptureRepository: Story = {
   },
 }
 
+/**
+ * Slack connection card on the Connectors page: Slack revoked the access, so
+ * the card shows Needs reconnect.
+ */
 export const Revoked: Story = {
   render: () =>
     shell(
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
     ),
   parameters: {
-    review: {
-      purpose:
-        "Slack connection card on the Connectors page: Slack revoked the access, so the card shows Needs reconnect.",
-    },
     msw: {
       handlers: {
         page: [
@@ -158,16 +158,17 @@ export const Revoked: Story = {
   },
 }
 
+/**
+ * Slack card on the Connectors page: the status read failed with a server
+ * error, so a row under the head gives the cause and a Retry button without a
+ * click.
+ */
 export const StatusError: Story = {
   render: () =>
     shell(
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
     ),
   parameters: {
-    review: {
-      purpose:
-        "Slack card on the Connectors page: the status read failed with a server error, so a row under the head gives the cause and a Retry button without a click.",
-    },
     msw: {
       handlers: {
         page: [
@@ -184,16 +185,16 @@ export const StatusError: Story = {
   },
 }
 
+/**
+ * Slack connection card on the Connectors page: the status request is still
+ * loading.
+ */
 export const Loading: Story = {
   render: () =>
     shell(
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
     ),
   parameters: {
-    review: {
-      purpose:
-        "Slack connection card on the Connectors page: the status request is still loading.",
-    },
     msw: {
       handlers: {
         page: [

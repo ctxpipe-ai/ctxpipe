@@ -25,7 +25,7 @@ const storySchema = z.object({
   scope: z.enum(["page", "component"]),
   /** The Storybook name of the story (`<title> / <name>`). */
   name: z.string().optional(),
-  /** `parameters.review.purpose` of the story: PR text, data. */
+  /** The JSDoc description of the story: PR text, data. */
   purpose: z.string().optional(),
   viewport,
   /** The named snapshot, or null for the screenshot after the play. */

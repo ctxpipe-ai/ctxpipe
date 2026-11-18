@@ -7,13 +7,16 @@
 //     component, a dialog, a step, a part of a page). It can be in the story
 //     or in the `meta` of the file; the story wins.
 //   - the purpose: the JSDoc description of the story itself, one sentence
-//     of 40 to 240 characters (line breaks count as spaces): what the UI is
-//     for, how the user uses it, and the state that the story shows. It
-//     describes the UI, so it does not start with "Shows", "Displays" or
-//     "Renders". The check cannot judge the meaning: the critic reads it.
-//     Storybook shows the same text in its docs and in
-//     `storybook tools docs show-story`. A story that is not moved yet keeps
-//     its purpose in `parameters.review.purpose`, which wins (CTX-1357).
+//     or a short paragraph of 40 to 500 characters (line breaks count as
+//     spaces): what the UI is for, how the user uses it, and the state that
+//     the story shows. A note on what a test of the story proves can follow
+//     in the same comment. It describes the UI, so it does not start with
+//     "Shows", "Displays" or "Renders". The check cannot judge the meaning:
+//     the critic reads it. Storybook shows the same text in its docs and in
+//     `storybook tools docs show-story`.
+//
+// `parameters.review` has no other key than `kind`: an old
+// `parameters.review.purpose` moved to the JSDoc (CTX-1375).
 //
 // The check fails for each story with no valid kind or purpose.
 //
@@ -36,26 +39,37 @@ const csf = await csfTools()
 
 const errors = []
 let count = 0
+/** The keys other than `kind` of a `parameters.review`, one time each. */
+const othersOf = (keys) => [...new Set(keys)].filter((key) => key !== "kind")
+const reviewError = (where, others) =>
+  `${where}: parameters.review has ${others.map((key) => `"${key}"`).join(", ")}. It has only "kind": write the purpose in the JSDoc comment of the story (/** ... */ above its export).`
+
 for (const path of storyFiles(join(root, "apps/ui/src"))) {
   const file = relative(root, path)
-  for (const story of storiesOf(csf, file, readFileSync(path, "utf8"))) {
+  const stories = storiesOf(csf, file, readFileSync(path, "utf8"))
+  const metaOthers = othersOf(stories[0]?.reviewKeys.meta ?? [])
+  if (metaOthers.length)
+    errors.push(reviewError(`${file}: the meta`, metaOthers))
+  for (const story of stories) {
     count += 1
     const where = `${file}: story "${story.name}"`
     if (!story.kind)
       errors.push(
         `${where} has no parameters.review.kind. Set "page" (a whole screen that a user lands on) or "component" (a component, a dialog, a step or a part of a page), in the story or in the meta.`,
       )
+    const others = othersOf(story.reviewKeys.story)
+    if (others.length) errors.push(reviewError(where, others))
     if (!story.purpose)
       errors.push(
-        `${where} has no purpose. Write one sentence in the JSDoc comment of the story (/** ... */ above its export): what the UI is for, how the user uses it, and the state that the story shows.`,
+        `${where} has no purpose. Write one sentence or a short paragraph in the JSDoc comment of the story (/** ... */ above its export): what the UI is for, how the user uses it, and the state that the story shows.`,
       )
     else if (
       story.purpose.length < 40 ||
-      story.purpose.length > 240 ||
+      story.purpose.length > 500 ||
       /^(Shows|Displays|Renders)\b/i.test(story.purpose)
     )
       errors.push(
-        `${where}: the purpose must be 40 to 240 characters and must not start with "Shows", "Displays" or "Renders". Say what the UI is for, how the user uses it, and the state that the story shows.`,
+        `${where}: the purpose must be 40 to 500 characters and must not start with "Shows", "Displays" or "Renders". Say what the UI is for, how the user uses it, and the state that the story shows.`,
       )
   }
 }

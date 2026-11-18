@@ -21,12 +21,15 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Wait step of the Confluence setup wizard, without the wizard frame: the user
+ * opened the Forge install, and the teal loader waits until Atlassian confirms
+ * it.
+ */
 export const WaitForInstall: Story = {
   parameters: {
     review: {
       kind: "component",
-      purpose:
-        "Wait step of the Confluence setup wizard, without the wizard frame: the user opened the Forge install, and the teal loader waits until Atlassian confirms it.",
     },
   },
   render: () => <WaitForInstallStep />,

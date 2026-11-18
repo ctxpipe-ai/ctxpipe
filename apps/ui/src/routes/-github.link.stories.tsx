@@ -44,16 +44,11 @@ function startFlow() {
 }
 
 /**
- * The GitHub account belongs to another ctxpipe user. The page names GitHub,
- * and it leaves the error, with the flow nonce, for the opener.
+ * Popup step of the GitHub account link: the GitHub account is already linked
+ * to another ctxpipe user, so the step names GitHub and says why. The step
+ * leaves the error, with the flow nonce, for the opener.
  */
 export const LinkedToAnotherUser: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Popup step of the GitHub account link: the account is already linked to another ctxpipe user.",
-    },
-  },
   render: () => (
     <GithubLinkStep
       next={install}
@@ -88,14 +83,12 @@ export const LinkedToAnotherUser: Story = {
   },
 }
 
-/** `next` is a GitHub page that is not an App install: the page goes nowhere. */
+/**
+ * Popup step of the GitHub account link: the `next` address is a GitHub page
+ * that is not an App install, so the step goes nowhere and says that the link
+ * is not valid.
+ */
 export const RefusesOtherAddress: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Popup step of the GitHub account link: the next address is not a GitHub App install, so the step says the link is not valid.",
-    },
-  },
   render: () => (
     <GithubLinkStep
       next="https://github.com/login/oauth/authorize?client_id=other&state=story-flow"
@@ -118,8 +111,9 @@ export const RefusesOtherAddress: Story = {
 
 const linkRequest = fn()
 /**
- * Another site sends a signed-in user here. With no connect flow from this
- * app, the page links nothing and writes nothing.
+ * Popup step of the GitHub account link: another site sent a signed-in user
+ * here and no connect flow started in this app, so the step says that the link
+ * is not valid. The play proves that the step links nothing and writes nothing.
  */
 export const RefusesWithoutConnectFlow: Story = {
   render: () => (
@@ -138,10 +132,6 @@ export const RefusesWithoutConnectFlow: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as RefusesOtherAddress.",
-    },
-    review: {
-      purpose:
-        "Popup step of the GitHub account link: no connect flow started in this app, so the step links nothing and says the link is not valid.",
     },
     msw: {
       handlers: {
@@ -170,7 +160,8 @@ export const RefusesWithoutConnectFlow: Story = {
 
 const linkSocial = fn()
 /**
- * No GitHub account yet: the page links one, and comes back here with
+ * Popup step of the GitHub account link: the user has no GitHub account yet, so
+ * the step starts the link and shows a spinner. The link comes back here with
  * `linked=1` (or with the error) before it goes on to the install.
  */
 export const LinksWhenNoGithubAccount: Story = {
@@ -184,10 +175,6 @@ export const LinksWhenNoGithubAccount: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as ChecksAccountsBeforeLinking.",
-    },
-    review: {
-      purpose:
-        "Popup step of the GitHub account link: the user has no GitHub account yet, so the step starts the link and shows a spinner.",
     },
     msw: {
       handlers: {
@@ -220,8 +207,9 @@ export const LinksWhenNoGithubAccount: Story = {
 const listRequest = fn()
 const earlyLink = fn()
 /**
- * The page asks which accounts the user has before it links. While that
- * request is open, no link request goes out.
+ * Popup step of the GitHub account link: the request for the accounts of the
+ * user is still open, so the step waits with a spinner. The play proves that no
+ * link request goes out while that request is open.
  */
 export const ChecksAccountsBeforeLinking: Story = {
   render: () => (
@@ -233,10 +221,6 @@ export const ChecksAccountsBeforeLinking: Story = {
     return startFlow()
   },
   parameters: {
-    review: {
-      purpose:
-        "Popup step of the GitHub account link: the account list request is still open, so the step waits with a spinner.",
-    },
     msw: {
       handlers: {
         page: [

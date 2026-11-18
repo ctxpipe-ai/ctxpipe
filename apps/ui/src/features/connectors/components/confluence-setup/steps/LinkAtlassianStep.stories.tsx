@@ -45,14 +45,14 @@ const step = () => (
   />
 )
 
+/**
+ * Step of the Confluence setup where the user links an Atlassian account: the
+ * org OAuth app is saved, so the user can sign in.
+ */
 export const LinkAtlassian: Story = {
   name: "Ready to sign in (3LO saved)",
   render: step,
   parameters: {
-    review: {
-      purpose:
-        "Step of the Confluence setup where the user links an Atlassian account: the org OAuth app is saved, so the user can sign in.",
-    },
     msw: {
       handlers: {
         page: [
@@ -64,14 +64,14 @@ export const LinkAtlassian: Story = {
   },
 }
 
+/**
+ * Step of the Confluence setup where the user links an Atlassian account: the
+ * deployment OAuth app is used, with no org app.
+ */
 export const GlobalEnvOAuth: Story = {
   name: "Global env OAuth only",
   render: step,
   parameters: {
-    review: {
-      purpose:
-        "Step of the Confluence setup where the user links an Atlassian account: the deployment OAuth app is used, with no org app.",
-    },
     msw: {
       handlers: {
         page: [
@@ -85,14 +85,14 @@ export const GlobalEnvOAuth: Story = {
   },
 }
 
+/**
+ * Step of the Confluence setup where the user links an Atlassian account: no
+ * OAuth app is saved, so the step reminds the user to register one.
+ */
 export const UnsavedSelfHostedReminder: Story = {
   name: "Self-hosted 3LO not saved (wizard orphan edge)",
   render: step,
   parameters: {
-    review: {
-      purpose:
-        "Step of the Confluence setup where the user links an Atlassian account: no OAuth app is saved, so the step reminds the user to register one.",
-    },
     msw: {
       handlers: {
         page: [

@@ -44,12 +44,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Body of the user account API keys view, where a user makes personal keys: the
+ * user has no keys yet.
+ */
 export const ApiKeysEmpty: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Body of the user account API keys view, where a user makes personal keys: the user has no keys yet.",
-    },
     msw: {
       handlers: {
         page: [
@@ -83,17 +83,17 @@ export const ApiKeysEmpty: Story = {
   },
 }
 
-/** The index route `/.auth/account/` opens the settings view, in the shell. */
+/**
+ * User account page with the app shell, where a user edits the name and email:
+ * the user opened Settings from the user menu, so the Account view shows. The
+ * index route `/.auth/account/` opens this view.
+ */
 export const Settings: Story = {
   tags: ["page"],
   args: { accountView: "settings" },
   parameters: {
     app: "org",
-    review: {
-      kind: "page",
-      purpose:
-        "User account page with the app shell, where a user edits the name and email: the user opened Settings from the user menu, so the Account view shows.",
-    },
+    review: { kind: "page" },
     route: "/.auth/account/",
     storyRoute: {
       pattern: "flat",
@@ -117,17 +117,17 @@ export const Settings: Story = {
   },
 }
 
-/** The whole page of an account view: the shell, the nav and the view. */
+/**
+ * User account page with the app shell, where a user manages the account: the
+ * Organizations view is open, with the shell, the account nav and the view
+ * together.
+ */
 export const OrganizationsView: Story = {
   tags: ["page"],
   args: { accountView: "organizations" },
   parameters: {
     app: "org",
-    review: {
-      kind: "page",
-      purpose:
-        "User account page with the app shell, where a user manages the account: the Organizations view is open.",
-    },
+    review: { kind: "page" },
     route: "/.auth/account/$accountView",
     storyRoute: {
       pattern: "flat",
@@ -237,15 +237,16 @@ function connectedAppsHandlers(options: { failRevoke?: boolean } = {}) {
 
 const editBackend = connectedAppsHandlers()
 
+/**
+ * Body of the user account Connected apps view: the user edits the
+ * organizations of one app in a dialog, and a legacy app shows a reconnect
+ * hint.
+ */
 export const ConnectedAppsEditOrgs: Story = {
   tags: ["required"],
   args: { accountView: "connected-apps" },
   beforeEach: editBackend.reset,
   parameters: {
-    review: {
-      purpose:
-        "Body of the user account Connected apps view: the user edits the organizations of one app in a dialog, and a legacy app shows a reconnect hint.",
-    },
     intent:
       "Catches a connected app edit that cannot change its organizations, or a legacy app that offers Edit. Legacy apps show a reconnect hint instead. Not for revoke.",
     storyRoute: {
@@ -293,15 +294,16 @@ export const ConnectedAppsEditOrgs: Story = {
 
 const revokeBackend = connectedAppsHandlers()
 
+/**
+ * Connected apps view of the user account, where a user removes the access of
+ * OAuth apps: the user revoked one app in its dialog, and the list keeps the
+ * other app.
+ */
 export const ConnectedAppsRevoke: Story = {
   tags: ["required"],
   args: { accountView: "connected-apps" },
   beforeEach: revokeBackend.reset,
   parameters: {
-    review: {
-      purpose:
-        "Connected apps view of the user account, where a user removes the access of OAuth apps: the user revoked one app in its dialog, and the list keeps the other app.",
-    },
     intent:
       "Catches a revoke that leaves the app in the list or leaves the dialog open. Confirming sends a DELETE request and removes only that app. Not for revoke errors.",
     storyRoute: {
@@ -327,15 +329,15 @@ export const ConnectedAppsRevoke: Story = {
 
 const failingRevokeBackend = connectedAppsHandlers({ failRevoke: true })
 
+/**
+ * Revoke dialog of the Connected apps view: the user pressed Revoke app and the
+ * server had an error, so the dialog stays open with the cause and a retry.
+ */
 export const ConnectedAppsRevokeError: Story = {
   tags: ["required"],
   args: { accountView: "connected-apps" },
   beforeEach: failingRevokeBackend.reset,
   parameters: {
-    review: {
-      purpose:
-        "Revoke dialog of the Connected apps view: the user pressed Revoke app and the server had an error, so the dialog stays open with the cause and a retry.",
-    },
     intent:
       "Catches a failed revoke that closes the dialog or removes the app. The dialog stays open with the error and the app stays listed. Not for a successful revoke.",
     storyRoute: {
@@ -366,13 +368,13 @@ export const ConnectedAppsRevokeError: Story = {
   },
 }
 
+/**
+ * Body of the user account Connected apps view, which lists the apps with
+ * access: the user has no connected apps.
+ */
 export const ConnectedAppsEmpty: Story = {
   args: { accountView: "connected-apps" },
   parameters: {
-    review: {
-      purpose:
-        "Body of the user account Connected apps view, which lists the apps with access: the user has no connected apps.",
-    },
     storyRoute: {
       pattern: "flat",
       path: "/.auth/account/connected-apps",
@@ -500,14 +502,14 @@ function personalKeysHandlers() {
 
 const createKeyBackend = personalKeysHandlers()
 
-/** A new personal key needs at least one organization before Create. */
+/**
+ * Body of the user account API keys view: the user creates a personal key in a
+ * dialog, picks one organization, and sees the new key one time. The play
+ * proves that Create stays off until the user picks at least one organization.
+ */
 export const ApiKeysCreateWithOrganizations: Story = {
   beforeEach: createKeyBackend.reset,
   parameters: {
-    review: {
-      purpose:
-        "Body of the user account API keys view: the user creates a personal key in a dialog, picks one organization, and sees the new key once.",
-    },
     msw: { handlers: { session: createKeyBackend.handlers } },
   },
   play: async ({ canvasElement }) => {
@@ -555,14 +557,14 @@ export const ApiKeysCreateWithOrganizations: Story = {
 
 const editKeyBackend = personalKeysHandlers()
 
-/** The key list shows each set; a key from before sets reaches every org. */
+/**
+ * Body of the user account API keys view: the user changes the organizations of
+ * a key in a dialog. The list shows the organizations of each key, and a key
+ * from before organization sets reaches all organizations.
+ */
 export const ApiKeysEditOrganizations: Story = {
   beforeEach: editKeyBackend.reset,
   parameters: {
-    review: {
-      purpose:
-        "Body of the user account API keys view: the user changes the organizations of a key in a dialog, and an old key reaches all organizations.",
-    },
     msw: { handlers: { session: editKeyBackend.handlers } },
   },
   play: async ({ canvasElement }) => {
@@ -648,9 +650,9 @@ const staleSelectionBackend = deletedOrganizationBackend([
 ])
 
 /**
- * The page that the organization delete dialog opens. The stored selection
- * is an organization that no longer exists. The shell falls back to the
- * first organization, and the page does not show the error screen.
+ * Organizations view of the user account, with the app shell, after the
+ * organization delete dialog: the stored organization was deleted, so the shell
+ * opens the first other organization. The page does not show the error screen.
  */
 export const OrganizationDeletedStaleSelection: Story = {
   tags: ["required"],
@@ -658,11 +660,7 @@ export const OrganizationDeletedStaleSelection: Story = {
   beforeEach: staleSelectionBackend.reset,
   parameters: {
     app: "org",
-    review: {
-      kind: "page",
-      purpose:
-        "Organizations view of the user account, with the app shell: the org that the user last used was deleted, so the shell opens the first other org.",
-    },
+    review: { kind: "page" },
     intent:
       "Catches a deleted organization that stays selected in the shell. The shell must switch to the first remaining organization and stop requesting the deleted one. Not for the last organization.",
     storyRoute: {
@@ -697,7 +695,11 @@ export const OrganizationDeletedStaleSelection: Story = {
 
 const lastOrganizationBackend = deletedOrganizationBackend([])
 
-/** The last organization is deleted: the user lands on onboarding. */
+/**
+ * Redirect after the user deletes the last organization: the app sends the user
+ * to onboarding, which this story shows as a plain route marker. The play
+ * proves that the app does not request the deleted organization.
+ */
 export const LastOrganizationDeleted: Story = {
   tags: ["required"],
   args: { accountView: "organizations" },
@@ -706,10 +708,6 @@ export const LastOrganizationDeleted: Story = {
     app: "org",
     visual: {
       skip: "Behavior test: it ends on a story route marker, which the product does not render.",
-    },
-    review: {
-      purpose:
-        "Redirect after the user deletes the last organization: the app sends the user to onboarding, shown as a plain route marker.",
     },
     intent:
       "Catches a delete of the last organization that shows an error screen or requests the deleted one. The user goes to onboarding. Not for other organizations.",

@@ -28,13 +28,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Step of the Slack setup dialog that asks the admin to connect GitHub first,
+ * because ctxpipe writes the saved threads to a Workspace repository on GitHub.
+ */
 export const Slack: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Step of the Slack setup dialog that asks the admin to connect GitHub first, because ctxpipe writes the saved threads to a Workspace repository on GitHub.",
-    },
-  },
   args: {
     orgSlug,
     sourceName: "Slack",

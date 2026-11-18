@@ -53,9 +53,9 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 /**
- * A modal leaves the page when the page height changes during its exit. A
- * height transition on the overlay would get a cancel from the next change,
- * and React Aria then waits for it without end.
+ * Modal dialog over a tall test page: the user closed it while the page grew,
+ * and the modal is gone. A height transition on the overlay would get a cancel
+ * from the next change, and React Aria then waits for it without end.
  */
 export const LeavesWhenThePageGrowsDuringExit: Story = {
   parameters: {
@@ -64,8 +64,6 @@ export const LeavesWhenThePageGrowsDuringExit: Story = {
     },
     review: {
       kind: "component",
-      purpose:
-        "Modal dialog over a tall test page: the user closed it while the page grew, and the modal is gone.",
     },
   },
   play: async ({ canvasElement }) => {

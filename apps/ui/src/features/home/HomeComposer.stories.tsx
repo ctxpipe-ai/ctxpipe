@@ -44,12 +44,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Org home composer, where a member asks a question in a Workspace: the
+ * Workspace menu is open with two Workspaces.
+ */
 export const WithWorkspaces: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Org home composer, where a member asks a question in a Workspace: the Workspace menu is open with two Workspaces.",
-    },
     // Each item of the open menu preloads its Workspace.
     msw: {
       handlers: {
@@ -70,13 +70,11 @@ export const WithWorkspaces: Story = {
   },
 }
 
+/**
+ * Org home composer, where a member asks a question in a Workspace: the org has
+ * no Workspaces yet.
+ */
 export const NoWorkspaces: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Org home composer, where a member asks a question in a Workspace: the org has no Workspaces yet.",
-    },
-  },
   args: {
     workspaces: [],
     selected: null,

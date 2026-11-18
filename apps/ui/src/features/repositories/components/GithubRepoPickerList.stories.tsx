@@ -26,14 +26,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-/** Linked repositories: pick any number. */
+/**
+ * List where a user picks GitHub repositories to link: the linked repositories
+ * have checkboxes, so the user can pick any number. The user ticked the first.
+ */
 export const Multiple: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "List where a user picks GitHub repositories: linked repositories with checkboxes, and the user ticked the first.",
-    },
-  },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     const [firstBox] = await canvas.findAllByRole("checkbox")
@@ -43,14 +40,11 @@ export const Multiple: Story = {
   },
 }
 
-/** The Workspace repository: exactly one. */
+/**
+ * List where a user picks the GitHub repository of a Workspace: the
+ * repositories have radio buttons, so the user picks exactly one.
+ */
 export const Single: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "List where a user picks GitHub repositories: the Workspace repository with radio buttons, so only one is picked.",
-    },
-  },
   args: {
     selectionMode: "single",
     selectedIds: new Set([secondRepo.id]),

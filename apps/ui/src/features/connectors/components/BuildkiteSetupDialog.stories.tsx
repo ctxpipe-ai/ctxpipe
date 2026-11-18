@@ -79,12 +79,12 @@ async function visible(element: HTMLElement) {
   return element
 }
 
+/**
+ * Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the user
+ * enters a slug and token and moves on to the webhook step.
+ */
 export const ConnectWithToken: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the user enters a slug and token and moves on to the webhook step.",
-    },
     msw: {
       handlers: {
         page: [
@@ -134,12 +134,13 @@ export const ConnectWithToken: Story = {
   },
 }
 
+/**
+ * Buildkite setup dialog at the Connect Buildkite step: the admin pressed
+ * Connect Buildkite, and Buildkite refused the token because it lacks the
+ * read_builds scope.
+ */
 export const TokenRefused: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Buildkite setup dialog at the Connect Buildkite step: the admin pressed Connect Buildkite, and Buildkite refused the token because it lacks the read_builds scope.",
-    },
     msw: {
       handlers: {
         page: [
@@ -206,13 +207,13 @@ function webhookHandlers() {
   ]
 }
 
+/**
+ * Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the user
+ * saves the webhook token and moves on to the Workspaces step.
+ */
 export const SaveWebhookToken: Story = {
   args: { connectionId },
   parameters: {
-    review: {
-      purpose:
-        "Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the user saves the webhook token and moves on to the Workspaces step.",
-    },
     msw: { handlers: { page: webhookHandlers() } },
   },
   play: async ({ canvasElement }) => {
@@ -254,15 +255,15 @@ export const SaveWebhookToken: Story = {
   },
 }
 
+/**
+ * Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the
+ * webhook step opens with an empty field to replace the saved token.
+ */
 export const ReplaceWebhookToken: Story = {
   args: { connectionId, replaceWebhook: true },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as ConnectWithToken.",
-    },
-    review: {
-      purpose:
-        "Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the webhook step opens with an empty field to replace the saved token.",
     },
     msw: {
       handlers: {
@@ -285,14 +286,14 @@ export const ReplaceWebhookToken: Story = {
 
 const addCalls: { method: string; path: string; body: unknown }[] = []
 
+/**
+ * Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the user
+ * adds a pipeline to a Workspace and reaches the merge step.
+ */
 export const AddToWorkspaces: Story = {
   name: "Add Buildkite to Workspaces",
   args: { connectionId },
   parameters: {
-    review: {
-      purpose:
-        "Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the user adds a pipeline to a Workspace and reaches the merge step.",
-    },
     msw: {
       handlers: {
         page: [
@@ -345,13 +346,13 @@ export const AddToWorkspaces: Story = {
   },
 }
 
+/**
+ * Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the saved
+ * token was revoked and the user enters a new token.
+ */
 export const Reconnect: Story = {
   args: { connectionId },
   parameters: {
-    review: {
-      purpose:
-        "Buildkite setup dialog, which connects a Buildkite org to ctxpipe: the saved token was revoked and the user enters a new token.",
-    },
     msw: {
       handlers: {
         page: [

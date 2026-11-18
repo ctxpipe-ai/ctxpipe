@@ -90,7 +90,11 @@ function withUpgrades(
   }
 }
 
-/** A queued run: it has not started a stage. The card says that the user can leave. */
+/**
+ * Progress card of a Workspace format upgrade: the run is queued and has not
+ * started a stage. The card gives the time so far and tells the user that they
+ * can leave the page.
+ */
 export const Queued: Story = {
   parameters: {
     ...withUpgrades(
@@ -98,10 +102,6 @@ export const Queued: Story = {
         upgradeItemFixture({ status: "queued", approvedAt: minutesAgo(0.2) }),
       ]),
     ),
-    review: {
-      purpose:
-        "Progress card of a Workspace format upgrade: the run is queued and has not started a stage.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -120,7 +120,11 @@ export const Queued: Story = {
   },
 }
 
-/** The run is in its second stage: the step, the bar, the time so far, and the leave note. */
+/**
+ * Progress card of a Workspace format upgrade: the run is in its second stage,
+ * with the step, the progress bar, the time so far, and the note that the user
+ * can leave the page.
+ */
 export const RunningStage: Story = {
   parameters: {
     ...withUpgrades(
@@ -132,10 +136,6 @@ export const RunningStage: Story = {
         }),
       ]),
     ),
-    review: {
-      purpose:
-        "Progress card of a Workspace format upgrade: the run is in its second stage, with the step, bar and elapsed time.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -156,7 +156,10 @@ export const RunningStage: Story = {
   },
 }
 
-/** A re-ingestion shows how many source repositories are done, and the one that it reads now. */
+/**
+ * Progress card of a Workspace re-ingestion: one of three source repositories
+ * is done, and the card names the repository that ctxpipe reads now.
+ */
 export const ReingestProgress: Story = {
   parameters: {
     ...withUpgrades(
@@ -185,10 +188,6 @@ export const ReingestProgress: Story = {
         { formatVersion: 3 },
       ),
     ),
-    review: {
-      purpose:
-        "Progress card of a Workspace re-ingestion: one of three source repositories is done.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -208,7 +207,11 @@ export const ReingestProgress: Story = {
   },
 }
 
-/** A re-ingestion that plans its run has no count yet: the bar pulses. */
+/**
+ * Re-ingestion item in the Upgrades card, seconds after the admin pressed
+ * Start: ctxpipe plans the run and has no repository count yet, so the progress
+ * bar pulses with no value.
+ */
 export const ReingestPlanning: Story = {
   parameters: {
     ...withUpgrades(
@@ -224,10 +227,6 @@ export const ReingestPlanning: Story = {
         { formatVersion: 3 },
       ),
     ),
-    review: {
-      purpose:
-        "Re-ingestion item in the Upgrades card, seconds after the admin pressed Start: ctxpipe plans the run and has no repository count yet, so the progress bar pulses with no value.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -238,13 +237,13 @@ export const ReingestPlanning: Story = {
   },
 }
 
-/** ctxpipe saw the merge. The card says what it reads now and what comes next. */
+/**
+ * Format upgrade item in the Upgrades card: the admin merged the upgrade pull
+ * request two minutes ago, so a progress block says that ctxpipe reads the new
+ * format, how long it has taken, and what comes next.
+ */
 export const MergedReadingFormat: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Format upgrade item in the Upgrades card: the admin merged the upgrade pull request two minutes ago, so a progress block says that ctxpipe reads the new format and how long it has taken.",
-    },
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
     msw: {
       handlers: {
@@ -302,7 +301,11 @@ export const MergedReadingFormat: Story = {
   },
 }
 
-/** Check again shows that it ran, and what it found: the pull request is still open. */
+/**
+ * Progress card of a Workspace format upgrade: the user pressed Check again,
+ * and the pull request is still open. The card and a toast both say that the
+ * check ran and what it found.
+ */
 export const CheckAgainStillOpen: Story = {
   parameters: {
     ...withUpgrades(() =>
@@ -318,10 +321,6 @@ export const CheckAgainStillOpen: Story = {
       ),
     ),
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
-    review: {
-      purpose:
-        "Progress card of a Workspace format upgrade: the user pressed Check again and the pull request is still open.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -342,7 +341,10 @@ export const CheckAgainStillOpen: Story = {
   },
 }
 
-/** Check again finds the merge: the card changes to the merged state. */
+/**
+ * Progress card of a Workspace format upgrade: the user pressed Check again,
+ * and it found the merge, so the card changed to the merged state.
+ */
 export const CheckAgainFindsMerge: Story = {
   parameters: {
     ...withUpgrades(() =>
@@ -363,10 +365,6 @@ export const CheckAgainFindsMerge: Story = {
       ),
     ),
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
-    review: {
-      purpose:
-        "Progress card of a Workspace format upgrade: the user pressed Check again and it found the merge.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -388,13 +386,12 @@ export const CheckAgainFindsMerge: Story = {
   },
 }
 
-/** A failed check shows its cause and the next step. */
+/**
+ * Progress card of a Workspace format upgrade: the user pressed Check again,
+ * and the check failed. A message gives the cause and the next step.
+ */
 export const CheckAgainFails: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Progress card of a Workspace format upgrade: the user pressed Check again and the check failed, with the cause and next step.",
-    },
     visual: { allow: { axes: "A layout defect on main (CTX-1279)." } },
     msw: {
       handlers: {
@@ -491,24 +488,25 @@ function checkingFormatTimesOut(role: "owner" | "member"): Story {
   }
 }
 
+/**
+ * Re-ingestion item in the Upgrades card, seen by an owner: the Workspace has
+ * format 3, but the check after the hydrate did not finish in a minute, so a
+ * stale block asks for Check again.
+ */
 export const CheckingFormatTimesOutAdmin: Story = {
   ...checkingFormatTimesOut("owner"),
   parameters: {
     ...checkingFormatTimesOut("owner").parameters,
-    review: {
-      purpose:
-        "Re-ingestion item in the Upgrades card, seen by an owner: the Workspace has format 3, but the check after the hydrate did not finish in a minute, so a stale block asks for Check again.",
-    },
   },
 }
 
+/**
+ * Re-ingestion card in the Upgrades section, for a member: the format check
+ * timed out, so the blocked line comes back with no Check again.
+ */
 export const CheckingFormatTimesOutMember: Story = {
   ...checkingFormatTimesOut("member"),
   parameters: {
     ...checkingFormatTimesOut("member").parameters,
-    review: {
-      purpose:
-        "Re-ingestion card in the Upgrades section, for a member: the format check timed out, so the blocked line comes back with no Check again.",
-    },
   },
 }

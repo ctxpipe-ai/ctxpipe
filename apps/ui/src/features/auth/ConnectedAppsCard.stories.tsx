@@ -29,8 +29,10 @@ type Story = StoryObj<typeof meta>
 const gate = responseGate()
 
 /**
- * While the apps load, each skeleton row has the box of a loaded row: the same
- * height, and the same position and size for the two action buttons.
+ * Connected apps card, where a user sees and revokes the clients that can reach
+ * ctxpipe: the list loaded one app after its skeleton. The test proves that the
+ * skeleton row has the box of a loaded row: the same height, and the same
+ * position and size for the two action buttons.
  */
 export const SkeletonRowMatchesLoadedRow: Story = {
   tags: ["required"],
@@ -66,10 +68,6 @@ export const SkeletonRowMatchesLoadedRow: Story = {
           ),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Connected apps card, where a user sees and revokes the clients that can reach ctxpipe: the list loaded one app after its skeleton.",
     },
   },
   play: async ({ canvasElement }) => {

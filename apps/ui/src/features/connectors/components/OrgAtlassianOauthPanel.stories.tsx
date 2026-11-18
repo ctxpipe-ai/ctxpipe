@@ -47,13 +47,13 @@ const panel = () => (
   <OrgAtlassianOauthPanel orgSlug={orgSlug} connectionId={connectionId} />
 )
 
+/**
+ * Atlassian OAuth panel, where the admin registers a private Atlassian OAuth
+ * app for the org: the standalone panel with no OAuth app saved.
+ */
 export const OAuthPanel: Story = {
   render: panel,
   parameters: {
-    review: {
-      purpose:
-        "Atlassian OAuth panel, where the admin registers a private Atlassian OAuth app for the org: the standalone panel with no OAuth app saved.",
-    },
     msw: {
       handlers: {
         page: baseHandlers,
@@ -62,13 +62,13 @@ export const OAuthPanel: Story = {
   },
 }
 
+/**
+ * Atlassian OAuth panel, where the admin registers a private Atlassian OAuth
+ * app for the org: the standalone panel with an OAuth app already saved.
+ */
 export const OauthAppSaved: Story = {
   render: panel,
   parameters: {
-    review: {
-      purpose:
-        "Atlassian OAuth panel, where the admin registers a private Atlassian OAuth app for the org: the standalone panel with an OAuth app already saved.",
-    },
     msw: {
       handlers: {
         page: [
@@ -80,6 +80,10 @@ export const OauthAppSaved: Story = {
   },
 }
 
+/**
+ * Atlassian OAuth panel inside the Atlassian setup wizard, where the admin
+ * registers a private OAuth app: no OAuth app is saved yet.
+ */
 export const Embedded: Story = {
   name: "Embedded (wizard)",
   render: () => (
@@ -90,10 +94,6 @@ export const Embedded: Story = {
     />
   ),
   parameters: {
-    review: {
-      purpose:
-        "Atlassian OAuth panel inside the Atlassian setup wizard, where the admin registers a private OAuth app: no OAuth app is saved yet.",
-    },
     msw: {
       handlers: {
         page: baseHandlers,
@@ -102,6 +102,11 @@ export const Embedded: Story = {
   },
 }
 
+/**
+ * Register step of the Confluence setup wizard, opened again from the step list
+ * after the save: the panel names the saved Client ID and lets the admin change
+ * it or the secret.
+ */
 export const EmbeddedOauthConfigured: Story = {
   name: "Embedded + OAuth configured",
   render: () => (
@@ -112,10 +117,6 @@ export const EmbeddedOauthConfigured: Story = {
     />
   ),
   parameters: {
-    review: {
-      purpose:
-        "Register step of the Confluence setup wizard, opened again from the step list after the save: the panel names the saved Client ID and lets the admin change it or the secret.",
-    },
     msw: {
       handlers: {
         page: [

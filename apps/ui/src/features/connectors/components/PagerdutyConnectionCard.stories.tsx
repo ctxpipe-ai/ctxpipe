@@ -109,24 +109,24 @@ function card() {
   )
 }
 
+/**
+ * PagerDuty card on the Connectors page, collapsed: the PagerDuty account is
+ * connected, so the status is Connected.
+ */
 export const Connected: Story = {
   render: () => shell(card()),
   parameters: {
-    review: {
-      purpose:
-        "PagerDuty card on the Connectors page, collapsed: the PagerDuty account is connected, so the status is Connected.",
-    },
     msw: { handlers: { page: [pagerdutyStatus(statusComplete)] } },
   },
 }
 
+/**
+ * PagerDuty connection card on the Connectors page: the status request is still
+ * loading.
+ */
 export const Checking: Story = {
   render: () => shell(card()),
   parameters: {
-    review: {
-      purpose:
-        "PagerDuty connection card on the Connectors page: the status request is still loading.",
-    },
     msw: {
       handlers: {
         page: [
@@ -146,13 +146,13 @@ export const Checking: Story = {
   },
 }
 
+/**
+ * PagerDuty connection card on the Connectors page: the status request failed,
+ * so the card cannot show the connection.
+ */
 export const CouldntLoad: Story = {
   render: () => shell(card()),
   parameters: {
-    review: {
-      purpose:
-        "PagerDuty connection card on the Connectors page: the status request failed, so the card cannot show the connection.",
-    },
     msw: {
       handlers: {
         page: [
@@ -172,13 +172,13 @@ export const CouldntLoad: Story = {
 const statusReads = fn()
 const deleted = fn()
 
+/**
+ * PagerDuty connection card on the Connectors page: the setup is not complete,
+ * so the card offers to continue or delete the draft.
+ */
 export const PendingSetup: Story = {
   render: () => shell(card()),
   parameters: {
-    review: {
-      purpose:
-        "PagerDuty connection card on the Connectors page: the setup is not complete, so the card offers to continue or delete the draft.",
-    },
     msw: {
       handlers: {
         page: [
@@ -216,13 +216,13 @@ export const PendingSetup: Story = {
     }),
 }
 
+/**
+ * PagerDuty connection card on the Connectors page: PagerDuty revoked the
+ * access, so the card shows Needs reconnect instead of Connected.
+ */
 export const RevokedLive: Story = {
   render: () => shell(card()),
   parameters: {
-    review: {
-      purpose:
-        "PagerDuty connection card on the Connectors page: PagerDuty revoked the access, so the card shows Needs reconnect instead of Connected.",
-    },
     msw: {
       handlers: {
         page: [
@@ -245,15 +245,15 @@ export const RevokedLive: Story = {
   },
 }
 
+/**
+ * PagerDuty connection card on the Connectors page: auth is done and each
+ * Workspace sets its own scope, so the card shows no scope.
+ */
 export const ConnectedWithoutSyncRepository: Story = {
   name: "Connected, scope set in each Workspace",
   render: () => shell(card()),
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Connected." },
-    review: {
-      purpose:
-        "PagerDuty connection card on the Connectors page: auth is done and each Workspace sets its own scope, so the card shows no scope.",
-    },
     msw: {
       handlers: {
         page: [
@@ -283,14 +283,14 @@ export const ConnectedWithoutSyncRepository: Story = {
   },
 }
 
+/**
+ * PagerDuty connection card on the Connectors page: the access is revoked, and
+ * the admin opens the menu to pick Reconnect PagerDuty.
+ */
 export const RevokedOpensReconnect: Story = {
   name: "Revoked, reconnect opens setup",
   render: () => shell(card()),
   parameters: {
-    review: {
-      purpose:
-        "PagerDuty connection card on the Connectors page: the access is revoked, and the admin opens the menu to pick Reconnect PagerDuty.",
-    },
     msw: {
       handlers: {
         page: [

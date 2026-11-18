@@ -108,13 +108,13 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Confluence card on the Connectors page, collapsed: the Forge app is
+ * installed, so the connection is live and the status is Connected.
+ */
 export const Connected: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
-    review: {
-      purpose:
-        "Confluence card on the Connectors page, collapsed: the Forge app is installed, so the connection is live and the status is Connected.",
-    },
     msw: {
       handlers: {
         page: [
@@ -150,14 +150,14 @@ async function expectLiveRowNotPending(canvasElement: HTMLElement) {
   ).toBeVisible()
 }
 
+/**
+ * Confluence connection card on the Connectors page: the connection is live,
+ * and the viewing member has no Atlassian link of their own.
+ */
 export const LiveViewerWithoutAtlassianLink: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Connected." },
-    review: {
-      purpose:
-        "Confluence connection card on the Connectors page: the connection is live, and the viewing member has no Atlassian link of their own.",
-    },
     msw: {
       handlers: {
         page: [
@@ -179,13 +179,13 @@ export const LiveViewerWithoutAtlassianLink: Story = {
   },
 }
 
+/**
+ * Confluence connection card on the Connectors page: a live connection whose
+ * Forge app was uninstalled, so it needs a reconnect.
+ */
 export const LiveForgeUninstalled: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
-    review: {
-      purpose:
-        "Confluence connection card on the Connectors page: a live connection whose Forge app was uninstalled, so it needs a reconnect.",
-    },
     msw: {
       handlers: {
         page: [
@@ -202,13 +202,13 @@ export const LiveForgeUninstalled: Story = {
   play: async ({ canvasElement }) => expectLiveRowNotPending(canvasElement),
 }
 
+/**
+ * Confluence connection card on the Connectors page: the status request has not
+ * returned, so the card is still checking.
+ */
 export const Checking: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
-    review: {
-      purpose:
-        "Confluence connection card on the Connectors page: the status request has not returned, so the card is still checking.",
-    },
     msw: {
       handlers: {
         page: [
@@ -231,13 +231,13 @@ export const Checking: Story = {
   },
 }
 
+/**
+ * Confluence card on the Connectors page: the status read failed, so a row
+ * under the head gives the cause and a Retry button without a click.
+ */
 export const CouldntLoad: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
-    review: {
-      purpose:
-        "Confluence card on the Connectors page: the status read failed, so a row under the head gives the cause and a Retry button without a click.",
-    },
     msw: {
       handlers: {
         page: [
@@ -260,15 +260,15 @@ export const CouldntLoad: Story = {
 const onOpenWizard = fn()
 const deletePendingSetup = fn()
 
+/**
+ * Confluence connection card on the Connectors page: setup is not finished, the
+ * card is open with a Link Atlassian account action.
+ */
 export const PendingSetup: Story = {
   render: () => (
     <ConfluenceConnectionCard {...cardProps} onOpenWizard={onOpenWizard} />
   ),
   parameters: {
-    review: {
-      purpose:
-        "Confluence connection card on the Connectors page: setup is not finished, the card is open with a Link Atlassian account action.",
-    },
     msw: {
       handlers: {
         page: [
@@ -300,13 +300,13 @@ export const PendingSetup: Story = {
   },
 }
 
+/**
+ * Confluence connection card on the Connectors page: the user removes an
+ * unfinished setup through a confirm dialog.
+ */
 export const RemovePendingSetup: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
-    review: {
-      purpose:
-        "Confluence connection card on the Connectors page: the user removes an unfinished setup through a confirm dialog.",
-    },
     msw: {
       handlers: {
         page: [
@@ -347,14 +347,15 @@ export const RemovePendingSetup: Story = {
   },
 }
 
-/** A new connection holds auth only; the scope is in each Workspace. */
+/**
+ * Confluence connection card on the Connectors page: Confluence is connected
+ * but in no Workspace yet. The card is open and offers Add to a Workspace. The
+ * new connection holds only the auth, because each Workspace holds its own
+ * scope (ADR-050).
+ */
 export const InstalledNotInWorkspaces: Story = {
   render: () => <ConfluenceConnectionCard {...cardProps} />,
   parameters: {
-    review: {
-      purpose:
-        "Confluence connection card on the Connectors page: connected but in no Workspace yet, the card is open with an Add to a Workspace action.",
-    },
     msw: {
       handlers: {
         usage: [connectionUsageHandler([])],

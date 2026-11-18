@@ -111,12 +111,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Linear connection card on the Connectors page: the status request has not
+ * returned, so the card is still checking.
+ */
 export const Checking: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Linear connection card on the Connectors page: the status request has not returned, so the card is still checking.",
-    },
     msw: {
       handlers: {
         page: [
@@ -130,12 +130,12 @@ export const Checking: Story = {
   },
 }
 
+/**
+ * Linear connection card on the Connectors page: the status request failed, so
+ * the card could not load.
+ */
 export const CouldntLoad: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Linear connection card on the Connectors page: the status request failed, so the card could not load.",
-    },
     msw: {
       handlers: {
         page: [
@@ -152,12 +152,12 @@ export const CouldntLoad: Story = {
 const statusReads = fn()
 const deleted = fn()
 
+/**
+ * Linear connection card on the Connectors page: Linear is not installed yet,
+ * so setup is not finished.
+ */
 export const PendingSetup: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Linear connection card on the Connectors page: Linear is not installed yet, so setup is not finished.",
-    },
     msw: {
       handlers: {
         page: [
@@ -186,13 +186,13 @@ export const PendingSetup: Story = {
     }),
 }
 
-/** An installed connection: no setup action; "Used in" adds it to Workspaces. */
+/**
+ * Linear connection card on the Connectors page: Linear is installed and one
+ * Workspace uses it. The card has no setup action, and "Used in" adds the
+ * connection to more Workspaces.
+ */
 export const Connected: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Linear connection card on the Connectors page: Linear is installed and one Workspace uses it.",
-    },
     msw: { handlers: { page: [statusHandler(connected)] } },
   },
   play: async ({ canvasElement }) => {
@@ -205,13 +205,12 @@ export const Connected: Story = {
   },
 }
 
-/** Connected, but no Workspace uses it yet, so nothing syncs. */
+/**
+ * Linear connection card on the Connectors page: Linear is connected but no
+ * Workspace uses it yet. The card is open and says that nothing syncs yet.
+ */
 export const ConnectedNotInAWorkspace: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Linear connection card on the Connectors page: connected but in no Workspace, the card is open and says that nothing syncs yet.",
-    },
     msw: {
       handlers: {
         usage: [connectionUsageHandler([])],
@@ -249,7 +248,10 @@ async function openActionsMenu(canvasElement: HTMLElement) {
   return within(document.body)
 }
 
-/** An admin starts a sync from the actions menu; a toast confirms it. */
+/**
+ * Linear connection card on the Connectors page: an admin starts a sync with
+ * Sync now in the actions menu, and a toast confirms it.
+ */
 export const SyncNowFromMenu: Story = {
   decorators: [
     (Story) => (
@@ -260,10 +262,6 @@ export const SyncNowFromMenu: Story = {
     ),
   ],
   parameters: {
-    review: {
-      purpose:
-        "Linear connection card on the Connectors page: an admin starts a sync from the actions menu and a toast confirms it.",
-    },
     msw: {
       handlers: {
         role: [activeMemberRoleHandler("admin")],
@@ -287,6 +285,10 @@ export const SyncNowFromMenu: Story = {
   },
 }
 
+/**
+ * Linear connection card on the Connectors page: an owner starts a sync from
+ * the actions menu and an error toast says it could not start.
+ */
 export const SyncNowFails: Story = {
   decorators: [
     (Story) => (
@@ -297,10 +299,6 @@ export const SyncNowFails: Story = {
     ),
   ],
   parameters: {
-    review: {
-      purpose:
-        "Linear connection card on the Connectors page: an owner starts a sync from the actions menu and an error toast says it could not start.",
-    },
     msw: {
       handlers: {
         role: [activeMemberRoleHandler("owner")],
@@ -321,13 +319,13 @@ export const SyncNowFails: Story = {
   },
 }
 
-/** Only an org admin or owner can start a sync. */
+/**
+ * Linear connection card on the Connectors page: a member who is not an admin
+ * opens the actions menu. The menu holds only Remove connector, because only an
+ * org admin or owner can start a sync.
+ */
 export const SyncNowHiddenForMember: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Linear card on the Connectors page: a member who is not an admin opens the actions menu, which holds only Remove connector because Sync now is for admins.",
-    },
     msw: {
       handlers: {
         role: [activeMemberRoleHandler("member")],
@@ -343,17 +341,14 @@ export const SyncNowHiddenForMember: Story = {
 }
 
 /**
- * A Workspace with only an open source pull request has nothing to sync
- * yet: the sync starts after the merge.
+ * Linear connection card on the Connectors page: the only Workspace has only an
+ * open source pull request, so the actions menu has no Sync now item. The sync
+ * starts after the merge.
  */
 export const SyncNowHiddenWhileAwaitingMerge: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as SyncNowHiddenForMember.",
-    },
-    review: {
-      purpose:
-        "Linear connection card on the Connectors page: the only Workspace waits on a pull request merge, so the actions menu has no Sync now item.",
     },
     msw: {
       handlers: {
@@ -387,12 +382,12 @@ export const SyncNowHiddenWhileAwaitingMerge: Story = {
   },
 }
 
+/**
+ * Linear connection card on the Connectors page: a live connection whose access
+ * was revoked, so it needs a reconnect.
+ */
 export const Revoked: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Linear connection card on the Connectors page: a live connection whose access was revoked, so it needs a reconnect.",
-    },
     msw: {
       handlers: {
         page: [
@@ -416,13 +411,14 @@ export const Revoked: Story = {
   },
 }
 
+/**
+ * Linear connection card on the Connectors page: access was revoked on a
+ * connection that is not installed, and the card shows needs reconnect, not
+ * setup not finished.
+ */
 export const RevokedDraft: Story = {
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Revoked." },
-    review: {
-      purpose:
-        "Linear connection card on the Connectors page: access was revoked on a connection that is not installed, and the card shows needs reconnect, not setup not finished.",
-    },
     msw: {
       handlers: {
         page: [

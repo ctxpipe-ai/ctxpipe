@@ -39,12 +39,10 @@ function Interactive() {
   )
 }
 
+/**
+ * Credentials step of the self-hosted GitHub App setup, where the admin enters
+ * the app id, slug and private key: the form is empty except for the app slug.
+ */
 export const SelfHostedCredentials: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Credentials step of the self-hosted GitHub App setup, where the admin enters the app id, slug and private key: the form is empty except for the app slug.",
-    },
-  },
   render: () => <Interactive />,
 }

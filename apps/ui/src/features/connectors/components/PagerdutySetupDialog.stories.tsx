@@ -56,6 +56,10 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * PagerDuty setup dialog on a self-hosted install: the admin saves a private
+ * OAuth app, and the secret field clears after the save.
+ */
 export const RegisterOAuthApp: Story = {
   render: () => (
     <PagerdutySetupDialog
@@ -67,10 +71,6 @@ export const RegisterOAuthApp: Story = {
     />
   ),
   parameters: {
-    review: {
-      purpose:
-        "PagerDuty setup dialog on a self-hosted install: the admin saves a private OAuth app, and the secret field clears after the save.",
-    },
     msw: {
       handlers: {
         page: [
@@ -132,6 +132,10 @@ export const RegisterOAuthApp: Story = {
   },
 }
 
+/**
+ * PagerDuty setup dialog for a new connection on the hosted product: the first
+ * step, with the Connect PagerDuty button and the step list.
+ */
 export const ConnectAccount: Story = {
   render: () => (
     <PagerdutySetupDialog
@@ -142,10 +146,6 @@ export const ConnectAccount: Story = {
     />
   ),
   parameters: {
-    review: {
-      purpose:
-        "PagerDuty setup dialog for a new connection on the hosted product: the first step, with the Connect PagerDuty button and the step list.",
-    },
     msw: {
       handlers: {
         page: [
@@ -224,14 +224,14 @@ const installedHandlers = [
   connectionUsageHandler([]),
 ]
 
+/**
+ * PagerDuty setup dialog after the connect: the admin adds a PagerDuty service
+ * to a Workspace, and the dialog links the pull request to merge.
+ */
 export const AddToWorkspaces: Story = {
   name: "Add PagerDuty to Workspaces",
   render: () => dialog(),
   parameters: {
-    review: {
-      purpose:
-        "PagerDuty setup dialog after the connect: the admin adds a PagerDuty service to a Workspace, and the dialog links the pull request to merge.",
-    },
     msw: { handlers: { page: installedHandlers } },
   },
   play: async ({ canvasElement }) => {
@@ -279,14 +279,15 @@ export const AddToWorkspaces: Story = {
   },
 }
 
+/**
+ * PagerDuty setup dialog at Add to Workspaces for a connection from an earlier
+ * setup: a warning says ctxpipe no longer uses its open configuration pull
+ * request.
+ */
 export const ReplacedSetup: Story = {
   name: "Replaced setup with a config pull request",
   render: () => dialog(),
   parameters: {
-    review: {
-      purpose:
-        "PagerDuty setup dialog at Add to Workspaces for a connection from an earlier setup: a warning says ctxpipe no longer uses its open configuration pull request.",
-    },
     msw: {
       handlers: {
         page: [

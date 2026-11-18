@@ -44,14 +44,16 @@ const step = () => (
   />
 )
 
+/**
+ * Step of the self-hosted Confluence setup where the org registers its
+ * Atlassian OAuth app: the empty form, no app saved yet.
+ */
 export const RegisterOAuth: Story = {
   name: "3LO credential form",
   render: step,
   parameters: {
     review: {
       kind: "component",
-      purpose:
-        "Step of the self-hosted Confluence setup where the org registers its Atlassian OAuth app: the empty form, no app saved yet.",
     },
     msw: {
       handlers: {

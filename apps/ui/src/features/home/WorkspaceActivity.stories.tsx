@@ -179,16 +179,13 @@ function clickDay(canvasElement: HTMLElement, date: string) {
 }
 
 /**
- * The month labels stay in the box of the heatmap. The box keeps its height
- * while it loads, so a label below it goes over the Recent header.
+ * Activity section on Home, where a member sees the commits of a Workspace: the
+ * heatmap of the last year with its day and month labels, above the Recent
+ * list. The test proves that the month labels stay in the box of the heatmap.
+ * The box keeps its height while it loads, so a label below the box would go
+ * over the Recent header.
  */
 export const MonthLabelsStayInTheChart: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Activity section on Home, where a member sees the commits of a Workspace: the heatmap of the last year with its day and month labels, above the Recent list.",
-    },
-  },
   play: async ({ canvasElement }) => {
     await waitFor(() =>
       expect(dayCell(canvasElement, "2026-08-22")).not.toBeNull(),
@@ -213,16 +210,12 @@ export const MonthLabelsStayInTheChart: Story = {
 }
 
 /**
- * A click on a day shows only the commits of that day and outlines the day.
- * The day goes into the URL. Reset shows the latest commits again.
+ * Workspace activity section on the org home: the user clicked a day in the
+ * heatmap, so Recent listed only the commits of that day, outlined the day and
+ * put it in the URL. Then the user pressed Reset, and Recent lists the latest
+ * commits again.
  */
 export const DayFiltersRecent: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Workspace activity section on the org home: the user clicked a day in the heatmap, so Recent lists only that day's commits.",
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -268,14 +261,12 @@ export const DayFiltersRecent: Story = {
   },
 }
 
-/** Enter on the focused day selects it. A day without commits says so. */
+/**
+ * Workspace activity section on the org home: the user pressed Enter on a
+ * focused heatmap day that has no commits. The day is selected, and Recent says
+ * that the day has no commits.
+ */
 export const KeyboardSelectsEmptyDay: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Workspace activity section on the org home: the user chose a day with no commits by keyboard, and Recent says so.",
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -301,15 +292,13 @@ export const KeyboardSelectsEmptyDay: Story = {
 }
 
 /**
- * The author menu lists the authors of the window, each with an avatar. A
- * pick reads only the commits of that author and goes into the URL.
+ * Workspace activity section on the org home: the author menu lists the authors
+ * of the window, each with an avatar. The user picked an author, so Recent read
+ * only that author's commits, and then clicked a day. No commit matches both
+ * filters, and Recent says so.
  */
 export const AuthorFiltersRecent: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Workspace activity section on the org home: the user picked an author in the author menu, so Recent lists only their commits.",
-    },
     intent:
       "Catches an author filter that does not narrow the recent commits. Choosing an author must update the button and send the author to the activity request. Not for the date filter or commit rows.",
   },
@@ -367,14 +356,12 @@ export const AuthorFiltersRecent: Story = {
   },
 }
 
-/** A date range preset sends `since` and goes into the URL. */
+/**
+ * Workspace activity section on the org home: the user picked a date range
+ * preset, so Recent lists the commits since that date. The preset sends `since`
+ * and goes into the URL.
+ */
 export const DateRangeFiltersRecent: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Workspace activity section on the org home: the user picked a date range preset, so Recent lists commits since that date.",
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const page = within(canvasElement.ownerDocument.body)
@@ -407,15 +394,12 @@ export const DateRangeFiltersRecent: Story = {
 }
 
 /**
- * A custom range: type the first and the last day in the range picker. The
- * list reads `since` and `until`, and both go into the URL.
+ * Workspace activity section on the org home: the user typed a custom start and
+ * end day in the date range picker, and Recent lists the commits in that range.
+ * The list reads `since` and `until`, and both go into the URL.
  */
 export const CustomDateRange: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Workspace activity section on the org home: the user typed a custom start and end day in the date range picker.",
-    },
     intent:
       "Catches a custom date range that does not reach the activity request. Typed start and end dates must send since and until values. Not for the author filter or commit rows.",
   },
@@ -495,13 +479,13 @@ function selectedCells(page: ReturnType<typeof within>): HTMLElement[] {
     .filter((cell: HTMLElement) => cell.hasAttribute("data-selected"))
 }
 
-/** A one-day range keeps every corner round. */
+/**
+ * Date filter of the Recent commits list on Home: the user opened the date menu
+ * and its calendar for a range of one day, Aug 12. That day shows as one cell
+ * with every corner round.
+ */
 export const OneDayRange: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Date filter of the Recent commits list on Home: the user opened the date menu and its calendar for a range of one day, Aug 12, which shows as one round cell.",
-    },
     storyRoute: {
       pattern: "orgIndex",
       orgSlug: "acme",
@@ -518,13 +502,13 @@ export const OneDayRange: Story = {
   },
 }
 
-/** A range inside one week: round start, flat middle, round end. */
+/**
+ * Date filter of the Recent commits list on Home: the user opened the date menu
+ * and its calendar. The range Aug 10 to 13, inside one week, shows as one band:
+ * a round start, a flat middle and a round end.
+ */
 export const MultiDayRange: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Date filter of the Recent commits list on Home: the user opened the date menu and its calendar, and the range Aug 10 to 13 shows as one band.",
-    },
     storyRoute: {
       pattern: "orgIndex",
       orgSlug: "acme",
@@ -546,13 +530,12 @@ export const MultiDayRange: Story = {
   },
 }
 
-/** A range over three weeks stays one connected band. */
+/**
+ * Date range calendar of the Workspace activity section: a range over three
+ * weeks is selected, and it stays one connected band.
+ */
 export const RangeAcrossWeeks: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Date range calendar of the Workspace activity section: a range over three weeks is selected as one connected band.",
-    },
     storyRoute: {
       pattern: "orgIndex",
       orgSlug: "acme",
@@ -571,15 +554,14 @@ export const RangeAcrossWeeks: Story = {
   },
 }
 
-/** On a short window the calendar popover stays inside the viewport. */
+/**
+ * Date range calendar of the Workspace activity section in a short window: the
+ * user opened the calendar, and its popover stays inside the viewport.
+ */
 export const CalendarOnShortViewport: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as RangeAcrossWeeks.",
-    },
-    review: {
-      purpose:
-        "Date range calendar of the Workspace activity section in a short window: the open calendar stays inside the viewport.",
     },
     storyRoute: {
       pattern: "orgIndex",
@@ -600,13 +582,13 @@ export const CalendarOnShortViewport: Story = {
   },
 }
 
-/** The field and the calendar follow the browser locale (here German). */
+/**
+ * Date range field and calendar of the Workspace activity section in a German
+ * browser locale: the field and the calendar follow the browser locale, so the
+ * day comes before the month.
+ */
 export const GermanLocale: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Date range field and calendar of the Workspace activity section in a German browser locale.",
-    },
     storyRoute: {
       pattern: "orgIndex",
       orgSlug: "acme",
@@ -639,18 +621,15 @@ export const GermanLocale: Story = {
 }
 
 /**
- * A reload keeps the filters: the view comes from the URL. One Reset clears
- * the author, the day, and the date range.
+ * Workspace activity section on the org home: the page opened with author, day
+ * and date range filters from the URL, as after a reload. The user pressed
+ * Reset once, which cleared all three filters.
  */
 export const ResetClearsEveryFilter: Story = {
   tags: ["required"],
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as MonthLabelsStayInTheChart.",
-    },
-    review: {
-      purpose:
-        "Workspace activity section on the org home: the user pressed Reset, which cleared the author, day and date range filters.",
     },
     intent:
       "Catches a reset that leaves a filter active. Author, day, and date range from the URL must all clear and the list must load again. Not for the filter menus.",
@@ -733,16 +712,14 @@ function beadTops(canvasElement: HTMLElement): number[] {
 }
 
 /**
- * The list shows ten commits. Load more reads the next page with the cursor
- * and adds it under the rows; the rows above and the commit line do not move.
+ * Recent commits list under the activity heatmap on Home: the list shows ten
+ * commits, and the user pressed Load more. Commits 11 and 12 came under the
+ * first ten with the cursor, and the button went away. The rows above and the
+ * commit line do not move.
  */
 export const LoadMorePages: Story = {
   tags: ["required"],
   parameters: {
-    review: {
-      purpose:
-        "Recent commits list under the activity heatmap on Home: the user pressed Load more, so commits 11 and 12 came under the first ten and the button went away.",
-    },
     intent:
       "Catches Load more that replaces or moves earlier commits. New commits append after the first ten and the button goes away at the end. Not for filters or row content.",
     msw: { handlers: { page: activityHandlers(twelveCommits) } },
@@ -775,16 +752,12 @@ export const LoadMorePages: Story = {
 }
 
 /**
- * The filter starts on the composer's workspace. All workspaces shows the
- * commits of the org, each with its workspace, and a day filters them too.
+ * Workspace activity section on the org home, where the filter starts on the
+ * Workspace of the composer: the user chose All workspaces, so each commit
+ * names its Workspace. Then the user clicked a day, which filters the commits
+ * of all Workspaces too.
  */
 export const AllWorkspaces: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Workspace activity section on the org home: the user chose All workspaces, so each commit names its Workspace.",
-    },
-  },
   args: {
     workspaces: [
       { slug: "docs", displayName: "Docs" },
@@ -850,8 +823,9 @@ export const AllWorkspaces: Story = {
 let pendingOrgReads = 0
 
 /**
- * All workspaces shows the data at once while a workspace is not ready, with a
- * note, and polls slowly. Before CTX-556 it stayed loading and polled every 2 s.
+ * Workspace activity section set to All workspaces while one Workspace is not
+ * ready: the data shows at once with a note, and the section polls slowly.
+ * Before CTX-556 it stayed in the loading state and polled every 2 s.
  */
 export const AllWorkspacesPendingNote: Story = {
   args: {
@@ -861,10 +835,6 @@ export const AllWorkspacesPendingNote: Story = {
     ],
   },
   parameters: {
-    review: {
-      purpose:
-        "Workspace activity section set to All workspaces while one Workspace is not ready: the data shows with a note.",
-    },
     msw: {
       handlers: {
         page: [
@@ -921,7 +891,10 @@ export const AllWorkspacesPendingNote: Story = {
   },
 }
 
-/** All workspaces shows only the loading state while no workspace is ready. */
+/**
+ * Workspace activity section set to All workspaces while no Workspace is ready:
+ * only the loading state shows, with no empty message and no note.
+ */
 export const AllWorkspacesNoneReady: Story = {
   args: {
     workspaces: [
@@ -930,10 +903,6 @@ export const AllWorkspacesNoneReady: Story = {
     ],
   },
   parameters: {
-    review: {
-      purpose:
-        "Workspace activity section set to All workspaces while no Workspace is ready: only the loading state shows.",
-    },
     msw: {
       handlers: {
         page: [

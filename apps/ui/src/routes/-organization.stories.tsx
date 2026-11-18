@@ -52,7 +52,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-/** The whole page: the org shell, the settings frame and the Settings view. */
+/**
+ * Organization settings page with the org shell, where an admin manages the
+ * organization: the Settings view is open, with the org shell, the settings
+ * frame and the sub-menu.
+ */
 export const Settings: Story = {
   tags: ["page"],
   args: {
@@ -60,11 +64,7 @@ export const Settings: Story = {
   },
   parameters: {
     app: "org",
-    review: {
-      kind: "page",
-      purpose:
-        "Organization settings page with the org shell, where an admin manages the organization: the Settings view is open.",
-    },
+    review: { kind: "page" },
     route: "/$orgSlug/organization/$organizationView",
     msw: {
       handlers: {
@@ -90,12 +90,12 @@ export const Settings: Story = {
   },
 }
 
+/**
+ * Body of the organization settings page, where an admin manages the org API
+ * keys: the org has no API keys yet.
+ */
 export const ApiKeysEmpty: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Body of the organization settings page, where an admin manages the org API keys: the org has no API keys yet.",
-    },
     msw: {
       handlers: {
         page: [
@@ -119,12 +119,12 @@ export const ApiKeysEmpty: Story = {
   },
 }
 
+/**
+ * Body of the organization settings page, where an admin manages the org API
+ * keys: the org has a list of API keys.
+ */
 export const ApiKeysPopulated: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Body of the organization settings page, where an admin manages the org API keys: the org has a list of API keys.",
-    },
     msw: {
       handlers: {
         page: [
@@ -137,12 +137,12 @@ export const ApiKeysPopulated: Story = {
   },
 }
 
+/**
+ * Body of the organization settings page, where an admin manages the org API
+ * keys: the user is a member and may not see the keys.
+ */
 export const ApiKeysMemberForbidden: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Body of the organization settings page, where an admin manages the org API keys: the user is a member and may not see the keys.",
-    },
     msw: {
       handlers: {
         page: [
@@ -192,13 +192,13 @@ function expectSharedFrame(canvasElement: HTMLElement) {
   expect(frame.nav?.left).toBeCloseTo(frame.titleLeft, 0)
 }
 
-/** Moves between sub-pages with the real sub-menu. The frame stays the same. */
+/**
+ * Body of the organization settings page, with a sub-menu for each view: the
+ * user moved from Settings to Members to API Keys and back to Settings. The
+ * play proves that the title and the sub-menu stay in the same position.
+ */
 export const SubPagesKeepOnePosition: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Body of the organization settings page, with a sub-menu for each view: the user moves from Settings to Members to API Keys and the frame stays in place.",
-    },
     storyRoute: {
       pattern: "orgOrganizationView",
       orgSlug: "acme",
@@ -261,14 +261,12 @@ export const SubPagesKeepOnePosition: Story = {
   },
 }
 
-/** The loading state uses the same frame as the loaded sub-pages. */
+/**
+ * Frame of the organization settings page, with the title and the sub-menu: the
+ * Members view is still loading and shows a skeleton. The loading state uses
+ * the same frame as the loaded views.
+ */
 export const LoadingKeepsFrame: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Frame of the organization settings page, with the title and the sub-menu: the Members view is still loading and shows a skeleton.",
-    },
-  },
   args: { organizationView: "members" },
   render: (args) => (
     <OrganizationSettingsShell

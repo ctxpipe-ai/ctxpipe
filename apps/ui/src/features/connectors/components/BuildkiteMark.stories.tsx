@@ -13,12 +13,14 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Buildkite mark, the logo in the ink color that names Buildkite on its
+ * connector card and setup dialog: the mark alone, enlarged.
+ */
 export const ProductMark: Story = {
   parameters: {
     review: {
       kind: "component",
-      purpose:
-        "Buildkite mark, the logo in the ink color that names Buildkite on its connector card and setup dialog: the mark alone, enlarged.",
     },
   },
 }

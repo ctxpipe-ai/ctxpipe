@@ -48,37 +48,32 @@ function AtHeight(props: { fromBottom: number }) {
   )
 }
 
-/** The trigger is far from the bottom: the menu opens below. */
+/**
+ * Date range menu that filters recent commits: the trigger is far from the
+ * bottom of the window, so the menu opens below it.
+ */
 export const TriggerHigh: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Date range menu that filters recent commits: the trigger is far from the bottom, so the open menu is below it.",
-    },
-  },
   render: () => <AtHeight fromBottom={400} />,
   play: ({ canvasElement }) => expectWholeMenuInView(canvasElement),
 }
 
-/** Not enough room below for the whole menu: it opens above. */
+/**
+ * Date range menu that filters recent commits: the trigger is near the bottom,
+ * and there is not sufficient room below for the whole menu. The menu opens
+ * above it.
+ */
 export const TriggerNearBottom: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Date range menu that filters recent commits: the trigger is near the bottom, so the open menu is above it.",
-    },
-  },
   render: () => <AtHeight fromBottom={200} />,
   play: ({ canvasElement }) => expectWholeMenuInView(canvasElement),
 }
 
-/** A little higher than that: still not enough room below. */
+/**
+ * Date range menu that filters recent commits: the trigger is a little higher
+ * than near the bottom, but there is still not sufficient room below. The menu
+ * opens above it.
+ */
 export const TriggerNearBottomHigher: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Date range menu that filters recent commits: the trigger is a bit higher but still lacks room below, so the menu is above it.",
-    },
     visual: {
       skip: "The screenshot crops a component story to the menu, so it equals TriggerNearBottom. The play checks that the whole menu is in view.",
     },
@@ -87,13 +82,13 @@ export const TriggerNearBottomHigher: Story = {
   play: ({ canvasElement }) => expectWholeMenuInView(canvasElement),
 }
 
-/** Little room below and plenty above. */
+/**
+ * Date range menu that filters recent commits: the trigger is very near the
+ * bottom, with little room below and much room above. The menu opens above it
+ * in full.
+ */
 export const TriggerWellInsideBottom: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Date range menu that filters recent commits: the trigger is very near the bottom, so the menu is above it in full.",
-    },
     visual: {
       skip: "The screenshot crops a component story to the menu, so it equals TriggerNearBottom. The play checks that the whole menu is in view.",
     },
@@ -102,14 +97,12 @@ export const TriggerWellInsideBottom: Story = {
   play: ({ canvasElement }) => expectWholeMenuInView(canvasElement),
 }
 
-/** The user chose a start date and has not chosen the end date yet. */
+/**
+ * Date range menu with its calendar open: the user chose a start day and has
+ * not chosen the end day yet. The pointer stays on the start cell, and the
+ * hover does not hide its text.
+ */
 export const StartChosenEndPending: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Date range menu with its calendar open: the user chose a start day and has not chosen the end day yet.",
-    },
-  },
   render: () => <AtHeight fromBottom={400} />,
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)

@@ -46,13 +46,11 @@ const shared = {
   onAction: () => {},
 }
 
+/**
+ * Connector row on the Connectors page, with health and actions for one
+ * connection: a connected GitHub row, expanded to show its details.
+ */
 export const Expanded: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Connector row on the Connectors page, with health and actions for one connection: a connected GitHub row, expanded to show its details.",
-    },
-  },
   args: {
     ...shared,
     health: "connected",
@@ -60,13 +58,11 @@ export const Expanded: Story = {
   },
 }
 
+/**
+ * Connector row on the Connectors page, with health and actions for one
+ * connection: GitHub setup is not finished, the row is open.
+ */
 export const PendingSetup: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Connector row on the Connectors page, with health and actions for one connection: GitHub setup is not finished, the row is open.",
-    },
-  },
   args: {
     ...shared,
     health: "setup_pending",
@@ -95,14 +91,12 @@ export const PendingSetup: Story = {
   },
 }
 
-/** At phone width the name keeps its room; the status and actions wrap. */
+/**
+ * Connector row on the Connectors page at phone width: the Confluence setup is
+ * not finished. The name keeps its room, the status moves under the name, and
+ * Remove and the next step wrap below.
+ */
 export const PendingSetupNarrow: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Connector row on the Connectors page at phone width: the Confluence setup is not finished, so the status moves under the name and Remove and the next step wrap below.",
-    },
-  },
   args: {
     ...shared,
     name: "Confluence",
@@ -144,13 +138,11 @@ export const PendingSetupNarrow: Story = {
   },
 }
 
+/**
+ * Connector row on the Connectors page, with health and actions for one
+ * connection: the content sync failed, the row is open.
+ */
 export const SyncFailed: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Connector row on the Connectors page, with health and actions for one connection: the content sync failed, the row is open.",
-    },
-  },
   args: {
     ...shared,
     health: "sync_failed",
@@ -164,13 +156,11 @@ export const SyncFailed: Story = {
   },
 }
 
+/**
+ * Connector row on the Connectors page, with health and actions for one
+ * connection: the configuration pull request failed, the row is open.
+ */
 export const ConfigPrFailed: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Connector row on the Connectors page, with health and actions for one connection: the configuration pull request failed, the row is open.",
-    },
-  },
   args: {
     ...shared,
     health: "config_failed",
@@ -184,13 +174,13 @@ export const ConfigPrFailed: Story = {
   },
 }
 
-/** The loading row has the same box as a collapsed connector row. */
+/**
+ * Connectors page list: the loading skeleton row above a loaded, collapsed
+ * GitHub row. The test proves that both rows have the same box, so the list
+ * does not jump when it loads.
+ */
 export const ConnectorRowSkeletonMatches: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Proof frame for the Connectors page list: the loading skeleton row above a loaded, collapsed GitHub row, which must have the same box so the list does not jump.",
-    },
     intent:
       "Catches a connector list skeleton row whose size differs from the loaded row. This causes layout shift. Not for connector data or health states.",
   },

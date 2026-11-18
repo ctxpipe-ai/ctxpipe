@@ -54,15 +54,17 @@ type Story = StoryObj<typeof meta>
 
 const syncName = "Sync: commit and push your changes"
 
-export const Writable: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation above its thread: the Workspace is writable and the conversation changed no files yet, so no access badge, no branch and no publish button show.",
-    },
-  },
-}
+/**
+ * Chat header of a Workspace conversation above its thread: the Workspace is
+ * writable and the conversation changed no files yet, so no access badge, no
+ * branch and no publish button show.
+ */
+export const Writable: Story = {}
 
+/**
+ * Chat header of a Workspace conversation above its thread: the GitHub App
+ * cannot write to the repository, so a Read-only badge shows.
+ */
 export const ReadOnly: Story = {
   args: {
     workspace: readOnlyWorkspace,
@@ -75,15 +77,13 @@ export const ReadOnly: Story = {
       "The GitHub App cannot write to this repository.",
     )
   },
-  parameters: {
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation above its thread: the GitHub App cannot write to the repository, so a Read-only badge shows.",
-    },
-  },
 }
 
-/** A protected default branch: a conversation opens a pull request, so the badge is neutral. */
+/**
+ * Chat header of a Workspace conversation, with its title and access badge. The
+ * default branch is protected, so the conversation opens a pull request, and
+ * the badge is neutral.
+ */
 export const ProtectedDefaultBranch: Story = {
   args: {
     workspace: {
@@ -103,14 +103,12 @@ export const ProtectedDefaultBranch: Story = {
     await expect(pill).toHaveClass("text-muted-foreground")
     await expect(canvas.queryByText("Read-only")).not.toBeInTheDocument()
   },
-  parameters: {
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation, with its title and access badge: the default branch is protected, so a neutral badge says the chat opens a pull request.",
-    },
-  },
 }
 
+/**
+ * Chat header of a Workspace conversation, with its title and access badge:
+ * ctxpipe still checks if the GitHub App can push, and a tooltip says so.
+ */
 export const PendingProbe: Story = {
   args: {
     workspace: pendingWriteWorkspace,
@@ -131,15 +129,13 @@ export const PendingProbe: Story = {
     )
     await waitFor(() => expect(tooltip).toBeVisible())
   },
-  parameters: {
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation, with its title and access badge: ctxpipe still checks if the GitHub App can push, and a tooltip says so.",
-    },
-  },
 }
 
-/** Uncommitted changes: Sync (cloud-upload icon) only. Create PR waits until the branch is synced. */
+/**
+ * Chat header of a Workspace conversation, with its publish buttons. The branch
+ * has uncommitted changes, so only the Sync button (cloud-upload icon) shows,
+ * with its tooltip. Create PR waits until the branch is synced.
+ */
 export const DirtyCommitPush: Story = {
   args: {
     title: "Billing structure",
@@ -174,15 +170,12 @@ export const DirtyCommitPush: Story = {
     await waitFor(() => expect(tooltip).toBeVisible())
     expect(canvas.queryByRole("button", { name: "Create PR" })).toBeNull()
   },
-  parameters: {
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation, with its publish buttons: the branch has uncommitted changes, so only the Sync button shows, with its tooltip.",
-    },
-  },
 }
 
-/** A stale branch or a running turn: Sync shows but is disabled. */
+/**
+ * Chat header of a Workspace conversation, with its publish buttons. The branch
+ * is stale or a turn runs, so the Sync button shows but is disabled.
+ */
 export const SyncDisabled: Story = {
   args: {
     ...DirtyCommitPush.args,
@@ -207,14 +200,12 @@ export const SyncDisabled: Story = {
       expect(canvas.getByRole("button", { name: syncName })).toBeDisabled(),
     )
   },
-  parameters: {
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation, with its publish buttons: the branch is stale or a turn runs, so the Sync button shows but is disabled.",
-    },
-  },
 }
 
+/**
+ * Chat header of a Workspace conversation, with its publish buttons: all
+ * changes are pushed and no pull request exists, so only Create PR shows.
+ */
 export const CommittedCreatePrOnly: Story = {
   args: {
     title: "Billing structure",
@@ -245,14 +236,12 @@ export const CommittedCreatePrOnly: Story = {
       canvas.queryByRole("button", { name: syncName }),
     ).not.toBeInTheDocument()
   },
-  parameters: {
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation, with its publish buttons: all changes are pushed and no pull request exists, so only Create PR shows.",
-    },
-  },
 }
 
+/**
+ * Chat header of a Workspace conversation, with its publish buttons: the branch
+ * has no changes, so no Sync or pull request button shows.
+ */
 export const CleanNoPublishActions: Story = {
   args: {
     title: "Billing structure",
@@ -284,23 +273,16 @@ export const CleanNoPublishActions: Story = {
       canvas.queryByRole("button", { name: "Create PR" }),
     ).not.toBeInTheDocument()
   },
-  parameters: {
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation, with its publish buttons: the branch has no changes, so no Sync or pull request button shows.",
-    },
-  },
 }
 
-/** Sync runs: the button is busy and disabled. */
+/**
+ * Chat header of a Workspace conversation, with its publish buttons. The sync
+ * push runs, so the Sync button is busy and disabled, at full opacity.
+ */
 export const Pushing: Story = {
   parameters: {
     intent:
       "Catches a pending commit and push button that looks dimmed or stays pressable. It is disabled and marked pending, but keeps full opacity. Not for the idle button or PR actions.",
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation, with its publish buttons: the sync push runs, so the Sync button is busy and disabled at full opacity.",
-    },
   },
   tags: ["required"],
   args: {
@@ -332,6 +314,10 @@ export const Pushing: Story = {
   },
 }
 
+/**
+ * Chat header of a Workspace conversation, with its publish buttons: the
+ * request to create the pull request runs and is pending.
+ */
 export const CreatingPr: Story = {
   args: {
     ...DirtyCommitPush.args,
@@ -350,26 +336,18 @@ export const CreatingPr: Story = {
       },
     },
   },
-  parameters: {
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation, with its publish buttons: the request to create the pull request runs and is pending.",
-    },
-  },
 }
 
 /**
- * Show PR has the pull request icon on the left and no external-link icon.
- * Its name tells that it opens in a new tab.
+ * Chat header of a Workspace conversation, above its thread. A pull request is
+ * open and the branch has no new changes, so Show PR and the branch show. Show
+ * PR has the pull request icon on the left and no external-link icon. Its name
+ * tells that it opens in a new tab.
  */
 export const ShowPr: Story = {
   parameters: {
     intent:
       "Catches a chat header that hides the pull request link when a PR exists. It shows a Show PR link that opens in a new tab. Not for creating a PR or the sync button.",
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation above its thread: a pull request is open and the branch has no new changes, so Show PR and the branch show.",
-    },
   },
   tags: ["required"],
   args: {
@@ -420,7 +398,11 @@ export const ShowPr: Story = {
   },
 }
 
-/** A PR is open and the agent made commits it did not push: Sync and Show PR. */
+/**
+ * Chat header of a Workspace conversation, with its publish buttons. A pull
+ * request is open and the agent made commits that it did not push, so Sync and
+ * Show PR show.
+ */
 export const CommitPushWithOpenPr: Story = {
   args: {
     title: "Billing structure",
@@ -458,14 +440,12 @@ export const CommitPushWithOpenPr: Story = {
     await userEvent.click(commitPush)
     expect(args.cta?.commitPush.onPress).toHaveBeenCalledOnce()
   },
-  parameters: {
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation, with its publish buttons: a pull request is open and the agent made unpushed commits, so Sync and Show PR show.",
-    },
-  },
 }
 
+/**
+ * Chat header of a Workspace conversation, with its publish buttons: the old
+ * pull request merged and the branch has new changes, with a branch link.
+ */
 export const MergedCreatePrAgain: Story = {
   args: {
     ...DirtyCommitPush.args,
@@ -474,14 +454,12 @@ export const MergedCreatePrAgain: Story = {
       href: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
     },
   },
-  parameters: {
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation, with its publish buttons: the old pull request merged and the branch has new changes, with a branch link.",
-    },
-  },
 }
 
+/**
+ * Chat header and body of a Workspace conversation: the chat sandbox is gone,
+ * and an error alert in the body tells the user to send another message.
+ */
 export const ChatError: Story = {
   args: {
     title: "Billing structure",
@@ -495,12 +473,6 @@ export const ChatError: Story = {
         </div>
       </div>
     ),
-  },
-  parameters: {
-    review: {
-      purpose:
-        "Chat header and body of a Workspace conversation: the chat sandbox is gone, and an error alert in the body tells the user to send another message.",
-    },
   },
 }
 
@@ -519,15 +491,16 @@ const syncCta = {
   },
 }
 
-/** The CTA button has a light face with dark text, and a hover state from the tokens. */
+/**
+ * Chat header of a Workspace conversation, with its publish buttons. The
+ * pointer rests on Sync, so the button has its hover face from the tokens, and
+ * a tooltip tells what Sync does. The CTA button has a light face with dark
+ * text.
+ */
 export const CtaButtonStyle: Story = {
   parameters: {
     intent:
       "Catches a sync button with the wrong look. It needs a filled face, small text, a low height, no external-link icon, and a hover change. Not for button actions.",
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation, with its publish buttons: the pointer rests on Sync, so the button shows its hover face and a tooltip says what Sync does.",
-    },
   },
   tags: ["required"],
   args: { cta: syncCta },
@@ -550,15 +523,15 @@ export const CtaButtonStyle: Story = {
   },
 }
 
-/** The branch is a label with a git-branch icon. A long name truncates. No tooltip shows the internal ref. */
+/**
+ * Chat header of a Workspace conversation, with its branch label. The branch
+ * name is very long and truncates next to its git-branch icon. No tooltip shows
+ * the internal ref.
+ */
 export const BranchLabel: Story = {
   parameters: {
     intent:
       "Catches a branch label that wraps a long name, drops its icon, or shows a tooltip with the internal ref. The name truncates. Not for the branch link.",
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation, with its branch label: the branch name is very long and truncates next to its git-branch icon.",
-    },
   },
   tags: ["required"],
   args: {
@@ -602,15 +575,15 @@ const prCta = {
   onPress: () => {},
 }
 
-/** A PR exists and the branch is dirty: Sync is the CTA, Show PR is subtle. */
+/**
+ * Chat header of a Workspace conversation, with its publish buttons. A pull
+ * request exists and the branch is dirty, so Sync is the main (CTA) button and
+ * Show PR is subtle.
+ */
 export const SyncCtaWithSubtleShowPr: Story = {
   parameters: {
     intent:
       "Catches a header with Sync and a PR where Show PR looks the same as Sync or a Create PR button shows. Show PR must look subtler. Not for the sync action.",
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation, with its publish buttons: a pull request exists and the branch is dirty, so Sync is the main button and Show PR is subtle.",
-    },
   },
   tags: ["required"],
   args: { cta: { ...syncCta, pullRequest: prCta } },
@@ -627,15 +600,15 @@ export const SyncCtaWithSubtleShowPr: Story = {
   },
 }
 
-/** A dirty branch with no PR shows Sync only. */
+/**
+ * Chat header of a Workspace conversation, with its publish buttons. The
+ * conversation has changes that are not synced and no pull request, so only
+ * Sync shows. Create PR comes after the sync.
+ */
 export const DirtyShowsOnlySync: Story = {
   parameters: {
     intent:
       "Catches a dirty branch with no PR that shows Create PR. It must show only Sync. Not for clean branches or existing PRs.",
-    review: {
-      purpose:
-        "Chat header of a Workspace conversation, with its publish buttons: the conversation has changes that are not synced and no pull request, so only Sync shows; Create PR comes after the sync.",
-    },
   },
   tags: ["required"],
   args: {

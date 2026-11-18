@@ -39,13 +39,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * PagerDuty scope editor, where the user picks the services of a Workspace
+ * source: the user picks two services, one from the second page of the list.
+ */
 export const SelectServices: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "PagerDuty scope editor, where the user picks the services of a Workspace source: the user picks two services, one from the second page of the list.",
-    },
-  },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
     await waitFor(() =>
@@ -71,13 +69,12 @@ export const SelectServices: Story = {
   },
 }
 
+/**
+ * PagerDuty scope editor, where the user picks the services of a Workspace
+ * source: a search hides a selected service, but it stays in the selected list
+ * with its name.
+ */
 export const SearchKeepsTheSelection: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "PagerDuty scope editor, where the user picks the services of a Workspace source: a search hides a selected service, but it stays in the selected list with its name.",
-    },
-  },
   args: { label: "On-call", initialScope: { services: ["PSVC001"] } },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -114,13 +111,12 @@ export const SearchKeepsTheSelection: Story = {
   },
 }
 
+/**
+ * PagerDuty scope editor, where the user picks the services of a Workspace
+ * source: the user removes the last selected service, so the scope is not
+ * ready.
+ */
 export const RemoveTheLastService: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "PagerDuty scope editor, where the user picks the services of a Workspace source: the user removes the last selected service, so the scope is not ready.",
-    },
-  },
   args: { initialScope: { services: ["PSVC002"] } },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -136,12 +132,13 @@ export const RemoveTheLastService: Story = {
   },
 }
 
+/**
+ * PagerDuty scope editor in the Add source dialog: the request for the
+ * PagerDuty services failed, so an error alert stands in place of the service
+ * list.
+ */
 export const ServiceListFails: Story = {
   parameters: {
-    review: {
-      purpose:
-        "PagerDuty scope editor in the Add source dialog: the request for the PagerDuty services failed, so an error alert stands in place of the service list.",
-    },
     msw: {
       handlers: {
         page: [
@@ -202,12 +199,13 @@ const manyServices = [
     name,
   }))
 
+/**
+ * PagerDuty scope editor in the Add source dialog: 100 services are selected,
+ * the user ticks one more, so an error states the 100-service limit and the
+ * dialog cannot save.
+ */
 export const OverTheServiceLimit: Story = {
   parameters: {
-    review: {
-      purpose:
-        "PagerDuty scope editor in the Add source dialog: 100 services are selected, the user ticks one more, so an error states the 100-service limit and the dialog cannot save.",
-    },
     msw: {
       handlers: {
         page: [

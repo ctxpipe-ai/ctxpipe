@@ -29,12 +29,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Linear setup step where the admin registers a private Linear OAuth app: no
+ * OAuth app is saved yet.
+ */
 export const Unsaved: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Linear setup step where the admin registers a private Linear OAuth app: no OAuth app is saved yet.",
-    },
     msw: {
       handlers: {
         page: [
@@ -48,12 +48,12 @@ export const Unsaved: Story = {
   },
 }
 
+/**
+ * Linear setup step where the admin registers a private Linear OAuth app: the
+ * OAuth app is already saved.
+ */
 export const Saved: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Linear setup step where the admin registers a private Linear OAuth app: the OAuth app is already saved.",
-    },
     msw: {
       handlers: {
         page: [

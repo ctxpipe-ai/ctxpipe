@@ -105,7 +105,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-/** SideNav "Add Workspace", once at least one Workspace exists. */
+/**
+ * Onboarding hint popover next to Add Workspace in the side nav, which shows
+ * once at least one Workspace exists: the user closed the hint with Escape, and
+ * ctxpipe records it as seen.
+ */
 export const AddWorkspaceHint: Story = {
   beforeEach: () => seedHintsSeen([]),
   render: () => (
@@ -121,10 +125,6 @@ export const AddWorkspaceHint: Story = {
           conversationsListHandler(docsConversations),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Onboarding hint popover next to the Workspace list in the nav: the user closed the Add Workspace hint with Escape.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -159,8 +159,9 @@ function NavWithOpenDialog() {
 }
 
 /**
- * CTX-863: no hint shows while a modal dialog is open. The hint that is due
- * waits, and shows when the dialog closes.
+ * Workspace list in the side nav, with the one-time hint beside its Add
+ * Workspace button: a dialog was open when the hint was due, so the hint showed
+ * after the dialog closed. CTX-863: no hint shows while a modal dialog is open.
  */
 export const AddWorkspaceHintWaitsForDialog: Story = {
   beforeEach: () => seedHintsSeen([]),
@@ -173,10 +174,6 @@ export const AddWorkspaceHintWaitsForDialog: Story = {
           conversationsListHandler(docsConversations),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Workspace list in the side nav, with the one-time hint beside its Add Workspace button: a dialog was open when the hint was due, so the hint showed after it closed.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -200,9 +197,10 @@ const workspacesPath = ({ request }: { request: Request }) =>
 const createState = { created: false }
 
 /**
- * CTX-863: the user creates a Workspace in the side nav. The add-workspace
- * tip must not show when the dialog closes, because the user just did what
- * it says. The tip can show on a later visit (the session flag is gone).
+ * Workspace list in the side nav: the user created a Workspace with Add
+ * Workspace, so the Add Workspace hint does not show when the dialog closes.
+ * CTX-863: the user just did what the tip says. The tip can show on a later
+ * visit, after the session flag is gone.
  */
 export const AddWorkspaceHintSkippedAfterCreating: Story = {
   beforeEach: () => {
@@ -245,10 +243,6 @@ export const AddWorkspaceHintSkippedAfterCreating: Story = {
     },
     visual: {
       skip: "Behavior test: it ends on its control, the hint after the session flag is cleared. That is the hint state of AddWorkspaceHintWaitsForDialog.",
-    },
-    review: {
-      purpose:
-        "Workspace list in the side nav: the user created a Workspace with Add Workspace, so the Add Workspace hint does not show when the dialog closes.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -295,14 +289,12 @@ export const AddWorkspaceHintSkippedAfterCreating: Story = {
   },
 }
 
-/** Pane triggers on the first Workspace visit with the pane closed. */
+/**
+ * Onboarding hint popover next to the Files and Graph pane buttons, on the
+ * first Workspace visit with the pane closed: a blur or an outside click does
+ * not close it. The user pressed Got it, and the hint closed.
+ */
 export const PanesHint: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Onboarding hint popover next to the Files and Graph pane buttons of a Workspace: the user pressed Got it, and the hint closed.",
-    },
-  },
   beforeEach: () => seedHintsSeen([]),
   render: () => (
     <div className="flex w-96 justify-end p-4">
@@ -338,14 +330,12 @@ export const PanesHint: Story = {
   },
 }
 
-/** Create PR, the first time it shows, after the panes hint was seen. */
+/**
+ * Onboarding hint popover next to the Create PR button of a conversation, after
+ * the user saw the panes hint: the hint shows for the first time and does not
+ * take focus.
+ */
 export const CreatePrHint: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Onboarding hint popover next to the Create PR button of a conversation: the hint shows the first time and does not take focus.",
-    },
-  },
   beforeEach: () => seedHintsSeen(["panes"]),
   render: () => (
     <div className="flex w-96 justify-end p-4">

@@ -31,12 +31,14 @@ export default meta
 ${stories}
 `
 
-test("stories with a kind (own or of the meta) and their own purpose pass", () => {
+test("stories with a kind (own or of the meta) and their own JSDoc purpose pass", () => {
   const result = check({
     "Card.stories.tsx": storyFile(
       `{ review: { kind: "component" } }`,
-      `export const Empty = { parameters: { review: { purpose: "Workspace card that a member opens to read its sources, before anyone added a source." } } }
-export const Page = { parameters: { review: { kind: "page", purpose: "Org home page of a member with two Workspaces, right after sign-in." } } }`,
+      `/** Workspace card that a member opens to read its sources, before anyone added a source. */
+export const Empty = {}
+/** Org home page of a member with two Workspaces, right after sign-in. */
+export const Page = { parameters: { review: { kind: "page" } } }`,
     ),
   })
   assert.equal(result.status, 0, result.stderr)
@@ -46,63 +48,65 @@ export const Page = { parameters: { review: { kind: "page", purpose: "Org home p
 test("a story with no kind, or with no purpose of its own, fails", () => {
   const result = check({
     "Card.stories.tsx": storyFile(
-      `{ review: { purpose: "A purpose of the meta does not count." } }`,
-      `export const Empty = { parameters: { review: { purpose: "Workspace card that a member opens to read its sources, before anyone added a source." } } }
+      "{}",
+      `/** Workspace card that a member opens to read its sources, before anyone added a source. */
+export const Empty = {}
 export const Loading = { parameters: { review: { kind: "component" } } }`,
     ),
   })
   assert.equal(result.status, 1)
   assert.match(result.stderr, /story "Empty" has no parameters\.review\.kind/)
-  assert.match(
-    result.stderr,
-    /story "Loading" has no purpose/,
-  )
+  assert.match(result.stderr, /story "Loading" has no purpose/)
   assert.doesNotMatch(result.stderr, /"Empty" has no purpose/)
 })
 
-test("a kind that is not page or component, and a purpose that is not a sentence for the critic, fail", () => {
+test("a kind that is not page or component, and a purpose that is not a description for the critic, fail", () => {
   const result = check({
     "Card.stories.tsx": storyFile(
       "{}",
-      `export const Dialog = { parameters: { review: { kind: "dialog", purpose: "Delete dialog of a Workspace, open." } } }
-export const Vague = { parameters: { review: { kind: "component", purpose: "Shows the card." } } }
-export const Long = { parameters: { review: { kind: "component", purpose: "Workspace card ${"a".repeat(240)}" } } }
-const text = "Workspace card."
-export const NotLiteral = { parameters: { review: { kind: "component", purpose: text } } }`,
+      `/** Delete dialog of a Workspace, where an admin confirms the delete, open. */
+export const Dialog = { parameters: { review: { kind: "dialog" } } }
+/** Shows the card of a Workspace, with its sources and its members. */
+export const Vague = { parameters: { review: { kind: "component" } } }
+/** Workspace card ${"a".repeat(500)} */
+export const Long = { parameters: { review: { kind: "component" } } }`,
     ),
   })
   assert.equal(result.status, 1)
   assert.match(result.stderr, /story "Dialog" has no parameters\.review\.kind/)
   assert.match(result.stderr, /story "Vague": the purpose must/)
   assert.match(result.stderr, /story "Long": the purpose must/)
-  assert.match(
-    result.stderr,
-    /story "NotLiteral" has no purpose/,
-  )
 })
 
-test("a purpose is a sentence of a sane length about the UI, in any form", () => {
+test("a purpose is one sentence or a short paragraph of a sane length about the UI", () => {
   const text = "Workspace card that a member opens to read its sources"
   const result = check({
     "Card.stories.tsx": storyFile(
       `{ review: { kind: "component" } }`,
-      `export const Short = { parameters: { review: { purpose: "Empty Workspace card." } } }
-export const Displays = { parameters: { review: { purpose: "Displays the ${text}, with no sources yet." } } }
-export const Renders = { parameters: { review: { purpose: "Renders the ${text}, with no sources yet." } } }
-export const NoColon = { parameters: { review: { purpose: "After the member deletes the last source, the ${text} says that it has none." } } }
-export const Longest = { parameters: { review: { purpose: "${text}: ${"a".repeat(240 - text.length - 2)}" } } }`,
+      `/** Empty Workspace card. */
+export const Short = {}
+/** Displays the ${text}, with no sources yet. */
+export const Displays = {}
+/** Renders the ${text}, with no sources yet. */
+export const Renders = {}
+/** After the member deletes the last source, the ${text} says that it has none. */
+export const NoColon = {}
+/**
+ * ${text}: the member deleted the last source. The play proves that the
+ * card reads the sources one time (CTX-1).
+ */
+export const Paragraph = {}
+/** ${text}: ${"a".repeat(500 - text.length - 2)} */
+export const Longest = {}`,
     ),
   })
   assert.equal(result.status, 1)
   for (const name of ["Short", "Displays", "Renders"])
-    assert.match(
-      result.stderr,
-      new RegExp(`story "${name}": the purpose must`),
-    )
-  assert.doesNotMatch(result.stderr, /"NoColon"|"Longest"/)
+    assert.match(result.stderr, new RegExp(`story "${name}": the purpose must`))
+  assert.doesNotMatch(result.stderr, /"NoColon"|"Paragraph"|"Longest"/)
 })
 
-test("the JSDoc of a story is its purpose, and its line breaks count as spaces", () => {
+test("the line breaks of the JSDoc count as spaces, and a line comment is not a purpose", () => {
   const result = check({
     "Card.stories.tsx": storyFile(
       `{ review: { kind: "component" } }`,
@@ -111,15 +115,12 @@ test("the JSDoc of a story is its purpose, and its line breaks count as spaces",
  * added a source.
  */
 export const Empty = {}
-/** Empty Workspace card. */
-export const Short = {}
 // A line comment is not a JSDoc description.
 export const LineComment = {}`,
     ),
   })
   assert.equal(result.status, 1)
   assert.doesNotMatch(result.stderr, /"Empty"/)
-  assert.match(result.stderr, /story "Short": the purpose must/)
   assert.match(result.stderr, /story "LineComment" has no purpose/)
 })
 
@@ -135,13 +136,44 @@ export const Empty = {}`,
   assert.match(result.stderr, /story "Empty" has no purpose/)
 })
 
-test("while the stories move to the JSDoc, parameters.review.purpose wins over the JSDoc", () => {
+test("parameters.review has only kind: an old review.purpose fails, in the story or in the meta", () => {
+  const result = check({
+    "Card.stories.tsx": storyFile(
+      `{ review: { kind: "component", purpose: "A purpose of the meta." } }`,
+      `/** Workspace card that a member opens to read its sources, before anyone added a source. */
+export const Empty = { parameters: { review: { purpose: "Workspace card that a member opens to read its sources." } } }`,
+    ),
+  })
+  assert.equal(result.status, 1)
+  assert.match(
+    result.stderr,
+    /story "Empty": parameters\.review has "purpose"\. It has only "kind"/,
+  )
+  assert.match(
+    result.stderr,
+    /Card\.stories\.tsx: the meta: parameters\.review has "purpose"\./,
+  )
+  assert.doesNotMatch(result.stderr, /has no purpose/)
+})
+
+test('a review that the parser cannot read key by key fails as the key "..."', () => {
   const result = check({
     "Card.stories.tsx": storyFile(
       `{ review: { kind: "component" } }`,
-      `/** A press opens the card. */
-export const Empty = { parameters: { review: { purpose: "Workspace card that a member opens to read its sources, before anyone added a source." } } }`,
+      `const old = { purpose: "Workspace card that a member opens to read its sources." }
+/** Workspace card that a member opens to read its sources, before anyone added a source. */
+export const Spread = { parameters: { review: { kind: "component", ...old } } }
+/** Workspace card that a member opens to read its sources, before anyone added a source. */
+export const Shared = { parameters: { review: old } }
+const key = "purpose"
+/** Workspace card that a member opens to read its sources, before anyone added a source. */
+export const Computed = { parameters: { review: { kind: "component", [key]: "An old purpose." } } }`,
     ),
   })
-  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.status, 1)
+  for (const name of ["Spread", "Shared", "Computed"])
+    assert.match(
+      result.stderr,
+      new RegExp(`story "${name}": parameters\\.review has "\\.\\.\\."`),
+    )
 })

@@ -84,12 +84,12 @@ const workspacesHandlers = [
   plainCatalogHandler,
 ]
 
+/**
+ * Plain setup dialog, where the admin connects Plain with an API key: the key
+ * is accepted and the dialog moves to the Workspaces step.
+ */
 export const ConnectWithKey: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Plain setup dialog, where the admin connects Plain with an API key: the key is accepted and the dialog moves to the Workspaces step.",
-    },
     msw: {
       handlers: {
         page: [
@@ -124,12 +124,12 @@ export const ConnectWithKey: Story = {
   },
 }
 
+/**
+ * Plain setup dialog, where the admin connects Plain with an API key: Plain
+ * refuses the key because a permission is missing.
+ */
 export const KeyRefused: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Plain setup dialog, where the admin connects Plain with an API key: Plain refuses the key because a permission is missing.",
-    },
     msw: {
       handlers: {
         page: [
@@ -168,14 +168,14 @@ export const KeyRefused: Story = {
 
 const addCalls: { method: string; path: string; body: unknown }[] = []
 
+/**
+ * Plain setup dialog for a connected Plain workspace: the admin adds a label to
+ * a Workspace, and the dialog moves to the merge step.
+ */
 export const AddToWorkspaces: Story = {
   name: "Add Plain to Workspaces",
   args: { connectionId },
   parameters: {
-    review: {
-      purpose:
-        "Plain setup dialog for a connected Plain workspace: the admin adds a label to a Workspace, and the dialog moves to the merge step.",
-    },
     msw: {
       handlers: {
         page: [...workspacesHandlers, ...workspaceSourceAddHandlers(addCalls)],
@@ -217,13 +217,13 @@ export const AddToWorkspaces: Story = {
   },
 }
 
+/**
+ * Plain setup dialog for a revoked connection: Plain no longer accepts the
+ * saved key, and the admin enters a new key.
+ */
 export const Reconnect: Story = {
   args: { connectionId },
   parameters: {
-    review: {
-      purpose:
-        "Plain setup dialog for a revoked connection: Plain no longer accepts the saved key, and the admin enters a new key.",
-    },
     msw: {
       handlers: {
         page: [
@@ -245,13 +245,13 @@ export const Reconnect: Story = {
   },
 }
 
+/**
+ * Plain setup dialog opened from Reconnect on a connected card with no webhook:
+ * a warning says live updates are off and asks for the API key again.
+ */
 export const ReconnectForTheWebhook: Story = {
   args: { connectionId, reconnect: true },
   parameters: {
-    review: {
-      purpose:
-        "Plain setup dialog opened from Reconnect on a connected card with no webhook: a warning says live updates are off and asks for the API key again.",
-    },
     msw: {
       handlers: {
         page: [

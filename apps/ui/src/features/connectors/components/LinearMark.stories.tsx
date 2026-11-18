@@ -13,12 +13,14 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Linear logo mark that labels the Linear connector: the mark alone at icon
+ * size.
+ */
 export const ProductMark: Story = {
   parameters: {
     review: {
       kind: "component",
-      purpose:
-        "Linear logo mark that labels the Linear connector: the mark alone at icon size.",
     },
   },
 }

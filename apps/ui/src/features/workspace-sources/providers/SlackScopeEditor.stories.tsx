@@ -40,13 +40,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Slack scope editor, where the user picks the channels of a Workspace source:
+ * the user searches the channels and picks two of them.
+ */
 export const SearchesAndPicksChannels: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Slack scope editor, where the user picks the channels of a Workspace source: the user searches the channels and picks two of them.",
-    },
-  },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.type(
@@ -66,14 +64,13 @@ export const SearchesAndPicksChannels: Story = {
   },
 }
 
-/** A channel can be chosen before the bot is invited; it says to invite the bot. */
+/**
+ * Slack scope editor in the Add source dialog: the user ticks #all-hands, a
+ * channel that the ctxpipe bot is not in yet, and the row tells the user to
+ * invite the bot there. The user can choose the channel before the bot is
+ * invited.
+ */
 export const ChannelWithoutTheBotCanBeSelected: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Slack scope editor in the Add source dialog: the user ticks #all-hands, a channel that the ctxpipe bot is not in yet, and the row tells the user to invite the bot there.",
-    },
-  },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     const allHands = await canvas.findByRole("checkbox", { name: /all-hands/ })
@@ -89,13 +86,12 @@ export const ChannelWithoutTheBotCanBeSelected: Story = {
   },
 }
 
+/**
+ * Slack scope editor, where the user picks the channels of a Workspace source:
+ * a saved scope has a channel that Slack no longer lists, and the user clears
+ * all channels.
+ */
 export const EditsAnExistingScope: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Slack scope editor, where the user picks the channels of a Workspace source: a saved scope has a channel that Slack no longer lists, and the user clears all channels.",
-    },
-  },
   args: { initialScope: { channels: ["C0ENG0001", "C0GONE001"] } },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
@@ -116,12 +112,13 @@ export const EditsAnExistingScope: Story = {
   },
 }
 
+/**
+ * Slack scope editor in the Add source dialog: the request for the Slack
+ * channels failed, so an error alert with Retry stands in place of the channel
+ * list.
+ */
 export const LoadError: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Slack scope editor in the Add source dialog: the request for the Slack channels failed, so an error alert with Retry stands in place of the channel list.",
-    },
     msw: { handlers: { page: [slackChannelsHandler("error")] } },
   },
   play: async ({ canvasElement }) => {
@@ -135,13 +132,13 @@ export const LoadError: Story = {
   },
 }
 
-/** Slack has more channels than the list holds, so the picker says so. */
+/**
+ * Slack scope editor, where the user picks the channels of a Workspace source:
+ * Slack has more channels than the list holds, so a note says that search finds
+ * only listed channels.
+ */
 export const ListIsTruncated: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Slack scope editor, where the user picks the channels of a Workspace source: Slack has more channels than the list holds, so a note says that search finds only listed channels.",
-    },
     msw: {
       handlers: {
         page: [slackChannelsHandler(slackStoryChannels, { truncated: true })],

@@ -127,16 +127,16 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-/** The layout settled, so the controls and the legends show. */
+/**
+ * Graph canvas of the knowledge graph, where a user explores how the knowledge
+ * of a Workspace links: the layout settled, so the controls, the search, the
+ * legends and the timeline show.
+ */
 export const NativeLegends: Story = {
   // The WebGL canvas draws a new frame at each shot, and the cluster labels
   // of Cosmograph move with it. The capture hides both.
   parameters: {
     visual: { masks: ["canvas", ".css-label--labels-container"] },
-    review: {
-      purpose:
-        "Graph canvas of the knowledge graph, where a user explores how the knowledge of a Workspace links: the layout settled, so the controls, the search, the legends and the timeline show.",
-    },
   },
   play: async ({ canvasElement }) => {
     await within(canvasElement).findByLabelText(
@@ -147,13 +147,11 @@ export const NativeLegends: Story = {
   },
 }
 
+/**
+ * Graph canvas of the knowledge graph, where a user explores how the files of a
+ * Workspace link: the canvas in a narrow pane.
+ */
 export const PaneNarrow: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Graph canvas of the knowledge graph, where a user explores how the files of a Workspace link: the canvas in a narrow pane.",
-    },
-  },
   decorators: [
     (Story) => (
       <div className="relative h-[32rem] w-96 overflow-hidden bg-zinc-950">
@@ -163,13 +161,11 @@ export const PaneNarrow: Story = {
   ],
 }
 
+/**
+ * Graph canvas of the knowledge graph, where a user explores how the files of a
+ * Workspace link: the canvas in a wide pane.
+ */
 export const PaneWide: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Graph canvas of the knowledge graph, where a user explores how the files of a Workspace link: the canvas in a wide pane.",
-    },
-  },
   decorators: [
     (Story) => (
       <div className="relative h-[32rem] w-full max-w-5xl overflow-hidden bg-zinc-950">
@@ -179,18 +175,17 @@ export const PaneWide: Story = {
   ],
 }
 
-/** The open node drawer is the focused layer: the search and the timeline dim
- * and do not take input. */
+/**
+ * Graph canvas of the knowledge graph, where a user explores how the files of a
+ * Workspace link: the node drawer is open and is the focused layer. The search
+ * and the timeline dim and do not take input.
+ */
 export const DrawerOpenDimsOverlays: Story = {
   args: { drawerOpen: true },
   // The WebGL canvas draws a new frame at each shot, and the cluster labels
   // of Cosmograph move with it. The capture hides both.
   parameters: {
     visual: { masks: ["canvas", ".css-label--labels-container"] },
-    review: {
-      purpose:
-        "Graph canvas of the knowledge graph, where a user explores how the files of a Workspace link: the node drawer is open, so the search and the timeline dim.",
-    },
   },
   play: async ({ canvasElement }) => {
     const search = await within(canvasElement).findByLabelText(
@@ -209,18 +204,17 @@ export const DrawerOpenDimsOverlays: Story = {
 const timelineSelections =
   fn<(selection: KnowledgeGraphSelectionEvent | null) => void>()
 
-/** Play works with no brushed range. It starts from the first part of the
- * history and moves the window forward. Each step sends one selection, not
- * two. */
+/**
+ * Graph canvas of the knowledge graph, where a user explores how the files of a
+ * Workspace link: the timeline played the history with no brushed range and is
+ * paused. Play starts from the first part of the history and moves the window
+ * forward, with one selection for each step.
+ */
 export const TimelinePlaysWithoutRange: Story = {
   args: { onSelectionChange: timelineSelections },
   // The WebGL canvas draws a new frame at each shot, so the capture hides it.
   parameters: {
     visual: { masks: ["canvas"] },
-    review: {
-      purpose:
-        "Graph canvas of the knowledge graph, where a user explores how the files of a Workspace link: the timeline played the history with no range and is paused.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -255,15 +249,15 @@ export const TimelinePlaysWithoutRange: Story = {
   },
 }
 
-/** A browser with WebGL 2 turned off gets a clear message, not a blank canvas. */
+/**
+ * Graph canvas of the knowledge graph, where a user explores how the files of a
+ * Workspace link: the browser has WebGL 2 turned off, so a clear message shows
+ * instead of a blank canvas.
+ */
 export const NoWebGL: Story = {
   parameters: {
     intent:
       "Catches a graph canvas that fails with no message when the browser has no WebGL 2. It must show that the browser cannot show the graph. Not for graph data or layout.",
-    review: {
-      purpose:
-        "Graph canvas of the knowledge graph, where a user explores how the files of a Workspace link: the browser has no WebGL 2, so a message shows.",
-    },
   },
   tags: ["required"],
   beforeEach: () => {

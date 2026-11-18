@@ -47,13 +47,12 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Buildkite scope editor in the Add source dialog, where the user picks the
+ * pipelines that a Workspace source syncs: from an empty selection, the user
+ * ticks Web App and API.
+ */
 export const SelectPipelines: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Buildkite scope editor in the Add source dialog, where the user picks the pipelines that a Workspace source syncs: from an empty selection, the user ticks Web App and API.",
-    },
-  },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
     await waitFor(() =>
@@ -70,13 +69,12 @@ export const SelectPipelines: Story = {
   },
 }
 
+/**
+ * Buildkite scope editor in the Add source dialog: Web App is selected, the
+ * user filters for deploy and ticks Deploy production, and Web App stays in the
+ * list as selected.
+ */
 export const FilterKeepsTheSelection: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Buildkite scope editor in the Add source dialog: Web App is selected, the user filters for deploy and ticks Deploy production, and Web App stays in the list as selected.",
-    },
-  },
   args: { label: "CI", initialScope: { pipelines: ["web-app"] } },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -105,13 +103,12 @@ export const FilterKeepsTheSelection: Story = {
   },
 }
 
+/**
+ * Buildkite scope editor in the Edit source dialog: the saved scope has a
+ * pipeline that Buildkite no longer lists, which shows by its slug, and the
+ * user clears it.
+ */
 export const RemovedPipelineCanBeCleared: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Buildkite scope editor in the Edit source dialog: the saved scope has a pipeline that Buildkite no longer lists, which shows by its slug, and the user clears it.",
-    },
-  },
   args: { initialScope: { pipelines: ["old-pipeline", "api"] } },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
@@ -152,12 +149,13 @@ const manyPipelines = [
   }),
 )
 
+/**
+ * Buildkite scope editor in the Add source dialog: 50 pipelines are selected,
+ * the user ticks one more, so an error states the 50-pipeline limit and the
+ * dialog cannot save.
+ */
 export const OverThePipelineLimit: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Buildkite scope editor in the Add source dialog: 50 pipelines are selected, the user ticks one more, so an error states the 50-pipeline limit and the dialog cannot save.",
-    },
     msw: {
       handlers: {
         page: [
@@ -189,12 +187,12 @@ export const OverThePipelineLimit: Story = {
   },
 }
 
+/**
+ * Buildkite scope editor, where the user picks the pipelines of a Workspace
+ * source: the pipeline list still loads.
+ */
 export const Loading: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Buildkite scope editor, where the user picks the pipelines of a Workspace source: the pipeline list still loads.",
-    },
     msw: {
       handlers: {
         page: [
@@ -216,12 +214,13 @@ export const Loading: Story = {
   },
 }
 
+/**
+ * Buildkite scope editor, where the user picks the pipelines of a Workspace
+ * source: Buildkite refuses the access token, so an error asks the user to
+ * reconnect Buildkite.
+ */
 export const LoadError: Story = {
   parameters: {
-    review: {
-      purpose:
-        "Buildkite scope editor, where the user picks the pipelines of a Workspace source: Buildkite refuses the access token, so an error asks the user to reconnect Buildkite.",
-    },
     msw: {
       handlers: {
         page: [

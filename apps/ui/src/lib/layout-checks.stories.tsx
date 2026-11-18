@@ -115,6 +115,10 @@ const problemsIn = async (root: Element) => {
   return layoutProblems(root)
 }
 
+/**
+ * Test fixture that proves the overflow layout check: an alert URL and a card
+ * label run out of their boxes.
+ */
 export const OverflowFound: Story = {
   render: () => <Overflow fixed={false} />,
   parameters: {
@@ -125,8 +129,6 @@ export const OverflowFound: Story = {
     },
     review: {
       kind: "component",
-      purpose:
-        "Test fixture that proves the overflow layout check: an alert URL and a card label run out of their boxes.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -150,12 +152,14 @@ export const OverflowFound: Story = {
   },
 }
 
+/**
+ * Test fixture that proves the overflow layout check: the alert URL wraps and
+ * the card label stays in its card.
+ */
 export const OverflowFixed: Story = {
   parameters: {
     review: {
       kind: "component",
-      purpose:
-        "Test fixture that proves the overflow layout check: the alert URL wraps and the card label stays in its card.",
     },
   },
   render: () => <Overflow fixed />,
@@ -165,6 +169,10 @@ export const OverflowFixed: Story = {
   },
 }
 
+/**
+ * Test fixture that proves the axes layout check: the checklist boxes sit 2 px
+ * off the axis of the header icon.
+ */
 export const AxesFound: Story = {
   render: () => <Checklist box="size-5" />,
   parameters: {
@@ -175,8 +183,6 @@ export const AxesFound: Story = {
     },
     review: {
       kind: "component",
-      purpose:
-        "Test fixture that proves the axes layout check: the checklist boxes sit 2 px off the axis of the header icon.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -192,12 +198,14 @@ export const AxesFound: Story = {
   },
 }
 
+/**
+ * Test fixture that proves the axes layout check: the checklist boxes sit on
+ * the same axis as the header icon.
+ */
 export const AxesFixed: Story = {
   parameters: {
     review: {
       kind: "component",
-      purpose:
-        "Test fixture that proves the axes layout check: the checklist boxes sit on the same axis as the header icon.",
     },
   },
   render: () => <Checklist box="size-4" />,
@@ -206,6 +214,10 @@ export const AxesFixed: Story = {
   },
 }
 
+/**
+ * Test fixture that proves the contrast layout check: a line of text has too
+ * little contrast.
+ */
 export const ContrastFound: Story = {
   render: () => <Text className="text-zinc-600" />,
   parameters: {
@@ -216,8 +228,6 @@ export const ContrastFound: Story = {
     },
     review: {
       kind: "component",
-      purpose:
-        "Test fixture that proves the contrast layout check: a line of text has too little contrast.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -230,12 +240,14 @@ export const ContrastFound: Story = {
   },
 }
 
+/**
+ * Test fixture that proves the contrast layout check: the same line of text has
+ * enough contrast.
+ */
 export const ContrastFixed: Story = {
   parameters: {
     review: {
       kind: "component",
-      purpose:
-        "Test fixture that proves the contrast layout check: the same line of text has enough contrast.",
     },
   },
   render: () => <Text className="text-zinc-300" />,

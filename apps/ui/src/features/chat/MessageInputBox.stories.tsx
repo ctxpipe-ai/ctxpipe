@@ -46,15 +46,15 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-/** Typed text survives a remount under the same draft key, and a send clears it. */
+/**
+ * Chat message composer with a saved draft: the user types text, and the text
+ * stays after a remount under the same draft key. The send then clears the
+ * draft, so the composer is empty again.
+ */
 export const DraftSurvivesRemount: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends on a test harness with a Remount composer button, which the product does not render.",
-    },
-    review: {
-      purpose:
-        "Chat message composer with a saved draft: typed text stays after a remount and the send clears it.",
     },
   },
   beforeEach: () => {
@@ -81,14 +81,12 @@ export const DraftSurvivesRemount: Story = {
   },
 }
 
-/** Picking a suggested prompt fills the composer and focuses it. It does not send. */
+/**
+ * Chat message composer with suggested prompts: the user opened the list and
+ * picked one. The prompt fills the composer and the composer gets focus, but
+ * nothing is sent.
+ */
 export const SuggestionFillsComposer: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Chat message composer with suggested prompts: the user opened the list and picked one, which fills the composer.",
-    },
-  },
   beforeEach: () => {
     writeChatDraft(draftKey, "")
   },
@@ -112,28 +110,22 @@ export const SuggestionFillsComposer: Story = {
   },
 }
 
-/** No draft key: the composer starts empty every time. */
+/**
+ * Chat message composer under a conversation thread: it has no draft key and no
+ * saved draft, so it starts empty every time.
+ */
 export const Thread: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Chat message composer under a conversation thread: no saved draft, so it starts empty.",
-    },
-  },
   args: {
     layout: "thread",
     draftKey: undefined,
   },
 }
 
-/** While a turn streams the composer is locked, but Stop stays enabled and cancels the turn. */
+/**
+ * Chat message composer under a thread while a reply streams: the text box is
+ * locked, and the Stop button stays active. A click on Stop cancels the turn.
+ */
 export const StopDuringStreamedTurn: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Chat message composer under a thread while a reply streams: the text box is locked and the Stop button stays active.",
-    },
-  },
   args: {
     layout: "thread",
     draftKey: undefined,

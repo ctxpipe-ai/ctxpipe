@@ -13,11 +13,8 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const ProductMark: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Plain mark, the logo in the ink color that names Plain on its connector card and setup dialog: the mark alone, enlarged.",
-    },
-  },
-}
+/**
+ * Plain mark, the logo in the ink color that names Plain on its connector card
+ * and setup dialog: the mark alone, enlarged.
+ */
+export const ProductMark: Story = {}

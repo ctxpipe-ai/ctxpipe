@@ -46,13 +46,12 @@ function slideRows(canvasElement: HTMLElement) {
   return [welcome.parentElement as HTMLElement, ...steps, action]
 }
 
+/**
+ * Welcome slide of onboarding, which tells a new user how ctxpipe works in
+ * three steps: a user with no org pressed Next, which opens the step that
+ * creates the org.
+ */
 export const NewOrganization: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Welcome slide of onboarding, which tells a new user how ctxpipe works in three steps: a user with no org pressed Next, which opens the step that creates the org.",
-    },
-  },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
@@ -73,17 +72,11 @@ export const NewOrganization: Story = {
 }
 
 /**
- * The rows fade in one after another: each row has the short fade (100 ms),
- * and each row starts after the row above it. The last delay is 150 ms at
- * most.
+ * Welcome slide of onboarding that explains how ctxpipe works in three steps:
+ * the rows faded in one after another. Each row has the short fade (100 ms) and
+ * starts after the row above it. The last delay is 150 ms at most.
  */
 export const RowsFadeInInOrder: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Welcome slide of onboarding that explains how ctxpipe works in three steps: the rows faded in one after another.",
-    },
-  },
   play: async ({ canvasElement }) => {
     await within(canvasElement).findByRole("heading", {
       name: WELCOME_TITLE,
@@ -105,17 +98,15 @@ export const RowsFadeInInOrder: Story = {
 }
 
 /**
- * With reduced motion, the global rule makes each animation last no time.
- * Each row shows when its short delay ends, and it does not move.
+ * Welcome slide of onboarding that explains how ctxpipe works in three steps:
+ * the user prefers reduced motion, so the rows do not move. The global rule
+ * makes each animation last no time, and each row shows when its short delay
+ * ends.
  */
 export const RowsWithReducedMotion: Story = {
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as RowsFadeInInOrder.",
-    },
-    review: {
-      purpose:
-        "Welcome slide of onboarding that explains how ctxpipe works in three steps: the user prefers reduced motion, so the rows do not move.",
     },
   },
   tags: ["reduced-motion"],
@@ -132,13 +123,11 @@ export const RowsWithReducedMotion: Story = {
   },
 }
 
-/** A joiner finishes onboarding from this slide. */
+/**
+ * Welcome slide of onboarding, which tells a new user how ctxpipe works in
+ * three steps: a user who joined an org reads it, and Get started finishes
+ * onboarding and opens Home.
+ */
 export const Joiner: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Welcome slide of onboarding, which tells a new user how ctxpipe works in three steps: a user who joined an org reads it, and Get started opens Home.",
-    },
-  },
   args: { actionLabel: "Get started" },
 }

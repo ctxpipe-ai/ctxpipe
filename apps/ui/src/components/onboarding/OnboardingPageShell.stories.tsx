@@ -26,13 +26,11 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Onboarding page with the welcome slide: the background scene failed to load,
+ * so a note says that Continue still works.
+ */
 export const SceneFailed: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Onboarding page with the welcome slide: the background scene failed to load, so a note says that Continue still works.",
-    },
-  },
   args: {
     sceneFailed: true,
   },

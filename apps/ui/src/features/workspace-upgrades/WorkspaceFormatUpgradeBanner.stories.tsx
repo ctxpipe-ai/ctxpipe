@@ -69,14 +69,12 @@ type Story = StoryObj<typeof meta>
 
 const title = "This Workspace needs the format upgrade"
 
-/** An owner or admin starts the upgrade or opens Upgrades from the banner (CTX-932). */
+/**
+ * Format upgrade banner of a Workspace, for an owner: the Workspace needs the
+ * upgrade, and the owner can start it from the banner or open Upgrades to
+ * review it (CTX-932).
+ */
 export const OwnerCanStart: Story = {
-  parameters: {
-    review: {
-      purpose:
-        "Format upgrade banner of a Workspace, for an owner: the Workspace needs the upgrade and the owner can start it or review it.",
-    },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText(title)
@@ -98,14 +96,14 @@ export const OwnerCanStart: Story = {
   },
 }
 
-/** A member sees "Ask an admin" and no Start button. */
+/**
+ * Format upgrade banner of a Workspace, for a member: the Workspace needs the
+ * upgrade, and the member must ask an admin. The banner has no Start button for
+ * a member.
+ */
 export const MemberAsksAdmin: Story = {
   parameters: {
     ...handlers("member", upgradesFixture([upgradeItemFixture()])),
-    review: {
-      purpose:
-        "Format upgrade banner of a Workspace, for a member: the Workspace needs the upgrade and the member must ask an admin.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -119,14 +117,14 @@ export const MemberAsksAdmin: Story = {
   },
 }
 
-/** The format was never read and no upgrade item exists yet: Upgrades can check again. */
+/**
+ * Format upgrade banner of a Workspace: ctxpipe never read the format and has
+ * no upgrade item yet, so there is no Start button. The Review upgrade link
+ * opens Upgrades, where the user can check again.
+ */
 export const NoItemYet: Story = {
   parameters: {
     ...handlers("owner", upgradesFixture([], { formatVersion: 0 })),
-    review: {
-      purpose:
-        "Format upgrade banner of a Workspace: ctxpipe never read the format and has no upgrade item yet, so there is no Start button.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -139,16 +137,16 @@ export const NoItemYet: Story = {
   },
 }
 
+/**
+ * Format upgrade banner of a Workspace: ctxpipe prepares the upgrade pull
+ * request now.
+ */
 export const Running: Story = {
   parameters: {
     ...handlers(
       "owner",
       upgradesFixture([upgradeItemFixture({ status: "running" })]),
     ),
-    review: {
-      purpose:
-        "Format upgrade banner of a Workspace: ctxpipe prepares the upgrade pull request now.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -162,6 +160,11 @@ export const Running: Story = {
   },
 }
 
+/**
+ * Format upgrade banner at the top of the Workspace page, seen by an owner:
+ * ctxpipe opened the upgrade pull request, so the banner says to merge it on
+ * GitHub and links to it.
+ */
 export const PullRequestOpen: Story = {
   parameters: {
     ...handlers(
@@ -176,10 +179,6 @@ export const PullRequestOpen: Story = {
         }),
       ]),
     ),
-    review: {
-      purpose:
-        "Format upgrade banner at the top of the Workspace page, seen by an owner: ctxpipe opened the upgrade pull request, so the banner says to merge it on GitHub and links to it.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -191,7 +190,10 @@ export const PullRequestOpen: Story = {
   },
 }
 
-/** A failed upgrade shows its cause and the next step, not a blind Start. */
+/**
+ * Format upgrade banner of a Workspace: the upgrade failed, and the banner
+ * gives the cause and the next step instead of a Start button.
+ */
 export const Failed: Story = {
   parameters: {
     ...handlers(
@@ -209,10 +211,6 @@ export const Failed: Story = {
         }),
       ]),
     ),
-    review: {
-      purpose:
-        "Format upgrade banner of a Workspace: the upgrade failed, and the banner gives the cause and the next step.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -225,6 +223,10 @@ export const Failed: Story = {
   },
 }
 
+/**
+ * Format upgrade banner of a Workspace: the upgrade is blocked because the
+ * GitHub App cannot write to the repository.
+ */
 export const Blocked: Story = {
   parameters: {
     ...handlers(
@@ -237,10 +239,6 @@ export const Blocked: Story = {
         }),
       ]),
     ),
-    review: {
-      purpose:
-        "Format upgrade banner of a Workspace: the upgrade is blocked because the GitHub App cannot write to the repository.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -252,7 +250,11 @@ export const Blocked: Story = {
   },
 }
 
-/** At the newest format the banner shows nothing. */
+/**
+ * Format upgrade banner of a Workspace at the newest format: the banner stays
+ * hidden. The play waits for the answer of the read, so that the check does not
+ * pass too early.
+ */
 export const UpToDate: Story = {
   parameters: {
     visual: {
@@ -264,10 +266,6 @@ export const UpToDate: Story = {
         formatVersion: 3,
       }),
     ),
-    review: {
-      purpose:
-        "Format upgrade banner of a Workspace at the newest format: the banner renders nothing.",
-    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

@@ -43,6 +43,10 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Organization API keys card, where an admin makes keys for CI and shared
+ * agents: the org has no keys yet.
+ */
 export const Empty: Story = {
   parameters: {
     msw: {
@@ -50,13 +54,13 @@ export const Empty: Story = {
         page: [orgApiKeysListEmptyHandler],
       },
     },
-    review: {
-      purpose:
-        "Organization API keys card, where an admin makes keys for CI and shared agents: the org has no keys yet.",
-    },
   },
 }
 
+/**
+ * Organization API keys card, where an admin makes keys for CI and shared
+ * agents: the org has keys in the list.
+ */
 export const Populated: Story = {
   parameters: {
     msw: {
@@ -69,23 +73,19 @@ export const Populated: Story = {
         ],
       },
     },
-    review: {
-      purpose:
-        "Organization API keys card, where an admin makes keys for CI and shared agents: the org has keys in the list.",
-    },
   },
 }
 
+/**
+ * Organization API keys card, where an admin makes keys for CI and shared
+ * agents: the user is not an admin or owner.
+ */
 export const Forbidden: Story = {
   parameters: {
     msw: {
       handlers: {
         page: [orgApiKeysListForbiddenHandler],
       },
-    },
-    review: {
-      purpose:
-        "Organization API keys card, where an admin makes keys for CI and shared agents: the user is not an admin or owner.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -98,9 +98,10 @@ export const Forbidden: Story = {
 }
 
 /**
- * MSW org-key handlers reject any non-`organization` configId (400). A
- * successful create/revoke here proves the card never mint/lists/revokes with
- * the personal `"default"` configId.
+ * Organization API keys card, where an admin makes keys for CI and shared
+ * agents: a new key was made, and its secret shows once. The MSW handlers
+ * reject a configId that is not `organization` (400), so a create here proves
+ * that the card never uses the personal `"default"` configId.
  */
 export const CreateNamedKey: Story = {
   parameters: {
@@ -112,10 +113,6 @@ export const CreateNamedKey: Story = {
           orgApiKeysUpdateHandler(),
         ],
       },
-    },
-    review: {
-      purpose:
-        "Organization API keys card, where an admin makes keys for CI and shared agents: a new key was made, and its secret shows once.",
     },
   },
   play: async ({ canvasElement }) => {
@@ -156,6 +153,10 @@ export const CreateNamedKey: Story = {
   },
 }
 
+/**
+ * Organization API keys card, where an admin makes keys for CI and shared
+ * agents: the admin revoked a key from the list.
+ */
 export const RevokeKey: Story = {
   parameters: {
     visual: { skip: "Behavior test: it ends in the same state as Populated." },
@@ -163,10 +164,6 @@ export const RevokeKey: Story = {
       handlers: {
         page: [orgApiKeysListPopulatedHandler, orgApiKeysDeleteHandler()],
       },
-    },
-    review: {
-      purpose:
-        "Organization API keys card, where an admin makes keys for CI and shared agents: the admin revoked a key from the list.",
     },
   },
   play: async ({ canvasElement }) => {

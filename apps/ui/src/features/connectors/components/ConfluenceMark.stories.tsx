@@ -13,12 +13,15 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/**
+ * Confluence mark, the outline logo in the ink color that names Confluence on
+ * its connector card, setup dialog and Workspace sources: the mark alone,
+ * enlarged.
+ */
 export const Mark: Story = {
   parameters: {
     review: {
       kind: "component",
-      purpose:
-        "Confluence mark, the outline logo in the ink color that names Confluence on its connector card, setup dialog and Workspace sources: the mark alone, enlarged.",
     },
   },
 }
