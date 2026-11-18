@@ -859,7 +859,15 @@ export const Primary = { render: () => null }
         await put("base", card, before)
         await put("head", card, after)
 
-        await run("--json", "--head-stories", head, "--images", images, "--", card)
+        await run(
+          "--json",
+          "--head-stories",
+          head,
+          "--images",
+          images,
+          "--",
+          card,
+        )
 
         expect(scope(0)).toBe("page")
         expect(JSON.stringify(chats[0])).toContain(
@@ -880,7 +888,15 @@ export const Primary = { render: () => null }
         await put("base", link, before)
         await put("head", link, after)
 
-        await run("--json", "--head-stories", head, "--images", images, "--", link)
+        await run(
+          "--json",
+          "--head-stories",
+          head,
+          "--images",
+          images,
+          "--",
+          link,
+        )
 
         expect(JSON.stringify(chats[0])).toContain(
           "Purpose: Inline text link, underlined on hover.",
@@ -891,7 +907,15 @@ export const Primary = { render: () => null }
         await put("base", button, before)
         await put("head", button, after)
 
-        await run("--json", "--head-stories", head, "--images", images, "--", button)
+        await run(
+          "--json",
+          "--head-stories",
+          head,
+          "--images",
+          images,
+          "--",
+          button,
+        )
 
         expect(scope(0)).toBe("page")
         expect(JSON.stringify(chats[0])).toContain(
@@ -919,6 +943,9 @@ export const Primary = { render: () => null }
 
         expect(code).toBe(2)
         expect(chats).toHaveLength(0)
+        expect(output.join("\n")).toContain(
+          "Cannot read the head story file apps/ui/src/components/Card.stories.tsx: ",
+        )
         expect(output.join("\n")).toContain("is not a regular file")
       })
     })

@@ -736,16 +736,27 @@ async function aboutStory(
   for (const { file, story } of candidates) {
     // A story file that is not there, or that does not parse, is not the
     // story file of this screenshot.
-    const head = await headStory(headStories, file)
-    const found = await (
-      head === undefined
-        ? readFile(insideRoot(process.cwd(), file), "utf8")
-        : Promise.resolve(head)
-    )
-      .then((code) =>
-        storiesOf(csfTools, file, code).find(({ name }) => name === story),
-      )
-      .catch(() => undefined)
+    const head =
+      headStories === undefined
+        ? undefined
+        : await readRegularInside(headStories, file).catch((error) => {
+            throw new HeadStoryError(
+              `Cannot read the head story file ${file}: ${(error as Error).message}`,
+            )
+          })
+    const code =
+      head ??
+      (await readFile(insideRoot(process.cwd(), file)).catch(() => undefined))
+    let found
+    try {
+      found = code
+        ? storiesOf(csfTools, file, code.toString("utf8")).find(
+            ({ name }) => name === story,
+          )
+        : undefined
+    } catch {
+      found = undefined
+    }
     if (found?.kind)
       return {
         scope: found.kind,
@@ -760,22 +771,24 @@ async function aboutStory(
   }
 }
 
+/** A head story file that `--head-stories` has, but that cannot be read. */
+class HeadStoryError extends Error {}
+
 /**
- * The text of the story file `file` in `folder` (the head story files of the
- * factory), or undefined when the folder or the file is not there. A file
- * that is not a regular file, or that is outside `folder`, throws.
+ * The bytes of the file `path` in the folder `root` (data of the PR author),
+ * or undefined when it is not there. A file that is not a regular file, or
+ * whose real path is outside `root`, throws.
  */
-async function headStory(
-  folder: string | undefined,
-  file: string,
-): Promise<string | undefined> {
-  if (folder === undefined) return undefined
-  const full = insideRoot(folder, file)
-  const info = await lstat(full).catch(() => undefined)
+async function readRegularInside(
+  root: string,
+  path: string,
+): Promise<Buffer | undefined> {
+  const file = insideRoot(root, path)
+  const info = await lstat(file).catch(() => undefined)
   if (!info) return undefined
-  if (!info.isFile()) throw new Error(`${full} is not a regular file.`)
-  await realInside(folder, full)
-  return readFile(full, "utf8")
+  if (!info.isFile()) throw new Error(`${file} is not a regular file.`)
+  await realInside(root, file)
+  return readFile(file)
 }
 
 /**
@@ -810,15 +823,10 @@ async function compareImages(
   const screenshots: Screenshot[] = []
   for (const [index, path] of paths.entries()) {
     try {
-      const read = async (side: "base" | "head") => {
-        const file = insideRoot(join(folder, side), path)
-        const info = await lstat(file).catch(() => undefined)
-        if (!info) return undefined
-        if (!info.isFile()) throw new Error(`${file} is not a regular file.`)
-        await realInside(folder, file)
-        return readFile(file)
-      }
-      const [before, after] = [await read("base"), await read("head")]
+      const [before, after] = [
+        await readRegularInside(join(folder, "base"), path),
+        await readRegularInside(join(folder, "head"), path),
+      ]
       const plain = (verdict: Verdict["verdict"], summary: string) => ({
         path,
         verdict: {
@@ -899,6 +907,7 @@ async function compareImages(
         }),
       })
     } catch (error) {
+      if (error instanceof HeadStoryError) throw error
       throw new Error(
         `Cannot read the image of ${path}: ${(error as Error).message}`,
       )
