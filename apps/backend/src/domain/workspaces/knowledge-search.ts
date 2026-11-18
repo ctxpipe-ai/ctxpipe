@@ -258,7 +258,7 @@ async function runSearch(
       claims: Array<{ predicate: string | null; to: string }>
       score: number | string
     }>(sql`
-      WITH lexical AS (${lexicalCandidates(query, input.workspaceIds, where)}),
+      WITH lexical AS (${lexicalCandidates(query, where)}),
       semantic AS (${semantic}),
       fused AS (
         SELECT ${tieBreakOuter},
@@ -319,13 +319,12 @@ const tieBreakOuter = sql`workspace_id, unit_id, chunk_hash, occurrence`
  * every chunk in scope. The view `workspace_knowledge_chunk_search` has the
  * policy's org filter and no policy. When a query also reads a table with a
  * policy, Postgres does not use the index for `@@` either, so the match is a
- * materialized CTE of the view alone. The other filters apply to its rows.
+ * materialized CTE of the view alone. It has no condition that a btree index
+ * can serve (not the Workspaces either), so whatever the statistics, the GIN
+ * index serves the org and the match together. The other filters apply to
+ * its rows.
  */
-export function lexicalCandidates(
-  query: string,
-  workspaceIds: readonly string[],
-  where: SQL,
-): SQL {
+export function lexicalCandidates(query: string, where: SQL): SQL {
   // Inline, not a CTE of its own: with a constant tsquery, the planner
   // estimates the match from the index statistics.
   const everyTerm = sql`plainto_tsquery('english', ${query})`
@@ -336,7 +335,7 @@ export function lexicalCandidates(
   return sql`WITH matched AS MATERIALIZED (
       SELECT m.workspace_id, m.unit_id, m.chunk_hash, m.occurrence, m.search
       FROM workspace_knowledge_chunk_search AS m
-      WHERE m.workspace_id = ANY(${textArray(workspaceIds)}) AND m.search @@ ${anyTerm}
+      WHERE m.search @@ ${anyTerm}
     )
     SELECT ${tieBreakOuter},
       row_number() OVER (ORDER BY every_match DESC, text_rank DESC, ${tieBreakOuter}) AS rank

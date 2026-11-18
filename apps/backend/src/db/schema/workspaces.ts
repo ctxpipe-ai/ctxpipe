@@ -152,6 +152,9 @@ const tsvector = customType<{ data: string }>({
  * replaced in that transaction, and a new chunk copies the embedding of an
  * old chunk with the same hash before the old one goes.
  */
+/** The org of a chunk for its full-text match; equal to `org_id` (byte equality). */
+const chunkSearchOrg = sql`("org_id" COLLATE "C")`
+
 export const workspaceKnowledgeChunks = pgTable.withRLS(
   "workspace_knowledge_chunks",
   {
@@ -185,7 +188,14 @@ export const workspaceKnowledgeChunks = pgTable.withRLS(
       t.chunkHash,
     ),
     index("workspace_knowledge_chunks_org_id_idx").on(t.orgId),
-    index("workspace_knowledge_chunks_search_idx").using("gin", t.search),
+    // The org as `org_id COLLATE "C"` (btree_gin) and the tsvector: the full
+    // text match of workspaceKnowledgeChunkSearch. No other index has the org
+    // under that collation, so whatever the statistics, no btree serves it.
+    index("workspace_knowledge_chunks_search_idx").using(
+      "gin",
+      chunkSearchOrg,
+      t.search,
+    ),
     index("workspace_knowledge_chunks_embedding_idx").using(
       "hnsw",
       t.embedding.op("vector_cosine_ops"),
@@ -199,7 +209,9 @@ export const workspaceKnowledgeChunks = pgTable.withRLS(
  * of the knowledge search (ADR-042, revision 2026-11-18). `tsvector @@ tsquery`
  * is not leakproof, so Postgres does not use the GIN index for it on a table
  * whose RLS policy applies to the role. The view reads the table as its owner,
- * to whom the policy does not apply, and filters by the policy's condition.
+ * to whom the policy does not apply, and filters by the policy's condition,
+ * on `org_id COLLATE "C"`: only `workspace_knowledge_chunks_search_idx` holds
+ * the org that way, so one GIN scan serves the org and the match together.
  * `provisionAppRole` leaves the app role SELECT only on views, and the check
  * option keeps any write through the view in the session's org.
  *
@@ -219,7 +231,7 @@ export const workspaceKnowledgeChunkSearch = pgView(
 )
   .with({ checkOption: "cascaded" })
   .as(
-    sql`SELECT workspace_id, unit_id, chunk_hash, occurrence, search FROM workspace_knowledge_chunks WHERE ${orgCondition(sql.raw("org_id"))}`,
+    sql`SELECT workspace_id, unit_id, chunk_hash, occurrence, search FROM workspace_knowledge_chunks WHERE ${orgCondition(chunkSearchOrg)}`,
   )
 
 export const orgMemberPreferences = pgTable.withRLS(

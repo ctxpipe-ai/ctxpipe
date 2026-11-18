@@ -9,7 +9,7 @@ export const APP_ROLE_NAME = "ctxpipe_app"
 const SAFE_IDENT = /^[a-z_][a-z0-9_-]*$/
 const APP_SCHEMAS = new Set(["public", "openworkflow"])
 
-function quoteIdent(name: string): string {
+export function quoteIdent(name: string): string {
   if (!SAFE_IDENT.test(name)) {
     throw new Error(`refusing unsafe SQL identifier: ${name}`)
   }
