@@ -231,17 +231,14 @@ export const TimelinePlaysWithoutRange: Story = {
     // the screenshot changes. Thus the play pauses in the third selection
     // callback, which is in the tick: the next tick does not occur.
     const steps = 3
-    let labelWhilePlaying: string | null = null
     timelineSelections.mockClear()
     timelineSelections.mockImplementation(() => {
       if (timelineSelections.mock.calls.length !== steps) return
-      labelWhilePlaying = playButton.getAttribute("aria-label")
-      playButton.click()
+      canvas.getByRole("button", { name: "Pause history" }).click()
     })
     await userEvent.click(playButton)
     await waitFor(() => expect(timelineSelections).toHaveBeenCalledTimes(steps))
     await canvas.findByRole("button", { name: "Play history" })
-    await expect(labelWhilePlaying).toBe("Pause history")
     await expect(timelineSelections).toHaveBeenCalledTimes(steps)
 
     const starts = timelineSelections.mock.calls.map(([selection]) => {
