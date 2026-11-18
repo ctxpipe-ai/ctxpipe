@@ -1,6 +1,7 @@
 import { type SQL, sql } from "drizzle-orm"
 
 import { withOrgDbContext } from "../../db/client.js"
+import { activeProjectionSha } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { generateEmbedding } from "../../retrieval/services/modelProvider.js"
 
@@ -45,6 +46,7 @@ type KnowledgeHit = {
   title: string | null
   source: string
   updatedAt: Date
+  /** The SHA of the Workspace's active projection, which holds the unit. */
   projectionSha: string
   /** 1-based file lines of the chunk, inclusive. */
   startLine: number
@@ -148,8 +150,8 @@ async function runSearch(
   const limit = Math.min(Math.max(Math.trunc(input.limit ?? 10), 1), 50)
   const embedding = await (input.embedding ?? embedQuery(query, signal))
   const filters: SQL[] = [
+    // Each unit row belongs to the active projection of its Workspace.
     sql`c.workspace_id = ANY(${textArray(input.workspaceIds)})`,
-    sql`u.projection_sha = coalesce(w.active_revision->>'sha', w.active_projection_sha)`,
   ]
   if (input.kinds?.length)
     filters.push(sql`u.kind = ANY(${textArray(input.kinds)})`)
@@ -272,7 +274,8 @@ async function runSearch(
         ORDER BY workspace_id, unit_id, score DESC, occurrence, chunk_hash
       )
       SELECT b.workspace_id, b.unit_id, u.path, u.kind, u.title,
-        coalesce(u.source, 'authored') AS source, u.updated_at, u.projection_sha,
+        coalesce(u.source, 'authored') AS source, u.updated_at,
+        ${activeProjectionSha("w")} AS projection_sha,
         c.start_line, c.end_line, c.text, coalesce(u.claims, '[]'::jsonb) AS claims, b.score
       FROM best AS b
       JOIN workspace_knowledge_chunks AS c
@@ -280,6 +283,7 @@ async function runSearch(
         AND c.chunk_hash = b.chunk_hash AND c.occurrence = b.occurrence
       JOIN workspace_knowledge_units AS u
         ON u.workspace_id = b.workspace_id AND u.serving_id = b.unit_id
+      JOIN workspaces AS w ON w.id = b.workspace_id
       ORDER BY b.score DESC, u.path, b.workspace_id, b.unit_id
       LIMIT ${limit}
     `)
@@ -302,12 +306,11 @@ async function runSearch(
   }))
 }
 
-/** Chunks as `c`, with their unit `u` and Workspace `w`, for the filters. */
+/** Chunks as `c`, with their unit `u`, for the filters. */
 function scopeOf(chunks: SQL): SQL {
   return sql`${chunks} AS c
     JOIN workspace_knowledge_units AS u
-      ON u.workspace_id = c.workspace_id AND u.serving_id = c.unit_id
-    JOIN workspaces AS w ON w.id = c.workspace_id`
+      ON u.workspace_id = c.workspace_id AND u.serving_id = c.unit_id`
 }
 const scope = scopeOf(sql`workspace_knowledge_chunks`)
 const tieBreakOuter = sql`workspace_id, unit_id, chunk_hash, occurrence`

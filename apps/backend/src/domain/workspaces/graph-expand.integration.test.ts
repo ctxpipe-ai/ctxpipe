@@ -8,7 +8,7 @@ import {
 } from "../../platform/graph/client.js"
 import { expandHop, expandWorkspaceGraph } from "./graph-expand.js"
 import {
-  workspaceGraphRevisionKey,
+  workspaceGraphKey,
   writeWorkspaceRevisionGraph,
 } from "./graph-projection.js"
 import { WorkspaceGraphBuildingError } from "./graph-rebuild.js"
@@ -127,7 +127,7 @@ describe("expandWorkspaceGraph on FalkorDB", () => {
       ])
       const hop = await withGraphClient(org, () =>
         expandHop(getGraphClient(), {
-          projectionKey: workspaceGraphRevisionKey(projection.revision),
+          projectionKey: workspaceGraphKey(projection.revision),
           frontier: [id("hub.md")],
           direction: "out",
           predicates: undefined,
@@ -145,7 +145,7 @@ describe("expandWorkspaceGraph on FalkorDB", () => {
       expect(hop.edges.filter((edge) => edge.probe)).toHaveLength(1)
       const limited = await withGraphClient(org, () =>
         expandHop(getGraphClient(), {
-          projectionKey: workspaceGraphRevisionKey(projection.revision),
+          projectionKey: workspaceGraphKey(projection.revision),
           frontier: [id("hub.md")],
           direction: "out",
           predicates: undefined,
@@ -260,7 +260,7 @@ describe("expandWorkspaceGraph on FalkorDB", () => {
       const hop = (maxFanOut: number) =>
         withGraphClient(org, () =>
           expandHop(getGraphClient(), {
-            projectionKey: workspaceGraphRevisionKey(projection.revision),
+            projectionKey: workspaceGraphKey(projection.revision),
             frontier: [id("hub.md")],
             direction: "out",
             predicates: undefined,

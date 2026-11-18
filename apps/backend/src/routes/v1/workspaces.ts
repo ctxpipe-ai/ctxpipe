@@ -4,7 +4,7 @@ import type { AppEnv } from "../../app/env.js"
 import { directWriteRoute } from "../../auth/write-grant.js"
 import { UPGRADE_STATUSES } from "../../domain/upgrades/registry.js"
 import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
-import { workspaceGraphRevisionKey } from "../../domain/workspaces/graph-projection.js"
+import { workspaceGraphRebuildKey } from "../../domain/workspaces/graph-projection.js"
 import { HYDRATE_SKIP_REASONS } from "../../domain/workspaces/hydrate.js"
 import {
   type DerivedStoreResult,
@@ -725,7 +725,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const queued = await enqueueWorkspaceGraphRebuild({
       orgId: workspace.orgId,
       revision,
-      revisionKey: workspaceGraphRevisionKey(revision),
+      revisionKey: workspaceGraphRebuildKey(revision),
       trigger: `manual:${new Date().toISOString().slice(0, 13)}`,
     })
     if (!queued)

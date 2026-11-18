@@ -1,7 +1,7 @@
 import { listOrgWorkspaceProjections } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
-import { workspaceGraphRevisionKey } from "./graph-projection.js"
+import { workspaceGraphKey } from "./graph-projection.js"
 import type { ProjectionState, WorkspaceRevision } from "./revision.js"
 import { publishedProjection } from "./revision.js"
 
@@ -13,14 +13,19 @@ import { publishedProjection } from "./revision.js"
  */
 export const inactiveGraceMs = 24 * 60 * 60 * 1000
 
-/** Find the graph keys that a Workspace serves or can write now. */
+/**
+ * Find the graph keys that a Workspace serves or can write now. A key names a
+ * binding, not a SHA, so the published and the desired revision of one
+ * binding share a key. A key of an earlier key format (one key for each SHA)
+ * has no use, so the collector removes it after the grace period.
+ */
 export function workspaceGraphKeys(state: ProjectionState): string[] {
   const published = publishedProjection(state)
   const revisions: WorkspaceRevision[] = []
   if (published?.kind === "active") revisions.push(published.revision)
   if ((state.kind === "building" || state.kind === "failed") && state.desired)
     revisions.push(state.desired)
-  return revisions.map(workspaceGraphRevisionKey)
+  return revisions.map(workspaceGraphKey)
 }
 
 /**

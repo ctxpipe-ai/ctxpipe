@@ -15,7 +15,11 @@ import {
   splitSourcesTree,
 } from "../../domain/workspace-sources/source-tree.js"
 import { nativeFolderSetChanged } from "../../domain/workspaces/folder-list.js"
-import { projectWorkspaceGraph } from "../../domain/workspaces/graph-projection.js"
+import {
+  projectWorkspaceGraph,
+  type WorkspaceGraphWrite,
+} from "../../domain/workspaces/graph-projection.js"
+import { hydrateCommitBase } from "../../domain/workspaces/hydrate-delta.js"
 import { planHydrateWrites } from "../../domain/workspaces/hydrate-write-planner.js"
 import {
   applyEffectiveValidFromToUnits,
@@ -37,11 +41,13 @@ import {
 import {
   linkedRevisionSchema,
   publishedProjection,
+  sameWorkspaceBinding,
   sameWorkspaceRevision,
   type WorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
 import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
+import { postgresSandboxLocks } from "../../domain/workspaces/sandbox-lock-store.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
   formatChangeNeedsScan,
@@ -62,6 +68,8 @@ import {
   commitHydrateProjection,
   embedKnowledgeChunks,
   getLinkedReadBinding,
+  getDesiredWorkspaceRevision,
+  type HydrateCommit,
   countWorkspaceProjectionUnits,
   getWorkspaceProjectionState,
   listLinkedRepositories,
@@ -172,7 +180,27 @@ export function defineWorkspaceHydrateWorkflow() {
       })
       if (!org) throw new Error(`Organization not found: ${input.orgId}`)
 
-      return withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
+      return withOrgIdContext({ id: org.id, slug: org.slug }, () =>
+        // One hydrate of a Workspace runs at a time. A run that waits here
+        // then hydrates the tip, or ends as a no-op when an earlier run
+        // already hydrated it.
+        //
+        // The sandbox lock store is a generic lease here: a Postgres row with
+        // a 30-second expiry that the holder renews. The lesson "Durable
+        // repository indexing and admission" forbids cross-step leases for
+        // repository ingestion, where a lease would replace a step boundary
+        // or a capacity queue. This lease does neither: each step stays
+        // durable, and correctness does not depend on the lease (the commit
+        // locks the Workspace row and checks its base, and the graph delta
+        // is a compare-and-set). The lease only stops two runs of one
+        // Workspace from doing the same work at once. When a worker stops,
+        // the lease expires in 30 seconds and the retry takes it again.
+        postgresSandboxLocks(input.orgId).withLock(
+          `workspace-hydrate:${input.workspaceId}`,
+          (lockSignal) => hydrateUnderLock(lockSignal),
+        ),
+      )
+      async function hydrateUnderLock(lockSignal: AbortSignal) {
         const orgSql = <T>(fn: () => Promise<T>) =>
           withOrgDbContext(input.orgId, fn)
         // The step keeps its first name; it also starts the issue backfills.
@@ -211,11 +239,27 @@ export function defineWorkspaceHydrateWorkflow() {
         }
         let failingRevision: WorkspaceRevision | undefined = input.revision
         try {
+          // A run hydrates the tip that the Workspace wants when the run
+          // starts, not only the SHA of its trigger. Thus a later run covers
+          // a lost webhook or a run that did not start. The step keeps the
+          // target for each retry of this run. A tip that moves after this
+          // step comes with its own hydrate run, which waits for the lock.
+          const targetSha = await step.run(
+            { name: "capture-hydrate-target" },
+            async () => {
+              const desired = await getDesiredWorkspaceRevision(
+                input.workspaceId,
+              )
+              return desired && sameWorkspaceBinding(desired, input.revision)
+                ? desired.sha
+                : input.revision.sha
+            },
+          )
           const resolved = await resolveWorkspaceReadRevision({
             orgId: input.orgId,
             workspaceId: input.workspaceId,
             env,
-            expected: input.revision,
+            expected: { ...input.revision, sha: targetSha },
           })
           if (!resolved) {
             await enqueueRecordedBackfills()
@@ -592,13 +636,27 @@ export function defineWorkspaceHydrateWorkflow() {
                 })
               })
             : []
+          let committed: HydrateCommit | null = null
+          const committedUnits = pending.postgres
+            ? applyEffectiveValidFromToUnits(
+                parsed.units,
+                new Map(
+                  files.flatMap((file) =>
+                    file.introducingCommitTimestamp
+                      ? [[file.path, file.introducingCommitTimestamp] as const]
+                      : [],
+                  ),
+                ),
+              )
+            : []
           if (pending.postgres) {
             const formatVersion = workspaceFormatCache({
               text: formatFile,
               paths: treePaths,
               writeStatus: workspace.writeStatus,
             })
-            activated = await orgSql(() =>
+            lockSignal.throwIfAborted()
+            committed = await orgSql(() =>
               commitHydrateProjection({
                 orgId: input.orgId,
                 revision,
@@ -606,23 +664,20 @@ export function defineWorkspaceHydrateWorkflow() {
                 formatVersion,
                 skipped: parsed.skipped,
                 embeddingModel: embeddingModelId(),
-                units: applyEffectiveValidFromToUnits(
-                  parsed.units,
-                  new Map(
-                    files.flatMap((file) =>
-                      file.introducingCommitTimestamp
-                        ? [
-                            [
-                              file.path,
-                              file.introducingCommitTimestamp,
-                            ] as const,
-                          ]
-                        : [],
-                    ),
-                  ),
-                ),
+                units: committedUnits,
+                // The commit diffs the new units against the stored rows of
+                // the active projection (a partial write), or writes all
+                // units for the reason that the base gives.
+                base: hydrateCommitBase({
+                  revision,
+                  projection,
+                  reproject: input.reproject === true,
+                  chunksMissing: snapshot.chunksMissing,
+                  formatChanged: formatVersion !== workspace.formatVersion,
+                }),
               }),
             )
+            activated = committed !== null
             if (!activated) {
               return {
                 hydrated: false,
@@ -700,6 +755,7 @@ export function defineWorkspaceHydrateWorkflow() {
           // enqueues.
           if (newGithubLinks.length) await enqueueBackfills(newGithubLinks)
 
+          let graphWrite: WorkspaceGraphWrite | null = null
           if (activated && pending.graph) {
             // A retry of a failed graph sets the phase back to pending, so
             // that readers show the graph as building, not as failed. The
@@ -715,7 +771,30 @@ export function defineWorkspaceHydrateWorkflow() {
                 }),
               )
             try {
-              await projectWorkspaceGraph(revision)
+              lockSignal.throwIfAborted()
+              graphWrite = await projectWorkspaceGraph(
+                revision,
+                committed?.mode === "partial"
+                  ? {
+                      base: committed.base,
+                      // The units as Postgres stores them: a full graph
+                      // write reads these values from Postgres.
+                      units: committedUnits.map((unit) => ({
+                        servingId: unit.servingId,
+                        path: unit.path,
+                        kind: unit.kind ?? null,
+                        title: unit.title ?? null,
+                        source: unit.source ?? "authored",
+                        body: unit.body,
+                        links: unit.links,
+                        claims: unit.claims,
+                        updatedAt: unit.updatedAt,
+                      })),
+                      changedUnitIds: committed.changedUnitIds,
+                      removedUnitIds: committed.removedUnitIds,
+                    }
+                  : undefined,
+              )
             } catch (error) {
               log.error(
                 error instanceof Error ? error : new Error(String(error)),
@@ -734,9 +813,10 @@ export function defineWorkspaceHydrateWorkflow() {
             }
           }
 
+          let embeddingTexts = 0
           if (activated && pending.embeddings) {
             try {
-              await embedKnowledgeChunks({
+              embeddingTexts = await embedKnowledgeChunks({
                 workspaceId: workspace.id,
                 embed: generateEmbeddings,
               })
@@ -762,7 +842,31 @@ export function defineWorkspaceHydrateWorkflow() {
           }
 
           await enqueueRemainingWrites()
+          // The production proof of the partial hydrate: one wide event for
+          // each run says what the run read and wrote.
+          const writes = {
+            mode: committed?.mode ?? "none",
+            ...(committed?.mode === "full"
+              ? { fullReason: committed.fullReason }
+              : {}),
+            filesParsed: pending.postgres
+              ? files.length + legacyFiles.length
+              : 0,
+            unitRowsWritten: committed?.unitRowsWritten ?? 0,
+            unitRowsDeleted: committed?.unitRowsDeleted ?? 0,
+            chunkRowsInserted: committed?.chunkRowsInserted ?? 0,
+            chunkRowsDeleted: committed?.chunkRowsDeleted ?? 0,
+            graphMode: graphWrite?.mode ?? "none",
+            ...(graphWrite?.fullReason
+              ? { graphFullReason: graphWrite.fullReason }
+              : {}),
+            graphNodesWritten: graphWrite?.nodesWritten ?? 0,
+            graphEdgesWritten: graphWrite?.edgesWritten ?? 0,
+            embeddingTexts,
+          }
+          log.set({ hydrate: writes })
           return {
+            writes,
             hydrated: activated,
             units: pending.postgres
               ? parsed.units.length
@@ -790,7 +894,7 @@ export function defineWorkspaceHydrateWorkflow() {
           }
           throw error
         }
-      })
+      }
     },
   )
 }

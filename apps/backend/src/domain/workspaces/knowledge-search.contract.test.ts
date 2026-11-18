@@ -44,9 +44,9 @@ const modelServer = embeddingModelServer()
 // picks that plan by table statistics, so these tests do not force it. They
 // prove the result: a small scope is scanned exactly, and a large one gets hits from both sides and reads the HNSW index.
 const paraphrase = "what to do in an outage"
-// The scope of both plan tests: the two Workspaces on the active projection.
-const planScope = sql`c.workspace_id = ANY(${sql.param([small, bulk])}::text[])
-  AND u.projection_sha = coalesce(w.active_revision->>'sha', w.active_projection_sha)`
+// The scope of both plan tests: the two Workspaces, as in the production
+// query. Each unit row belongs to the active projection of its Workspace.
+const planScope = sql`c.workspace_id = ANY(${sql.param([small, bulk])}::text[])`
 
 describe("searchKnowledge on a large shared index (Postgres)", () => {
   beforeAll(async () => {

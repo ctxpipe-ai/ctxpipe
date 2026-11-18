@@ -12,7 +12,7 @@ import { ensureWorkspaceGraphIndexes } from "../../platform/graph/indexes.js"
 import {
   readWorkspaceGraph,
   WorkspaceGraphMissingError,
-  workspaceGraphRevisionKey,
+  workspaceGraphKey,
   writeWorkspaceRevisionGraph,
 } from "./graph-projection.js"
 import type { HydrateUnit } from "./hydrate.js"
@@ -92,7 +92,7 @@ async function nodeRows(rev: WorkspaceRevision) {
       `MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $key})
       RETURN n.id AS id, n.path AS path, n.degree AS degree,
         n.inDegree AS inDegree, n.outDegree AS outDegree ORDER BY id`,
-      { params: { key: workspaceGraphRevisionKey(rev) } },
+      { params: { key: workspaceGraphKey(rev) } },
     )
   return result.data ?? []
 }
@@ -103,7 +103,7 @@ async function edgeRows(rev: WorkspaceRevision) {
     .query<Record<string, unknown>>(
       `MATCH (s:WorkspaceKnowledgeUnit {projectionKey: $key})-[r:WorkspaceSignal]->(t:WorkspaceKnowledgeUnit)
       RETURN s.id AS s, t.id AS t, r.id AS id, r.predicate AS predicate ORDER BY id`,
-      { params: { key: workspaceGraphRevisionKey(rev) } },
+      { params: { key: workspaceGraphKey(rev) } },
     )
   return result.data ?? []
 }
@@ -182,12 +182,13 @@ it("writes a revision again with the same result", async () => {
 })
 
 it("does not read a graph of an earlier projection version, so the revision projects again", async () => {
-  const rev = revision("e")
+  // A Workspace of its own: the graph key has no SHA.
+  const rev = { ...revision("e"), workspaceId: `ws_version_${suffix}` }
   // Version 1 hashed the parsed revision alone. Write a complete marker under that key.
   const legacyKey = createHash("sha256")
     .update(JSON.stringify(workspaceRevisionSchema.parse(rev)))
     .digest("hex")
-  expect(workspaceGraphRevisionKey(rev)).not.toBe(legacyKey)
+  expect(workspaceGraphKey(rev)).not.toBe(legacyKey)
   await falkor
     .selectGraph(org.orgId)
     .query(

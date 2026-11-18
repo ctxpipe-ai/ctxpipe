@@ -106,7 +106,20 @@ export const workspaceKnowledgeUnits = pgTable.withRLS(
     /** Connector root of a mirror path, else `authored`. Null before the first hydrate that sets it. */
     source: text("source"),
     body: text("body").notNull(),
+    /**
+     * The SHA of the hydrate that last wrote this row. The row has the same
+     * content at that SHA. A partial hydrate writes only the changed rows, so
+     * an unchanged row keeps an older SHA. Each row of the table belongs to
+     * the active projection of its Workspace: select the rows of a projection
+     * by the Workspace's active SHA, not by this column.
+     */
     projectionSha: text("projection_sha").notNull(),
+    /**
+     * A hash of each projected value of the unit (`hydrateUnitHash`). A
+     * partial hydrate compares it with the new unit to find the changed
+     * rows. Null before the first hydrate that sets it.
+     */
+    unitHash: text("unit_hash"),
     links: jsonb("links").$type<string[]>().notNull().default([]),
     claims: jsonb("claims")
       .$type<

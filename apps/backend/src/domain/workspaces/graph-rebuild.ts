@@ -8,7 +8,7 @@ import {
   hasWorkspaceGraph,
   readWorkspaceGraph,
   WorkspaceGraphMissingError,
-  workspaceGraphRevisionKey,
+  workspaceGraphRebuildKey,
 } from "./graph-projection.js"
 import type { PublishedProjection, WorkspaceRevision } from "./revision.js"
 
@@ -45,7 +45,7 @@ async function rebuildLostWorkspaceGraph(
       await enqueueWorkspaceGraphRebuild({
         orgId,
         revision,
-        revisionKey: workspaceGraphRevisionKey(revision),
+        revisionKey: workspaceGraphRebuildKey(revision),
         trigger: lostAt.toISOString(),
       })
     } catch (error) {

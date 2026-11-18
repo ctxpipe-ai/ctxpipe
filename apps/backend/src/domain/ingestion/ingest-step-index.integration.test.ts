@@ -1,7 +1,11 @@
+import { eq } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { withOrgDbContext } from "../../db/client.js"
-import { workspaceKnowledgeUnits } from "../../db/schema/workspaces.js"
+import {
+  workspaceKnowledgeUnits,
+  workspaces,
+} from "../../db/schema/workspaces.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
 import { stepIndexProjection } from "./ingest-shard-sandbox.js"
 
@@ -13,8 +17,13 @@ describe("step index projection (Postgres, runtime role)", () => {
   beforeAll(async () => {
     ctx = await seedSourcesOrg("stepidx")
     workspaceId = await ctx.addWorkspace("stepidx")
-    await withOrgDbContext(ctx.orgId, (db) =>
-      db.insert(workspaceKnowledgeUnits).values({
+    await withOrgDbContext(ctx.orgId, async (db) => {
+      // The unit rows belong to the active projection of the Workspace.
+      await db
+        .update(workspaces)
+        .set({ activeProjectionSha: sha })
+        .where(eq(workspaces.id, workspaceId))
+      await db.insert(workspaceKnowledgeUnits).values({
         servingId: `serving_${ctx.suffix}`,
         orgId: ctx.orgId,
         workspaceId,
@@ -23,8 +32,8 @@ describe("step index projection (Postgres, runtime role)", () => {
         body: "Body.\n",
         projectionSha: sha,
         links: ["knowledge/guides/plain.md"],
-      }),
-    )
+      })
+    })
   })
   afterAll(() => ctx.cleanup())
 
