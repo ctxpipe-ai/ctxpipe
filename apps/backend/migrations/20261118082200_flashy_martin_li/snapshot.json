@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "8f050c41-941b-4103-8696-56b7370643cd",
-  "prevIds": ["9ee5b98c-eb71-44af-96a7-a97ff2f61f66"],
+  "id": "85eb4697-3ee2-4090-9594-f02c7b4a1803",
+  "prevIds": ["604a3dae-13d7-454e-b1e1-94bfa7481490"],
   "ddl": [
     {
       "values": [
@@ -8204,6 +8204,13 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "(\"org_id\" COLLATE \"C\")",
+          "isExpression": true,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
           "value": "search",
           "isExpression": false,
           "asc": true,
@@ -10030,7 +10037,7 @@
       "table": "workspaces"
     },
     {
-      "definition": "SELECT workspace_id, unit_id, chunk_hash, occurrence, search FROM workspace_knowledge_chunks WHERE org_id = current_setting('app.organization_id', true)",
+      "definition": "SELECT workspace_id, unit_id, chunk_hash, occurrence, search FROM workspace_knowledge_chunks WHERE (\"org_id\" COLLATE \"C\") = current_setting('app.organization_id', true)",
       "with": {
         "checkOption": "cascaded",
         "securityBarrier": null,
