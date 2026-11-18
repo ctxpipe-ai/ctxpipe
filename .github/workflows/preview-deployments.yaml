@@ -23,17 +23,21 @@
 #   machines/previews/pr/src/names.ts): change both together. The factory's
 #   expire runs delete those previews, but they have no token for this
 #   repository.
-# - Hourly, the sweep starts a `check` run for each PR whose live deployment
-#   can be gone (a closed PR, or a newest status older than 72 hours), so all
-#   the changes of a PR go through its group. It reads the deployments with
-#   their newest status through GraphQL, 100 in each call. It starts no
-#   check run for a PR whose check run failed in the last day, so that a
-#   reconcile that fails each time does not start a new run each hour.
+# - After each push to main, and each hour, the sweep starts a `check` run
+#   for each PR whose live deployment can be gone (a closed PR, or a newest
+#   status older than 72 hours), so all the changes of a PR go through its
+#   group. It reads the deployments with their newest status through
+#   GraphQL, 100 in each call. It starts no check run for a PR whose check
+#   run failed in the last day, so that a reconcile that fails each time
+#   does not start a new run at each sweep.
+# - GitHub can start a `schedule` run hours late, or drop it. So the push
+#   trigger does the sweep, and the hourly schedule is only a fallback for
+#   days without a push.
 name: Preview deployments
 # Two jq parsers read this run name: the event plan of `reconcile` and the
 # failed check runs of `sweep`. Change them together with it.
 run-name: >-
-  ${{ github.event_name == 'schedule' && 'preview deployments sweep'
+  ${{ github.event_name != 'workflow_dispatch' && 'preview deployments sweep'
   || format('preview deployments pr-{0} {1} {2} {3}', inputs.pr, inputs.state, inputs.log_url, inputs.sha) }}
 
 on:
@@ -56,6 +60,8 @@ on:
         description: The commit of the preview (not for inactive and check)
         type: string
         default: ""
+  push:
+    branches: [main]
   schedule:
     - cron: "41 * * * *"
 
@@ -172,7 +178,12 @@ jobs:
           done <<< "$records"
 
   sweep:
-    if: github.event_name == 'schedule'
+    if: github.event_name != 'workflow_dispatch'
+    # This group runs one sweep at a time. When pushes come during a sweep,
+    # GitHub keeps only the newest pending run.
+    concurrency:
+      group: preview-deployments-sweep
+      cancel-in-progress: false
     # github-hosted: a few GitHub API calls, without Docker (ADR-065)
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
