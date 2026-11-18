@@ -23,17 +23,23 @@
 #   machines/previews/pr/src/names.ts): change both together. The factory's
 #   expire runs delete those previews, but they have no token for this
 #   repository.
-# - Hourly, the sweep starts a `check` run for each PR whose live deployment
+# - After each push to main, and hourly, the sweep starts a `check` run for each PR whose live deployment
 #   can be gone (a closed PR, or a newest status older than 72 hours), so all
 #   the changes of a PR go through its group. It reads the deployments with
 #   their newest status through GraphQL, 100 in each call. It starts no
 #   check run for a PR whose check run failed in the last day, so that a
 #   reconcile that fails each time does not start a new run each hour.
+# - The push trigger is the one that GitHub starts on time. GitHub starts
+#   the `schedule` runs of this repository 5 to 9 hours late: the CI cron
+#   "23 2 * * *" started each day between 07:52 and 10:48 UTC from
+#   2026-10-26 to 2026-11-17 (CTX-1389), and GitHub can drop a late
+#   scheduled run. So the hourly schedule is only a fallback for days
+#   without a push.
 name: Preview deployments
 # Two jq parsers read this run name: the event plan of `reconcile` and the
 # failed check runs of `sweep`. Change them together with it.
 run-name: >-
-  ${{ github.event_name == 'schedule' && 'preview deployments sweep'
+  ${{ github.event_name != 'workflow_dispatch' && 'preview deployments sweep'
   || format('preview deployments pr-{0} {1} {2} {3}', inputs.pr, inputs.state, inputs.log_url, inputs.sha) }}
 
 on:
@@ -56,6 +62,8 @@ on:
         description: The commit of the preview (not for inactive and check)
         type: string
         default: ""
+  push:
+    branches: [main]
   schedule:
     - cron: "41 * * * *"
 
@@ -172,7 +180,7 @@ jobs:
           done <<< "$records"
 
   sweep:
-    if: github.event_name == 'schedule'
+    if: github.event_name != 'workflow_dispatch'
     # github-hosted: a few GitHub API calls, without Docker (ADR-065)
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
