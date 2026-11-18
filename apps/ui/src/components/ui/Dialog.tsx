@@ -3,6 +3,11 @@ import type React from "react"
 import { type DialogProps, Dialog as RACDialog } from "react-aria-components"
 import { twMerge } from "tailwind-merge"
 
+/**
+ * The content frame of a modal or a popover: the padding, the scroll and the
+ * dialog role. Put it in a `Modal` (or a `Popover`), and start it with a
+ * `DialogHeader`. Use `AlertDialog` for a confirm step.
+ */
 export function Dialog(props: DialogProps) {
   return (
     <RACDialog
@@ -15,6 +20,7 @@ export function Dialog(props: DialogProps) {
   )
 }
 
+/** The top block of a `Dialog`: a `DialogTitle` above a `DialogDescription`. */
 export function DialogHeader(props: React.ComponentProps<"div">) {
   return (
     <div
@@ -24,6 +30,11 @@ export function DialogHeader(props: React.ComponentProps<"div">) {
   )
 }
 
+/**
+ * The title of a `Dialog`, as a plain `h2`. It does not name the dialog for a
+ * screen reader: give the `Dialog` an `aria-labelledby`, or use a React Aria
+ * `Heading` with `slot="title"`.
+ */
 export function DialogTitle(props: React.ComponentProps<"h2">) {
   return (
     <h2
@@ -36,6 +47,10 @@ export function DialogTitle(props: React.ComponentProps<"h2">) {
   )
 }
 
+/**
+ * One muted paragraph below the `DialogTitle` that says what the dialog does
+ * and what happens next.
+ */
 export function DialogDescription(props: React.ComponentProps<"p">) {
   return (
     <p

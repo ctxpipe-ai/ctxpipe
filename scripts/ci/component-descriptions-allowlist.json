@@ -1,0 +1,326 @@
+{
+  "apps/ui/src/components/AnimatedBackground.tsx": [
+    "AnimatedBackground"
+  ],
+  "apps/ui/src/components/AppShell.tsx": [
+    "AppShell"
+  ],
+  "apps/ui/src/components/Logo/Logo.tsx": [
+    "Logo"
+  ],
+  "apps/ui/src/components/OverlayNavButton.tsx": [
+    "OverlayNavCloseButton"
+  ],
+  "apps/ui/src/components/ShellLayoutContext.tsx": [
+    "ShellLayoutProvider"
+  ],
+  "apps/ui/src/components/SideNav/SideNav.tsx": [
+    "SideNav"
+  ],
+  "apps/ui/src/components/SideNav/SideNavItem.tsx": [
+    "SideNavItem"
+  ],
+  "apps/ui/src/components/SideNav/SideNavLogo.tsx": [
+    "SideNavLogo"
+  ],
+  "apps/ui/src/components/SideNav/SideNavOrganizationButton.tsx": [
+    "SideNavOrganizationButton"
+  ],
+  "apps/ui/src/components/SideNav/SideNavOrganizationCreateDialog.tsx": [
+    "SideNavOrganizationCreateDialog"
+  ],
+  "apps/ui/src/components/SideNav/SideNavOrganizationSwitcher.tsx": [
+    "SideNavOrganizationSwitcher"
+  ],
+  "apps/ui/src/components/SideNav/SideNavUserButton.tsx": [
+    "SideNavUserButton"
+  ],
+  "apps/ui/src/components/ai-elements/conversation.tsx": [
+    "Conversation",
+    "ConversationContent",
+    "ConversationScrollButton"
+  ],
+  "apps/ui/src/components/ai-elements/message.tsx": [
+    "Message",
+    "MessageContent",
+    "MessageResponse"
+  ],
+  "apps/ui/src/components/ai-elements/prompt-input.tsx": [
+    "PromptInput",
+    "PromptInputBody",
+    "PromptInputTextarea",
+    "PromptInputFooter",
+    "PromptInputTools",
+    "PromptInputSubmit"
+  ],
+  "apps/ui/src/components/onboarding/OnboardingCreateOrgSlide.tsx": [
+    "OnboardingCreateOrgSlide"
+  ],
+  "apps/ui/src/components/onboarding/OnboardingHowItWorksSlide.tsx": [
+    "OnboardingHowItWorksSlide"
+  ],
+  "apps/ui/src/features/auth/AccountSettingsNav.tsx": [
+    "AccountSettingsNav"
+  ],
+  "apps/ui/src/features/auth/OAuthConsent.tsx": [
+    "OAuthConsent"
+  ],
+  "apps/ui/src/features/auth/OAuthOrganizationSelector.tsx": [
+    "OAuthOrganizationSelector"
+  ],
+  "apps/ui/src/features/chat/ConversationThread.tsx": [
+    "ConversationThread"
+  ],
+  "apps/ui/src/features/chat/MessageInputBox.tsx": [
+    "MessageInputBox"
+  ],
+  "apps/ui/src/features/chat/components/ConversationThreadSkeleton.tsx": [
+    "ConversationThreadSkeleton"
+  ],
+  "apps/ui/src/features/connectors/SpacePageTree.tsx": [
+    "SpacePageTree"
+  ],
+  "apps/ui/src/features/connectors/components/BuildkiteConnectionCard.tsx": [
+    "BuildkiteConnectionCard"
+  ],
+  "apps/ui/src/features/connectors/components/ConfluenceConnectionCard.tsx": [
+    "ConfluenceConnectionCard"
+  ],
+  "apps/ui/src/features/connectors/components/ConnectorHealthIndicator.tsx": [
+    "ConnectorHealthIndicator"
+  ],
+  "apps/ui/src/features/connectors/components/ConnectorListItem.tsx": [
+    "ConnectorListSkeleton"
+  ],
+  "apps/ui/src/features/connectors/components/ConnectorSetupStepper.tsx": [
+    "ConnectorSetupStepper"
+  ],
+  "apps/ui/src/features/connectors/components/GitHubPrerequisiteStep.tsx": [
+    "GitHubPrerequisiteStep"
+  ],
+  "apps/ui/src/features/connectors/components/GithubConnectionCard.tsx": [
+    "GithubConnectionCard"
+  ],
+  "apps/ui/src/features/connectors/components/GithubSelfHostedWizardModal.tsx": [
+    "GithubSelfHostedWizardModal"
+  ],
+  "apps/ui/src/features/connectors/components/LinearConnectionCard.tsx": [
+    "LinearConnectionCard"
+  ],
+  "apps/ui/src/features/connectors/components/LinearMark.tsx": [
+    "LinearMark"
+  ],
+  "apps/ui/src/features/connectors/components/NotionConnectionCard.tsx": [
+    "NotionConnectionCard"
+  ],
+  "apps/ui/src/features/connectors/components/OrgAtlassianOauthPanel.tsx": [
+    "OrgAtlassianOauthPanel"
+  ],
+  "apps/ui/src/features/connectors/components/PagerdutyConnectStep.tsx": [
+    "PagerdutyConnectStep"
+  ],
+  "apps/ui/src/features/connectors/components/PagerdutyConnectionCard.tsx": [
+    "PagerdutyConnectionCard"
+  ],
+  "apps/ui/src/features/connectors/components/PagerdutyMark.tsx": [
+    "PagerdutyMark"
+  ],
+  "apps/ui/src/features/connectors/components/PagerdutyRegisterOauthStep.tsx": [
+    "PagerdutyRegisterOauthStep"
+  ],
+  "apps/ui/src/features/connectors/components/PlainConnectionCard.tsx": [
+    "PlainConnectionCard"
+  ],
+  "apps/ui/src/features/connectors/components/SlackConnectionCard.tsx": [
+    "SlackConnectionCard"
+  ],
+  "apps/ui/src/features/connectors/components/SlackSetupDialog.tsx": [
+    "SlackSetupDialog"
+  ],
+  "apps/ui/src/features/connectors/components/confluence-setup/ConfluenceSetupWizard.tsx": [
+    "ConfluenceSetupWizard"
+  ],
+  "apps/ui/src/features/connectors/components/confluence-setup/steps/InstallForgeStep.tsx": [
+    "InstallForgeStep"
+  ],
+  "apps/ui/src/features/connectors/components/confluence-setup/steps/LinkAtlassianStep.tsx": [
+    "LinkAtlassianStep"
+  ],
+  "apps/ui/src/features/connectors/components/confluence-setup/steps/RegisterAtlassianOauthStep.tsx": [
+    "RegisterAtlassianOauthStep"
+  ],
+  "apps/ui/src/features/connectors/components/confluence-setup/steps/WaitForInstallStep.tsx": [
+    "WaitForInstallStep"
+  ],
+  "apps/ui/src/features/connectors/components/github-setup/steps/GithubSelfHostedCredentialsStep.tsx": [
+    "GithubSelfHostedCredentialsStep"
+  ],
+  "apps/ui/src/features/connectors/components/linear-setup/LinearConnectStep.tsx": [
+    "LinearConnectStep"
+  ],
+  "apps/ui/src/features/connectors/components/linear-setup/LinearOauthAppPanel.tsx": [
+    "LinearOauthAppPanel"
+  ],
+  "apps/ui/src/features/connectors/components/linear-setup/RegisterLinearOauthStep.tsx": [
+    "RegisterLinearOauthStep"
+  ],
+  "apps/ui/src/features/connectors/components/notion-setup/AddNotionWebhookStep.tsx": [
+    "AddNotionWebhookStep"
+  ],
+  "apps/ui/src/features/connectors/components/notion-setup/CopyableUrl.tsx": [
+    "CopyableUrl"
+  ],
+  "apps/ui/src/features/connectors/components/notion-setup/RegisterNotionOauthStep.tsx": [
+    "RegisterNotionOauthStep"
+  ],
+  "apps/ui/src/features/home/HomeComposer.tsx": [
+    "HomeComposer"
+  ],
+  "apps/ui/src/features/home/WorkspaceActivityHeatmap.tsx": [
+    "WorkspaceActivityHeatmapSkeleton"
+  ],
+  "apps/ui/src/features/home/WorkspaceRecentCommits.tsx": [
+    "WorkspaceRecentCommits",
+    "WorkspaceRecentCommitsSkeleton"
+  ],
+  "apps/ui/src/features/knowledge-graph/ActivitySparkline.tsx": [
+    "ActivitySparkline"
+  ],
+  "apps/ui/src/features/knowledge-graph/FloatingPanel.tsx": [
+    "FloatingPanel",
+    "PanelLabel"
+  ],
+  "apps/ui/src/features/knowledge-graph/KnowledgeGraphEmpty.tsx": [
+    "KnowledgeGraphEmpty"
+  ],
+  "apps/ui/src/features/knowledge-graph/KnowledgeGraphExplorer.tsx": [
+    "KnowledgeGraphExplorer"
+  ],
+  "apps/ui/src/features/knowledge-graph/KnowledgeGraphIntroCallout.tsx": [
+    "KnowledgeGraphIntroCallout"
+  ],
+  "apps/ui/src/features/knowledge-graph/NodeDetailDrawer.tsx": [
+    "NodeDetailDrawer"
+  ],
+  "apps/ui/src/features/knowledge-graph/SelectionInspectorPanel.tsx": [
+    "SelectionInspectorPanel"
+  ],
+  "apps/ui/src/features/org/OrgOutletError.tsx": [
+    "OrgOutletError"
+  ],
+  "apps/ui/src/features/organization/OrganizationApiKeysCard.tsx": [
+    "PersonalApiKeysCard",
+    "OrganizationApiKeysCard"
+  ],
+  "apps/ui/src/features/organization/OrganizationSettingsNav.tsx": [
+    "OrganizationSettingsNav"
+  ],
+  "apps/ui/src/features/repositories/components/GithubRepoPickerList.tsx": [
+    "GithubRepoPickerList",
+    "GithubRepoPickerSkeleton"
+  ],
+  "apps/ui/src/features/repositories/components/GithubRepoSortSelect.tsx": [
+    "GithubRepoSortSelect"
+  ],
+  "apps/ui/src/features/repositories/components/RepositoryCard.tsx": [
+    "RepositoryCard"
+  ],
+  "apps/ui/src/features/repositories/components/RepositoryStatus.tsx": [
+    "RepositoryStatus"
+  ],
+  "apps/ui/src/features/workspace-sources/WorkspaceSources.tsx": [
+    "AwaitingMergeLink"
+  ],
+  "apps/ui/src/features/workspaces/GithubWorkspaceDestination.tsx": [
+    "GithubWorkspaceDestination",
+    "GithubWorkspaceDestinationFromApi"
+  ],
+  "apps/ui/src/features/workspaces/WorkspaceChat.tsx": [
+    "WorkspaceChat"
+  ],
+  "apps/ui/src/features/workspaces/WorkspaceChatSession.tsx": [
+    "WorkspaceChatSession"
+  ],
+  "apps/ui/src/features/workspaces/WorkspaceConversationDiff.tsx": [
+    "WorkspaceConversationDiffPane",
+    "ChangedFileStatusIcon",
+    "LineCounts"
+  ],
+  "apps/ui/src/features/workspaces/WorkspaceConversationList.tsx": [
+    "WorkspaceConversationList"
+  ],
+  "apps/ui/src/features/workspaces/WorkspaceCreateModal.tsx": [
+    "WorkspaceCreateModal"
+  ],
+  "apps/ui/src/features/workspaces/WorkspaceFileTree.tsx": [
+    "WorkspaceFileTree"
+  ],
+  "apps/ui/src/features/workspaces/WorkspaceFilesPane.tsx": [
+    "WorkspaceFilesPaneBody"
+  ],
+  "apps/ui/src/features/workspaces/WorkspaceGraphPane.tsx": [
+    "WorkspaceGraphPane"
+  ],
+  "apps/ui/src/features/workspaces/WorkspaceHydrateProgress.tsx": [
+    "WorkspaceHydrateFailedBody"
+  ],
+  "apps/ui/src/features/workspaces/WorkspaceNavList.tsx": [
+    "WorkspaceNavList"
+  ],
+  "apps/ui/src/features/workspaces/WorkspaceNavRow.tsx": [
+    "WorkspaceNavRow"
+  ],
+  "apps/ui/src/features/workspaces/WorkspacePane.tsx": [
+    "WorkspacePane",
+    "WorkspacePaneTriggers"
+  ],
+  "apps/ui/src/features/workspaces/WorkspacePierreFile.tsx": [
+    "WorkspacePierreFile"
+  ],
+  "apps/ui/src/features/workspaces/WorkspaceRepositoryPicker.tsx": [
+    "WorkspaceRepositoryPicker"
+  ],
+  "apps/ui/src/features/workspaces/WorkspaceSurface.tsx": [
+    "WorkspaceSurface"
+  ],
+  "apps/ui/src/features/workspaces/workspaceSkeletons.tsx": [
+    "WorkspaceFilesPaneSkeleton",
+    "WorkspaceFilePreviewSkeleton"
+  ],
+  "apps/ui/src/providers/AuthProvider.tsx": [
+    "AuthProvider"
+  ],
+  "apps/ui/src/providers/ConfluenceForgeRuntimeContext.tsx": [
+    "ConfluenceForgeRuntimeProvider"
+  ],
+  "apps/ui/src/providers.tsx": [
+    "Providers"
+  ],
+  "apps/ui/src/routes/$orgSlug.connectors.tsx": [
+    "ConnectorsPageContent"
+  ],
+  "apps/ui/src/routes/$orgSlug.organization.$organizationView.tsx": [
+    "OrganizationSettingsBody"
+  ],
+  "apps/ui/src/routes/$orgSlug.workspaces.new.tsx": [
+    "NewWorkspacePageContent"
+  ],
+  "apps/ui/src/routes/[.]auth.$authView.tsx": [
+    "InviteAcceptSignUp"
+  ],
+  "apps/ui/src/routes/[.]auth.consent.tsx": [
+    "ConsentPage"
+  ],
+  "apps/ui/src/routes/[.]auth.device.tsx": [
+    "DeviceAuthorizationPage"
+  ],
+  "apps/ui/src/routes/[.]auth.select-organization.tsx": [
+    "OAuthOrganizationSelectionRoutePage"
+  ],
+  "apps/ui/src/routes/[.]github.link.tsx": [
+    "GithubLinkStep"
+  ],
+  "apps/ui/src/routes/[.]github.setup.tsx": [
+    "ConnectGithubView"
+  ]
+}

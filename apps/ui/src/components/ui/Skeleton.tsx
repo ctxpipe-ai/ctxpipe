@@ -339,6 +339,12 @@ export function SkeletonLine({ className, ...props }: ComponentProps<"span">) {
   return <Skeleton className={cn("block h-3 w-2/3", className)} {...props} />
 }
 
+/**
+ * The skeleton of one list row: an icon box and one or two text lines.
+ * `size="nav"` matches a navigation or tree row, and `size="catalog"` a catalog
+ * row with a larger icon. Repeat it with `SKELETON_ROW_OPACITY`, so that the
+ * rows fade and do not guess the count.
+ */
 export function SkeletonRow(props: {
   lines?: 1 | 2
   size?: "nav" | "catalog"
@@ -377,6 +383,12 @@ export const SKELETON_ROW_OPACITY = [
   "opacity-25",
 ] as const
 
+/**
+ * The skeleton of a page body while the whole page waits for its data: a small
+ * heading, a title, a line of text and three rows that fade. Use it only for a
+ * page whose layout is not known yet, such as a page before its redirect. Use a
+ * skeleton with the box of the loaded content when the layout is known.
+ */
 export function PageBodySkeleton(props: { label: string; className?: string }) {
   return (
     <div className={cn("w-full max-w-2xl", props.className)} aria-busy>

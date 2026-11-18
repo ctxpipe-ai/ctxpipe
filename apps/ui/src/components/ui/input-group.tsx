@@ -7,6 +7,11 @@ import { Button } from "@/components/ui/Button"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
+/**
+ * A bordered box that joins a text control and its addons, such as the chat
+ * prompt and its buttons. The box shows the focus ring and the invalid state of
+ * the control in it. Use `FieldGroup` for a React Aria field.
+ */
 function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -42,6 +47,11 @@ const inputGroupAddonVariants = cva(
   },
 )
 
+/**
+ * A slot of an `InputGroup` for an icon, a text or a button, at the start, the
+ * end, the top or the bottom of the control (`align`). A click on the addon
+ * puts the focus in the input.
+ */
 function InputGroupAddon({
   className,
   align = "inline-start",
@@ -81,6 +91,10 @@ const inputGroupButtonVariants = cva(
   },
 )
 
+/**
+ * A small quiet `Button` for an `InputGroupAddon`, such as the send button of
+ * the chat prompt.
+ */
 function InputGroupButton({
   className,
   type = "button",
@@ -102,6 +116,10 @@ function InputGroupButton({
   )
 }
 
+/**
+ * The text area of an `InputGroup`. It has no border or ring of its own: the
+ * group draws them.
+ */
 function InputGroupTextarea({
   className,
   ...props

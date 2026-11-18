@@ -9,6 +9,11 @@ import {
 
 import { Button } from "@/components/ui/Button"
 
+/**
+ * The top row of a React Aria `Calendar` or `RangeCalendar`: the month between
+ * the previous and next buttons. Put it in the calendar above the
+ * `CalendarGrid`.
+ */
 export function CalendarHeader() {
   const { direction } = useLocale()
 
@@ -33,6 +38,10 @@ export function CalendarHeader() {
   )
 }
 
+/**
+ * The row of weekday names of a React Aria `CalendarGrid`, in small muted text.
+ * Put it in the grid before the `CalendarGridBody`.
+ */
 export function CalendarGridHeader() {
   return (
     <AriaCalendarGridHeader>

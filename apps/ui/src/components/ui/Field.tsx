@@ -19,6 +19,11 @@ import { tv } from "tailwind-variants"
 
 import { composeTailwindRenderProps, focusRing } from "@/lib/react-aria-utils"
 
+/**
+ * The label of a form field, in medium muted text. The house fields
+ * (`TextField`, `SearchField`, `Select`) add it from their `label` prop; use it
+ * alone only in a field that you compose from React Aria parts.
+ */
 export function Label(props: LabelProps) {
   return (
     <RACLabel
@@ -31,6 +36,11 @@ export function Label(props: LabelProps) {
   )
 }
 
+/**
+ * The help text below a form field, in muted text. It is in the `description`
+ * slot, so a screen reader reads it with the field. The house fields add it
+ * from their `description` prop.
+ */
 export function Description(props: TextProps) {
   return (
     <Text
@@ -44,6 +54,10 @@ export function Description(props: TextProps) {
   )
 }
 
+/**
+ * The error message of a form field, in red. It shows only while the field is
+ * invalid. The house fields add it from their `errorMessage` prop.
+ */
 export function FieldError(props: FieldErrorProps) {
   return (
     <RACFieldError
@@ -79,6 +93,11 @@ const fieldGroupStyles = tv({
   variants: fieldBorderStyles.variants,
 })
 
+/**
+ * The bordered box of a field that holds an `Input` with icons or buttons, such
+ * as the search icon and the clear button of `SearchField`. Its border shows
+ * the focus, invalid and disabled states.
+ */
 export function FieldGroup(props: GroupProps) {
   return (
     <Group
@@ -90,6 +109,11 @@ export function FieldGroup(props: GroupProps) {
   )
 }
 
+/**
+ * The text input of a field, with no border of its own. Put it in a React Aria
+ * field, in a `FieldGroup` or in a box with a border. Use `TextField` for a
+ * complete text field with a label.
+ */
 export function Input(props: InputProps) {
   return (
     <RACInput

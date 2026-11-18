@@ -30,6 +30,11 @@ const styles = tv({
   },
 })
 
+/**
+ * A text link to a page in ctxpipe, underlined, in teal (`primary`) or in the
+ * text color (`secondary`). Use `ExternalLink` for a page outside ctxpipe, and
+ * `Button` with `href` for a link that looks like a button.
+ */
 export function Link(props: LinkProps) {
   return (
     <AriaLink

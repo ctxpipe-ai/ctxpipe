@@ -22,6 +22,11 @@ interface RadioGroupProps extends Omit<RACRadioGroupProps, "children"> {
   errorMessage?: string | ((validation: ValidationResult) => string)
 }
 
+/**
+ * A labeled group of `Radio` options where the user chooses exactly one, with a
+ * description and an error message. Use `Select` for a long list, and
+ * `CheckboxGroup` when the user can choose more than one.
+ */
 export function RadioGroup(props: RadioGroupProps) {
   return (
     <RACRadioGroup
@@ -59,6 +64,7 @@ const styles = tv({
   },
 })
 
+/** One option of a `RadioGroup`, with its label as children. */
 export function Radio(props: RadioProps) {
   return (
     <RACRadio

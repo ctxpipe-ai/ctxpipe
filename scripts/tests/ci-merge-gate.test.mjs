@@ -313,10 +313,11 @@ test("a data file that only its own check reads is a lane input; one that the li
       fork: false,
       changed: [path],
     })
-  // The baseline of one policy check, and the exemptions of another.
+  // The baselines of two policy checks, and the exemptions of another.
   for (const path of [
     "scripts/ci/module-scope-values-baseline.json",
     "scripts/ci/page-story-exemptions.json",
+    "scripts/ci/component-descriptions-allowlist.json",
   ])
     assert.deepEqual(mode(path), { mode: "select", reason: "shadow" }, path)
   const gateInput = (path) => {

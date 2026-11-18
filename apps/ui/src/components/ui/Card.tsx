@@ -1,6 +1,13 @@
 import type { ComponentProps } from "react"
 import { twMerge } from "tailwind-merge"
 
+/**
+ * A tile on a page that holds one subject, such as the API keys of an
+ * organization: a lighter surface with a hairline edge. Compose it from
+ * `CardHeader`, `CardContent` and `CardFooter`; `size="sm"` gives less space.
+ * In the Workspace settings, use `SettingsCard`, which adds the state edge and
+ * the status word.
+ */
 function Card({
   className,
   size = "default",
@@ -25,6 +32,10 @@ function Card({
   )
 }
 
+/**
+ * The top part of a `Card`: a `CardTitle` and an optional `CardDescription`,
+ * with the padding of the card.
+ */
 function CardHeader({ className, ...props }: ComponentProps<"div">) {
   return (
     <div
@@ -38,6 +49,7 @@ function CardHeader({ className, ...props }: ComponentProps<"div">) {
   )
 }
 
+/** The title of a `Card`, in medium text. Put it in a `CardHeader`. */
 function CardTitle({ className, ...props }: ComponentProps<"div">) {
   return (
     <div
@@ -51,6 +63,10 @@ function CardTitle({ className, ...props }: ComponentProps<"div">) {
   )
 }
 
+/**
+ * One muted sentence below the `CardTitle` that says what the card is for. Put
+ * it in a `CardHeader`.
+ */
 function CardDescription({ className, ...props }: ComponentProps<"div">) {
   return (
     <div
@@ -61,6 +77,10 @@ function CardDescription({ className, ...props }: ComponentProps<"div">) {
   )
 }
 
+/**
+ * The body of a `Card`, with the side padding of the card. Put the main content
+ * of the card in it.
+ */
 function CardContent({ className, ...props }: ComponentProps<"div">) {
   return (
     <div
@@ -71,6 +91,10 @@ function CardContent({ className, ...props }: ComponentProps<"div">) {
   )
 }
 
+/**
+ * The bottom row of a `Card` for its actions, such as a create button. Add
+ * `border-t` to separate it from the content.
+ */
 function CardFooter({ className, ...props }: ComponentProps<"div">) {
   return (
     <div

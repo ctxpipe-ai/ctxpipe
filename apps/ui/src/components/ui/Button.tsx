@@ -81,6 +81,12 @@ const button = tv({
   ],
 })
 
+/**
+ * The house button. Use `variant="destructive"` only in a confirm step
+ * (`AlertDialog`): on a page, a destructive action is `outline` or `quiet`. Set
+ * `isPending` while its mutation runs, and `href` for a link that looks like a
+ * button.
+ */
 export function Button(props: ButtonProps) {
   const {
     variant,

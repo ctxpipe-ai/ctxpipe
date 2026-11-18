@@ -21,6 +21,11 @@ import { twMerge } from "tailwind-merge"
 import { dropdownItemStylesDark } from "@/components/ui/ListBox"
 import { Popover, type PopoverProps } from "@/components/ui/Popover"
 
+/**
+ * A list of commands, such as Rename or Delete, in a `MenuTrigger`. It is the
+ * React Aria menu: use it, not the Base UI `DropdownMenu`, for a new menu. Use
+ * a `Select` when the user chooses a value that the form keeps.
+ */
 export function Menu<T extends object>(props: MenuProps<T>) {
   return (
     <AriaMenu
@@ -35,6 +40,10 @@ export function Menu<T extends object>(props: MenuProps<T>) {
   )
 }
 
+/**
+ * One command of a `Menu`. It shows a check mark when the menu has a selection
+ * mode, and a chevron when it opens a submenu.
+ */
 export function MenuItem(props: MenuItemProps) {
   const textValue =
     props.textValue ||
@@ -72,6 +81,10 @@ export function MenuItem(props: MenuItemProps) {
   )
 }
 
+/**
+ * A line between groups of items in a `Menu`, such as before a destructive
+ * item.
+ */
 export function MenuSeparator(props: SeparatorProps) {
   return (
     <Separator
@@ -92,6 +105,10 @@ interface MenuSectionProps<T> extends AriaMenuSectionProps<T> {
   headerClassName?: string
 }
 
+/**
+ * A group of items in a `Menu` with an optional title, such as the groups of
+ * results in the command palette.
+ */
 export function MenuSection<T extends object>(props: MenuSectionProps<T>) {
   return (
     <AriaMenuSection {...props} className="py-0.5 first:pt-0 last:pb-0">
@@ -114,6 +131,10 @@ interface MenuTriggerProps extends AriaMenuTriggerProps {
   popoverClassName?: string
 }
 
+/**
+ * Opens a `Menu` in a `Popover` from a button. Give it two children: the
+ * trigger button first, then the `Menu`.
+ */
 export function MenuTrigger(props: MenuTriggerProps) {
   const { popoverClassName, ...rest } = props
   const [trigger, menu] = React.Children.toArray(props.children) as [

@@ -18,6 +18,11 @@ const styles = tv({
   },
 })
 
+/**
+ * A row of controls about one region that the arrow keys move through, such as
+ * the view options above the diff of a conversation. Use it for a group of icon
+ * buttons and toggles; a single action needs no toolbar.
+ */
 export function Toolbar(props: ToolbarProps) {
   return (
     <ToggleButtonGroupContext.Provider

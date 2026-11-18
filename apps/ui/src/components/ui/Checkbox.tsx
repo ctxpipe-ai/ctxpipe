@@ -41,6 +41,11 @@ const boxStyles = tv({
 const iconStyles =
   "w-3.5 h-3.5 text-white group-disabled:text-neutral-400 dark:text-neutral-900 dark:group-disabled:text-neutral-600 forced-colors:text-[HighlightText] pointer-events-none"
 
+/**
+ * A checkbox with its label as children: a yes or no choice in a form, or one
+ * option of a `CheckboxGroup`. Use `Switch` for a setting that applies at once,
+ * and `RadioGroup` when the user must choose exactly one option.
+ */
 export function Checkbox(props: CheckboxProps) {
   return (
     <AriaCheckbox
