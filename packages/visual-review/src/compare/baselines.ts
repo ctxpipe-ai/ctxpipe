@@ -93,6 +93,16 @@ type Shot = {
 /** The default count of pixels that may differ. */
 const maxDiffPixels = 10
 
+/** True when two PNGs have the same size and the same pixels. */
+const samePixels = (a: Uint8Array, b: Uint8Array) => {
+  const [x, y] = [decode(a), decode(b)]
+  return (
+    x.width === y.width &&
+    x.height === y.height &&
+    Buffer.from(x.data).equals(Buffer.from(y.data))
+  )
+}
+
 const shotKey = (shot: Shot) =>
   shot.snapshot ? `${shot.story.id}@${shot.snapshot}` : shot.story.id
 
@@ -121,7 +131,8 @@ const shotKey = (shot: Shot) =>
  * - `update` captures the selected stories (all, `only`, or with `failed`
  *   the stories of the last check that were not unchanged), writes each
  *   baseline that changed (recompressed without loss), and deletes the
- *   orphans.
+ *   orphans. With `only`, a baseline changed when one pixel differs; else
+ *   when the check would not call it unchanged.
  *
  * Both fail (code 1) when a baseline is above the size `budget`. `check`
  * also fails on each story that is not unchanged or that has a layout
@@ -321,10 +332,15 @@ export async function runVisual({
       }
       const path = join(root, shot.baseline)
       const old = await readFile(path).catch(() => null)
+      // A story named with `only` is accepted on purpose: any changed pixel
+      // writes its baseline. Else the tolerance of the check keeps a
+      // baseline that the check calls unchanged.
       if (
         old &&
-        (await diff(old, result.png, { maxDiffPixels: shot.maxDiffPixels }))
-          .status === "unchanged"
+        (only
+          ? samePixels(old, result.png)
+          : (await diff(old, result.png, { maxDiffPixels: shot.maxDiffPixels }))
+              .status === "unchanged")
       )
         continue
       await mkdir(join(path, ".."), { recursive: true })
