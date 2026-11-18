@@ -200,7 +200,8 @@ export const workspaceKnowledgeChunks = pgTable.withRLS(
  * is not leakproof, so Postgres does not use the GIN index for it on a table
  * whose RLS policy applies to the role. The view reads the table as its owner,
  * to whom the policy does not apply, and filters by the policy's condition.
- * The check option keeps a write through it to the session's org.
+ * `provisionAppRole` leaves the app role SELECT only on views, and the check
+ * option keeps any write through the view in the session's org.
  *
  * The view is not a security barrier (the index needs that), so a function in
  * a query over it can see rows of other orgs before the org filter. Only

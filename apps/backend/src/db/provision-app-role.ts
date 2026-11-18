@@ -270,6 +270,20 @@ export async function provisionAppRole(
       await client.query(
         `ALTER DEFAULT PRIVILEGES IN SCHEMA ${schema} GRANT EXECUTE ON FUNCTIONS TO ${role}`,
       )
+      // A view reads its table with the owner's rights, so a write through it
+      // does not go through the RLS policy. The app role only reads views
+      // (ADR-042, revision 2026-11-18).
+      const views = (
+        await client.query<{ viewname: string }>(
+          "SELECT viewname FROM pg_catalog.pg_views WHERE schemaname = $1",
+          [schemaName],
+        )
+      ).rows
+      for (const { viewname } of views) {
+        await client.query(
+          `REVOKE INSERT, UPDATE, DELETE ON ${schema}.${quoteIdent(viewname)} FROM ${role}`,
+        )
+      }
     }
 
     log.info({

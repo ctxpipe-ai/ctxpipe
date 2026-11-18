@@ -40,6 +40,9 @@ const modelServer = embeddingModelServer()
 // picks that plan by table statistics, so these tests do not force it. They
 // prove the result: a small scope is scanned exactly, and a large one gets hits from both sides and reads the HNSW index.
 const paraphrase = "what to do in an outage"
+// The scope of both plan tests: the two Workspaces on the active projection.
+const planScope = sql`c.workspace_id = ANY(${sql.param([small, bulk])}::text[])
+  AND u.projection_sha = coalesce(w.active_revision->>'sha', w.active_projection_sha)`
 
 describe("searchKnowledge on a large shared index (Postgres)", () => {
   beforeAll(async () => {
@@ -148,8 +151,6 @@ describe("searchKnowledge on a large shared index (Postgres)", () => {
     // query shape. A change that stops the index from serving the query, such
     // as a second sort key, makes it fail the plan.
     const vector = sql`${JSON.stringify(Array.from({ length: 2000 }, (_, d) => (d === 0 ? 1 : 0)))}::vector`
-    const where = sql`c.workspace_id = ANY(${sql.param([small, bulk])}::text[])
-      AND u.projection_sha = coalesce(w.active_revision->>'sha', w.active_projection_sha)`
     const plan = await withOrgDbContext(orgId, async (db) => {
       await db.execute(sql`ANALYZE workspace_knowledge_chunks`)
       // The row estimate for the org filter depends on the other orgs in the
@@ -159,7 +160,7 @@ describe("searchKnowledge on a large shared index (Postgres)", () => {
       await db.execute(sql`SET LOCAL enable_sort = off`)
       await db.execute(sql`SET LOCAL enable_incremental_sort = off`)
       const explained = await db.execute<{ "QUERY PLAN": unknown }>(
-        sql`EXPLAIN (FORMAT JSON) ${hnswCandidates(vector, where)}`,
+        sql`EXPLAIN (FORMAT JSON) ${hnswCandidates(vector, planScope)}`,
       )
       // The vector literal would fill the failure message, so keep the nodes.
       return JSON.stringify(explained.rows[0]?.["QUERY PLAN"]).replace(
@@ -183,8 +184,6 @@ describe("searchKnowledge on a large shared index (Postgres)", () => {
     await analyzeAsOwner(process.env.DATABASE_URL ?? "", [
       "workspace_knowledge_chunks",
     ])
-    const where = sql`c.workspace_id = ANY(${sql.param([small, bulk])}::text[])
-      AND u.projection_sha = coalesce(w.active_revision->>'sha', w.active_projection_sha)`
     const plan = await withOrgDbContext(orgId, async (db) => {
       await db.execute(sql`SET LOCAL ROLE ctxpipe_app`)
       // In the shared test database, the bulk Workspace is most of the
@@ -193,7 +192,7 @@ describe("searchKnowledge on a large shared index (Postgres)", () => {
       // the app role. With sequential scans off, the plan shows whether it can.
       await db.execute(sql`SET LOCAL enable_seqscan = off`)
       const explained = await db.execute<{ "QUERY PLAN": unknown }>(
-        sql`EXPLAIN (FORMAT JSON) ${lexicalCandidates("ERR_LEDGER_7731", [small, bulk], where)}`,
+        sql`EXPLAIN (FORMAT JSON) ${lexicalCandidates("ERR_LEDGER_7731", [small, bulk], planScope)}`,
       )
       return JSON.stringify(explained.rows[0]?.["QUERY PLAN"])
     })
