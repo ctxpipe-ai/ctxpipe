@@ -891,6 +891,8 @@ jobs:
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
+      # The GitHub Deployment of the preview (environment `storybook`).
+      deployments: write
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         continue-on-error: true
@@ -929,6 +931,7 @@ jobs:
           artifact-ids: ${{ needs.storybook-build.outputs.storybook-static-id }}
           path: ${{ runner.temp }}/built
       - name: Publish the preview
+        id: publish
         continue-on-error: true
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -944,6 +947,40 @@ jobs:
           fi
           "$RUNNER_TEMP/bin/factory" deploy storybook --sha "$HEAD_SHA" --archive "$archive" | tee "$RUNNER_TEMP/deploy.txt"
           sed -n 's/^STORYBOOK /Storybook preview: /p' "$RUNNER_TEMP/deploy.txt" >> "$GITHUB_STEP_SUMMARY"
+      # The link on the PR: a GitHub Deployment of the head commit to the
+      # environment `storybook`, a record with no secret and no protection
+      # rule. Its status is `success` with the preview URL, or `failure`. The
+      # earlier `storybook` deployments of the PR become inactive, so the PR
+      # shows only the newest one.
+      - name: The deployment of the preview
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          OUTCOME: ${{ steps.publish.outcome }}
+        run: |
+          set -o pipefail
+          id="$(jq -n --arg sha "$HEAD_SHA" --argjson pr "$PR" '{
+            "ref": $sha, "environment": "storybook", "description": "Storybook preview",
+            "auto_merge": false, "required_contexts": [], "transient_environment": true,
+            "payload": {"pr": $pr}}' |
+            gh api --method POST "repos/$REPO/deployments" --input - --jq .id)"
+          gh api "repos/$REPO/deployments?environment=storybook&per_page=100" \
+            --jq ".[] | select(.payload.pr == $PR and .id != $id) | .id" |
+            while read -r old; do
+              gh api --method POST "repos/$REPO/deployments/$old/statuses" -f state=inactive > /dev/null
+            done
+          if [ "$OUTCOME" = success ]; then
+            gh api --method POST "repos/$REPO/deployments/$id/statuses" -f state=success \
+              -f environment_url="https://storybook.ctxpipe.dev/commit/$HEAD_SHA/" \
+              -f description="Storybook preview" > /dev/null
+          else
+            gh api --method POST "repos/$REPO/deployments/$id/statuses" -f state=failure \
+              -f description="The Storybook preview did not publish" > /dev/null
+          fi
 
   # outside-manifest: only in a full run, never in gate mode: in gate mode the Storybook plays job runs the required stories through selected.mjs
   storybook-required:
@@ -2428,7 +2465,6 @@ jobs:
         storybook-required,
         storybook-plays,
         storybook-visual,
-        storybook-preview,
         codesearch,
         migrate,
         upgrade-from-previous-release,
@@ -2561,20 +2597,6 @@ jobs:
           key: merge-gate-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             merge-gate-pr-${{ github.event.pull_request.number }}-
-      # The Storybook preview of the head commit (scripts/checks/README.md,
-      # Storybook preview): a HEAD request with no credential. gate.mjs links
-      # it when the selection holds a Storybook check.
-      - name: The Storybook preview
-        continue-on-error: true
-        env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          url="https://storybook.ctxpipe.dev/commit/$HEAD_SHA/"
-          # Exactly 200: a redirect to a login is no public preview.
-          status="$(curl --silent --head --max-time 10 --output /dev/null --write-out '%{http_code}' "${url}index.json" || true)"
-          if [ "$status" = 200 ]; then
-            jq -n --arg url "$url" '{url: $url}' > "$RUNNER_TEMP/storybook-preview.json"
-          fi
       # In gate mode a failed verdict fails this step; the next steps still
       # publish the decision and keep the PR store.
       - name: Decision
@@ -2586,7 +2608,7 @@ jobs:
           node "$RUNNER_TEMP/gate/scripts/checks/gate.mjs" decide --config "$RUNNER_TEMP/gate/.github/merge-gate.json" \
             --inputs "$RUNNER_TEMP/inputs" --results "$RUNNER_TEMP/results" \
             --needs "$RUNNER_TEMP/needs.json" --jobs "$RUNNER_TEMP/jobs.json" \
-            --earlier "$RUNNER_TEMP/earlier.json" --storybook-preview "$RUNNER_TEMP/storybook-preview.json" \
+            --earlier "$RUNNER_TEMP/earlier.json" \
             --store .merge-gate-store/store.json --out "$RUNNER_TEMP/decision" || code=$?
           # A gate.mjs that did not run its command (for example an older
           # base without the path check) writes no decision: that fails.
