@@ -84,10 +84,19 @@ test("Visual is a command critic that runs visual:review only on changed screens
   // The rubric of the PR head judges, as data: the factory copies the head
   // file into the review folder, and the code stays the merge-base code
   // (ADR-063, CTX-1264).
-  assert.deepEqual(command.headFiles, ["packages/visual-review/rubric.json"])
+  // The story files that the PR changes are head data too, so that a new
+  // story is judged with its kind and purpose (CTX-1311).
+  assert.deepEqual(command.headFiles, [
+    "packages/visual-review/rubric.json",
+    "apps/ui/**/*.stories.tsx",
+  ])
   assert.equal(
     run[run.indexOf("--rubric") + 1],
     "{folder}/head/packages/visual-review/rubric.json",
+  )
+  assert.equal(run[run.indexOf("--head-stories") + 1], "{folder}/head")
+  assert.ok(
+    matchesGlob("apps/ui/src/routes/-home.stories.tsx", command.headFiles[1]),
   )
   const scripts = JSON.parse(readFileSync(`${root}package.json`, "utf8")).scripts
   assert.equal(
