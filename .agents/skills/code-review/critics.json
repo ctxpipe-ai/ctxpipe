@@ -139,7 +139,7 @@
     },
     {
       "name": "visual",
-      "intent": "Is each changed baseline screenshot an intended change, rendering noise, or a regression. The command `visual:review` of the merge base compares the base and the head image with its own compare engine and judges the change with Jev 1.14 only (`--judge jev`, ADR-063), with the rules of packages/visual-review and the rubric of the PR head (`--rubric`, data that the factory copies from the head). It runs only when a screenshot changes.",
+      "intent": "Is each changed baseline screenshot an intended change, rendering noise, or a regression. The command `visual:review` of the merge base compares the base and the head image with its own compare engine and judges the change with Jev 1.14 only (`--judge jev`, ADR-063), with the rules of packages/visual-review and the rubric and the changed story files of the PR head (`--rubric` and `--head-stories`, data that the factory copies from the head). It runs only when a screenshot changes.",
       "inputs": [
         ".agents/skills/code-review/SKILL.md",
         "package.json",
@@ -169,7 +169,8 @@
       ],
       "command": {
         "headFiles": [
-          "packages/visual-review/rubric.json"
+          "packages/visual-review/rubric.json",
+          "apps/ui/**/*.stories.tsx"
         ],
         "setup": [
           "pnpm",
@@ -191,6 +192,8 @@
           "{folder}/brief.md",
           "--images",
           "{folder}/binary",
+          "--head-stories",
+          "{folder}/head",
           "--rubric",
           "{folder}/head/packages/visual-review/rubric.json",
           "--budget-usd",
