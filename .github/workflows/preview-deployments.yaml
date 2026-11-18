@@ -23,18 +23,16 @@
 #   machines/previews/pr/src/names.ts): change both together. The factory's
 #   expire runs delete those previews, but they have no token for this
 #   repository.
-# - After each push to main, and hourly, the sweep starts a `check` run for each PR whose live deployment
-#   can be gone (a closed PR, or a newest status older than 72 hours), so all
-#   the changes of a PR go through its group. It reads the deployments with
-#   their newest status through GraphQL, 100 in each call. It starts no
-#   check run for a PR whose check run failed in the last day, so that a
-#   reconcile that fails each time does not start a new run each hour.
-# - The push trigger is the one that GitHub starts on time. GitHub starts
-#   the `schedule` runs of this repository 5 to 9 hours late: the CI cron
-#   "23 2 * * *" started each day between 07:52 and 10:48 UTC from
-#   2026-10-26 to 2026-11-17 (CTX-1389), and GitHub can drop a late
-#   scheduled run. So the hourly schedule is only a fallback for days
-#   without a push.
+# - After each push to main, and each hour, the sweep starts a `check` run
+#   for each PR whose live deployment can be gone (a closed PR, or a newest
+#   status older than 72 hours), so all the changes of a PR go through its
+#   group. It reads the deployments with their newest status through
+#   GraphQL, 100 in each call. It starts no check run for a PR whose check
+#   run failed in the last day, so that a reconcile that fails each time
+#   does not start a new run at each sweep.
+# - GitHub can start a `schedule` run hours late, or drop it. So the push
+#   trigger does the sweep, and the hourly schedule is only a fallback for
+#   days without a push.
 name: Preview deployments
 # Two jq parsers read this run name: the event plan of `reconcile` and the
 # failed check runs of `sweep`. Change them together with it.
@@ -181,6 +179,10 @@ jobs:
 
   sweep:
     if: github.event_name != 'workflow_dispatch'
+    # Close merges start one sweep at a time; GitHub keeps the newest pending.
+    concurrency:
+      group: preview-deployments-sweep
+      cancel-in-progress: false
     # github-hosted: a few GitHub API calls, without Docker (ADR-065)
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
