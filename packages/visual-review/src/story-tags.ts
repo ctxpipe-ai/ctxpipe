@@ -71,13 +71,17 @@ const stringsOf = (node: Node | undefined) =>
       })
     : []
 
+/** The key of a property node, or undefined for a spread or a computed key. */
+const keyOf = (property: Node) =>
+  property.type === "Property"
+    ? (property.key?.name ?? property.key?.value)
+    : undefined
+
 /** The value node of the property `key` of an object node. */
 const propertyOf = (node: Node | undefined, key: string) =>
-  node?.properties?.find(
-    (property) =>
-      property.type === "Property" &&
-      (property.key?.name ?? property.key?.value) === key,
-  )?.value as Node | undefined
+  node?.properties?.find((property) => keyOf(property) === key)?.value as
+    | Node
+    | undefined
 
 /** The string of a string literal node, or null. */
 function stringOf(node: Node | undefined) {
@@ -90,14 +94,20 @@ function stringOf(node: Node | undefined) {
 const kindOf = (annotations: Annotations) =>
   propertyOf(propertyOf(annotations?.parameters, "review"), "kind")
 
-/** The keys of `parameters.review` in an annotations object. */
-const reviewKeysOf = (annotations: Annotations) =>
-  (propertyOf(annotations?.parameters, "review")?.properties ?? []).flatMap(
-    (property) => {
-      const key = property.key?.name ?? property.key?.value
-      return typeof key === "string" ? [key] : []
-    },
-  )
+/**
+ * The keys of `parameters.review` in an annotations object. A spread, a
+ * computed key, or a `review` that is not an object literal can hide a key,
+ * so it counts as the key `...`.
+ */
+function reviewKeysOf(annotations: Annotations) {
+  const review = propertyOf(annotations?.parameters, "review")
+  if (!review) return []
+  if (review.type !== "ObjectExpression") return ["..."]
+  return (review.properties ?? []).map((property) => {
+    const key = keyOf(property)
+    return typeof key === "string" ? key : "..."
+  })
+}
 
 /**
  * Each story of the story file `file` with the text `code`. A story has the

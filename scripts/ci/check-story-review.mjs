@@ -48,7 +48,9 @@ for (const path of storyFiles(join(root, "apps/ui/src"))) {
       errors.push(
         `${where} has no parameters.review.kind. Set "page" (a whole screen that a user lands on) or "component" (a component, a dialog, a step or a part of a page), in the story or in the meta.`,
       )
-    const others = story.reviewKeys.filter((key) => key !== "kind")
+    const others = [...new Set(story.reviewKeys)].filter(
+      (key) => key !== "kind",
+    )
     if (others.length)
       errors.push(
         `${where}: parameters.review has ${others.map((key) => `"${key}"`).join(", ")}. It has only "kind": write the purpose in the JSDoc comment of the story (/** ... */ above its export).`,

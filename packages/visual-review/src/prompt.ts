@@ -131,7 +131,7 @@ const data = (name: string, text: string | undefined) =>
   }\n</data>`
 
 /**
- * The name and the purpose of a story (`parameters.review`), in a data
+ * The name and the purpose of a story (its JSDoc description), in a data
  * block: the purpose is PR text.
  */
 export const storyData = ({

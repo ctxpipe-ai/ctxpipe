@@ -147,7 +147,26 @@ export const Empty = { parameters: { review: { purpose: "Workspace card that a m
   assert.equal(result.status, 1)
   assert.match(
     result.stderr,
-    /story "Empty": parameters\.review has "purpose", "purpose"\. It has only "kind"/,
+    /story "Empty": parameters\.review has "purpose"\. It has only "kind"/,
   )
   assert.doesNotMatch(result.stderr, /has no purpose/)
+})
+
+test("a review that the parser cannot read key by key fails as the key ...", () => {
+  const result = check({
+    "Card.stories.tsx": storyFile(
+      `{ review: { kind: "component" } }`,
+      `const old = { purpose: "Workspace card that a member opens to read its sources." }
+/** Workspace card that a member opens to read its sources, before anyone added a source. */
+export const Spread = { parameters: { review: { kind: "component", ...old } } }
+/** Workspace card that a member opens to read its sources, before anyone added a source. */
+export const Shared = { parameters: { review: old } }`,
+    ),
+  })
+  assert.equal(result.status, 1)
+  for (const name of ["Spread", "Shared"])
+    assert.match(
+      result.stderr,
+      new RegExp(`story "${name}": parameters\\.review has "\\.\\.\\."`),
+    )
 })

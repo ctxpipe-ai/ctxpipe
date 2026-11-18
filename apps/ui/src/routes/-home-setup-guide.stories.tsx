@@ -1116,7 +1116,8 @@ const handOffGate = responseGate()
  * Org home page with the setup guide, which leads a new org through its first
  * steps: onboarding opened Home, so Home stayed hidden until the Workspace list
  * and the guide signals were ready, and then faded in one time (CTX-868). The
- * slow activity read does not keep Home hidden.
+ * slow activity read does not keep Home hidden. Then the hand-off flag is gone,
+ * so a reload does not hide Home again.
  */
 export const FadesInAfterOnboarding: Story = {
   beforeEach: () => onboardingHandOffFlag.set(),
@@ -1429,8 +1430,8 @@ const openPopup = fn()
 /**
  * Org home page with the setup guide, which leads a new org through its first
  * steps: with GitHub sign-in on, the admin pressed Connect GitHub, and one
- * popup opened at the GitHub link page with the App install as `next`. The user
- * does not have to press Connect GitHub a second time.
+ * popup opened at the GitHub link page with the App install (and the flow nonce)
+ * as `next`. The user does not have to press Connect GitHub a second time.
  */
 export const GuideConnectGithubOpensLinkPopup: Story = {
   beforeEach: () => {

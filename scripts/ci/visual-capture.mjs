@@ -365,10 +365,11 @@ export async function capturePlan(ids) {
   }))
 }
 
-// The review annotations of each story (`parameters.review.kind` and the JSDoc, storiesOf in
-// packages/visual-review/src/story-tags.ts), by story id: its Storybook name,
-// its kind and its purpose. The capture crops a component story by its
-// kind, and the critic reads all three from the manifest.
+// The review annotations of each story (`parameters.review.kind` and the
+// JSDoc, storiesOf in packages/visual-review/src/story-tags.ts), by story id:
+// its Storybook name, its kind and its purpose. The capture crops a
+// component story by its kind, and the critic reads all three from the
+// manifest.
 export function storyReviews(stories, csf) {
   const reviews = new Map()
   for (const [importPath, inFile] of Map.groupBy(
