@@ -196,6 +196,11 @@ export async function expandWorkspaceGraph(
       withCompleteWorkspaceGraph(
         graph,
         async ({ client, projectionKey, marker }) => {
+          // A graph write during the walk runs the walk again.
+          nodes.clear()
+          edges.clear()
+          cappedHubs.clear()
+          partialReason = null
           const count = await client.executeQuery(
             "MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey}) RETURN count(n) AS nodeCount",
             { projectionKey },

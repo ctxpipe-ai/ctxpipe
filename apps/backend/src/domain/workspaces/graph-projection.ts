@@ -74,14 +74,17 @@ function markerRevision(revision: WorkspaceRevision): string {
   return JSON.stringify(workspaceRevisionSchema.parse(revision))
 }
 
-/** Write one revision's claims as edges between its units. */
-export const workspaceClaimsQuery = `UNWIND $claims AS claim
-MATCH (s:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: claim.subjectId})
+/** Write the edge `r` of each `claim` between its two units. */
+const claimEdgeClause = `MATCH (s:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: claim.subjectId})
 MATCH (t:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: claim.objectId})
 MERGE (s)-[r:WorkspaceSignal {projectionKey: $projectionKey, id: claim.id}]->(t)
 SET r.predicate = claim.predicate, r.confidence = claim.aggregatedConfidence,
     r.validFrom = claim.validFrom, r.validTo = claim.validTo,
     r.source = claim.source, r.lastObservedAt = claim.lastObservedAt`
+
+/** Write one revision's claims as edges between its units. */
+export const workspaceClaimsQuery = `UNWIND $claims AS claim
+${claimEdgeClause}`
 
 /** Set the degrees of each node that `node` matches. */
 const degreeClause = `OPTIONAL MATCH (n)-[o:WorkspaceSignal {projectionKey: $projectionKey}]->()
@@ -92,7 +95,7 @@ const degreeClause = `OPTIONAL MATCH (n)-[o:WorkspaceSignal {projectionKey: $pro
       SET n.outDegree = outDegree, n.inDegree = inDegree,
         n.degree = outDegree - provenanceDegree + inDegree`
 
-const nodeSet =
+const nodePropertiesSetClause =
   "SET n.workspaceId = $workspaceId, n.kind = node.kind, n.name = node.name, n.summary = node.summary, n.path = node.path"
 
 function graphClaims(units: readonly HydrateUnit[]) {
@@ -141,7 +144,7 @@ export async function writeWorkspaceRevisionGraph(
   const writer = randomUUID()
   await graph.executeQuery(
     `MERGE (p:WorkspaceProjection {projectionKey: $projectionKey})
-      SET p.writer = $writer, p.completedAt = null`,
+      SET p.writer = $writer, p.completedAt = null, p.writes = coalesce(p.writes, 0) + 1`,
     { projectionKey, writer },
   )
   // Write the graph clean. A rebuild after a partial or lost graph must not
@@ -155,7 +158,7 @@ export async function writeWorkspaceRevisionGraph(
     await graph.executeQuery(
       `UNWIND $nodes AS node
       MERGE (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: node.id})
-      ${nodeSet}`,
+      ${nodePropertiesSetClause}`,
       { projectionKey, workspaceId: revision.workspaceId, nodes },
     )
   const claims = graphClaims(units)
@@ -261,18 +264,13 @@ async function applyWorkspaceGraphDelta(
       WITH p
       UNWIND $nodes AS node
       MERGE (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: node.id})
-      ${nodeSet}
+      ${nodePropertiesSetClause}
       RETURN count(n) AS writtenNodes
     }
     CALL {
       WITH p
       UNWIND $claims AS claim
-      MATCH (s:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: claim.subjectId})
-      MATCH (t:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: claim.objectId})
-      MERGE (s)-[r:WorkspaceSignal {projectionKey: $projectionKey, id: claim.id}]->(t)
-      SET r.predicate = claim.predicate, r.confidence = claim.aggregatedConfidence,
-        r.validFrom = claim.validFrom, r.validTo = claim.validTo,
-        r.source = claim.source, r.lastObservedAt = claim.lastObservedAt
+      ${claimEdgeClause}
       RETURN count(r) AS writtenEdges
     }
     CALL {
@@ -286,7 +284,7 @@ async function applyWorkspaceGraphDelta(
     SET p.revision = $revision,
       p.nodeCount = p.nodeCount - droppedNodes + writtenNodes,
       p.claimCount = p.claimCount - droppedEdges + writtenEdges,
-      p.completedAt = $completedAt
+      p.completedAt = $completedAt, p.writes = coalesce(p.writes, 0) + 1
     RETURN writtenNodes, writtenEdges`,
     {
       projectionKey: workspaceGraphKey(revision),
@@ -325,24 +323,31 @@ function normalizeValidityBound(value: string | null): string | null {
 /**
  * Build the derived graph of the active revision. With a delta, apply the
  * delta to the graph of its base revision (`applyWorkspaceGraphDelta`).
- * Without a delta, or when the graph store does not hold the complete graph
- * of the base, write the full graph from the captured PostgreSQL projection,
- * never by parsing Git again. Returns null when the revision is not active.
+ * When the graph store does not hold the complete graph of the base, write
+ * the full graph from the units of the delta. Without a delta, write the
+ * full graph from the captured PostgreSQL projection, never by parsing Git
+ * again. Returns null when the revision is not active.
  */
 export async function projectWorkspaceGraph(
   revision: WorkspaceRevision,
   delta?: WorkspaceGraphDelta,
 ): Promise<WorkspaceGraphWrite | null> {
   const org = { orgId: requireCurrentOrgId(), orgSlug: requireCurrentOrgSlug() }
+  // The delta holds all units, so only a write without a delta reads them.
+  const snapshot = delta
+    ? {
+        ...(await getWorkspaceProjectionState(revision.workspaceId)),
+        units: delta.units,
+      }
+    : await getWorkspaceProjectionSnapshot(revision.workspaceId)
+  const projection = publishedProjection(snapshot.projection)
+  if (
+    projection?.kind !== "active" ||
+    !sameWorkspaceRevision(projection.revision, revision)
+  )
+    return null
   let fullReason: WorkspaceGraphWrite["fullReason"]
   if (delta) {
-    const state = await getWorkspaceProjectionState(revision.workspaceId)
-    const projection = publishedProjection(state.projection)
-    if (
-      projection?.kind !== "active" ||
-      !sameWorkspaceRevision(projection.revision, revision)
-    )
-      return null
     try {
       const written = await withGraphClient(org, () =>
         applyWorkspaceGraphDelta(getGraphClient(), { revision, delta }),
@@ -366,13 +371,6 @@ export async function projectWorkspaceGraph(
       fullReason = "graph_delta_failed"
     }
   }
-  const snapshot = await getWorkspaceProjectionSnapshot(revision.workspaceId)
-  const projection = publishedProjection(snapshot.projection)
-  if (
-    projection?.kind !== "active" ||
-    !sameWorkspaceRevision(projection.revision, revision)
-  )
-    return null
   const written = await withGraphClient(org, () =>
     writeWorkspaceRevisionGraph(getGraphClient(), {
       revision,
@@ -383,8 +381,13 @@ export async function projectWorkspaceGraph(
   return { ...written, ...(fullReason ? { fullReason } : {}) }
 }
 
+/**
+ * The marker of a graph key. `writes` counts the writes of the key: each
+ * full write and each delta adds 1, so a reader can see that a write ran
+ * between two of its queries.
+ */
 const markerQuery =
-  "MATCH (p:WorkspaceProjection {projectionKey: $projectionKey}) RETURN p.nodeCount AS nodeCount, p.claimCount AS claimCount, p.completedAt AS completedAt"
+  "MATCH (p:WorkspaceProjection {projectionKey: $projectionKey}) RETURN p.nodeCount AS nodeCount, p.claimCount AS claimCount, p.completedAt AS completedAt, p.writes AS writes"
 
 /** True when a marker row has the three fields of a complete graph. */
 function completeMarker(record: { get: (key: string) => unknown } | undefined) {
@@ -432,6 +435,13 @@ type WorkspaceGraphReadInput = {
  * Run `read` on the graph of the published revision when the graph store
  * holds its completion marker. A graph without the marker gives
  * `WorkspaceGraphMissingError`.
+ *
+ * A write changes the graph between two queries of `read`, so `read` can
+ * see nodes of one revision and edges of another. Thus this function reads
+ * the marker before and after `read`. When a write ran between them (the
+ * marker's `writes` changed), it discards the result, and any
+ * `WorkspaceGraphMissingError` of `read`, and runs `read` again. `read` must
+ * start each run from an empty result.
  */
 export async function withCompleteWorkspaceGraph<T>(
   input: WorkspaceGraphReadInput,
@@ -448,22 +458,39 @@ export async function withCompleteWorkspaceGraph<T>(
       "Workspace graph projection is unavailable.",
     )
   const projectionKey = workspaceGraphKey(projection.revision)
+  const missing = () =>
+    new WorkspaceGraphMissingError("Workspace graph projection is unavailable.")
   return withGraphClient(input, async () => {
     const client = getGraphClient()
-    const result = await client.executeQuery(
-      markerQuery,
-      { projectionKey },
-      options,
-    )
-    const marker = result.records[0]
-    // A full write removes `completedAt` while it runs. The marker can hold
-    // a newer revision of the same binding than `projection`: that graph is
-    // complete, so the read uses it.
-    if (!marker || !completeMarker(marker))
-      throw new WorkspaceGraphMissingError(
-        "Workspace graph projection is unavailable.",
-      )
-    return read({ client, projectionKey, marker })
+    const readMarker = async () =>
+      (await client.executeQuery(markerQuery, { projectionKey }, options))
+        .records[0]
+    for (let attempt = 1; ; attempt++) {
+      const marker = await readMarker()
+      // A full write removes `completedAt` while it runs. The marker can hold
+      // a newer revision of the same binding than `projection`: that graph is
+      // complete, so the read uses it.
+      if (!marker || !completeMarker(marker)) throw missing()
+      let result: { value: T } | { error: WorkspaceGraphMissingError }
+      try {
+        result = { value: await read({ client, projectionKey, marker }) }
+      } catch (error) {
+        if (!(error instanceof WorkspaceGraphMissingError)) throw error
+        result = { error }
+      }
+      const after = await readMarker()
+      if (
+        after &&
+        completeMarker(after) &&
+        after.get("writes") === marker.get("writes")
+      ) {
+        if ("error" in result) throw result.error
+        return result.value
+      }
+      // Writes come one at a time for each hydrate, so a third run that
+      // also overlaps a write is improbable. Do not wait without limit.
+      if (attempt === 3) throw missing()
+    }
   })
 }
 

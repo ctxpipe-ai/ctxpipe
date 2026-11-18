@@ -24,7 +24,10 @@ import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
-import { workspaceGraphKey } from "./graph-projection.js"
+import {
+  withCompleteWorkspaceGraph,
+  workspaceGraphKey,
+} from "./graph-projection.js"
 import { hydrateKnowledgeTree } from "./hydrate.js"
 import type { WorkspaceRevision } from "./revision.js"
 import { workspaceFormatFile } from "./workspace-format.js"
@@ -639,3 +642,65 @@ async function chunkKeys(f: NativeHydrationFixture) {
       ),
   )
 }
+
+it(
+  "a graph read that a delta overlaps reads again, and gives nodes and edges of one revision",
+  { timeout: 180_000 },
+  async () =>
+    withNativeHydrationFixture({ files }, async (f) => {
+      await f.publish()
+      const projection = await withOrgIdContext(f.org, () =>
+        getWorkspaceProjection(f.workspaceId),
+      )
+      if (projection.kind !== "active") throw new Error("Expected a projection")
+      // The change removes the edge doc-03 -> doc-05 and adds doc-05 -> doc-07.
+      await commit(f, {
+        write: {
+          "doc-03.md": "# Doc 3\nNo links.\n",
+          "doc-05.md":
+            "---\nclaims:\n  - to: doc-07.md\n    predicate: SUPERSEDES\n---\n# Doc 5\nNew text.\n",
+        },
+      })
+      await f.resolveRevision(true)
+      let runs = 0
+      const read = await withCompleteWorkspaceGraph(
+        { orgId: f.org.id, orgSlug: f.org.slug, projection },
+        async ({ client, projectionKey }) => {
+          runs += 1
+          const nodes = await client.executeQuery(
+            "MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey}) RETURN n.id AS id, n.summary AS summary ORDER BY n.id",
+            { projectionKey },
+          )
+          // The delta of the next revision runs between the two reads.
+          if (runs === 1)
+            expect(await hydrate(f)).toMatchObject({
+              writes: { mode: "partial", graphMode: "partial" },
+            })
+          const edges = await client.executeQuery(
+            "MATCH (s:WorkspaceKnowledgeUnit {projectionKey: $projectionKey})-[r:WorkspaceSignal {projectionKey: $projectionKey}]->(t) RETURN r.id AS id, s.id AS subject, t.id AS object ORDER BY r.id",
+            { projectionKey },
+          )
+          const rows = (result: typeof nodes, keys: string[]) =>
+            result.records.map((row) =>
+              Object.fromEntries(keys.map((key) => [key, row.get(key)])),
+            )
+          return {
+            nodes: rows(nodes, ["id", "summary"]),
+            edges: rows(edges, ["id", "subject", "object"]),
+          }
+        },
+      )
+      expect(runs).toBe(2)
+      const graph = (await projected(f)).graph
+      expect(read.nodes).toEqual(
+        graph.nodes.map((node) => ({ id: node.id, summary: node.summary })),
+      )
+      expect(read.edges).toEqual(
+        graph.edges.map((edge) => ({
+          id: edge.id,
+          subject: edge.subject,
+          object: edge.object,
+        })),
+      )
+    }),
+)
