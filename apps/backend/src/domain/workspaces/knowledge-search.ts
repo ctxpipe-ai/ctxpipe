@@ -302,33 +302,37 @@ async function runSearch(
   }))
 }
 
-const scope = sql`workspace_knowledge_chunks AS c
+/** Chunks as `c`, with their unit `u` and Workspace `w`, for the filters. */
+function scopeOf(chunks: SQL): SQL {
+  return sql`${chunks} AS c
     JOIN workspace_knowledge_units AS u
       ON u.workspace_id = c.workspace_id AND u.serving_id = c.unit_id
     JOIN workspaces AS w ON w.id = c.workspace_id`
+}
+const scope = scopeOf(sql`workspace_knowledge_chunks`)
 const tieBreakOuter = sql`workspace_id, unit_id, chunk_hash, occurrence`
-// Every ordering ends with the chunk key, so ties give the same rows and
-// ranks on each run, and the candidate cut falls the same way.
-const tieBreak = sql`c.workspace_id, c.unit_id, c.chunk_hash, c.occurrence`
 
 /**
  * The best full-text chunks of a scope, read through the GIN index. Under the
  * RLS policy of `workspace_knowledge_chunks`, Postgres does not use an index
- * for `@@`, which is not leakproof: `ctxpipe_app` read the tsvector of every
- * chunk in scope. The view `workspace_knowledge_chunk_search` has the
- * policy's org filter and no policy. A query that also reads a table with a
- * policy holds `@@` back from the index too, so the match is a materialized
- * CTE of the view alone. The other filters apply to its rows.
+ * for `@@`, because `@@` is not leakproof: `ctxpipe_app` read the tsvector of
+ * every chunk in scope. The view `workspace_knowledge_chunk_search` has the
+ * policy's org filter and no policy. When a query also reads a table with a
+ * policy, Postgres does not use the index for `@@` either, so the match is a
+ * materialized CTE of the view alone. The other filters apply to its rows.
  */
 export function lexicalCandidates(
   query: string,
   workspaceIds: readonly string[],
   where: SQL,
 ): SQL {
-  // Inline, not a CTE of its own: a constant tsquery lets the planner
-  // estimate the match from the index statistics.
+  // Inline, not a CTE of its own: with a constant tsquery, the planner
+  // estimates the match from the index statistics.
   const everyTerm = sql`plainto_tsquery('english', ${query})`
   const anyTerm = sql`replace(plainto_tsquery('english', ${query})::text, ' & ', ' | ')::tsquery`
+  // Every ordering ends with the chunk key, so ties give the same rows and
+  // ranks on each run, and the candidate cut falls the same way.
+  const tieBreak = sql`c.workspace_id, c.unit_id, c.chunk_hash, c.occurrence`
   return sql`WITH matched AS MATERIALIZED (
       SELECT m.workspace_id, m.unit_id, m.chunk_hash, m.occurrence, m.search
       FROM workspace_knowledge_chunk_search AS m
@@ -340,10 +344,7 @@ export function lexicalCandidates(
       SELECT c.workspace_id, c.unit_id, c.chunk_hash, c.occurrence,
         c.search @@ ${everyTerm} AS every_match,
         ts_rank_cd(c.search, ${anyTerm}) AS text_rank
-      FROM matched AS c
-        JOIN workspace_knowledge_units AS u
-          ON u.workspace_id = c.workspace_id AND u.serving_id = c.unit_id
-        JOIN workspaces AS w ON w.id = c.workspace_id
+      FROM ${scopeOf(sql`matched`)}
       WHERE ${where}
       ORDER BY every_match DESC, text_rank DESC, ${tieBreak}
       LIMIT ${CANDIDATES}

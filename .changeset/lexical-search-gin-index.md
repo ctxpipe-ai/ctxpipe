@@ -1,4 +1,5 @@
 ---
+"@ctxpipe/aws-cdk": patch
 ---
 
-The knowledge search's full-text side uses its GIN index again for the app role. Row-level security had kept Postgres from using it, so each search read every chunk of its scope.
+The full-text side of the knowledge search uses its GIN index again for the app role. Before, row-level security stopped Postgres from using the index, so each search read all chunks in its scope.

@@ -28,7 +28,7 @@ import type {
 import type { GitFileChange } from "../../services/git/file-change.js"
 import { connections } from "./connections.js"
 import { EMBEDDING_DIMENSIONS } from "./objects.js"
-import { orgIsolationPolicy } from "./org-rls.js"
+import { orgCondition, orgIsolationPolicy } from "./org-rls.js"
 
 /**
  * Context Workspace (`ws_`). One workspace repository URL per org; slug unique per org.
@@ -196,11 +196,15 @@ export const workspaceKnowledgeChunks = pgTable.withRLS(
 
 /**
  * The keys and tsvectors of the session org's chunks, for the full-text match
- * of the knowledge search. `tsvector @@ tsquery` is not leakproof, so Postgres
- * does not use the GIN index for it on a table whose RLS policy applies to the
- * role: `ctxpipe_app` read every chunk of the scope. The view reads the table
- * as its owner, to whom the policy does not apply, and filters by the policy's
- * condition. The check option keeps a write through it to the session's org.
+ * of the knowledge search (ADR-042, revision 2026-11-18). `tsvector @@ tsquery`
+ * is not leakproof, so Postgres does not use the GIN index for it on a table
+ * whose RLS policy applies to the role. The view reads the table as its owner,
+ * to whom the policy does not apply, and filters by the policy's condition.
+ * The check option keeps a write through it to the session's org.
+ *
+ * The view is not a security barrier (the index needs that), so a function in
+ * a query over it can see rows of other orgs before the org filter. Only
+ * `lexicalCandidates` reads it, with built-in operators only.
  */
 export const workspaceKnowledgeChunkSearch = pgView(
   "workspace_knowledge_chunk_search",
@@ -214,7 +218,7 @@ export const workspaceKnowledgeChunkSearch = pgView(
 )
   .with({ checkOption: "cascaded" })
   .as(
-    sql`SELECT workspace_id, unit_id, chunk_hash, occurrence, search FROM workspace_knowledge_chunks WHERE org_id = current_setting('app.organization_id', true)`,
+    sql`SELECT workspace_id, unit_id, chunk_hash, occurrence, search FROM workspace_knowledge_chunks WHERE ${orgCondition(sql.raw("org_id"))}`,
   )
 
 export const orgMemberPreferences = pgTable.withRLS(

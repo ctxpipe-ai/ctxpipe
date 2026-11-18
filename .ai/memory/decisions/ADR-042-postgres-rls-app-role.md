@@ -1,6 +1,6 @@
 # ADR-042: Postgres RLS with a non-owner app role
 
-**Status:** Accepted (revised 2026-10-17, 2026-11-10) | **Date:** 2026-08-22 | **Tags:** postgres, rls, neon, aws-cdk, railway, compose, aurora
+**Status:** Accepted (revised 2026-10-17, 2026-11-10, 2026-11-18) | **Date:** 2026-08-22 | **Tags:** postgres, rls, neon, aws-cdk, railway, compose, aurora
 
 ## Context
 
@@ -57,3 +57,18 @@ AWS self-hosters must keep the existing upgrade path: bump `@ctxpipe/aws-cdk` an
 - **Hosted on AWS uses role mode (a).** Secrets Manager generates a new `ctxpipe_app` password for Aurora. The Neon password does not move: it belongs to a resource that goes away, and ADR-061 decision 12 gives new resources new values. The migrate task of `machines/hosted` (factory repo) runs as the Aurora master user, which owns the tables, and reads the password as `DATABASE_APP_PASSWORD`. The fix text of role mode (c) names this path before the Neon path. It keeps the Terraform `random_password` step of Neon until the cutover.
 - **The cutover copy brings no role.** `copyDatabase` restores the Neon dump with `--no-owner --no-privileges`. Thus the Aurora master user owns every object, and no Neon role (`neon_superuser`, `neondb_owner`) or grant comes with the copy. Migrate then makes `ctxpipe_app` and its grants on Aurora. The contract test `src/db/copy-database.contract.test.ts` proves this order on two Postgres 17 servers with the role models of Neon and Aurora.
 - **Neon until phase 7.** The Terraform `random_password` and `deploy.yaml` keep the Neon path until the cutover. Phase 7 ([CTX-1220](https://linear.app/ctxpipe/issue/CTX-1220)) deletes `infra/` with it.
+
+## Revision 2026-11-18: an owner-rights view for an index that the policy blocks ([CTX-1380](https://linear.app/ctxpipe/issue/CTX-1380))
+
+Under a policy, Postgres uses an index only for a condition that is leakproof. `tsvector @@ tsquery` and the other GIN operators are not leakproof, so the knowledge search read the tsvector of every chunk in scope as `ctxpipe_app` and took up to 59.7 s in production. On Aurora, only a superuser can mark a function leakproof.
+
+- **The exception.** When a query of `ctxpipe_app` must use an index that the policy blocks, it can read the table through a view that runs with the owner's rights (not `security_invoker`, not `security_barrier`). The view's condition is the policy's condition, from `orgCondition` in `src/db/schema/org-rls.ts`, so the two cannot drift apart. The view has `WITH CASCADED CHECK OPTION`, so a write through it stays in the session's org. It shows only the columns that the query needs.
+- **Use.** The indexed match is a `MATERIALIZED` CTE that reads only the view. A query that also reads a table with a policy does not use the index either. Only the named query reads the view, with built-in operators only: the view is not a security barrier, so a function in a query over it can see rows of other orgs before the org filter.
+- **Proof.** A plan test as `ctxpipe_app` shows that the query uses the index, and the org isolation test of the feature passes as `ctxpipe_app`.
+- **First use.** `workspace_knowledge_chunk_search` in `src/db/schema/workspaces.ts`, read by `lexicalCandidates` in `src/domain/workspaces/knowledge-search.ts`.
+
+### Alternatives considered (revision)
+
+- **`SECURITY DEFINER` function:** rejected. It needs all filters of the search as parameters, and the planner cannot see into it.
+- **Mark `ts_match_vq` leakproof:** not possible on Aurora (superuser only), and it would change the operator for every table.
+- **`BYPASSRLS` for `ctxpipe_app`:** rejected. It removes isolation everywhere.

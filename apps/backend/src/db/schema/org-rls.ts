@@ -3,13 +3,18 @@ import { pgPolicy } from "drizzle-orm/pg-core"
 
 const orgGuc = sql.raw("current_setting('app.organization_id', true)")
 
+/** The policy's condition: the row belongs to the org of the transaction. */
+export function orgCondition(orgIdColumn: SQLWrapper) {
+  return sql`${orgIdColumn} = ${orgGuc}`
+}
+
 /** ENABLE-only policy: missing GUC → no rows (NULL = unknown). Owner bypasses ENABLE. */
 export function orgIsolationPolicy(orgIdColumn: SQLWrapper) {
   return pgPolicy("org_isolation", {
     as: "permissive",
     for: "all",
     to: "public",
-    using: sql`${orgIdColumn} = ${orgGuc}`,
-    withCheck: sql`${orgIdColumn} = ${orgGuc}`,
+    using: orgCondition(orgIdColumn),
+    withCheck: orgCondition(orgIdColumn),
   })
 }

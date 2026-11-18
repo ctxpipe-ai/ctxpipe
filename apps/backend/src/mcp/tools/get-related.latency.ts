@@ -1,13 +1,12 @@
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { eq } from "drizzle-orm"
-import pg from "pg"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import { withOrgDbContext } from "../../db/client.js"
-import { ownerUrlForMigrate } from "../../db/owner-migrate-url.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { closeGraphDb } from "../../platform/graph/client.js"
+import { analyzeAsOwner } from "../../test/analyze-as-owner.js"
 import { embeddingModelServer } from "../../test/knowledge-search-fixture.js"
 import {
   callTool,
@@ -70,17 +69,10 @@ describe("get_related latency on a 50,000-edge graph", () => {
     // it, about 30 s later. Until then, each call with a query used the whole
     // 3 s budget; with statistics it takes about 100 ms. A served Workspace
     // has statistics. Only the table owner can analyze.
-    const owner = new pg.Client({
-      connectionString: ownerUrlForMigrate(databaseUrl),
-    })
-    await owner.connect()
-    try {
-      await owner.query(
-        "ANALYZE workspace_knowledge_units, workspace_knowledge_chunks",
-      )
-    } finally {
-      await owner.end()
-    }
+    await analyzeAsOwner(databaseUrl, [
+      "workspace_knowledge_units",
+      "workspace_knowledge_chunks",
+    ])
     client = await connectToolClient(seed, getRelatedTool)
   }, 300_000)
   afterAll(async () => {
