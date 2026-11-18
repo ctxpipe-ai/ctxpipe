@@ -258,20 +258,28 @@ export function timedSandboxHandle(handle: SandboxHandle): SandboxHandle {
             markSandboxLifecycle(phase, { ms: Date.now() - started })
             if (signal !== undefined) return proc.kill(signal)
             // The default kill only asks the process to stop. Force it when
-            // it still runs after 500 ms.
+            // it still runs after 500 ms. A process that stops can still
+            // answer: OpenCode keeps its port open for some milliseconds
+            // after SIGTERM. Thus resolve only when the process has exited,
+            // and wait at most 5 s after SIGKILL.
+            const exitsWithin = async (ms: number) => {
+              let timer: ReturnType<typeof setTimeout> | undefined
+              const exited = await Promise.race([
+                proc.wait().then(
+                  () => true,
+                  () => true,
+                ),
+                new Promise<boolean>((resolve) => {
+                  timer = setTimeout(resolve, ms, false)
+                }),
+              ])
+              clearTimeout(timer)
+              return exited
+            }
             await proc.kill()
-            let timer: ReturnType<typeof setTimeout> | undefined
-            const exited = await Promise.race([
-              proc.wait().then(
-                () => true,
-                () => true,
-              ),
-              new Promise<boolean>((resolve) => {
-                timer = setTimeout(resolve, 500, false)
-              }),
-            ])
-            clearTimeout(timer)
-            if (!exited) await proc.kill("SIGKILL")
+            if (await exitsWithin(500)) return
+            await proc.kill("SIGKILL")
+            await exitsWithin(5_000)
           },
         }
       },

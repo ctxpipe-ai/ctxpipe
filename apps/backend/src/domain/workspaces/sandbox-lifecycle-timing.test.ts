@@ -126,7 +126,7 @@ describe("sandbox lifecycle timing", () => {
       await proc.wait()
     })
 
-    it("escalates to SIGKILL after 500 ms when no signal is given", async () => {
+    it("escalates to SIGKILL after 500 ms and resolves after the exit", async () => {
       const signals: Array<string | undefined> = []
       const handle = handleWithRealProcess(signals)
       const proc = (await handle.process.spawn(
@@ -135,10 +135,15 @@ describe("sandbox lifecycle timing", () => {
         up: Promise<void>
       }
       await proc.up
+      let exited = false
+      void proc.wait().then(() => {
+        exited = true
+      })
       const started = Date.now()
       await proc.kill()
       expect(Date.now() - started).toBeGreaterThanOrEqual(450)
       expect(signals).toEqual([undefined, "SIGKILL"])
+      expect(exited).toBe(true)
     })
   })
 })
