@@ -179,7 +179,8 @@ jobs:
 
   sweep:
     if: github.event_name != 'workflow_dispatch'
-    # Close merges start one sweep at a time; GitHub keeps the newest pending.
+    # This group runs one sweep at a time. When pushes come during a sweep,
+    # GitHub keeps only the newest pending run.
     concurrency:
       group: preview-deployments-sweep
       cancel-in-progress: false
