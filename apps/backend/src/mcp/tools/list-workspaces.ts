@@ -1,4 +1,4 @@
-import { and, asc, count, eq } from "drizzle-orm"
+import { and, asc, count, eq, sql } from "drizzle-orm"
 import { z } from "zod"
 
 import { withOrgDbContext } from "../../db/client.js"
@@ -14,6 +14,7 @@ import { publishedProjection } from "../../domain/workspaces/revision.js"
 import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
+  activeProjectionSha,
   getWorkspaceSearchProjection,
   projectionFromWorkspace,
 } from "../../models/workspaces.js"
@@ -253,11 +254,15 @@ export const listWorkspaces = defineMcpReadTool({
                   units: count(),
                 })
                 .from(workspaceKnowledgeUnits)
+                .innerJoin(
+                  workspaces,
+                  eq(workspaces.id, workspaceKnowledgeUnits.workspaceId),
+                )
                 .where(
                   and(
                     eq(workspaceKnowledgeUnits.orgId, org.id),
                     eq(workspaceKnowledgeUnits.workspaceId, resolved.id),
-                    eq(workspaceKnowledgeUnits.projectionSha, servedSha),
+                    sql`${activeProjectionSha} = ${servedSha}`,
                   ),
                 )
                 .groupBy(workspaceKnowledgeUnits.kind)

@@ -30,10 +30,7 @@ import {
 } from "../../test/native-hydration-fixture.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import { expandWorkspaceGraph } from "./graph-expand.js"
-import {
-  workspaceClaimsQuery,
-  workspaceGraphRevisionKey,
-} from "./graph-projection.js"
+import { workspaceClaimsQuery, workspaceGraphKey } from "./graph-projection.js"
 import { WorkspaceGraphBuildingError } from "./graph-rebuild.js"
 import { publishedProjection } from "./revision.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
@@ -779,7 +776,7 @@ it(
 )
 
 it(
-  "captured chat graph keeps its revision after a replacement is published",
+  "captured chat graph reads the newest complete graph of its binding after a replacement is published",
   { timeout: 60_000 },
   async () => {
     await withGraphHydration({}, async (f) => {
@@ -794,15 +791,22 @@ it(
         snapshot,
       })
       await replaceGraphRevision(f)
-      expect(
-        String(
-          await tools
-            .find((t) => t.name === "graph_lookup")
-            ?.execute({ nodeId: snapshot.units[0]?.servingId }),
-        ),
-      ).toContain("# Document 0")
       const fresh = await withOrgIdContext(f.org, () =>
         getWorkspaceProjectionSnapshot(f.workspaceId),
+      )
+      // The graph key names the binding, not the SHA: a commit updates the
+      // one graph of the binding, so a captured chat reads the new graph.
+      const lookup = async (list: typeof tools, nodeId: string | undefined) =>
+        String(
+          await list
+            .find((t) => t.name === "graph_lookup")
+            ?.execute({ nodeId }),
+        )
+      expect(await lookup(tools, snapshot.units[0]?.servingId)).not.toContain(
+        "# Document 0",
+      )
+      expect(await lookup(tools, fresh.units[0]?.servingId)).toContain(
+        "# Replacement node",
       )
       const nextTools = await workspaceChatTools({
         orgId: f.org.id,
@@ -810,13 +814,9 @@ it(
         workspaceId: f.workspaceId,
         snapshot: fresh,
       })
-      expect(
-        String(
-          await nextTools
-            .find((t) => t.name === "graph_lookup")
-            ?.execute({ nodeId: fresh.units[0]?.servingId }),
-        ),
-      ).toContain("# Replacement node")
+      expect(await lookup(nextTools, fresh.units[0]?.servingId)).toContain(
+        "# Replacement node",
+      )
     })
   },
 )
@@ -1069,7 +1069,7 @@ it(
         await graph.query(
           "MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey}) DETACH DELETE n",
           {
-            params: { projectionKey: workspaceGraphRevisionKey(f.revision) },
+            params: { projectionKey: workspaceGraphKey(f.revision) },
           },
         )
         await expect(expandWorkspaceGraph(input)).rejects.toBeInstanceOf(

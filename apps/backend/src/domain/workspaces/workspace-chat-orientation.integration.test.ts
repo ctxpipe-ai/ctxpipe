@@ -39,9 +39,10 @@ describe("loadWorkspaceChatOrientation (Postgres)", () => {
       name: "Orientation test",
       createdAt: new Date(),
     })
-    // 3,015 files at the active revision: 299 folders of 10 files, 10 files
-    // at the root, and 15 in decisions/. One file of an older revision must
-    // not count.
+    // 3,016 files of the active projection: 299 folders of 10 files, 10
+    // files at the root, 15 in decisions/, and one file whose row an older
+    // hydrate wrote. A partial hydrate does not write an unchanged row
+    // again, so that file counts.
     const unit = (path: string, projectionSha: string, i: number) => ({
       servingId: `unit_${suffix}_${i}`,
       orgId,
@@ -64,7 +65,7 @@ describe("loadWorkspaceChatOrientation (Postgres)", () => {
       ...Array.from({ length: 15 }, (_, i) =>
         unit(`decisions/adr-${i}.md`, activeSha, 4_000 + i),
       ),
-      unit("stale/old.md", "b".repeat(40), 9_999),
+      unit("unchanged/old.md", "b".repeat(40), 9_999),
     ]
     await withOrgDbContext(orgId, async (db) => {
       await db.insert(workspaces).values({
@@ -94,10 +95,9 @@ describe("loadWorkspaceChatOrientation (Postgres)", () => {
       WORKSPACE_CHAT_ORIENTATION_MAX_CHARS,
     )
     expect(text).not.toContain("secret-name")
-    expect(text).not.toContain("stale")
     const parsed = JSON.parse(text)
-    expect(parsed.knowledge.files).toBe(3_015)
-    expect(parsed.knowledge.folders).toBe(301)
+    expect(parsed.knowledge.files).toBe(3_016)
+    expect(parsed.knowledge.folders).toBe(302)
     expect(parsed.knowledge.largestFolders.slice(0, 3)).toEqual([
       { path: "decisions/", files: 15 },
       { path: ".", files: 10 },
@@ -105,7 +105,7 @@ describe("loadWorkspaceChatOrientation (Postgres)", () => {
     ])
     expect(
       parsed.knowledge.largestFolders.length + parsed.knowledge.moreFolders,
-    ).toBe(301)
+    ).toBe(302)
     expect(await loadWorkspaceChatOrientation({ orgId, workspaceId })).toBe(
       text,
     )

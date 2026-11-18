@@ -925,7 +925,7 @@ it.each(["pending", "failed"])(
             skipped: [],
             embeddingModel: "fixture-embedding",
           }),
-        ).toBe(true)
+        ).not.toBeNull()
         if (state === "failed") {
           expect(
             await persistWorkspaceIndexResult({

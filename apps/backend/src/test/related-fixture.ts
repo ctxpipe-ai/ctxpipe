@@ -14,7 +14,7 @@ import { parseEnv } from "../config/env.js"
 import { withOrgDbContext } from "../db/client.js"
 import { workspaceKnowledgeUnits, workspaces } from "../db/schema/workspaces.js"
 import {
-  workspaceGraphRevisionKey,
+  workspaceGraphKey,
   writeWorkspaceRevisionGraph,
 } from "../domain/workspaces/graph-projection.js"
 import type { HydrateUnit } from "../domain/workspaces/hydrate.js"
@@ -207,7 +207,7 @@ export async function deleteRevisionGraph(
   seed: SeededOrg,
   revision: WorkspaceRevision,
 ): Promise<void> {
-  const projectionKey = workspaceGraphRevisionKey(revision)
+  const projectionKey = workspaceGraphKey(revision)
   await withGraphClient(
     { orgId: seed.orgId, orgSlug: seed.orgSlug },
     async () => {

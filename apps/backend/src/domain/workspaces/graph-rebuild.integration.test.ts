@@ -13,10 +13,7 @@ import { getWorkspaceProjection } from "../../models/workspaces.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
-import {
-  hasWorkspaceGraph,
-  workspaceGraphRevisionKey,
-} from "./graph-projection.js"
+import { hasWorkspaceGraph, workspaceGraphKey } from "./graph-projection.js"
 import {
   readOrRebuildWorkspaceGraph,
   WorkspaceGraphBuildingError,
@@ -77,7 +74,7 @@ it(
             }),
           )
           .digest("hex")
-        expect(workspaceGraphRevisionKey(revision)).not.toBe(legacyKey)
+        expect(workspaceGraphKey(revision)).not.toBe(legacyKey)
         await withGraphClient(org, () =>
           getGraphClient().executeQuery(
             "CREATE (:WorkspaceProjection {projectionKey: $key, nodeCount: 0, claimCount: 0, completedAt: '2026-01-01T00:00:00.000Z'})",
@@ -120,14 +117,14 @@ it(
       await withGraphClient(org, () =>
         getGraphClient().executeQuery(
           "CREATE (:WorkspaceProjection {projectionKey: $key})",
-          { key: workspaceGraphRevisionKey(revision) },
+          { key: workspaceGraphKey(revision) },
         ),
       )
       expect(await hasWorkspaceGraph({ ...org, revision })).toBe(false)
       await withGraphClient(org, () =>
         getGraphClient().executeQuery(
           "MATCH (p:WorkspaceProjection {projectionKey: $key}) SET p.nodeCount = 0, p.claimCount = 0, p.completedAt = '2026-01-01T00:00:00.000Z'",
-          { key: workspaceGraphRevisionKey(revision) },
+          { key: workspaceGraphKey(revision) },
         ),
       )
       expect(await hasWorkspaceGraph({ ...org, revision })).toBe(true)

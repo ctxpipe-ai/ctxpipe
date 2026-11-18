@@ -100,7 +100,7 @@ async function withChatProjection(
           displayName: null,
           formatVersion: 0,
         }),
-      ).toBe(true)
+      ).not.toBeNull()
       const repositoryId = generateObjectId("repo")
       const excludedRepositoryId = generateObjectId("repo")
       await withOrgDbContext(org.id, async (db) => {

@@ -149,7 +149,8 @@ async function runSearch(
   const embedding = await (input.embedding ?? embedQuery(query, signal))
   const filters: SQL[] = [
     sql`c.workspace_id = ANY(${textArray(input.workspaceIds)})`,
-    sql`u.projection_sha = coalesce(w.active_revision->>'sha', w.active_projection_sha)`,
+    // Each unit row belongs to the active projection of its Workspace.
+    sql`coalesce(w.active_revision->>'sha', w.active_projection_sha) IS NOT NULL`,
   ]
   if (input.kinds?.length)
     filters.push(sql`u.kind = ANY(${textArray(input.kinds)})`)

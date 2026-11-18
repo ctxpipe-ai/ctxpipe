@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 import { z } from "zod"
 
 import { withOrgDbContext } from "../../db/client.js"
@@ -30,7 +30,10 @@ import {
   type PublishedProjection,
   publishedProjection,
 } from "../../domain/workspaces/revision.js"
-import { projectionFromWorkspace } from "../../models/workspaces.js"
+import {
+  activeProjectionSha,
+  projectionFromWorkspace,
+} from "../../models/workspaces.js"
 import { fitPage, truncateText } from "../framework/budget.js"
 import {
   requireServed,
@@ -332,11 +335,15 @@ async function resolveSeeds(
         path: workspaceKnowledgeUnits.path,
       })
       .from(workspaceKnowledgeUnits)
+      .innerJoin(
+        workspaces,
+        eq(workspaces.id, workspaceKnowledgeUnits.workspaceId),
+      )
       .where(
         and(
           eq(workspaceKnowledgeUnits.orgId, org.id),
           eq(workspaceKnowledgeUnits.workspaceId, workspaceId),
-          eq(workspaceKnowledgeUnits.projectionSha, sha),
+          sql`${activeProjectionSha} = ${sha}`,
           inArray(workspaceKnowledgeUnits.path, paths),
         ),
       ),
@@ -553,11 +560,15 @@ export async function rankWorkspaceRelated(
             updatedAt: workspaceKnowledgeUnits.updatedAt,
           })
           .from(workspaceKnowledgeUnits)
+          .innerJoin(
+            workspaces,
+            eq(workspaces.id, workspaceKnowledgeUnits.workspaceId),
+          )
           .where(
             and(
               eq(workspaceKnowledgeUnits.orgId, org.id),
               eq(workspaceKnowledgeUnits.workspaceId, workspace.id),
-              eq(workspaceKnowledgeUnits.projectionSha, sha),
+              sql`${activeProjectionSha} = ${sha}`,
               inArray(
                 workspaceKnowledgeUnits.servingId,
                 ranked.map((result) => result.id),

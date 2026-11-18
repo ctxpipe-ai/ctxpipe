@@ -26,6 +26,12 @@ import {
   workspaces,
 } from "../db/schema/workspaces.js"
 import { firstConnectorTarget } from "../domain/workspaces/dest-workspace-first.js"
+import {
+  diffHydrateUnits,
+  type HydrateFullReason,
+  hydrateUnitHash,
+  partialUnitBound,
+} from "../domain/workspaces/hydrate-delta.js"
 import { initialHydratePhases } from "../domain/workspaces/hydrate-phases.js"
 import {
   type HydrateSkip,
@@ -406,7 +412,14 @@ export async function getWorkspaceProjectionState(
   return state
 }
 
-/** How many units the projection at `projectionSha` has. */
+/**
+ * The SHA of the active projection of the joined Workspace. Each unit row
+ * belongs to that projection, also when a partial hydrate did not write it
+ * (its `projection_sha` is then older).
+ */
+export const activeProjectionSha = sql<string>`coalesce(${workspaces.activeRevision}->>'sha', ${workspaces.activeProjectionSha})`
+
+/** How many units the projection at `projectionSha` has (0 when that projection is not active). */
 export async function countWorkspaceProjectionUnits(
   workspaceId: string,
   projectionSha: string,
@@ -415,10 +428,14 @@ export async function countWorkspaceProjectionUnits(
     const [row] = await getOrgDb()
       .select({ count: sql<number>`count(*)::int` })
       .from(workspaceKnowledgeUnits)
+      .innerJoin(
+        workspaces,
+        eq(workspaces.id, workspaceKnowledgeUnits.workspaceId),
+      )
       .where(
         and(
           eq(workspaceKnowledgeUnits.workspaceId, workspaceId),
-          eq(workspaceKnowledgeUnits.projectionSha, projectionSha),
+          sql`${activeProjectionSha} = ${projectionSha}`,
         ),
       )
     return row?.count ?? 0
@@ -471,13 +488,13 @@ async function readWorkspaceProjectionSnapshot(
           ) order by ${qualified(workspaceKnowledgeUnits.path)})
           from ${workspaceKnowledgeUnits}
           where ${qualified(workspaceKnowledgeUnits.workspaceId)} = ${qualified(workspaces.id)}
-          and ${qualified(workspaceKnowledgeUnits.projectionSha)} = coalesce(${qualified(workspaces.activeRevision)}->>'sha', ${qualified(workspaces.activeProjectionSha)})
+          and coalesce(${qualified(workspaces.activeRevision)}->>'sha', ${qualified(workspaces.activeProjectionSha)}) is not null
         ), '[]'::jsonb)`
           : sql<WorkspaceProjectionSnapshot["units"]>`'[]'::jsonb`,
         chunksMissing: sql<boolean>`exists (
           select 1 from ${workspaceKnowledgeUnits}
           where ${qualified(workspaceKnowledgeUnits.workspaceId)} = ${qualified(workspaces.id)}
-          and ${qualified(workspaceKnowledgeUnits.projectionSha)} = coalesce(${qualified(workspaces.activeRevision)}->>'sha', ${qualified(workspaces.activeProjectionSha)})
+          and coalesce(${qualified(workspaces.activeRevision)}->>'sha', ${qualified(workspaces.activeProjectionSha)}) is not null
           and ${unitWithoutChunks(qualified(workspaceKnowledgeUnits.workspaceId), qualified(workspaceKnowledgeUnits.servingId), qualified(workspaceKnowledgeUnits.body))}
         )`,
         linkedSources: servedSourceStatesSql(qualified(workspaces.id)),
@@ -1326,7 +1343,7 @@ export async function workspaceKnowledgeFolderCounts(
       .where(
         and(
           eq(workspaceKnowledgeUnits.workspaceId, workspaceId),
-          sql`${workspaceKnowledgeUnits.projectionSha} = coalesce(${workspaces.activeRevision}->>'sha', ${workspaces.activeProjectionSha})`,
+          sql`${activeProjectionSha} is not null`,
         ),
       )
       .groupBy(sql`1`)
@@ -1335,7 +1352,7 @@ export async function workspaceKnowledgeFolderCounts(
   })
 }
 
-/** Paths, kinds, and links of the units projected at one revision, in path order. */
+/** Paths, kinds, and links of the units projected at one revision, in path order. None when that revision is not active. */
 export async function listWorkspaceUnitsAtRevision(
   workspaceId: string,
   sha: string,
@@ -1348,10 +1365,14 @@ export async function listWorkspaceUnitsAtRevision(
         links: workspaceKnowledgeUnits.links,
       })
       .from(workspaceKnowledgeUnits)
+      .innerJoin(
+        workspaces,
+        eq(workspaces.id, workspaceKnowledgeUnits.workspaceId),
+      )
       .where(
         and(
           eq(workspaceKnowledgeUnits.workspaceId, workspaceId),
-          eq(workspaceKnowledgeUnits.projectionSha, sha),
+          sql`${activeProjectionSha} = ${sha}`,
         ),
       )
       .orderBy(workspaceKnowledgeUnits.path),
@@ -1383,6 +1404,31 @@ export async function getBindingWorkspaceFormat(
   })
 }
 
+/** What one hydrate commit wrote to Postgres. */
+export type HydrateCommit = {
+  mode: "partial" | "full"
+  /** Why the commit wrote all units. */
+  fullReason?: HydrateFullReason
+  unitRowsWritten: number
+  unitRowsDeleted: number
+  chunkRowsInserted: number
+  chunkRowsDeleted: number
+  /** The serving ids of the new and changed units. All units for a full write. */
+  changedUnitIds: string[]
+  /** The serving ids of the units that the commit removed. */
+  removedUnitIds: string[]
+}
+
+/**
+ * Publish the units of a revision and make it active, in one transaction.
+ * Returns null when the Workspace no longer wants this revision.
+ *
+ * With `base`, the commit writes only the units that differ from the stored
+ * rows (a partial write): each stored row belongs to the active projection,
+ * so the rows that do not change stay as they are. A full write replaces all
+ * rows. A partial write and a full write of one revision give the same rows,
+ * except `created_at` and the `projection_sha` of the unchanged rows.
+ */
 export async function commitHydrateProjection(input: {
   orgId: string
   revision: WorkspaceRevision
@@ -1393,10 +1439,22 @@ export async function commitHydrateProjection(input: {
   skipped: readonly HydrateSkip[]
   /** Part of each chunk hash, so that a model change embeds again. */
   embeddingModel: string
-}): Promise<boolean> {
+  /**
+   * The active projection that the caller read, for a partial write, or the
+   * reason for a full write. Absent: a full write (`no_base`).
+   */
+  base?: { revision: WorkspaceRevision } | { fullReason: HydrateFullReason }
+}): Promise<HydrateCommit | null> {
   return orgSql(async () => {
     const db = getOrgDb()
     return db.transaction(async (tx) => {
+      // Lock the row first: the partial write needs the active projection
+      // that it diffs against to stay the same until the commit.
+      const [current] = await tx
+        .select({ activeRevision: workspaces.activeRevision })
+        .from(workspaces)
+        .where(eq(workspaces.id, input.revision.workspaceId))
+        .for("update")
       const [updated] = await tx
         .update(workspaces)
         .set({
@@ -1437,41 +1495,148 @@ export async function commitHydrateProjection(input: {
           ),
         )
         .returning({ id: workspaces.id })
-      if (!updated) return false
+      if (!updated) return null
 
-      await tx
+      const now = new Date()
+      const row = (unit: HydrateUnit) => ({
+        servingId: unit.servingId,
+        orgId: input.orgId,
+        workspaceId: input.revision.workspaceId,
+        path: unit.path,
+        kind: unit.kind ?? null,
+        title: unit.title ?? null,
+        source: unit.source ?? null,
+        body: unit.body,
+        projectionSha: input.revision.sha,
+        unitHash: hydrateUnitHash(unit),
+        links: unit.links,
+        claims: unit.claims,
+        createdAt: now,
+        updatedAt: unit.updatedAt ? new Date(unit.updatedAt) : now,
+      })
+      const base = input.base ?? { fullReason: "no_base" as const }
+      let fullReason: HydrateFullReason | undefined =
+        "fullReason" in base
+          ? base.fullReason
+          : !sameWorkspaceBinding(base.revision, input.revision)
+            ? "lineage"
+            : !sameWorkspaceRevision(current?.activeRevision, base.revision)
+              ? "base_moved"
+              : new Set(input.units.map((unit) => unit.servingId)).size !==
+                  input.units.length
+                ? "duplicate_units"
+                : undefined
+      let delta: { changed: HydrateUnit[]; removed: string[] } | undefined
+      if (!fullReason) {
+        const stored = await tx
+          .select({
+            servingId: workspaceKnowledgeUnits.servingId,
+            unitHash: workspaceKnowledgeUnits.unitHash,
+          })
+          .from(workspaceKnowledgeUnits)
+          .where(
+            eq(workspaceKnowledgeUnits.workspaceId, input.revision.workspaceId),
+          )
+        delta = diffHydrateUnits(stored, input.units)
+        if (
+          delta.changed.length + delta.removed.length >
+          partialUnitBound(stored.length)
+        ) {
+          fullReason = "unit_bound"
+          delta = undefined
+        }
+      }
+
+      if (delta) {
+        let unitRowsDeleted = 0
+        for (let start = 0; start < delta.removed.length; start += 1000) {
+          const deleted = await tx
+            .delete(workspaceKnowledgeUnits)
+            .where(
+              and(
+                eq(
+                  workspaceKnowledgeUnits.workspaceId,
+                  input.revision.workspaceId,
+                ),
+                inArray(
+                  workspaceKnowledgeUnits.servingId,
+                  delta.removed.slice(start, start + 1000),
+                ),
+              ),
+            )
+            .returning({ servingId: workspaceKnowledgeUnits.servingId })
+          unitRowsDeleted += deleted.length
+        }
+        // Postgres caps bind parameters at 65,535; ~14 per unit row.
+        for (let start = 0; start < delta.changed.length; start += 500) {
+          await tx
+            .insert(workspaceKnowledgeUnits)
+            .values(delta.changed.slice(start, start + 500).map(row))
+            .onConflictDoUpdate({
+              target: workspaceKnowledgeUnits.servingId,
+              set: {
+                kind: sql`excluded.kind`,
+                title: sql`excluded.title`,
+                source: sql`excluded.source`,
+                body: sql`excluded.body`,
+                projectionSha: sql`excluded.projection_sha`,
+                unitHash: sql`excluded.unit_hash`,
+                links: sql`excluded.links`,
+                claims: sql`excluded.claims`,
+                updatedAt: sql`excluded.updated_at`,
+              },
+            })
+        }
+        const chunks = await replaceKnowledgeChunks(tx, {
+          orgId: input.orgId,
+          workspaceId: input.revision.workspaceId,
+          rows: knowledgeChunkRows(delta.changed, input.embeddingModel),
+          unitIds: [
+            ...delta.changed.map((unit) => unit.servingId),
+            ...delta.removed,
+          ],
+        })
+        return {
+          mode: "partial" as const,
+          unitRowsWritten: delta.changed.length,
+          unitRowsDeleted,
+          chunkRowsInserted: chunks.inserted,
+          chunkRowsDeleted: chunks.deleted,
+          changedUnitIds: delta.changed.map((unit) => unit.servingId),
+          removedUnitIds: delta.removed,
+        }
+      }
+
+      const deleted = await tx
         .delete(workspaceKnowledgeUnits)
         .where(
           eq(workspaceKnowledgeUnits.workspaceId, input.revision.workspaceId),
         )
-      const now = new Date()
-      // Postgres caps bind parameters at 65,535; ~13 per unit row.
+        .returning({ servingId: workspaceKnowledgeUnits.servingId })
+      // Postgres caps bind parameters at 65,535; ~14 per unit row.
       for (let start = 0; start < input.units.length; start += 500) {
-        await tx.insert(workspaceKnowledgeUnits).values(
-          input.units.slice(start, start + 500).map((unit) => ({
-            servingId: unit.servingId,
-            orgId: input.orgId,
-            workspaceId: input.revision.workspaceId,
-            path: unit.path,
-            kind: unit.kind ?? null,
-            title: unit.title ?? null,
-            source: unit.source ?? null,
-            body: unit.body,
-            projectionSha: input.revision.sha,
-            links: unit.links,
-            claims: unit.claims,
-            createdAt: now,
-            updatedAt: unit.updatedAt ? new Date(unit.updatedAt) : now,
-          })),
-        )
+        await tx
+          .insert(workspaceKnowledgeUnits)
+          .values(input.units.slice(start, start + 500).map(row))
       }
-      await replaceKnowledgeChunks(tx, {
+      const chunks = await replaceKnowledgeChunks(tx, {
         orgId: input.orgId,
         workspaceId: input.revision.workspaceId,
         rows: knowledgeChunkRows(input.units, input.embeddingModel),
       })
-
-      return true
+      const kept = new Set(input.units.map((unit) => unit.servingId))
+      return {
+        mode: "full" as const,
+        fullReason,
+        unitRowsWritten: input.units.length,
+        unitRowsDeleted: deleted.length,
+        chunkRowsInserted: chunks.inserted,
+        chunkRowsDeleted: chunks.deleted,
+        changedUnitIds: [...kept],
+        removedUnitIds: deleted
+          .map((row) => row.servingId)
+          .filter((servingId) => !kept.has(servingId)),
+      }
     })
   })
 }
@@ -2025,33 +2190,54 @@ type OrgTransaction = Parameters<
  * that activates it. Unchanged chunks get no write. A changed position gets an
  * update of its line columns only. A new chunk copies the embedding of a chunk
  * with the same hash before gone chunks are deleted, so hydrate never embeds
- * an unchanged chunk again.
+ * an unchanged chunk again. With `unitIds`, only the chunks of those units
+ * change, and `rows` holds the new chunks of those units.
  */
 async function replaceKnowledgeChunks(
   tx: OrgTransaction,
-  input: { orgId: string; workspaceId: string; rows: KnowledgeChunkRow[] },
-) {
+  input: {
+    orgId: string
+    workspaceId: string
+    rows: KnowledgeChunkRow[]
+    unitIds?: readonly string[]
+  },
+): Promise<{ inserted: number; deleted: number }> {
   const chunks = workspaceKnowledgeChunks
   const key = (row: {
     unitId: string
     chunkHash: string
     occurrence: number
   }) => `${row.unitId}\0${row.chunkHash}\0${row.occurrence}`
-  const existing = new Map(
-    (
-      await tx
-        .select({
-          unitId: chunks.unitId,
-          chunkHash: chunks.chunkHash,
-          occurrence: chunks.occurrence,
-          ordinal: chunks.ordinal,
-          startLine: chunks.startLine,
-          endLine: chunks.endLine,
-        })
+  const columns = {
+    unitId: chunks.unitId,
+    chunkHash: chunks.chunkHash,
+    occurrence: chunks.occurrence,
+    ordinal: chunks.ordinal,
+    startLine: chunks.startLine,
+    endLine: chunks.endLine,
+  }
+  const existingRows = []
+  if (!input.unitIds)
+    existingRows.push(
+      ...(await tx
+        .select(columns)
         .from(chunks)
-        .where(eq(chunks.workspaceId, input.workspaceId))
-    ).map((row) => [key(row), row]),
-  )
+        .where(eq(chunks.workspaceId, input.workspaceId))),
+    )
+  else
+    for (let start = 0; start < input.unitIds.length; start += 1000)
+      existingRows.push(
+        ...(await tx
+          .select(columns)
+          .from(chunks)
+          .where(
+            and(
+              eq(chunks.workspaceId, input.workspaceId),
+              inArray(chunks.unitId, input.unitIds.slice(start, start + 1000)),
+            ),
+          )),
+      )
+  const existing = new Map(existingRows.map((row) => [key(row), row]))
   const added: KnowledgeChunkRow[] = []
   const moved: KnowledgeChunkRow[] = []
   for (const row of input.rows) {
@@ -2121,17 +2307,20 @@ async function replaceKnowledgeChunks(
         )})
     `)
   }
+  return { inserted: added.length, deleted: gone.length }
 }
 
 /**
  * Embed the Workspace's chunks that have no embedding, one batch of distinct
  * hashes at a time. The model call runs outside the org database context.
+ * Returns the number of texts that went to the model.
  */
 export async function embedKnowledgeChunks(input: {
   workspaceId: string
   embed: (texts: string[]) => Promise<number[][]>
-}): Promise<void> {
+}): Promise<number> {
   const chunks = workspaceKnowledgeChunks
+  let sent = 0
   for (;;) {
     const pending = await orgSql(() =>
       getOrgDb()
@@ -2149,8 +2338,9 @@ export async function embedKnowledgeChunks(input: {
         .orderBy(chunks.chunkHash)
         .limit(64),
     )
-    if (pending.length === 0) return
+    if (pending.length === 0) return sent
     const vectors = await input.embed(pending.map((chunk) => chunk.text))
+    sent += pending.length
     if (vectors.length !== pending.length)
       throw new Error(
         `Expected ${pending.length} embeddings, got ${vectors.length}`,
@@ -2202,7 +2392,6 @@ export async function markKnowledgeEmbeddingsReady(input: {
           ) OR exists (
             SELECT 1 FROM workspace_knowledge_units AS u
             WHERE u.workspace_id = ${input.revision.workspaceId}
-              AND u.projection_sha = ${input.revision.sha}
               AND ${unitWithoutChunks(sql`u.workspace_id`, sql`u.serving_id`, sql`u.body`)}
           ) AS incomplete
         `)

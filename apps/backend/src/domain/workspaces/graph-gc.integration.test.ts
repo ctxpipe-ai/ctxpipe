@@ -19,7 +19,7 @@ import {
 import {
   hasWorkspaceGraph,
   readWorkspaceGraph,
-  workspaceGraphRevisionKey,
+  workspaceGraphKey,
   writeWorkspaceRevisionGraph,
 } from "./graph-projection.js"
 import type { HydrateUnit } from "./hydrate.js"
@@ -60,10 +60,12 @@ afterAll(async () => {
   await closeDb()
 })
 
+// The graph key has no SHA. Each SHA here gets its own generation, so that
+// each revision has its own key.
 function revision(workspaceId: string, sha: string): WorkspaceRevision {
   return {
     workspaceId,
-    generation: 1,
+    generation: sha.charCodeAt(0),
     remote: { url: "https://git.example.test/acme/kb.git", connectionId: null },
     defaultBranch: "main",
     sha: sha.repeat(40),
@@ -106,7 +108,7 @@ async function count(rev: WorkspaceRevision, label: string) {
     .selectGraph(org.orgId)
     .query<{ n: number }>(
       `MATCH (n:${label} {projectionKey: $key}) RETURN count(n) AS n`,
-      { params: { key: workspaceGraphRevisionKey(rev) } },
+      { params: { key: workspaceGraphKey(rev) } },
     )
   return Number(result.data?.[0]?.n ?? 0)
 }
@@ -116,7 +118,7 @@ async function edges(rev: WorkspaceRevision) {
     .selectGraph(org.orgId)
     .query<{ n: number }>(
       "MATCH ()-[r:WorkspaceSignal {projectionKey: $key}]->() RETURN count(r) AS n",
-      { params: { key: workspaceGraphRevisionKey(rev) } },
+      { params: { key: workspaceGraphKey(rev) } },
     )
   return Number(result.data?.[0]?.n ?? 0)
 }
@@ -154,7 +156,7 @@ const dropMarker = (rev: WorkspaceRevision) =>
   falkor
     .selectGraph(org.orgId)
     .query("MATCH (p:WorkspaceProjection {projectionKey: $key}) DELETE p", {
-      params: { key: workspaceGraphRevisionKey(rev) },
+      params: { key: workspaceGraphKey(rev) },
     })
 
 it("removes an old key after the grace period, keeps the served key, and removes nothing on a second run", async () => {
@@ -336,6 +338,7 @@ it("reads the keys in use from the Workspaces of the org only, with one query", 
       displayName: id,
       workspaceRepositoryUrl: url,
       desiredSha: desiredSha.repeat(40),
+      desiredGeneration: revision(id, desiredSha).generation,
       desiredDefaultBranch: "main",
       activeRevision: activeSha
         ? {
@@ -349,7 +352,7 @@ it("reads the keys in use from the Workspaces of the org only, with one query", 
   const building = row(org.orgId, `ws_wire_building_${suffix}`, "b", "c")
   const foreign = row(otherOrgId, `ws_wire_foreign_${suffix}`, "d", "d")
   const key = (r: ReturnType<typeof row>, sha: string) =>
-    workspaceGraphRevisionKey({
+    workspaceGraphKey({
       ...revision(r.id, sha),
       remote: { url: r.workspaceRepositoryUrl, connectionId: null },
     })
