@@ -829,7 +829,7 @@ jobs:
           if-no-files-found: ignore
 
   # outside-manifest: it builds the static Storybook, the prerequisite storybook-build of the play and screenshot checks
-  # outside-gate: also when the plan job passes on `build` from the select job for the Storybook preview (scripts/checks/README.md, Storybook preview): it builds no check, so the plan code does not select it
+  # outside-gate: also when the plan job gives the output `build` of the select job for the Storybook preview (scripts/checks/README.md, Storybook preview): it builds for no check, so the plan code does not select it
   storybook-build:
     timeout-minutes: 20
     name: Storybook build
@@ -922,6 +922,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           artifact-ids: ${{ needs.merge-gate-select.outputs.storybook-artifact-id }}
+          merge-multiple: true
           path: ${{ runner.temp }}/cached
       - name: Download the Storybook build of this run
         if: needs.merge-gate-select.outputs.storybook-preview == 'build' && needs.storybook-build.outputs.storybook-static-id != ''
@@ -929,6 +930,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           artifact-ids: ${{ needs.storybook-build.outputs.storybook-static-id }}
+          merge-multiple: true
           path: ${{ runner.temp }}/built
       - name: Publish the preview
         id: publish
@@ -945,8 +947,7 @@ jobs:
             archive="$RUNNER_TEMP/storybook.tar.gz"
             tar -czf "$archive" -C "$RUNNER_TEMP/built" .
           fi
-          "$RUNNER_TEMP/bin/factory" deploy storybook --sha "$HEAD_SHA" --archive "$archive" | tee "$RUNNER_TEMP/deploy.txt"
-          sed -n 's/^STORYBOOK /Storybook preview: /p' "$RUNNER_TEMP/deploy.txt" >> "$GITHUB_STEP_SUMMARY"
+          "$RUNNER_TEMP/bin/factory" deploy storybook --sha "$HEAD_SHA" --archive "$archive"
       # The link on the PR: a GitHub Deployment of the head commit to the
       # environment `storybook`, a record with no secret and no protection
       # rule. Its status is `success` with the preview URL, or `failure`. The
