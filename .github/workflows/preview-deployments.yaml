@@ -14,11 +14,11 @@
 #   records. The newest factory run that an event names gets a deployment,
 #   also when it is a down (`inactive`). An older run that has no record gets
 #   none, because it never shows. Nothing deletes a deployment, so the record
-#   of the newest run stays after its events leave the window, and a late
-#   event of an older run cannot make that run the newest again. Only the newest recorded or seen run shows its last state, if it
-#   is an up, its first event is at most 72 hours old, and the PR is open.
-#   Every other deployment is `inactive`, and no state replaces `inactive`.
-#   So a late event of an old run never shows it again.
+#   of the newest run stays after its events leave the window. Only the
+#   newest recorded or seen run shows its last state, if it is an up, its
+#   first event is at most 72 hours old, and the PR is open. Every other
+#   deployment is `inactive`, and no state replaces `inactive`. So a late
+#   event of an old run never shows it again.
 # - The 72 hours are the TTL of the previews (factory
 #   machines/previews/pr/src/names.ts): change both together. The factory's
 #   expire runs delete those previews, but they have no token for this
@@ -27,9 +27,11 @@
 #   can be gone (a closed PR, or a newest status older than 72 hours), so all
 #   the changes of a PR go through its group. It reads the deployments with
 #   their newest status through GraphQL, 100 in each call. It starts no
-#   check run for a PR whose check run failed in the last day, so a
-#   reconcile that keeps failing does not start a new run each hour.
+#   check run for a PR whose check run failed in the last day, so that a
+#   reconcile that fails each time does not start a new run each hour.
 name: Preview deployments
+# Two jq parsers read this run name: the event plan of `reconcile` and the
+# failed check runs of `sweep`. Change them together with it.
 run-name: >-
   ${{ github.event_name == 'schedule' && 'preview deployments sweep'
   || format('preview deployments pr-{0} {1} {2} {3}', inputs.pr, inputs.state, inputs.log_url, inputs.sha) }}
@@ -209,16 +211,12 @@ jobs:
           since=$(date -u -d "1 day ago" +%Y-%m-%dT%H:%M:%SZ)
           failed_runs=$(gh api --paginate \
             "repos/$REPO/actions/workflows/preview-deployments.yaml/runs?event=workflow_dispatch&status=failure&created=%3E%3D$since&per_page=100")
-          failed_checks=$(jq -rn 'inputs.workflow_runs[].display_title
+          failed_check_prs=$(jq -rn 'inputs.workflow_runs[].display_title
             | capture("^preview deployments pr-(?<pr>[1-9][0-9]{0,5}) check\\s*$")? | .pr' <<< "$failed_runs")
           failed=0
           prs=""
           while read -r pr at; do
             [[ -n $pr ]] || continue
-            if grep -qxF "$pr" <<< "$failed_checks"; then
-              echo "::warning::PR $pr: a check run failed in the last day; no new check run"
-              continue
-            fi
             pr_state=$(gh api "repos/$REPO/pulls/$pr" --jq .state) ||
               { echo "::error::No state of PR $pr"; failed=1; continue; }
             if [[ $pr_state != open ]] || (( now - at > 72 * 3600 )); then
@@ -226,6 +224,10 @@ jobs:
             fi
           done <<< "$live"
           for pr in $(tr ' ' '\n' <<< "$prs" | sort -u); do
+            if grep -qxF "$pr" <<< "$failed_check_prs"; then
+              echo "::warning::PR $pr: a check run failed in the last day; no new check run"
+              continue
+            fi
             gh workflow run preview-deployments.yaml --repo "$REPO" --ref main -f pr="$pr" -f state=check < /dev/null ||
               { echo "::error::No check run for PR $pr"; failed=1; continue; }
             echo "Check run for PR $pr" | tee -a "$GITHUB_STEP_SUMMARY"
