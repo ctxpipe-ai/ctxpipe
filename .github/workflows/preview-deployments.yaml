@@ -2,32 +2,31 @@
 # `pr-preview` (CTX-1377), with a View deployment button, and no comment.
 #
 # - `factory preview up` and `down` (factory repo, machines/cli README,
-#   "Previews") dispatch this workflow on main with the PR, the commit, the
-#   state and the factory run. This job writes the deployment with
+#   "Previews") dispatch this workflow on main with the PR, the state, the
+#   factory run and the commit. The job writes the deployments with
 #   GITHUB_TOKEN: GitHub starts no workflow for the events of that token, so
 #   the PR's own copy of a workflow on `deployment` events never runs.
-# - Each `up` run has its own deployment, found by its factory run ID. The
-#   states can arrive out of order, and the run IDs grow, so: `in_progress`
-#   applies only to a deployment without a status; no state replaces
-#   `inactive`; `in_progress` and `success` of a run do not apply when the PR
-#   has a deployment of a newer run; a `success` or `inactive` sets
-#   `inactive` only on the deployments of older runs.
-# - Timing: the factory runs of one PR take the lock `preview-pr-<N>` one at a
-#   time, and each takes minutes. `factory preview` sends `success`, `failure`
-#   or `inactive` only after its run ends, so two final states of one PR come
-#   minutes apart. Only an `in_progress` can overlap the final state of the
-#   run before it, and the rules above order these two.
-# - Hourly, it sets `inactive` on each deployment that is not inactive yet, of
-#   a closed PR or with a newest status older than 72 hours: the factory's
-#   expire runs delete those previews, but they have no token for this
-#   repository. The 72 hours are the TTL of the previews (factory
-#   machines/previews/pr/src/names.ts): change both together. It deletes each
-#   deployment that is already inactive, so that the list, which it reads
-#   in full each hour, stays short.
-#
-# A deployment is live when its newest status is success, in_progress, queued
-# or pending: an `up` that stopped half-way stays in_progress.
+# - Each dispatch is an event, and its run name holds it. The run name stays
+#   in the list of runs also when GitHub cancels a pending run of a group.
+#   Each run of a PR (one group for each PR) makes the PR's deployments agree
+#   with all its events of the last 7 days: the newest `down` (`inactive`) is
+#   a mark, and the newest `up` run after it shows its last state. Every other
+#   deployment of the PR is `inactive`. GitHub never cancels the newest
+#   dispatch, so the last run of a PR sees each event. A state never replaces
+#   `inactive`: a deployment that is gone stays gone.
+# - A closed PR has no live deployment, and a deployment whose newest status
+#   is older than 72 hours gets `inactive`: the factory's expire runs delete
+#   those previews, but they have no token for this repository. The 72 hours
+#   are the TTL of the previews (factory machines/previews/pr/src/names.ts):
+#   change both together.
+# - Hourly, the sweep starts a `check` run for each PR with a deployment that
+#   is not inactive, so all the changes of a PR go through its group. It
+#   deletes the inactive deployments older than a day, so the list stays
+#   short.
 name: Preview deployments
+run-name: >-
+  ${{ github.event_name == 'schedule' && 'preview deployments sweep'
+  || format('preview deployments pr-{0} {1} {2} {3}', inputs.pr, inputs.state, inputs.log_url, inputs.sha) }}
 
 on:
   workflow_dispatch:
@@ -37,149 +36,155 @@ on:
         type: string
         required: true
       state:
-        description: The new state of the PR's preview deployment
+        description: The new state of the PR's preview (check only reads the events again)
         type: choice
-        options: [in_progress, success, failure, inactive]
-      sha:
-        description: The commit of the preview (not for inactive)
+        required: true
+        options: [in_progress, success, failure, inactive, check]
+      log_url:
+        description: The factory run of the preview (not for check)
         type: string
         default: ""
-      log_url:
-        description: The factory run of the preview
+      sha:
+        description: The commit of the preview (not for inactive and check)
         type: string
-        required: true
+        default: ""
   schedule:
     - cron: "41 * * * *"
 
 permissions: {}
 
 jobs:
-  pr-preview-deployments:
+  reconcile:
+    if: github.event_name == 'workflow_dispatch'
     # github-hosted: a few GitHub API calls, without Docker (ADR-065)
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 10
-    # One group for each factory run, which sends at most two states, so
-    # GitHub never cancels a pending one. The run IDs order the runs.
+    # The runs of one PR one at a time; GitHub keeps the newest pending run.
     concurrency:
-      group: preview-deployments-${{ inputs.log_url || 'sweep' }}
+      group: preview-deployments-pr-${{ inputs.pr }}
       cancel-in-progress: false
     permissions:
+      actions: read
       deployments: write
       pull-requests: read
     steps:
       # Each list goes into a variable first, so a failed call fails the step
       # and is never read as "nothing to do".
-      - name: Write the deployment, or set inactive on the deployments of closed PRs and expired previews
+      - name: Make the PR's deployments agree with its events
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          EVENT: ${{ github.event_name }}
           PR: ${{ inputs.pr }}
-          STATE: ${{ inputs.state }}
-          SHA: ${{ inputs.sha }}
-          LOG_URL: ${{ inputs.log_url }}
         run: |
           set -euo pipefail
+          [[ $PR =~ ^[1-9][0-9]{0,5}$ ]] || { echo "::error::Not a PR number: $PR"; exit 1; }
+          factory_runs="https://github.com/ctxpipe-ai/factory/actions/runs/"
           run_url="$GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID"
-          live='^(success|in_progress|queued|pending)$'
-          environment="pr-preview"
-          task_prefix="preview-pr-"
+
+          # The events of this PR: the run names of the dispatches of the last
+          # 7 days, of each conclusion. Then the newest up run after the newest
+          # down: "<factory run> <its last state> <commit>", or nothing.
+          since=$(date -u -d "7 days ago" +%Y-%m-%dT%H:%M:%SZ)
+          runs=$(gh api --paginate \
+            "repos/$REPO/actions/workflows/preview-deployments.yaml/runs?event=workflow_dispatch&created=%3E%3D$since&per_page=100")
+          wanted=$(jq -rn --arg pr "$PR" --arg runs "$factory_runs" '
+            [inputs.workflow_runs[].display_title
+              | capture("^preview deployments pr-(?<pr>[0-9]+) (?<state>[a-z_]+) (?<url>\\S+) ?(?<sha>[0-9a-f]{40})?$")?
+              | select(.pr == $pr and (.url | startswith($runs)))
+              | .run = (.url | ltrimstr($runs) | tonumber? // empty)] as $events
+            | ([$events[] | select(.state == "inactive") | .run] | max // 0) as $down
+            | [$events[] | select(.run > $down and (.state | IN("in_progress", "success", "failure")) and .sha != null)]
+            | group_by(.run) | map({run: .[0].run, sha: .[0].sha,
+                state: ([.[] | select(.state != "in_progress")][0].state // "in_progress")})
+            | max_by(.run) // empty | "\(.run) \(.state) \(.sha)"' <<< "$runs")
+          read -r run state sha <<< "$wanted"
+          pr_state=$(gh api "repos/$REPO/pulls/$PR" --jq .state)
+          [[ $pr_state == open ]] || run=""
+
           # The newest status of deployment $1: "<state> <epoch seconds>", or "none 0".
           newest() {
             gh api "repos/$REPO/deployments/$1/statuses?per_page=1" \
               --jq '.[0] // {} | "\(.state // "none") \(.created_at // "1970-01-01T00:00:00Z" | fromdateiso8601)"'
           }
-          # Deployment $1 gets state $2, with log $3 and the preview's link $4.
           mark() {
             local fields=(-f state="$2" -f log_url="$3")
             [[ -z ${4:-} ]] || fields+=(-f environment_url="$4")
             gh api --method POST "repos/$REPO/deployments/$1/statuses" "${fields[@]}" > /dev/null
-          }
-          # The deployments of PR $1, one JSON page in each line.
-          deployments_of() {
-            gh api --paginate "repos/$REPO/deployments?environment=$environment&task=$task_prefix$1&per_page=100"
-          }
-          # Sets inactive on each live deployment of PR $1 of a run older than $2, with log $3.
-          retire() {
-            local list ids id status current
-            list=$(deployments_of "$1")
-            ids=$(jq -rn --argjson run "$2" 'inputs[] | select((.payload.run // 0) < $run) | .id' <<< "$list")
-            for id in $ids; do
-              status=$(newest "$id")
-              read -r current _ <<< "$status"
-              [[ ! $current =~ $live ]] || mark "$id" inactive "$3"
-            done
+            echo "PR $PR: deployment $1 is $2" | tee -a "$GITHUB_STEP_SUMMARY"
           }
 
-          if [[ $EVENT == workflow_dispatch ]]; then
-            [[ $PR =~ ^[1-9][0-9]{0,5}$ ]] || { echo "::error::Not a PR number: $PR"; exit 1; }
-            [[ $LOG_URL =~ ^https://github\.com/ctxpipe-ai/factory/actions/runs/([0-9]{1,15})$ ]] ||
-              { echo "::error::Not a factory run: $LOG_URL"; exit 1; }
-            run=${BASH_REMATCH[1]}
-            if [[ $STATE == inactive ]]; then
-              retire "$PR" "$run" "$LOG_URL"
-              exit 0
-            fi
-            [[ $SHA =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Not a commit: $SHA"; exit 1; }
-            list=$(deployments_of "$PR")
-            newer=$(jq -rn --argjson run "$run" '[inputs[] | select((.payload.run // 0) > $run)] | length' <<< "$list")
-            # The deployment of this factory run: its first state makes it.
-            id=$(jq -rn --argjson run "$run" '[inputs[] | select(.payload.run == $run) | .id][0] // empty' <<< "$list")
-            # A failure still marks the deployment of its own run; nothing else
-            # of an older run applies.
-            if [[ $newer != 0 && ($STATE != failure || -z $id) ]]; then
-              echo "PR $PR: a newer run has a deployment; $STATE of run $run does not apply" | tee -a "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-            if [[ -z $id ]]; then
+          deployments=$(gh api --paginate "repos/$REPO/deployments?environment=pr-preview&task=preview-pr-$PR&per_page=100")
+          keep=""
+          if [[ -n $run ]]; then
+            keep=$(jq -rn --argjson run "$run" '[inputs[] | select(.payload.run == $run) | .id][0] // empty' <<< "$deployments")
+            if [[ -z $keep ]]; then
               # Transient: GitHub does not set inactive on the other PRs' deployments.
               # No required contexts and no auto merge: the deployment is of
               # the PR's commit, and does not wait for its checks.
-              body=$(jq -n --arg sha "$SHA" --arg pr "$PR" --argjson run "$run" --arg environment "$environment" \
-                --arg task "$task_prefix$PR" '{ref: $sha, environment: $environment, task: $task,
-                description: "Preview of PR \($pr)", payload: {run: $run}, transient_environment: true,
-                required_contexts: [], auto_merge: false}')
-              id=$(gh api --method POST "repos/$REPO/deployments" --input - --jq .id <<< "$body")
+              body=$(jq -n --arg sha "$sha" --arg pr "$PR" --argjson run "$run" '{ref: $sha,
+                environment: "pr-preview", task: "preview-pr-\($pr)", description: "Preview of PR \($pr)",
+                payload: {run: $run}, transient_environment: true, required_contexts: [], auto_merge: false}')
+              keep=$(gh api --method POST "repos/$REPO/deployments" --input - --jq .id <<< "$body")
             fi
-            status=$(newest "$id")
-            read -r current _ <<< "$status"
-            if [[ $current == inactive || ($STATE == in_progress && $current != none) ]]; then
-              echo "PR $PR: deployment $id stays $current (a later state came first)" | tee -a "$GITHUB_STEP_SUMMARY"
-              exit 0
+            status=$(newest "$keep")
+            read -r current at <<< "$status"
+            if [[ $current != inactive ]]; then
+              if [[ $current != none ]] && (( $(date +%s) - at > 72 * 3600 )); then
+                mark "$keep" inactive "$run_url"
+              elif [[ $current != "$state" ]]; then
+                link=""
+                [[ $state != success ]] || link="https://pr-$PR.ctxpipe.dev"
+                mark "$keep" "$state" "$factory_runs$run" "$link"
+              fi
             fi
-            link=""
-            [[ $STATE != success ]] || link="https://pr-$PR.ctxpipe.dev"
-            mark "$id" "$STATE" "$LOG_URL" "$link"
-            [[ $STATE != success ]] || retire "$PR" "$run" "$LOG_URL"
-            echo "PR $PR: deployment $id is $STATE" | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
           fi
+          # Every other deployment of the PR is inactive. The sweep can delete
+          # an old inactive one meanwhile, so a failed read skips it.
+          others=$(jq -rn --arg keep "$keep" 'inputs[] | select((.id | tostring) != $keep) | .id' <<< "$deployments")
+          for id in $others; do
+            status=$(newest "$id") || continue
+            read -r current _ <<< "$status"
+            [[ $current == inactive ]] || mark "$id" inactive "$run_url"
+          done
 
-          # The hourly run. A failed call for one deployment does not stop the
-          # others; the step fails at the end.
-          now=$(date +%s)
-          all=$(gh api --paginate "repos/$REPO/deployments?environment=$environment&per_page=100")
-          deployment_prs=$(jq -rn --arg prefix "$task_prefix" 'inputs[] | select(.task | startswith($prefix))
-            | (.task | ltrimstr($prefix)) as $pr | select($pr | test("^[1-9][0-9]*$"))
-            | "\(.id) \($pr) \(.created_at | fromdateiso8601)"' <<< "$all")
+  sweep:
+    if: github.event_name == 'schedule'
+    # github-hosted: a few GitHub API calls, without Docker (ADR-065)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    permissions:
+      # The check runs of this workflow.
+      actions: write
+      deployments: write
+    steps:
+      # A failed call for one deployment does not stop the others; the step
+      # fails at the end.
+      - name: A check run for each PR with a live deployment; delete old inactive ones
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          day_ago=$(( $(date +%s) - 86400 ))
+          all=$(gh api --paginate "repos/$REPO/deployments?environment=pr-preview&per_page=100")
+          rows=$(jq -rn 'inputs[] | select(.task | test("^preview-pr-[1-9][0-9]{0,5}$"))
+            | "\(.id) \(.task | ltrimstr("preview-pr-")) \(.created_at | fromdateiso8601)"' <<< "$all")
           failed=0
+          prs=""
           while read -r id pr created_at; do
             [[ -n $id ]] || continue
-            status=$(newest "$id") || { echo "::error::No statuses of deployment $id (PR $pr)"; failed=1; continue; }
-            read -r current status_at <<< "$status"
-            # A deployment without a status yet counts from its own creation.
-            [[ $current != none ]] || status_at=$created_at
-            if [[ $current == inactive ]]; then
+            state=$(gh api "repos/$REPO/deployments/$id/statuses?per_page=1" --jq '.[0].state // "none"') ||
+              { echo "::error::No statuses of deployment $id (PR $pr)"; failed=1; continue; }
+            if [[ $state != inactive ]]; then
+              prs="$prs $pr"
+            elif (( created_at < day_ago )); then
               gh api --method DELETE "repos/$REPO/deployments/$id" > /dev/null ||
                 { echo "::error::Deployment $id (PR $pr) was not deleted"; failed=1; }
-              continue
             fi
-            pr_state=$(gh api "repos/$REPO/pulls/$pr" --jq .state) ||
-              { echo "::error::No state of PR $pr (deployment $id)"; failed=1; continue; }
-            if [[ $pr_state == closed ]] || (( now - status_at > 72 * 3600 )); then
-              mark "$id" inactive "$run_url" ||
-                { echo "::error::Deployment $id (PR $pr) did not take the status inactive"; failed=1; continue; }
-              echo "PR $pr: deployment $id is inactive (PR $pr_state, $current $(( (now - status_at) / 3600 )) hours ago)" | tee -a "$GITHUB_STEP_SUMMARY"
-            fi
-          done <<< "$deployment_prs"
+          done <<< "$rows"
+          for pr in $(tr ' ' '\n' <<< "$prs" | sort -u); do
+            gh workflow run preview-deployments.yaml --repo "$REPO" --ref main -f pr="$pr" -f state=check < /dev/null ||
+              { echo "::error::No check run for PR $pr"; failed=1; continue; }
+            echo "Check run for PR $pr" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
           exit "$failed"
