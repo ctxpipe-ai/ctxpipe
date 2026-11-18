@@ -18,12 +18,14 @@
 #   older than 72 hours has expired: the factory's expire runs delete those
 #   previews, but they have no token for this repository. The 72 hours are
 #   the TTL of the previews (factory machines/previews/pr/src/names.ts):
-#   change both together. So an inactive deployment never comes back, and the
-#   sweep can delete it.
+#   change both together.
+# - Nothing deletes a deployment: an inactive one stays as the record of its
+#   run, and no state replaces `inactive`, so a late event of a run that is
+#   gone never shows it again.
 # - Hourly, the sweep starts a `check` run for each PR whose live deployment
 #   can be gone (a closed PR, or a newest status older than 72 hours), so all
-#   the changes of a PR go through its group. It deletes the inactive
-#   deployments older than a day, so the list stays short.
+#   the changes of a PR go through its group. It reads the deployments with
+#   their newest status through GraphQL, 100 in each call.
 name: Preview deployments
 run-name: >-
   ${{ github.event_name == 'schedule' && 'preview deployments sweep'
@@ -93,9 +95,8 @@ jobs:
             { echo "::error::More dispatch runs than GitHub lists: the events are not complete"; exit 1; }
           # The newest up run after the newest down, if it is at most 72 hours
           # old: "<factory run> <its last state> <commit>". Its time is the time
-          # of its first event, so that a late event does not make an expired
-          # run new. (The preview expires 72 hours after the run's end, at most
-          # 90 minutes later.)
+          # of its first event. (The preview expires 72 hours after the run's
+          # end, at most 90 minutes later.)
           latest_up=$(jq -rn --arg pr "$PR" --arg runs "$factory_runs" --argjson now "$now" '
             [inputs.workflow_runs[] | (.created_at | fromdateiso8601) as $at | .display_title
               | capture("^preview deployments pr-(?<pr>[0-9]+) (?<state>[a-z_]+) (?<url>\\S+) ?(?<sha>[0-9a-f]{40})?$")?
@@ -142,11 +143,10 @@ jobs:
               set_status "$keep_id" "$state" "$factory_runs$run" "$link"
             fi
           fi
-          # Every other deployment of the PR is inactive. The sweep can delete
-          # an old inactive one meanwhile, so a failed read skips it.
+          # Every other deployment of the PR is inactive.
           others=$(jq -rn --arg keep "$keep_id" 'inputs[] | select((.id | tostring) != $keep) | .id' <<< "$deployments")
           for id in $others; do
-            current=$(newest_state "$id") || continue
+            current=$(newest_state "$id")
             [[ $current == inactive ]] || set_status "$id" inactive "$run_url"
           done
 
@@ -158,42 +158,44 @@ jobs:
     permissions:
       # The check runs of this workflow.
       actions: write
-      deployments: write
+      deployments: read
       pull-requests: read
     steps:
-      # A failed call for one deployment does not stop the others; the step
-      # fails at the end.
-      - name: A check run for each PR whose preview can be gone; delete old inactive deployments
+      # A failed call for one PR does not stop the others; the step fails at
+      # the end.
+      - name: A check run for each PR whose preview can be gone
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           now=$(date +%s)
-          all=$(gh api --paginate "repos/$REPO/deployments?environment=pr-preview&per_page=100")
-          rows=$(jq -rn 'inputs[] | select(.task | test("^preview-pr-[1-9][0-9]{0,5}$"))
-            | "\(.id) \(.task | ltrimstr("preview-pr-")) \(.created_at | fromdateiso8601)"' <<< "$all")
+          # The $ names in the query are GraphQL variables, not shell ones.
+          # shellcheck disable=SC2016
+          pages=$(gh api graphql --paginate -F owner="${REPO%/*}" -F name="${REPO#*/}" -f query='
+            query($owner: String!, $name: String!, $endCursor: String) {
+              repository(owner: $owner, name: $name) {
+                deployments(environments: ["pr-preview"], first: 100, after: $endCursor) {
+                  nodes { task createdAt latestStatus { state createdAt } }
+                  pageInfo { hasNextPage endCursor }
+                }
+              }
+            }')
+          # "<PR> <time of the newest status, or of the deployment>" for each
+          # deployment that is not inactive.
+          live=$(jq -rn 'inputs.data.repository.deployments.nodes[]
+            | select(.task | test("^preview-pr-[1-9][0-9]{0,5}$")) | select(.latestStatus.state != "INACTIVE")
+            | "\(.task | ltrimstr("preview-pr-")) \((.latestStatus.createdAt // .createdAt) | fromdateiso8601)"' <<< "$pages")
           failed=0
           prs=""
-          while read -r id pr created_at; do
-            [[ -n $id ]] || continue
-            # The same read as newest_state of the reconcile job, with the time.
-            newest=$(gh api "repos/$REPO/deployments/$id/statuses?per_page=1" \
-              --jq '.[0] // {} | "\(.state // "none") \(.created_at // "1970-01-01T00:00:00Z" | fromdateiso8601)"') ||
-              { echo "::error::No statuses of deployment $id (PR $pr)"; failed=1; continue; }
-            read -r state at <<< "$newest"
-            [[ $state != none ]] || at=$created_at
-            if [[ $state == inactive ]]; then
-              (( now - created_at < 86400 )) || gh api --method DELETE "repos/$REPO/deployments/$id" > /dev/null ||
-                { echo "::error::Deployment $id (PR $pr) was not deleted"; failed=1; }
-              continue
-            fi
+          while read -r pr at; do
+            [[ -n $pr ]] || continue
             pr_state=$(gh api "repos/$REPO/pulls/$pr" --jq .state) ||
-              { echo "::error::No state of PR $pr (deployment $id)"; failed=1; continue; }
+              { echo "::error::No state of PR $pr"; failed=1; continue; }
             if [[ $pr_state != open ]] || (( now - at > 72 * 3600 )); then
               prs="$prs $pr"
             fi
-          done <<< "$rows"
+          done <<< "$live"
           for pr in $(tr ' ' '\n' <<< "$prs" | sort -u); do
             gh workflow run preview-deployments.yaml --repo "$REPO" --ref main -f pr="$pr" -f state=check < /dev/null ||
               { echo "::error::No check run for PR $pr"; failed=1; continue; }
