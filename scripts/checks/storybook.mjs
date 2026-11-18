@@ -53,6 +53,30 @@ export const inputs = [
   "scripts/ci/storybook-play.mjs",
 ]
 
+// The Storybook static build as a cached artifact (manifest.v1.schema.json,
+// `artifacts`): `factory check` stores the build that the prerequisite made,
+// and the Storybook preview job of ci.yaml publishes it for the PR. The
+// inputs are the files that the build can read: the UI package, the backend
+// modules and shared files that the UI imports (`backend/*` in
+// apps/ui/tsconfig.json), and the install.
+export const storybookArtifact = {
+  name: "storybook",
+  prerequisite: "storybook-build",
+  path: "apps/ui/storybook-static",
+  inputs: [
+    ".node-version",
+    "apps/backend/package.json",
+    "apps/backend/src",
+    "apps/ui",
+    "package.json",
+    "patches",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "shared",
+    "tsconfig.json",
+  ],
+}
+
 // The check id of a story (an index.json entry). The story id follows the
 // file, so a file id stays a prefix of the ids of its stories.
 export function storyCheck(story) {

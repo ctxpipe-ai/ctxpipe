@@ -49,6 +49,10 @@ const unhandledSocketHandler = ws
   })
 initialize(
   {
+    // A relative URL: a build served below a path (a PR preview at
+    // https://storybook.ctxpipe.dev/commit/<sha>/) registers its own worker
+    // there, so its stories get their mock data too.
+    serviceWorker: { url: "./mockServiceWorker.js" },
     onUnhandledRequest(request, print) {
       const { pathname } = new URL(request.url)
       if (

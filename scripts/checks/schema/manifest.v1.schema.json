@@ -15,9 +15,46 @@
       "items": {
         "$ref": "#/$defs/check"
       }
+    },
+    "artifacts": {
+      "description": "Builds that a selector may cache by their inputs. When a run makes the prerequisite of an artifact for a check, the selector may store the folder `path`, keyed by the content of `inputs` and the toolchain. The Storybook preview job of ci.yaml publishes the cached Storybook build (scripts/checks/README.md, Storybook preview). Optional; without it, none.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
     }
   },
   "$defs": {
+    "artifact": {
+      "type": "object",
+      "required": ["name", "prerequisite", "path", "inputs"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "prerequisite": {
+          "description": "The prerequisite (scripts/checks/prerequisites.mjs) that makes the build.",
+          "type": "string"
+        },
+        "path": {
+          "description": "The repo-relative folder that the prerequisite writes.",
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.)[A-Za-z0-9_.][^*]*$"
+        },
+        "inputs": {
+          "description": "Repo-relative files or folders whose content decides the build. No glob, no `..`.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^(?!.*\\.\\.)[A-Za-z0-9_.][^*]*$"
+          }
+        }
+      }
+    },
     "check": {
       "type": "object",
       "required": ["id", "family", "lane", "root", "file", "inputs"],

@@ -401,6 +401,18 @@ The critics job removes each URL and each credential-like string from the stderr
 
 Known gaps: the toolchain record holds one environment for all lanes. `.node-version` pins the exact Node version of CI, so an agent sandbox with the same version gets the same key. The passes of an earlier run of the same pull request are the PR store (see above).
 
+## Storybook preview
+
+Each same-repo PR whose selection holds a Storybook check gets a public preview of its Storybook build at `https://storybook.ctxpipe.dev/commit/<head sha>/`, with no login. The PR links it as a GitHub Deployment (environment `storybook`). The factory repo holds the hosting (an R2 bucket and one read-only Worker, `machines/cloudflare-edge`) and the publish command (`factory deploy storybook`, `machines/cli`).
+
+1. **Cache.** The manifest names the Storybook build as an artifact (`artifacts` in [`manifest.v1.schema.json`](schema/manifest.v1.schema.json), from [`storybook.mjs`](storybook.mjs)): the prerequisite `storybook-build`, the folder `apps/ui/storybook-static`, and its inputs. When `factory check` runs a Storybook check on a clean tree, it stores the build that the prerequisite made in the private result store, keyed by the content of the inputs and the toolchain. `factory check` publishes nothing.
+2. **Select.** The selection record gives the key of the build, whether it is cached, and the writer of the cached build as the SHA-256 of its name (the selector skips a quarantined writer). The select job gets that build with its reader role.
+3. **Build.** Without a cached build, the plan starts the Storybook build job, also when no Storybook check runs in CI.
+4. **Publish.** The Storybook preview job (environment `workbench`, the R2 key of the preview bucket) runs `factory deploy storybook` on the build. It runs no repository script and no package, and it never fails the run. The command leaves out the source maps and `manifests/` (they hold host paths), and it refuses a build that holds a home path, a `.localhost` host or a key pattern.
+5. **Link.** The same job makes a GitHub Deployment of the head commit to the environment `storybook`: the PR shows "deployed to storybook" with the preview URL. The earlier `storybook` deployments of the PR become inactive. The environment is only a deployment record: it has no secret and no protection rule.
+
+A fork PR gets no preview: it gets no `workbench` secret. Each preview expires 14 days after its upload. The preview serves the static files only: MSW starts its worker from the folder of the build (`.storybook/preview.tsx`), so the stories get their mock data there.
+
 ## Why the runner is separate from CI
 
 CI runs `scripts/ci/test-suite.mjs`. That script requires that the executed files are equal to the full inventory, and it applies the failure baseline. A subset run cannot satisfy those rules. `run.mjs` exits with an error when it gets no check id. Thus `run.mjs` is a second path, and the CI path does not change.

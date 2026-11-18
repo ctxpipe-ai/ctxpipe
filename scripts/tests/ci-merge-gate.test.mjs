@@ -583,6 +583,8 @@ test("each gate job runs the gate code and reads the pin of the base revision", 
     "merge-gate-select": "pin",
     "merge-gate-llm": "pin",
     "merge-gate-critics": "pin",
+    // It holds the R2 key of the preview bucket and runs the pinned release.
+    "storybook-preview": "pin",
     "merge-gate-plan": "gate",
     "merge-gate": "gate",
   }
