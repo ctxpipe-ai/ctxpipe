@@ -509,6 +509,7 @@ async function commitBase(f: NativeHydrationFixture) {
   const commitWith = (
     list: typeof units,
     base?: { revision: WorkspaceRevision },
+    embeddingModel = "fixture-embedding",
   ) =>
     commitHydrateProjection({
       orgId: f.org.id,
@@ -517,7 +518,7 @@ async function commitBase(f: NativeHydrationFixture) {
       formatVersion: null,
       units: list,
       skipped: [],
-      embeddingModel: "fixture-embedding",
+      embeddingModel,
       ...(base ? { base } : {}),
     })
   expect(await commitWith(units)).toMatchObject({
@@ -528,7 +529,7 @@ async function commitBase(f: NativeHydrationFixture) {
 }
 
 it(
-  "a commit writes all units when another hydrate moved the base, or when two units have one path",
+  "a commit writes all units when another hydrate moved the base, and refuses two units with one serving id",
   { timeout: 120_000 },
   async () =>
     withNativeHydrationFixture({ files }, async (f) => {
@@ -539,11 +540,14 @@ it(
             revision: { ...f.revision, sha: "b".repeat(40) },
           }),
         ).toMatchObject({ mode: "full", fullReason: "base_moved" })
-        // The full write refuses the duplicate, as before.
+        // The partial write refuses the duplicate, as the full write does.
         await expect(
           commitWith([...units, ...units.slice(0, 1)], {
             revision: f.revision,
           }),
+        ).rejects.toThrow("Two units have the serving id")
+        await expect(
+          commitWith([...units, ...units.slice(0, 1)]),
         ).rejects.toMatchObject({ cause: { code: "23505" } })
       })
     }),
@@ -592,3 +596,46 @@ it(
       })
     }),
 )
+
+it(
+  "a commit after a change of the embedding model writes all units and embeds all chunks again, as a full write does",
+  { timeout: 120_000 },
+  async () =>
+    withNativeHydrationFixture({ files }, async (f) => {
+      await withOrgIdContext(f.org, async () => {
+        const { units, commitWith } = await commitBase(f)
+        const embed = async (texts: string[]) =>
+          texts.map(() => Array(2000).fill(0.02))
+        const all = await embedKnowledgeChunks({
+          workspaceId: f.workspaceId,
+          embed,
+        })
+        // The model changes; the units do not.
+        expect(
+          await commitWith(units, { revision: f.revision }, "next-embedding"),
+        ).toMatchObject({ mode: "full", fullReason: "unit_bound" })
+        const afterModelChange = await chunkKeys(f)
+        expect(
+          await embedKnowledgeChunks({ workspaceId: f.workspaceId, embed }),
+        ).toBe(all)
+        await commitWith(units, undefined, "next-embedding")
+        expect(await chunkKeys(f)).toEqual(afterModelChange)
+      })
+    }),
+)
+
+async function chunkKeys(f: NativeHydrationFixture) {
+  return withOrgDbContext(f.org.id, (db) =>
+    db
+      .select({
+        unitId: workspaceKnowledgeChunks.unitId,
+        chunkHash: workspaceKnowledgeChunks.chunkHash,
+      })
+      .from(workspaceKnowledgeChunks)
+      .where(eq(workspaceKnowledgeChunks.workspaceId, f.workspaceId))
+      .orderBy(
+        asc(workspaceKnowledgeChunks.unitId),
+        asc(workspaceKnowledgeChunks.ordinal),
+      ),
+  )
+}

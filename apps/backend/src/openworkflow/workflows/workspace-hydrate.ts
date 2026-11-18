@@ -19,7 +19,7 @@ import {
   projectWorkspaceGraph,
   type WorkspaceGraphWrite,
 } from "../../domain/workspaces/graph-projection.js"
-import { storedUnitShape } from "../../domain/workspaces/hydrate-delta.js"
+import { hydrateCommitBase } from "../../domain/workspaces/hydrate-delta.js"
 import { planHydrateWrites } from "../../domain/workspaces/hydrate-write-planner.js"
 import {
   applyEffectiveValidFromToUnits,
@@ -68,7 +68,7 @@ import {
   commitHydrateProjection,
   embedKnowledgeChunks,
   getLinkedReadBinding,
-  getWorkspaceById,
+  getDesiredWorkspaceRevision,
   type HydrateCommit,
   countWorkspaceProjectionUnits,
   getWorkspaceProjectionState,
@@ -184,6 +184,17 @@ export function defineWorkspaceHydrateWorkflow() {
         // One hydrate of a Workspace runs at a time. A run that waits here
         // then hydrates the tip, or ends as a no-op when an earlier run
         // already hydrated it.
+        //
+        // The sandbox lock store is a generic lease here: a Postgres row with
+        // a 30-second expiry that the holder renews. The lesson "Durable
+        // repository indexing and admission" forbids cross-step leases for
+        // repository ingestion, where a lease would replace a step boundary
+        // or a capacity queue. This lease does neither: each step stays
+        // durable, and correctness does not depend on the lease (the commit
+        // locks the Workspace row and checks its base, and the graph delta
+        // is a compare-and-set). The lease only stops two runs of one
+        // Workspace from doing the same work at once. When a worker stops,
+        // the lease expires in 30 seconds and the retry takes it again.
         postgresSandboxLocks(input.orgId).withLock(
           `workspace-hydrate:${input.workspaceId}`,
           (lockSignal) => hydrateUnderLock(lockSignal),
@@ -236,14 +247,11 @@ export function defineWorkspaceHydrateWorkflow() {
           const targetSha = await step.run(
             { name: "capture-hydrate-target" },
             async () => {
-              const current = await getWorkspaceById(input.workspaceId)
-              return current?.desiredSha &&
-                current.desiredGeneration === input.revision.generation &&
-                current.workspaceRepositoryUrl === input.revision.remote.url &&
-                current.githubConnectionId ===
-                  input.revision.remote.connectionId &&
-                current.desiredDefaultBranch === input.revision.defaultBranch
-                ? current.desiredSha
+              const desired = await getDesiredWorkspaceRevision(
+                input.workspaceId,
+              )
+              return desired && sameWorkspaceBinding(desired, input.revision)
+                ? desired.sha
                 : input.revision.sha
             },
           )
@@ -273,20 +281,6 @@ export function defineWorkspaceHydrateWorkflow() {
             !input.reproject
               ? projection
               : null
-          // The Postgres commit diffs the new units against the stored rows of
-          // this projection (a partial write), or gives the reason for a
-          // full write.
-          const base: NonNullable<
-            Parameters<typeof commitHydrateProjection>[0]["base"]
-          > = input.reproject
-            ? { fullReason: "reproject" }
-            : snapshot.chunksMissing
-              ? { fullReason: "chunks_missing" }
-              : projection?.kind !== "active"
-                ? { fullReason: "no_base" }
-                : !sameWorkspaceBinding(projection.revision, revision)
-                  ? { fullReason: "lineage" }
-                  : { revision: projection.revision }
           const pending = {
             postgres: !active,
             embeddings: !active || active.stores.embeddings.kind !== "ready",
@@ -671,11 +665,16 @@ export function defineWorkspaceHydrateWorkflow() {
                 skipped: parsed.skipped,
                 embeddingModel: embeddingModelId(),
                 units: committedUnits,
-                base:
-                  "revision" in base &&
-                  formatVersion !== workspace.formatVersion
-                    ? { fullReason: "format_changed" }
-                    : base,
+                // The commit diffs the new units against the stored rows of
+                // the active projection (a partial write), or writes all
+                // units for the reason that the base gives.
+                base: hydrateCommitBase({
+                  revision,
+                  projection,
+                  reproject: input.reproject === true,
+                  chunksMissing: snapshot.chunksMissing,
+                  formatChanged: formatVersion !== workspace.formatVersion,
+                }),
               }),
             )
             activated = committed !== null
@@ -775,10 +774,22 @@ export function defineWorkspaceHydrateWorkflow() {
               lockSignal.throwIfAborted()
               graphWrite = await projectWorkspaceGraph(
                 revision,
-                committed?.mode === "partial" && "revision" in base
+                committed?.mode === "partial"
                   ? {
-                      base: base.revision,
-                      units: committedUnits.map(storedUnitShape),
+                      base: committed.base,
+                      // The units as Postgres stores them: a full graph
+                      // write reads these values from Postgres.
+                      units: committedUnits.map((unit) => ({
+                        servingId: unit.servingId,
+                        path: unit.path,
+                        kind: unit.kind ?? null,
+                        title: unit.title ?? null,
+                        source: unit.source ?? "authored",
+                        body: unit.body,
+                        links: unit.links,
+                        claims: unit.claims,
+                        updatedAt: unit.updatedAt,
+                      })),
                       changedUnitIds: committed.changedUnitIds,
                       removedUnitIds: committed.removedUnitIds,
                     }
@@ -835,7 +846,7 @@ export function defineWorkspaceHydrateWorkflow() {
           // each run says what the run read and wrote.
           const writes = {
             mode: committed?.mode ?? "none",
-            ...(committed?.fullReason
+            ...(committed?.mode === "full"
               ? { fullReason: committed.fullReason }
               : {}),
             filesParsed: pending.postgres

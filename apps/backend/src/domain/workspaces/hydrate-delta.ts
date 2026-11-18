@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto"
 
 import type { HydrateUnit } from "./hydrate.js"
+import {
+  type PublishedProjection,
+  sameWorkspaceBinding,
+  type WorkspaceRevision,
+} from "./revision.js"
 
 /**
  * The reasons for a full hydrate write instead of a partial one.
@@ -14,8 +19,13 @@ import type { HydrateUnit } from "./hydrate.js"
  *   format of the active projection.
  * - `base_moved`: another hydrate changed the active projection after this
  *   run selected its base.
- * - `duplicate_units`: two units have one path. The full write refuses them.
- * - `unit_bound`: too many units changed (`partialUnitBound`).
+ * - `unit_bound`: too many units changed (`partialUnitBound`). A new
+ *   embedding model changes the hash of each unit, so it also gives this
+ *   reason.
+ *
+ * `hydrateCommitBase` selects the first five reasons, which need no lock.
+ * The commit adds `base_moved` under the row lock, and `unit_bound` after
+ * it compares the units with the stored rows.
  *
  * A base SHA that is not an ancestor of the new SHA, and a change of the
  * folder set, need no full write. The partial write compares the complete
@@ -29,8 +39,34 @@ export type HydrateFullReason =
   | "lineage"
   | "format_changed"
   | "base_moved"
-  | "duplicate_units"
   | "unit_bound"
+
+/**
+ * The base of a hydrate commit: the active projection that a partial write
+ * diffs against, or the reason for a full write.
+ */
+export type HydrateCommitBase =
+  | { revision: WorkspaceRevision }
+  | { fullReason: HydrateFullReason }
+
+/** Select the base of a hydrate commit from the values that need no lock. */
+export function hydrateCommitBase(input: {
+  /** The revision that the hydrate commits. */
+  revision: WorkspaceRevision
+  projection: PublishedProjection | null
+  reproject: boolean
+  chunksMissing: boolean
+  formatChanged: boolean
+}): HydrateCommitBase {
+  const { projection } = input
+  if (input.reproject) return { fullReason: "reproject" }
+  if (input.chunksMissing) return { fullReason: "chunks_missing" }
+  if (projection?.kind !== "active") return { fullReason: "no_base" }
+  if (!sameWorkspaceBinding(projection.revision, input.revision))
+    return { fullReason: "lineage" }
+  if (input.formatChanged) return { fullReason: "format_changed" }
+  return { revision: projection.revision }
+}
 
 /**
  * The maximum number of changed and removed units for a partial write: 10%
@@ -47,20 +83,22 @@ export function partialUnitBound(storedUnits: number): number {
 }
 
 /**
- * Increase this number when the hashed values change. Each stored hash then
- * differs, so the next hydrate writes all units (`unit_bound`).
- */
-const UNIT_HASH_VERSION = 1
-
-/**
  * A hash of each value that hydrate stores for a unit or derives from it:
- * the row columns, and the first body line, which sets the chunk lines.
+ * the row columns, the first body line, which sets the chunk lines, and the
+ * embedding model, which sets the chunk hashes and vectors. When the model
+ * changes, each stored hash differs, so the next hydrate writes all units
+ * (`unit_bound`) and embeds them again.
  */
-export function hydrateUnitHash(unit: HydrateUnit): string {
+export function hydrateUnitHash(
+  unit: HydrateUnit,
+  embeddingModel: string,
+): string {
   return createHash("sha256")
     .update(
       JSON.stringify([
-        UNIT_HASH_VERSION,
+        // The hash version. Increase it when the hashed values change.
+        1,
+        embeddingModel,
         unit.servingId,
         unit.path,
         unit.kind ?? null,
@@ -86,37 +124,27 @@ export function hydrateUnitHash(unit: HydrateUnit): string {
 /**
  * The units of `next` that are new or differ from their stored row, and the
  * stored units that `next` does not have. A stored row without a hash counts
- * as changed.
+ * as changed. Two units with one serving id are an error, as for a full
+ * write (the primary key refuses them).
  */
 export function diffHydrateUnits(
   stored: ReadonlyArray<{ servingId: string; unitHash: string | null }>,
   next: readonly HydrateUnit[],
+  embeddingModel: string,
 ): { changed: HydrateUnit[]; removed: string[] } {
+  const kept = new Set<string>()
+  for (const unit of next) {
+    if (kept.has(unit.servingId))
+      throw new Error(`Two units have the serving id ${unit.servingId}`)
+    kept.add(unit.servingId)
+  }
   const hashes = new Map(stored.map((row) => [row.servingId, row.unitHash]))
   const changed = next.filter(
-    (unit) => hashes.get(unit.servingId) !== hydrateUnitHash(unit),
+    (unit) =>
+      hashes.get(unit.servingId) !== hydrateUnitHash(unit, embeddingModel),
   )
-  const kept = new Set(next.map((unit) => unit.servingId))
   const removed = stored
     .map((row) => row.servingId)
     .filter((servingId) => !kept.has(servingId))
   return { changed, removed }
-}
-
-/**
- * The unit as hydrate stores it: the graph and the chunks of a partial write
- * use only these values, as a full write that reads Postgres does.
- */
-export function storedUnitShape(unit: HydrateUnit): HydrateUnit {
-  return {
-    servingId: unit.servingId,
-    path: unit.path,
-    kind: unit.kind ?? null,
-    title: unit.title ?? null,
-    source: unit.source ?? "authored",
-    body: unit.body,
-    links: unit.links,
-    claims: unit.claims,
-    updatedAt: unit.updatedAt,
-  }
 }

@@ -28,6 +28,7 @@ import {
 import { firstConnectorTarget } from "../domain/workspaces/dest-workspace-first.js"
 import {
   diffHydrateUnits,
+  type HydrateCommitBase,
   type HydrateFullReason,
   hydrateUnitHash,
   partialUnitBound,
@@ -1406,18 +1407,22 @@ export async function getBindingWorkspaceFormat(
 
 /** What one hydrate commit wrote to Postgres. */
 export type HydrateCommit = {
-  mode: "partial" | "full"
-  /** Why the commit wrote all units. */
-  fullReason?: HydrateFullReason
   unitRowsWritten: number
   unitRowsDeleted: number
   chunkRowsInserted: number
   chunkRowsDeleted: number
-  /** The serving ids of the new and changed units. All units for a full write. */
-  changedUnitIds: string[]
-  /** The serving ids of the units that the commit removed. */
-  removedUnitIds: string[]
-}
+} & (
+  | {
+      mode: "partial"
+      /** The active projection that the commit diffed against. */
+      base: WorkspaceRevision
+      /** The serving ids of the new and changed units. */
+      changedUnitIds: string[]
+      /** The serving ids of the units that the commit removed. */
+      removedUnitIds: string[]
+    }
+  | { mode: "full"; fullReason: HydrateFullReason }
+)
 
 /**
  * Publish the units of a revision and make it active, in one transaction.
@@ -1441,9 +1446,10 @@ export async function commitHydrateProjection(input: {
   embeddingModel: string
   /**
    * The active projection that the caller read, for a partial write, or the
-   * reason for a full write. Absent: a full write (`no_base`).
+   * reason for a full write (`hydrateCommitBase`). Absent: a full write
+   * (`no_base`).
    */
-  base?: { revision: WorkspaceRevision } | { fullReason: HydrateFullReason }
+  base?: HydrateCommitBase
 }): Promise<HydrateCommit | null> {
   return orgSql(async () => {
     const db = getOrgDb()
@@ -1508,26 +1514,24 @@ export async function commitHydrateProjection(input: {
         source: unit.source ?? null,
         body: unit.body,
         projectionSha: input.revision.sha,
-        unitHash: hydrateUnitHash(unit),
+        unitHash: hydrateUnitHash(unit, input.embeddingModel),
         links: unit.links,
         claims: unit.claims,
         createdAt: now,
         updatedAt: unit.updatedAt ? new Date(unit.updatedAt) : now,
       })
       const base = input.base ?? { fullReason: "no_base" as const }
-      let fullReason: HydrateFullReason | undefined =
-        "fullReason" in base
-          ? base.fullReason
-          : !sameWorkspaceBinding(base.revision, input.revision)
-            ? "lineage"
-            : !sameWorkspaceRevision(current?.activeRevision, base.revision)
-              ? "base_moved"
-              : new Set(input.units.map((unit) => unit.servingId)).size !==
-                  input.units.length
-                ? "duplicate_units"
-                : undefined
-      let delta: { changed: HydrateUnit[]; removed: string[] } | undefined
-      if (!fullReason) {
+      // The caller selected the reasons that need no lock. Only the row lock
+      // shows whether another hydrate moved the base.
+      let fullReason: HydrateFullReason =
+        "fullReason" in base ? base.fullReason : "base_moved"
+      let delta:
+        | { base: WorkspaceRevision; changed: HydrateUnit[]; removed: string[] }
+        | undefined
+      if (
+        "revision" in base &&
+        sameWorkspaceRevision(current?.activeRevision, base.revision)
+      ) {
         const stored = await tx
           .select({
             servingId: workspaceKnowledgeUnits.servingId,
@@ -1537,7 +1541,10 @@ export async function commitHydrateProjection(input: {
           .where(
             eq(workspaceKnowledgeUnits.workspaceId, input.revision.workspaceId),
           )
-        delta = diffHydrateUnits(stored, input.units)
+        delta = {
+          base: base.revision,
+          ...diffHydrateUnits(stored, input.units, input.embeddingModel),
+        }
         if (
           delta.changed.length + delta.removed.length >
           partialUnitBound(stored.length)
@@ -1564,8 +1571,7 @@ export async function commitHydrateProjection(input: {
                 ),
               ),
             )
-            .returning({ servingId: workspaceKnowledgeUnits.servingId })
-          unitRowsDeleted += deleted.length
+          unitRowsDeleted += deleted.rowCount ?? 0
         }
         // Postgres caps bind parameters at 65,535; ~14 per unit row.
         for (let start = 0; start < delta.changed.length; start += 500) {
@@ -1598,6 +1604,7 @@ export async function commitHydrateProjection(input: {
         })
         return {
           mode: "partial" as const,
+          base: delta.base,
           unitRowsWritten: delta.changed.length,
           unitRowsDeleted,
           chunkRowsInserted: chunks.inserted,
@@ -1612,7 +1619,6 @@ export async function commitHydrateProjection(input: {
         .where(
           eq(workspaceKnowledgeUnits.workspaceId, input.revision.workspaceId),
         )
-        .returning({ servingId: workspaceKnowledgeUnits.servingId })
       // Postgres caps bind parameters at 65,535; ~14 per unit row.
       for (let start = 0; start < input.units.length; start += 500) {
         await tx
@@ -1624,18 +1630,13 @@ export async function commitHydrateProjection(input: {
         workspaceId: input.revision.workspaceId,
         rows: knowledgeChunkRows(input.units, input.embeddingModel),
       })
-      const kept = new Set(input.units.map((unit) => unit.servingId))
       return {
         mode: "full" as const,
         fullReason,
         unitRowsWritten: input.units.length,
-        unitRowsDeleted: deleted.length,
+        unitRowsDeleted: deleted.rowCount ?? 0,
         chunkRowsInserted: chunks.inserted,
         chunkRowsDeleted: chunks.deleted,
-        changedUnitIds: [...kept],
-        removedUnitIds: deleted
-          .map((row) => row.servingId)
-          .filter((servingId) => !kept.has(servingId)),
       }
     })
   })
