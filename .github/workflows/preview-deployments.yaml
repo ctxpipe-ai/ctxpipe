@@ -11,10 +11,11 @@
 #   GitHub never cancels the newest dispatch, so the last run of a PR (one
 #   group for each PR) sees each event of the last 4 days.
 # - Each run of a PR makes the PR's deployments agree with its events and its
-#   records. Each factory run that an event names gets a deployment, also a
-#   down (`inactive`) and an up that a newer run replaced. Nothing deletes a
-#   deployment, so the record of a run stays after its events leave the
-#   window. Only the newest recorded or seen run shows its last state, if it
+#   records. The newest factory run that an event names gets a deployment,
+#   also when it is a down (`inactive`). An older run that has no record gets
+#   none, because it never shows. Nothing deletes a deployment, so the record
+#   of the newest run stays after its events leave the window, and a late
+#   event of an older run cannot make that run the newest again. Only the newest recorded or seen run shows its last state, if it
 #   is an up, its first event is at most 72 hours old, and the PR is open.
 #   Every other deployment is `inactive`, and no state replaces `inactive`.
 #   So a late event of an old run never shows it again.
@@ -25,7 +26,9 @@
 # - Hourly, the sweep starts a `check` run for each PR whose live deployment
 #   can be gone (a closed PR, or a newest status older than 72 hours), so all
 #   the changes of a PR go through its group. It reads the deployments with
-#   their newest status through GraphQL, 100 in each call.
+#   their newest status through GraphQL, 100 in each call. It starts no
+#   check run for a PR whose check run failed in the last day, so a
+#   reconcile that keeps failing does not start a new run each hour.
 name: Preview deployments
 run-name: >-
   ${{ github.event_name == 'schedule' && 'preview deployments sweep'
@@ -99,10 +102,9 @@ jobs:
           deployments=$(gh api --paginate "repos/$REPO/deployments?environment=pr-preview&task=preview-pr-$PR&per_page=100")
 
           # The plan, from the events and the records (the deployments, which
-          # nothing deletes; payload.run is the factory run, payload.down marks
-          # a down):
-          # - "create <run> <commit> <down>" for each run of an event without a
-          #   record, so that each run that was seen keeps one;
+          # nothing deletes; payload.run is the factory run):
+          # - "create <run> <commit>" for the newest run, if it was seen and
+          #   has no record, so that the newest run keeps one;
           # - "show <run> <state>" for the run that shows: the newest recorded
           #   or seen run, if it is an up, its first event is at most 72 hours
           #   old, and the PR is open. (The preview expires 72 hours after the
@@ -119,11 +121,10 @@ jobs:
                 state: ([.[] | select(.state == "success" or .state == "failure")][0].state // "in_progress"),
                 sha: ([.[].sha | select(. != null)][0] // $head), first: (map(.at) | min)}) as $seen
             | ([$deployments[].payload.run | numbers]) as $recorded
-            | ([$seen[] | select(.run as $run | $recorded | index($run) | not)
-                | "create \(.run) \(.sha) \(.down)"] | .[]),
-              ((([$recorded[], $seen[].run] | max) // 0) as $newest
-                | $seen[] | select(.run == $newest and (.down | not) and $open == "open" and $now - .first <= 72 * 3600)
-                | "show \(.run) \(.state)")' <<< "$runs")
+            | (([$recorded[], $seen[].run] | max) // 0) as $newest
+            | $seen[] | select(.run == $newest)
+            | (select($recorded | index($newest) | not) | "create \(.run) \(.sha)"),
+              (select((.down | not) and $open == "open" and $now - .first <= 72 * 3600) | "show \(.run) \(.state)")' <<< "$runs")
 
           # The state of the newest status of deployment $1, or "none".
           newest_state() {
@@ -138,15 +139,15 @@ jobs:
 
           show_run=""
           show_state=""
-          while read -r action run value down; do
+          while read -r action run value; do
             case $action in
               create)
                 # Transient: GitHub does not set inactive on the other PRs' deployments.
                 # No required contexts and no auto merge: the deployment is of
                 # the commit, and does not wait for its checks.
-                body=$(jq -n --arg sha "$value" --arg pr "$PR" --argjson run "$run" --argjson down "$down" '{ref: $sha,
+                body=$(jq -n --arg sha "$value" --arg pr "$PR" --argjson run "$run" '{ref: $sha,
                   environment: "pr-preview", task: "preview-pr-\($pr)", description: "Preview of PR \($pr)",
-                  payload: {run: $run, down: $down}, transient_environment: true, required_contexts: [], auto_merge: false}')
+                  payload: {run: $run}, transient_environment: true, required_contexts: [], auto_merge: false}')
                 gh api --method POST "repos/$REPO/deployments" --input - > /dev/null <<< "$body" ;;
               show) show_run=$run show_state=$value ;;
             esac
@@ -204,10 +205,20 @@ jobs:
           live=$(jq -rn 'inputs.data.repository.deployments.nodes[]
             | select(.task | test("^preview-pr-[1-9][0-9]{0,5}$")) | select(.latestStatus.state != "INACTIVE")
             | "\(.task | ltrimstr("preview-pr-")) \((.latestStatus.createdAt // .createdAt) | fromdateiso8601)"' <<< "$pages")
+          # The PRs whose check run failed in the last day, one in each line.
+          since=$(date -u -d "1 day ago" +%Y-%m-%dT%H:%M:%SZ)
+          failed_runs=$(gh api --paginate \
+            "repos/$REPO/actions/workflows/preview-deployments.yaml/runs?event=workflow_dispatch&status=failure&created=%3E%3D$since&per_page=100")
+          failed_checks=$(jq -rn 'inputs.workflow_runs[].display_title
+            | capture("^preview deployments pr-(?<pr>[1-9][0-9]{0,5}) check\\s*$")? | .pr' <<< "$failed_runs")
           failed=0
           prs=""
           while read -r pr at; do
             [[ -n $pr ]] || continue
+            if grep -qxF "$pr" <<< "$failed_checks"; then
+              echo "::warning::PR $pr: a check run failed in the last day; no new check run"
+              continue
+            fi
             pr_state=$(gh api "repos/$REPO/pulls/$pr" --jq .state) ||
               { echo "::error::No state of PR $pr"; failed=1; continue; }
             if [[ $pr_state != open ]] || (( now - at > 72 * 3600 )); then
