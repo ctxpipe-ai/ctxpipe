@@ -156,7 +156,7 @@ export const Empty = { parameters: { review: { purpose: "Workspace card that a m
   assert.doesNotMatch(result.stderr, /has no purpose/)
 })
 
-test("a review that the parser cannot read key by key fails as the key ...", () => {
+test('a review that the parser cannot read key by key fails as the key "..."', () => {
   const result = check({
     "Card.stories.tsx": storyFile(
       `{ review: { kind: "component" } }`,

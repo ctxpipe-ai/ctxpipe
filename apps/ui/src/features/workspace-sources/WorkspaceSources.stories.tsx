@@ -1715,7 +1715,8 @@ const realDateNow = Date.now
 /**
  * Sources section of the Workspace settings: the user ticks a repository, gives
  * access on GitHub in another tab, and comes back. The dialog list loads again
- * with the new repository first, and the tick stays on the chosen repository.
+ * with the new repository first, and the tick stays on the chosen repository,
+ * so the pull request adds that one.
  * The query client keeps data fresh for 60 seconds, as the app does, and the
  * user is away for a minute, so the cached dialog list is stale.
  */
