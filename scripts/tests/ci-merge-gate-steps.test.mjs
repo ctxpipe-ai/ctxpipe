@@ -352,3 +352,21 @@ test("the merge gate posts no PR comment, and its job summary and artifact hold 
       names.indexOf("Preserve the decision"),
   )
 })
+
+test("one CI run for each commit of a PR, and a cancelled run fails only the Merge gate", () => {
+  const workflow = parseYaml(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+  )
+  // A draft PR runs CI too. A run for `ready_for_review` would only repeat
+  // the run of the same commit, and cancel it (CTX-1307).
+  assert.deepEqual(workflow.on.pull_request.types, [
+    "opened",
+    "reopened",
+    "synchronize",
+  ])
+  // Tests is not a required check: a cancelled run skips it.
+  assert.match(workflow.jobs.test.if, /^!cancelled\(\) &&/)
+  // The required check: a skipped one counts as a pass, so it also runs,
+  // and fails, in a cancelled run.
+  assert.match(workflow.jobs["merge-gate"].if, /^always\(\) &&/)
+})

@@ -12,11 +12,13 @@ on:
   pull_request:
     branches:
       - main
+    # No `ready_for_review`: a draft PR runs CI too, so `gh pr ready` would
+    # only start a second run of the same commit. That run cancelled the first
+    # one, and the Merge gate of the cancelled run failed (CTX-1307).
     types:
       - opened
       - reopened
       - synchronize
-      - ready_for_review
   push:
     branches:
       - main
@@ -463,8 +465,9 @@ jobs:
     name: Tests
     # A gated run has no full inventory: the merge gate is its check.
     needs: [merge-gate-plan, nightly-change, test-shards, package-tests]
+    # It runs when a test job failed, and not in a cancelled run.
     if: |
-      always() && needs.nightly-change.outputs.run != 'false' && (github.event_name == 'workflow_dispatch' ||
+      !cancelled() && needs.nightly-change.outputs.run != 'false' && (github.event_name == 'workflow_dispatch' ||
       github.event_name == 'schedule' ||
       github.event_name == 'pull_request') &&
       needs.merge-gate-plan.outputs.mode != 'gate'
@@ -2471,6 +2474,9 @@ jobs:
         migrate,
         upgrade-from-previous-release,
       ]
+    # `always()`, also in a cancelled run: GitHub counts a skipped required
+    # check as a pass, so a cancelled run must fail this check. GitHub takes
+    # the newest "Merge gate" check of a commit, so a newer run decides.
     if: |
       always() && github.event_name == 'pull_request'
     # github-hosted: a short job; it shares the merge-gate-pr cache with Merge gate plan (ADR-065)
