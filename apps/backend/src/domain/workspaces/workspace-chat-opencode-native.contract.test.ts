@@ -129,10 +129,11 @@ wait "$keeper"
 `,
       { mode: 0o755 },
     )
-    const sandbox = await localProcessSandbox({
-      dir: directory,
-      removeOnDestroy: true,
-    }).create({
+    // The chat wraps its provider with timedSandboxProvider. That wrapper
+    // stops the server, and the provider alone only sends SIGTERM.
+    const sandbox = await timedSandboxProvider(
+      localProcessSandbox({ dir: directory, removeOnDestroy: true }),
+    ).create({
       id: directory,
       workspace: { source: { type: "none" } },
     })

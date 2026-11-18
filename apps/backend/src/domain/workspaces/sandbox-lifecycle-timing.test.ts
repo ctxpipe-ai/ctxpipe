@@ -140,5 +140,21 @@ describe("sandbox lifecycle timing", () => {
       expect(Date.now() - started).toBeGreaterThanOrEqual(450)
       expect(signals).toEqual([undefined, "SIGKILL"])
     })
+
+    it("resolves the default kill only after the process exits", async () => {
+      const handle = handleWithRealProcess([])
+      const proc = (await handle.process.spawn(
+        "trap '' TERM; echo up; while :; do sleep 1; done",
+      )) as Awaited<ReturnType<typeof handle.process.spawn>> & {
+        up: Promise<void>
+      }
+      await proc.up
+      let exited = false
+      void proc.wait().then(() => {
+        exited = true
+      })
+      await proc.kill()
+      expect(exited).toBe(true)
+    })
   })
 })
