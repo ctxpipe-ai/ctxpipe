@@ -6,6 +6,10 @@ import { inArray, sql } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { closeDb, initDb, withOrgDbContext } from "../../db/client.js"
+import {
+  searchIndexConditions,
+  servesOrgAndMatch,
+} from "../../db/knowledge-search-plan.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { analyzeAsOwner } from "../../test/analyze-as-owner.js"
 import {
@@ -174,28 +178,35 @@ describe("searchKnowledge on a large shared index (Postgres)", () => {
     )
   }, 120_000)
 
-  it("reads the full-text matches through the GIN index as the app role", async () => {
+  it("reads the full-text matches through the GIN index as the app role, whatever the statistics", async () => {
     // RLS applies to ctxpipe_app, not to a superuser or the table owner, so
     // the plan is taken as ctxpipe_app. Under the policy, Postgres does not
-    // use the GIN index for `@@` (not leakproof): it reads the tsvector of
-    // every chunk in scope, through the primary key or the org index.
-    // The planner calculates the cost of the org filter from statistics of
-    // the bulk load, and only the table owner can analyze.
-    await analyzeAsOwner(process.env.DATABASE_URL ?? "", [
-      "workspace_knowledge_chunks",
-    ])
-    const plan = await withOrgDbContext(orgId, async (db) => {
-      await db.execute(sql`SET LOCAL ROLE ctxpipe_app`)
-      // In the shared test database, the bulk Workspace is most of the
-      // table, so a read of the whole table can cost less, and other test
-      // files change the statistics. The bug is that the index cannot serve
-      // the app role. With sequential scans off, the plan shows whether it can.
-      await db.execute(sql`SET LOCAL enable_seqscan = off`)
-      const explained = await db.execute<{ "QUERY PLAN": unknown }>(
-        sql`EXPLAIN (FORMAT JSON) ${lexicalCandidates("ERR_LEDGER_7731", [small, bulk], planScope)}`,
-      )
-      return JSON.stringify(explained.rows[0]?.["QUERY PLAN"])
-    })
-    expect(plan).toContain("workspace_knowledge_chunks_search_idx")
+    // use the GIN index for `@@` (not leakproof). Without the org in that
+    // index, it chose the org or Workspace btree index when the terms were
+    // common in other orgs, and matched every chunk of the org row by row.
+    // Now the match has no condition that a btree index can serve. With
+    // sequential scans off, its one path must be the GIN index with both the
+    // org condition and the match, with the statistics as they are and after
+    // an analyze of the bulk load. (With sequential scans on, the planner
+    // reads a small or unanalyzed table in full, which is right.)
+    const indexConditions = async () =>
+      withOrgDbContext(orgId, async (db) => {
+        await db.execute(sql`SET LOCAL ROLE ctxpipe_app`)
+        await db.execute(sql`SET LOCAL enable_seqscan = off`)
+        const explained = await db.execute<{ "QUERY PLAN": unknown }>(
+          sql`EXPLAIN (FORMAT JSON) ${lexicalCandidates("ERR_LEDGER_7731", planScope)}`,
+        )
+        return searchIndexConditions(explained.rows[0]?.["QUERY PLAN"])
+      })
+    for (const analyze of [false, true]) {
+      if (analyze) {
+        await analyzeAsOwner(process.env.DATABASE_URL ?? "", [
+          "workspace_knowledge_chunks",
+        ])
+      }
+      const conditions = await indexConditions()
+      expect(conditions, `analyze: ${analyze}`).toHaveLength(1)
+      expect(conditions[0], `analyze: ${analyze}`).toSatisfy(servesOrgAndMatch)
+    }
   }, 120_000)
 })
