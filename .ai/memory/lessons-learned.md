@@ -603,3 +603,9 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Category:** infrastructure
 - **Date:** 2026-11-11
 - **Source:** the sandbox rehearsals 1 and 2 of the cutover (CTX-1217) on Aurora PostgreSQL 17
+
+### Query plans under row-level security: check them as `ctxpipe_app`
+- **Rule:** Under row-level security, Postgres does not use an index for an operator that is not leakproof, such as `tsvector @@ tsquery` (GIN) or the jsonb and array operators. On a table whose policy applies to the role, the condition becomes a filter on every row of the org. This holds even when the query only joins such a table. The owner and a superuser skip the policy, so their plans hide the problem. Check a query plan as `ctxpipe_app` (`SET LOCAL ROLE ctxpipe_app`), never as the owner or a superuser, and give a plan test the same role. When a non-leakproof condition must use its index, read the table through a view with the policy's own condition (`orgCondition` in `apps/backend/src/db/schema/org-rls.ts`) and `WITH CASCADED CHECK OPTION` ([ADR-042](decisions/ADR-042-postgres-rls-app-role.md), revision 2026-11-18). The view reads the table as its owner, to whom the policy does not apply. Put the indexed match in a `MATERIALIZED` CTE that reads only the view, and join the tables that have policies after it. Example: `workspace_knowledge_chunk_search` in `apps/backend/src/db/schema/workspaces.ts`. On Aurora, only a superuser can mark a function leakproof, so that is not a fix.
+- **Category:** database
+- **Date:** 2026-11-18
+- **Source:** CTX-1380: the knowledge search read every chunk of its scope as `ctxpipe_app` and took 59.7 s in production; team lead request

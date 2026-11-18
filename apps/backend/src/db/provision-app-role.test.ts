@@ -19,6 +19,7 @@ function createFakePool(options?: {
   ownedSchema?: string
   membership?: string
   namespaces?: string[]
+  views?: string[]
   databaseName?: string
 }) {
   const queries: Array<{ sql: string; params?: unknown[] }> = []
@@ -66,6 +67,11 @@ function createFakePool(options?: {
       if (sql.includes("current_database")) {
         return {
           rows: [{ current_database: options?.databaseName ?? "ctxpipe" }],
+        }
+      }
+      if (sql.includes("pg_views")) {
+        return {
+          rows: (options?.views ?? []).map((viewname) => ({ viewname })),
         }
       }
       if (sql.includes("pg_namespace")) {
@@ -120,6 +126,25 @@ describe("provisionAppRole", () => {
           q.params?.[1] === "s3cret",
       ),
     ).toBe(true)
+  })
+
+  it("leaves the app role only SELECT on a view, which writes as its owner", async () => {
+    const { pool, queries } = createFakePool({
+      namespaces: ["public"],
+      views: ["workspace_knowledge_chunk_search"],
+    })
+
+    await provisionAppRole(pool, "s3cret")
+
+    const sql = queries.map((q) => q.sql)
+    const grant = sql.indexOf(
+      `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "public" TO "${APP_ROLE_NAME}"`,
+    )
+    const revoke = sql.indexOf(
+      `REVOKE INSERT, UPDATE, DELETE ON "public"."workspace_knowledge_chunk_search" FROM "${APP_ROLE_NAME}"`,
+    )
+    expect(grant).toBeGreaterThanOrEqual(0)
+    expect(revoke).toBeGreaterThan(grant)
   })
 
   it("fails closed when an existing app role has BYPASSRLS", async () => {

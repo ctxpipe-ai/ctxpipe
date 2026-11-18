@@ -183,9 +183,6 @@ async function runSearch(
       ))`)
   }
   const where = sql.join(filters, sql` AND `)
-  // Every ordering ends with the chunk key, so ties give the same rows and
-  // ranks on each run, and the candidate cut falls the same way.
-  const tieBreak = sql`c.workspace_id, c.unit_id, c.chunk_hash, c.occurrence`
 
   const rows = await withOrgDbContext(input.orgId, async (db) => {
     signal?.throwIfAborted()
@@ -261,23 +258,7 @@ async function runSearch(
       claims: Array<{ predicate: string | null; to: string }>
       score: number | string
     }>(sql`
-      WITH q AS (
-        SELECT plainto_tsquery('english', ${query}) AS every_term,
-          replace(plainto_tsquery('english', ${query})::text, ' & ', ' | ')::tsquery AS any_term
-      ),
-      lexical AS (
-        SELECT ${tieBreakOuter},
-          row_number() OVER (ORDER BY every_match DESC, text_rank DESC, ${tieBreakOuter}) AS rank
-        FROM (
-          SELECT c.workspace_id, c.unit_id, c.chunk_hash, c.occurrence,
-            c.search @@ q.every_term AS every_match,
-            ts_rank_cd(c.search, q.any_term) AS text_rank
-          FROM ${scope}, q
-          WHERE ${where} AND c.search @@ q.any_term
-          ORDER BY every_match DESC, text_rank DESC, ${tieBreak}
-          LIMIT ${CANDIDATES}
-        ) AS matched
-      ),
+      WITH lexical AS (${lexicalCandidates(query, input.workspaceIds, where)}),
       semantic AS (${semantic}),
       fused AS (
         SELECT ${tieBreakOuter},
@@ -321,11 +302,54 @@ async function runSearch(
   }))
 }
 
-const scope = sql`workspace_knowledge_chunks AS c
+/** Chunks as `c`, with their unit `u` and Workspace `w`, for the filters. */
+function scopeOf(chunks: SQL): SQL {
+  return sql`${chunks} AS c
     JOIN workspace_knowledge_units AS u
       ON u.workspace_id = c.workspace_id AND u.serving_id = c.unit_id
     JOIN workspaces AS w ON w.id = c.workspace_id`
+}
+const scope = scopeOf(sql`workspace_knowledge_chunks`)
 const tieBreakOuter = sql`workspace_id, unit_id, chunk_hash, occurrence`
+
+/**
+ * The best full-text chunks of a scope, read through the GIN index. Under the
+ * RLS policy of `workspace_knowledge_chunks`, Postgres does not use an index
+ * for `@@`, because `@@` is not leakproof: `ctxpipe_app` read the tsvector of
+ * every chunk in scope. The view `workspace_knowledge_chunk_search` has the
+ * policy's org filter and no policy. When a query also reads a table with a
+ * policy, Postgres does not use the index for `@@` either, so the match is a
+ * materialized CTE of the view alone. The other filters apply to its rows.
+ */
+export function lexicalCandidates(
+  query: string,
+  workspaceIds: readonly string[],
+  where: SQL,
+): SQL {
+  // Inline, not a CTE of its own: with a constant tsquery, the planner
+  // estimates the match from the index statistics.
+  const everyTerm = sql`plainto_tsquery('english', ${query})`
+  const anyTerm = sql`replace(plainto_tsquery('english', ${query})::text, ' & ', ' | ')::tsquery`
+  // Every ordering ends with the chunk key, so ties give the same rows and
+  // ranks on each run, and the candidate cut falls the same way.
+  const tieBreak = sql`c.workspace_id, c.unit_id, c.chunk_hash, c.occurrence`
+  return sql`WITH matched AS MATERIALIZED (
+      SELECT m.workspace_id, m.unit_id, m.chunk_hash, m.occurrence, m.search
+      FROM workspace_knowledge_chunk_search AS m
+      WHERE m.workspace_id = ANY(${textArray(workspaceIds)}) AND m.search @@ ${anyTerm}
+    )
+    SELECT ${tieBreakOuter},
+      row_number() OVER (ORDER BY every_match DESC, text_rank DESC, ${tieBreakOuter}) AS rank
+    FROM (
+      SELECT c.workspace_id, c.unit_id, c.chunk_hash, c.occurrence,
+        c.search @@ ${everyTerm} AS every_match,
+        ts_rank_cd(c.search, ${anyTerm}) AS text_rank
+      FROM ${scopeOf(sql`matched`)}
+      WHERE ${where}
+      ORDER BY every_match DESC, text_rank DESC, ${tieBreak}
+      LIMIT ${CANDIDATES}
+    ) AS ranked`
+}
 
 /** The nearest chunks of a large scope, read through the HNSW index. */
 export function hnswCandidates(vector: SQL, where: SQL): SQL {

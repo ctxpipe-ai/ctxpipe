@@ -5,6 +5,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  pgView,
   primaryKey,
   text,
   timestamp,
@@ -27,7 +28,7 @@ import type {
 import type { GitFileChange } from "../../services/git/file-change.js"
 import { connections } from "./connections.js"
 import { EMBEDDING_DIMENSIONS } from "./objects.js"
-import { orgIsolationPolicy } from "./org-rls.js"
+import { orgCondition, orgIsolationPolicy } from "./org-rls.js"
 
 /**
  * Context Workspace (`ws_`). One workspace repository URL per org; slug unique per org.
@@ -192,6 +193,34 @@ export const workspaceKnowledgeChunks = pgTable.withRLS(
     orgIsolationPolicy(t.orgId),
   ],
 )
+
+/**
+ * The keys and tsvectors of the session org's chunks, for the full-text match
+ * of the knowledge search (ADR-042, revision 2026-11-18). `tsvector @@ tsquery`
+ * is not leakproof, so Postgres does not use the GIN index for it on a table
+ * whose RLS policy applies to the role. The view reads the table as its owner,
+ * to whom the policy does not apply, and filters by the policy's condition.
+ * `provisionAppRole` leaves the app role SELECT only on views, and the check
+ * option keeps any write through the view in the session's org.
+ *
+ * The view is not a security barrier (the index needs that), so a function in
+ * a query over it can see rows of other orgs before the org filter. Only
+ * `lexicalCandidates` reads it, with built-in operators only.
+ */
+export const workspaceKnowledgeChunkSearch = pgView(
+  "workspace_knowledge_chunk_search",
+  {
+    workspaceId: text("workspace_id").notNull(),
+    unitId: text("unit_id").notNull(),
+    chunkHash: text("chunk_hash").notNull(),
+    occurrence: integer("occurrence").notNull(),
+    search: tsvector("search").notNull(),
+  },
+)
+  .with({ checkOption: "cascaded" })
+  .as(
+    sql`SELECT workspace_id, unit_id, chunk_hash, occurrence, search FROM workspace_knowledge_chunks WHERE ${orgCondition(sql.raw("org_id"))}`,
+  )
 
 export const orgMemberPreferences = pgTable.withRLS(
   "org_member_preferences",
