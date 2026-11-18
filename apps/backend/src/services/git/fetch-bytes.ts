@@ -1,55 +1,37 @@
-import { existsSync } from "node:fs"
-import { readdir, stat } from "node:fs/promises"
+import { mkdtemp, rm, stat } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { trace } from "@opentelemetry/api"
 
 /**
- * Global Git options for a fetch that `measuredGitFetch` measures. Git then
- * keeps each fetched pack as it came, also a pack of few objects, which Git
- * otherwise unpacks into loose objects. So the growth of the pack files is
- * the download.
- */
-export const KEEP_FETCHED_PACK = ["-c", "fetch.unpackLimit=1"]
-
-/** The bytes of the pack files of a work tree or a bare repository. */
-async function packBytes(directory: string): Promise<number> {
-  const gitDir = existsSync(join(directory, ".git"))
-    ? join(directory, ".git")
-    : directory
-  const packs = join(gitDir, "objects", "pack")
-  const names = await readdir(packs).catch(() => [])
-  let total = 0
-  for (const name of names)
-    if (name.endsWith(".pack"))
-      total += (await stat(join(packs, name)).catch(() => ({ size: 0 }))).size
-  return total
-}
-
-/**
- * Run a `git fetch` into `directory` in a span `name`. The span records the
- * bytes that the fetch downloaded (`git.fetch.bytes`), so that the git
- * download of each workflow is known. The fetch must use
- * `KEEP_FETCHED_PACK`.
+ * Run a `git fetch` in a span `name` that records the bytes that the fetch
+ * downloaded (`git.fetch.bytes`), so that the git download of each workflow
+ * is known. `fetch` must give the environment that it gets to the Git
+ * process: there, `GIT_TRACE_PACKFILE` makes Git write a copy of each pack
+ * that it receives, as it came. The size of that copy is the download, also
+ * for a thin pack whose delta bases the directory already has.
  */
 export function measuredGitFetch<T>(
   name: string,
-  directory: string,
-  fetch: () => Promise<T>,
+  fetch: (env: { GIT_TRACE_PACKFILE: string }) => Promise<T>,
 ): Promise<T> {
   return trace
     .getTracer("ctxpipe-backend")
     .startActiveSpan(name, async (span) => {
+      const scratch = await mkdtemp(join(tmpdir(), "ctxpipe-fetch-bytes-"))
       try {
-        const before = await packBytes(directory)
-        const result = await fetch()
+        const file = join(scratch, "received.pack")
+        const result = await fetch({ GIT_TRACE_PACKFILE: file })
+        // A fetch that needs no object receives no pack and writes no file.
         span.setAttribute(
           "git.fetch.bytes",
-          Math.max(0, (await packBytes(directory)) - before),
+          (await stat(file).catch(() => ({ size: 0 }))).size,
         )
         return result
       } finally {
         span.end()
+        await rm(scratch, { recursive: true, force: true })
       }
     })
 }

@@ -18,10 +18,7 @@ import {
   gitRemoteEnvironment,
   resolveGitRemoteTip,
 } from "../../services/git/clone-tree.js"
-import {
-  KEEP_FETCHED_PACK,
-  measuredGitFetch,
-} from "../../services/git/fetch-bytes.js"
+import { measuredGitFetch } from "../../services/git/fetch-bytes.js"
 import {
   fetchGitCommits,
   type GitWriteCommit,
@@ -292,12 +289,15 @@ async function remoteContainsCommit(
           shas: [revision.sha],
           token,
         })
-      await measuredGitFetch("git.fetch-commits", directory, () =>
+      await measuredGitFetch("git.fetch-tip-containment", (traced) =>
         nativeGit(
           directory,
-          [...KEEP_FETCHED_PACK, "fetch", "--", revision.remote.url, tipSha],
+          ["fetch", "--", revision.remote.url, tipSha],
           undefined,
-          gitRemoteEnvironment({ url: revision.remote.url, token }),
+          {
+            ...gitRemoteEnvironment({ url: revision.remote.url, token }),
+            ...traced,
+          },
         ),
       )
       const found = await nativeGit(
