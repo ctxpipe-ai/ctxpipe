@@ -140,7 +140,6 @@ const mainEraFiles = [
 ]
 
 async function mainEraPlan(format: number) {
-  let historyRead = false
   const writes = await planHydrateWrites({
     revision: migrationRevision,
     displayName: "Context",
@@ -148,43 +147,34 @@ async function mainEraPlan(format: number) {
     sourceFiles: [billingSource],
     sourceRows: [],
     format,
-    history: async () => {
-      historyRead = true
-      return {
-        previousSha: "b".repeat(40),
-        previousFormat: format,
-        renameRewrites: 1,
-        folderSetChanged: true,
-      }
+    history: {
+      previousSha: "b".repeat(40),
+      previousFormat: format,
+      renameRewrites: 1,
+      folderSetChanged: true,
     },
   })
-  return { kinds: writes.map((write) => write.kind).sort(), historyRead }
+  return writes.map((write) => write.kind).sort()
 }
 
 describe("hydrate direct writes and the Workspace format (ADR-053 section 7)", () => {
   it.each([0, 1, 2, -1])(
     "plans no direct write to the default branch at format %i, also when AGENTS.md is not the template",
     async (format) => {
-      expect(await mainEraPlan(format)).toEqual({
-        kinds: [],
-        historyRead: false,
-      })
+      expect(await mainEraPlan(format)).toEqual([])
     },
   )
 
   it("keeps each direct write of ctxpipe-managed files at format 3", async () => {
-    expect(await mainEraPlan(3)).toEqual({
-      kinds: [
-        "bootstrap",
-        "claims_upgrade",
-        "import_key_cleanup",
-        "ops_folder_map",
-        "ownership_migration",
-        "rename_rewrite",
-        "valid_from_persist",
-      ],
-      historyRead: true,
-    })
+    expect(await mainEraPlan(3)).toEqual([
+      "bootstrap",
+      "claims_upgrade",
+      "import_key_cleanup",
+      "ops_folder_map",
+      "ownership_migration",
+      "rename_rewrite",
+      "valid_from_persist",
+    ])
   })
 
   it("plans no rename or folder write against a tree below format 3, which only the upgrade pull request changed", async () => {
@@ -195,12 +185,12 @@ describe("hydrate direct writes and the Workspace format (ADR-053 section 7)", (
       sourceFiles: [],
       sourceRows: [],
       format: 3,
-      history: async () => ({
+      history: {
         previousSha: "b".repeat(40),
         previousFormat: 2,
         renameRewrites: 1,
         folderSetChanged: true,
-      }),
+      },
     })
     expect(writes).toEqual([])
   })

@@ -3,12 +3,6 @@ import { z } from "zod"
 
 import { abortAfter } from "../../lib/abortAfter.js"
 import { getLogger } from "../../observability/logger.js"
-import {
-  type GitPack,
-  nativeGit,
-  packRootTree,
-  withGitDirectory,
-} from "../../services/git/pack.js"
 import { CONNECTOR_MIRROR_ROOTS } from "../codeIngestion/connectorMirrorPaths.js"
 import { updateKnowledgeMetadata } from "./knowledge-metadata.js"
 import { parseSimpleFrontMatter } from "./layout.js"
@@ -50,41 +44,6 @@ export function folderSetChanged(
   return (
     previous.length !== current.length ||
     previous.some((folder, index) => folder !== current[index])
-  )
-}
-
-/** Compare the folder sets of two immutable trees; the pack holds both. */
-export async function nativeFolderSetChanged(
-  pack: GitPack,
-  previousSha: string,
-): Promise<boolean> {
-  return withGitDirectory(
-    pack.sha,
-    async (directory) => {
-      const pathsAt = async (sha: string) => {
-        const tree = await packRootTree(directory, { sha, root: pack.root })
-        return tree
-          ? (
-              await nativeGit(directory, [
-                "ls-tree",
-                "-r",
-                "--name-only",
-                "-z",
-                tree,
-              ])
-            )
-              .toString()
-              .split("\0")
-              .filter(Boolean)
-          : []
-      }
-      return folderSetChanged(
-        await pathsAt(previousSha),
-        await pathsAt(pack.sha),
-      )
-    },
-    pack,
-    null,
   )
 }
 

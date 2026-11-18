@@ -19,6 +19,7 @@ import {
   listMarkdownFilesAtGitSha,
   listPathsAtGitSha,
   readFileAtGitSha,
+  readGitChangesSinceSha,
   resolveGitRemoteTip,
 } from "./clone-tree.js"
 
@@ -364,6 +365,71 @@ describe("clone-tree", { timeout: 30_000 }, () => {
       { path: "sources/linear/logo.png", content: "", omitted: "binary" },
       { path: "sources/linear/ok.md", content: "---\n---\n" },
     ])
+  })
+
+  it("reads the changes since a base 40 commits away, offers the fetched commits as have, and omits a large folder blob", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-changes-"))
+    const git = async (...args: string[]) =>
+      (await execFileAsync("git", ["-C", dir as string, ...args])).stdout.trim()
+    const commit = (message: string) =>
+      git(
+        "-c",
+        "user.name=Contract",
+        "-c",
+        "user.email=contract@example.test",
+        "commit",
+        "-q",
+        "-m",
+        message,
+      )
+    await git("init", "-b", "main")
+    await git("config", "uploadpack.allowFilter", "true")
+    await git("config", "uploadpack.allowAnySHA1InWant", "true")
+    await mkdir(join(dir, "knowledge"))
+    await mkdir(join(dir, "sources"))
+    await writeFile(join(dir, "knowledge/a.md"), "# A\n")
+    await writeFile(join(dir, "knowledge/b.md"), "# B\n")
+    await writeFile(join(dir, "sources/ok.md"), "Source.\n")
+    await writeFile(join(dir, "sources/big.md"), "x".repeat(64 * 1024 + 1))
+    await git("add", ".")
+    await commit("Base")
+    const baseSha = await git("rev-parse", "HEAD")
+    for (let i = 0; i < 40; i++) {
+      await writeFile(join(dir, "knowledge/a.md"), `# A\nVersion ${i}.\n`)
+      await git("add", ".")
+      await commit(`Change ${i}`)
+    }
+    const sha = await git("rev-parse", "HEAD")
+    const tracePath = join(dir, "packets.txt")
+    process.env.GIT_TRACE_PACKET = tracePath
+    let read: Awaited<ReturnType<typeof readGitChangesSinceSha>>
+    try {
+      read = await readGitChangesSinceSha({
+        url: dir,
+        sha,
+        baseSha,
+        alsoRead: (path) => path.startsWith("sources/"),
+        extraFolders: ["sources/"],
+        extraFolderMaxBytes: 64 * 1024,
+      })
+    } finally {
+      delete process.env.GIT_TRACE_PACKET
+    }
+    expect(read?.changed).toEqual(["knowledge/a.md"])
+    expect(
+      [...(read?.files ?? [])].sort((a, b) => a.path.localeCompare(b.path)),
+    ).toEqual([
+      expect.objectContaining({
+        path: "knowledge/a.md",
+        content: "# A\nVersion 39.\n",
+      }),
+      { path: "sources/big.md", content: "", omitted: "too_large" },
+      { path: "sources/ok.md", content: "Source.\n" },
+    ])
+    // The deeper fetch offers the commits of the first fetch, so the remote
+    // does not send their trees again.
+    const packets = await readFile(tracePath, "utf8")
+    expect(packets).toContain(`have ${sha}`)
   })
 
   it("reads only the blobs under a prefix, so the remote never sends the other files", async () => {

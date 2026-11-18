@@ -420,26 +420,3 @@ export function resolveReferenceLinks(input: {
   }
   return out
 }
-
-/** `resolveReferenceLinks` of units that have no reference data yet. */
-export function referenceLinks(input: {
-  units: ReadonlyArray<{
-    path: string
-    body: string
-    links: readonly string[]
-    attributes: Record<string, unknown>
-  }>
-  workspaceUrl?: string
-  /** Hosts of the org's Confluence connections. */
-  confluenceSiteHosts?: ReadonlySet<string>
-  resolveLink: (fromDir: string, href: string) => string
-}): Map<string, string[]> {
-  return resolveReferenceLinks({
-    units: input.units.map((unit) => ({
-      path: unit.path,
-      references: extractUnitReferences(unit, input.resolveLink),
-    })),
-    workspaceUrl: input.workspaceUrl,
-    confluenceSiteHosts: input.confluenceSiteHosts,
-  })
-}

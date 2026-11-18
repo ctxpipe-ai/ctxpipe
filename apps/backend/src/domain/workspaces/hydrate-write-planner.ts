@@ -185,7 +185,7 @@ export async function readHydrateWriteHistory(
  * claim and valid_from rewrites. At format 3 or more these are ctxpipe-managed
  * files of a v2 Workspace, so hydrate keeps them current.
  */
-export async function planHydrateWrites(input: {
+export function planHydrateWrites(input: {
   revision: WorkspaceRevision
   displayName: string
   parsed: HydratePlanParse
@@ -195,9 +195,9 @@ export async function planHydrateWrites(input: {
   sourceRows: ReadonlyArray<PreviousSourceRow>
   /** The format in the tree of `revision` (0 for no file, -1 for an invalid one). */
   format: number
-  /** Read only when hydrate can write; null when no earlier revision differs. */
-  history?: () => Promise<HydrateWriteHistory | null>
-}): Promise<HydrateWriteRequirement[]> {
+  /** The history of the hydrate read; null when no earlier revision differs. */
+  history?: HydrateWriteHistory | null
+}): HydrateWriteRequirement[] {
   if (!githubRepoFullNameFromWorkspaceUrl(input.revision.remote.url)) return []
   const writable = (format: number) =>
     workspaceFormatAtLeast(format, INGESTION_V2_PUBLISH_FORMAT)
@@ -229,7 +229,7 @@ export async function planHydrateWrites(input: {
   )
     .filter((kind) => remaining[kind] > 0)
     .map((kind) => ({ kind, remainder: remaining[kind] }))
-  const history = await input.history?.()
+  const { history } = input
   // From a tree below format 3, the change is the upgrade pull request. Its
   // moves are layout changes, not renames of a person, and its last step
   // wrote AGENTS.md. Hydrate has no write to add.

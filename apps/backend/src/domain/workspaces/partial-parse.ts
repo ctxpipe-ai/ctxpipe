@@ -24,6 +24,9 @@ import {
  *   `REFERENCE_INDEX_VERSION` (a parser change).
  * - `embedding_model`: the stored chunks have another embedding model. Each
  *   unit needs new chunk hashes and vectors.
+ * - `skipped_file_changed`: a file that the base skipped changed, and no
+ *   commit between the two SHAs added it. The file has no stored index, so
+ *   the time of the commit that added it is not known.
  * - `legacy_overlay`: the projection holds or can get main-era knowledge
  *   from Postgres (`legacyKnowledgeOverlay`). The overlay reads each file.
  * - `base_not_ancestor`: the base SHA is not an ancestor of the new SHA in
@@ -35,6 +38,7 @@ export type HydrateParseFullReason =
   | "no_reference_index"
   | "reference_index_version"
   | "embedding_model"
+  | "skipped_file_changed"
   | "legacy_overlay"
   | "base_not_ancestor"
 

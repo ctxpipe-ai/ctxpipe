@@ -286,6 +286,74 @@ function timedGit<T>(name: string, work: () => Promise<T>): Promise<T> {
     })
 }
 
+/**
+ * Make an empty Git directory for a read of `sha` from `url`. With
+ * `treesOnly`, the directory is a partial clone that gets no blob unless a
+ * fetch names it. The directory keeps no credential.
+ */
+async function initGitReadDirectory(
+  dir: string,
+  input: { url: string; sha: string; treesOnly?: boolean },
+): Promise<void> {
+  await gitExec(
+    [
+      "init",
+      dir,
+      `--object-format=${input.sha.length === 64 ? "sha256" : "sha1"}`,
+    ],
+    { timeout: 15_000 },
+  )
+  await gitExec(["-C", dir, "remote", "add", "origin", input.url], {
+    timeout: 15_000,
+  })
+  if (input.treesOnly)
+    for (const [key, value] of [
+      ["remote.origin.promisor", "true"],
+      ["remote.origin.partialclonefilter", "blob:none"],
+    ] as const)
+      await gitExec(["-C", dir, "config", key, value], { timeout: 15_000 })
+}
+
+/**
+ * The contents of the blobs `shas`, in order, from one `cat-file --batch`.
+ * The caller keeps all the contents in memory, so it selects the blobs and
+ * checks their sizes first.
+ */
+async function readGitBlobs(
+  dir: string,
+  shas: readonly string[],
+): Promise<Buffer[]> {
+  if (shas.length === 0) return []
+  const stdout = await gitOutput(
+    ["-C", dir, "--no-lazy-fetch", "cat-file", "--batch"],
+    60_000,
+    `${shas.join("\n")}\n`,
+  )
+  let offset = 0
+  return shas.map((expected) => {
+    const newline = stdout.indexOf(10, offset)
+    if (newline < 0) throw new Error("Incomplete Git batch response")
+    const [sha, kind, sizeText] = stdout
+      .subarray(offset, newline)
+      .toString("ascii")
+      .split(" ")
+    const size = Number(sizeText)
+    const start = newline + 1
+    const end = start + size
+    if (
+      sha !== expected ||
+      kind !== "blob" ||
+      !Number.isSafeInteger(size) ||
+      size < 0 ||
+      end >= stdout.length ||
+      stdout[end] !== 10
+    )
+      throw new Error("Invalid blob in immutable Git batch")
+    offset = end + 1
+    return stdout.subarray(start, end)
+  })
+}
+
 async function withFetchedGitSha<T>(
   input: {
     url: string
@@ -305,27 +373,7 @@ async function withFetchedGitSha<T>(
   const env = gitRemoteEnvironment(input)
   const dir = await mkdtemp(join(tmpdir(), "ctxpipe-hydrate-"))
   try {
-    await gitExec(
-      [
-        "init",
-        dir,
-        `--object-format=${input.sha.length === 64 ? "sha256" : "sha1"}`,
-      ],
-      { timeout: 15_000 },
-    )
-    await gitExec(["-C", dir, "remote", "add", "origin", input.url], {
-      timeout: 15_000,
-    })
-    if (input.treesOnly) {
-      const config = ["-C", dir, "config"]
-      await gitExec([...config, "remote.origin.promisor", "true"], {
-        timeout: 15_000,
-      })
-      await gitExec(
-        [...config, "remote.origin.partialclonefilter", "blob:none"],
-        { timeout: 15_000 },
-      )
-    }
+    await initGitReadDirectory(dir, input)
     // A remote without filter support sends every blob; the read still works.
     const filter = input.treesOnly ? ["--filter=blob:none"] : []
     await timedGit("git.fetch-tip", () =>
@@ -658,37 +706,15 @@ export async function listMarkdownFilesAtGitSha(input: {
       const entries = listed.filter((entry) => !tooLarge(entry))
       if (entries.length === 0) return omitted
       await fetchBlobs(entries.map((entry) => entry.sha))
-      // The caller keeps all blob contents in memory.
-      const stdout = await gitOutput(
-        ["-C", dir, "--no-lazy-fetch", "cat-file", "--batch"],
-        60_000,
-        `${entries.map((entry) => entry.sha).join("\n")}\n`,
+      const blobs = await readGitBlobs(
+        dir,
+        entries.map((entry) => entry.sha),
       )
       const { introduced, lastChanged } = input.includeIntroducingCommits
         ? await walkMarkdownHistory(dir, ["FETCH_HEAD"], input)
         : { introduced: new Map<string, string>(), lastChanged: new Map() }
-      let offset = 0
-      const read = entries.map((entry) => {
-        const newline = stdout.indexOf(10, offset)
-        if (newline < 0) throw new Error("Incomplete Git batch response")
-        const [sha, kind, sizeText] = stdout
-          .subarray(offset, newline)
-          .toString("ascii")
-          .split(" ")
-        const size = Number(sizeText)
-        const start = newline + 1
-        const end = start + size
-        if (
-          sha !== entry.sha ||
-          kind !== "blob" ||
-          !Number.isSafeInteger(size) ||
-          size < 0 ||
-          end >= stdout.length ||
-          stdout[end] !== 10
-        )
-          throw new Error("Invalid blob in immutable Git batch")
-        offset = end + 1
-        const bytes = stdout.subarray(start, end)
+      const read = entries.map((entry, index) => {
+        const bytes = blobs[index] ?? Buffer.alloc(0)
         if (
           input.extraFolderMaxBytes !== undefined &&
           inFolder(entry.path) &&
@@ -846,22 +872,7 @@ export async function readGitChangesSinceSha(input: {
   const root = input.root ?? ""
   const dir = await mkdtemp(join(tmpdir(), "ctxpipe-hydrate-changes-"))
   try {
-    await gitExec(
-      [
-        "init",
-        dir,
-        `--object-format=${input.sha.length === 64 ? "sha256" : "sha1"}`,
-      ],
-      { timeout: 15_000 },
-    )
-    await gitExec(["-C", dir, "remote", "add", "origin", input.url], {
-      timeout: 15_000,
-    })
-    for (const [key, value] of [
-      ["remote.origin.promisor", "true"],
-      ["remote.origin.partialclonefilter", "blob:none"],
-    ] as const)
-      await gitExec(["-C", dir, "config", key, value], { timeout: 15_000 })
+    await initGitReadDirectory(dir, { ...input, treesOnly: true })
     const fetch = (depth: number, shas: readonly string[]) =>
       gitExec(
         [
@@ -877,23 +888,23 @@ export async function readGitChangesSinceSha(input: {
         ],
         { timeout: 60_000, env },
       )
+    // Most runs hydrate a few commits, so the first fetch gets 32 commits.
+    // A deeper fetch comes only when the base is farther away.
     await timedGit("git.fetch-changes", () =>
-      fetch(1, [input.sha, input.baseSha]),
+      fetch(32, [input.sha, input.baseSha]),
     )
-    // Most runs hydrate a few commits. A deeper fetch comes only when the
-    // base is farther away.
-    let reached = false
-    for (const depth of [1, 32, 512]) {
-      if (depth > 1)
-        await timedGit("git.fetch-changes-history", () =>
-          fetch(depth, [input.sha]),
-        )
-      if (await completeRange(dir, input.baseSha, input.sha)) {
-        reached = true
-        break
-      }
+    // Git offers only the commits that a ref names as "have". With these
+    // refs, a deeper fetch and each later fetch of the read do not get the
+    // fetched trees again.
+    for (const [ref, sha] of [
+      ["refs/hydrate/tip", input.sha],
+      ["refs/hydrate/base", input.baseSha],
+    ] as const)
+      await gitExec(["-C", dir, "update-ref", ref, sha], { timeout: 15_000 })
+    if (!(await completeRange(dir, input.baseSha, input.sha))) {
+      await timedGit("git.fetch-changes-history", () => fetch(512, [input.sha]))
+      if (!(await completeRange(dir, input.baseSha, input.sha))) return null
     }
-    if (!reached) return null
 
     const { introduced, lastChanged } = await walkMarkdownHistory(
       dir,
@@ -968,47 +979,37 @@ export async function readGitChangesSinceSha(input: {
       fetchObjects: sessionFetch(dir, input),
     }
     await session.fetchObjects([...new Set(selected.map((entry) => entry.sha))])
-    const stdout = selected.length
-      ? await gitOutput(
-          ["-C", dir, "--no-lazy-fetch", "cat-file", "--batch"],
-          60_000,
-          `${selected.map((entry) => entry.sha).join("\n")}\n`,
-        )
-      : Buffer.alloc(0)
     const inFolder = (path: string) =>
       input.extraFolders?.some((folder) => path.startsWith(folder)) ?? false
-    let offset = 0
+    const maxBytes = input.extraFolderMaxBytes
+    // Check the size before the read, so a large blob is never in memory.
+    const sizes =
+      maxBytes === undefined
+        ? new Map<string, number>()
+        : await blobSizes(
+            dir,
+            selected
+              .filter((entry) => inFolder(entry.path))
+              .map((entry) => entry.sha),
+          )
+    const tooLarge = (entry: (typeof selected)[number]) =>
+      maxBytes !== undefined &&
+      inFolder(entry.path) &&
+      (sizes.get(entry.sha) ?? 0) > maxBytes
+    const readable = selected.filter((entry) => !tooLarge(entry))
+    const contents = await readGitBlobs(
+      dir,
+      readable.map((entry) => entry.sha),
+    )
+    const blobs = new Map(
+      readable.map((entry, index) => [entry.sha, contents[index]]),
+    )
     const files = selected.map((entry) => {
-      const newline = stdout.indexOf(10, offset)
-      if (newline < 0) throw new Error("Incomplete Git batch response")
-      const [sha, kind, sizeText] = stdout
-        .subarray(offset, newline)
-        .toString("ascii")
-        .split(" ")
-      const size = Number(sizeText)
-      const start = newline + 1
-      const end = start + size
-      if (
-        sha !== entry.sha ||
-        kind !== "blob" ||
-        !Number.isSafeInteger(size) ||
-        size < 0 ||
-        end >= stdout.length ||
-        stdout[end] !== 10
-      )
-        throw new Error("Invalid blob in immutable Git batch")
-      offset = end + 1
-      const bytes = stdout.subarray(start, end)
-      if (input.extraFolderMaxBytes !== undefined && inFolder(entry.path)) {
-        if (size > input.extraFolderMaxBytes)
-          return {
-            path: entry.path,
-            content: "",
-            omitted: "too_large" as const,
-          }
-        if (bytes.includes(0))
-          return { path: entry.path, content: "", omitted: "binary" as const }
-      }
+      if (tooLarge(entry))
+        return { path: entry.path, content: "", omitted: "too_large" as const }
+      const bytes = blobs.get(entry.sha) ?? Buffer.alloc(0)
+      if (maxBytes !== undefined && inFolder(entry.path) && bytes.includes(0))
+        return { path: entry.path, content: "", omitted: "binary" as const }
       const introducedAt = introduced.get(entry.repositoryPath)
       const lastChangedAt = lastChanged.get(entry.repositoryPath)
       return {
@@ -1028,6 +1029,29 @@ export async function readGitChangesSinceSha(input: {
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+}
+
+/** The size of each blob of `shas` that the directory has. */
+async function blobSizes(
+  dir: string,
+  shas: readonly string[],
+): Promise<Map<string, number>> {
+  if (shas.length === 0) return new Map()
+  return new Map(
+    (
+      await gitOutput(
+        ["-C", dir, "--no-lazy-fetch", "cat-file", "--batch-check"],
+        60_000,
+        `${shas.join("\n")}\n`,
+      )
+    )
+      .toString("utf8")
+      .split("\n")
+      .flatMap((line) => {
+        const [sha, kind, size] = line.split(" ")
+        return sha && kind === "blob" ? [[sha, Number(size)] as const] : []
+      }),
+  )
 }
 
 /**

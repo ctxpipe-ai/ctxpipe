@@ -381,8 +381,11 @@ export function defineWorkspaceHydrateWorkflow() {
             }))
           let history: HydrateWriteHistory | null = null
           const previousSha = planning.previousSha
+          // The plan reads the history only for a GitHub Workspace.
           const inspect =
-            previousSha && previousSha !== revision.sha
+            previousSha &&
+            previousSha !== revision.sha &&
+            githubRepoFullNameFromWorkspaceUrl(revision.remote.url)
               ? {
                   inspect: async (session: GitReadSession) => {
                     history = await readHydrateWriteHistory(session, {
@@ -481,6 +484,16 @@ export function defineWorkspaceHydrateWorkflow() {
               ...inspect,
             })
             if (!read) return readFull("base_not_ancestor")
+            const changed = new Set(read.changed)
+            if (
+              read.files.some(
+                (file) =>
+                  skippedPaths.has(file.path) &&
+                  changed.has(file.path) &&
+                  !file.introducingCommitTimestamp,
+              )
+            )
+              return readFull("skipped_file_changed")
             return treeRead(
               read.files,
               new Set(read.paths.filter(isTreePath)),
@@ -543,7 +556,7 @@ export function defineWorkspaceHydrateWorkflow() {
                   format: workspaceFormatCacheValue(
                     readWorkspaceFormat(read.formatFile),
                   ),
-                  history: async () => read.history,
+                  history: read.history,
                 })
               },
             )

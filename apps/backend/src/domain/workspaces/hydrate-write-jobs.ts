@@ -24,17 +24,17 @@ import {
   type WorkspaceWriteJobKind,
 } from "./write-jobs.js"
 
+type PlannedUnit = Pick<
+  HydrateUnit,
+  "path" | "links" | "claims" | "generatedBy" | "hasClaimWithoutEvidence"
+>
+
 /**
  * True for a file that ingestion v2 owns. Its steps write its claims. Its
  * patch validator refuses a claim with no predicate or no evidence. So no
  * host job adds a claim to it (CTX-1100). A body link still makes its
  * `LINKS_TO` edge in hydrate.
  */
-type PlannedUnit = Pick<
-  HydrateUnit,
-  "path" | "links" | "claims" | "generatedBy" | "hasClaimWithoutEvidence"
->
-
 function ownedByIngestion(unit: PlannedUnit): boolean {
   return unit.generatedBy === INGESTION_V2_GENERATED_BY
 }

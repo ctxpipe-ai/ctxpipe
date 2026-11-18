@@ -22,7 +22,7 @@ import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
-import { nativeFolderSetChanged } from "./folder-list.js"
+import { folderSetChanged } from "./folder-list.js"
 import {
   hydratePlanParseOfFiles,
   planHydrateWrites,
@@ -120,10 +120,24 @@ async function fullPlan(f: NativeHydrationFixture, previousSha: string) {
     path,
     content: readFileSync(join(f.directory, path), "utf8"),
   }))
+  // The fixture Workspace is the repository root.
+  const pathsAt = (sha: string) =>
+    f.git("ls-tree", "-r", "--name-only", sha).split("\n").filter(Boolean)
   const formatFile =
     tree.find((file) => file.path === WORKSPACE_FORMAT_PATH)?.content ?? null
   const workspace = await withOrgIdContext(f.org, () =>
     getWorkspaceById(f.workspaceId),
+  )
+  const pack = await readGitPackFromRemote({
+    url: f.remote,
+    sha: revision.sha,
+    additionalShas: [previousSha],
+  })
+  const [previousFormatFile] = await readGitFiles(
+    { ...pack, sha: previousSha },
+    (path) => path === WORKSPACE_FORMAT_PATH,
+    undefined,
+    null,
   )
   return planHydrateWrites({
     revision,
@@ -132,28 +146,17 @@ async function fullPlan(f: NativeHydrationFixture, previousSha: string) {
     sourceFiles: [],
     sourceRows: [],
     format: workspaceFormatCacheValue(readWorkspaceFormat(formatFile)),
-    history: async () => {
-      const pack = await readGitPackFromRemote({
-        url: f.remote,
-        sha: revision.sha,
-        additionalShas: [previousSha],
-      })
-      const [previousFormatFile] = await readGitFiles(
-        { ...pack, sha: previousSha },
-        (path) => path === WORKSPACE_FORMAT_PATH,
-        undefined,
-        null,
-      )
-      return {
-        previousSha,
-        previousFormat: workspaceFormatCacheValue(
-          readWorkspaceFormat(previousFormatFile?.content ?? null),
-        ),
-        renameRewrites: (
-          await nativeRenameRewriteFiles(pack, previousSha, null)
-        ).length,
-        folderSetChanged: await nativeFolderSetChanged(pack, previousSha),
-      }
+    history: {
+      previousSha,
+      previousFormat: workspaceFormatCacheValue(
+        readWorkspaceFormat(previousFormatFile?.content ?? null),
+      ),
+      renameRewrites: (await nativeRenameRewriteFiles(pack, previousSha, null))
+        .length,
+      folderSetChanged: folderSetChanged(
+        pathsAt(previousSha),
+        pathsAt(revision.sha),
+      ),
     },
   })
 }
@@ -426,6 +429,50 @@ it.each([
         parseMode: "partial",
         filesParsed: 1,
       })
+    }),
+)
+
+it(
+  "a fix of a file that the base skipped parses all files, so its claims get the time of the commit that added it",
+  { timeout: 180_000 },
+  async () =>
+    withFixture(async (f) => {
+      await f.publish()
+      await f.handle.result()
+      await commit(f, {
+        write: {
+          "knowledge/conflict.md":
+            "# Conflict\n<<<<<<< ours\nOne.\n=======\nTwo.\n>>>>>>> theirs\n",
+        },
+      })
+      await f.resolveRevision(true)
+      expect(await hydrate(f)).toMatchObject({
+        skipped: 1,
+        writes: { parseMode: "partial" },
+      })
+      await commit(f, {
+        write: {
+          "knowledge/conflict.md":
+            "---\nclaims:\n  - to: doc-05.md\n    predicate: DEPENDS_ON\n---\n# Fixed\nOne version.\n",
+        },
+      })
+      await f.resolveRevision(true)
+      expect((await hydrate(f)).writes).toMatchObject({
+        parseMode: "full",
+        parseFullReason: "skipped_file_changed",
+      })
+      const [fixed] = await withOrgDbContext(f.org.id, (db) =>
+        db
+          .select({ claims: workspaceKnowledgeUnits.claims })
+          .from(workspaceKnowledgeUnits)
+          .where(eq(workspaceKnowledgeUnits.path, "knowledge/conflict.md")),
+      )
+      expect(fixed?.claims).toEqual([
+        expect.objectContaining({
+          predicate: "DEPENDS_ON",
+          validFrom: expect.stringMatching(/^\d{4}-/),
+        }),
+      ])
     }),
 )
 
