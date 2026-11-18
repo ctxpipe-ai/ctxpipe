@@ -3,6 +3,7 @@ import { createHash } from "node:crypto"
 import { base32nopad } from "@scure/base"
 
 import { connectorMirrorRoot } from "../codeIngestion/connectorMirrorPaths.js"
+import { legacySourceUrlOfAttributes } from "../ingestion/ownership-migration.js"
 import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
 import type {
   PreviousSourceRow,
@@ -11,17 +12,28 @@ import type {
 import { SOURCES_FOLDER_PREFIX } from "../workspace-sources/source-tree.js"
 import { FROM_SOURCE_PREDICATE } from "./graph-relevance.js"
 import { effectiveValidFrom } from "./hydrate-phases.js"
+import {
+  needsClaimsUpgrade,
+  needsValidFromPersist,
+  importKeyCleanupFiles,
+} from "./hydrate-write-jobs.js"
 import { markdownLines } from "./knowledge-chunks.js"
 import {
   isLinkedRepositoryDeclaration,
   parseSimpleFrontMatter,
 } from "./layout.js"
 import {
+  extractUnitReferences,
   mirrorUnitKind,
-  referenceLinks,
+  resolveReferenceLinks,
+  type UnitReferences,
   WORKSPACE_LINK_SCHEME,
 } from "./mirror-units.js"
-import { pullRequestChangedClaims } from "./pull-request-changes.js"
+import {
+  extractChangeData,
+  resolveChangedClaims,
+  type UnitChangeData,
+} from "./pull-request-changes.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
 export function servingIdForKnowledgePath(
@@ -89,6 +101,8 @@ export type HydrateUnit = {
   updatedAt: string | null
   /** File line of the first body line, after front matter. Read from Git only. */
   bodyStartLine?: number
+  /** The reference index of the unit. Read from Git only. */
+  referenceIndex?: UnitReferenceIndex
 }
 
 export const HYDRATE_SKIP_REASONS = [
@@ -150,15 +164,345 @@ type HydrateLinkedRepository = {
   connectionId: string
 }
 
+/**
+ * The facts of one knowledge file that the write planner counts
+ * (`planHydrateWrites`). A file that hydrate skips has facts too: the
+ * import key and ownership jobs read each file under `knowledge/`.
+ */
+export type KnowledgePlanFacts = {
+  /** The claims upgrade job changes the file. */
+  claimsUpgrade: boolean
+  /** The valid_from job changes the file. */
+  validFromPersist: boolean
+  /** The import key cleanup job changes the file. */
+  importKey: boolean
+  /** The source repository URL that the ownership migration reads. */
+  legacySourceUrl: string | null
+}
+
+/**
+ * Increase this number when the shape of `UnitReferenceIndex` or the
+ * extraction of a value in it changes. A partial hydrate needs the current
+ * version on each stored unit; else the hydrate parses all files once.
+ */
+export const REFERENCE_INDEX_VERSION = 1
+
+/**
+ * The reference index of one unit. Hydrate stores it with the unit. It holds
+ * each value of the unit that other files can change, before hydrate applies
+ * the other files: the keys and the raw references (`UnitReferences`), the
+ * data for the `CHANGED` claims, the `sources` paths, the body links and the
+ * claims of the front matter. So a partial hydrate can compute the links and
+ * the claims of all units from Postgres and the changed files only
+ * (`deriveKnowledgeUnits`).
+ */
+export type UnitReferenceIndex = {
+  version: number
+  references: UnitReferences
+  change: UnitChangeData
+  /** The Markdown links of the body. */
+  bodyLinks: string[]
+  /** The claims of the front matter, with their recorded `valid_from`. */
+  claims: HydrateClaim[]
+  /** The source file paths of the `sources` front matter. */
+  sources: string[]
+  generatedBy: string | null
+  hasClaimWithoutEvidence: boolean
+  /** File line of the first body line, after front matter. */
+  bodyStartLine: number
+  /** ISO time of the newest commit that added the path, when known. */
+  introducedAt: string | null
+  plan: KnowledgePlanFacts
+}
+
+type KnowledgeFile = {
+  path: string
+  content: string
+  lastCommitTimestamp?: string
+  introducingCommitTimestamp?: string
+}
+
+/**
+ * Parse one file of the tree: a unit with the values that depend only on
+ * this file, a skip, or nothing (a file that is not knowledge).
+ */
+function parseKnowledgeFile(
+  workspaceId: string,
+  file: KnowledgeFile,
+  workspaceUrl: string | null,
+):
+  | { unit: HydrateUnit & { referenceIndex: UnitReferenceIndex } }
+  | { skip: HydrateSkip; facts: KnowledgePlanFacts }
+  | null {
+  const path = file.path.replace(/^\/+/, "")
+  // A `repositories/*.md` file links nothing since ADR-050 (the upgrade
+  // moves it into the sources file), and it is not a knowledge unit.
+  if (isLinkedRepositoryDeclaration(path)) return null
+  if (!path.endsWith(".md")) return null
+  const facts = (
+    attributes: Record<string, unknown> | null,
+  ): KnowledgePlanFacts => ({
+    claimsUpgrade: false,
+    validFromPersist: false,
+    importKey:
+      attributes !== null &&
+      Object.hasOwn(attributes, "import_key") &&
+      path.startsWith("knowledge/") &&
+      importKeyCleanupFiles([{ path, content: file.content }]).length > 0,
+    legacySourceUrl:
+      attributes && workspaceUrl && path.startsWith("knowledge/")
+        ? legacySourceUrlOfAttributes(attributes, workspaceUrl)
+        : null,
+  })
+  // The write workflow commits Git conflict markers when the model cannot
+  // merge a Markdown file. Such a file holds two versions, so it is not
+  // knowledge, and the user must see it.
+  if (hasConflictMarkers(file.content)) {
+    const parsed = parseSimpleFrontMatter(file.content)
+    return {
+      skip: { path, reason: "merge_conflict" },
+      facts: facts(parsed.malformed ? null : parsed.attributes),
+    }
+  }
+  if (path === "AGENTS.md" || path.startsWith(".agents/")) return null
+
+  const parsed = parseSimpleFrontMatter(file.content)
+  if (parsed.malformed) {
+    return { skip: { path, reason: "malformed" }, facts: facts(null) }
+  }
+  const { attributes, body } = parsed
+  // A source file has no `kind` key (ADR-050); its folder sets the kind.
+  const kind = path.startsWith(SOURCES_FOLDER_PREFIX)
+    ? "Source"
+    : typeof attributes.kind === "string" && attributes.kind.trim()
+      ? attributes.kind.trim()
+      : mirrorUnitKind(path)
+  const bodyLinks = markdownLinks(body)
+  const claims = parseClaims(attributes.claims)
+  const generatedBy =
+    typeof attributes.generated_by === "string" ? attributes.generated_by : null
+  const hasClaimWithoutEvidence =
+    Array.isArray(attributes.claims) &&
+    attributes.claims.some((claim) => !claimHasEvidence(claim))
+  const bodyStartLine = file.content
+    .slice(0, file.content.length - body.length)
+    .split("\n").length
+  return {
+    unit: {
+      path,
+      servingId: servingIdForKnowledgePath(workspaceId, path),
+      kind,
+      body,
+      links: [...bodyLinks],
+      claims: [...claims],
+      confidence: parseOptionalNumber(attributes.confidence),
+      generatedBy,
+      hasClaimWithoutEvidence,
+      title: unitTitle(attributes.title, body),
+      source: connectorMirrorRoot(path) ?? "authored",
+      updatedAt: file.lastCommitTimestamp ?? null,
+      bodyStartLine,
+      referenceIndex: {
+        version: REFERENCE_INDEX_VERSION,
+        references: extractUnitReferences(
+          { path, body, links: bodyLinks, attributes },
+          resolveHydrateLink,
+        ),
+        change: extractChangeData({ kind, attributes }),
+        bodyLinks,
+        claims,
+        sources: sourcePathsOf(attributes),
+        generatedBy,
+        hasClaimWithoutEvidence,
+        bodyStartLine,
+        introducedAt: file.introducingCommitTimestamp ?? null,
+        plan: facts(attributes),
+      },
+    },
+  }
+}
+
+/**
+ * Parse the knowledge files of a tree, one file at a time. The result holds
+ * no value that depends on another file: `deriveKnowledgeUnits` adds those.
+ */
+export function parseKnowledgeFiles(input: {
+  workspaceId: string
+  workspaceUrl?: string
+  files: ReadonlyArray<KnowledgeFile>
+}): {
+  units: Array<HydrateUnit & { referenceIndex: UnitReferenceIndex }>
+  skipped: HydrateSkip[]
+  /** The plan facts of each skipped file. */
+  skippedFacts: KnowledgePlanFacts[]
+} {
+  const units: Array<HydrateUnit & { referenceIndex: UnitReferenceIndex }> = []
+  const skipped: HydrateSkip[] = []
+  const skippedFacts: KnowledgePlanFacts[] = []
+  const workspaceUrl = input.workspaceUrl
+    ? normalizeWorkspaceRepositoryUrl(input.workspaceUrl)
+    : null
+  for (const file of input.files) {
+    const parsed = parseKnowledgeFile(input.workspaceId, file, workspaceUrl)
+    if (!parsed) continue
+    if ("unit" in parsed) units.push(parsed.unit)
+    else {
+      skipped.push(parsed.skip)
+      skippedFacts.push(parsed.facts)
+    }
+  }
+  return { units, skipped, skippedFacts }
+}
+
+/**
+ * The values of each unit that depend on other files: the links (the body
+ * links, then the resolved references), the claims (the front matter
+ * claims, then `CHANGED`, then `FROM_SOURCE`), and the plan facts of the
+ * claim jobs. The input is the reference index of each unit of the tree,
+ * in tree order. A full hydrate and a partial hydrate both use this
+ * function, so both give the same values.
+ */
+export function deriveKnowledgeUnits(input: {
+  units: ReadonlyArray<{
+    path: string
+    referenceIndex: UnitReferenceIndex
+  }>
+  workspaceUrl?: string
+  confluenceSiteHosts?: ReadonlySet<string>
+  /** Path of each GitHub source file → its repository URL. */
+  sourceRepositories: ReadonlyMap<string, string>
+}): Map<
+  string,
+  {
+    links: string[]
+    claims: HydrateClaim[]
+    plan: Pick<KnowledgePlanFacts, "claimsUpgrade" | "validFromPersist">
+  }
+> {
+  const references = resolveReferenceLinks({
+    units: input.units.map((unit) => ({
+      path: unit.path,
+      references: unit.referenceIndex.references,
+    })),
+    workspaceUrl: input.workspaceUrl,
+    confluenceSiteHosts: input.confluenceSiteHosts,
+  })
+  const changes = resolveChangedClaims(
+    input.units.map((unit) => ({
+      path: unit.path,
+      change: unit.referenceIndex.change,
+    })),
+    input.sourceRepositories,
+  )
+  const sourcePaths = new Set(
+    input.units
+      .filter((unit) => unit.path.startsWith(SOURCES_FOLDER_PREFIX))
+      .map((unit) => unit.path),
+  )
+  const out = new Map<
+    string,
+    {
+      links: string[]
+      claims: HydrateClaim[]
+      plan: Pick<KnowledgePlanFacts, "claimsUpgrade" | "validFromPersist">
+    }
+  >()
+  for (const { path, referenceIndex: index } of input.units) {
+    const links = [...index.bodyLinks, ...(references.get(path) ?? [])]
+    const claims = [
+      ...index.claims,
+      ...(changes.get(path) ?? []),
+      ...fromSourceClaims(index.sources, sourcePaths),
+    ]
+    out.set(path, {
+      links,
+      claims,
+      plan: {
+        claimsUpgrade: needsClaimsUpgrade({
+          path,
+          links,
+          claims,
+          generatedBy: index.generatedBy,
+          hasClaimWithoutEvidence: index.hasClaimWithoutEvidence,
+        }),
+        validFromPersist: needsValidFromPersist({ claims }),
+      },
+    })
+  }
+  return out
+}
+
+/**
+ * The GitHub repositories of the sources of a revision. The `CHANGED` lookup
+ * uses all of them (path of each source file → its repository URL); `linked`
+ * keeps the repositories of the org's connections.
+ */
+export function hydrateSourceRepositories(input: {
+  workspaceUrl?: string
+  sourcesFile?: string | null
+  sourceFiles: ReadonlyArray<SourceFileBlob>
+  githubConnectionIds?: ReadonlySet<string>
+  previousSourceRows?: ReadonlyArray<PreviousSourceRow>
+}): {
+  sourceRepositories: Map<string, string>
+  linked: HydrateLinkedRepository[]
+} {
+  const repositories = githubSourceRepositories(
+    input.sourcesFile ?? null,
+    null,
+    input.sourceFiles,
+    {
+      previousRows: input.previousSourceRows,
+      workspaceUrl: input.workspaceUrl,
+    },
+  )
+  // A repository that an earlier entry or the Workspace names is not a skip.
+  const seenLinked = new Set<string>(
+    input.workspaceUrl
+      ? [normalizeWorkspaceRepositoryUrl(input.workspaceUrl)]
+      : [],
+  )
+  const linked: HydrateLinkedRepository[] = []
+  const connectionIds = input.githubConnectionIds ?? new Set()
+  for (const source of repositories) {
+    if (!connectionIds.has(source.connectionId)) continue
+    if (seenLinked.has(source.gitUrl)) continue
+    seenLinked.add(source.gitUrl)
+    linked.push({
+      path: source.path,
+      git: source.gitUrl,
+      branch: source.ref,
+      connectionId: source.connectionId,
+    })
+  }
+  return {
+    sourceRepositories: new Map(
+      repositories
+        .filter((source) => source.path.startsWith(SOURCES_FOLDER_PREFIX))
+        .map((source) => [source.path, source.gitUrl]),
+    ),
+    linked,
+  }
+}
+
+/** The plan facts of each knowledge file of a parse, units first. */
+export function knowledgePlanFacts(parsed: {
+  units: ReadonlyArray<HydrateUnit>
+  skippedFacts: readonly KnowledgePlanFacts[]
+}): KnowledgePlanFacts[] {
+  return [
+    ...parsed.units.flatMap((unit) =>
+      unit.referenceIndex ? [unit.referenceIndex.plan] : [],
+    ),
+    ...parsed.skippedFacts,
+  ]
+}
+
 export function hydrateKnowledgeTree(input: {
   workspaceId: string
   /** The Workspace repository. A GitHub source that names it links nothing. */
   workspaceUrl?: string
-  files: ReadonlyArray<{
-    path: string
-    content: string
-    lastCommitTimestamp?: string
-  }>
+  files: ReadonlyArray<KnowledgeFile>
   /**
    * The text of `.ctxpipe/sources.yaml`, or null. Its GitHub sources and the
    * GitHub source files in `sourceFiles` are the only links of
@@ -182,135 +526,32 @@ export function hydrateKnowledgeTree(input: {
 }): {
   units: HydrateUnit[]
   skipped: HydrateSkip[]
+  skippedFacts: KnowledgePlanFacts[]
   linked: HydrateLinkedRepository[]
 } {
-  const units: HydrateUnit[] = []
-  const attributes = new Map<string, Record<string, unknown>>()
-  const skipped: HydrateSkip[] = []
-  const linked: HydrateLinkedRepository[] = []
-  const seenLinked = new Set<string>(
-    input.workspaceUrl
-      ? [normalizeWorkspaceRepositoryUrl(input.workspaceUrl)]
-      : [],
-  )
-
-  for (const file of input.files) {
-    const path = file.path.replace(/^\/+/, "")
-    // A `repositories/*.md` file links nothing since ADR-050 (the upgrade
-    // moves it into the sources file), and it is not a knowledge unit.
-    if (isLinkedRepositoryDeclaration(path)) continue
-    if (!path.endsWith(".md")) continue
-    // The write workflow commits Git conflict markers when the model cannot
-    // merge a Markdown file. Such a file holds two versions, so it is not
-    // knowledge, and the user must see it.
-    if (hasConflictMarkers(file.content)) {
-      skipped.push({ path, reason: "merge_conflict" })
-      continue
-    }
-    if (path === "AGENTS.md" || path.startsWith(".agents/")) continue
-
-    const parsed = parseSimpleFrontMatter(file.content)
-    if (parsed.malformed) {
-      skipped.push({ path, reason: "malformed" })
-      continue
-    }
-
-    attributes.set(path, parsed.attributes)
-    units.push({
-      path,
-      servingId: servingIdForKnowledgePath(input.workspaceId, path),
-      // A source file has no `kind` key (ADR-050); its folder sets the kind.
-      kind: path.startsWith(SOURCES_FOLDER_PREFIX)
-        ? "Source"
-        : typeof parsed.attributes.kind === "string" &&
-            parsed.attributes.kind.trim()
-          ? parsed.attributes.kind.trim()
-          : mirrorUnitKind(path),
-      body: parsed.body,
-      links: markdownLinks(parsed.body),
-      claims: parseClaims(parsed.attributes.claims),
-      confidence: parseOptionalNumber(parsed.attributes.confidence),
-      generatedBy:
-        typeof parsed.attributes.generated_by === "string"
-          ? parsed.attributes.generated_by
-          : null,
-      hasClaimWithoutEvidence:
-        Array.isArray(parsed.attributes.claims) &&
-        parsed.attributes.claims.some((claim) => !claimHasEvidence(claim)),
-      title: unitTitle(parsed.attributes.title, parsed.body),
-      source: connectorMirrorRoot(path) ?? "authored",
-      updatedAt: file.lastCommitTimestamp ?? null,
-      bodyStartLine: file.content
-        .slice(0, file.content.length - parsed.body.length)
-        .split("\n").length,
-    })
-  }
-
-  const references = referenceLinks({
-    units: units.map((unit) => ({
-      ...unit,
-      attributes: attributes.get(unit.path) ?? {},
-    })),
-    workspaceUrl: input.workspaceUrl,
-    confluenceSiteHosts: input.confluenceSiteHosts,
-    resolveLink: resolveHydrateLink,
-  })
-  for (const unit of units) {
-    const extra = references.get(unit.path)
-    if (extra) unit.links.push(...extra)
-  }
-  // Each GitHub repository of the Workspace, from every connection. The
-  // CHANGED lookup uses all of them; `linked` keeps the connected ones.
-  const repositories = githubSourceRepositories(
-    input.sourcesFile ?? null,
-    null,
-    input.sourceFiles ??
+  const { units, skipped, skippedFacts } = parseKnowledgeFiles(input)
+  const { sourceRepositories, linked } = hydrateSourceRepositories({
+    ...input,
+    sourceFiles:
+      input.sourceFiles ??
       input.files
         .filter((file) => file.path.startsWith(SOURCES_FOLDER_PREFIX))
         .map((file) => ({ path: file.path, text: file.content })),
-    {
-      previousRows: input.previousSourceRows,
-      workspaceUrl: input.workspaceUrl,
-    },
-  )
-  const changes = pullRequestChangedClaims(
-    units.map((unit) => ({
-      ...unit,
-      attributes: attributes.get(unit.path) ?? {},
-    })),
-    new Map(
-      repositories
-        .filter((source) => source.path.startsWith(SOURCES_FOLDER_PREFIX))
-        .map((source) => [source.path, source.gitUrl]),
-    ),
-  )
-  for (const unit of units) unit.claims.push(...(changes.get(unit.path) ?? []))
-  const sourcePaths = new Set(
-    units
-      .filter((unit) => unit.path.startsWith(SOURCES_FOLDER_PREFIX))
-      .map((unit) => unit.path),
-  )
+  })
+  const derived = deriveKnowledgeUnits({
+    units,
+    workspaceUrl: input.workspaceUrl,
+    confluenceSiteHosts: input.confluenceSiteHosts,
+    sourceRepositories,
+  })
   for (const unit of units) {
-    unit.claims.push(
-      ...fromSourceClaims(attributes.get(unit.path) ?? {}, sourcePaths),
-    )
+    const values = derived.get(unit.path)
+    if (!values) continue
+    unit.links = values.links
+    unit.claims = values.claims
+    unit.referenceIndex.plan = { ...unit.referenceIndex.plan, ...values.plan }
   }
-
-  // A repository that an earlier entry or the Workspace names is not a skip.
-  const connectionIds = input.githubConnectionIds ?? new Set()
-  for (const source of repositories) {
-    if (!connectionIds.has(source.connectionId)) continue
-    if (seenLinked.has(source.gitUrl)) continue
-    seenLinked.add(source.gitUrl)
-    linked.push({
-      path: source.path,
-      git: source.gitUrl,
-      branch: source.ref,
-      connectionId: source.connectionId,
-    })
-  }
-
-  return { units, skipped, linked }
+  return { units, skipped, skippedFacts, linked }
 }
 
 /**
@@ -335,12 +576,10 @@ function sourcePathsOf(attributes: Record<string, unknown>): string[] {
  * names a source file (ADR-050). A URL or another path makes no claim.
  */
 function fromSourceClaims(
-  attributes: Record<string, unknown>,
+  paths: readonly string[],
   sourcePaths: ReadonlySet<string>,
 ): HydrateClaim[] {
-  const targets = new Set(
-    sourcePathsOf(attributes).filter((path) => sourcePaths.has(path)),
-  )
+  const targets = new Set(paths.filter((path) => sourcePaths.has(path)))
   return [...targets].map((path) => ({
     to: `${WORKSPACE_LINK_SCHEME}${path}`,
     predicate: FROM_SOURCE_PREDICATE,

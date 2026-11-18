@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest"
 
 import { bootstrapWorkspaceFiles } from "./bootstrap.js"
-import { planHydrateWrites } from "./hydrate-write-planner.js"
+import {
+  hydratePlanParseOfFiles,
+  planHydrateWrites,
+} from "./hydrate-write-planner.js"
 import type { WorkspaceRevision } from "./revision.js"
 
 const revision: WorkspaceRevision = {
@@ -27,7 +30,7 @@ async function plan(files: Array<{ path: string; content: string }>) {
   return planHydrateWrites({
     revision,
     displayName: "Knowledge",
-    files: [...bootstrapped, ...files],
+    parsed: hydratePlanParseOfFiles(revision, [...bootstrapped, ...files]),
     sourceFiles: [],
     sourceRows: [],
     format: 3,
@@ -93,7 +96,7 @@ async function ownershipRemainder(
     await planHydrateWrites({
       revision: migrationRevision,
       displayName: "Context",
-      files: migrationFiles,
+      parsed: hydratePlanParseOfFiles(migrationRevision, migrationFiles),
       sourceFiles,
       sourceRows: [],
       format,
@@ -141,7 +144,7 @@ async function mainEraPlan(format: number) {
   const writes = await planHydrateWrites({
     revision: migrationRevision,
     displayName: "Context",
-    files: mainEraFiles,
+    parsed: hydratePlanParseOfFiles(migrationRevision, mainEraFiles),
     sourceFiles: [billingSource],
     sourceRows: [],
     format,
@@ -188,7 +191,7 @@ describe("hydrate direct writes and the Workspace format (ADR-053 section 7)", (
     const writes = await planHydrateWrites({
       revision: migrationRevision,
       displayName: "Context",
-      files: migrationFiles,
+      parsed: hydratePlanParseOfFiles(migrationRevision, migrationFiles),
       sourceFiles: [],
       sourceRows: [],
       format: 3,

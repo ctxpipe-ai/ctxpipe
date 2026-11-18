@@ -49,7 +49,7 @@ export function markLegacyOverlaySkips(
   )
 }
 
-export async function legacyKnowledgeOverlay(input: {
+type LegacyOverlayInput = {
   workspaceId: string
   workspaceRepositoryUrl: string
   /** The paths of the git tree that hydrate reads. */
@@ -75,7 +75,19 @@ export async function legacyKnowledgeOverlay(input: {
     objects: readonly ExportObjectRow[]
     claims: readonly ExportClaimRow[]
   }
-}): Promise<Array<{ path: string; content: string }>> {
+}
+
+/**
+ * The legacy objects that get an overlay file, and the Markdown path of git
+ * for each object. An empty set means that the overlay has no file. This
+ * part needs only the paths of the tree, not the file contents.
+ */
+export function legacyOverlayObjects(
+  input: Omit<
+    LegacyOverlayInput,
+    "files" | "deletedPaths" | "workspaceRepositoryUrl"
+  >,
+) {
   const { source } = input
   const objects = [...source.objects].sort((a, b) =>
     a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
@@ -118,6 +130,14 @@ export async function legacyKnowledgeOverlay(input: {
     )
       write.add(object.id)
   }
+  return { objects, write, markdownPath }
+}
+
+export async function legacyKnowledgeOverlay(
+  input: LegacyOverlayInput,
+): Promise<Array<{ path: string; content: string }>> {
+  const { source } = input
+  const { objects, write, markdownPath } = legacyOverlayObjects(input)
   if (write.size === 0) return []
   const knowledge = await planKnowledgeProjection({
     workspaceId: input.workspaceId,

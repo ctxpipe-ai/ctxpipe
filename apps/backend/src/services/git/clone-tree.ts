@@ -488,6 +488,93 @@ export async function listGitPathsAtSha(input: {
   })
 }
 
+/**
+ * One history walk for the Markdown paths of `revs`, newest first: the
+ * newest commit that added each repository path, and the newest commit that
+ * added or changed it. Each path (relative to `root`) that a commit deleted
+ * goes to `deletedPaths`, except the deletes of a layout commit.
+ */
+async function walkMarkdownHistory(
+  dir: string,
+  revs: readonly string[],
+  input: { root?: string; layoutPath?: string; deletedPaths?: Set<string> },
+): Promise<{
+  introduced: Map<string, string>
+  lastChanged: Map<string, string>
+}> {
+  const introduced = new Map<string, string>()
+  const lastChanged = new Map<string, string>()
+  const layoutPath = input.layoutPath
+    ? workspaceRepositoryPath(input.root ?? "", input.layoutPath)
+    : undefined
+  // Raw -z keeps tabs/newlines in filenames intact.
+  const history = await gitOutput(
+    [
+      "-C",
+      dir,
+      "--no-lazy-fetch",
+      "log",
+      "--topo-order",
+      "--format=%x00%ct",
+      "--raw",
+      "-z",
+      // Adds give the introducing commit; edits give the last change;
+      // deletes give the deleted paths.
+      "--diff-filter=AMTD",
+      "--no-renames",
+      ...revs,
+      "--",
+      "*.md",
+      ...(layoutPath ? [`:(literal)${layoutPath}`] : []),
+    ],
+    5 * 60_000,
+  )
+  const records = history.toString("utf8").split("\0")
+  let timestamp: string | undefined
+  // The deletes of the current commit, kept until the commit ends.
+  let deletes: string[] = []
+  let layoutCommit = false
+  const endCommit = () => {
+    if (!layoutCommit)
+      for (const path of deletes) {
+        const relative = workspaceRelativePath(input.root ?? "", path)
+        if (relative !== null) input.deletedPaths?.add(relative)
+      }
+    deletes = []
+    layoutCommit = false
+  }
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i] ?? ""
+    if (/^[0-9]+$/.test(record)) {
+      endCommit()
+      timestamp = new Date(Number(record) * 1000).toISOString()
+    } else {
+      const status =
+        /^\n?:[0-7]{6} [0-7]{6} [0-9a-f]+ [0-9a-f]+ ([A-Z])[0-9]*$/.exec(
+          record,
+        )?.[1]
+      if (status) {
+        const path = records[++i]
+        if (!path || !timestamp)
+          throw new Error("Invalid introducing-commit record")
+        if (path === layoutPath) {
+          layoutCommit = true
+          continue
+        }
+        if (status === "D") {
+          deletes.push(path)
+          continue
+        }
+        if (!lastChanged.has(path)) lastChanged.set(path, timestamp)
+        if (status === "A" && !introduced.has(path))
+          introduced.set(path, timestamp)
+      } else if (record) throw new Error("Invalid Git history response")
+    }
+  }
+  endCommit()
+  return { introduced, lastChanged }
+}
+
 /** Read markdown at a stored SHA from any git host. Token never logged. */
 export async function listMarkdownFilesAtGitSha(input: {
   url: string
@@ -524,6 +611,8 @@ export async function listMarkdownFilesAtGitSha(input: {
    * (including `extraPaths`, `extraFolders` and `prefix`) is relative to it.
    */
   root?: string
+  /** More Git work in the same directory, after the read. */
+  inspect?: (session: GitReadSession) => Promise<void>
 }): Promise<
   Array<{
     path: string
@@ -575,78 +664,9 @@ export async function listMarkdownFilesAtGitSha(input: {
         60_000,
         `${entries.map((entry) => entry.sha).join("\n")}\n`,
       )
-      const introduced = new Map<string, string>()
-      const lastChanged = new Map<string, string>()
-      if (input.includeIntroducingCommits) {
-        const layoutPath = input.layoutPath
-          ? workspaceRepositoryPath(input.root ?? "", input.layoutPath)
-          : undefined
-        // One history walk for all paths, newest first; raw -z keeps tabs/newlines in filenames intact.
-        const history = await gitOutput(
-          [
-            "-C",
-            dir,
-            "--no-lazy-fetch",
-            "log",
-            "--topo-order",
-            "--format=%x00%ct",
-            "--raw",
-            "-z",
-            // Adds give the introducing commit; edits give the last change;
-            // deletes give the deleted paths.
-            "--diff-filter=AMTD",
-            "--no-renames",
-            "FETCH_HEAD",
-            "--",
-            "*.md",
-            ...(layoutPath ? [`:(literal)${layoutPath}`] : []),
-          ],
-          5 * 60_000,
-        )
-        const records = history.toString("utf8").split("\0")
-        let timestamp: string | undefined
-        // The deletes of the current commit, kept until the commit ends.
-        let deletes: string[] = []
-        let layoutCommit = false
-        const endCommit = () => {
-          if (!layoutCommit)
-            for (const path of deletes) {
-              const relative = workspaceRelativePath(input.root ?? "", path)
-              if (relative !== null) input.deletedPaths?.add(relative)
-            }
-          deletes = []
-          layoutCommit = false
-        }
-        for (let i = 0; i < records.length; i++) {
-          const record = records[i] ?? ""
-          if (/^[0-9]+$/.test(record)) {
-            endCommit()
-            timestamp = new Date(Number(record) * 1000).toISOString()
-          } else {
-            const status =
-              /^\n?:[0-7]{6} [0-7]{6} [0-9a-f]+ [0-9a-f]+ ([A-Z])[0-9]*$/.exec(
-                record,
-              )?.[1]
-            if (status) {
-              const path = records[++i]
-              if (!path || !timestamp)
-                throw new Error("Invalid introducing-commit record")
-              if (path === layoutPath) {
-                layoutCommit = true
-                continue
-              }
-              if (status === "D") {
-                deletes.push(path)
-                continue
-              }
-              if (!lastChanged.has(path)) lastChanged.set(path, timestamp)
-              if (status === "A" && !introduced.has(path))
-                introduced.set(path, timestamp)
-            } else if (record) throw new Error("Invalid Git history response")
-          }
-        }
-        endCommit()
-      }
+      const { introduced, lastChanged } = input.includeIntroducingCommits
+        ? await walkMarkdownHistory(dir, ["FETCH_HEAD"], input)
+        : { introduced: new Map<string, string>(), lastChanged: new Map() }
       let offset = 0
       const read = entries.map((entry) => {
         const newline = stdout.indexOf(10, offset)
@@ -690,6 +710,10 @@ export async function listMarkdownFilesAtGitSha(input: {
             : {}),
         }
       })
+      await input.inspect?.({
+        directory: dir,
+        fetchObjects: sessionFetch(dir, input),
+      })
       return [...read, ...omitted]
     },
   )
@@ -720,4 +744,331 @@ export async function readFileAtGitSha(input: {
   return withFetchedGitSha(input, (dir, fetchBlobs) =>
     gitShowBytes(dir, input.path, input.treesOnly ? fetchBlobs : undefined),
   )
+}
+
+/**
+ * A Git directory of a read that stays open for `inspect`: the caller can run
+ * more Git commands in it (for example the history of the write planner).
+ */
+export type GitReadSession = {
+  directory: string
+  /**
+   * Fetch the commits (with their trees, without blobs) or the blobs that the
+   * directory does not have yet. The fetch uses the read credential; the
+   * directory keeps no credential.
+   */
+  fetchObjects: (shas: readonly string[]) => Promise<void>
+}
+
+/** `fetchObjects` of a read directory, in one Git command for all objects. */
+function sessionFetch(
+  dir: string,
+  input: { url: string; token?: string },
+): GitReadSession["fetchObjects"] {
+  return async (shas) => {
+    if (!shas.length) return
+    const missing = (
+      await gitOutput(
+        ["-C", dir, "--no-lazy-fetch", "cat-file", "--batch-check"],
+        60_000,
+        `${shas.join("\n")}\n`,
+      )
+    )
+      .toString("utf8")
+      .split("\n")
+      .flatMap((line) => {
+        const [sha, state] = line.split(" ")
+        return sha && state === "missing" ? [sha] : []
+      })
+    if (!missing.length) return
+    await gitExec(
+      [
+        // The settings apply to this command only.
+        "-c",
+        "remote.origin.promisor=true",
+        "-c",
+        "remote.origin.partialclonefilter=blob:none",
+        "-C",
+        dir,
+        "fetch",
+        "--no-tags",
+        "--filter=blob:none",
+        "origin",
+        ...missing,
+      ],
+      { timeout: 60_000, env: gitRemoteEnvironment(input) },
+    )
+  }
+}
+
+/**
+ * The Markdown files of `sha` that differ from `baseSha`, or that a commit
+ * between the two touched, and the files that `alsoRead` selects. The fetch
+ * gets the trees of the two commits and of the commits between them, and
+ * only the blobs that the read needs, so the read does not grow with the
+ * size of the tree. Returns null when `baseSha` is not an ancestor of `sha`
+ * within the history depth that the read fetches: then the times of the
+ * changed files are not known from the commits between the two SHAs.
+ */
+export async function readGitChangesSinceSha(input: {
+  url: string
+  sha: string
+  baseSha: string
+  token?: string
+  /** Workspace root folder. Every path is relative to it. */
+  root?: string
+  /** Paths (relative to `root`) to read at `sha` also when they did not change. */
+  alsoRead: (path: string) => boolean
+  /** Folders (`sources/`) whose blobs above `extraFolderMaxBytes` are omitted. */
+  extraFolders?: readonly string[]
+  extraFolderMaxBytes?: number
+  /** More Git work in the same directory, after the read. */
+  inspect?: (session: GitReadSession) => Promise<void>
+}): Promise<{
+  files: Array<{
+    path: string
+    content: string
+    omitted?: "too_large" | "binary"
+    introducingCommitTimestamp?: string
+    lastCommitTimestamp?: string
+  }>
+  /** Every blob path of `sha` below the root folder. */
+  paths: string[]
+  /** The Markdown paths that the read selected because they changed. */
+  changed: string[]
+  /** The Markdown paths of `baseSha` that `sha` does not have. */
+  removed: string[]
+} | null> {
+  for (const sha of [input.sha, input.baseSha])
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(sha))
+      throw new Error("A full immutable Git commit SHA is required")
+  const env = gitRemoteEnvironment(input)
+  const root = input.root ?? ""
+  const dir = await mkdtemp(join(tmpdir(), "ctxpipe-hydrate-changes-"))
+  try {
+    await gitExec(
+      [
+        "init",
+        dir,
+        `--object-format=${input.sha.length === 64 ? "sha256" : "sha1"}`,
+      ],
+      { timeout: 15_000 },
+    )
+    await gitExec(["-C", dir, "remote", "add", "origin", input.url], {
+      timeout: 15_000,
+    })
+    for (const [key, value] of [
+      ["remote.origin.promisor", "true"],
+      ["remote.origin.partialclonefilter", "blob:none"],
+    ] as const)
+      await gitExec(["-C", dir, "config", key, value], { timeout: 15_000 })
+    const fetch = (depth: number, shas: readonly string[]) =>
+      gitExec(
+        [
+          "-C",
+          dir,
+          "fetch",
+          "--no-tags",
+          "--filter=blob:none",
+          "--depth",
+          String(depth),
+          "origin",
+          ...shas,
+        ],
+        { timeout: 60_000, env },
+      )
+    await timedGit("git.fetch-changes", () =>
+      fetch(1, [input.sha, input.baseSha]),
+    )
+    // Most runs hydrate a few commits. A deeper fetch comes only when the
+    // base is farther away.
+    let reached = false
+    for (const depth of [1, 32, 512]) {
+      if (depth > 1)
+        await timedGit("git.fetch-changes-history", () =>
+          fetch(depth, [input.sha]),
+        )
+      if (await completeRange(dir, input.baseSha, input.sha)) {
+        reached = true
+        break
+      }
+    }
+    if (!reached) return null
+
+    const { introduced, lastChanged } = await walkMarkdownHistory(
+      dir,
+      [`${input.baseSha}..${input.sha}`],
+      { root },
+    )
+    const diff = (
+      await gitOutput(
+        [
+          "-C",
+          dir,
+          "--no-lazy-fetch",
+          "diff-tree",
+          "-r",
+          "-z",
+          "--no-renames",
+          "--name-status",
+          input.baseSha,
+          input.sha,
+        ],
+        60_000,
+      )
+    )
+      .toString("utf8")
+      .split("\0")
+    const differs = new Set<string>()
+    const removed: string[] = []
+    for (let i = 0; i + 1 < diff.length; i += 2) {
+      const status = diff[i] ?? ""
+      const path = workspaceRelativePath(root, diff[i + 1] ?? "")
+      if (path === null || !path.endsWith(".md")) continue
+      if (status === "D") removed.push(path)
+      else differs.add(path)
+    }
+    const entries = (
+      await gitOutput(
+        [
+          "-C",
+          dir,
+          "--no-lazy-fetch",
+          "ls-tree",
+          "-rz",
+          "--full-tree",
+          input.sha,
+        ],
+        60_000,
+      )
+    )
+      .toString("utf8")
+      .split("\0")
+      .filter(Boolean)
+      .flatMap((record) => {
+        const entry = /^\d+ (\w+) ([0-9a-f]+)\t([\s\S]+)$/.exec(record)
+        if (!entry?.[1] || !entry[2] || !entry[3] || !isSafeGitPath(entry[3]))
+          throw new Error("Invalid path in immutable Git tree")
+        const path = workspaceRelativePath(root, entry[3])
+        return entry[1] === "blob" && path !== null
+          ? [{ sha: entry[2], path, repositoryPath: entry[3] }]
+          : []
+      })
+    const changed = entries.filter(
+      (entry) =>
+        entry.path.endsWith(".md") &&
+        (differs.has(entry.path) || lastChanged.has(entry.repositoryPath)),
+    )
+    const changedPaths = new Set(changed.map((entry) => entry.path))
+    const selected = entries.filter(
+      (entry) => changedPaths.has(entry.path) || input.alsoRead(entry.path),
+    )
+    const session: GitReadSession = {
+      directory: dir,
+      fetchObjects: sessionFetch(dir, input),
+    }
+    await session.fetchObjects([...new Set(selected.map((entry) => entry.sha))])
+    const stdout = selected.length
+      ? await gitOutput(
+          ["-C", dir, "--no-lazy-fetch", "cat-file", "--batch"],
+          60_000,
+          `${selected.map((entry) => entry.sha).join("\n")}\n`,
+        )
+      : Buffer.alloc(0)
+    const inFolder = (path: string) =>
+      input.extraFolders?.some((folder) => path.startsWith(folder)) ?? false
+    let offset = 0
+    const files = selected.map((entry) => {
+      const newline = stdout.indexOf(10, offset)
+      if (newline < 0) throw new Error("Incomplete Git batch response")
+      const [sha, kind, sizeText] = stdout
+        .subarray(offset, newline)
+        .toString("ascii")
+        .split(" ")
+      const size = Number(sizeText)
+      const start = newline + 1
+      const end = start + size
+      if (
+        sha !== entry.sha ||
+        kind !== "blob" ||
+        !Number.isSafeInteger(size) ||
+        size < 0 ||
+        end >= stdout.length ||
+        stdout[end] !== 10
+      )
+        throw new Error("Invalid blob in immutable Git batch")
+      offset = end + 1
+      const bytes = stdout.subarray(start, end)
+      if (input.extraFolderMaxBytes !== undefined && inFolder(entry.path)) {
+        if (size > input.extraFolderMaxBytes)
+          return {
+            path: entry.path,
+            content: "",
+            omitted: "too_large" as const,
+          }
+        if (bytes.includes(0))
+          return { path: entry.path, content: "", omitted: "binary" as const }
+      }
+      const introducedAt = introduced.get(entry.repositoryPath)
+      const lastChangedAt = lastChanged.get(entry.repositoryPath)
+      return {
+        path: entry.path,
+        content: bytes.toString("utf8"),
+        ...(introducedAt ? { introducingCommitTimestamp: introducedAt } : {}),
+        ...(lastChangedAt ? { lastCommitTimestamp: lastChangedAt } : {}),
+      }
+    })
+    await input.inspect?.(session)
+    return {
+      files,
+      paths: entries.map((entry) => entry.path),
+      changed: [...changedPaths],
+      removed,
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+}
+
+/**
+ * True when `base` is an ancestor of `tip` in the fetched history, and no
+ * commit between them is cut by the shallow boundary. A cut commit has no
+ * parents in the directory, so its diff would show each file as added.
+ */
+async function completeRange(
+  dir: string,
+  base: string,
+  tip: string,
+): Promise<boolean> {
+  if (base === tip) return true
+  const ancestor = await gitExec(
+    ["-C", dir, "--no-lazy-fetch", "merge-base", "--is-ancestor", base, tip],
+    { timeout: 60_000 },
+  ).then(
+    () => true,
+    () => false,
+  )
+  if (!ancestor) return false
+  const shallow = new Set(
+    (
+      await readFile(join(dir, ".git/shallow"), "utf8").catch(
+        (error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return ""
+          throw error
+        },
+      )
+    )
+      .split("\n")
+      .filter(Boolean),
+  )
+  const range = (
+    await gitOutput(
+      ["-C", dir, "--no-lazy-fetch", "rev-list", `${base}..${tip}`],
+      60_000,
+    )
+  )
+    .toString("utf8")
+    .split("\n")
+    .filter(Boolean)
+  return range.every((sha) => !shallow.has(sha))
 }

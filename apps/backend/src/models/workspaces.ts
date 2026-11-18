@@ -38,6 +38,7 @@ import {
   type HydrateSkip,
   type HydrateUnit,
   LEGACY_UNIT_SOURCE,
+  type UnitReferenceIndex,
 } from "../domain/workspaces/hydrate.js"
 import {
   type KnowledgeChunkRow,
@@ -1375,6 +1376,87 @@ export async function listWorkspaceUnitsAtRevision(
   )
 }
 
+/** A stored unit of the active projection, without its body. */
+export type StoredIndexedUnit = {
+  servingId: string
+  path: string
+  kind: string | null
+  title: string | null
+  source: string | null
+  links: string[]
+  claims: HydrateUnit["claims"]
+  updatedAt: string
+  referenceIndex: UnitReferenceIndex | null
+}
+
+/**
+ * The stored units of the Workspace without their bodies, and the skips of
+ * the active projection: the input of a partial parse. Each stored unit row
+ * belongs to the active projection.
+ */
+export async function getStoredReferenceIndex(workspaceId: string): Promise<{
+  units: StoredIndexedUnit[]
+  skipped: HydrateSkip[]
+}> {
+  return orgSql(async () => {
+    const db = getOrgDb()
+    const units = await db
+      .select({
+        servingId: workspaceKnowledgeUnits.servingId,
+        path: workspaceKnowledgeUnits.path,
+        kind: workspaceKnowledgeUnits.kind,
+        title: workspaceKnowledgeUnits.title,
+        source: workspaceKnowledgeUnits.source,
+        links: workspaceKnowledgeUnits.links,
+        claims: workspaceKnowledgeUnits.claims,
+        updatedAt: workspaceKnowledgeUnits.updatedAt,
+        referenceIndex: workspaceKnowledgeUnits.referenceIndex,
+      })
+      .from(workspaceKnowledgeUnits)
+      .where(eq(workspaceKnowledgeUnits.workspaceId, workspaceId))
+    const [workspace] = await db
+      .select({ hydratePhases: workspaces.hydratePhases })
+      .from(workspaces)
+      .where(eq(workspaces.id, workspaceId))
+    return {
+      units: units.map((unit) => ({
+        ...unit,
+        updatedAt: unit.updatedAt.toISOString(),
+      })),
+      skipped: workspace?.hydratePhases?.skipped ?? [],
+    }
+  })
+}
+
+/** The body of each listed unit of the Workspace, by serving id. */
+export async function listKnowledgeUnitBodies(
+  workspaceId: string,
+  servingIds: readonly string[],
+): Promise<Map<string, string>> {
+  return orgSql(async () => {
+    const bodies = new Map<string, string>()
+    for (let start = 0; start < servingIds.length; start += 1000) {
+      const rows = await getOrgDb()
+        .select({
+          servingId: workspaceKnowledgeUnits.servingId,
+          body: workspaceKnowledgeUnits.body,
+        })
+        .from(workspaceKnowledgeUnits)
+        .where(
+          and(
+            eq(workspaceKnowledgeUnits.workspaceId, workspaceId),
+            inArray(
+              workspaceKnowledgeUnits.servingId,
+              servingIds.slice(start, start + 1000),
+            ),
+          ),
+        )
+      for (const row of rows) bodies.set(row.servingId, row.body)
+    }
+    return bodies
+  })
+}
+
 /**
  * The Workspace format (ADR-053) that hydrate cached for the binding of
  * `revision`, or 0. The cache belongs to the active projection, so a
@@ -1420,6 +1502,17 @@ export type HydrateCommit = {
 )
 
 /**
+ * A commit of a partial parse needs a full write, which needs all units. The
+ * transaction wrote nothing; the caller parses all files and commits again.
+ */
+export class HydrateNeedsAllUnitsError extends Error {
+  override readonly name = "HydrateNeedsAllUnitsError"
+  constructor(readonly reason: HydrateFullReason) {
+    super(`The hydrate commit needs all units (${reason})`)
+  }
+}
+
+/**
  * Publish the units of a revision and make it active, in one transaction.
  * Returns null when the Workspace no longer wants this revision.
  *
@@ -1445,6 +1538,14 @@ export async function commitHydrateProjection(input: {
    * (`no_base`).
    */
   base?: HydrateCommitBase
+  /**
+   * Set for a partial parse: `units` then holds only the units that the
+   * parse made again, and these are the units that the tip removed. Each
+   * other stored unit stays as it is. Such a commit cannot write all units:
+   * when it needs a full write, it writes nothing and throws
+   * `HydrateNeedsAllUnitsError`.
+   */
+  removedUnitIds?: readonly string[]
 }): Promise<HydrateCommit | null> {
   return orgSql(async () => {
     const db = getOrgDb()
@@ -1510,6 +1611,7 @@ export async function commitHydrateProjection(input: {
         body: unit.body,
         projectionSha: input.revision.sha,
         unitHash: hydrateUnitHash(unit, input.embeddingModel),
+        referenceIndex: unit.referenceIndex ?? null,
         links: unit.links,
         claims: unit.claims,
         createdAt: now,
@@ -1538,16 +1640,25 @@ export async function commitHydrateProjection(input: {
           )
         delta = {
           base: base.revision,
-          ...diffHydrateUnits(stored, input.units, input.embeddingModel),
+          ...diffHydrateUnits(
+            stored,
+            input.units,
+            input.embeddingModel,
+            input.removedUnitIds,
+          ),
         }
         if (
           delta.changed.length + delta.removed.length >
           partialUnitBound(stored.length)
         ) {
+          if (input.removedUnitIds)
+            throw new HydrateNeedsAllUnitsError("unit_bound")
           fullReason = "unit_bound"
           delta = undefined
         }
       }
+      if (!delta && input.removedUnitIds)
+        throw new HydrateNeedsAllUnitsError(fullReason)
 
       if (delta) {
         let unitRowsDeleted = 0
@@ -1582,6 +1693,7 @@ export async function commitHydrateProjection(input: {
                 body: sql`excluded.body`,
                 projectionSha: sql`excluded.projection_sha`,
                 unitHash: sql`excluded.unit_hash`,
+                referenceIndex: sql`excluded.reference_index`,
                 links: sql`excluded.links`,
                 claims: sql`excluded.claims`,
                 updatedAt: sql`excluded.updated_at`,

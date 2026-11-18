@@ -149,9 +149,18 @@ export function legacySourceUrl(
   workspaceUrl: string,
 ): string | null {
   const parsed = parseSimpleFrontMatter(content)
-  if (parsed.malformed || parsed.attributes.generated_by !== "ctxpipe")
-    return null
-  const source = parsed.attributes.source
+  return parsed.malformed
+    ? null
+    : legacySourceUrlOfAttributes(parsed.attributes, workspaceUrl)
+}
+
+/** `legacySourceUrl` of front matter that is already parsed. */
+export function legacySourceUrlOfAttributes(
+  attributes: Record<string, unknown>,
+  workspaceUrl: string,
+): string | null {
+  if (attributes.generated_by !== "ctxpipe") return null
+  const source = attributes.source
   if (
     typeof source !== "string" ||
     !/^(?:(?:https?|ssh|git):\/\/|git@)/i.test(source.trim())

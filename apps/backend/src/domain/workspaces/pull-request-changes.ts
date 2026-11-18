@@ -20,16 +20,52 @@ const PACKAGE_KINDS: ReadonlySet<string> = new Set([
   "Library",
 ])
 
-type Unit = {
-  path: string
-  kind?: string | null
-  attributes: Record<string, unknown>
-}
-
 type Target = { path: string; root: string | null }
 
-export function pullRequestChangedClaims(
-  units: readonly Unit[],
+/**
+ * The data of one unit for the `CHANGED` claims that depends only on its own
+ * file. Hydrate stores it in the reference index of the unit.
+ */
+export type UnitChangeData = {
+  /** A package or Repository unit that a pull request can change. */
+  target: { root: string | null; sources: string[] } | null
+  /** A package unit with a `root` value that is not a root. */
+  invalidRoot: boolean
+  /** The fields of a merged pull request mirror file. */
+  pull: { repositoryUrl: string; mergedAt: string; paths: string[] } | null
+}
+
+export function extractChangeData(unit: {
+  kind?: string | null
+  attributes: Record<string, unknown>
+}): UnitChangeData {
+  const data: UnitChangeData = {
+    target: null,
+    invalidRoot: false,
+    pull:
+      unit.kind === "PullRequest" ? mergedPullRequest(unit.attributes) : null,
+  }
+  const isPackage = PACKAGE_KINDS.has(unit.kind ?? "")
+  if (!isPackage && unit.kind !== "Repository") return data
+  if (isPackage && unit.attributes.generated_by !== "ctxpipe-extract")
+    return data
+  if (
+    isPackage &&
+    (!Array.isArray(unit.attributes.sources) ||
+      unit.attributes.sources.length !== 1)
+  )
+    return data
+  const root = isPackage ? sourceRoot(unit.attributes.root) : null
+  if (isPackage && root === null) {
+    data.invalidRoot = unit.attributes.root !== undefined
+    return data
+  }
+  data.target = { root, sources: stringList(unit.attributes.sources) }
+  return data
+}
+
+export function resolveChangedClaims(
+  units: ReadonlyArray<{ path: string; change: UnitChangeData }>,
   /**
    * Path of each GitHub source file → its repository URL. A `sources` value
    * is a source path (ADR-050) or, in a unit written before, a URL.
@@ -38,29 +74,17 @@ export function pullRequestChangedClaims(
 ): Map<string, HydrateClaim[]> {
   let invalidRoots = 0
   const targets = new Map<string, Target[]>()
-  for (const unit of units) {
-    const isPackage = PACKAGE_KINDS.has(unit.kind ?? "")
-    if (!isPackage && unit.kind !== "Repository") continue
-    if (isPackage && unit.attributes.generated_by !== "ctxpipe-extract")
-      continue
-    if (
-      isPackage &&
-      (!Array.isArray(unit.attributes.sources) ||
-        unit.attributes.sources.length !== 1)
-    )
-      continue
-    const root = isPackage ? sourceRoot(unit.attributes.root) : null
-    if (isPackage && root === null) {
-      if (unit.attributes.root !== undefined) invalidRoots++
-      continue
-    }
-    for (const source of stringList(unit.attributes.sources)) {
+  for (const { path: unitPath, change } of units) {
+    if (change.invalidRoot) invalidRoots++
+    if (!change.target) continue
+    const { root } = change.target
+    for (const source of change.target.sources) {
       const path = sourcePathOf(source)
       const key =
         (path && sourceRepositories.get(path)) ??
         normalizeWorkspaceRepositoryUrl(source)
       const list = targets.get(key) ?? []
-      list.push({ path: unit.path, root })
+      list.push({ path: unitPath, root })
       targets.set(key, list)
     }
   }
@@ -74,9 +98,8 @@ export function pullRequestChangedClaims(
   }
 
   const claims = new Map<string, HydrateClaim[]>()
-  for (const unit of units) {
-    if (unit.kind !== "PullRequest") continue
-    const pull = mergedPullRequest(unit.attributes)
+  for (const { path: unitPath, change } of units) {
+    const pull = change.pull
     if (!pull) continue
     const candidates = targets.get(pull.repositoryUrl) ?? []
     const changed = new Set<string>()
@@ -97,7 +120,7 @@ export function pullRequestChangedClaims(
     }
     if (!changed.size) continue
     claims.set(
-      unit.path,
+      unitPath,
       [...changed].map((path) => ({
         to: `${WORKSPACE_LINK_SCHEME}${path}`,
         predicate: "CHANGED",

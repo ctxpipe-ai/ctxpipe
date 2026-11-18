@@ -17,7 +17,10 @@ import {
   slackSourceMigrationHook,
 } from "../../services/slack/source-migration.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
-import { planHydrateWrites } from "../workspaces/hydrate-write-planner.js"
+import {
+  hydratePlanParseOfFiles,
+  planHydrateWrites,
+} from "../workspaces/hydrate-write-planner.js"
 import { KNOWLEDGE_SKILL_PATH } from "../workspaces/layout.js"
 import {
   CODE_FORMAT,
@@ -195,18 +198,19 @@ sources:
       undefined,
       null,
     )
+    const planned = {
+      workspaceId,
+      generation: 1,
+      remote: { url: workspaceUrl, connectionId: null },
+      defaultBranch: "main",
+      sha: built.pack.sha,
+      access: "read" as const,
+    }
     expect(
       await planHydrateWrites({
-        revision: {
-          workspaceId,
-          generation: 1,
-          remote: { url: workspaceUrl, connectionId: null },
-          defaultBranch: "main",
-          sha: built.pack.sha,
-          access: "read",
-        },
+        revision: planned,
         displayName: "steps",
-        files: markdown,
+        parsed: hydratePlanParseOfFiles(planned, markdown),
         sourceFiles: markdown
           .filter((file) => file.path.startsWith("sources/"))
           .map((file) => ({ path: file.path, text: file.content })),

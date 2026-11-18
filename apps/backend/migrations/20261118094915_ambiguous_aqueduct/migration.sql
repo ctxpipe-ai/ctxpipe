@@ -1,0 +1,1 @@
+ALTER TABLE "workspace_knowledge_units" ADD COLUMN "reference_index" jsonb;

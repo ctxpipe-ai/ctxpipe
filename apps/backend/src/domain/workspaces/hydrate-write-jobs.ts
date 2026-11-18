@@ -30,16 +30,21 @@ import {
  * host job adds a claim to it (CTX-1100). A body link still makes its
  * `LINKS_TO` edge in hydrate.
  */
-function ownedByIngestion(unit: HydrateUnit): boolean {
+type PlannedUnit = Pick<
+  HydrateUnit,
+  "path" | "links" | "claims" | "generatedBy" | "hasClaimWithoutEvidence"
+>
+
+function ownedByIngestion(unit: PlannedUnit): boolean {
   return unit.generatedBy === INGESTION_V2_GENERATED_BY
 }
 
 /** True when a file that ingestion v2 owns has a claim with no evidence. */
-function needsClaimRepair(unit: HydrateUnit): boolean {
+function needsClaimRepair(unit: PlannedUnit): boolean {
   return ownedByIngestion(unit) && unit.hasClaimWithoutEvidence === true
 }
 
-function missingClaimLinks(unit: HydrateUnit): string[] {
+function missingClaimLinks(unit: PlannedUnit): string[] {
   // The connector sync owns a mirror file, so no claims are written into it.
   if (isConnectorMirrorPath(unit.path) || ownedByIngestion(unit)) return []
   const directory = unit.path.split("/").slice(0, -1).join("/")
@@ -56,10 +61,13 @@ function missingClaimLinks(unit: HydrateUnit): string[] {
   })
 }
 
+/** True when the claims upgrade job changes the file of this unit. */
+export function needsClaimsUpgrade(unit: PlannedUnit): boolean {
+  return missingClaimLinks(unit).length > 0 || needsClaimRepair(unit)
+}
+
 export function claimsUpgradeRemainder(units: readonly HydrateUnit[]): number {
-  return units.filter(
-    (unit) => missingClaimLinks(unit).length > 0 || needsClaimRepair(unit),
-  ).length
+  return units.filter(needsClaimsUpgrade).length
 }
 
 /**
@@ -75,7 +83,14 @@ function claimNeedsValidFrom(claim: HydrateUnit["claims"][number]): boolean {
 export function validFromPersistRemainder(
   units: readonly HydrateUnit[],
 ): number {
-  return units.filter((unit) => unit.claims.some(claimNeedsValidFrom)).length
+  return units.filter(needsValidFromPersist).length
+}
+
+/** True when the valid_from job changes the file of this unit. */
+export function needsValidFromPersist(
+  unit: Pick<HydrateUnit, "claims">,
+): boolean {
+  return unit.claims.some(claimNeedsValidFrom)
 }
 
 export function hydrateWriteJobsToEnqueue(input: {
@@ -262,10 +277,4 @@ export function importKeyCleanupFiles(
     }
   }
   return out
-}
-
-export function importKeyCleanupRemainder(
-  files: ReadonlyArray<{ path: string; content: string }>,
-): number {
-  return importKeyCleanupFiles(files).length
 }

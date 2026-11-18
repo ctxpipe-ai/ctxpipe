@@ -19,6 +19,7 @@ import type { UnbornBootstrapBinding } from "../../domain/workspaces/bootstrap-i
 import type { ConnectorMirrorSource } from "../../domain/workspaces/connector-mirror.js"
 import type { IngestPublishSource } from "../../domain/workspaces/extraction-source.js"
 import type { HydratePhaseRecord } from "../../domain/workspaces/hydrate-phases.js"
+import type { UnitReferenceIndex } from "../../domain/workspaces/hydrate.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import type {
   WorkspaceSemanticHandoff,
@@ -120,6 +121,15 @@ export const workspaceKnowledgeUnits = pgTable.withRLS(
      * rows. Null before the first hydrate that sets it.
      */
     unitHash: text("unit_hash"),
+    /**
+     * The reference index of the unit (`UnitReferenceIndex`): the keys under
+     * which other units name it, the references that it makes, and the
+     * other values of its file that other files can change. A partial
+     * hydrate resolves the links and the claims of all units from this
+     * column and the changed files. Null before the first hydrate that sets
+     * it, and for a unit that is not read from Git.
+     */
+    referenceIndex: jsonb("reference_index").$type<UnitReferenceIndex>(),
     links: jsonb("links").$type<string[]>().notNull().default([]),
     claims: jsonb("claims")
       .$type<

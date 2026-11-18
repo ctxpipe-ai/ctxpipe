@@ -11,29 +11,49 @@ import { projectWorkspaceSources } from "../../domain/workspace-sources/project.
 import type { SourceFileBlob } from "../../domain/workspace-sources/projection-plan.js"
 import { sourceRepositoryName } from "../../domain/workspace-sources/providers/git.js"
 import {
+  SOURCES_FOLDER_PREFIX,
   SOURCES_TREE_READ,
   splitSourcesTree,
 } from "../../domain/workspace-sources/source-tree.js"
-import { nativeFolderSetChanged } from "../../domain/workspaces/folder-list.js"
+import { SOURCES_FILE_PATH } from "../../domain/workspace-sources/sources-file.js"
 import {
   projectWorkspaceGraph,
   type WorkspaceGraphWrite,
 } from "../../domain/workspaces/graph-projection.js"
 import { hydrateCommitBase } from "../../domain/workspaces/hydrate-delta.js"
-import { planHydrateWrites } from "../../domain/workspaces/hydrate-write-planner.js"
+import {
+  type HydratePlanParse,
+  type HydrateWriteHistory,
+  hydratePlanParseOfFiles,
+  PLANNED_CONTROL_FILES,
+  planHydrateWrites,
+  plannedControlFiles,
+  readHydrateWriteHistory,
+} from "../../domain/workspaces/hydrate-write-planner.js"
 import {
   applyEffectiveValidFromToUnits,
   displayNameFromAgentsMarkdown,
+  type HydrateSkip,
+  type HydrateUnit,
   hydrateKnowledgeTree,
+  hydrateSourceRepositories,
+  knowledgePlanFacts,
   LEGACY_UNIT_SOURCE,
+  parseKnowledgeFiles,
 } from "../../domain/workspaces/hydrate.js"
+import { isLinkedRepositoryDeclaration } from "../../domain/workspaces/layout.js"
 import {
   legacyKnowledgeOverlay,
   legacyKnowledgeOverlayScope,
+  legacyOverlayObjects,
   markLegacyOverlaySkips,
 } from "../../domain/workspaces/legacy-knowledge-overlay.js"
 import { upgradeLinkedRepositories } from "../../domain/workspaces/migration-export.js"
-import { nativeRenameRewriteFiles } from "../../domain/workspaces/native-rename-rewrite.js"
+import {
+  type HydrateParseFullReason,
+  partialKnowledgeParse,
+  storedIndexFullReason,
+} from "../../domain/workspaces/partial-parse.js"
 import {
   resolveRepositoryReadCredential,
   resolveWorkspaceReadRevision,
@@ -71,7 +91,10 @@ import {
   getDesiredWorkspaceRevision,
   type HydrateCommit,
   countWorkspaceProjectionUnits,
+  getStoredReferenceIndex,
   getWorkspaceProjectionState,
+  HydrateNeedsAllUnitsError,
+  listKnowledgeUnitBodies,
   listLinkedRepositories,
   markKnowledgeEmbeddingsReady,
   persistEmbeddingFailure,
@@ -84,8 +107,11 @@ import {
   embeddingModelId,
   generateEmbeddings,
 } from "../../retrieval/services/modelProvider.js"
-import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
-import { readGitFiles, readGitPackFromRemote } from "../../services/git/pack.js"
+import {
+  type GitReadSession,
+  listMarkdownFilesAtGitSha,
+  readGitChangesSinceSha,
+} from "../../services/git/clone-tree.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
 
@@ -281,6 +307,17 @@ export function defineWorkspaceHydrateWorkflow() {
             !input.reproject
               ? projection
               : null
+          // The commit diffs the new units against the stored rows of the
+          // active projection (a partial write), or writes all units for the
+          // reason that the base gives. A partial read needs a partial write.
+          const writeBaseOf = (formatChanged: boolean) =>
+            hydrateCommitBase({
+              revision,
+              projection,
+              reproject: input.reproject === true,
+              chunksMissing: snapshot.chunksMissing,
+              formatChanged,
+            })
           const pending = {
             postgres: !active,
             embeddings: !active || active.stores.embeddings.kind !== "ready",
@@ -307,111 +344,203 @@ export function defineWorkspaceHydrateWorkflow() {
           // and loads all outputs on each replay. The tree at a fixed SHA
           // does not change. Read it only when a write plan or the
           // projection needs it, so a replay after both does not fetch.
-          let tree:
-            | Promise<{
-                files: Awaited<ReturnType<typeof listMarkdownFilesAtGitSha>>
-                sourcesFile: string | null
-                sourceFiles: SourceFileBlob[]
-                formatFile: string | null
-                treePaths: Set<string>
-                deletedPaths: Set<string>
-              }>
-            | undefined
+          //
+          // A partial read gets only the Markdown files that changed since
+          // the active projection, and the control files. A full read gets
+          // each file and the full history. The write plan uses the Git
+          // directory of the same read for its history.
+          type TreeRead = {
+            files: Array<{
+              path: string
+              content: string
+              omitted?: "too_large" | "binary"
+              introducingCommitTimestamp?: string
+              lastCommitTimestamp?: string
+            }>
+            sourcesFile: string | null
+            sourceFiles: SourceFileBlob[]
+            formatFile: string | null
+            treePaths: Set<string>
+            deletedPaths: Set<string>
+            /** Read in the same Git directory; null with no earlier SHA. */
+            history: HydrateWriteHistory | null
+            /** Set for a partial read. */
+            partial: {
+              changed: string[]
+              removed: string[]
+              stored: Awaited<ReturnType<typeof getStoredReferenceIndex>>
+            } | null
+            parseFullReason?: HydrateParseFullReason
+          }
+          const readToken = async () =>
+            token ??
+            (await resolveRepositoryReadCredential({
+              orgId: input.orgId,
+              env,
+              remote: revision.remote,
+            }))
+          let history: HydrateWriteHistory | null = null
+          const previousSha = planning.previousSha
+          const inspect =
+            previousSha && previousSha !== revision.sha
+              ? {
+                  inspect: async (session: GitReadSession) => {
+                    history = await readHydrateWriteHistory(session, {
+                      sha: revision.sha,
+                      previousSha,
+                      root: workspaceRootPath(revision) || undefined,
+                    })
+                  },
+                }
+              : {}
+          const treeRead = (
+            treeFiles: TreeRead["files"],
+            treePaths: Set<string>,
+            deletedPaths: Set<string>,
+            partial: TreeRead["partial"],
+            parseFullReason?: HydrateParseFullReason,
+          ): TreeRead => ({
+            ...splitSourcesTree(treeFiles),
+            treePaths,
+            deletedPaths,
+            formatFile:
+              treeFiles.find((file) => file.path === WORKSPACE_FORMAT_PATH)
+                ?.content ?? null,
+            history,
+            partial,
+            ...(parseFullReason ? { parseFullReason } : {}),
+          })
+          const readFull = async (
+            parseFullReason?: HydrateParseFullReason,
+          ): Promise<TreeRead> => {
+            history = null
+            const deletedPaths = new Set<string>()
+            const treeFiles = planning.needed
+              ? await listMarkdownFilesAtGitSha({
+                  includeIntroducingCommits: true,
+                  deletedPaths,
+                  // An upgrade or its revert moves files: its deletes
+                  // are not deletes of a person.
+                  layoutPath: WORKSPACE_FORMAT_PATH,
+                  ...SOURCES_TREE_READ,
+                  extraPaths: [
+                    ...SOURCES_TREE_READ.extraPaths,
+                    WORKSPACE_FORMAT_PATH,
+                  ],
+                  url: revision.remote.url,
+                  sha: revision.sha,
+                  root: workspaceRootPath(revision),
+                  token: await readToken(),
+                  ...inspect,
+                })
+              : []
+            return treeRead(
+              treeFiles,
+              new Set(treeFiles.map((file) => file.path)),
+              deletedPaths,
+              null,
+              parseFullReason,
+            )
+          }
+          // The base of a partial read: the active projection of this
+          // binding. A full write needs all units, so it needs a full read.
+          const readOnce = async (): Promise<TreeRead> => {
+            if (!planning.needed) return readFull()
+            // The format of the new tree is known only after the read.
+            const base = writeBaseOf(false)
+            if (!("revision" in base)) return readFull("full_write")
+            const stored = await getStoredReferenceIndex(workspace.id)
+            const storedReason = storedIndexFullReason(stored)
+            if (storedReason) return readFull(storedReason)
+            const skippedPaths = new Set(
+              stored.skipped.map((skip) => skip.path),
+            )
+            const isTreePath = (path: string) =>
+              path.endsWith(".md") ||
+              path === SOURCES_FILE_PATH ||
+              path === WORKSPACE_FORMAT_PATH ||
+              path.startsWith(SOURCES_FOLDER_PREFIX)
+            const read = await readGitChangesSinceSha({
+              url: revision.remote.url,
+              sha: revision.sha,
+              baseSha: base.revision.sha,
+              root: workspaceRootPath(revision),
+              token: await readToken(),
+              alsoRead: (path) =>
+                path === SOURCES_FILE_PATH ||
+                path === WORKSPACE_FORMAT_PATH ||
+                path.startsWith(SOURCES_FOLDER_PREFIX) ||
+                isLinkedRepositoryDeclaration(path) ||
+                PLANNED_CONTROL_FILES.includes(path) ||
+                skippedPaths.has(path),
+              extraFolders: SOURCES_TREE_READ.extraFolders,
+              extraFolderMaxBytes: SOURCES_TREE_READ.extraFolderMaxBytes,
+              ...inspect,
+            })
+            if (!read) return readFull("base_not_ancestor")
+            return treeRead(
+              read.files,
+              new Set(read.paths.filter(isTreePath)),
+              new Set(),
+              { changed: read.changed, removed: read.removed, stored },
+            )
+          }
+          let tree: Promise<TreeRead> | undefined
           const readTree = () => {
-            tree ??= (async () => {
-              const deletedPaths = new Set<string>()
-              const treeFiles = planning.needed
-                ? await listMarkdownFilesAtGitSha({
-                    includeIntroducingCommits: true,
-                    deletedPaths,
-                    // An upgrade or its revert moves files: its deletes
-                    // are not deletes of a person.
-                    layoutPath: WORKSPACE_FORMAT_PATH,
-                    ...SOURCES_TREE_READ,
-                    extraPaths: [
-                      ...SOURCES_TREE_READ.extraPaths,
-                      WORKSPACE_FORMAT_PATH,
-                    ],
-                    url: revision.remote.url,
-                    sha: revision.sha,
-                    root: workspaceRootPath(revision),
-                    token:
-                      token ??
-                      (await resolveRepositoryReadCredential({
-                        orgId: input.orgId,
-                        env,
-                        remote: revision.remote,
-                      })),
-                  })
-                : []
-              return {
-                ...splitSourcesTree(treeFiles),
-                treePaths: new Set(treeFiles.map((file) => file.path)),
-                deletedPaths,
-                formatFile:
-                  treeFiles.find((file) => file.path === WORKSPACE_FORMAT_PATH)
-                    ?.content ?? null,
-              }
-            })()
+            tree ??= readOnce()
             return tree
+          }
+          /** A full read after a partial read that cannot give the parse. */
+          const rereadFull = (reason: HydrateParseFullReason) => {
+            tree = readFull(reason)
+            return tree
+          }
+          // The plan facts of the hydrate parse of this run. A run that
+          // parses nothing (a replay after the commit) reads them from the
+          // stored index, which then holds the tip.
+          let planParse: HydratePlanParse | undefined
+          const planParseOf = (read: TreeRead): HydratePlanParse => {
+            if (planParse) return planParse
+            if (!read.partial)
+              return hydratePlanParseOfFiles(revision, read.files)
+            const skippedPaths = new Set(
+              read.partial.stored.skipped.map((skip) => skip.path),
+            )
+            return {
+              facts: [
+                ...read.partial.stored.units.flatMap((unit) =>
+                  unit.referenceIndex ? [unit.referenceIndex.plan] : [],
+                ),
+                ...parseKnowledgeFiles({
+                  workspaceId: revision.workspaceId,
+                  workspaceUrl: revision.remote.url,
+                  files: read.files.filter((file) =>
+                    skippedPaths.has(file.path),
+                  ),
+                }).skippedFacts,
+              ],
+              existing: plannedControlFiles(read.files),
+            }
           }
           const enqueueRemainingWrites = async () => {
             if (!planning.needed) return
             const plan = await step.run(
               { name: "plan-remaining-writes" },
               async () => {
-                const { files, sourceFiles, formatFile } = await readTree()
+                const read = await readTree()
                 return planHydrateWrites({
                   revision,
                   displayName: workspace.displayName,
-                  files,
-                  sourceFiles,
+                  parsed: planParseOf(read),
+                  sourceFiles: read.sourceFiles,
                   sourceRows: await listWorkspaceSourceRows({
                     orgId: input.orgId,
                     workspaceId: workspace.id,
                   }),
                   format: workspaceFormatCacheValue(
-                    readWorkspaceFormat(formatFile),
+                    readWorkspaceFormat(read.formatFile),
                   ),
-                  history: async () => {
-                    const previousSha = planning.previousSha
-                    if (!previousSha || previousSha === revision.sha)
-                      return null
-                    const pack = await readGitPackFromRemote({
-                      url: revision.remote.url,
-                      sha: revision.sha,
-                      additionalShas: [previousSha],
-                      root: workspaceRootPath(revision),
-                      token:
-                        token ??
-                        (await resolveRepositoryReadCredential({
-                          orgId: input.orgId,
-                          env,
-                          remote: revision.remote,
-                        })),
-                    })
-                    const [previousFormatFile] = await readGitFiles(
-                      { ...pack, sha: previousSha },
-                      (path) => path === WORKSPACE_FORMAT_PATH,
-                      undefined,
-                      null,
-                    )
-                    return {
-                      previousSha,
-                      previousFormat: workspaceFormatCacheValue(
-                        readWorkspaceFormat(
-                          previousFormatFile?.content ?? null,
-                        ),
-                      ),
-                      renameRewrites: (
-                        await nativeRenameRewriteFiles(pack, previousSha, null)
-                      ).length,
-                      folderSetChanged: await nativeFolderSetChanged(
-                        pack,
-                        previousSha,
-                      ),
-                    }
-                  },
+                  history: async () => read.history,
                 })
               },
             )
@@ -484,23 +613,6 @@ export function defineWorkspaceHydrateWorkflow() {
                   .map((connection) => connection.id),
               )
             : []
-          const {
-            files,
-            sourcesFile,
-            sourceFiles,
-            formatFile,
-            treePaths,
-            deletedPaths,
-          } = pending.postgres
-            ? await readTree()
-            : {
-                files: [],
-                sourcesFile: null,
-                sourceFiles: [],
-                formatFile: null,
-                treePaths: new Set<string>(),
-                deletedPaths: new Set<string>(),
-              }
           // A Confluence URL joins a mirrored page only on the org's site.
           const confluenceSiteHosts = pending.postgres
             ? await step.run({ name: "list-confluence-sites" }, async () =>
@@ -534,79 +646,182 @@ export function defineWorkspaceHydrateWorkflow() {
           // it, and at format 3 or more that of each GitHub source
           // repository that no re-ingestion did yet. Not a step: the rows
           // do not change, and a step output would hold all of them.
-          const overlayScope = pending.postgres
-            ? legacyKnowledgeOverlayScope(
-                workspaceFormatCacheValue(readWorkspaceFormat(formatFile)),
-              )
-            : null
-          // A repository that a re-ingestion did gets no overlay at any
-          // scope: a revert of the upgrade must not show it twice.
-          const done = overlayScope
-            ? await reingestedRepositories(workspace.id)
-            : new Set<string>()
-          let onlyRepositoryUrls: Set<string> | undefined
-          if (overlayScope === "sources") {
-            const options = {
-              previousRows: previousSourceRows,
-              workspaceUrl: revision.remote.url,
-            }
-            onlyRepositoryUrls = new Set(
-              [
-                ...githubSourceRepositories(
-                  sourcesFile,
-                  null,
-                  sourceFiles,
-                  options,
-                ).flatMap((source) => {
-                  const url = normalizeWorkspaceRepositoryUrl(source.gitUrl)
-                  return githubRepoFullNameFromWorkspaceUrl(url) ? [url] : []
-                }),
-                // The plain git sources (CTX-815).
-                ...plainGitSourceUrls(sourceFiles, options).map(
-                  normalizeWorkspaceRepositoryUrl,
-                ),
-              ].filter(
-                (url) => !done.has(sourceRepositoryName(url).toLowerCase()),
-              ),
+          const overlayOf = async (read: TreeRead) => {
+            const overlayScope = legacyKnowledgeOverlayScope(
+              workspaceFormatCacheValue(readWorkspaceFormat(read.formatFile)),
             )
-          }
-          const legacyFiles =
-            overlayScope && (!onlyRepositoryUrls || onlyRepositoryUrls.size)
-              ? await legacyKnowledgeOverlay({
-                  workspaceId: workspace.id,
-                  workspaceRepositoryUrl: revision.remote.url,
-                  treePaths,
-                  deletedPaths,
-                  files,
+            // A repository that a re-ingestion did gets no overlay at any
+            // scope: a revert of the upgrade must not show it twice.
+            const done = overlayScope
+              ? await reingestedRepositories(workspace.id)
+              : new Set<string>()
+            let onlyRepositoryUrls: Set<string> | undefined
+            if (overlayScope === "sources") {
+              const options = {
+                previousRows: previousSourceRows,
+                workspaceUrl: revision.remote.url,
+              }
+              onlyRepositoryUrls = new Set(
+                [
+                  ...githubSourceRepositories(
+                    read.sourcesFile,
+                    null,
+                    read.sourceFiles,
+                    options,
+                  ).flatMap((source) => {
+                    const url = normalizeWorkspaceRepositoryUrl(source.gitUrl)
+                    return githubRepoFullNameFromWorkspaceUrl(url) ? [url] : []
+                  }),
+                  // The plain git sources (CTX-815).
+                  ...plainGitSourceUrls(read.sourceFiles, options).map(
+                    normalizeWorkspaceRepositoryUrl,
+                  ),
+                ].filter(
+                  (url) => !done.has(sourceRepositoryName(url).toLowerCase()),
+                ),
+              )
+            }
+            return overlayScope &&
+              (!onlyRepositoryUrls || onlyRepositoryUrls.size)
+              ? {
+                  done,
                   onlyRepositoryUrls,
-                  reingestedRepositories: done,
                   source: await loadKnowledgeProjectionSource({
                     workspaceId: workspace.id,
                   }),
+                }
+              : null
+          }
+          const formatVersionOf = (read: TreeRead) =>
+            workspaceFormatCache({
+              text: read.formatFile,
+              paths: read.treePaths,
+              writeStatus: workspace.writeStatus,
+            })
+          const writeBase = (read: TreeRead) =>
+            writeBaseOf(formatVersionOf(read) !== workspace.formatVersion)
+
+          // Parse all files of a full read. The legacy overlay adds its files.
+          const parseFull = async (read: TreeRead) => {
+            const overlay = await overlayOf(read)
+            const legacyFiles = overlay
+              ? await legacyKnowledgeOverlay({
+                  workspaceId: workspace.id,
+                  workspaceRepositoryUrl: revision.remote.url,
+                  treePaths: read.treePaths,
+                  deletedPaths: read.deletedPaths,
+                  files: read.files,
+                  onlyRepositoryUrls: overlay.onlyRepositoryUrls,
+                  reingestedRepositories: overlay.done,
+                  source: overlay.source,
                 })
               : []
-          const legacyPaths = new Set(legacyFiles.map((file) => file.path))
-          const hydrated = pending.postgres
-            ? hydrateKnowledgeTree({
-                workspaceId: workspace.id,
-                workspaceUrl: revision.remote.url,
-                files: [...files, ...legacyFiles],
-                sourcesFile,
-                sourceFiles,
-                previousSourceRows,
-                githubConnectionIds: new Set(githubConnectionIds),
-                confluenceSiteHosts: new Set(confluenceSiteHosts),
-              })
-            : // The active projection of this revision is reused: its units stay in Postgres, and the run reports
-              // only how many there are (below). Their bodies are not read.
-              { units: [], linked: [], skipped: [] }
-          const parsed = {
-            ...hydrated,
-            skipped: markLegacyOverlaySkips(hydrated.skipped, legacyPaths),
-          }
-          if (legacyPaths.size)
-            for (const unit of parsed.units)
+            const legacyPaths = new Set(legacyFiles.map((file) => file.path))
+            const hydrated = hydrateKnowledgeTree({
+              workspaceId: workspace.id,
+              workspaceUrl: revision.remote.url,
+              files: [...read.files, ...legacyFiles],
+              sourcesFile: read.sourcesFile,
+              sourceFiles: read.sourceFiles,
+              previousSourceRows,
+              githubConnectionIds: new Set(githubConnectionIds),
+              confluenceSiteHosts: new Set(confluenceSiteHosts),
+            })
+            for (const unit of hydrated.units)
               if (legacyPaths.has(unit.path)) unit.source = LEGACY_UNIT_SOURCE
+            const units = applyEffectiveValidFromToUnits(
+              hydrated.units,
+              new Map(
+                read.files.flatMap((file) =>
+                  file.introducingCommitTimestamp
+                    ? [[file.path, file.introducingCommitTimestamp] as const]
+                    : [],
+                ),
+              ),
+            )
+            // The write plan reads the files of git only.
+            planParse = {
+              facts: knowledgePlanFacts({
+                units: hydrated.units.filter(
+                  (unit) => !legacyPaths.has(unit.path),
+                ),
+                skippedFacts: hydrated.skippedFacts.filter(
+                  (_, index) =>
+                    !legacyPaths.has(hydrated.skipped[index]?.path ?? ""),
+                ),
+              }),
+              existing: plannedControlFiles(read.files),
+            }
+            return {
+              units,
+              allUnits: units,
+              removedUnitIds: undefined,
+              skipped: markLegacyOverlaySkips(hydrated.skipped, legacyPaths),
+              linked: hydrated.linked,
+              filesParsed: read.files.length + legacyFiles.length,
+            }
+          }
+          // Parse the changed files of a partial read, with the stored index
+          // of the other units (`partialKnowledgeParse`).
+          const parsePartial = async (
+            read: TreeRead & { partial: NonNullable<TreeRead["partial"]> },
+          ) => {
+            const { sourceRepositories, linked } = hydrateSourceRepositories({
+              workspaceUrl: revision.remote.url,
+              sourcesFile: read.sourcesFile,
+              sourceFiles: read.sourceFiles,
+              previousSourceRows,
+              githubConnectionIds: new Set(githubConnectionIds),
+            })
+            const parsed = await partialKnowledgeParse({
+              workspaceId: workspace.id,
+              workspaceUrl: revision.remote.url,
+              stored: read.partial.stored.units,
+              files: read.files,
+              changed: read.partial.changed,
+              removed: read.partial.removed,
+              previousSkipped: read.partial.stored.skipped,
+              confluenceSiteHosts: new Set(confluenceSiteHosts),
+              sourceRepositories,
+              loadBodies: (servingIds) =>
+                orgSql(() => listKnowledgeUnitBodies(workspace.id, servingIds)),
+            })
+            planParse = {
+              facts: parsed.facts,
+              existing: plannedControlFiles(read.files),
+            }
+            return { ...parsed, linked }
+          }
+
+          let read: TreeRead | null = pending.postgres ? await readTree() : null
+          // A partial read cannot give a full write or the legacy overlay:
+          // both need each file.
+          if (read?.partial) {
+            if ("fullReason" in writeBase(read))
+              read = await rereadFull("full_write")
+            else if (
+              await overlayOf(read).then(
+                (overlay) =>
+                  overlay !== null &&
+                  legacyOverlayObjects({
+                    workspaceId: workspace.id,
+                    treePaths: read?.treePaths ?? new Set(),
+                    onlyRepositoryUrls: overlay.onlyRepositoryUrls,
+                    reingestedRepositories: overlay.done,
+                    source: overlay.source,
+                  }).write.size > 0,
+              )
+            )
+              read = await rereadFull("legacy_overlay")
+          }
+          let parsed = !read
+            ? // The active projection of this revision is reused: its units stay in Postgres, and the run reports
+              // only how many there are (below). Their bodies are not read.
+              null
+            : read.partial
+              ? await parsePartial({ ...read, partial: read.partial })
+              : await parseFull(read)
+          const files = read?.files ?? []
           const agents = files.find((file) => file.path === "AGENTS.md")
           const displayName = agents
             ? displayNameFromAgentsMarkdown(agents.content)
@@ -632,57 +847,61 @@ export function defineWorkspaceHydrateWorkflow() {
                   orgId: input.orgId,
                   workspaceId: workspace.id,
                   workspaceUrl: revision.remote.url,
-                  gitUrls: parsed.linked.map((remote) => remote.git),
+                  gitUrls: (parsed?.linked ?? []).map((remote) => remote.git),
                 })
               })
             : []
           let committed: HydrateCommit | null = null
-          const committedUnits = pending.postgres
-            ? applyEffectiveValidFromToUnits(
-                parsed.units,
-                new Map(
-                  files.flatMap((file) =>
-                    file.introducingCommitTimestamp
-                      ? [[file.path, file.introducingCommitTimestamp] as const]
-                      : [],
-                  ),
-                ),
-              )
-            : []
-          if (pending.postgres) {
-            const formatVersion = workspaceFormatCache({
-              text: formatFile,
-              paths: treePaths,
-              writeStatus: workspace.writeStatus,
-            })
+          if (read && parsed) {
+            const formatVersion = formatVersionOf(read)
             lockSignal.throwIfAborted()
-            committed = await orgSql(() =>
-              commitHydrateProjection({
-                orgId: input.orgId,
-                revision,
-                displayName,
-                formatVersion,
-                skipped: parsed.skipped,
-                embeddingModel: embeddingModelId(),
-                units: committedUnits,
-                // The commit diffs the new units against the stored rows of
-                // the active projection (a partial write), or writes all
-                // units for the reason that the base gives.
-                base: hydrateCommitBase({
+            const commit = (
+              units: readonly HydrateUnit[],
+              skipped: readonly HydrateSkip[],
+              commitBase: NonNullable<
+                Parameters<typeof commitHydrateProjection>[0]["base"]
+              >,
+              removedUnitIds: readonly string[] | undefined,
+            ) =>
+              orgSql(() =>
+                commitHydrateProjection({
+                  orgId: input.orgId,
                   revision,
-                  projection,
-                  reproject: input.reproject === true,
-                  chunksMissing: snapshot.chunksMissing,
-                  formatChanged: formatVersion !== workspace.formatVersion,
+                  displayName,
+                  formatVersion,
+                  skipped,
+                  embeddingModel: embeddingModelId(),
+                  units,
+                  base: commitBase,
+                  ...(removedUnitIds ? { removedUnitIds } : {}),
                 }),
-              }),
-            )
+              )
+            try {
+              committed = await commit(
+                parsed.units,
+                parsed.skipped,
+                writeBase(read),
+                parsed.removedUnitIds,
+              )
+            } catch (error) {
+              // The commit of a partial parse needs a full write: parse all
+              // files and commit them.
+              if (!(error instanceof HydrateNeedsAllUnitsError)) throw error
+              read = await rereadFull("full_write")
+              parsed = await parseFull(read)
+              committed = await commit(
+                parsed.units,
+                parsed.skipped,
+                { fullReason: error.reason },
+                undefined,
+              )
+            }
             activated = committed !== null
             if (!activated) {
               return {
                 hydrated: false,
                 reason: "cas_discarded" as const,
-                units: parsed.units.length,
+                units: parsed.allUnits.length,
                 skipped: parsed.skipped.length,
               }
             }
@@ -774,12 +993,12 @@ export function defineWorkspaceHydrateWorkflow() {
               lockSignal.throwIfAborted()
               graphWrite = await projectWorkspaceGraph(
                 revision,
-                committed?.mode === "partial"
+                committed?.mode === "partial" && parsed
                   ? {
                       base: committed.base,
                       // The units as Postgres stores them: a full graph
                       // write reads these values from Postgres.
-                      units: committedUnits.map((unit) => ({
+                      units: parsed.allUnits.map((unit) => ({
                         servingId: unit.servingId,
                         path: unit.path,
                         kind: unit.kind ?? null,
@@ -849,9 +1068,12 @@ export function defineWorkspaceHydrateWorkflow() {
             ...(committed?.mode === "full"
               ? { fullReason: committed.fullReason }
               : {}),
-            filesParsed: pending.postgres
-              ? files.length + legacyFiles.length
-              : 0,
+            parseMode: !read ? "none" : read.partial ? "partial" : "full",
+            ...(read?.parseFullReason
+              ? { parseFullReason: read.parseFullReason }
+              : {}),
+            filesRead: files.length,
+            filesParsed: parsed?.filesParsed ?? 0,
             unitRowsWritten: committed?.unitRowsWritten ?? 0,
             unitRowsDeleted: committed?.unitRowsDeleted ?? 0,
             chunkRowsInserted: committed?.chunkRowsInserted ?? 0,
@@ -868,16 +1090,16 @@ export function defineWorkspaceHydrateWorkflow() {
           return {
             writes,
             hydrated: activated,
-            units: pending.postgres
-              ? parsed.units.length
+            units: parsed
+              ? parsed.allUnits.length
               : active
                 ? await countWorkspaceProjectionUnits(
                     workspace.id,
                     active.revision.sha,
                   )
                 : 0,
-            skipped: parsed.skipped.length,
-            diagnostics: parsed.skipped,
+            skipped: parsed?.skipped.length ?? 0,
+            diagnostics: parsed?.skipped ?? [],
           }
         } catch (error) {
           try {

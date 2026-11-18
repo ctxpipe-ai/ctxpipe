@@ -41,35 +41,6 @@ export async function nativeRenameRewriteFiles(
   return withGitDirectory(
     pack.sha,
     async (directory) => {
-      const filesAt = async (sha: string) => {
-        const entries = (await nativeGit(directory, ["ls-tree", "-rz", sha]))
-          .toString()
-          .split("\0")
-        const files = new Map<string, string>()
-        for (const entry of entries) {
-          const match = /^(100644|100755) blob ([0-9a-f]+)\t(.*\.md)$/.exec(
-            entry,
-          )
-          if (
-            !match?.[2] ||
-            !match[3] ||
-            match[3] === "AGENTS.md" ||
-            match[3].startsWith(".agents/") ||
-            isLinkedRepositoryDeclaration(match[3])
-          )
-            continue
-          const blob = await nativeGit(directory, [
-            "cat-file",
-            "blob",
-            match[2],
-          ])
-          if (blob.includes(0) || !isUtf8(blob)) continue
-          const content = new TextDecoder("utf-8", { fatal: true }).decode(blob)
-          if (!parseSimpleFrontMatter(content).malformed)
-            files.set(match[3], content)
-        }
-        return files
-      }
       // Both trees are the Workspace root folder, so paths are root-relative.
       const previousTree = await packRootTree(directory, {
         sha: previousSha,
@@ -77,75 +48,136 @@ export async function nativeRenameRewriteFiles(
       })
       const currentTree = await packRootTree(directory, pack)
       if (!previousTree || !currentTree) return []
-      const diff = [
-        "diff",
-        "--find-renames=50%",
-        "--name-status",
-        "-z",
-        previousTree,
-        currentTree,
-      ]
-      // Most commits rename nothing. Then no file can change, so read none:
-      // a read of each file of a large Workspace takes minutes (CTX-1369).
-      const pairs = renamePairs(await nativeGit(directory, diff))
-      if (!pairs.length) return []
-      const previous = await filesAt(previousTree)
-      const current = await filesAt(currentTree)
-      const candidates = pairs.filter(
-        (pair) => previous.has(pair.from) && current.has(pair.to),
-      )
-      const deleted = [...previous.keys()].filter((path) => !current.has(path))
-      const renames: Rename[] = []
-      for (const candidate of candidates) {
-        let ambiguous = false
-        for (const from of deleted) {
-          if (from === candidate.from) continue
-          const matches = renamePairs(
-            await nativeGit(directory, [
-              "--literal-pathspecs",
-              ...diff,
-              "--",
-              from,
-              candidate.to,
-            ]),
-          )
-          if (
-            matches.some(
-              (pair) => pair.from === from && pair.to === candidate.to,
-            )
-          ) {
-            ambiguous = true
-            break
-          }
-        }
-        if (!ambiguous) renames.push(candidate)
-      }
-      // With no rename, no link, claim, or source can change.
-      if (!renames.length) return []
-      const changes: Array<{ path: string; content: string }> = []
-      let lastYield = performance.now()
-      for (const [path, content] of current) {
-        // The rewrite of thousands of files is seconds of CPU. Give the
-        // event loop a turn every 50 ms, so that the OpenWorkflow lease
-        // heartbeat runs on time.
-        if (performance.now() - lastYield >= 50) {
-          await setImmediate()
-          lastYield = performance.now()
-        }
-        const rewritten = rewriteDocument(
-          path,
-          content,
-          renames,
-          current,
-          previous,
-        )
-        if (rewritten !== content) changes.push({ path, content: rewritten })
-      }
-      return changes
+      return renameRewriteFilesIn(directory, previousTree, currentTree)
     },
     pack,
     read,
   )
+}
+
+/**
+ * The files whose links a rename between two trees of `directory` made
+ * stale, with their new text. With `fetchObjects`, the directory can lack
+ * blobs: the function fetches each blob that it reads first.
+ */
+export async function renameRewriteFilesIn(
+  directory: string,
+  previousTree: string,
+  currentTree: string,
+  fetchObjects?: (shas: readonly string[]) => Promise<void>,
+): Promise<Array<{ path: string; content: string }>> {
+  const blobsAt = async (tree: string) =>
+    (await nativeGit(directory, ["ls-tree", "-rz", tree]))
+      .toString()
+      .split("\0")
+      .flatMap((entry) => {
+        const match = /^(100644|100755) blob ([0-9a-f]+)\t(.*)$/s.exec(entry)
+        return match?.[2] && match[3] ? [{ sha: match[2], path: match[3] }] : []
+      })
+  const filesAt = async (tree: string) => {
+    const blobs = (await blobsAt(tree)).filter(
+      (blob) =>
+        blob.path.endsWith(".md") &&
+        blob.path !== "AGENTS.md" &&
+        !blob.path.startsWith(".agents/") &&
+        !isLinkedRepositoryDeclaration(blob.path),
+    )
+    await fetchObjects?.(blobs.map((blob) => blob.sha))
+    const files = new Map<string, string>()
+    for (const { sha, path } of blobs) {
+      const blob = await nativeGit(directory, ["cat-file", "blob", sha])
+      if (blob.includes(0) || !isUtf8(blob)) continue
+      const content = new TextDecoder("utf-8", { fatal: true }).decode(blob)
+      if (!parseSimpleFrontMatter(content).malformed) files.set(path, content)
+    }
+    return files
+  }
+  const diff = [
+    "diff",
+    "--find-renames=50%",
+    "--name-status",
+    "-z",
+    previousTree,
+    currentTree,
+  ]
+  if (fetchObjects) {
+    // Rename scores read the blobs of the added and the deleted files.
+    const changes = parseNameStatus(
+      await nativeGit(directory, [
+        "--no-lazy-fetch",
+        "diff",
+        "--no-renames",
+        "--name-status",
+        "-z",
+        previousTree,
+        currentTree,
+      ]),
+    )
+    const added = new Set(
+      changes.filter((c) => c.status === "A").map((c) => c.to),
+    )
+    const deleted = new Set(
+      changes.filter((c) => c.status === "D").map((c) => c.from),
+    )
+    if (!added.size || !deleted.size) return []
+    await fetchObjects([
+      ...(await blobsAt(currentTree))
+        .filter((blob) => added.has(blob.path))
+        .map((blob) => blob.sha),
+      ...(await blobsAt(previousTree))
+        .filter((blob) => deleted.has(blob.path))
+        .map((blob) => blob.sha),
+    ])
+  }
+  // Most commits rename nothing. Then no file can change, so read none:
+  // a read of each file of a large Workspace takes minutes (CTX-1369).
+  const pairs = renamePairs(await nativeGit(directory, diff))
+  if (!pairs.length) return []
+  const previous = await filesAt(previousTree)
+  const current = await filesAt(currentTree)
+  const candidates = pairs.filter(
+    (pair) => previous.has(pair.from) && current.has(pair.to),
+  )
+  const deleted = [...previous.keys()].filter((path) => !current.has(path))
+  const renames: Rename[] = []
+  for (const candidate of candidates) {
+    let ambiguous = false
+    for (const from of deleted) {
+      if (from === candidate.from) continue
+      const matches = renamePairs(
+        await nativeGit(directory, [
+          "--literal-pathspecs",
+          ...diff,
+          "--",
+          from,
+          candidate.to,
+        ]),
+      )
+      if (
+        matches.some((pair) => pair.from === from && pair.to === candidate.to)
+      ) {
+        ambiguous = true
+        break
+      }
+    }
+    if (!ambiguous) renames.push(candidate)
+  }
+  // With no rename, no link, claim, or source can change.
+  if (!renames.length) return []
+  const changes: Array<{ path: string; content: string }> = []
+  let lastYield = performance.now()
+  for (const [path, content] of current) {
+    // The rewrite of thousands of files is seconds of CPU. Give the
+    // event loop a turn every 50 ms, so that the OpenWorkflow lease
+    // heartbeat runs on time.
+    if (performance.now() - lastYield >= 50) {
+      await setImmediate()
+      lastYield = performance.now()
+    }
+    const rewritten = rewriteDocument(path, content, renames, current, previous)
+    if (rewritten !== content) changes.push({ path, content: rewritten })
+  }
+  return changes
 }
 
 function rewriteDocument(

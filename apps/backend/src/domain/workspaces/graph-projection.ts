@@ -204,7 +204,11 @@ export async function writeWorkspaceRevisionGraph(
  */
 type WorkspaceGraphDelta = {
   base: WorkspaceRevision
-  /** All units of the new revision, as Postgres stores them. */
+  /**
+   * All units of the new revision, as Postgres stores them. A unit that the
+   * commit did not write can have no body: the delta reads only the body of
+   * a written unit (for its node summary).
+   */
   units: readonly HydrateUnit[]
   changedUnitIds: readonly string[]
   removedUnitIds: readonly string[]
@@ -323,24 +327,23 @@ function normalizeValidityBound(value: string | null): string | null {
 /**
  * Build the derived graph of the active revision. With a delta, apply the
  * delta to the graph of its base revision (`applyWorkspaceGraphDelta`).
- * When the graph store does not hold the complete graph of the base, write
- * the full graph from the units of the delta. Without a delta, write the
- * full graph from the captured PostgreSQL projection, never by parsing Git
- * again. Returns null when the revision is not active.
+ * Without a delta, or when the graph store does not hold the complete graph
+ * of the base, write the full graph from the captured PostgreSQL projection,
+ * never by parsing Git again. Returns null when the revision is not active.
  */
 export async function projectWorkspaceGraph(
   revision: WorkspaceRevision,
   delta?: WorkspaceGraphDelta,
 ): Promise<WorkspaceGraphWrite | null> {
   const org = { orgId: requireCurrentOrgId(), orgSlug: requireCurrentOrgSlug() }
-  // The delta holds all units, so only a write without a delta reads them.
+  // The units with their bodies are read only for a full write.
   const snapshot = delta
-    ? {
-        ...(await getWorkspaceProjectionState(revision.workspaceId)),
-        units: delta.units,
-      }
+    ? null
     : await getWorkspaceProjectionSnapshot(revision.workspaceId)
-  const projection = publishedProjection(snapshot.projection)
+  const projection = publishedProjection(
+    (snapshot ?? (await getWorkspaceProjectionState(revision.workspaceId)))
+      .projection,
+  )
   if (
     projection?.kind !== "active" ||
     !sameWorkspaceRevision(projection.revision, revision)
@@ -371,11 +374,10 @@ export async function projectWorkspaceGraph(
       fullReason = "graph_delta_failed"
     }
   }
+  const { units } =
+    snapshot ?? (await getWorkspaceProjectionSnapshot(revision.workspaceId))
   const written = await withGraphClient(org, () =>
-    writeWorkspaceRevisionGraph(getGraphClient(), {
-      revision,
-      units: snapshot.units,
-    }),
+    writeWorkspaceRevisionGraph(getGraphClient(), { revision, units }),
   )
   await persistWorkspaceGraphResult({ revision, result: { kind: "ready" } })
   return { ...written, ...(fullReason ? { fullReason } : {}) }

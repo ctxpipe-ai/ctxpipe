@@ -84,10 +84,10 @@ export function partialUnitBound(storedUnits: number): number {
 
 /**
  * A hash of each value that hydrate stores for a unit or derives from it:
- * the row columns, the first body line, which sets the chunk lines, and the
- * embedding model, which sets the chunk hashes and vectors. When the model
- * changes, each stored hash differs, so the next hydrate writes all units
- * (`unit_bound`) and embeds them again.
+ * the row columns with the reference index, the first body line, which sets
+ * the chunk lines, and the embedding model, which sets the chunk hashes and
+ * vectors. When the model changes, each stored hash differs, so the next
+ * hydrate writes all units (`unit_bound`) and embeds them again.
  */
 export function hydrateUnitHash(
   unit: HydrateUnit,
@@ -97,7 +97,7 @@ export function hydrateUnitHash(
     .update(
       JSON.stringify([
         // The hash version. Increase it when the hashed values change.
-        1,
+        2,
         embeddingModel,
         unit.servingId,
         unit.path,
@@ -116,21 +116,43 @@ export function hydrateUnitHash(
         ]),
         unit.updatedAt,
         unit.bodyStartLine ?? 1,
+        canonicalJson(unit.referenceIndex ?? null),
       ]),
     )
     .digest("hex")
 }
 
 /**
+ * The value with the keys of each object in sorted order. Postgres stores
+ * jsonb with its own key order, so a value that hydrate reads back from a
+ * row gives the same hash as the value that hydrate wrote.
+ */
+function canonicalJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJson)
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, item]) => item !== undefined)
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([key, item]) => [key, canonicalJson(item)]),
+    )
+  return value
+}
+
+/**
  * The units of `next` that are new or differ from their stored row, and the
  * stored units that `next` does not have. A stored row without a hash counts
  * as changed. Two units with one serving id are an error, as for a full
- * write (the primary key refuses them).
+ * write (the primary key refuses them). With `removedUnitIds` (a partial
+ * parse), `next` holds only the units that the parse made again: the
+ * removed units are the stored units of that list, and each other stored
+ * unit stays.
  */
 export function diffHydrateUnits(
   stored: ReadonlyArray<{ servingId: string; unitHash: string | null }>,
   next: readonly HydrateUnit[],
   embeddingModel: string,
+  removedUnitIds?: readonly string[],
 ): { changed: HydrateUnit[]; removed: string[] } {
   const kept = new Set<string>()
   for (const unit of next) {
@@ -143,8 +165,11 @@ export function diffHydrateUnits(
     (unit) =>
       hashes.get(unit.servingId) !== hydrateUnitHash(unit, embeddingModel),
   )
+  const removedIds = removedUnitIds ? new Set(removedUnitIds) : null
   const removed = stored
     .map((row) => row.servingId)
-    .filter((servingId) => !kept.has(servingId))
+    .filter((servingId) =>
+      removedIds ? removedIds.has(servingId) : !kept.has(servingId),
+    )
   return { changed, removed }
 }
