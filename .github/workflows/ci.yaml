@@ -12,11 +12,13 @@ on:
   pull_request:
     branches:
       - main
+    # No `ready_for_review`: a draft PR runs CI too, so `gh pr ready` would
+    # only start a second run of the same commit. That run cancelled the first
+    # one, and the Merge gate of the cancelled run failed (CTX-1307).
     types:
       - opened
       - reopened
       - synchronize
-      - ready_for_review
   push:
     branches:
       - main
@@ -2432,65 +2434,6 @@ jobs:
           path: ${{ runner.temp }}/plan/plan.json
           if-no-files-found: ignore
 
-  # A newer run of the same pull request cancels this run (the concurrency
-  # group above). For example, `gh pr create --draft` and then `gh pr ready`
-  # start two runs of one commit within seconds (CTX-1307). The jobs Tests and
-  # Merge gate start after a cancellation too, and they failed there because
-  # their needs were cancelled. A failed "Merge gate" blocked the merge,
-  # although the newer run passed. This job starts only in a cancelled pull
-  # request run, after each job that the gate needs. It gives
-  # `superseded=true` when a newer CI run of the same head commit exists: that
-  # run gives the verdict of the commit, so the Merge gate of this run is
-  # skipped. A run cancelled by hand has no newer run, so its Merge gate still
-  # runs and fails: a skipped required check counts as a pass.
-  # outside-gate: it starts only in a cancelled run and makes one API call
-  merge-gate-superseded:
-    timeout-minutes: 5
-    name: Superseded run
-    needs:
-      [
-        merge-gate-manifest,
-        merge-gate-select,
-        merge-gate-llm,
-        merge-gate-plan,
-        merge-gate-critics,
-        lint,
-        typecheck,
-        test-shards,
-        package-tests,
-        test,
-        production-builds,
-        packages,
-        storybook-build,
-        storybook-required,
-        storybook-plays,
-        storybook-visual,
-        codesearch,
-        migrate,
-        upgrade-from-previous-release,
-      ]
-    if: cancelled() && github.event_name == 'pull_request'
-    # github-hosted: one API call with no checkout (ADR-065)
-    runs-on: ubuntu-24.04-arm
-    permissions:
-      actions: read
-    outputs:
-      superseded: ${{ steps.newer.outputs.superseded }}
-    steps:
-      # The run ids grow with the time of the event.
-      - name: A newer run of this commit
-        id: newer
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          RUN: ${{ github.run_id }}
-          SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          newer=$(gh api "repos/$REPO/actions/workflows/ci.yaml/runs?event=pull_request&head_sha=$SHA&per_page=100" \
-            --jq "[.workflow_runs[] | select(.id > $RUN)] | length")
-          if [ "$newer" -gt 0 ]; then superseded=true; else superseded=false; fi
-          echo "superseded=$superseded" >> "$GITHUB_OUTPUT"
-
   # Publishes the decision of each PR run: the job summary and the artifact
   # merge-gate-decision (with the same text as summary.md). In gate mode
   # this job is the verdict: it fails when the gated run fails (or, on a
@@ -2511,7 +2454,6 @@ jobs:
     name: Merge gate
     needs:
       [
-        merge-gate-superseded,
         merge-gate-manifest,
         merge-gate-select,
         merge-gate-llm,
@@ -2532,10 +2474,11 @@ jobs:
         migrate,
         upgrade-from-previous-release,
       ]
-    # A superseded run skips it (see Superseded run).
+    # `always()`, also in a cancelled run: GitHub counts a skipped required
+    # check as a pass, so a cancelled run must fail this check. GitHub takes
+    # the newest "Merge gate" check of a commit, so a newer run decides.
     if: |
-      always() && github.event_name == 'pull_request' &&
-      needs.merge-gate-superseded.outputs.superseded != 'true'
+      always() && github.event_name == 'pull_request'
     # github-hosted: a short job; it shares the merge-gate-pr cache with Merge gate plan (ADR-065)
     runs-on: ubuntu-24.04-arm
     permissions:

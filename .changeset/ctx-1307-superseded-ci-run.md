@@ -1,4 +1,4 @@
 ---
 ---
 
-CI: a run that a newer run of the same commit cancels no longer fails the Merge gate check.
+CI: `gh pr ready` no longer starts a second CI run of the same commit, and a cancelled run no longer fails the Tests check.
