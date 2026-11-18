@@ -184,11 +184,15 @@ describe("searchKnowledge on a large shared index (Postgres)", () => {
     // use the GIN index for `@@` (not leakproof). Without the org in that
     // index, it chose the org or Workspace btree index when the terms were
     // common in other orgs, and matched every chunk of the org row by row.
-    // The GIN index must serve both the org condition and the match, with
-    // the statistics as they are and after an analyze of the bulk load.
+    // Now the match has no condition that a btree index can serve. With
+    // sequential scans off, its one path must be the GIN index with both the
+    // org condition and the match, with the statistics as they are and after
+    // an analyze of the bulk load. (With sequential scans on, the planner
+    // reads a small or unanalyzed table in full, which is right.)
     const indexConditions = async () =>
       withOrgDbContext(orgId, async (db) => {
         await db.execute(sql`SET LOCAL ROLE ctxpipe_app`)
+        await db.execute(sql`SET LOCAL enable_seqscan = off`)
         const explained = await db.execute<{ "QUERY PLAN": unknown }>(
           sql`EXPLAIN (FORMAT JSON) ${lexicalCandidates("ERR_LEDGER_7731", planScope)}`,
         )

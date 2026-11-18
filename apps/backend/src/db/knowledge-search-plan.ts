@@ -55,8 +55,8 @@ export function servesOrgAndMatch(condition: string): boolean {
 }
 
 type SearchPlan = {
-  /** The chunk indexes of the natural plan, or "a full read". */
-  natural: string
+  /** The natural plan reads the chunks in full (else through the GIN index, the one index path). */
+  fullRead: boolean
   /** The GIN index serves the org and the match, with sequential scans off. */
   served: boolean
 }
@@ -95,17 +95,11 @@ export async function checkKnowledgeSearchPlan(
     await client.query(
       "SELECT set_config('app.organization_id', 'org_migrate_plan_check', true)",
     )
-    const naturalNodes = planNodes(await explain(client))
-    const natural = naturalNodes.some(
+    const fullRead = planNodes(await explain(client)).some(
       (node) =>
         node["Node Type"] === "Seq Scan" &&
         node["Relation Name"] === "workspace_knowledge_chunks",
     )
-      ? "a full read"
-      : naturalNodes
-          .map((node) => node["Index Name"] ?? "")
-          .filter((name) => name.startsWith("workspace_knowledge_chunks_"))
-          .join(", ")
     await client.query("SET LOCAL enable_seqscan = off")
     const served = searchIndexConditions(await explain(client)).some(
       servesOrgAndMatch,
@@ -117,11 +111,11 @@ export async function checkKnowledgeSearchPlan(
         : "[migrate] knowledge search plan: the GIN index does not serve the org and the full-text match",
       role: roleName,
       index: SEARCH_INDEX,
-      natural,
+      fullRead,
     }
     if (served) log.info(line)
     else log.warn(line)
-    return { natural, served }
+    return { fullRead, served }
   } catch (error) {
     log.warn({
       step: "migrate",
