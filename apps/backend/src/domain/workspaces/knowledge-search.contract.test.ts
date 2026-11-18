@@ -3,16 +3,22 @@ import { fileURLToPath } from "node:url"
 
 import { config } from "dotenv"
 import { inArray, sql } from "drizzle-orm"
+import pg from "pg"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { closeDb, initDb, withOrgDbContext } from "../../db/client.js"
+import { ownerUrlForMigrate } from "../../db/owner-migrate-url.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import {
   embeddingModelServer,
   seedKnowledgeUnits,
   seedKnowledgeWorkspace,
 } from "../../test/knowledge-search-fixture.js"
-import { hnswCandidates, searchKnowledge } from "./knowledge-search.js"
+import {
+  hnswCandidates,
+  lexicalCandidates,
+  searchKnowledge,
+} from "./knowledge-search.js"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
 config({ path: resolve(__dirname, "../../../.env.local") })
@@ -166,5 +172,34 @@ describe("searchKnowledge on a large shared index (Postgres)", () => {
     expect(plan).not.toMatch(
       /"Node Type":"Seq Scan","[^}]*"Relation Name":"workspace_knowledge_chunks"/,
     )
+  }, 120_000)
+
+  it("reads the full-text matches through the GIN index as the app role", async () => {
+    // RLS applies to ctxpipe_app, not to a superuser or the table owner, so
+    // the plan is taken as ctxpipe_app. Under the policy, Postgres does not
+    // use the GIN index for `@@` (not leakproof): it reads the tsvector of
+    // every chunk in scope, through the primary key or the org index.
+    // The planner needs statistics of the bulk load to cost the org filter,
+    // and only the table owner can analyze.
+    const owner = new pg.Client({
+      connectionString: ownerUrlForMigrate(process.env.DATABASE_URL ?? ""),
+    })
+    await owner.connect()
+    try {
+      await owner.query("ANALYZE workspace_knowledge_chunks")
+    } finally {
+      await owner.end()
+    }
+    const where = sql`c.workspace_id = ANY(${sql.param([small, bulk])}::text[])
+      AND u.projection_sha = coalesce(w.active_revision->>'sha', w.active_projection_sha)`
+    const plan = await withOrgDbContext(orgId, async (db) => {
+      await db.execute(sql`SET LOCAL ROLE ctxpipe_app`)
+      await db.execute(sql`SET LOCAL enable_seqscan = off`)
+      const explained = await db.execute<{ "QUERY PLAN": unknown }>(
+        sql`EXPLAIN (FORMAT JSON) ${lexicalCandidates("ERR_LEDGER_7731", [small, bulk], where)}`,
+      )
+      return JSON.stringify(explained.rows[0]?.["QUERY PLAN"])
+    })
+    expect(plan).toContain("workspace_knowledge_chunks_search_idx")
   }, 120_000)
 })

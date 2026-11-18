@@ -5,6 +5,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  pgView,
   primaryKey,
   text,
   timestamp,
@@ -192,6 +193,29 @@ export const workspaceKnowledgeChunks = pgTable.withRLS(
     orgIsolationPolicy(t.orgId),
   ],
 )
+
+/**
+ * The keys and tsvectors of the session org's chunks, for the full-text match
+ * of the knowledge search. `tsvector @@ tsquery` is not leakproof, so Postgres
+ * does not use the GIN index for it on a table whose RLS policy applies to the
+ * role: `ctxpipe_app` read every chunk of the scope. The view reads the table
+ * as its owner, to whom the policy does not apply, and filters by the policy's
+ * condition. The check option keeps a write through it to the session's org.
+ */
+export const workspaceKnowledgeChunkSearch = pgView(
+  "workspace_knowledge_chunk_search",
+  {
+    workspaceId: text("workspace_id").notNull(),
+    unitId: text("unit_id").notNull(),
+    chunkHash: text("chunk_hash").notNull(),
+    occurrence: integer("occurrence").notNull(),
+    search: tsvector("search").notNull(),
+  },
+)
+  .with({ checkOption: "cascaded" })
+  .as(
+    sql`SELECT workspace_id, unit_id, chunk_hash, occurrence, search FROM workspace_knowledge_chunks WHERE org_id = current_setting('app.organization_id', true)`,
+  )
 
 export const orgMemberPreferences = pgTable.withRLS(
   "org_member_preferences",

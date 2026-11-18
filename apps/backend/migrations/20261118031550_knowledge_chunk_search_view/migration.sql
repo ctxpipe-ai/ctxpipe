@@ -1,0 +1,1 @@
+CREATE VIEW "workspace_knowledge_chunk_search" WITH (check_option = cascaded) AS (SELECT workspace_id, unit_id, chunk_hash, occurrence, search FROM workspace_knowledge_chunks WHERE org_id = current_setting('app.organization_id', true));
