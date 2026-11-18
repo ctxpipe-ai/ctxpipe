@@ -19,6 +19,8 @@ import {
   getWorkspaceById,
   getWorkspaceProjection,
   getWorkspaceProjectionSnapshot,
+  countWorkspaceProjectionUnits,
+  getWorkspaceProjectionState,
   listWorkspaceKnowledgeUnits,
   markKnowledgeEmbeddingsReady,
   persistEmbeddingFailure,
@@ -246,6 +248,30 @@ it(
             env: parseEnv(process.env),
           }),
         ).toBe(sha)
+      })
+    }),
+)
+
+it(
+  "the projection's state is the snapshot without its units, and the units are counted by projection",
+  { timeout: 60_000 },
+  async () =>
+    withNativeHydrationFixture({ github: true }, async (f) => {
+      const { org, workspaceId } = f
+      await f.publish()
+      await withOrgIdContext(org, async () => {
+        const { units, ...rest } =
+          await getWorkspaceProjectionSnapshot(workspaceId)
+        expect(units.length).toBeGreaterThan(0)
+        // The hydrate workflow reads the state: no unit and no body.
+        expect(await getWorkspaceProjectionState(workspaceId)).toEqual(rest)
+        const sha = units[0]?.projectionSha ?? ""
+        expect(await countWorkspaceProjectionUnits(workspaceId, sha)).toBe(
+          units.length,
+        )
+        expect(
+          await countWorkspaceProjectionUnits(workspaceId, "0".repeat(40)),
+        ).toBe(0)
       })
     }),
 )
