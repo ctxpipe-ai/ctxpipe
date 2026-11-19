@@ -889,3 +889,25 @@ describe("users and mutations", () => {
       )
   })
 })
+
+describe("reference keys", () => {
+  it("lists each reference key target that no document states, with its source", async () => {
+    const store = createKnowledgeStore(await freshDatabase())
+    try {
+      // `key:target.md` is a key of target.md; `key:gone` is a key of no
+      // document.
+      await store.replaceDocuments(orgA, [
+        rowsOf("Source", "source.md", "ref:key:target.md"),
+        rowsOf("Other", "other.md", "ref:key:gone"),
+        rowsOf("Target", "target.md", "plain.md"),
+      ])
+      expect(await store.listUnresolvedReferences(orgA)).toEqual([
+        { srcDoc: "other.md", dstDoc: "ref:key:gone" },
+      ])
+      // The read is only for the Workspace of the scope.
+      expect(await store.listUnresolvedReferences(orgB)).toEqual([])
+    } finally {
+      await store.close()
+    }
+  })
+})

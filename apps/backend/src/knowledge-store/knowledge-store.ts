@@ -231,6 +231,14 @@ export type KnowledgeStore = {
   ): Promise<void>
   /** The key and the status of each document of the Workspace. */
   listDocumentKeys(scope: KnowledgeScope): Promise<DocumentKey[]>
+  /**
+   * Each relation target that is a reference key with no document in
+   * `doc_refs` (`ref:<key>`), with each document that states it. Such a key
+   * has no `missing` row: it is a missing link of its own kind.
+   */
+  listUnresolvedReferences(
+    scope: KnowledgeScope,
+  ): Promise<{ srcDoc: string; dstDoc: string }[]>
   readDocument(
     scope: KnowledgeScope,
     docKey: string,
@@ -295,6 +303,8 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     insertPlaceholders: (scope, placeholders) =>
       insertPlaceholders(client, scope, placeholders),
     listDocumentKeys: (scope) => listDocumentKeys(client, scope),
+    listUnresolvedReferences: (scope) =>
+      listUnresolvedReferences(client, scope),
     readDocument: (scope, docKey) => readDocument(client, scope, docKey),
     search: (scope, query) => search(client, scope, query),
     readFrontier: (scope, refs, validAt) =>
@@ -605,6 +615,21 @@ const listDocumentKeys = (client: ClickHouseClient, scope: KnowledgeScope) =>
     scope,
     `SELECT doc_key AS docKey, status FROM documents WHERE ${scoped}
      ORDER BY doc_key`,
+  )
+
+const listUnresolvedReferences = (
+  client: ClickHouseClient,
+  scope: KnowledgeScope,
+) =>
+  select<{ srcDoc: string; dstDoc: string }>(
+    client,
+    scope,
+    `SELECT DISTINCT src_doc AS srcDoc, dst_doc AS dstDoc FROM relations
+     WHERE ${scoped} AND startsWith(dst_doc, {prefix:String})
+       AND substring(dst_doc, length({prefix:String}) + 1) NOT IN (
+         SELECT ref_key FROM doc_refs WHERE ${scoped})
+     ORDER BY srcDoc, dstDoc`,
+    { prefix: REFERENCE_TARGET_PREFIX },
   )
 
 /** The columns of each table, as an insert sends them. */

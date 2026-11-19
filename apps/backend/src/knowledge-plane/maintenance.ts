@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { posix } from "node:path"
 
+import { hostOnlyRefusal } from "../domain/workspaces/host-only.js"
 import {
   resolveHydrateLink,
   servingIdForKnowledgePath,
@@ -54,7 +55,10 @@ type KnowledgeFinding = {
  * - a `failed` document (a file that does not parse);
  * - a reference to a `deleted` document;
  * - a reference to a `missing` document with no file or more than one file
- *   of that name, or with no body link (a claim or a `sources` entry).
+ *   of that name, or with no body link (a claim or a `sources` entry);
+ * - a reference key (`ref:<key>`) that no document states (ADR-066
+ *   decision 5): a missing link with no row of its own;
+ * - a link in a host-only file, which a Workspace write cannot change.
  */
 export async function findKnowledgeRepairs(input: {
   orgId: string
@@ -64,9 +68,16 @@ export async function findKnowledgeRepairs(input: {
   root: string
   sha: string
   /** The job only reads. */
-  store: Pick<KnowledgeStore, "listDocumentKeys" | "readFrontier">
+  store: Pick<
+    KnowledgeStore,
+    | "listDocumentKeys"
+    | "readFrontier"
+    | "listUnresolvedReferences"
+    | "readDocuments"
+  >
 }): Promise<{
-  counts: Record<DocumentStatus, number>
+  /** The documents by status, and the reference keys with no document. */
+  counts: Record<DocumentStatus | "missingKeys", number>
   findings: KnowledgeFinding[]
   /** The files with rewritten links, root-relative. */
   files: { path: string; content: string }[]
@@ -83,11 +94,20 @@ export async function findKnowledgeRepairs(input: {
       statuses.set(docKey, status)
   const keysWith = (status: DocumentStatus) =>
     [...statuses].flatMap(([key, value]) => (value === status ? [key] : []))
-  const counts = { active: 0, deleted: 0, missing: 0, failed: 0 }
+  const counts = {
+    active: 0,
+    deleted: 0,
+    missing: 0,
+    failed: 0,
+    missingKeys: 0,
+  }
   for (const status of statuses.values()) counts[status] += 1
 
-  // The `missing` and `deleted` documents that each active file refers to.
+  // The `missing` and `deleted` documents, and the reference keys with no
+  // document, that each active file refers to.
   const referred = new Map<string, Set<string>>()
+  const refer = (path: string, target: string) =>
+    referred.set(path, (referred.get(path) ?? new Set<string>()).add(target))
   const targets = [...keysWith("missing"), ...keysWith("deleted")]
   await inBatches(targets, 500, async (batch) => {
     const relations = await store.readFrontier(
@@ -95,11 +115,26 @@ export async function findKnowledgeRepairs(input: {
       batch.map((docKey) => ({ workspaceId, docKey })),
     )
     for (const { direction, relation, neighbor } of relations) {
-      if (direction !== "in" || neighbor?.status !== "active") continue
-      const keys = referred.get(neighbor.path) ?? new Set<string>()
-      keys.add(relation.dstDoc)
-      referred.set(neighbor.path, keys)
+      if (direction === "in" && neighbor?.status === "active")
+        refer(neighbor.path, relation.dstDoc)
     }
+  })
+  const unresolved = await store.listUnresolvedReferences({
+    orgId,
+    workspaceId,
+  })
+  counts.missingKeys = new Set(unresolved.map((row) => row.dstDoc)).size
+  await inBatches(unresolved, 500, async (batch) => {
+    const targetsOf = new Map<string, string[]>()
+    for (const { srcDoc, dstDoc } of batch)
+      targetsOf.set(srcDoc, [...(targetsOf.get(srcDoc) ?? []), dstDoc])
+    for (const { document } of await store.readDocuments(
+      { orgId, workspaceIds: [workspaceId] },
+      [...targetsOf.keys()].map((docKey) => ({ workspaceId, docKey })),
+    ))
+      if (document.status === "active")
+        for (const target of targetsOf.get(document.docKey) ?? [])
+          refer(document.path, target)
   })
   // No reference to fix and no failed file: the job reads no Git.
   if (referred.size === 0 && counts.failed === 0)
@@ -145,6 +180,8 @@ export async function findKnowledgeRepairs(input: {
         // The folder of the file, as the writer resolves its links.
         const folder = path.split("/").slice(0, -1).join("/")
         const linked = new Set<string>()
+        // A Workspace write refuses a host-only file, so it gets no fix.
+        const writable = hostOnlyRefusal([path]) === null
         const edits: { start: number; end: number; value: string }[] = []
         for (const link of markdownDestinations(body)) {
           // The raw destination, as the writer reads it.
@@ -155,14 +192,16 @@ export async function findKnowledgeRepairs(input: {
           const status = statuses.get(docKey)
           const matches = named.get(posix.basename(target)) ?? []
           const [match] = matches
-          // The path that the hydrate resolves, with the anchor or query of
-          // the old destination. A `workspace:` or other scheme link keeps
-          // its form, so it gets no fix.
+          // The new destination must resolve back to the one match. A
+          // `workspace:` or other scheme link keeps its form, so it gets no
+          // fix.
           const destination = match && posix.relative(folder || ".", match)
           const fixed =
+            writable &&
             status === "missing" &&
             matches.length === 1 &&
             !!destination &&
+            resolveHydrateLink(folder, destination) === match &&
             !/^[a-z][a-z0-9+.-]*:/i.test(raw) &&
             !/[\s()<>%#?\\]/.test(destination)
           if (fixed) {
@@ -187,7 +226,7 @@ export async function findKnowledgeRepairs(input: {
           if (!linked.has(docKey))
             findings.push({
               status:
-                statuses.get(docKey) === "missing" ? "missing" : "deleted",
+                statuses.get(docKey) === "deleted" ? "deleted" : "missing",
               doc: hashKey(docKey),
               path,
             })
