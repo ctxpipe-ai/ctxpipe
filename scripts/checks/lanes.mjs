@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import { setupSteps, vitestCommand } from "../ci/vitest-launch.mjs"
-import { logFile, logged } from "./log.mjs"
+import { logDirectory, logFile, logged } from "./log.mjs"
 import { freshParts, laneChecks as readParts } from "./trace.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -451,7 +451,7 @@ const codesearchLanes = ["codesearch", "codesearch-bun"]
 // The lanes have no trace here.
 export function runCodesearchImage(checks) {
   const log = logFile("codesearch")
-  const directory = join(root, ".ci-results", "checks", "codesearch-records")
+  const directory = join(logDirectory(), "codesearch-records")
   rmSync(directory, { recursive: true, force: true })
   const run = logged(
     log.path,

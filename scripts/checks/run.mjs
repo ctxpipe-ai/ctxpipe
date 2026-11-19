@@ -3,17 +3,20 @@ import { join, resolve } from "node:path"
 
 import { hostPins } from "../ci/vitest-launch.mjs"
 import { listChecks, runners } from "./families.mjs"
+import { setLogDirectory } from "./log.mjs"
 import { prepare } from "./prerequisites.mjs"
 import { writeTrace } from "./trace.mjs"
 
 // Runs the given check ids and writes one result record per id
 // (schema/result.v1.schema.json) as NDJSON to stdout. Usage:
-//   run.mjs [--trace <dir>] [--manifest <file>] [ids-file]
+//   run.mjs [--trace <dir>] [--manifest <file>] [--logs <dir>] [ids-file]
 // Without ids-file, the ids come from stdin, one per line. With --trace, it
 // also writes <dir>/trace.json.gz (schema/trace.v1.schema.json). With
 // --manifest, it reads the checks from that manifest (the output of
 // list.mjs) and does not list them. Thus a step that holds a credential for
 // its checks can list them in an earlier step, without the credential.
+// With --logs, it writes the logs of the checks to that folder, not to
+// .ci-results/checks.
 // It sets TZ=UTC and LANG=C.UTF-8 (and LC_ALL, which wins over LANG) for
 // each check, so that the time zone and the locale of the host cannot change
 // a result; a portable check (manifest.v1.schema.json) depends on it.
@@ -30,14 +33,19 @@ try {
   const manifestAt = args.indexOf("--manifest")
   const manifest = manifestAt === -1 ? undefined : args[manifestAt + 1]
   if (manifestAt !== -1) args.splice(manifestAt, 2)
+  const logsAt = args.indexOf("--logs")
+  const logs = logsAt === -1 ? undefined : args[logsAt + 1]
+  if (logsAt !== -1) args.splice(logsAt, 2)
   if (
     args.length > 1 ||
     (traceAt !== -1 && !trace.length) ||
-    (manifestAt !== -1 && !manifest)
+    (manifestAt !== -1 && !manifest) ||
+    (logsAt !== -1 && !logs)
   )
     throw new Error(
-      "Usage: run.mjs [--trace <dir>] [--manifest <file>] [ids-file]",
+      "Usage: run.mjs [--trace <dir>] [--manifest <file>] [--logs <dir>] [ids-file]",
     )
+  if (logs) setLogDirectory(resolve(logs))
   const ids = [
     ...new Set(
       readFileSync(args[0] ?? 0, "utf8")
