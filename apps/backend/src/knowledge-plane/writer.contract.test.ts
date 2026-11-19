@@ -242,9 +242,23 @@ async function newWorkspace(): Promise<string> {
   return workspaceId
 }
 
-/** A Git repository that a shallow fetch by SHA can read. */
+/** The committer time of the first commit of each `Remote`. */
+const FIRST_COMMIT_SECONDS = Date.parse("2026-01-01T00:00:00.000Z") / 1000
+
+/**
+ * A Git repository that a shallow fetch by SHA can read, and a fetch with no
+ * blobs too. Each commit is one day after the commit before it, so each
+ * commit has its own time.
+ */
 class Remote {
+  private commits = 0
+
   private constructor(readonly directory: string) {}
+
+  /** The committer time of the commit `index` (from 0). */
+  static timeOf(index: number): Date {
+    return new Date((FIRST_COMMIT_SECONDS + index * 86_400) * 1000)
+  }
 
   static async create(): Promise<Remote> {
     const remote = new Remote(
@@ -252,6 +266,7 @@ class Remote {
     )
     remote.git("init", "-q", "-b", "main")
     remote.git("config", "uploadpack.allowAnySHA1InWant", "true")
+    remote.git("config", "uploadpack.allowFilter", "true")
     return remote
   }
 
@@ -260,6 +275,7 @@ class Remote {
   }
 
   git(...args: string[]): string {
+    const date = `@${FIRST_COMMIT_SECONDS + this.commits * 86_400} +0000`
     return execFileSync(
       "git",
       [
@@ -273,7 +289,14 @@ class Remote {
         this.directory,
         ...args,
       ],
-      { encoding: "utf8" },
+      {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          GIT_AUTHOR_DATE: date,
+          GIT_COMMITTER_DATE: date,
+        },
+      },
     ).trim()
   }
 
@@ -288,6 +311,7 @@ class Remote {
       }
     }
     this.git("commit", "-q", "--allow-empty", "-m", "change")
+    this.commits++
     return this.git("rev-parse", "HEAD")
   }
 
@@ -376,6 +400,18 @@ async function content(workspaceId: string, paths: string[]) {
       .map((row) => named(row.doc_key))
       .sort(),
   }
+}
+
+/** The `valid_from` of each document with content, by path, as an ISO time. */
+function validFromOf(rows: Awaited<ReturnType<typeof content>>) {
+  return Object.fromEntries(
+    rows.documents.map((row) => [
+      String(row.doc_key),
+      row.valid_from === null
+        ? null
+        : new Date(`${String(row.valid_from)}Z`).toISOString(),
+    ]),
+  )
 }
 
 async function statusOf(workspaceId: string) {
@@ -637,6 +673,31 @@ describe("projectKnowledgePlane", () => {
       )
       for (const table of [...tables])
         expect(left[table], table).toEqual(right[table])
+      // A document gets the time of the commit that introduced its file. A
+      // change of the file keeps it; a rename is a new file. An image gets
+      // none.
+      const time = (index: number) => Remote.timeOf(index).toISOString()
+      expect(validFromOf(right)).toEqual({
+        "a.md": time(0),
+        "notes/c.md": time(0),
+        [historyPull.path]: time(0),
+        [SHOP_SOURCE.path]: time(0),
+        [historyIssue.path]: time(1),
+        "knowledge/services/api.md": time(1),
+        "e.md": time(2),
+        "g.md": time(4),
+        "img/d.png": null,
+        "img/unused.png": null,
+      })
+      // A claim with no time of its own gets the same time.
+      expect(
+        right.relations
+          .filter(
+            (row) =>
+              row.src_doc === "a.md" && row.predicate === "FROM_SOURCE",
+          )
+          .map((row) => new Date(`${String(row.valid_from)}Z`).toISOString()),
+      ).toEqual([time(0)])
       // A link target with no content has a row in both: a tombstone after
       // the history, a `missing` placeholder after the rebuild.
       expect(left.empty).toEqual([
@@ -667,6 +728,36 @@ describe("projectKnowledgePlane", () => {
       )
       expect(await run(remote, stepwise, tip)).toMatchObject({ mode: "full" })
       expect(await snapshot(stepwise)).toEqual(before)
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("a run over several commits gives the valid_from of a full rebuild, also to a file that a commit removed and a later commit added again", async () => {
+    const remote = await Remote.create()
+    try {
+      const base = await remote.commit({ "x.md": "# X\n", "y.md": "# Y\n" })
+      const workspaceId = await newWorkspace()
+      await run(remote, workspaceId, base)
+      await remote.commit({ "x.md": null })
+      // The tip tree has x.md as at `base`, so the diff does not show it.
+      const tip = await remote.commit({
+        "x.md": "# X\n",
+        "y.md": "# Y changed\n",
+      })
+      expect(await run(remote, workspaceId, tip)).toMatchObject({
+        mode: "delta",
+      })
+      const rebuilt = await newWorkspace()
+      await run(remote, rebuilt, tip)
+
+      const paths = ["x.md", "y.md"]
+      const left = await content(workspaceId, paths)
+      expect(left).toEqual(await content(rebuilt, paths))
+      expect(validFromOf(left)).toEqual({
+        "x.md": Remote.timeOf(2).toISOString(),
+        "y.md": Remote.timeOf(0).toISOString(),
+      })
     } finally {
       await remote.remove()
     }

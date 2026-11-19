@@ -33,6 +33,10 @@ import {
   multimodalEmbeddingConfig,
 } from "../retrieval/embeddings/multimodalEmbeddings.js"
 import {
+  fetchGitHistory,
+  readMarkdownHistory,
+} from "../services/git/clone-tree.js"
+import {
   fetchGitCommits,
   nativeGit,
   readGitBlobs,
@@ -82,7 +86,10 @@ type KnowledgeRunSummary =
  * 2. The planner gives the change set: a delta, or a full rebuild.
  * 3. Each changed document file replaces the rows of its document: a
  *    knowledge file (Markdown) or an image file (its key is its path). A
- *    knowledge file that does not parse gets a `failed` document.
+ *    knowledge file that does not parse gets a `failed` document. The
+ *    `valid_from` of a knowledge file is the time of the commit that
+ *    introduced it, from one walk of the Git history of the tip
+ *    (`fileIntroductions`).
  * 4. Each relation target with no row gets a `missing` placeholder. A
  *    reference key target gets none: the read resolves it (ADR-066
  *    decision 5).
@@ -161,6 +168,13 @@ export async function projectKnowledgePlane(input: {
               ...input,
               directory,
               plan,
+              introductions: await fileIntroductions({
+                directory,
+                remote: input.remote,
+                root: input.root,
+                tip: input.tip,
+                lastSha: plan.kind === "delta" ? (state?.lastSha ?? null) : null,
+              }),
               counter,
             })
             const failedCount = (
@@ -234,6 +248,7 @@ async function applyChangeSet(input: {
   observedAt: Date
   directory: string
   plan: KnowledgeChangeSet
+  introductions: FileIntroductions
   counter: MutationCounter
 }): Promise<number> {
   const { workspaceId, root, store, observedAt, directory, plan } = input
@@ -258,10 +273,17 @@ async function applyChangeSet(input: {
   for (const { docKey, status } of await store.listDocumentKeys(scope))
     if (status !== "deleted" || !stored.has(docKey)) stored.set(docKey, status)
   // Only regular files: a submodule, a symlink or a removed path gives no
-  // document.
-  const files = (plan.kind === "full" ? plan.files : plan.changed).filter(
-    (path) => tree.has(path) && isDocumentPath(path),
-  )
+  // document. A delta also writes each file that a new commit introduced,
+  // because its `valid_from` changes when the diff does not show it.
+  const files = [
+    ...new Set(
+      plan.kind === "full"
+        ? plan.files
+        : [...plan.changed, ...input.introductions.newlyIntroduced],
+    ),
+  ]
+    .filter((path) => tree.has(path) && isDocumentPath(path))
+    .sort()
 
   /** The keys of the documents that the run wrote from a file. */
   const written = new Set<string>()
@@ -283,6 +305,7 @@ async function applyChangeSet(input: {
         blobPath,
         sourceRepositories,
         observedAt,
+        introducedAt: input.introductions.introducedAt,
         paths: batch,
         blobs: batch.map((path) => tree.get(path) ?? ""),
       })
@@ -357,6 +380,8 @@ async function projectFiles(input: {
   blobPath: ReturnType<typeof workspaceBlobPath>
   sourceRepositories: Map<string, string>
   observedAt: Date
+  /** The time of the introducing commit of each path. */
+  introducedAt: ReadonlyMap<string, string>
   paths: string[]
   /** The blob id of each path. */
   blobs: string[]
@@ -406,6 +431,7 @@ async function projectFiles(input: {
             unit: parsed.unit,
             references: parsed.references,
             blobPath,
+            introducedAt: input.introducedAt.get(path) ?? null,
             observedAt,
           }),
         )
@@ -602,6 +628,62 @@ async function embedImages(
     }
   }
   return { documents, failed }
+}
+
+/** The introducing commit of each knowledge file (`fileIntroductions`). */
+type FileIntroductions = {
+  /** The time of the commit that introduced each path. */
+  introducedAt: Map<string, string>
+  /** The paths whose introducing commit is not in the history of `last_sha`. */
+  newlyIntroduced: string[]
+}
+
+/**
+ * The commit that introduced each knowledge file at `tip`, with the rule of
+ * the old stack (`readMarkdownHistory`): the newest commit that added the
+ * path. One fetch with no blobs and one walk of the history, for all files,
+ * so the cost does not grow with each file. Paths are relative to `root`.
+ *
+ * In a delta, a file can get a new introducing commit with no change in the
+ * diff from `lastSha`: a commit removed it and a later commit added it
+ * again, or a merge brought an earlier add. `newlyIntroduced` gives such
+ * files, so the delta writes the `valid_from` of a full rebuild.
+ */
+async function fileIntroductions(input: {
+  directory: string
+  remote: KnowledgeRemote
+  root: string
+  tip: string
+  /** `last_sha` of a delta, else null. */
+  lastSha: string | null
+}): Promise<FileIntroductions> {
+  const { directory, root, tip } = input
+  await fetchGitHistory(directory, {
+    url: input.remote.url,
+    sha: tip,
+    token: await input.remote.token(),
+  })
+  const { introduced } = await readMarkdownHistory(directory, {
+    sha: tip,
+    root,
+  })
+  const newCommits = new Set(
+    input.lastSha
+      ? (await nativeGit(directory, ["rev-list", tip, "--not", input.lastSha]))
+          .toString()
+          .split("\n")
+          .filter(Boolean)
+      : [],
+  )
+  const introducedAt = new Map<string, string>()
+  const newlyIntroduced: string[] = []
+  for (const [repositoryPath, { timestamp, commit }] of introduced) {
+    const path = workspaceRelativePath(root, repositoryPath)
+    if (path === null) continue
+    introducedAt.set(path, timestamp)
+    if (newCommits.has(commit)) newlyIntroduced.push(path)
+  }
+  return { introducedAt, newlyIntroduced }
 }
 
 /**

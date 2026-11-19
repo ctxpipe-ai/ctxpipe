@@ -1,6 +1,5 @@
 import { extractUrls } from "../domain/codeIngestion/referenceResolver.js"
 import {
-  applyEffectiveValidFromToUnits,
   type HydrateUnit,
   hydrateKnowledgeTree,
 } from "../domain/workspaces/hydrate.js"
@@ -52,8 +51,8 @@ export function isKnowledgePath(path: string): boolean {
  *   file states its own keys (`fileReferences`). The read finds the
  *   documents of a key.
  *
- * The claims get no validity from the introducing commit: the writer reads
- * no history.
+ * The claims keep the `valid_from` of the file. The mapper (`knowledgeRows`)
+ * gives a claim with no time the time of the introducing commit.
  */
 export function parseKnowledgeFile(input: {
   workspaceId: string
@@ -72,7 +71,7 @@ export function parseKnowledgeFile(input: {
   })
   const [skip] = parsed.skipped
   if (skip) return { kind: "failed", error: skip.reason }
-  const [unit] = applyEffectiveValidFromToUnits(parsed.units, new Map())
+  const [unit] = parsed.units
   if (!unit) return { kind: "none" }
   for (const url of extractUrls(unit.body)) {
     const target = input.blobPath(url)

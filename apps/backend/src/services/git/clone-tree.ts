@@ -323,34 +323,8 @@ async function withFetchedGitSha<T>(
         },
       ),
     )
-    if (input.includeIntroducingCommits) {
-      // The history walk reads commits and trees only. It needs no old blob,
-      // and the blobs of a large history are most of its bytes. The tip
-      // blobs came with the fetch above, so the walk adds only the rest.
-      await measuredGitFetch("git.fetch-history", (traced) =>
-        gitExec(
-          [
-            // Settings for this command only, so the budget of native Git
-            // commands per tree does not grow.
-            "-c",
-            "remote.origin.promisor=true",
-            "-c",
-            "remote.origin.partialclonefilter=blob:none",
-            "-C",
-            dir,
-            "fetch",
-            "--no-tags",
-            "--filter=blob:none",
-            "--unshallow",
-            "origin",
-            input.sha,
-          ],
-          // The full history of a large repository takes much longer than
-          // its newest commit.
-          { timeout: 10 * 60_000, env: { ...env, ...traced } },
-        ),
-      )
-    }
+    if (input.includeIntroducingCommits)
+      await fetchGitHistory(dir, input)
     return await read(dir, async (shas) => {
       if (!input.treesOnly || shas.length === 0) return
       // One fetch for all the blobs, not one lazy fetch for each blob.
@@ -588,78 +562,14 @@ export async function listMarkdownFilesAtGitSha(input: {
         60_000,
         `${entries.map((entry) => entry.sha).join("\n")}\n`,
       )
-      const introduced = new Map<string, string>()
-      const lastChanged = new Map<string, string>()
-      if (input.includeIntroducingCommits) {
-        const layoutPath = input.layoutPath
-          ? workspaceRepositoryPath(input.root ?? "", input.layoutPath)
-          : undefined
-        // One history walk for all paths, newest first; raw -z keeps tabs/newlines in filenames intact.
-        const history = await gitOutput(
-          [
-            "-C",
-            dir,
-            "--no-lazy-fetch",
-            "log",
-            "--topo-order",
-            "--format=%x00%ct",
-            "--raw",
-            "-z",
-            // Adds give the introducing commit; edits give the last change;
-            // deletes give the deleted paths.
-            "--diff-filter=AMTD",
-            "--no-renames",
-            "FETCH_HEAD",
-            "--",
-            "*.md",
-            ...(layoutPath ? [`:(literal)${layoutPath}`] : []),
-          ],
-          5 * 60_000,
-        )
-        const records = history.toString("utf8").split("\0")
-        let timestamp: string | undefined
-        // The deletes of the current commit, kept until the commit ends.
-        let deletes: string[] = []
-        let layoutCommit = false
-        const endCommit = () => {
-          if (!layoutCommit)
-            for (const path of deletes) {
-              const relative = workspaceRelativePath(input.root ?? "", path)
-              if (relative !== null) input.deletedPaths?.add(relative)
-            }
-          deletes = []
-          layoutCommit = false
-        }
-        for (let i = 0; i < records.length; i++) {
-          const record = records[i] ?? ""
-          if (/^[0-9]+$/.test(record)) {
-            endCommit()
-            timestamp = new Date(Number(record) * 1000).toISOString()
-          } else {
-            const status =
-              /^\n?:[0-7]{6} [0-7]{6} [0-9a-f]+ [0-9a-f]+ ([A-Z])[0-9]*$/.exec(
-                record,
-              )?.[1]
-            if (status) {
-              const path = records[++i]
-              if (!path || !timestamp)
-                throw new Error("Invalid introducing-commit record")
-              if (path === layoutPath) {
-                layoutCommit = true
-                continue
-              }
-              if (status === "D") {
-                deletes.push(path)
-                continue
-              }
-              if (!lastChanged.has(path)) lastChanged.set(path, timestamp)
-              if (status === "A" && !introduced.has(path))
-                introduced.set(path, timestamp)
-            } else if (record) throw new Error("Invalid Git history response")
-          }
-        }
-        endCommit()
-      }
+      const { introduced, lastChanged } = input.includeIntroducingCommits
+        ? await readMarkdownHistory(dir, {
+            sha: input.sha,
+            root: input.root ?? "",
+            layoutPath: input.layoutPath,
+            deletedPaths: input.deletedPaths,
+          })
+        : { introduced: new Map(), lastChanged: new Map<string, string>() }
       let offset = 0
       const read = entries.map((entry) => {
         const newline = stdout.indexOf(10, offset)
@@ -695,7 +605,7 @@ export async function listMarkdownFilesAtGitSha(input: {
             ? {
                 introducingCommitTimestamp: introduced.get(
                   entry.repositoryPath,
-                ),
+                )?.timestamp,
               }
             : {}),
           ...(lastChanged.has(entry.repositoryPath)
@@ -733,4 +643,147 @@ export async function readFileAtGitSha(input: {
   return withFetchedGitSha(input, (dir, fetchBlobs) =>
     gitShowBytes(dir, input.path, input.treesOnly ? fetchBlobs : undefined),
   )
+}
+
+/**
+ * Fetch the commits and the trees of the whole history of `sha` into `dir`,
+ * also when an earlier fetch was shallow. The history walk
+ * (`readMarkdownHistory`) needs no old blob, and the blobs of a large history
+ * are most of its bytes. The blobs that `dir` has stay, so the fetch adds
+ * only the rest.
+ */
+export async function fetchGitHistory(
+  dir: string,
+  input: { url: string; sha: string; token?: string },
+): Promise<void> {
+  // A remote that exists for this command only: a filtered fetch needs a
+  // named promisor remote, and the settings of `dir` do not change.
+  const remote = "ctxpipe-history"
+  await measuredGitFetch("git.fetch-history", (traced) =>
+    gitExec(
+      [
+        "-c",
+        `remote.${remote}.url=${input.url}`,
+        "-c",
+        `remote.${remote}.promisor=true`,
+        "-c",
+        `remote.${remote}.partialclonefilter=blob:none`,
+        "-C",
+        dir,
+        "fetch",
+        "--no-tags",
+        "--filter=blob:none",
+        "--unshallow",
+        remote,
+        input.sha,
+      ],
+      // The full history of a large repository takes much longer than
+      // its newest commit.
+      {
+        timeout: 10 * 60_000,
+        env: { ...gitRemoteEnvironment(input), ...traced },
+      },
+    ),
+  )
+}
+
+/**
+ * One walk of the Markdown history of `sha` in `dir`, newest first
+ * (`fetchGitHistory` gets it). The maps are by repository path:
+ * - `introduced`: the newest commit that added the path, so a path that a
+ *   commit removed and a later commit added again has the later commit;
+ * - `lastChanged`: the time of the newest commit that changed the path.
+ *
+ * `deletedPaths` gets each Markdown path (relative to `root`) that a commit
+ * deleted. A commit that changes `layoutPath` (relative to `root`) is a
+ * layout commit, such as an upgrade or its revert: its deletes do not go to
+ * `deletedPaths`, because a person did not delete those files.
+ */
+export async function readMarkdownHistory(
+  dir: string,
+  input: {
+    sha: string
+    root: string
+    layoutPath?: string
+    deletedPaths?: Set<string>
+  },
+): Promise<{
+  introduced: Map<string, { timestamp: string; commit: string }>
+  lastChanged: Map<string, string>
+}> {
+  const introduced = new Map<string, { timestamp: string; commit: string }>()
+  const lastChanged = new Map<string, string>()
+  const layoutPath = input.layoutPath
+    ? workspaceRepositoryPath(input.root, input.layoutPath)
+    : undefined
+  // Raw -z keeps tabs and newlines in file names intact.
+  const history = await gitOutput(
+    [
+      "-C",
+      dir,
+      "--no-lazy-fetch",
+      "log",
+      "--topo-order",
+      "--format=%x00%ct %H",
+      "--raw",
+      "-z",
+      // Adds give the introducing commit; edits give the last change;
+      // deletes give the deleted paths.
+      "--diff-filter=AMTD",
+      "--no-renames",
+      input.sha,
+      "--",
+      "*.md",
+      ...(layoutPath ? [`:(literal)${layoutPath}`] : []),
+    ],
+    5 * 60_000,
+  )
+  const records = history.toString("utf8").split("\0")
+  let commit: { timestamp: string; commit: string } | undefined
+  // The deletes of the current commit, kept until the commit ends.
+  let deletes: string[] = []
+  let layoutCommit = false
+  const endCommit = () => {
+    if (!layoutCommit)
+      for (const path of deletes) {
+        const relative = workspaceRelativePath(input.root, path)
+        if (relative !== null) input.deletedPaths?.add(relative)
+      }
+    deletes = []
+    layoutCommit = false
+  }
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i] ?? ""
+    const header = /^([0-9]+) ([0-9a-f]+)$/.exec(record)
+    if (header?.[1] && header[2]) {
+      endCommit()
+      commit = {
+        timestamp: new Date(Number(header[1]) * 1000).toISOString(),
+        commit: header[2],
+      }
+    } else {
+      const status =
+        /^\n?:[0-7]{6} [0-7]{6} [0-9a-f]+ [0-9a-f]+ ([A-Z])[0-9]*$/.exec(
+          record,
+        )?.[1]
+      if (status) {
+        const path = records[++i]
+        if (!path || !commit)
+          throw new Error("Invalid introducing-commit record")
+        if (path === layoutPath) {
+          layoutCommit = true
+          continue
+        }
+        if (status === "D") {
+          deletes.push(path)
+          continue
+        }
+        if (!lastChanged.has(path)) lastChanged.set(path, commit.timestamp)
+        if (status === "A" && !introduced.has(path))
+          introduced.set(path, commit)
+      } else if (record) throw new Error("Invalid Git history response")
+    }
+  }
+  endCommit()
+  return { introduced, lastChanged }
 }

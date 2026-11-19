@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest"
 import { stringify } from "yaml"
 
 import {
-  applyEffectiveValidFromToUnits,
   hydrateKnowledgeTree,
   servingIdForKnowledgePath,
 } from "../domain/workspaces/hydrate.js"
@@ -28,6 +27,7 @@ function rowsOf(
     workspaceId: WS,
     unit,
     references: NO_REFERENCES,
+    introducedAt: null,
     observedAt: OBSERVED,
   })
   // The writer makes an image document from each image file that Git has.
@@ -175,16 +175,14 @@ describe("knowledgeRows", () => {
       workspaceId: WS,
       files: [{ path, content }],
     })
-    // A Git SHA as `valid_from` becomes the time of the introducing commit.
-    const [unit] = applyEffectiveValidFromToUnits(
-      units,
-      new Map([[path, "2026-02-03T04:05:06.000Z"]]),
-    )
+    const [unit] = units
     if (!unit) throw new Error("no unit")
+    // A Git SHA as `valid_from` becomes the time of the introducing commit.
     const rows = knowledgeRows({
       workspaceId: WS,
       unit,
       references: NO_REFERENCES,
+      introducedAt: "2026-02-03T04:05:06.000Z",
       observedAt: OBSERVED,
     })
     expect(rows?.chunks).toEqual([
@@ -227,6 +225,66 @@ describe("knowledgeRows", () => {
         predicate: "LINKS_TO",
         dstDoc: key("knowledge/billing/ledger.md"),
       }),
+    ])
+  })
+
+  it("gives the document, and each claim with no time of its own, the time of the commit that introduced the file", () => {
+    const path = "knowledge/payments/fees.md"
+    const content = `---\n${stringify({
+      claims: [
+        { to: "./rates.md", predicate: "USES" },
+        { to: "./ledger.md", predicate: "USES", valid_from: "2025-05-05" },
+      ],
+    })}---\n# Fees\n\nSee [the cap](./cap.md).\n`
+    const [unit] = hydrateKnowledgeTree({
+      workspaceId: WS,
+      files: [{ path, content }],
+    }).units
+    if (!unit) throw new Error("no unit")
+    const rowsAt = (introducedAt: string | null) =>
+      knowledgeRows({
+        workspaceId: WS,
+        unit,
+        references: NO_REFERENCES,
+        introducedAt,
+        observedAt: OBSERVED,
+      })
+    const validity = (rows: ReturnType<typeof rowsAt>) =>
+      rows.relations.map(({ predicate, dstDoc, validFrom }) => ({
+        predicate,
+        dstDoc,
+        validFrom,
+      }))
+
+    const introduced = rowsAt("2026-03-04T05:06:07.000Z")
+    expect(introduced.document.validFrom).toEqual(
+      new Date("2026-03-04T05:06:07.000Z"),
+    )
+    // A body link states no validity.
+    expect(validity(introduced)).toEqual([
+      {
+        predicate: "USES",
+        dstDoc: key("knowledge/payments/rates.md"),
+        validFrom: new Date("2026-03-04T05:06:07.000Z"),
+      },
+      {
+        predicate: "USES",
+        dstDoc: key("knowledge/payments/ledger.md"),
+        validFrom: new Date("2025-05-05T00:00:00.000Z"),
+      },
+      {
+        predicate: "LINKS_TO",
+        dstDoc: key("knowledge/payments/cap.md"),
+        validFrom: null,
+      },
+    ])
+    // With no introducing commit, only the time of the content stays.
+    const unknown = rowsAt(null)
+    expect(unknown.document.validFrom).toBeNull()
+    expect(validity(unknown).map(({ validFrom }) => validFrom)).toEqual([
+      null,
+      new Date("2025-05-05T00:00:00.000Z"),
+      null,
     ])
   })
 
