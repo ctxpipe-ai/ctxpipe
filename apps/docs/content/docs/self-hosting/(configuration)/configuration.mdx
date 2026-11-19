@@ -100,9 +100,12 @@ ClickHouse holds the content of the new knowledge store: the documents, their
 sections, and the relations between them. ctxpipe makes this content from the
 files of each Workspace repository.
 
+The new knowledge store is off for every organization. A later release
+explains how to turn it on.
+
 | Variable | Description |
 |---|---|
-| `CLICKHOUSE_URL` | Required for an organization on the new knowledge store (see [Turn on the knowledge store](#turn-on-the-knowledge-store)). The ClickHouse HTTP URL with the user, the password, and the database: `http://user:password@host:8123/database`. URL-encode special characters in the password. Each process gets a different user (see below). |
+| `CLICKHOUSE_URL` | Required for an organization on the new knowledge store. The ClickHouse HTTP URL with the user, the password, and the database: `http://user:password@host:8123/database`. URL-encode special characters in the password. Each process gets a different user (see below). |
 | `CLICKHOUSE_READER_PASSWORD` | Migrations only. The password of the user `ctxpipe_reader`. |
 | `CLICKHOUSE_WRITER_PASSWORD` | Migrations only. The password of the user `ctxpipe_writer`. |
 
@@ -199,35 +202,6 @@ With `use_environment_credentials`, ClickHouse uses the AWS credentials of its
 environment, or the instance role on EC2. Give them read, write, list, and
 delete access to the bucket prefix only. Set the S3 disk before the first
 start. A part that is already on the local volume `cold` does not move to S3.
-
-### Turn on the knowledge store
-
-ctxpipe moves organizations to the new knowledge store one at a time. Each
-organization has the feature `knowledge_plane` with one of three values:
-
-| Value | Behavior |
-|---|---|
-| `off` | The default. The graph database answers. The worker writes nothing to ClickHouse. |
-| `shadow` | The graph database answers. The worker also writes to ClickHouse, and the backend compares the two results in the logs. |
-| `on` | ClickHouse answers after the first index run on ClickHouse of each Workspace in the request completes. If one Workspace of a request is not ready, the graph database answers the full request. |
-
-Set the value with SQL in Postgres. Get the id of the organization, then set
-the value. Use `shadow` first:
-
-```bash
-docker compose exec postgres psql -U ctxpipe -c "SELECT id, slug FROM organizations"
-docker compose exec postgres psql -U ctxpipe -c "
-  INSERT INTO org_features (organization_id, feature, value)
-  VALUES ('<organization id>', 'knowledge_plane', 'shadow')
-  ON CONFLICT (organization_id, feature)
-  DO UPDATE SET value = EXCLUDED.value, updated_at = now()"
-```
-
-The backend reads the new value in 30 seconds or less. The first index run of
-each Workspace on ClickHouse is a full rebuild. It starts with the next
-[hydrate](/docs/workspaces/settings#hydrate-and-skipped-files) of the
-Workspace, for example after the next push to the Workspace repository. See
-[Changes and full rebuilds](/docs/workspaces/indexing#changes-and-full-rebuilds).
 
 ### Recover the knowledge store
 
