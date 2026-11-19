@@ -36,7 +36,7 @@ const PAIR_LABELS = [
 ] as const
 type PairLabel = (typeof PAIR_LABELS)[number]
 
-const POSITION_STATUSES = [
+export const POSITION_STATUSES = [
   "current",
   "superseded",
   "disputed",
