@@ -1,26 +1,28 @@
-import type { Pool } from "pg"
+import pg from "pg"
 
 import { log } from "../observability/logger.js"
-import { EMBEDDING_DIMENSIONS } from "./schema/objects.js"
-import { KNOWLEDGE_VECTOR_INDEX } from "./schema/workspaces.js"
-
-/** The full-precision HNSW index of the chunk embeddings, which the half-precision one replaces (CTX-1380). */
-const OLD_INDEX = "workspace_knowledge_chunks_embedding_idx"
+import {
+  HALF_EMBEDDING_INDEX,
+  KNOWLEDGE_VECTOR_INDEX,
+} from "./schema/workspaces.js"
 
 /**
  * Builds the half-precision HNSW index of the chunk embeddings (`KNOWLEDGE_VECTOR_INDEX`) CONCURRENTLY, then drops the
- * full-precision one CONCURRENTLY. Neither blocks a read or a write of the chunks. A concurrent build cannot run in a
- * transaction, so this runs after Drizzle's migrations, on one connection of its own, in autocommit:
+ * full-precision one CONCURRENTLY (CTX-1380). Neither blocks a read or a write of the chunks. A concurrent build cannot
+ * run in a transaction, so this runs after Drizzle's migrations, which run in one, on a connection of its own in
+ * autocommit, which it closes after:
  *
  * - **Idempotent:** with the valid index there, it only drops the old one (if it is still there).
- * - **A failed build** (a lock wait, a restart) leaves an invalid index; the next run drops it and builds again.
- * - **Old transactions:** a concurrent build waits for every transaction that may still see the table, so the lock wait
- *   here is ten minutes, not migrate's 30 seconds.
- * - **Search meanwhile:** until the new index is valid the search orders by an expression that no index holds, so a
- *   large scope reads its vectors exactly, as before; the old index serves no query of the search after this deploy.
+ * - **A failed build** leaves an invalid index; the next run drops it and builds again.
+ * - **Old transactions:** a concurrent build waits for every transaction that may still see the table, so its lock
+ *   wait is ten minutes, not migrate's 30 seconds. A build that waits longer is a warning: migrate goes on, the search
+ *   scans a large scope exactly until the next migrate builds the index.
  */
-export async function buildKnowledgeVectorIndex(pool: Pool): Promise<void> {
-  const client = await pool.connect()
+export async function buildKnowledgeVectorIndex(
+  connectionString: string,
+): Promise<void> {
+  const client = new pg.Client({ connectionString })
+  await client.connect()
   try {
     await client.query("SET lock_timeout = '10min'")
     const found = await client.query<{ valid: boolean }>(
@@ -29,15 +31,12 @@ export async function buildKnowledgeVectorIndex(pool: Pool): Promise<void> {
       [KNOWLEDGE_VECTOR_INDEX],
     )
     if (found.rows[0]?.valid !== true) {
-      if (found.rows.length > 0) {
-        await client.query(
-          `DROP INDEX CONCURRENTLY IF EXISTS "${KNOWLEDGE_VECTOR_INDEX}"`,
-        )
-      }
+      await client.query(
+        `DROP INDEX CONCURRENTLY IF EXISTS "${KNOWLEDGE_VECTOR_INDEX}"`,
+      )
       const started = performance.now()
       await client.query(
-        `CREATE INDEX CONCURRENTLY "${KNOWLEDGE_VECTOR_INDEX}" ON "workspace_knowledge_chunks"
-         USING hnsw (("embedding"::halfvec(${EMBEDDING_DIMENSIONS})) halfvec_cosine_ops)`,
+        `CREATE INDEX CONCURRENTLY "${KNOWLEDGE_VECTOR_INDEX}" ON "workspace_knowledge_chunks" USING hnsw (${HALF_EMBEDDING_INDEX})`,
       )
       const chunks = await client.query<{ n: string }>(
         "SELECT count(*) AS n FROM workspace_knowledge_chunks WHERE embedding IS NOT NULL",
@@ -51,8 +50,19 @@ export async function buildKnowledgeVectorIndex(pool: Pool): Promise<void> {
         seconds: Math.round((performance.now() - started) / 1000),
       })
     }
-    await client.query(`DROP INDEX CONCURRENTLY IF EXISTS "${OLD_INDEX}"`)
+    // The full-precision index, which no query reads after this change.
+    await client.query(
+      'DROP INDEX CONCURRENTLY IF EXISTS "workspace_knowledge_chunks_embedding_idx"',
+    )
+  } catch (error) {
+    if ((error as { code?: string }).code !== "55P03") throw error
+    log.warn({
+      step: "migrate",
+      message:
+        "[migrate] the half-precision HNSW index was not built: older transactions held the table for 10 minutes. The next migrate builds it.",
+      index: KNOWLEDGE_VECTOR_INDEX,
+    })
   } finally {
-    client.release()
+    await client.end()
   }
 }

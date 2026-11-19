@@ -25,7 +25,9 @@ beforeAll(() => {
 
 afterAll(async () => {
   // Leave the index as migrate leaves it.
-  await buildKnowledgeVectorIndex(pool)
+  await buildKnowledgeVectorIndex(
+    ownerUrlForMigrate(process.env.DATABASE_URL ?? ""),
+  )
   await pool.end()
 })
 
@@ -41,11 +43,15 @@ it("migrate leaves one valid half-precision HNSW index of the embeddings, and th
 
 it("builds the index again when it is missing, and changes nothing when it is there", async () => {
   await pool.query(`DROP INDEX CONCURRENTLY "${KNOWLEDGE_VECTOR_INDEX}"`)
-  await buildKnowledgeVectorIndex(pool)
+  await buildKnowledgeVectorIndex(
+    ownerUrlForMigrate(process.env.DATABASE_URL ?? ""),
+  )
   const rebuilt = await indexes()
   expect(rebuilt.map(({ name, valid }) => ({ name, valid }))).toEqual([
     { name: KNOWLEDGE_VECTOR_INDEX, valid: true },
   ])
-  await buildKnowledgeVectorIndex(pool)
+  await buildKnowledgeVectorIndex(
+    ownerUrlForMigrate(process.env.DATABASE_URL ?? ""),
+  )
   expect(await indexes()).toEqual(rebuilt)
 }, 300_000)

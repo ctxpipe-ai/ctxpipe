@@ -1,7 +1,7 @@
 import { type SQL, sql } from "drizzle-orm"
 
 import { withOrgDbContext } from "../../db/client.js"
-import { EMBEDDING_DIMENSIONS } from "../../db/schema/objects.js"
+import { HALF_EMBEDDING } from "../../db/schema/workspaces.js"
 import { activeProjectionSha } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { generateEmbedding } from "../../retrieval/services/modelProvider.js"
@@ -64,10 +64,6 @@ type KnowledgeHit = {
 // candidate list, so a unit with many close chunks cannot push out the others.
 const CANDIDATES = 100
 const RRF_K = 60
-// The exact scan of a scope up to this many chunks, or up to this share of the
-// table, whichever is more (measured cold, CTX-1380); above, the HNSW index.
-const EXACT_MAX_CHUNKS = 2_000
-const HNSW_MIN_SHARE = 0.03
 
 /**
  * Settings of one filtered HNSW scan. From pgvector 0.8 the scan goes on
@@ -216,19 +212,24 @@ async function runSearch(
       // cost the same at about 3% of the table; below that, and below 2,000
       // chunks, the exact scan reads less. At 3% a walk finds its 100 well
       // before `hnsw.max_scan_tuples` (20,000).
-      const estimated = await db.execute<{ rows: number | string }>(
-        sql`SELECT greatest(reltuples, 0) AS rows FROM pg_class WHERE oid = 'workspace_knowledge_chunks'::regclass`,
-      )
-      const exactMax = Math.max(
-        EXACT_MAX_CHUNKS,
-        Math.ceil(HNSW_MIN_SHARE * Number(estimated.rows[0]?.rows ?? 0)),
-      )
-      const counted = await db.execute<{ count: number | string }>(
-        sql`SELECT count(*) AS count FROM (
-          SELECT 1 FROM ${scope} WHERE ${where} AND c.embedding IS NOT NULL LIMIT ${exactMax + 1}
+      // The exact scan: up to 2,000 chunks, or up to 3% of the table's
+      // estimated rows, whichever is more; the count stops one above that.
+      const counted = await db.execute<{
+        count: number | string
+        exact_max: number | string
+      }>(
+        sql`WITH cap AS (
+          SELECT greatest(2000, ceil(0.03 * greatest(reltuples, 0)))::int AS exact_max
+          FROM pg_class WHERE oid = 'workspace_knowledge_chunks'::regclass
+        )
+        SELECT (SELECT exact_max FROM cap) AS exact_max, count(*) AS count FROM (
+          SELECT 1 FROM ${scope} WHERE ${where} AND c.embedding IS NOT NULL
+          LIMIT (SELECT exact_max + 1 FROM cap)
         ) AS capped`,
       )
-      if (Number(counted.rows[0]?.count) <= exactMax) {
+      if (
+        Number(counted.rows[0]?.count) <= Number(counted.rows[0]?.exact_max)
+      ) {
         // MATERIALIZED keeps the planner from walking the HNSW index.
         semantic = sql`WITH scoped AS MATERIALIZED (
             SELECT c.workspace_id, c.unit_id, c.chunk_hash, c.occurrence,
@@ -262,9 +263,9 @@ async function runSearch(
         // off, only the HNSW index gives the order. They hold for this one
         // statement: the next ones of the transaction get the defaults back.
         await setTimeBudget()
-        await db.execute(sql`SET LOCAL enable_seqscan = off`)
-        await db.execute(sql`SET LOCAL enable_sort = off`)
-        await db.execute(sql`SET LOCAL enable_incremental_sort = off`)
+        await db.execute(
+          sql`SELECT set_config('enable_seqscan', 'off', true), set_config('enable_sort', 'off', true), set_config('enable_incremental_sort', 'off', true)`,
+        )
         const nearest = await db.execute<{
           workspace_id: string
           unit_id: string
@@ -272,9 +273,9 @@ async function runSearch(
           occurrence: number
           rank: number | string
         }>(hnswCandidates(vector, where))
-        await db.execute(sql`SET LOCAL enable_seqscan TO DEFAULT`)
-        await db.execute(sql`SET LOCAL enable_sort TO DEFAULT`)
-        await db.execute(sql`SET LOCAL enable_incremental_sort TO DEFAULT`)
+        await db.execute(
+          sql`SELECT set_config('enable_seqscan', 'on', true), set_config('enable_sort', 'on', true), set_config('enable_incremental_sort', 'on', true)`,
+        )
         semantic = sql`SELECT workspace_id, unit_id, chunk_hash, occurrence, rank
           FROM jsonb_to_recordset(${JSON.stringify(nearest.rows)}::jsonb)
             AS nearest(workspace_id text, unit_id text, chunk_hash text, occurrence int, rank bigint)`
@@ -396,7 +397,7 @@ export function hnswCandidates(vector: SQL, where: SQL): SQL {
   // Only a bare `ORDER BY distance` lets the planner use the HNSW
   // index, so the key breaks ties in the rank window, not here. The
   // distance is the index's expression: the embedding in half precision.
-  const half = sql.raw(`halfvec(${EMBEDDING_DIMENSIONS})`)
+  const half = sql.raw(HALF_EMBEDDING)
   return sql`SELECT ${tieBreakOuter},
       row_number() OVER (ORDER BY distance, ${tieBreakOuter}) AS rank
     FROM (

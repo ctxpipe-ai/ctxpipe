@@ -80,7 +80,7 @@ export async function runMigrations(options: {
     )
     await migrateOpenWorkflow(options.connectionString)
     // Outside Drizzle's transaction: a concurrent index build cannot run in one.
-    await buildKnowledgeVectorIndex(pool)
+    await buildKnowledgeVectorIndex(options.connectionString)
 
     await backfillNullOrgIds(pool)
     await backfillRepositoryIngestionRequests(pool)
