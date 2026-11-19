@@ -72,16 +72,29 @@ function vectorOf(content: unknown): number[] {
   )
 }
 
-/** The embedding requests; `failAt` answers that request (1-based) with a 400. */
-const embeddings = { requests: 0, failAt: 0 }
+/**
+ * The embedding requests; `failAt` answers that request (1-based) with a 401,
+ * an error that fails the run. A 400 is a refusal of the content.
+ * `inputs` holds the content parts of each request.
+ */
+const embeddings = {
+  requests: 0,
+  failAt: 0,
+  inputs: [] as { content: unknown }[][],
+  /** A request that holds this text (an image in base64) gets a 400. */
+  refuse: null as string | null,
+}
 const msw = setupServer(
   http.post(EMBEDDINGS_URL, async ({ request }) => {
     embeddings.requests++
     if (embeddings.requests === embeddings.failAt)
-      return HttpResponse.json({ error: "down" }, { status: 400 })
+      return HttpResponse.json({ error: "down" }, { status: 401 })
     const body = (await request.json()) as {
       input: { content: unknown }[]
     }
+    if (embeddings.refuse && JSON.stringify(body).includes(embeddings.refuse))
+      return HttpResponse.json({ error: "bad image" }, { status: 400 })
+    embeddings.inputs.push(body.input)
     return HttpResponse.json({
       data: body.input.map((input, index) => ({
         index,
@@ -138,6 +151,8 @@ beforeEach(() => {
   vi.stubEnv("MODEL_PROVIDER_URL", "https://embeddings.test/api/v1")
   embeddings.requests = 0
   embeddings.failAt = 0
+  embeddings.inputs = []
+  embeddings.refuse = null
 })
 
 afterEach(() => {
@@ -284,8 +299,6 @@ async function content(workspaceId: string, paths: string[]) {
         const out: Row = { ...row }
         for (const column of ["doc_key", "src_doc", "dst_doc"])
           if (column in out) out[column] = named(out[column])
-        if ("s3_key" in out)
-          out.s3_key = String(out.s3_key).replace(workspaceId, "{workspace}")
         return out
       })
       .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
@@ -346,8 +359,24 @@ function halfTombstones(workspaceId: string): KnowledgeStore {
 const key = (workspaceId: string, path: string) =>
   servingIdForKnowledgePath(workspaceId, path)
 
-const png = (seed: string) =>
-  Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.from(seed)])
+/** A PNG header (400 × 300 px), then `seed`, so that each seed gives other bytes. */
+const png = (seed: string) => {
+  const header = Buffer.alloc(33)
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(header)
+  header.writeUInt32BE(13, 8)
+  header.write("IHDR", 12, "ascii")
+  header.writeUInt32BE(400, 16)
+  header.writeUInt32BE(300, 20)
+  return Buffer.concat([header, Buffer.from(seed)])
+}
+
+/** A JPEG header (400 × 300 px): a JFIF segment, then the frame size. */
+const jpeg = Buffer.from([
+  0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01,
+  0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x01,
+  0x2c, 0x01, 0x90, 0x03, 0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01,
+  0xff, 0xd9,
+])
 
 /** A Linear issue mirror file, as the Linear sync writes it. */
 function linearIssue(identifier: string, description = "") {
@@ -847,7 +876,7 @@ describe("projectKnowledgePlane", () => {
       const four = await remote.commit({ "b.md": "# Beta again\n" })
       embeddings.failAt = embeddings.requests + 1
       await expect(run(remote, workspaceId, four)).rejects.toThrow(
-        /Embedding request failed: HTTP 400/,
+        /Embedding request failed: HTTP 401/,
       )
       expect(await getKnowledgeState(scope)).toMatchObject({
         lastSha: three,
@@ -874,7 +903,7 @@ describe("projectKnowledgePlane", () => {
     }
   })
 
-  it("writes an image file with the hash in its S3 key, skips submodules, and reads only the root folder", async () => {
+  it("embeds the bytes of an image file, keeps no copy of them, skips submodules, and reads only the root folder", async () => {
     const remote = await Remote.create()
     try {
       const workspaceId = await newWorkspace()
@@ -889,29 +918,112 @@ describe("projectKnowledgePlane", () => {
         scope,
         key(workspaceId, "img/d.png"),
       )
-      const hash = createHash("sha256").update(png("one")).digest("hex")
       expect(image?.document).toMatchObject({
         kind: "image",
         status: "active",
         path: "img/d.png",
         mime: "image/png",
-        s3Key: `${orgId}/${workspaceId}/${hash}`,
       })
-      // No image bytes yet, so no image embedding.
-      expect(image?.chunks).toEqual([
-        { ordinal: 0, text: "", startLine: 0, endLine: 0, embedding: [] },
+      // The image chunk has no text. Its vector comes from a request that
+      // holds the bytes of the image only.
+      const dataUri = `data:image/png;base64,${png("one").toString("base64")}`
+      expect(embeddings.inputs).toContainEqual([
+        { content: [{ type: "image_url", image_url: { url: dataUri } }] },
       ])
+      expect(image?.chunks).toMatchObject([
+        { ordinal: 0, text: "", startLine: 0, endLine: 0 },
+      ])
+      expect(image?.chunks[0]?.embedding).toHaveLength(
+        multimodalEmbeddingConfig.dimensions,
+      )
+      // The alt text of the reference is on its relation.
+      expect(
+        image?.incoming.map(({ predicate, altText }) => ({
+          predicate,
+          altText,
+        })),
+      ).toEqual([{ predicate: "EMBEDS_IMAGE", altText: "d" }])
       // A chunk of a knowledge file keeps the lines that the mapper gives.
       expect(
         (await store.readDocument(scope, key(workspaceId, "a.md")))?.chunks.map(
           ({ startLine, endLine }) => ({ startLine, endLine }),
         ),
       ).toEqual([{ startLine: 1, endLine: 3 }])
-      expect(image?.incoming.map((relation) => relation.predicate)).toEqual([
-        "EMBEDS_IMAGE",
-      ])
       expect(Object.keys(await statusOf(workspaceId)).sort()).toEqual(
         [key(workspaceId, "a.md"), key(workspaceId, "img/d.png")].sort(),
+      )
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("gives a failed document to an image that the model does not take, and completes the run", async () => {
+    const remote = await Remote.create()
+    try {
+      const workspaceId = await newWorkspace()
+      const scope = { orgId, workspaceId }
+      const large = Buffer.alloc(multimodalEmbeddingConfig.maxImageBytes + 1)
+      png("large").copy(large)
+      const tip = await remote.commit({
+        "a.md":
+          "# Alpha\n\n![Logo](logo.svg) ![Big](big.png) ![Fake](fake.png) ![Photo](p.jpg) ![Chart](chart.png)\n",
+        "logo.svg": '<svg xmlns="http://www.w3.org/2000/svg"/>',
+        "big.png": large,
+        "fake.png": "This is text, not a PNG.",
+        "p.jpg": jpeg,
+        "chart.png": png("chart"),
+      })
+      const summary = await run(remote, workspaceId, tip)
+      expect(summary).toMatchObject({ mode: "full", failedCount: 3 })
+      expect((await getKnowledgeState({ orgId, workspaceId }))?.lastSha).toBe(
+        tip,
+      )
+      const documentOf = async (path: string) =>
+        (await store.readDocument(scope, key(workspaceId, path)))?.document
+      expect(await documentOf("logo.svg")).toMatchObject({
+        status: "failed",
+        error:
+          "The embedding model does not take images of type image/svg+xml.",
+      })
+      expect(await documentOf("big.png")).toMatchObject({
+        status: "failed",
+        error: expect.stringContaining("The embedding model takes at most"),
+      })
+      // The type comes from the bytes, not from the file name.
+      expect(await documentOf("fake.png")).toMatchObject({
+        status: "failed",
+        error: "The bytes are not an image of type image/png.",
+      })
+      expect(await documentOf("p.jpg")).toMatchObject({
+        status: "active",
+        mime: "image/jpeg",
+      })
+      // Only the JPEG and the small PNG go to the embedding model, in one
+      // request. Each relation stays, with its alt text.
+      expect(
+        embeddings.inputs.filter((input) =>
+          JSON.stringify(input).includes("image_url"),
+        ),
+      ).toEqual([
+        [
+          `data:image/png;base64,${png("chart").toString("base64")}`,
+          `data:image/jpeg;base64,${jpeg.toString("base64")}`,
+        ].map((url) => ({
+          content: [{ type: "image_url", image_url: { url } }],
+        })),
+      ])
+      expect(
+        (await store.readDocument(scope, key(workspaceId, "a.md")))?.outgoing
+          .map(({ dstDoc, altText }) => [dstDoc, altText])
+          .sort(),
+      ).toEqual(
+        [
+          [key(workspaceId, "logo.svg"), "Logo"],
+          [key(workspaceId, "big.png"), "Big"],
+          [key(workspaceId, "fake.png"), "Fake"],
+          [key(workspaceId, "p.jpg"), "Photo"],
+          [key(workspaceId, "chart.png"), "Chart"],
+        ].sort(),
       )
     } finally {
       await remote.remove()
@@ -1141,6 +1253,37 @@ describe("reference keys (CTX-1400)", () => {
           status: "active",
         },
       ])
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("gives a failed document to an image that the model refuses, and embeds the other images of its request", async () => {
+    const remote = await Remote.create()
+    try {
+      const workspaceId = await newWorkspace()
+      const scope = { orgId, workspaceId }
+      // A cut file: its header is good, and the model refuses its bytes.
+      embeddings.refuse = png("cut").toString("base64")
+      const tip = await remote.commit({
+        "a.md": "# Alpha\n\n![A](a.png) ![Cut](cut.png) ![Z](z.png)\n",
+        "a.png": png("a"),
+        "cut.png": png("cut"),
+        "z.png": png("z"),
+      })
+      const summary = await run(remote, workspaceId, tip)
+      expect(summary).toMatchObject({ mode: "full", failedCount: 1 })
+      const documentOf = async (path: string) =>
+        (await store.readDocument(scope, key(workspaceId, path)))?.document
+      expect(await documentOf("cut.png")).toMatchObject({
+        status: "failed",
+        error: "The embedding model refused the image (HTTP 400).",
+      })
+      for (const path of ["a.png", "z.png"])
+        expect(
+          (await store.readDocument(scope, key(workspaceId, path)))?.chunks[0]
+            ?.embedding,
+        ).toHaveLength(multimodalEmbeddingConfig.dimensions)
     } finally {
       await remote.remove()
     }

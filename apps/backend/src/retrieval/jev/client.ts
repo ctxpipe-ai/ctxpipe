@@ -21,7 +21,7 @@ const JEV_MODEL = "typesafe/jev-1.14"
  * `JEV_MODEL`. Each request pins it, with no fallback (ADR-068 decision 7).
  */
 // scope-allow: the pinned provider stays next to the model id.
-const JEV_PROVIDER = "typesafe"
+export const JEV_PROVIDER = "typesafe"
 
 /** The state of a decisions request: text, and each image as a data URL. */
 export type JevState = (

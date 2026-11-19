@@ -260,6 +260,42 @@ export async function fetchCheckoutFileBytesUpTo(
     : bytes
 }
 
+/**
+ * The bytes of the regular file `path` of a repository at the commit `sha`,
+ * from the Git object store of codesearch (CTX-1412). The token names only
+ * this commit. Null for a symlink, a submodule, a missing path or commit, or
+ * a blob larger than `maxBytes`. With `root`, `path` is relative to that
+ * folder.
+ */
+export async function fetchCommitBlob(input: {
+  repositoryId: string
+  orgId: string
+  sha: string
+  path: string
+  root?: string
+  maxBytes: number
+}): Promise<Uint8Array | null> {
+  const res = await fetchWithAuth(
+    `${codesearchBaseUrl()}/${input.repositoryId}/blobs-query`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sha: input.sha,
+        paths: [input.path],
+        ...(input.root ? { root: input.root } : {}),
+        maxBytes: input.maxBytes,
+      }),
+    },
+    input.repositoryId,
+    input.orgId,
+    { sha: input.sha, retries: 0 },
+  )
+  if (!res.ok) await raiseCodesearchFailure("fetchCommitBlob", res, "checkout")
+  const blob = ((await res.json()) as Record<string, string | null>)[input.path]
+  return blob ? Buffer.from(blob, "base64") : null
+}
+
 async function queryCheckoutFile(
   input: CheckoutFileQuery & { maxBytes?: number },
 ): Promise<string | { size: number } | undefined> {

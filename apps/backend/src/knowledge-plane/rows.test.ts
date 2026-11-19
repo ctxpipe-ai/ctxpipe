@@ -11,7 +11,6 @@ import { imageRows, knowledgeRows } from "./rows.js"
 const WS = "ws_1"
 const OBSERVED = new Date("2026-11-19T10:00:00.000Z")
 const key = (path: string) => servingIdForKnowledgePath(WS, path)
-const HASH = "a".repeat(64)
 
 /** A file that states no reference key and names none. */
 const NO_REFERENCES = { keys: [], links: [] }
@@ -19,7 +18,8 @@ const NO_REFERENCES = { keys: [], links: [] }
 function rowsOf(
   files: Array<{ path: string; content: string }>,
   path: string,
-  imageHashes: ReadonlyMap<string, string | null> = new Map(),
+  /** The image files that Git has. */
+  images: ReadonlySet<string> = new Set(),
 ) {
   const { units } = hydrateKnowledgeTree({ workspaceId: WS, files })
   const unit = units.find((entry) => entry.path === path)
@@ -31,26 +31,18 @@ function rowsOf(
     observedAt: OBSERVED,
   })
   // The writer makes an image document from each image file that Git has.
-  const pathOf = new Map(
-    [...imageHashes.keys()].map((image) => [key(image), image]),
+  const pathOf = new Map([...images].map((image) => [key(image), image]))
+  const shown = new Set(
+    rows.relations.flatMap(({ predicate, dstDoc }) => {
+      const image = pathOf.get(dstDoc)
+      return predicate === "EMBEDS_IMAGE" && image !== undefined ? [image] : []
+    }),
   )
   return [
     rows,
-    ...rows.relations.flatMap(({ predicate, dstDoc }) => {
-      const image = pathOf.get(dstDoc)
-      const hash = image === undefined ? null : imageHashes.get(image)
-      return predicate === "EMBEDS_IMAGE" && image !== undefined && hash
-        ? [
-            imageRows({
-              orgId: "org_1",
-              workspaceId: WS,
-              path: image,
-              hash,
-              observedAt: OBSERVED,
-            }),
-          ]
-        : []
-    }),
+    ...[...shown].map((image) =>
+      imageRows({ workspaceId: WS, path: image, observedAt: OBSERVED }),
+    ),
   ]
 }
 
@@ -93,7 +85,6 @@ describe("knowledgeRows", () => {
           sourceType: "docs",
           source: "",
           summary: "See [ledger](../billing/ledger.md).",
-          s3Key: "",
           mime: "",
           validFrom: null,
           validTo: null,
@@ -116,6 +107,7 @@ describe("knowledgeRows", () => {
             validFrom: null,
             validTo: null,
             source: "",
+            altText: "",
             observedAt: OBSERVED,
           },
           {
@@ -126,6 +118,7 @@ describe("knowledgeRows", () => {
             validFrom: null,
             validTo: null,
             source: "git",
+            altText: "",
             observedAt: OBSERVED,
           },
         ],
@@ -217,6 +210,7 @@ describe("knowledgeRows", () => {
         validFrom: new Date("2026-01-01T00:00:00.000Z"),
         validTo: new Date("2026-06-30T12:00:00.000Z"),
         source: "https://example.com/rfc/7",
+        altText: "",
         observedAt: OBSERVED,
       },
       // No chunk links to the rates file, so the claim takes the first chunk.
@@ -236,9 +230,8 @@ describe("knowledgeRows", () => {
     ])
   })
 
-  it("maps an image to an image document whose key comes from the hash only", () => {
+  it("maps an image to an image document whose key is its path", () => {
     const path = "knowledge/arch/overview.md"
-    const keyLike = `knowledge/arch/org_x/ws_y/${"b".repeat(64)}.png`
     const content = [
       "# Overview",
       "",
@@ -248,19 +241,11 @@ describe("knowledgeRows", () => {
       "",
       '![Request flow](../../assets/flow.png "The flow")',
       "![Again](../../assets/flow.png)",
-      `![Other org](org_x/ws_y/${"b".repeat(64)}.png)`,
       "![Remote](https://example.com/remote.png)",
       "![Not an image](./notes.md)",
       "",
     ].join("\n")
-    const rows = rowsOf(
-      [{ path, content }],
-      path,
-      new Map<string, string | null>([
-        ["assets/flow.png", HASH],
-        [keyLike, null],
-      ]),
-    )
+    const rows = rowsOf([{ path, content }], path, new Set(["assets/flow.png"]))
     const image = key("assets/flow.png")
     expect(rows.slice(1)).toEqual([
       {
@@ -272,7 +257,6 @@ describe("knowledgeRows", () => {
           sourceType: "docs",
           source: "",
           summary: "",
-          s3Key: `org_1/ws_1/${HASH}`,
           mime: "image/png",
           validFrom: null,
           validTo: null,
@@ -282,9 +266,8 @@ describe("knowledgeRows", () => {
         relations: [],
       },
     ])
-    // The key-like path in the content gets a relation to its own document
-    // key, but no image document, because Git has no such file. The Markdown
-    // file stays a link.
+    // Each alt text of the image gives a relation. The Markdown file stays
+    // a link.
     expect(edges(rows[0]?.relations ?? [])).toEqual([
       {
         predicate: "LINKS_TO",
@@ -292,7 +275,7 @@ describe("knowledgeRows", () => {
         srcChunk: 1,
       },
       { predicate: "EMBEDS_IMAGE", dstDoc: image, srcChunk: 1 },
-      { predicate: "EMBEDS_IMAGE", dstDoc: key(keyLike), srcChunk: 1 },
+      { predicate: "EMBEDS_IMAGE", dstDoc: image, srcChunk: 1 },
     ])
   })
 
@@ -348,13 +331,12 @@ describe("knowledgeRows", () => {
     const rows = rowsOf(
       [{ path, content: "![Architecture](diagram.svg)\n" }],
       path,
-      new Map([["knowledge/arch/diagram.svg", HASH]]),
+      new Set(["knowledge/arch/diagram.svg"]),
     )
     expect(rows[1]?.document).toMatchObject({
       kind: "image",
       path: "knowledge/arch/diagram.svg",
       mime: "image/svg+xml",
-      s3Key: `org_1/ws_1/${HASH}`,
     })
   })
 
@@ -376,10 +358,7 @@ describe("knowledgeRows", () => {
     const rows = rowsOf(
       [{ path, content }],
       path,
-      new Map([
-        ["knowledge/arch/flow.png", HASH],
-        ["knowledge/arch/map.webp", HASH],
-      ]),
+      new Set(["knowledge/arch/flow.png", "knowledge/arch/map.webp"]),
     )
     expect(rows.map((entry) => entry.document.path)).toEqual([
       path,
@@ -396,6 +375,12 @@ describe("knowledgeRows", () => {
         dstDoc: key("knowledge/arch/flow.png"),
         srcChunk: 1,
       },
+      // "map" and "MAP" are two alt texts of one image.
+      {
+        predicate: "EMBEDS_IMAGE",
+        dstDoc: key("knowledge/arch/map.webp"),
+        srcChunk: 1,
+      },
       {
         predicate: "EMBEDS_IMAGE",
         dstDoc: key("knowledge/arch/map.webp"),
@@ -404,15 +389,67 @@ describe("knowledgeRows", () => {
     ])
   })
 
-  it("refuses an image hash that is not a SHA-256 hex digest", () => {
-    const path = "knowledge/a.md"
-    expect(() =>
-      rowsOf(
-        [{ path, content: "![x](x.png)\n" }],
-        path,
-        new Map([["knowledge/x.png", "../../other-org/key"]]),
-      ),
-    ).toThrow("not a SHA-256 hex digest")
+  it("puts the alt text of each image reference on its EMBEDS_IMAGE relation", () => {
+    const path = "knowledge/arch/flows.md"
+    const content = [
+      "# Flows",
+      "",
+      "![](./blank.png) ![The   payment\nflow](./flow.png) ![The payment flow](./flow.png)",
+      "",
+      "![Ledger map][map] ![logo]",
+      "",
+      "```md",
+      "![Inside a fence](./fenced.png)",
+      "```",
+      "",
+      "## Again",
+      "",
+      "![Flow again](./flow.png) ![The payment flow](./flow.png)",
+      "",
+      "[map]: ./map.jpg",
+      "[logo]: ./logo.png",
+      "",
+    ].join("\n")
+    const [rows] = rowsOf([{ path, content }], path)
+    expect(
+      (rows?.relations ?? [])
+        .filter((edge) => edge.predicate === "EMBEDS_IMAGE")
+        .map(({ dstDoc, altText, srcChunk }) => ({
+          dstDoc,
+          altText,
+          srcChunk,
+        })),
+    ).toEqual([
+      { dstDoc: key("knowledge/arch/blank.png"), altText: "", srcChunk: 0 },
+      // The same alt text twice in one chunk gives one relation.
+      {
+        dstDoc: key("knowledge/arch/flow.png"),
+        altText: "The payment flow",
+        srcChunk: 0,
+      },
+      {
+        dstDoc: key("knowledge/arch/map.jpg"),
+        altText: "Ledger map",
+        srcChunk: 0,
+      },
+      { dstDoc: key("knowledge/arch/logo.png"), altText: "logo", srcChunk: 0 },
+      // Another chunk gives its own relations, also for the same alt text.
+      {
+        dstDoc: key("knowledge/arch/flow.png"),
+        altText: "Flow again",
+        srcChunk: 1,
+      },
+      {
+        dstDoc: key("knowledge/arch/flow.png"),
+        altText: "The payment flow",
+        srcChunk: 1,
+      },
+    ])
+    expect(
+      (rows?.relations ?? [])
+        .filter((edge) => edge.predicate !== "EMBEDS_IMAGE")
+        .every((edge) => edge.altText === ""),
+    ).toBe(true)
   })
 
   it("keeps the spaces of an image path in angle brackets", () => {
@@ -422,10 +459,7 @@ describe("knowledgeRows", () => {
     const rows = rowsOf(
       [{ path, content }],
       path,
-      new Map([
-        ["knowledge/request flow.png", HASH],
-        ["knowledge/site map.png", HASH],
-      ]),
+      new Set(["knowledge/request flow.png", "knowledge/site map.png"]),
     )
     expect(rows.map((entry) => entry.document.path)).toEqual([
       path,
@@ -453,11 +487,8 @@ describe("knowledgeRows", () => {
     const rows = rowsOf(
       [{ path, content }],
       path,
-      new Map(
-        ["w.png", "x.png", "y.png", "z.png"].map((name): [string, string] => [
-          `knowledge/${name}`,
-          HASH,
-        ]),
+      new Set(
+        ["w.png", "x.png", "y.png", "z.png"].map((name) => `knowledge/${name}`),
       ),
     )
     expect(rows).toHaveLength(1)
@@ -474,16 +505,13 @@ describe("knowledgeRows", () => {
           "---\nclaims:\n  - to: ../billing/ledger.md\n    predicate: DEPENDS_ON\n  - to: ./b.md\n---\n# API\n\nSee [ledger](../billing/ledger.md) and [b](./b.md).\n\n## Pictures\n\n![one](one.png) ![two](two.webp)\n",
       },
     ]
-    const hashes = () =>
-      new Map([
-        ["knowledge/payments/two.webp", "2".repeat(64)],
-        ["knowledge/payments/one.png", "1".repeat(64)],
-      ])
-    const first = rowsOf(files, "knowledge/payments/api.md", hashes())
+    const images = () =>
+      new Set(["knowledge/payments/two.webp", "knowledge/payments/one.png"])
+    const first = rowsOf(files, "knowledge/payments/api.md", images())
     const second = rowsOf(
       structuredClone(files),
       "knowledge/payments/api.md",
-      hashes(),
+      images(),
     )
     expect(second).toEqual(first)
     expect(JSON.stringify(second)).toBe(JSON.stringify(first))

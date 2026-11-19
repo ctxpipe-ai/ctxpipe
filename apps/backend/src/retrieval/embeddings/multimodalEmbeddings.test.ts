@@ -122,7 +122,7 @@ describe("embedMultimodal", () => {
     ])
   })
 
-  it("sends an image as a data URI part with its alt text", async () => {
+  it("sends an image as a data URI part and no text part", async () => {
     const bodies: Body[] = []
     server.use(echoHandler(bodies))
 
@@ -132,7 +132,6 @@ describe("embedMultimodal", () => {
           kind: "image",
           bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
           mimeType: "image/png",
-          altText: "Deploy pipeline diagram",
         },
       ],
       config,
@@ -145,7 +144,6 @@ describe("embedMultimodal", () => {
             type: "image_url",
             image_url: { url: "data:image/png;base64,iVBORw==" },
           },
-          { type: "text", text: "Deploy pipeline diagram" },
         ],
       },
     ])

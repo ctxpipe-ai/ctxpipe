@@ -7,15 +7,15 @@ import {
   workspaceKnowledgeUnits,
   workspaces,
 } from "../../db/schema/workspaces.js"
-import { readWorkspaceCheckoutFile } from "../../domain/workspaces/checkout-read.js"
+import {
+  publishedWorkspaceCheckout,
+  readWorkspaceCheckoutFile,
+} from "../../domain/workspaces/checkout-read.js"
 import { explorerBlobFromGitFile } from "../../domain/workspaces/git-explorer.js"
 import { parseSimpleFrontMatter } from "../../domain/workspaces/layout.js"
 import { publishedProjection } from "../../domain/workspaces/revision.js"
-import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
-import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
   activeProjectionSha,
-  getWorkspaceSearchProjection,
   projectionFromWorkspace,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
@@ -76,25 +76,10 @@ async function readWorkspaceDescription(
   workspaceId: string,
 ): Promise<string | null> {
   try {
-    const { projection, repositories } =
-      await getWorkspaceSearchProjection(workspaceId)
-    const active = publishedProjection(projection)
-    const published =
-      active?.kind === "active" ? active.stores.index.published : null
-    const repository = published
-      ? repositories.find(
-          (repo) =>
-            repo.sha === published.sha &&
-            normalizeWorkspaceRepositoryUrl(repo.gitUrl) ===
-              normalizeWorkspaceRepositoryUrl(published.remote.url),
-        )
-      : undefined
-    if (!published || !repository) return null
+    const checkout = await publishedWorkspaceCheckout(workspaceId)
+    if (!checkout) return null
     const file = await readWorkspaceCheckoutFile({
-      workspaceId,
-      repositoryId: repository.id,
-      sha: published.sha,
-      rootPath: workspaceRootPath(published),
+      ...checkout,
       path: "AGENTS.md",
     })
     const blob = explorerBlobFromGitFile(file)

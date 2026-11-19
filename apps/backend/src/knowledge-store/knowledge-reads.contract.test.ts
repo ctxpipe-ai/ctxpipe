@@ -65,7 +65,6 @@ function document(
       sourceType: "git",
       source: "workspace",
       summary: "",
-      s3Key: "",
       mime: "",
       validFrom: null,
       validTo: null,
@@ -87,6 +86,7 @@ function document(
       validFrom: null,
       validTo: null,
       source: "link",
+      altText: "",
       observedAt,
       ...relation,
     })),
@@ -104,7 +104,7 @@ const orgADocuments: DocumentRows[] = [
     ],
     {
       relations: [
-        { dstDoc: "lexical.md" },
+        { dstDoc: "lexical.md", altText: "The lexical diagram" },
         { dstDoc: "ghost.md", predicate: "MENTIONS" },
       ],
     },
@@ -488,6 +488,13 @@ describe("frontier relations", () => {
       ["in", "old.md", "REFERENCES", "vector.md", "old.md"],
     ])
     expect(relations.every((row) => row.workspaceId === workspace)).toBe(true)
+    expect(relations.map((row) => row.relation.altText)).toEqual([
+      "",
+      "The lexical diagram",
+      "",
+      "",
+      "",
+    ])
     expect(relations[1]?.neighbor).toEqual({
       ...orgADocuments[1]?.document,
       status: "active",
@@ -570,6 +577,10 @@ describe("graph view read", () => {
     expect(all.truncated).toBe(false)
     expect(all.documents).toHaveLength(orgADocuments.length)
     expect(all.relations).toHaveLength(5)
+    expect(
+      all.relations.find((relation) => relation.dstDoc === "lexical.md")
+        ?.altText,
+    ).toBe("The lexical diagram")
     const cut = await store.readGraph(
       { orgId: orgA.orgId, workspaceId: workspace },
       3,

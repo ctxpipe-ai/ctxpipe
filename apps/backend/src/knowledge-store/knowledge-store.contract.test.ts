@@ -78,7 +78,6 @@ function rowsOf(
       sourceType: "git",
       source: "workspace",
       summary: `${title} summary`,
-      s3Key: "",
       mime: "",
       validFrom: new Date("2026-01-01T00:00:00.000Z"),
       validTo: null,
@@ -109,6 +108,7 @@ function rowsOf(
         validFrom: null,
         validTo: null,
         source: "link",
+        altText: "",
         observedAt,
       },
     ],
@@ -173,6 +173,7 @@ describe("KnowledgeStore", () => {
       "0003_chunks_index_granularity.sql",
       "0004_chunk_lines.sql",
       "0005_doc_refs.sql",
+      "0006_images_in_git.sql",
     ])
   })
 
@@ -887,5 +888,27 @@ describe("users and mutations", () => {
       expect(query).toMatch(
         /^DELETE FROM \w+ WHERE \(org_id = '\w+'\) AND \(workspace_id = '\w+'\) AND \(/,
       )
+  })
+})
+
+describe("reference keys", () => {
+  it("lists each reference key target that no document states, with its source", async () => {
+    const store = createKnowledgeStore(await freshDatabase())
+    try {
+      // `key:target.md` is a key of target.md; `key:gone` is a key of no
+      // document.
+      await store.replaceDocuments(orgA, [
+        rowsOf("Source", "source.md", "ref:key:target.md"),
+        rowsOf("Other", "other.md", "ref:key:gone"),
+        rowsOf("Target", "target.md", "plain.md"),
+      ])
+      expect(await store.listUnresolvedReferences(orgA)).toEqual([
+        { srcDoc: "other.md", dstDoc: "ref:key:gone" },
+      ])
+      // The read is only for the Workspace of the scope.
+      expect(await store.listUnresolvedReferences(orgB)).toEqual([])
+    } finally {
+      await store.close()
+    }
   })
 })

@@ -9,6 +9,7 @@ export const WORKSPACE_WRITE_JOB_KINDS = [
   "ops_folder_map",
   "bootstrap",
   "ui_file_edit",
+  "knowledge_maintenance",
   "import_key_cleanup",
   "ownership_migration",
   "unlink_retraction",
