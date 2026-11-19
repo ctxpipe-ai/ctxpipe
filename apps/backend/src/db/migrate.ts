@@ -26,8 +26,14 @@ try {
     appRolePassword: process.env.DATABASE_APP_PASSWORD || undefined,
   })
   // Optional until the hosted ClickHouse node exists (ADR-066 decision 10).
+  // Here CLICKHOUSE_URL is the admin user. The migration makes the reader user
+  // of the backend and the writer user of the worker.
   const clickhouseUrl = process.env.CLICKHOUSE_URL
-  if (clickhouseUrl) await migrateKnowledgeStore(clickhouseUrl)
+  if (clickhouseUrl)
+    await migrateKnowledgeStore(clickhouseUrl, {
+      reader: process.env.CLICKHOUSE_READER_PASSWORD || undefined,
+      writer: process.env.CLICKHOUSE_WRITER_PASSWORD || undefined,
+    })
   else
     log.info({
       step: "migrate",

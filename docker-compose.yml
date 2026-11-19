@@ -54,10 +54,6 @@ x-agent-vault-limits: &agent-vault-limits
   AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY: "256"
   AGENT_VAULT_TELEMETRY: "false"
 
-# The ClickHouse server of the knowledge content (ADR-066), for backend, worker
-# and migrate. Use only URL-safe characters in CLICKHOUSE_PASSWORD.
-x-clickhouse-url: &clickhouse-url http://${CLICKHOUSE_USER:-ctxpipe}:${CLICKHOUSE_PASSWORD:-ctxpipe}@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}
-
 x-dind-image: &dind-image docker:29.8.2-dind@sha256:7dcdfc4a20246236f558175182ccace1eb15a41bd3eb119dd2284f393498b7c1
 
 services:
@@ -89,8 +85,9 @@ services:
     # Never published, like postgres.
 
   # The knowledge content (ADR-066), on local disk. The migrate service makes
-  # the tables, their org CHECK constraints and their row policies; the row
-  # policies need SQL access management for the user.
+  # the tables, their org CHECK constraints, their row policies and the users
+  # of the backend and the worker; for this, the admin user needs SQL access
+  # management.
   clickhouse:
     profiles: [infra, deploy]
     image: clickhouse/clickhouse-server:26.10.6.18@sha256:9c55d8d8a77e03e1fd399d59e4d0a1c7a5e42df70098ff1c5d8bd18eb1a5d106
@@ -245,7 +242,14 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-ctxpipe}:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       DATABASE_APP_PASSWORD: ${POSTGRES_PASSWORD:-ctxpipe}
-      CLICKHOUSE_URL: *clickhouse-url
+      # The admin user. Only migrate has it. Migrate makes the users
+      # ctxpipe_reader (backend) and ctxpipe_writer (worker) with these
+      # passwords (ADR-066 decision 9). They have no default: without a
+      # password, migrate makes no user, and the service cannot connect. Use
+      # only URL-safe characters in each ClickHouse password.
+      CLICKHOUSE_URL: http://${CLICKHOUSE_USER:-ctxpipe}:${CLICKHOUSE_PASSWORD:-ctxpipe}@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}
+      CLICKHOUSE_READER_PASSWORD: ${CLICKHOUSE_READER_PASSWORD:-}
+      CLICKHOUSE_WRITER_PASSWORD: ${CLICKHOUSE_WRITER_PASSWORD:-}
       # The backend modules migrate imports parse the app env, which needs it.
       AUTH_SECRET: ${AUTH_SECRET:-}
     command: ["bun", "run", "apps/backend/src/db/migrate.ts"]
@@ -326,7 +330,8 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       GRAPH_DB_URI: redis://falkordb:6379
-      CLICKHOUSE_URL: *clickhouse-url
+      # SELECT only: the backend cannot change the knowledge content.
+      CLICKHOUSE_URL: http://ctxpipe_reader:${CLICKHOUSE_READER_PASSWORD:-}@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}
       UI_PROXY_URL: http://ui:3002
       CODESEARCH_URL: http://codesearch:3001
       # The worker gets the same PORT: ingest sandboxes call the API on it.
@@ -396,7 +401,8 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       GRAPH_DB_URI: redis://falkordb:6379
-      CLICKHOUSE_URL: *clickhouse-url
+      # The projection writes the knowledge content. No access management.
+      CLICKHOUSE_URL: http://ctxpipe_writer:${CLICKHOUSE_WRITER_PASSWORD:-}@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}
       # Required to decrypt connection secrets (Slack bot tokens, GitHub App keys).
       AUTH_SECRET: ${AUTH_SECRET:-}
       AUTH_BASE_URL: ${AUTH_BASE_URL:-http://localhost:3000}

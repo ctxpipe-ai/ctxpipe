@@ -63,10 +63,26 @@ The backend is the only service on a public host port (`3000`). Compose binds
 `codesearch` (`3001`) and `ui` (`3002`) to `127.0.0.1` only. Postgres,
 FalkorDB, and ClickHouse have no host port.
 
-Compose makes `CLICKHOUSE_URL` for `migrate`, `backend`, and `worker` from
-`CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`, and `CLICKHOUSE_DB` in `.env`. The
-defaults are `ctxpipe`. Set your own `CLICKHOUSE_PASSWORD` before the first
-start, and use only URL-safe characters in it.
+Compose gives each service its own ClickHouse user in `CLICKHOUSE_URL`:
+
+| Service | ClickHouse user | Password in `.env` | Access |
+|---|---|---|---|
+| `migrate` | `CLICKHOUSE_USER` | `CLICKHOUSE_PASSWORD` | Admin. It makes the tables and the two other users. |
+| `backend` | `ctxpipe_reader` | `CLICKHOUSE_READER_PASSWORD` | Reads the knowledge tables only |
+| `worker` | `ctxpipe_writer` | `CLICKHOUSE_WRITER_PASSWORD` | Reads, inserts, and deletes rows in the knowledge tables. It cannot manage users or row policies. |
+
+Set `CLICKHOUSE_READER_PASSWORD` and `CLICKHOUSE_WRITER_PASSWORD` before the
+first start. They have no default. Without them, `migrate` does not make the
+two users, and the backend and the worker cannot connect to ClickHouse.
+
+The default admin user and password are `ctxpipe`. Set your own
+`CLICKHOUSE_PASSWORD` too. `migrate` refuses the reader and writer passwords
+when the admin password is `ctxpipe`, or when two of the three passwords are
+the same.
+
+Use only URL-safe characters in each password. `CLICKHOUSE_DB` sets the
+database (default `ctxpipe`). To change a reader or writer password, change it
+in `.env` and run `migrate` again.
 
 ## Settings that need an override file
 
