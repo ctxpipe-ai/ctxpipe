@@ -268,6 +268,25 @@ describe("embedMultimodal", () => {
     expect(calls).toBe(1)
   })
 
+  it("keeps the no-endpoint message for the model of the request", async () => {
+    server.use(
+      http.post(EMBEDDINGS_URL, () =>
+        HttpResponse.json(
+          {
+            error: {
+              message: "No endpoints found for vendor/multimodal-embed.",
+            },
+          },
+          { status: 404 },
+        ),
+      ),
+    )
+
+    await expect(embedMultimodal([text(0)], config)).rejects.toThrow(
+      "Embedding request failed: HTTP 404: No endpoints found for vendor/multimodal-embed.",
+    )
+  })
+
   it("keeps a fixed routing message of the gateway in a 4xx error and its span", async () => {
     server.use(
       http.post(EMBEDDINGS_URL, () =>
@@ -298,6 +317,8 @@ describe("embedMultimodal", () => {
     (input: string) =>
       `No endpoints found that can handle the requested parameters. ${input}`,
     (input: string) => `No allowed providers are available for ${input}.`,
+    // A model-shaped id other than the model of the request.
+    () => "No endpoints found for private-org/private-repository.",
   ])(
     "keeps another 4xx message out of the error, because it can echo the input (%#)",
     async (echo) => {

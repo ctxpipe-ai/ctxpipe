@@ -181,7 +181,7 @@ export async function decideNoul(
         if (status < 200 || status > 299) {
           // Only a fixed routing message of the gateway: other error text
           // can echo the state.
-          const routing = gatewayRoutingError(body)
+          const routing = gatewayRoutingError(body, JEV_MODEL)
           throw new JevError(
             "http",
             routing

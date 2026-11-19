@@ -212,7 +212,7 @@ function embedRequest(
         // The provider can echo the input in the body. Keep it out of the
         // error, because the span status copies the error message. Only a
         // fixed routing message of the gateway stays.
-        const routing = gatewayRoutingError(await res.text())
+        const routing = gatewayRoutingError(await res.text(), config.model)
         const message = `Embedding request failed: HTTP ${res.status}${routing ? `: ${routing}` : ""}`
         if (res.status === 429 || res.status >= 500)
           throw new RetryableStatusError(message)
