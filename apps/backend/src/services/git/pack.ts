@@ -9,7 +9,7 @@ import { promisify } from "node:util"
 import { trace } from "@opentelemetry/api"
 
 import { log } from "../../observability/logger.js"
-import { gitRemoteEnvironment } from "./clone-tree.js"
+import { gitRemoteEnvironment, isRegularFile } from "./clone-tree.js"
 import { measuredGitFetch } from "./fetch-bytes.js"
 import { withGitProcessSlot } from "./process-slot.js"
 
@@ -587,7 +587,8 @@ export async function withGitDirectory<T>(
  * Read selected immutable blobs; the workflow owns the surrounding durable
  * step. With `limit`, a blob that `limit.applies` to and that is larger than
  * `limit.maxBytes`, or that is not text (it has a NUL byte), comes back with
- * empty content and the reason in `omitted`. The size check comes before the
+ * empty content and the reason in `omitted`. Only regular files count: a
+ * symlink or a submodule is the same as a missing file. The size check comes before the
  * read, so a large blob is never in memory.
  */
 export async function readGitFiles(
@@ -612,8 +613,10 @@ export async function readGitFiles(
           const tab = line.indexOf("\t")
           const path = line.slice(tab + 1)
           if (tab < 0 || !path || !include(path)) return []
-          const [, type, , size] = line.slice(0, tab).split(/\s+/)
-          return type === "blob" ? [{ path, size: Number(size) }] : []
+          const [mode = "", kind = "", , size] = line.slice(0, tab).split(/\s+/)
+          return isRegularFile({ mode, kind })
+            ? [{ path, size: Number(size) }]
+            : []
         })
       const files: Array<{
         path: string

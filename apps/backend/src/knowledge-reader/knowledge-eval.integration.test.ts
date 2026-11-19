@@ -312,9 +312,9 @@ describe("the knowledge eval harness", () => {
     })
     const writer = createKnowledgeStore(url)
     try {
-      await writer.replaceDocuments(
+      await writer.applyDocuments(
         { orgId: seed.orgId, workspaceId },
-        planeRows(workspaceId),
+        { documents: planeRows(workspaceId) },
       )
     } finally {
       await writer.close()

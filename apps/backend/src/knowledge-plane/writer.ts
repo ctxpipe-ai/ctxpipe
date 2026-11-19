@@ -16,6 +16,7 @@ import {
   type DocumentStatus,
   type KnowledgeScope,
   type KnowledgeStore,
+  type MutationCounter,
   REFERENCE_TARGET_PREFIX,
 } from "../knowledge-store/knowledge-store.js"
 import {
@@ -133,6 +134,7 @@ export async function projectKnowledgePlane(input: {
         "ctxpipe.workspace.id": input.workspaceId,
       })
       let summary: KnowledgeRunSummary | undefined
+      const counter: MutationCounter = { mutations: 0 }
       /** Seconds from the commit of `last_sha` to that of the tip, at the start. */
       let lagSeconds: number | null = null
       try {
@@ -159,6 +161,7 @@ export async function projectKnowledgePlane(input: {
               ...input,
               directory,
               plan,
+              counter,
             })
             const failedCount = (
               await input.store.listDocumentKeys(key)
@@ -202,13 +205,25 @@ export async function projectKnowledgePlane(input: {
           seconds: (performance.now() - started) / 1000,
           summary,
           lagSeconds,
+          mutations: counter.mutations,
         })
         span.end()
       }
     })
 }
 
-/** The work of one change set. Returns the count of changed documents. */
+/**
+ * The files of one store write. The store slices each IN list itself, so
+ * this is only a memory bound: the rows of a group (with a vector of 1024
+ * numbers for each chunk) stay in memory until its write, about 40 MB for
+ * 1000 documents of 5 chunks.
+ */
+const FILES_PER_WRITE = 1000
+
+/**
+ * The work of one change set. Returns the count of changed documents.
+ * `counter` gets the count of ClickHouse mutations.
+ */
 async function applyChangeSet(input: {
   orgId: string
   workspaceId: string
@@ -219,6 +234,7 @@ async function applyChangeSet(input: {
   observedAt: Date
   directory: string
   plan: KnowledgeChangeSet
+  counter: MutationCounter
 }): Promise<number> {
   const { workspaceId, root, store, observedAt, directory, plan } = input
   const scope: KnowledgeScope = {
@@ -235,9 +251,9 @@ async function applyChangeSet(input: {
     tree,
     input.remote.url,
   )
-  // The status of each key. A key with a tombstone and an old row (a
-  // `markDeleted` that stopped between its two statements) gives the old
-  // row, so that the run makes the tombstone again.
+  // The status of each key. A key with a tombstone and an old row (a write
+  // that stopped between the INSERT of the tombstone and the DELETE of the
+  // old row) gives the old row, so that the run makes the tombstone again.
   const stored = new Map<string, DocumentStatus>()
   for (const { docKey, status } of await store.listDocumentKeys(scope))
     if (status !== "deleted" || !stored.has(docKey)) stored.set(docKey, status)
@@ -251,111 +267,163 @@ async function applyChangeSet(input: {
   const written = new Set<string>()
   const targets = new Set<string>()
   let changed = 0
-  await inBatches(files, 50, async (batch) => {
-    const contents = await readGitBlobs(
-      directory,
-      batch.map((path) => tree.get(path) ?? ""),
-    )
-    const documents: UnembeddedDocumentRows[] = []
-    const images: {
-      rows: UnembeddedDocumentRows
-      bytes: Buffer
-      mimeType: string
-    }[] = []
+  // One store write for each group of files, so that a run makes few
+  // mutations (ADR-066 decision 8). The last write has the tombstones and
+  // the `missing` placeholders too, because they need the keys of all
+  // groups. A run with no file makes one write for its tombstones.
+  for (let at = 0; at === 0 || at < files.length; at += FILES_PER_WRITE) {
+    const group = files.slice(at, at + FILES_PER_WRITE)
+    const documents: DocumentRows[] = []
     const failed: { docKey: string; error: string }[] = []
-    for (const [index, path] of batch.entries()) {
-      const bytes = contents[index] ?? Buffer.alloc(0)
-      if (!isKnowledgePath(path)) {
-        const image = embeddableImage(path, bytes)
-        if ("error" in image)
-          failed.push({ docKey: keyOf(path), error: image.error })
-        else
-          images.push({
-            rows: imageRows({ workspaceId, path, observedAt }),
-            bytes,
-            mimeType: image.mimeType,
-          })
-        continue
-      }
-      // The parse and the mapper read no Git and no network: an error here
-      // is a content error of the file.
-      try {
-        const parsed = parseKnowledgeFile({
-          workspaceId,
-          blobPath,
-          path,
-          content: bytes.toString("utf8"),
-          sourceRepositories,
-        })
-        if (parsed.kind === "failed")
-          failed.push({ docKey: keyOf(path), error: parsed.error })
-        if (parsed.kind === "unit")
-          documents.push(
-            knowledgeRows({
-              workspaceId,
-              unit: parsed.unit,
-              references: parsed.references,
-              blobPath,
-              observedAt,
-            }),
-          )
-      } catch (error) {
-        failed.push({
-          docKey: keyOf(path),
-          error: error instanceof Error ? error.message : String(error),
-        })
-      }
-    }
-    const embeddedImages = await embedImages(images)
-    failed.push(...embeddedImages.failed)
-    await store.replaceDocuments(scope, [
-      ...(await embedDocuments(documents)),
-      ...embeddedImages.documents,
-    ])
-    await store.insertPlaceholders(
-      scope,
-      failed.map((row) => ({ ...row, status: "failed", observedAt })),
-    )
-    for (const { document, relations } of [
-      ...documents,
-      ...embeddedImages.documents,
-    ]) {
+    await inBatches(group, 50, async (batch) => {
+      const rows = await projectFiles({
+        directory,
+        keyOf,
+        workspaceId,
+        blobPath,
+        sourceRepositories,
+        observedAt,
+        paths: batch,
+        blobs: batch.map((path) => tree.get(path) ?? ""),
+      })
+      documents.push(...rows.documents)
+      failed.push(...rows.failed)
+    })
+    for (const { document, relations } of documents) {
       written.add(document.docKey)
       for (const relation of relations)
         if (!relation.dstDoc.startsWith(REFERENCE_TARGET_PREFIX))
           targets.add(relation.dstDoc)
     }
     for (const { docKey } of failed) written.add(docKey)
-    changed +=
-      documents.length + embeddedImages.documents.length + failed.length
-  })
+    changed += documents.length + failed.length
 
-  // The store skips each target that has a row.
-  await inBatches(
-    [...targets].filter((docKey) => !written.has(docKey)),
-    1000,
-    (batch) =>
-      store.insertPlaceholders(
-        scope,
-        batch.map((docKey) => ({ docKey, status: "missing", observedAt })),
-      ),
-  )
+    const last = at + FILES_PER_WRITE >= files.length
+    // A tombstone for each document whose file is gone: in a delta, the
+    // documents of the paths of the diff; in a full rebuild, each stored
+    // document (the reconcile).
+    const stale = !last
+      ? []
+      : (plan.kind === "full"
+          ? [...stored.keys()]
+          : [...plan.changed, ...plan.removed].filter(isDocumentPath).map(keyOf)
+        ).filter((docKey) => {
+          const status = stored.get(docKey)
+          return (
+            !written.has(docKey) && (status === "active" || status === "failed")
+          )
+        })
+    const deleted = new Set(stale)
+    // The store skips each target that has a row.
+    const missing = !last
+      ? []
+      : [...targets].filter(
+          (docKey) => !written.has(docKey) && !deleted.has(docKey),
+        )
+    await store.applyDocuments(
+      scope,
+      {
+        documents,
+        placeholders: [
+          ...failed.map((row) => ({
+            ...row,
+            status: "failed" as const,
+            observedAt,
+          })),
+          ...missing.map((docKey) => ({
+            docKey,
+            status: "missing" as const,
+            observedAt,
+          })),
+        ],
+        deleted: { docKeys: stale, deletedAt: observedAt },
+      },
+      input.counter,
+    )
+    changed += stale.length
+  }
+  return changed
+}
 
-  // A tombstone for each document whose file is gone: in a delta, the
-  // documents of the paths of the diff; in a full rebuild, each stored
-  // document (the reconcile).
-  const stale = (
-    plan.kind === "full"
-      ? [...stored.keys()]
-      : [...plan.changed, ...plan.removed].filter(isDocumentPath).map(keyOf)
-  ).filter((docKey) => {
-    const status = stored.get(docKey)
-    return !written.has(docKey) && (status === "active" || status === "failed")
-  })
-  await inBatches(stale, 500, (batch) =>
-    store.markDeleted(scope, batch, observedAt),
-  )
-  return changed + stale.length
+/**
+ * The rows of each file of `paths`: a document, or a `failed` placeholder
+ * with the content error. A knowledge file that gives no unit gives no row.
+ */
+async function projectFiles(input: {
+  directory: string
+  /** The document key of a path. */
+  keyOf: (path: string) => string
+  workspaceId: string
+  blobPath: ReturnType<typeof workspaceBlobPath>
+  sourceRepositories: Map<string, string>
+  observedAt: Date
+  paths: string[]
+  /** The blob id of each path. */
+  blobs: string[]
+}): Promise<{
+  documents: DocumentRows[]
+  failed: { docKey: string; error: string }[]
+}> {
+  const { workspaceId, keyOf, blobPath, observedAt } = input
+  const contents = await readGitBlobs(input.directory, input.blobs)
+  const documents: UnembeddedDocumentRows[] = []
+  const images: {
+    rows: UnembeddedDocumentRows
+    bytes: Buffer
+    mimeType: string
+  }[] = []
+  const failed: { docKey: string; error: string }[] = []
+  for (const [index, path] of input.paths.entries()) {
+    const bytes = contents[index] ?? Buffer.alloc(0)
+    if (!isKnowledgePath(path)) {
+      const image = embeddableImage(path, bytes)
+      if ("error" in image)
+        failed.push({ docKey: keyOf(path), error: image.error })
+      else
+        images.push({
+          rows: imageRows({ workspaceId, path, observedAt }),
+          bytes,
+          mimeType: image.mimeType,
+        })
+      continue
+    }
+    // The parse and the mapper read no Git and no network: an error here
+    // is a content error of the file.
+    try {
+      const parsed = parseKnowledgeFile({
+        workspaceId,
+        blobPath,
+        path,
+        content: bytes.toString("utf8"),
+        sourceRepositories: input.sourceRepositories,
+      })
+      if (parsed.kind === "failed")
+        failed.push({ docKey: keyOf(path), error: parsed.error })
+      if (parsed.kind === "unit")
+        documents.push(
+          knowledgeRows({
+            workspaceId,
+            unit: parsed.unit,
+            references: parsed.references,
+            blobPath,
+            observedAt,
+          }),
+        )
+    } catch (error) {
+      failed.push({
+        docKey: keyOf(path),
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+  const embeddedImages = await embedImages(images)
+  return {
+    documents: [
+      ...(await embedDocuments(documents)),
+      ...embeddedImages.documents,
+    ],
+    failed: [...failed, ...embeddedImages.failed],
+  }
 }
 
 /**
@@ -624,6 +692,8 @@ function recordRun(input: {
   seconds: number
   summary: KnowledgeRunSummary | undefined
   lagSeconds: number | null
+  /** The mutations of the run, also of a failed run. */
+  mutations: number
 }): void {
   const { summary } = input
   const outcome = summary ? "completed" : "failed"
@@ -635,10 +705,17 @@ function recordRun(input: {
       unit: "s",
     })
     .record(input.seconds, { outcome, mode })
+  meter
+    .createHistogram("knowledge.projection.mutations", {
+      description: "The ClickHouse mutations of one knowledge projection run",
+      unit: "{mutation}",
+    })
+    .record(input.mutations, { outcome, mode })
   const fields: Record<string, string | number> = {
     "ctxpipe.knowledge.outcome": outcome,
     "ctxpipe.knowledge.mode": mode,
     "ctxpipe.knowledge.duration_s": input.seconds,
+    "ctxpipe.knowledge.mutations": input.mutations,
   }
   if (input.lagSeconds !== null) {
     meter
@@ -675,6 +752,7 @@ function recordRun(input: {
       mode,
       seconds: input.seconds,
       lagSeconds: input.lagSeconds,
+      mutations: input.mutations,
       ...summary,
     },
   })
