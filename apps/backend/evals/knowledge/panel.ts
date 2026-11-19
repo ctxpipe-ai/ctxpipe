@@ -31,6 +31,13 @@ type Verdict = z.infer<typeof verdictSchema>
 /** The JSON Schema of the verdict, for `response_format`. */
 const verdictJsonSchema = z.toJSONSchema(verdictSchema)
 
+/** The part of an OpenRouter chat reply that the panel reads. */
+const replySchema = z.object({
+  choices: z.array(
+    z.object({ message: z.object({ content: z.string().nullish() }) }),
+  ),
+})
+
 /** The votes of the panel on one drafted document of one question. */
 export type PanelVote = {
   question: string
@@ -107,10 +114,8 @@ async function ask(
   })
   if (!response.ok)
     throw new Error(`OpenRouter answered ${response.status} for ${model}.`)
-  const body = (await response.json()) as {
-    choices?: { message?: { content?: string | null } }[]
-  }
-  const text = body.choices?.[0]?.message?.content
+  const reply = replySchema.safeParse(await response.json())
+  const text = reply.data?.choices[0]?.message.content
   const verdict = verdictSchema.safeParse(
     typeof text === "string" ? JSON.parse(text) : undefined,
   )

@@ -60,10 +60,13 @@ export type Settings = Partial<
 >
 
 /**
- * Parse `name=value` overrides of `ORCHESTRATOR_DEFAULTS`. A run changes one
- * setting (ADR-069 decision 7).
+ * Parse the `name=value` override of `ORCHESTRATOR_DEFAULTS`. A run changes
+ * one setting (ADR-069 decision 7), so that the report shows the effect of
+ * that change only.
  */
 export function parseSettings(values: readonly string[]): Settings {
+  if (values.length > 1)
+    throw new Error("A run changes one setting. Give --set one time only.")
   const settings: Settings = {}
   for (const value of values) {
     const [name, number] = value.split("=")

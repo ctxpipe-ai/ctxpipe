@@ -53,8 +53,8 @@ Each Workspace must serve the frozen SHA of its corpus on both stacks: the publi
 
 Write each run folder outside the checkout, as in these examples. The folder holds the org id of the targets file and the corpus text, and this repository is public.
 
-- `--set NAME=VALUE` changes one setting of `ORCHESTRATOR_DEFAULTS` for the run. A run changes one setting (ADR-069 decision 7). You can give `--set` more than one time.
-- `--cap-usd` is the spend cap (default $5). Each call in flight holds an upper estimate of its cost, and a call that could pass the cap does not go out. The run then stops. The report compares only the questions that both arms answered before the stop, and it lists the others. A model answer with no cost counts at the upper estimate, so a missing cost never turns the cap off.
+- `--set NAME=VALUE` changes one setting of `ORCHESTRATOR_DEFAULTS` for the run. A run changes one setting (ADR-069 decision 7), so `--set` is allowed one time only.
+- `--cap-usd` is the spend cap (default $5). Each call in flight holds an upper estimate of its cost, and a call that could pass the cap does not go out. The run then stops. The report compares only the questions that both arms answered before the stop, and it lists the others. A model answer with no cost counts at the upper estimate, so a missing cost never turns the cap off. The upper estimate of a kind of call grows to the highest cost of that kind in the run. Thus only a call that costs more than each earlier call of its kind can pass the cap, by that difference.
 - `--kept` is the report of the last kept run. The report then gives the change of each question against it.
 
 ### Score again with no model call

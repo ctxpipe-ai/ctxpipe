@@ -116,6 +116,9 @@ describe("the metrics", () => {
   it("a run changes only known numeric settings of the loop", () => {
     expect(parseSettings(["keepAt=0.6"])).toEqual({ keepAt: 0.6 })
     expect(() => parseSettings(["toString=1"])).toThrow(/Unknown setting/)
+    expect(() => parseSettings(["keepAt=0.6", "exploreAt=0.4"])).toThrow(
+      /one setting/,
+    )
     expect(() => parseSettings(["keepAt=high"])).toThrow(/needs a number/)
   })
 })

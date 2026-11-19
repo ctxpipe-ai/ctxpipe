@@ -47,15 +47,18 @@ export const callCountsSchema = z.object({
 export type CallCounts = z.infer<typeof callCountsSchema>
 
 /**
- * The cost of a call whose answer has no `usage.cost`: above the highest
- * cost that we saw for each kind (ADR-063 decision 5 for Jev and a panel
- * model). A missing cost never turns the spend cap off.
+ * The first upper cost of a call of each kind: above the highest cost that
+ * we saw (ADR-063 decision 5 for Jev and a panel model). A call whose answer
+ * has no `usage.cost` counts at the upper cost, so a missing cost never
+ * turns the spend cap off.
  */
-const UPPER_COST_USD: Record<CallKind, number> = {
+const FIRST_UPPER_COST_USD: Record<CallKind, number> = {
   jev: 0.002,
   embedding: 0.001,
   panel: 0.25,
 }
+
+const answerSchema = z.object({ usage: z.unknown() }).partial()
 
 const emptyCounts = (): CallCounts => ({
   jev: 0,
@@ -91,6 +94,11 @@ export class ModelCalls {
   stopped = false
   /** The upper cost of the calls that are in flight. */
   private reservedUsd = 0
+  /**
+   * The upper cost of a call of each kind: the first value, or the highest
+   * cost of a call of the kind in this run.
+   */
+  private readonly upperUsd = { ...FIRST_UPPER_COST_USD }
   private context = { arm: "", question: "" }
   private counts = emptyCounts()
   private readonly origin: string
@@ -151,12 +159,14 @@ export class ModelCalls {
     const key = createHash("sha256").update(`${kind}\n${body}`).digest("hex")
     if (this.replay) return this.replayed(kind, key)
     // Each call in flight holds its upper cost, so that calls in parallel
-    // cannot pass the cap together.
-    if (this.spentUsd + this.reservedUsd + UPPER_COST_USD[kind] > this.capUsd) {
+    // cannot pass the cap together. Only a call that costs more than each
+    // earlier call of its kind can pass the cap, by that difference.
+    const upper = this.upperUsd[kind]
+    if (this.spentUsd + this.reservedUsd + upper > this.capUsd) {
       this.stopped = true
       return unavailable("The spend cap of the eval run is spent.")
     }
-    this.reservedUsd += UPPER_COST_USD[kind]
+    this.reservedUsd += upper
     const started = performance.now()
     let response: Response
     let text: string
@@ -164,12 +174,14 @@ export class ModelCalls {
       response = await next(request)
       text = await response.text()
     } finally {
-      this.reservedUsd -= UPPER_COST_USD[kind]
+      this.reservedUsd -= upper
     }
     const latencyMs = performance.now() - started
-    const usage = (parseOr(text, {}) as { usage?: unknown } | null)?.usage
-    const known = gatewayCost(usage)
-    const costUsd = known ?? UPPER_COST_USD[kind]
+    const known = gatewayCost(
+      answerSchema.safeParse(parseOr(text, {})).data?.usage,
+    )
+    const costUsd = known ?? upper
+    this.upperUsd[kind] = Math.max(upper, costUsd)
     this.spentUsd += costUsd
     this.counts.costUsd += costUsd
     // A panel reply is no retrieval answer: the votes file keeps it.

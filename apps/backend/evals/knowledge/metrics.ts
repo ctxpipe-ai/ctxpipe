@@ -105,8 +105,9 @@ export function percentile(
  * Score one answer. `keepAt` is the p(answers) from which the plane keeps a
  * hit: a plane search says "no answer" when no Jev-judged hit reaches it.
  * The old stack has no such threshold, so it says "no answer" only with no
- * hit. A search that failed or that the time budget cut gets no credit for
- * "no answer". Only the plane gives positions.
+ * hit. A search that failed or gave a partial answer (the time budget or a
+ * Jev failure) gets no credit for "no answer". Only the plane gives
+ * positions.
  */
 export function scoreAnswer(
   question: Question,
@@ -146,7 +147,7 @@ export function scoreAnswer(
           ? recallAt(related?.refs ?? [], targets, Number.POSITIVE_INFINITY)
           : null,
       noAnswer: noAnswer
-        ? search && search.partialReason !== "total_timeout" && kept === 0
+        ? search && !search.partialReason && kept === 0
           ? 1
           : 0
         : null,
