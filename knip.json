@@ -29,6 +29,7 @@
         "vitest.*.config.ts",
         "src/db/print-owner-migrate-url.ts",
         "src/db/recover-connector-content-cli.ts",
+        "src/db/set-org-feature.ts",
         "src/routes/mcp.conformance.server.ts",
         "src/db/migrate.ts"
       ],
