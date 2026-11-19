@@ -183,7 +183,7 @@ describe("KnowledgeStore", () => {
 
   it("applies each migration one time", async () => {
     const url = await freshDatabase()
-    expect(await migrateKnowledgeStore(url)).toEqual([])
+    await migrateKnowledgeStore(url)
     const applied = await rawRows<{ name: string }>(
       rawClient(url),
       "SELECT name FROM knowledge_schema_migrations",
@@ -401,7 +401,7 @@ describe("org isolation of inserts", () => {
     }
   })
 
-  it("KnowledgeStore alone: with the constraints removed, a row that carries org B is stored for the org of the scope", async () => {
+  it("KnowledgeStore alone: with the constraints removed, an insert for org A stores no org B row, because KnowledgeStore sets the org columns itself", async () => {
     const url = await freshDatabase()
     const client = rawClient(url)
     for (const table of tables)

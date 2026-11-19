@@ -88,6 +88,18 @@ type KnowledgeStore = {
 }
 
 /**
+ * A ClickHouse client for `url`. The client logs to the console, so its log
+ * is off: each error goes to the caller instead. The migrations use it too.
+ */
+export function createClickHouseClient(url: string): ClickHouseClient {
+  return createClient({
+    url,
+    application: "ctxpipe-knowledge-store",
+    log: { level: ClickHouseLogLevel.OFF },
+  })
+}
+
+/**
  * Connects to the ClickHouse server at `url` (`CLICKHOUSE_URL`). Throws when
  * the setting is not set.
  */
@@ -96,12 +108,7 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     throw new Error(
       "CLICKHOUSE_URL is not set. The knowledge store needs a ClickHouse server (ADR-066).",
     )
-  const client = createClient({
-    url,
-    application: "ctxpipe-knowledge-store",
-    // The client logs to the console. Each error goes to the caller instead.
-    log: { level: ClickHouseLogLevel.OFF },
-  })
+  const client = createClickHouseClient(url)
   return {
     insertDocument: (scope, rows) => insertDocument(client, scope, rows),
     readDocument: (scope, docKey) => readDocument(client, scope, docKey),
@@ -109,10 +116,48 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
   }
 }
 
-function checkedScope(scope: KnowledgeScope): KnowledgeScope {
+function assertScope(scope: KnowledgeScope): void {
   if (!scope.orgId || !scope.workspaceId)
     throw new Error("A knowledge statement needs an org and a Workspace")
-  return { orgId: scope.orgId, workspaceId: scope.workspaceId }
+}
+
+/** The columns of each table, as an insert sends them. */
+type ScopeColumns = { org_id: string; workspace_id: string }
+type TableRows = {
+  documents: ScopeColumns & {
+    doc_key: string
+    kind: string
+    status: DocumentStatus
+    deleted_at: string | null
+    error: string
+    title: string
+    path: string
+    source_type: string
+    source: string
+    summary: string
+    s3_key: string
+    mime: string
+    valid_from: string | null
+    valid_to: string | null
+    observed_at: string
+  }
+  chunks: ScopeColumns & {
+    doc_key: string
+    ordinal: number
+    text: string
+    embedding: number[]
+  }
+  relations: ScopeColumns & {
+    src_doc: string
+    src_chunk: number
+    predicate: string
+    dst_doc: string
+    confidence: number
+    valid_from: string | null
+    valid_to: string | null
+    source: string
+    observed_at: string
+  }
 }
 
 async function insertDocument(
@@ -120,16 +165,24 @@ async function insertDocument(
   scope: KnowledgeScope,
   { document, chunks, relations }: DocumentRows,
 ): Promise<void> {
-  const { orgId, workspaceId } = checkedScope(scope)
-  // The scope columns come last, so that a value in a row cannot replace them.
-  const owner = { org_id: orgId, workspace_id: workspaceId }
-  const insert = (table: string, values: Record<string, unknown>[]) =>
+  assertScope(scope)
+  // The insert wall of this module: each row is made field by field, and the
+  // org and Workspace columns come only from the scope. A value that a caller
+  // puts in a row does not get into the insert.
+  const owner: ScopeColumns = {
+    org_id: scope.orgId,
+    workspace_id: scope.workspaceId,
+  }
+  const insert = <T extends keyof TableRows>(
+    table: T,
+    values: TableRows[T][],
+  ) =>
     client.insert({
       table,
       values,
       format: "JSONEachRow",
       clickhouse_settings: {
-        [ORG_SETTING]: orgId,
+        [ORG_SETTING]: scope.orgId,
         // With 0, an async insert that the server refuses fails silently.
         wait_for_async_insert: 1,
         date_time_input_format: "best_effort",
@@ -137,6 +190,7 @@ async function insertDocument(
     })
   await insert("documents", [
     {
+      ...owner,
       doc_key: document.docKey,
       kind: document.kind,
       status: document.status,
@@ -152,24 +206,25 @@ async function insertDocument(
       valid_from: document.validFrom?.toISOString() ?? null,
       valid_to: document.validTo?.toISOString() ?? null,
       observed_at: document.observedAt.toISOString(),
-      ...owner,
     },
   ])
   if (chunks.length > 0)
     await insert(
       "chunks",
       chunks.map((chunk) => ({
+        ...owner,
         doc_key: document.docKey,
         ordinal: chunk.ordinal,
         text: chunk.text,
         embedding: chunk.embedding,
-        ...owner,
       })),
     )
   if (relations.length > 0)
     await insert(
       "relations",
       relations.map((relation) => ({
+        ...owner,
+        src_doc: document.docKey,
         src_chunk: relation.srcChunk,
         predicate: relation.predicate,
         dst_doc: relation.dstDoc,
@@ -178,8 +233,6 @@ async function insertDocument(
         valid_to: relation.validTo?.toISOString() ?? null,
         source: relation.source,
         observed_at: relation.observedAt.toISOString(),
-        src_doc: document.docKey,
-        ...owner,
       })),
     )
 }
@@ -193,15 +246,19 @@ async function readDocument(
   scope: KnowledgeScope,
   docKey: string,
 ): Promise<StoredDocument | null> {
-  const { orgId, workspaceId } = checkedScope(scope)
+  assertScope(scope)
   const select = async <T>(query: string) =>
     (
       await client.query({
         query,
-        query_params: { orgId, workspaceId, docKey },
+        query_params: {
+          orgId: scope.orgId,
+          workspaceId: scope.workspaceId,
+          docKey,
+        },
         format: "JSONEachRow",
         clickhouse_settings: {
-          [ORG_SETTING]: orgId,
+          [ORG_SETTING]: scope.orgId,
           date_time_output_format: "iso",
         },
       })
@@ -247,14 +304,15 @@ async function readDocument(
   }
 }
 
-type Dated<T, K extends keyof T> = Omit<T, K> & {
+/** `T` with the fields `K` as the ISO date strings that ClickHouse returns. */
+type WithDateStrings<T, K extends keyof T> = Omit<T, K> & {
   [P in K]: null extends T[P] ? string | null : string
 }
-type DocumentRecord = Dated<
+type DocumentRecord = WithDateStrings<
   KnowledgeDocument,
   "deletedAt" | "validFrom" | "validTo" | "observedAt"
 >
-type RelationRecord = Dated<
+type RelationRecord = WithDateStrings<
   KnowledgeRelation,
   "validFrom" | "validTo" | "observedAt"
 >

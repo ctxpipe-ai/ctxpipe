@@ -135,7 +135,8 @@ services:
       - "${CTXPIPE_FALKOR_REDIS_HOST_PORT:-6379}:6379"
       - "${CTXPIPE_FALKOR_BOLT_HOST_PORT:-7687}:7687"
       - "${CTXPIPE_FALKOR_ADMIN_HOST_PORT:-3003}:3000"
-      - "${CTXPIPE_CLICKHOUSE_HOST_PORT:-8123}:8123"
+      # Loopback only: the user of this port has SQL access management.
+      - "127.0.0.1:${CTXPIPE_CLICKHOUSE_HOST_PORT:-8123}:8123"
     depends_on: [postgres, falkordb, clickhouse]
 
   otel-collector:

@@ -1,10 +1,6 @@
 {
-  "postgres": [
-    "src/db/rls-isolation.test.ts"
-  ],
-  "git": [
-    "src/services/git/clone-tree.test.ts"
-  ],
+  "postgres": ["src/db/rls-isolation.test.ts"],
+  "git": ["src/services/git/clone-tree.test.ts"],
   "OpenWorkflow native write jobs": [
     "src/domain/workspaces/write-workflow-native.contract.test.ts",
     "src/domain/workspaces/write-maintenance-native.contract.test.ts",
@@ -21,9 +17,7 @@
     "src/domain/workspaces/workspace-unborn-bootstrap-native.contract.test.ts",
     "src/domain/workspaces/write-worker-loss-native.contract.test.ts"
   ],
-  "hydrate": [
-    "src/domain/workspaces/hydration.contract.test.ts"
-  ],
+  "hydrate": ["src/domain/workspaces/hydration.contract.test.ts"],
   "native worker discovery": [
     "src/openworkflow/workflows/workflow-discovery.contract.test.ts"
   ],
@@ -92,6 +86,10 @@
     "src/domain/workspaces/sandbox-replica-native.contract.test.ts",
     "src/domain/workspaces/workspace-chat-prepare-native.contract.test.ts",
     "src/domain/workspaces/native-https-git-github-auth.contract.test.ts"
+  ],
+  "hosted sandbox (Vercel)": [
+    "src/domain/workspaces/vercel-sandbox.contract.test.ts",
+    "src/domain/ingestion/ingest-vercel-sandbox.contract.test.ts"
   ],
   "knowledge search at scale": [
     "src/domain/workspaces/knowledge-search.contract.test.ts"

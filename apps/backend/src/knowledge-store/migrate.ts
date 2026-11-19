@@ -1,8 +1,7 @@
 import { readdir, readFile } from "node:fs/promises"
 
-import { ClickHouseLogLevel, createClient } from "@clickhouse/client"
-
 import { log } from "../observability/logger.js"
+import { createClickHouseClient } from "./knowledge-store.js"
 
 /**
  * Applies the ClickHouse SQL files of `migrations/` in name order, each one
@@ -10,12 +9,10 @@ import { log } from "../observability/logger.js"
  * A file holds statements that each end with `;` at the end of a line.
  * Write each statement so that a second run changes nothing (`IF NOT EXISTS`,
  * `OR REPLACE`): a run that fails part way applies the whole file again.
- * Returns the names of the files that this run applied.
  */
-export async function migrateKnowledgeStore(url: string): Promise<string[]> {
+export async function migrateKnowledgeStore(url: string): Promise<void> {
   const migrationsFolder = new URL("./migrations/", import.meta.url)
-  // The client logs to the console. Each error goes to the caller instead.
-  const client = createClient({ url, log: { level: ClickHouseLogLevel.OFF } })
+  const client = createClickHouseClient(url)
   try {
     await client.command({
       query: `CREATE TABLE IF NOT EXISTS knowledge_schema_migrations
@@ -35,7 +32,6 @@ export async function migrateKnowledgeStore(url: string): Promise<string[]> {
     const files = (await readdir(migrationsFolder))
       .filter((name) => name.endsWith(".sql"))
       .sort()
-    const ran: string[] = []
     for (const name of files) {
       if (applied.has(name)) continue
       const sql = await readFile(new URL(name, migrationsFolder), "utf8")
@@ -59,9 +55,7 @@ export async function migrateKnowledgeStore(url: string): Promise<string[]> {
         message: "[migrate] applied a ClickHouse migration",
         migration: name,
       })
-      ran.push(name)
     }
-    return ran
   } finally {
     await client.close()
   }
