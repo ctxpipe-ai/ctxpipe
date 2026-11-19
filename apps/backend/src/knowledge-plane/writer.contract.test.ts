@@ -242,9 +242,6 @@ async function newWorkspace(): Promise<string> {
   return workspaceId
 }
 
-/** The committer time of the first commit of each `Remote`. */
-const FIRST_COMMIT_SECONDS = Date.parse("2026-01-01T00:00:00.000Z") / 1000
-
 /**
  * A Git repository that a shallow fetch by SHA can read, and a fetch with no
  * blobs too. Each commit is one day after the commit before it, so each
@@ -257,7 +254,7 @@ class Remote {
 
   /** The committer time of the commit `index` (from 0). */
   static timeOf(index: number): Date {
-    return new Date((FIRST_COMMIT_SECONDS + index * 86_400) * 1000)
+    return new Date(Date.UTC(2026, 0, 1 + index))
   }
 
   static async create(): Promise<Remote> {
@@ -275,7 +272,7 @@ class Remote {
   }
 
   git(...args: string[]): string {
-    const date = `@${FIRST_COMMIT_SECONDS + this.commits * 86_400} +0000`
+    const date = `@${Remote.timeOf(this.commits).getTime() / 1000} +0000`
     return execFileSync(
       "git",
       [
@@ -402,15 +399,17 @@ async function content(workspaceId: string, paths: string[]) {
   }
 }
 
-/** The `valid_from` of each document with content, by path, as an ISO time. */
+/** The `valid_from` of a row (UTC with no zone in JSON), as an ISO time. */
+function validFromAt(row: Row): string | null {
+  return row.valid_from === null
+    ? null
+    : new Date(`${String(row.valid_from)}Z`).toISOString()
+}
+
+/** The `valid_from` of each document with content, by path. */
 function validFromOf(rows: Awaited<ReturnType<typeof content>>) {
   return Object.fromEntries(
-    rows.documents.map((row) => [
-      String(row.doc_key),
-      row.valid_from === null
-        ? null
-        : new Date(`${String(row.valid_from)}Z`).toISOString(),
-    ]),
+    rows.documents.map((row) => [String(row.doc_key), validFromAt(row)]),
   )
 }
 
@@ -693,10 +692,9 @@ describe("projectKnowledgePlane", () => {
       expect(
         right.relations
           .filter(
-            (row) =>
-              row.src_doc === "a.md" && row.predicate === "FROM_SOURCE",
+            (row) => row.src_doc === "a.md" && row.predicate === "FROM_SOURCE",
           )
-          .map((row) => new Date(`${String(row.valid_from)}Z`).toISOString()),
+          .map(validFromAt),
       ).toEqual([time(0)])
       // A link target with no content has a row in both: a tombstone after
       // the history, a `missing` placeholder after the rebuild.
@@ -733,7 +731,7 @@ describe("projectKnowledgePlane", () => {
     }
   })
 
-  it("a run over several commits gives the valid_from of a full rebuild, also to a file that a commit removed and a later commit added again", async () => {
+  it("a run over several commits, forward or back, gives the valid_from of a full rebuild, also to a file that a commit removed and a later commit added again", async () => {
     const remote = await Remote.create()
     try {
       const base = await remote.commit({ "x.md": "# X\n", "y.md": "# Y\n" })
@@ -756,6 +754,20 @@ describe("projectKnowledgePlane", () => {
       expect(left).toEqual(await content(rebuilt, paths))
       expect(validFromOf(left)).toEqual({
         "x.md": Remote.timeOf(2).toISOString(),
+        "y.md": Remote.timeOf(0).toISOString(),
+      })
+
+      // The tip goes back to `base`, where x.md has its first introducing
+      // commit. The diff shows only y.md.
+      expect(await run(remote, workspaceId, base)).toMatchObject({
+        mode: "delta",
+      })
+      const back = await newWorkspace()
+      await run(remote, back, base)
+      const reset = await content(workspaceId, paths)
+      expect(reset).toEqual(await content(back, paths))
+      expect(validFromOf(reset)).toEqual({
+        "x.md": Remote.timeOf(0).toISOString(),
         "y.md": Remote.timeOf(0).toISOString(),
       })
     } finally {

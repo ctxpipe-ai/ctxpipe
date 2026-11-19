@@ -173,7 +173,13 @@ export async function projectKnowledgePlane(input: {
                 remote: input.remote,
                 root: input.root,
                 tip: input.tip,
-                lastSha: plan.kind === "delta" ? (state?.lastSha ?? null) : null,
+                earlier:
+                  plan.kind === "delta"
+                    ? [
+                        ...(state?.lastSha ? [state.lastSha] : []),
+                        ...(state?.attemptShas ?? []),
+                      ]
+                    : [],
               }),
               counter,
             })
@@ -273,13 +279,14 @@ async function applyChangeSet(input: {
   for (const { docKey, status } of await store.listDocumentKeys(scope))
     if (status !== "deleted" || !stored.has(docKey)) stored.set(docKey, status)
   // Only regular files: a submodule, a symlink or a removed path gives no
-  // document. A delta also writes each file that a new commit introduced,
-  // because its `valid_from` changes when the diff does not show it.
+  // document. A delta also writes each file that a commit after a fork
+  // added, because its `valid_from` can change when the diff does not show
+  // it.
   const files = [
     ...new Set(
       plan.kind === "full"
         ? plan.files
-        : [...plan.changed, ...input.introductions.newlyIntroduced],
+        : [...plan.changed, ...input.introductions.addedSinceFork],
     ),
   ]
     .filter((path) => tree.has(path) && isDocumentPath(path))
@@ -305,7 +312,7 @@ async function applyChangeSet(input: {
         blobPath,
         sourceRepositories,
         observedAt,
-        introducedAt: input.introductions.introducedAt,
+        introducedAtByPath: input.introductions.introducedAtByPath,
         paths: batch,
         blobs: batch.map((path) => tree.get(path) ?? ""),
       })
@@ -381,7 +388,7 @@ async function projectFiles(input: {
   sourceRepositories: Map<string, string>
   observedAt: Date
   /** The time of the introducing commit of each path. */
-  introducedAt: ReadonlyMap<string, string>
+  introducedAtByPath: ReadonlyMap<string, string>
   paths: string[]
   /** The blob id of each path. */
   blobs: string[]
@@ -431,7 +438,7 @@ async function projectFiles(input: {
             unit: parsed.unit,
             references: parsed.references,
             blobPath,
-            introducedAt: input.introducedAt.get(path) ?? null,
+            introducedAt: input.introducedAtByPath.get(path) ?? null,
             observedAt,
           }),
         )
@@ -633,9 +640,12 @@ async function embedImages(
 /** The introducing commit of each knowledge file (`fileIntroductions`). */
 type FileIntroductions = {
   /** The time of the commit that introduced each path. */
-  introducedAt: Map<string, string>
-  /** The paths whose introducing commit is not in the history of `last_sha`. */
-  newlyIntroduced: string[]
+  introducedAtByPath: Map<string, string>
+  /**
+   * The paths that a commit added on one side only of the fork between the
+   * tip and an earlier SHA.
+   */
+  addedSinceFork: string[]
 }
 
 /**
@@ -644,18 +654,22 @@ type FileIntroductions = {
  * path. One fetch with no blobs and one walk of the history, for all files,
  * so the cost does not grow with each file. Paths are relative to `root`.
  *
- * In a delta, a file can get a new introducing commit with no change in the
- * diff from `lastSha`: a commit removed it and a later commit added it
- * again, or a merge brought an earlier add. `newlyIntroduced` gives such
- * files, so the delta writes the `valid_from` of a full rebuild.
+ * In a delta, a file can get a different introducing commit with no change
+ * in the diff from an earlier SHA (`last_sha` or a SHA of a failed run): a
+ * commit removed the file and a later commit added it again, a merge
+ * brought an earlier add, or the tip went back to an older commit. Then the
+ * introducing commit at the tip or at the earlier SHA is on one side only of
+ * their fork. `addedSinceFork` gives each path that such a commit added, so
+ * the delta writes the `valid_from` of a full rebuild. The walk of each
+ * fork reads only the commits after it.
  */
 async function fileIntroductions(input: {
   directory: string
   remote: KnowledgeRemote
   root: string
   tip: string
-  /** `last_sha` of a delta, else null. */
-  lastSha: string | null
+  /** The `last_sha` and the `attempt_shas` of a delta; empty for a full rebuild. */
+  earlier: readonly string[]
 }): Promise<FileIntroductions> {
   const { directory, root, tip } = input
   await fetchGitHistory(directory, {
@@ -667,23 +681,36 @@ async function fileIntroductions(input: {
     sha: tip,
     root,
   })
-  const newCommits = new Set(
-    input.lastSha
-      ? (await nativeGit(directory, ["rev-list", tip, "--not", input.lastSha]))
-          .toString()
-          .split("\n")
-          .filter(Boolean)
-      : [],
-  )
-  const introducedAt = new Map<string, string>()
-  const newlyIntroduced: string[] = []
-  for (const [repositoryPath, { timestamp, commit }] of introduced) {
+  const introducedAtByPath = new Map<string, string>()
+  for (const [repositoryPath, timestamp] of introduced) {
     const path = workspaceRelativePath(root, repositoryPath)
-    if (path === null) continue
-    introducedAt.set(path, timestamp)
-    if (newCommits.has(commit)) newlyIntroduced.push(path)
+    if (path !== null) introducedAtByPath.set(path, timestamp)
   }
-  return { introducedAt, newlyIntroduced }
+  const added = new Set<string>()
+  for (const sha of new Set(input.earlier))
+    if (sha !== tip)
+      for (const repositoryPath of (
+        await nativeGit(directory, [
+          "--no-lazy-fetch",
+          "log",
+          "--format=",
+          "--name-only",
+          "-z",
+          "--diff-filter=A",
+          "--no-renames",
+          `${tip}...${sha}`,
+          "--",
+          "*.md",
+        ])
+      )
+        .toString()
+        .split("\0")) {
+        // An empty format puts a newline before the paths of each commit.
+        const name = repositoryPath.replace(/^\n/, "")
+        const path = name ? workspaceRelativePath(root, name) : null
+        if (path !== null) added.add(path)
+      }
+  return { introducedAtByPath, addedSinceFork: [...added] }
 }
 
 /**

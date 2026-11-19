@@ -259,7 +259,7 @@ export function knowledgeRows(input: {
     refKeys: input.references.keys,
     document: {
       ...documentDefaults(observedAt),
-      validFrom: dateOrNull(normalizeValidityBound(input.introducedAt)),
+      validFrom: input.introducedAt ? new Date(input.introducedAt) : null,
       docKey: unit.servingId,
       kind: node.kind,
       title,

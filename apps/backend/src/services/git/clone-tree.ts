@@ -323,8 +323,7 @@ async function withFetchedGitSha<T>(
         },
       ),
     )
-    if (input.includeIntroducingCommits)
-      await fetchGitHistory(dir, input)
+    if (input.includeIntroducingCommits) await fetchGitHistory(dir, input)
     return await read(dir, async (shas) => {
       if (!input.treesOnly || shas.length === 0) return
       // One fetch for all the blobs, not one lazy fetch for each blob.
@@ -569,7 +568,10 @@ export async function listMarkdownFilesAtGitSha(input: {
             layoutPath: input.layoutPath,
             deletedPaths: input.deletedPaths,
           })
-        : { introduced: new Map(), lastChanged: new Map<string, string>() }
+        : {
+            introduced: new Map<string, string>(),
+            lastChanged: new Map<string, string>(),
+          }
       let offset = 0
       const read = entries.map((entry) => {
         const newline = stdout.indexOf(10, offset)
@@ -605,7 +607,7 @@ export async function listMarkdownFilesAtGitSha(input: {
             ? {
                 introducingCommitTimestamp: introduced.get(
                   entry.repositoryPath,
-                )?.timestamp,
+                ),
               }
             : {}),
           ...(lastChanged.has(entry.repositoryPath)
@@ -690,8 +692,9 @@ export async function fetchGitHistory(
 /**
  * One walk of the Markdown history of `sha` in `dir`, newest first
  * (`fetchGitHistory` gets it). The maps are by repository path:
- * - `introduced`: the newest commit that added the path, so a path that a
- *   commit removed and a later commit added again has the later commit;
+ * - `introduced`: the time of the newest commit that added the path, so a
+ *   path that a commit removed and a later commit added again has the time
+ *   of the later commit;
  * - `lastChanged`: the time of the newest commit that changed the path.
  *
  * `deletedPaths` gets each Markdown path (relative to `root`) that a commit
@@ -708,10 +711,10 @@ export async function readMarkdownHistory(
     deletedPaths?: Set<string>
   },
 ): Promise<{
-  introduced: Map<string, { timestamp: string; commit: string }>
+  introduced: Map<string, string>
   lastChanged: Map<string, string>
 }> {
-  const introduced = new Map<string, { timestamp: string; commit: string }>()
+  const introduced = new Map<string, string>()
   const lastChanged = new Map<string, string>()
   const layoutPath = input.layoutPath
     ? workspaceRepositoryPath(input.root, input.layoutPath)
@@ -724,7 +727,7 @@ export async function readMarkdownHistory(
       "--no-lazy-fetch",
       "log",
       "--topo-order",
-      "--format=%x00%ct %H",
+      "--format=%x00%ct",
       "--raw",
       "-z",
       // Adds give the introducing commit; edits give the last change;
@@ -739,7 +742,7 @@ export async function readMarkdownHistory(
     5 * 60_000,
   )
   const records = history.toString("utf8").split("\0")
-  let commit: { timestamp: string; commit: string } | undefined
+  let timestamp: string | undefined
   // The deletes of the current commit, kept until the commit ends.
   let deletes: string[] = []
   let layoutCommit = false
@@ -754,13 +757,9 @@ export async function readMarkdownHistory(
   }
   for (let i = 0; i < records.length; i++) {
     const record = records[i] ?? ""
-    const header = /^([0-9]+) ([0-9a-f]+)$/.exec(record)
-    if (header?.[1] && header[2]) {
+    if (/^[0-9]+$/.test(record)) {
       endCommit()
-      commit = {
-        timestamp: new Date(Number(header[1]) * 1000).toISOString(),
-        commit: header[2],
-      }
+      timestamp = new Date(Number(record) * 1000).toISOString()
     } else {
       const status =
         /^\n?:[0-7]{6} [0-7]{6} [0-9a-f]+ [0-9a-f]+ ([A-Z])[0-9]*$/.exec(
@@ -768,7 +767,7 @@ export async function readMarkdownHistory(
         )?.[1]
       if (status) {
         const path = records[++i]
-        if (!path || !commit)
+        if (!path || !timestamp)
           throw new Error("Invalid introducing-commit record")
         if (path === layoutPath) {
           layoutCommit = true
@@ -778,9 +777,9 @@ export async function readMarkdownHistory(
           deletes.push(path)
           continue
         }
-        if (!lastChanged.has(path)) lastChanged.set(path, commit.timestamp)
+        if (!lastChanged.has(path)) lastChanged.set(path, timestamp)
         if (status === "A" && !introduced.has(path))
-          introduced.set(path, commit)
+          introduced.set(path, timestamp)
       } else if (record) throw new Error("Invalid Git history response")
     }
   }
