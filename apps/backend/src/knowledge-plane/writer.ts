@@ -33,6 +33,10 @@ import {
   multimodalEmbeddingConfig,
 } from "../retrieval/embeddings/multimodalEmbeddings.js"
 import {
+  fetchGitHistory,
+  readMarkdownHistory,
+} from "../services/git/clone-tree.js"
+import {
   fetchGitCommits,
   nativeGit,
   readGitBlobs,
@@ -82,7 +86,10 @@ type KnowledgeRunSummary =
  * 2. The planner gives the change set: a delta, or a full rebuild.
  * 3. Each changed document file replaces the rows of its document: a
  *    knowledge file (Markdown) or an image file (its key is its path). A
- *    knowledge file that does not parse gets a `failed` document.
+ *    knowledge file that does not parse gets a `failed` document. The
+ *    `valid_from` of a knowledge file is the time of the commit that
+ *    introduced it, from one walk of the Git history of the tip
+ *    (`fileIntroductions`).
  * 4. Each relation target with no row gets a `missing` placeholder. A
  *    reference key target gets none: the read resolves it (ADR-066
  *    decision 5).
@@ -161,6 +168,19 @@ export async function projectKnowledgePlane(input: {
               ...input,
               directory,
               plan,
+              introductions: await fileIntroductions({
+                directory,
+                remote: input.remote,
+                root: input.root,
+                tip: input.tip,
+                earlier:
+                  plan.kind === "delta"
+                    ? [
+                        ...(state?.lastSha ? [state.lastSha] : []),
+                        ...(state?.attemptShas ?? []),
+                      ]
+                    : [],
+              }),
               counter,
             })
             const failedCount = (
@@ -234,6 +254,7 @@ async function applyChangeSet(input: {
   observedAt: Date
   directory: string
   plan: KnowledgeChangeSet
+  introductions: FileIntroductions
   counter: MutationCounter
 }): Promise<number> {
   const { workspaceId, root, store, observedAt, directory, plan } = input
@@ -258,10 +279,18 @@ async function applyChangeSet(input: {
   for (const { docKey, status } of await store.listDocumentKeys(scope))
     if (status !== "deleted" || !stored.has(docKey)) stored.set(docKey, status)
   // Only regular files: a submodule, a symlink or a removed path gives no
-  // document.
-  const files = (plan.kind === "full" ? plan.files : plan.changed).filter(
-    (path) => tree.has(path) && isDocumentPath(path),
-  )
+  // document. A delta also writes each file that a commit after a fork
+  // added, because its `valid_from` can change when the diff does not show
+  // it.
+  const files = [
+    ...new Set(
+      plan.kind === "full"
+        ? plan.files
+        : [...plan.changed, ...input.introductions.addedSinceFork],
+    ),
+  ]
+    .filter((path) => tree.has(path) && isDocumentPath(path))
+    .sort()
 
   /** The keys of the documents that the run wrote from a file. */
   const written = new Set<string>()
@@ -283,6 +312,7 @@ async function applyChangeSet(input: {
         blobPath,
         sourceRepositories,
         observedAt,
+        introducedAtByPath: input.introductions.introducedAtByPath,
         paths: batch,
         blobs: batch.map((path) => tree.get(path) ?? ""),
       })
@@ -357,6 +387,8 @@ async function projectFiles(input: {
   blobPath: ReturnType<typeof workspaceBlobPath>
   sourceRepositories: Map<string, string>
   observedAt: Date
+  /** The time of the introducing commit of each path. */
+  introducedAtByPath: ReadonlyMap<string, string>
   paths: string[]
   /** The blob id of each path. */
   blobs: string[]
@@ -406,6 +438,7 @@ async function projectFiles(input: {
             unit: parsed.unit,
             references: parsed.references,
             blobPath,
+            introducedAt: input.introducedAtByPath.get(path) ?? null,
             observedAt,
           }),
         )
@@ -602,6 +635,82 @@ async function embedImages(
     }
   }
   return { documents, failed }
+}
+
+/** The introducing commit of each knowledge file (`fileIntroductions`). */
+type FileIntroductions = {
+  /** The time of the commit that introduced each path. */
+  introducedAtByPath: Map<string, string>
+  /**
+   * The paths that a commit added on one side only of the fork between the
+   * tip and an earlier SHA.
+   */
+  addedSinceFork: string[]
+}
+
+/**
+ * The commit that introduced each knowledge file at `tip`, with the rule of
+ * the old stack (`readMarkdownHistory`): the newest commit that added the
+ * path. One fetch with no blobs and one walk of the history, for all files,
+ * so the cost does not grow with each file. Paths are relative to `root`.
+ *
+ * In a delta, a file can get a different introducing commit with no change
+ * in the diff from an earlier SHA (`last_sha` or a SHA of a failed run): a
+ * commit removed the file and a later commit added it again, a merge
+ * brought an earlier add, or the tip went back to an older commit. Then the
+ * introducing commit at the tip or at the earlier SHA is on one side only of
+ * their fork. `addedSinceFork` gives each path that such a commit added, so
+ * the delta writes the `valid_from` of a full rebuild. The walk of each
+ * fork reads only the commits after it.
+ */
+async function fileIntroductions(input: {
+  directory: string
+  remote: KnowledgeRemote
+  root: string
+  tip: string
+  /** The `last_sha` and the `attempt_shas` of a delta; empty for a full rebuild. */
+  earlier: readonly string[]
+}): Promise<FileIntroductions> {
+  const { directory, root, tip } = input
+  await fetchGitHistory(directory, {
+    url: input.remote.url,
+    sha: tip,
+    token: await input.remote.token(),
+  })
+  const { introduced } = await readMarkdownHistory(directory, {
+    sha: tip,
+    root,
+  })
+  const introducedAtByPath = new Map<string, string>()
+  for (const [repositoryPath, timestamp] of introduced) {
+    const path = workspaceRelativePath(root, repositoryPath)
+    if (path !== null) introducedAtByPath.set(path, timestamp)
+  }
+  const added = new Set<string>()
+  for (const sha of new Set(input.earlier))
+    if (sha !== tip)
+      for (const repositoryPath of (
+        await nativeGit(directory, [
+          "--no-lazy-fetch",
+          "log",
+          "--format=",
+          "--name-only",
+          "-z",
+          "--diff-filter=A",
+          "--no-renames",
+          `${tip}...${sha}`,
+          "--",
+          "*.md",
+        ])
+      )
+        .toString()
+        .split("\0")) {
+        // An empty format puts a newline before the paths of each commit.
+        const name = repositoryPath.replace(/^\n/, "")
+        const path = name ? workspaceRelativePath(root, name) : null
+        if (path !== null) added.add(path)
+      }
+  return { introducedAtByPath, addedSinceFork: [...added] }
 }
 
 /**

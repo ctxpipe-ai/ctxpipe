@@ -1,5 +1,8 @@
 import { connectorMirrorRoot } from "../domain/codeIngestion/connectorMirrorPaths.js"
-import { normalizeValidityBound } from "../domain/workspaces/hydrate-phases.js"
+import {
+  effectiveValidFrom,
+  normalizeValidityBound,
+} from "../domain/workspaces/hydrate-phases.js"
 import {
   type HydrateUnit,
   markdownLinks,
@@ -37,11 +40,12 @@ export type UnembeddedDocumentRows = Omit<DocumentRows, "chunks"> & {
  * that names a reference key targets the key (`ref:<key>`), and the
  * document states its own keys (`refKeys`).
  *
- * The rows depend only on the unit and its references. Give a unit and its
- * references from `parseKnowledgeFile`, which parses one file alone
- * (CTX-1400), and the unit after
- * `applyEffectiveValidFromToUnits`. A validity bound that is not a time (for
- * example a Git SHA) becomes null.
+ * The rows depend only on the unit, its references and `introducedAt`. Give
+ * a unit and its references from `parseKnowledgeFile`, which parses one file
+ * alone (CTX-1400). `introducedAt` is the `valid_from` of the document, and
+ * of each claim whose own `valid_from` is empty or a Git SHA, as in the old
+ * stack (`effectiveValidFrom`). A validity bound that is not a time becomes
+ * null.
  */
 export function knowledgeRows(input: {
   workspaceId: string
@@ -54,6 +58,11 @@ export function knowledgeRows(input: {
   blobPath?: (url: string) => string | null
   /** The reference keys of the file (`parseKnowledgeFile`). */
   references: FileReferences
+  /**
+   * The time of the commit that introduced the file (`readMarkdownHistory`),
+   * or null when the history does not give one.
+   */
+  introducedAt: string | null
   observedAt: Date
 }): UnembeddedDocumentRows {
   const { workspaceId, unit, observedAt } = input
@@ -182,7 +191,16 @@ export function knowledgeRows(input: {
       relation(target, {
         predicate: entry.predicate,
         confidence: entry.confidence,
-        validFrom: dateOrNull(normalizeValidityBound(entry.validFrom)),
+        validFrom: dateOrNull(
+          normalizeValidityBound(
+            entry.from === "claim"
+              ? effectiveValidFrom({
+                  recorded: entry.validFrom,
+                  introducingCommitTimestamp: input.introducedAt,
+                })
+              : entry.validFrom,
+          ),
+        ),
         validTo: dateOrNull(normalizeValidityBound(entry.validTo)),
         source: entry.source ?? "",
       }),
@@ -241,6 +259,7 @@ export function knowledgeRows(input: {
     refKeys: input.references.keys,
     document: {
       ...documentDefaults(observedAt),
+      validFrom: input.introducedAt ? new Date(input.introducedAt) : null,
       docKey: unit.servingId,
       kind: node.kind,
       title,
