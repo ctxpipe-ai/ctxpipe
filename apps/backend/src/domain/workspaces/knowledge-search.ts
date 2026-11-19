@@ -1,7 +1,10 @@
 import { type SQL, sql } from "drizzle-orm"
 
 import { withOrgDbContext } from "../../db/client.js"
-import { HALF_EMBEDDING } from "../../db/schema/workspaces.js"
+import {
+  HALF_EMBEDDING,
+  KNOWLEDGE_VECTOR_INDEX,
+} from "../../db/schema/workspaces.js"
 import { activeProjectionSha } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { generateEmbedding } from "../../retrieval/services/modelProvider.js"
@@ -214,21 +217,29 @@ async function runSearch(
       // before `hnsw.max_scan_tuples` (20,000).
       // The exact scan: up to 2,000 chunks, or up to 3% of the table's
       // estimated rows, whichever is more; the count stops one above that.
+      // Until the half-precision index is valid (migrate builds it
+      // concurrently), every scope is scanned exactly, in full precision.
       const counted = await db.execute<{
         count: number | string
         exact_max: number | string
+        hnsw_ready: boolean | null
       }>(
         sql`WITH cap AS (
           SELECT greatest(2000, ceil(0.03 * greatest(reltuples, 0)))::int AS exact_max
           FROM pg_class WHERE oid = 'workspace_knowledge_chunks'::regclass
         )
-        SELECT (SELECT exact_max FROM cap) AS exact_max, count(*) AS count FROM (
+        SELECT (SELECT exact_max FROM cap) AS exact_max,
+          (SELECT bool_and(i.indisvalid) FROM pg_index AS i JOIN pg_class AS ic ON ic.oid = i.indexrelid
+            WHERE ic.relname = ${KNOWLEDGE_VECTOR_INDEX}) AS hnsw_ready,
+          count(*) AS count FROM (
           SELECT 1 FROM ${scope} WHERE ${where} AND c.embedding IS NOT NULL
           LIMIT (SELECT exact_max + 1 FROM cap)
         ) AS capped`,
       )
+      const first = counted.rows[0]
       if (
-        Number(counted.rows[0]?.count) <= Number(counted.rows[0]?.exact_max)
+        first?.hnsw_ready !== true ||
+        Number(first.count) <= Number(first.exact_max)
       ) {
         // MATERIALIZED keeps the planner from walking the HNSW index.
         semantic = sql`WITH scoped AS MATERIALIZED (
