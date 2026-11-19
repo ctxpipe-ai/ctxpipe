@@ -2,7 +2,6 @@ import { isUtf8 } from "node:buffer"
 import { posix } from "node:path"
 import { setImmediate } from "node:timers/promises"
 
-import { fromMarkdown } from "mdast-util-from-markdown"
 import { isAlias, isMap, isScalar, isSeq } from "yaml"
 
 import { parseNameStatus } from "../../services/git/name-status.js"
@@ -23,6 +22,11 @@ import {
   isLinkedRepositoryDeclaration,
   parseSimpleFrontMatter,
 } from "./layout.js"
+import {
+  applyBodyEdits,
+  markdownBodyOf,
+  markdownDestinations,
+} from "./markdown-links.js"
 
 type Rename = { from: string; to: string }
 
@@ -186,11 +190,7 @@ function rewriteDocument(
         .join("/") + suffix
     )
   }
-  const frontMatter =
-    /^(\uFEFF?---[ \t]*\r?\n)((?:[\s\S]*?\r?\n)?)(---[ \t]*(?=\r?\n|$))([\s\S]*)$/.exec(
-      content,
-    )
-  const body = frontMatter?.[4] ?? content
+  const body = markdownBodyOf(content)
   const edits: Array<{ start: number; end: number; value: string }> = []
   const original =
     oldPath !== path
@@ -208,13 +208,7 @@ function rewriteDocument(
     if (changed !== link.url)
       edits.push({ start: link.start, end: link.end, value: changed })
   }
-  let nextBody = body
-  for (const edit of edits.sort((a, b) => b.start - a.start))
-    nextBody =
-      nextBody.slice(0, edit.start) + edit.value + nextBody.slice(edit.end)
-  let next = frontMatter
-    ? content.slice(0, content.length - body.length) + nextBody
-    : nextBody
+  let next = applyBodyEdits(content, edits)
   const originalClaims = original?.attributes.claims
   const claimTarget = (url: string, index: number) =>
     oldPath !== path &&
@@ -269,84 +263,4 @@ function rewriteDocument(
     })
   }
   return next
-}
-
-function markdownDestinations(body: string) {
-  const links: Array<{
-    url: string
-    start: number
-    end: number
-  }> = []
-  const tree = fromMarkdown(body)
-  const visit = (node: (typeof tree.children)[number]) => {
-    if (
-      node.type === "link" ||
-      node.type === "image" ||
-      node.type === "definition"
-    ) {
-      const start = node.position?.start.offset
-      const end = node.position?.end.offset
-      if (start !== undefined && end !== undefined) {
-        const source = body.slice(start, end)
-        const span = destinationSpan(source, node.type === "definition")
-        if (span)
-          links.push({
-            url: node.url,
-            start: start + span.start,
-            end: start + span.end,
-          })
-      }
-    }
-    if ("children" in node) for (const child of node.children) visit(child)
-  }
-  for (const node of tree.children) visit(node)
-  return links
-}
-
-/** Positions come from the Markdown parser; scan only an already recognized link/definition. */
-function destinationSpan(
-  source: string,
-  definition: boolean,
-): { start: number; end: number } | null {
-  let cursor = source.startsWith("![") ? 2 : source.startsWith("[") ? 1 : -1
-  if (cursor < 0) return null
-  let brackets = 1
-  while (cursor < source.length && brackets) {
-    const character = source[cursor++]
-    if (character === "\\") cursor++
-    else if (character === "[") brackets++
-    else if (character === "]") brackets--
-    else if (character === "`" && !definition) {
-      let length = 1
-      while (source[cursor] === "`") {
-        length++
-        cursor++
-      }
-      const closing = source.indexOf("`".repeat(length), cursor)
-      if (closing >= 0) cursor = closing + length
-    }
-  }
-  if (source[cursor++] !== (definition ? ":" : "(")) return null
-  while (/\s/.test(source[cursor] ?? "") && cursor < source.length) cursor++
-  const angle = source[cursor] === "<"
-  if (angle) cursor++
-  const start = cursor
-  let parentheses = 0
-  while (cursor < source.length) {
-    const character = source[cursor]
-    if (character === "\\") {
-      cursor += 2
-      continue
-    }
-    if (
-      angle
-        ? character === ">"
-        : /\s/.test(character ?? "") || (character === ")" && parentheses === 0)
-    )
-      break
-    if (!angle && character === "(") parentheses++
-    if (!angle && character === ")") parentheses--
-    cursor++
-  }
-  return cursor > start ? { start, end: cursor } : null
 }

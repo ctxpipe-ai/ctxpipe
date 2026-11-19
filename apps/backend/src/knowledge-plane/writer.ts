@@ -392,7 +392,7 @@ async function sourceRepositoriesAt(
 }
 
 /** Call `call` for each batch of at most `size` items, in order. */
-async function inBatches<T>(
+export async function inBatches<T>(
   items: readonly T[],
   size: number,
   call: (batch: T[]) => Promise<void>,
@@ -590,7 +590,7 @@ async function commitLag(
 }
 
 /** Each regular file of the root folder at `sha` → its blob id. */
-async function regularFiles(
+export async function regularFiles(
   directory: string,
   sha: string,
   root: string,

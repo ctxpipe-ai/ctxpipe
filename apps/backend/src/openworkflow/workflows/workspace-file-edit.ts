@@ -42,6 +42,11 @@ export const workspaceFileEditInputSchema = z
     orgId: z.string().min(1),
     workspaceId: z.string().min(1),
     jobId: z.string().min(1),
+    /**
+     * The kind of the job, so that the job row and the commit name it. A run
+     * that was queued before the field existed has none: `ui_file_edit`.
+     */
+    kind: z.enum(["ui_file_edit", "knowledge_maintenance"]).optional(),
     revision: workspaceRevisionSchema,
     files: z.array(
       z
@@ -66,6 +71,7 @@ export const workspaceFileEdit = defineWorkflow(
   },
   async ({ input: queuedInput, step, run }) => {
     const input = workspaceFileEditInputSchema.parse(queuedInput)
+    const kind = input.kind ?? "ui_file_edit"
     return withWorkspaceWriteContext(
       input,
       "workspace-write-ui-file-edit",
@@ -86,16 +92,12 @@ export const workspaceFileEdit = defineWorkflow(
           throw new Error(
             "Workspace writes require a connected GitHub repository",
           )
-        const completed = await completedWorkspaceWrite(
-          input,
-          "ui_file_edit",
-          run.id,
-        )
+        const completed = await completedWorkspaceWrite(input, kind, run.id)
         if (completed) return completed
         await step.run({ name: "claim-command" }, () =>
           persistBoundWriteJob({
             id: input.jobId,
-            kind: "ui_file_edit",
+            kind,
             revision: input.revision,
             files: input.files,
             deletePaths: input.deletePaths,
@@ -224,7 +226,7 @@ export const workspaceFileEdit = defineWorkflow(
                       ),
                     }
                   },
-                  subject: { trigger: "ui_file_edit" },
+                  subject: { trigger: kind },
                   createdAt: run.createdAt,
                 },
                 env,
