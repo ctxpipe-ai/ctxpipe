@@ -59,7 +59,8 @@ export type RelatedResult = {
 export type RelatedPosition = {
   refs: string[]
   status: "current" | "superseded" | "disputed" | "scoped"
-  reason: { by: "jev"; probability: number } | { by: "tie-break"; rule: string }
+  /** The rule of the disagreement step that gave the status. */
+  reason: { rule: string }
   against: { position: number; label: "contradicts" | "updates" }[]
 }
 

@@ -218,10 +218,11 @@ const positionSchema = z.object({
     .describe(
       "current: true now. superseded: replaced, or not valid now. disputed: contradicted, and no side wins. scoped: true only for a part of the question.",
     ),
-  reason: z.union([
-    z.object({ by: z.literal("jev"), probability: z.number() }),
-    z.object({ by: z.literal("tie-break"), rule: z.string() }),
-  ]),
+  reason: z
+    .object({ rule: z.string() })
+    .describe(
+      "The rule that gave the status: supersedes, updates, validity, authority, observed-at, confidence, scoped, no-rival or tie.",
+    ),
   against: z
     .array(
       z.object({

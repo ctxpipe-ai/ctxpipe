@@ -192,6 +192,32 @@ describe("the spend cap", () => {
     }
   })
 
+  it("counts the questions of each Jev call, live and in a replay", async () => {
+    const live = new ModelCalls(BASE, 1)
+    let restore = live.install()
+    try {
+      live.begin("plane", "question")
+      await post(JEV, { questions: { "same.1.2": {}, "scoped.1": {} } })
+      await post(JEV, { questions: { "answers.1": {} } })
+      expect(live.end()).toMatchObject({ jev: 2, jevQuestions: 3 })
+    } finally {
+      restore()
+    }
+    const replay = new ModelCalls(BASE, 0, live.records)
+    restore = replay.install()
+    try {
+      replay.begin("plane", "question")
+      await post(JEV, { questions: { "same.1.2": {}, "scoped.1": {} } })
+      expect(replay.end()).toMatchObject({
+        jev: 1,
+        jevQuestions: 2,
+        missing: 0,
+      })
+    } finally {
+      restore()
+    }
+  })
+
   it("counts an answer with no cost at the reserved value", async () => {
     sent = 0
     const calls = new ModelCalls(BASE, 1)
@@ -205,6 +231,7 @@ describe("the spend cap", () => {
       ])
       expect(calls.end()).toEqual({
         jev: 0,
+        jevQuestions: 0,
         embedding: 1,
         costUsd: 0.001,
         missing: 0,

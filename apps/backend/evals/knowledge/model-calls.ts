@@ -41,6 +41,8 @@ export type RecordedCall = z.infer<typeof recordedCallSchema>
 /** The calls of one arm on one question. */
 export const callCountsSchema = z.object({
   jev: z.number(),
+  /** The questions of the Jev calls (the cost guard of ADR-069 decision 6). */
+  jevQuestions: z.number(),
   embedding: z.number(),
   /** In a replay, the cost of the recorded calls when they were made. */
   costUsd: z.number(),
@@ -70,6 +72,7 @@ type Owner = { arm: string; question: string; counts: CallCounts }
 
 const emptyCounts = (): CallCounts => ({
   jev: 0,
+  jevQuestions: 0,
   embedding: 0,
   costUsd: 0,
   missing: 0,
@@ -93,6 +96,14 @@ const parseOr = (text: string, fallback: unknown): unknown => {
     return fallback
   }
 }
+
+/** The number of questions of a Jev request body. */
+const questionsOf = (body: string): number =>
+  Object.keys(
+    z
+      .object({ questions: z.record(z.string(), z.unknown()) })
+      .safeParse(parseOr(body, {})).data?.questions ?? {},
+  ).length
 
 export class ModelCalls {
   readonly records: RecordedCall[] = []
@@ -177,7 +188,7 @@ export class ModelCalls {
     if (!kind) return next(request)
     const body = await request.clone().text()
     const key = createHash("sha256").update(`${kind}\n${body}`).digest("hex")
-    if (this.replay) return this.replayed(kind, key, owner)
+    if (this.replay) return this.replayed(kind, key, body, owner)
     // The hard spend cap: each call in flight holds its worst-case cost, and
     // a call that would take the spent and reserved total over the cap is
     // not sent. The check and the reservation have no `await` between them,
@@ -215,6 +226,7 @@ export class ModelCalls {
     // A panel reply is no retrieval answer: the votes file keeps it.
     if (kind !== "panel") {
       owner.counts[kind] += 1
+      if (kind === "jev") owner.counts.jevQuestions += questionsOf(body)
       this.records.push({
         arm: owner.arm,
         question: owner.question,
@@ -244,7 +256,12 @@ export class ModelCalls {
    * answer that it got live. After the last one, the same request gets the
    * last answer again.
    */
-  private replayed(kind: CallKind, key: string, owner: Owner): Response {
+  private replayed(
+    kind: CallKind,
+    key: string,
+    body: string,
+    owner: Owner,
+  ): Response {
     const queue = this.replay?.get(
       this.replayKey(owner.arm, owner.question, key),
     )
@@ -255,6 +272,7 @@ export class ModelCalls {
       return unavailable("The recording holds no answer for this call.")
     }
     owner.counts[kind] += 1
+    if (kind === "jev") owner.counts.jevQuestions += questionsOf(body)
     owner.counts.costUsd += recorded.costUsd
     this.records.push(recorded)
     return new Response(recorded.response, {

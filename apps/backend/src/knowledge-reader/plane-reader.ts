@@ -202,7 +202,8 @@ function queryTerms(query: string): string[] {
 
 /**
  * `search_knowledge` and the chat search: the hybrid search, then layer 0
- * (Jev orders the hits by p(answers)). When Jev fails, the hits keep the
+ * (Jev orders the hits by p(answers)). A hit that is not valid at `validAt`
+ * (or now) comes after the valid hits. When Jev fails, the hits keep the
  * search order and the result says `judge_unavailable`. When the time
  * budget ends during the judge, they keep the search order and the result
  * says `total_timeout`; when it ends before the search ends, there are no
@@ -217,6 +218,7 @@ async function search(
 ): Promise<SearchResult> {
   const query = request.query.trim()
   if (!query || request.workspaceIds.length === 0) return { hits: [] }
+  const queryTime = request.validAt ?? new Date()
   const deadline = performance.now() + ORCHESTRATOR_DEFAULTS.timeBudgetMs
   const store = knowledgeStore()
   const scope = {
@@ -278,13 +280,17 @@ async function search(
   ])
   const claimsOf = claimsByDocument(relations)
   const hits = found.flatMap(
-    (hit, index): (KnowledgeHit & { order: number })[] => {
+    (hit, index): (KnowledgeHit & { order: number; valid: boolean })[] => {
       const chunk = hit.chunks[0]
       const sha = shas.get(hit.workspaceId)
       if (!chunk || !sha) return []
+      const { validFrom, validTo } = hit.document
       return [
         {
           order: index,
+          valid:
+            (!validFrom || validFrom <= queryTime) &&
+            (!validTo || queryTime < validTo),
           workspaceId: hit.workspaceId,
           unitId: hit.document.docKey,
           path: hit.document.path,
@@ -308,10 +314,19 @@ async function search(
       ]
     },
   )
-  // Jev's order, with the search order between equal probabilities.
-  hits.sort((a, b) => b.score - a.score || a.order - b.order)
+  // The valid hits first: the validity reaches the order through code, not
+  // through Jev. Then Jev's order, with the search order between equal
+  // probabilities.
+  hits.sort(
+    (a, b) =>
+      Number(b.valid) - Number(a.valid) ||
+      b.score - a.score ||
+      a.order - b.order,
+  )
   return {
-    hits: hits.slice(0, limit).map(({ order: _order, ...hit }) => hit),
+    hits: hits
+      .slice(0, limit)
+      .map(({ order: _order, valid: _valid, ...hit }) => hit),
     ...(unjudged ? { partialReason: unjudged } : {}),
   }
 }
@@ -514,19 +529,19 @@ async function disagreementPositions(
   deadline: number,
   meter: ModelMeter,
 ): Promise<RelatedPosition[]> {
-  // The pairs go to Jev in batches of `batchSize`, then one call gives the
-  // status of each position.
-  const batchSize = 15
+  // The pairs go to Jev in parallel batches of `batchSize` (four questions
+  // for each pair, and one for each item). A single item gets one call.
+  const batchSize = 12
   const pairs = (top.length * (top.length - 1)) / 2
-  meter.jevCalls += Math.ceil(pairs / batchSize) + 1
+  meter.jevCalls += Math.max(1, Math.ceil(pairs / batchSize))
   meter.jevCandidates += top.length
-  // The resolver makes two calls one after the other, and each gets the rest
-  // of the budget, so the deadline also bounds both together.
+  const { sameAt, disagreeAt, replacesAt, scopedAt } = ORCHESTRATOR_DEFAULTS
   const resolution = await beforeDeadline(deadline, () =>
     resolveDisagreements({
       question,
       queryTime,
       batchSize,
+      thresholds: { sameAt, disagreeAt, replacesAt, scopedAt },
       timeoutMs: Math.max(1, Math.floor(deadline - performance.now())),
       items: top.map(({ document, text }, index) => ({
         id: String(index),

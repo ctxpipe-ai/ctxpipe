@@ -283,7 +283,7 @@ export function imageRows(input: {
 
 /**
  * The source authority kinds, from the highest authority to the lowest. The
- * disagreement tie-break ranks `source_type` in this order. The kind `other`
+ * disagreement step ranks `source_type` in this order. The kind `other`
  * is not in the list, so it ranks below all of them.
  */
 export const SOURCE_AUTHORITY_ORDER = [

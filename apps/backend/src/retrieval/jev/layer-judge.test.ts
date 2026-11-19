@@ -111,6 +111,10 @@ describe("judgeLayer", () => {
     expect(
       Object.values(body.questions).every(({ type }) => type === "noul"),
     ).toBe(true)
+    // Each question asks for one judgment. Code applies the metadata.
+    expect(body.questions["answers.1"]?.instructions).toBe(
+      "Does Candidate 1 help answer the question?",
+    )
 
     expect(result).toEqual(
       new Map([
