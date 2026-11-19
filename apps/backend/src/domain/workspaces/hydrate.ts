@@ -526,7 +526,7 @@ function parseClaims(raw: unknown): HydrateClaim[] {
   return claims
 }
 
-function markdownLinks(body: string): string[] {
+export function markdownLinks(body: string): string[] {
   const links: string[] = []
   for (const match of body.matchAll(MD_LINK)) {
     const href = match[2]?.trim()

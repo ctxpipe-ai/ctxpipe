@@ -309,7 +309,7 @@ async function applyWorkspaceGraphDelta(
 }
 
 /** A non-time value is no bound. A time without an offset uses UTC. */
-function normalizeValidityBound(value: string | null): string | null {
+export function normalizeValidityBound(value: string | null): string | null {
   const raw = value?.trim()
   if (!raw || !/^\d{4}-\d{2}-\d{2}/.test(raw)) return null
   const utc =
