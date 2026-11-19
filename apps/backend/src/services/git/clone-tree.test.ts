@@ -813,36 +813,39 @@ describe("clone-tree", { timeout: 30_000 }, () => {
     ).resolves.toEqual({ kind: "missing" })
   })
 
-  it("does not follow a repo symlink out of the checkout", async () => {
+  it("reads a symlink as missing and the regular file beside it (CTX-1414)", async () => {
     dir = await mkdtemp(join(tmpdir(), "ctxpipe-clone-tree-"))
-    await execFileAsync("git", ["init", dir])
-    await execFileAsync("git", [
-      "-C",
-      dir,
-      "config",
-      "user.email",
-      "dev@example.com",
-    ])
-    await execFileAsync("git", ["-C", dir, "config", "user.name", "Dev"])
-    await execFileAsync("ln", ["-s", "/etc/passwd", join(dir, "leak")])
-    await execFileAsync("git", ["-C", dir, "add", "."])
-    await execFileAsync("git", ["-C", dir, "commit", "-m", "symlink"])
-    const { stdout } = await execFileAsync("git", [
-      "-C",
-      dir,
-      "rev-parse",
-      "HEAD",
-    ])
-    const sha = stdout.trim()
+    const git = async (...args: string[]) =>
+      (await execFileAsync("git", ["-C", dir as string, ...args])).stdout.trim()
+    await git("init", "-b", "main")
+    await writeFile(join(dir, "real.md"), "# Real\n")
+    await execFileAsync("ln", ["-s", "real.md", join(dir, "link.md")])
+    await execFileAsync("ln", ["-s", "/etc/passwd", join(dir, "leak.md")])
+    await git("add", ".")
+    await git(
+      "-c",
+      "user.name=Dev",
+      "-c",
+      "user.email=dev@example.com",
+      "commit",
+      "-m",
+      "symlinks",
+    )
+    expect(await git("ls-tree", "HEAD", "link.md")).toMatch(/^120000 blob /)
+    const sha = await git("rev-parse", "HEAD")
 
-    const file = await readFileAtGitSha({ url: dir, sha, path: "leak" })
-    expect(file).toEqual({
-      kind: "bytes",
-      bytes: Buffer.from("/etc/passwd"),
-    })
+    for (const treesOnly of [false, true]) {
+      for (const path of ["link.md", "leak.md"])
+        expect(
+          await readFileAtGitSha({ url: dir, sha, path, treesOnly }),
+        ).toEqual({ kind: "missing" })
+      expect(
+        await readFileAtGitSha({ url: dir, sha, path: "real.md", treesOnly }),
+      ).toEqual({ kind: "bytes", bytes: Buffer.from("# Real\n") })
+    }
     expect(
-      file.kind === "bytes" ? Buffer.from(file.bytes).toString("utf8") : "",
-    ).not.toMatch(/root:/)
+      await listMarkdownFilesAtGitSha({ url: dir, sha, extraPaths: ["link"] }),
+    ).toEqual([{ path: "real.md", content: "# Real\n" }])
   })
 
   it("reads a markdown-only repository larger than 64 MB", async () => {
