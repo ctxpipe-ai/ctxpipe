@@ -16,7 +16,7 @@ import { workspaceRelativePath } from "../services/git/root-folder.js"
 type ParsedFile =
   /** A knowledge file. */
   | { kind: "unit"; unit: HydrateUnit }
-  /** A knowledge file that is not knowledge: a `failed` document (ADR-067 decision 8). */
+  /** A knowledge file that does not parse: a `failed` document (ADR-067 decision 8). */
   | { kind: "failed"; error: string }
   /** Not a knowledge file. */
   | { kind: "none" }

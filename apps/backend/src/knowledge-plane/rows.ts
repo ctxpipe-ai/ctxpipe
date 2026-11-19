@@ -24,10 +24,9 @@ export type UnembeddedDocumentRows = Omit<DocumentRows, "chunks"> & {
 /**
  * Map one parsed Workspace file to its knowledge rows (ADR-066 decision 3):
  * the `active` document of the file, with its chunks and its outgoing
- * relations. The function
- * writes nothing, and the same input gives the same rows in the same order.
- * The rows hold no org and no Workspace: `KnowledgeStore` sets them
- * (decision 9).
+ * relations. The function writes nothing, and the same input gives the same
+ * rows in the same order. The rows hold no org and no Workspace:
+ * `KnowledgeStore` sets them (decision 9).
  *
  * A relation does not need a target row. Its target is the document key of
  * the resolved path, and the read resolves it (ADR-066 decision 5). Each
