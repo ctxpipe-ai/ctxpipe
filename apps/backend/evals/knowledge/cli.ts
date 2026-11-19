@@ -10,6 +10,8 @@
  *     [--set NAME=VALUE] [--kept REPORT]
  *   bun evals/knowledge/cli.ts label --draft FILE --repo DIR \
  *     --models A,B,C --out FILE [--cap-usd 5]
+ *   bun evals/knowledge/cli.ts corpus snapshot|issues|freeze --plan FILE \
+ *     --out FILE
  *
  * See README.md. Exit code 0: done. 2: bad setup. 3: the spend cap stopped
  * the command (the output holds the work before the stop).
@@ -19,11 +21,19 @@ import { writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { parseArgs, promisify } from "node:util"
 
+import { Octokit } from "octokit"
+
 import { closeDb, initDb } from "../../src/db/client.js"
 import { ORCHESTRATOR_DEFAULTS } from "../../src/knowledge-reader/orchestrator.js"
 import { initEvlog } from "../../src/observability/logger.js"
 import { closeGraphDb } from "../../src/platform/graph/client.js"
 import { DEFAULT_OPENROUTER_BASE } from "../../src/retrieval/services/modelProvider.js"
+import {
+  freezeCorpora,
+  importCorpusIssues,
+  planSchema,
+  snapshotRepositories,
+} from "./corpus.js"
 import { type Dataset, readDataset } from "./dataset.js"
 import { ModelCalls, type RecordedCall } from "./model-calls.js"
 import { labelWithPanel } from "./panel.js"
@@ -166,11 +176,45 @@ async function label(values: {
   }
 }
 
+/**
+ * One step of the public corpora (`corpus.ts`). `GITHUB_TOKEN` must be able
+ * to make and push to the private repositories of the plan's owner.
+ */
+async function corpus(
+  step: string | undefined,
+  plan: string | undefined,
+  out: string,
+) {
+  if (!plan) throw new SetupError("corpus needs --plan.")
+  const parsed = planSchema.parse(await readJson(plan))
+  const token = process.env.GITHUB_TOKEN || undefined
+  // Wait for a rate limit to reset, then go on.
+  const wait = () => true
+  const access = {
+    octokit: new Octokit({
+      auth: token,
+      throttle: { onRateLimit: wait, onSecondaryRateLimit: wait },
+    }),
+    token,
+    gitBase: "https://github.com",
+  }
+  const log = (line: string) => process.stderr.write(`${line}\n`)
+  if (step === "snapshot")
+    await writeJson(out, await snapshotRepositories(parsed, access, log))
+  else if (step === "issues")
+    await writeJson(out, await importCorpusIssues(parsed, access, log))
+  else if (step === "freeze") await freezeCorpora(parsed, access, out)
+  else throw new SetupError("Use corpus snapshot, issues or freeze.")
+  return 0
+}
+
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv
-  const { values } = parseArgs({
+  const { values, positionals } = parseArgs({
     args: rest,
+    allowPositionals: true,
     options: {
+      plan: { type: "string" },
       dataset: { type: "string" },
       targets: { type: "string" },
       out: { type: "string" },
@@ -191,9 +235,10 @@ async function main(argv: string[]): Promise<number> {
   if (!values.out) throw new SetupError("Give --out.")
   const out = values.out
   if (command === "label") return label({ ...values, out, capUsd })
+  if (command === "corpus") return corpus(positionals[0], values.plan, out)
 
   if (command !== "run" && command !== "rescore")
-    throw new SetupError("Use the command run, rescore or label.")
+    throw new SetupError("Use the command run, rescore, label or corpus.")
   if (!process.env.DATABASE_URL) throw new SetupError("Set DATABASE_URL.")
   const kept = values.kept
     ? keptRunSchema.parse(await readJson(values.kept))
