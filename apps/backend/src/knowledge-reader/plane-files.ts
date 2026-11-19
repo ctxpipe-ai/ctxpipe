@@ -30,15 +30,8 @@ import { knowledgeStore } from "./plane-reader.js"
  * parse decides which files are units, as on the old stack.
  */
 
-/** A unit of the Workspace Git at the plane SHA. */
-export type PlaneUnit = {
-  unit: HydrateUnit
-  /** The time that the plane observed the document; the plane results show it as `updatedAt`. */
-  observedAt: Date
-}
-
-/** A unit file of a folder listing, with its size in bytes. */
-export type PlaneUnitFile = { path: string; size: number }
+/** A unit file of a folder listing, with the size of its body in bytes. */
+export type UnitFile = { path: string; size: number }
 
 /** The remote, its read token and the root folder of the Workspace repository. */
 async function workspaceRepository(orgId: string, workspaceId: string) {
@@ -87,7 +80,9 @@ async function gitRead<T>(
 
 /**
  * The unit at `path` in the Workspace Git at `sha`, or null when the file is
- * not there, is not a unit, or the plane has no active document for it.
+ * not there or is not a unit. `updatedAt` is the time that the plane
+ * observed the document, as in the other results of the plane; without a
+ * document row it is the time of the read.
  */
 export async function readPlaneUnit(input: {
   orgId: string
@@ -95,34 +90,29 @@ export async function readPlaneUnit(input: {
   sha: string
   /** The path from the Workspace root. */
   path: string
-}): Promise<PlaneUnit | null> {
+}): Promise<{ unit: HydrateUnit; updatedAt: Date } | null> {
   const { orgId, workspaceId, sha, path } = input
   const repository = await workspaceRepository(orgId, workspaceId)
-  const docKey = servingIdForKnowledgePath(workspaceId, path)
-  const [file, documents] = await gitRead(
-    "mcp.read_file.git_failed",
-    workspaceId,
-    () =>
-      Promise.all([
-        readFileAtGitSha({
-          url: repository.url,
-          sha,
-          path: workspaceRepositoryPath(repository.root, path),
-          token: repository.token,
-          treesOnly: true,
-        }),
-        knowledgeStore().readDocuments({ orgId, workspaceIds: [workspaceId] }, [
-          { workspaceId, docKey },
-        ]),
-      ]),
+  const file = await gitRead("mcp.read_file.git_failed", workspaceId, () =>
+    readFileAtGitSha({
+      url: repository.url,
+      sha,
+      path: workspaceRepositoryPath(repository.root, path),
+      token: repository.token,
+      treesOnly: true,
+    }),
   )
-  const document = documents[0]?.document
-  if (file.kind === "missing" || document?.status !== "active") return null
+  if (file.kind === "missing") return null
   const [unit] = hydrateKnowledgeTree({
     workspaceId,
     files: [{ path, content: Buffer.from(file.bytes).toString("utf8") }],
   }).units
-  return unit ? { unit, observedAt: document.observedAt } : null
+  if (!unit) return null
+  const [document] = await knowledgeStore().readDocuments(
+    { orgId, workspaceIds: [workspaceId] },
+    [{ workspaceId, docKey: servingIdForKnowledgePath(workspaceId, path) }],
+  )
+  return { unit, updatedAt: document?.document.observedAt ?? new Date() }
 }
 
 /** The unit files below `folder` (`""` is the root) in the Workspace Git at `sha`. */
@@ -131,7 +121,7 @@ export async function listPlaneUnitFiles(input: {
   workspaceId: string
   sha: string
   folder: string
-}): Promise<PlaneUnitFile[]> {
+}): Promise<UnitFile[]> {
   const { orgId, workspaceId, sha, folder } = input
   const repository = await workspaceRepository(orgId, workspaceId)
   const files = await gitRead("mcp.list_files.git_failed", workspaceId, () =>
@@ -143,11 +133,8 @@ export async function listPlaneUnitFiles(input: {
       ...(folder ? { prefix: `${folder}/` } : {}),
     }),
   )
-  const sizes = new Map(
-    files.map((file) => [file.path, Buffer.byteLength(file.content)]),
-  )
   return hydrateKnowledgeTree({ workspaceId, files }).units.map((unit) => ({
     path: unit.path,
-    size: sizes.get(unit.path) ?? 0,
+    size: Buffer.byteLength(unit.body),
   }))
 }

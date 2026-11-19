@@ -8,7 +8,10 @@ import {
   globCheckoutFiles,
 } from "../../domain/codeIngestion/codesearchClient.js"
 import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
-import { listPlaneUnitFiles } from "../../knowledge-reader/plane-files.js"
+import {
+  listPlaneUnitFiles,
+  type UnitFile,
+} from "../../knowledge-reader/plane-files.js"
 import { log } from "../../observability/logger.js"
 import { fitPage } from "../framework/budget.js"
 import {
@@ -67,7 +70,7 @@ async function listUnitRows(
   orgId: string,
   workspaceId: string,
   folder: string,
-): Promise<Array<{ path: string; size: number }>> {
+): Promise<UnitFile[]> {
   const prefix = folder ? `${folder}/` : ""
   return withOrgDbContext(orgId, (db) =>
     db
@@ -92,7 +95,7 @@ async function listUnitRows(
  * below it, at any depth.
  */
 function folderEntries(
-  units: ReadonlyArray<{ path: string; size: number }>,
+  units: readonly UnitFile[],
   folder: string,
   depth: number,
 ): Entry[] {

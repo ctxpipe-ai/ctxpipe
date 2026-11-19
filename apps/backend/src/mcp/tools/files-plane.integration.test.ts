@@ -250,7 +250,8 @@ describe("read_file and list_files on the knowledge plane", () => {
     try {
       await writer.replaceDocuments(
         { orgId: seed.orgId, workspaceId },
-        [CHECKOUT, PAYMENTS].map((path) => ({
+        // The payments unit has no document row on the plane.
+        [CHECKOUT].map((path) => ({
           document: {
             docKey: servingIdForKnowledgePath(workspaceId, path),
             kind: "",
@@ -383,7 +384,17 @@ describe("read_file and list_files on the knowledge plane", () => {
       }
     })
 
-    it("list_files lists the units of the served SHA, with their file sizes", async () => {
+    it("read_file reads a Git unit that has no plane document; updatedAt is the read time", async () => {
+      const result = await readFile({ ref: PAYMENTS })
+      expect(result.isError).toBeFalsy()
+      expect(structured(result)).toMatchObject({
+        served: { sha: servedSha },
+        frontMatter: { updatedAt: new Date(clock).toISOString() },
+        content: "# Payments team\n\nThe payments team owns checkout.",
+      })
+    })
+
+    it("list_files lists the units of the served SHA, with their body sizes", async () => {
       const root = structured(await listFiles())
       expect(root).toEqual({
         repository: null,
@@ -403,7 +414,10 @@ describe("read_file and list_files on the knowledge plane", () => {
           path: CHECKOUT,
           type: "file",
           ref: CHECKOUT,
-          size: Buffer.byteLength(checkoutFile("A")),
+          // The body without front matter, as on the old stack.
+          size: Buffer.byteLength(
+            "# Checkout service\n\nVersion A of the checkout service.\n",
+          ),
         },
       ])
       const missing = await listFiles({ path: "knowledge/nope" })

@@ -177,8 +177,7 @@ async function readUnit(
 /**
  * A unit of the Workspace Git at the SHA that the knowledge plane serves.
  * The text is the body without front matter, as on the old stack. The
- * `updatedAt` of the front matter is the time that the plane observed the
- * document, as in the results of the plane.
+ * `updatedAt` of the front matter comes from the plane (`readPlaneUnit`).
  */
 async function readPlaneUnitFile(
   org: CallOrg,
@@ -193,7 +192,7 @@ async function readPlaneUnitFile(
     path,
   })
   if (!read) return null
-  const { unit, observedAt } = read
+  const { unit, updatedAt } = read
   return {
     text: unit.body,
     lineOffset: (unit.bodyStartLine ?? 1) - 1,
@@ -202,7 +201,7 @@ async function readPlaneUnitFile(
       kind: unit.kind ?? null,
       title: unit.title,
       source: unit.source,
-      updatedAt: observedAt,
+      updatedAt,
       claims: unit.claims,
     }),
   }
@@ -339,7 +338,7 @@ export async function readFileByRef(
     lineOffset = unit?.lineOffset ?? 0
     served = {
       branch: workspaceServed.branch,
-      sha: planeSha ?? unit?.sha ?? workspaceServed.sha,
+      sha: unit?.sha ?? workspaceServed.sha,
     }
   } else {
     const repository = await requireLinkedRepository(
