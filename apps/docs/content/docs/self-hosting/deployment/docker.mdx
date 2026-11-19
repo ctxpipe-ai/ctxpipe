@@ -97,10 +97,7 @@ a `docker-compose.override.yml`. This applies to:
 - social sign-in: `GITHUB_CLIENT_ID`, `GOOGLE_*`, and `MICROSOFT_*`;
 - Atlassian OAuth: `ATLASSIAN_CLIENT_ID` and `ATLASSIAN_CLIENT_SECRET`;
 - an external graph database: `GRAPH_DB_URI`, `GRAPH_DB_PROVIDER`,
-  `GRAPH_DB_USER`, and `GRAPH_DB_PASSWORD`;
-- an S3 disk for the old ClickHouse parts: mount your storage file on the
-  `clickhouse` service. See
-  [Keep old parts on S3](/docs/self-hosting/configuration#keep-old-parts-on-s3).
+  `GRAPH_DB_USER`, and `GRAPH_DB_PASSWORD`.
 
 ```yaml
 services:
@@ -113,6 +110,10 @@ services:
       SMTP_CONNECTION_URL: ${SMTP_CONNECTION_URL}
       EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS}
 ```
+
+An S3 disk for the old ClickHouse parts also needs an override file: mount
+your storage file on the `clickhouse` service. See
+[Keep old parts on S3](/docs/self-hosting/configuration#keep-old-parts-on-s3).
 
 The in-product GitHub wizard stores the GitHub App credentials in the database.
 The GitHub App therefore needs no variable.
