@@ -29,7 +29,7 @@ export const recordedCallSchema = z.object({
   /** The raw answer: the Jev probabilities or the vectors. */
   response: z.string(),
   costUsd: z.number(),
-  /** True when the answer had no cost, so `costUsd` is the upper estimate. */
+  /** True when the answer had no cost, so `costUsd` is the reserved value. */
   estimated: z.boolean(),
   latencyMs: z.number(),
 })
@@ -47,12 +47,14 @@ export const callCountsSchema = z.object({
 export type CallCounts = z.infer<typeof callCountsSchema>
 
 /**
- * The first upper cost of a call of each kind: above the highest cost that
- * we saw (ADR-063 decision 5 for Jev and a panel model). A call whose answer
- * has no `usage.cost` counts at the upper cost, so a missing cost never
- * turns the spend cap off.
+ * The worst-case cost of one call of each kind, which the run reserves
+ * before it sends the call. Each value is above the highest cost that the
+ * bake-offs measured (ADR-063: $0.0008 for one Jev call, and $0.25 for an
+ * LLM judge reply with no cost); a query embedding costs much less than
+ * $0.001. A call whose answer has no `usage.cost`, or that fails, keeps the
+ * reserved value, so a missing cost never turns the spend cap off.
  */
-const FIRST_UPPER_COST_USD: Record<CallKind, number> = {
+const RESERVED_COST_USD: Record<CallKind, number> = {
   jev: 0.002,
   embedding: 0.001,
   panel: 0.25,
@@ -90,15 +92,10 @@ export class ModelCalls {
   readonly records: RecordedCall[] = []
   /** The cost of the calls that went out. A replay sends none. */
   spentUsd = 0
-  /** True after the spend cap stopped a call. The run then stops. */
+  /** True after the spend cap stopped a call. Each later call stops too. */
   stopped = false
-  /** The upper cost of the calls that are in flight. */
+  /** The reserved cost of the calls that are in flight. */
   private reservedUsd = 0
-  /**
-   * The upper cost of a call of each kind: the first value, or the highest
-   * cost of a call of the kind in this run.
-   */
-  private readonly upperUsd = { ...FIRST_UPPER_COST_USD }
   private context = { arm: "", question: "" }
   private counts = emptyCounts()
   private readonly origin: string
@@ -158,30 +155,38 @@ export class ModelCalls {
     const body = await request.clone().text()
     const key = createHash("sha256").update(`${kind}\n${body}`).digest("hex")
     if (this.replay) return this.replayed(kind, key)
-    // Each call in flight holds its upper cost, so that calls in parallel
-    // cannot pass the cap together. Only a call that costs more than each
-    // earlier call of its kind can pass the cap, by that difference.
-    const upper = this.upperUsd[kind]
-    if (this.spentUsd + this.reservedUsd + upper > this.capUsd) {
+    // The hard spend cap: each call in flight holds its worst-case cost, and
+    // a call that would take the spent and reserved total over the cap is
+    // not sent. The check and the reservation have no `await` between them,
+    // so calls in parallel cannot pass the cap together.
+    const reserved = RESERVED_COST_USD[kind]
+    if (
+      this.stopped ||
+      this.spentUsd + this.reservedUsd + reserved > this.capUsd
+    ) {
       this.stopped = true
       return unavailable("The spend cap of the eval run is spent.")
     }
-    this.reservedUsd += upper
+    this.reservedUsd += reserved
     const started = performance.now()
     let response: Response
     let text: string
     try {
       response = await next(request)
       text = await response.text()
+    } catch (error) {
+      // The provider can charge a call that failed on the way back.
+      this.spentUsd += reserved
+      this.counts.costUsd += reserved
+      throw error
     } finally {
-      this.reservedUsd -= upper
+      this.reservedUsd -= reserved
     }
     const latencyMs = performance.now() - started
     const known = gatewayCost(
       answerSchema.safeParse(parseOr(text, {})).data?.usage,
     )
-    const costUsd = known ?? upper
-    this.upperUsd[kind] = Math.max(upper, costUsd)
+    const costUsd = known ?? reserved
     this.spentUsd += costUsd
     this.counts.costUsd += costUsd
     // A panel reply is no retrieval answer: the votes file keeps it.

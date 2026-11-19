@@ -387,6 +387,7 @@ describe("the knowledge eval harness", () => {
 
   it("runs each question through both arms and writes the run folder and the report", async () => {
     live = await run("live")
+    expect(live.status).toBe("complete")
     // Jev agrees with the gold labels, so the plane is right each time. The
     // old stack ranks some gold documents lower, and it has no "no answer".
     expect(compact(live)).toEqual({
@@ -526,6 +527,7 @@ describe("the knowledge eval harness", () => {
   it("stops at the spend cap and compares only the questions that both arms answered", async () => {
     const stopped = await run("capped", { capUsd: 0.005 })
     expect(stopped.run.stopped).toBe(true)
+    expect(stopped.status).toBe("spend-cap")
     // Each call in flight holds its upper cost, so the spend stays in the cap.
     expect(stopped.run.spentUsd).toBeGreaterThan(0)
     expect(stopped.run.spentUsd).toBeLessThanOrEqual(0.005)

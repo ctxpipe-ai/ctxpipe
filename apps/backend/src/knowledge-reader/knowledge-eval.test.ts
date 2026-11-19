@@ -1,6 +1,5 @@
-import { HttpResponse, http } from "msw"
-import { setupServer } from "msw/node"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { delay, HttpResponse, http } from "msw"
+import { describe, expect, it } from "vitest"
 
 import {
   type Dataset,
@@ -13,12 +12,15 @@ import {
   positionsCorrect,
   recallAt,
 } from "../../evals/knowledge/metrics.js"
+import { ModelCalls } from "../../evals/knowledge/model-calls.js"
 import { checkPanel, labelWithPanel } from "../../evals/knowledge/panel.js"
 import { parseSettings } from "../../evals/knowledge/runner.js"
+import { useMswServer } from "../../test/msw.js"
 
 /*
  * The parts of the knowledge eval harness that need no store: the dataset
- * checks, the metrics, and the judge panel (msw answers for the models).
+ * checks, the metrics, the spend cap and the judge panel (msw answers for
+ * the models).
  * `knowledge-eval.integration.test.ts` runs the harness end to end.
  */
 
@@ -123,6 +125,72 @@ describe("the metrics", () => {
   })
 })
 
+describe("the spend cap", () => {
+  const BASE = "https://cap.test/v1"
+  const JEV = "https://cap.test/alpha/decisions"
+  let sent = 0
+  useMswServer(
+    // A Jev answer costs $0.0015, below its reservation of $0.002.
+    http.post(JEV, async () => {
+      sent += 1
+      await delay(20)
+      return HttpResponse.json({ answers: {}, usage: { cost: 0.0015 } })
+    }),
+    // An embedding answer with no cost.
+    http.post(`${BASE}/embeddings`, () => {
+      sent += 1
+      return HttpResponse.json({ data: [] })
+    }),
+  )
+  const post = (url: string, body: unknown) =>
+    fetch(url, { method: "POST", body: JSON.stringify(body) })
+
+  it("never lets calls in parallel take the run over the cap", async () => {
+    sent = 0
+    const calls = new ModelCalls(BASE, 0.005)
+    const restore = calls.install()
+    try {
+      const answers = await Promise.all(
+        Array.from({ length: 10 }, (_, index) => post(JEV, { index })),
+      )
+      // Each call reserves $0.002: two fit in $0.005, a third would not.
+      expect(sent).toBe(2)
+      expect(answers.filter((answer) => answer.status === 503)).toHaveLength(8)
+      expect(calls.stopped).toBe(true)
+      // The real cost replaced the reservations.
+      expect(calls.spentUsd).toBeCloseTo(0.003)
+      // $0.003 + $0.002 fits, but a stopped run sends nothing more.
+      expect((await post(JEV, { index: 10 })).status).toBe(503)
+      expect(sent).toBe(2)
+      expect(calls.spentUsd).toBeLessThanOrEqual(0.005)
+    } finally {
+      restore()
+    }
+  })
+
+  it("counts an answer with no cost at the reserved value", async () => {
+    sent = 0
+    const calls = new ModelCalls(BASE, 1)
+    const restore = calls.install()
+    try {
+      calls.begin("plane", "question")
+      expect((await post(`${BASE}/embeddings`, { input: ["q"] })).ok).toBe(true)
+      expect(calls.spentUsd).toBe(0.001)
+      expect(calls.records).toMatchObject([
+        { kind: "embedding", costUsd: 0.001, estimated: true },
+      ])
+      expect(calls.end()).toEqual({
+        jev: 0,
+        embedding: 1,
+        costUsd: 0.001,
+        missing: 0,
+      })
+    } finally {
+      restore()
+    }
+  })
+})
+
 describe("the judge panel", () => {
   const BASE = "https://panel.test/v1"
   /** model → ref → [answers, status]. */
@@ -155,7 +223,7 @@ describe("the judge panel", () => {
   const asked: string[] = []
   /** From this call on, the endpoint answers 503, as the spend cap does. */
   let capAt = Number.POSITIVE_INFINITY
-  const server = setupServer(
+  useMswServer(
     http.post(`${BASE}/chat/completions`, async ({ request }) => {
       if (asked.length >= capAt)
         return HttpResponse.json({ error: "capped" }, { status: 503 })
@@ -178,8 +246,6 @@ describe("the judge panel", () => {
       })
     }),
   )
-  beforeAll(() => server.listen({ onUnhandledRequest: "error" }))
-  afterAll(() => server.close())
 
   const draft: Dataset = {
     version: "draft",

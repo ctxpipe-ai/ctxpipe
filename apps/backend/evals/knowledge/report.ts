@@ -41,6 +41,8 @@ type ComparisonRow = {
 
 export type Report = {
   datasetVersion: string
+  /** `spend-cap`: the spend cap stopped the run before its last question. */
+  status: "complete" | "spend-cap"
   arms: { baseline: string; plane: string }
   run: Omit<Manifest, "datasetVersion">
   comparison: ComparisonRow[]
@@ -150,6 +152,7 @@ export function buildReport(input: {
   const { datasetVersion, ...run } = manifest
   return {
     datasetVersion,
+    status: manifest.stopped ? "spend-cap" : "complete",
     arms: { baseline: ARM_NAMES.legacy, plane: ARM_NAMES.plane },
     run,
     comparison,
@@ -190,7 +193,7 @@ export function renderMarkdown(report: Report): string {
   const lines = [
     "# Knowledge eval report",
     "",
-    `Dataset ${report.datasetVersion}. Mode: ${report.run.mode}. Query time: ${report.run.now}.`,
+    `Status: ${report.status}. Dataset ${report.datasetVersion}. Mode: ${report.run.mode}. Query time: ${report.run.now}.`,
     `Settings: ${JSON.stringify(report.run.settings)}. Spend: ${usd(report.run.spentUsd)} of ${usd(report.run.capUsd)}.`,
     ...(report.run.stopped
       ? [
