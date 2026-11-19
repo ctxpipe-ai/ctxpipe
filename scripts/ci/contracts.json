@@ -1,6 +1,10 @@
 {
-  "postgres": ["src/db/rls-isolation.test.ts"],
-  "git": ["src/services/git/clone-tree.test.ts"],
+  "postgres": [
+    "src/db/rls-isolation.test.ts"
+  ],
+  "git": [
+    "src/services/git/clone-tree.test.ts"
+  ],
   "OpenWorkflow native write jobs": [
     "src/domain/workspaces/write-workflow-native.contract.test.ts",
     "src/domain/workspaces/write-maintenance-native.contract.test.ts",
@@ -17,7 +21,9 @@
     "src/domain/workspaces/workspace-unborn-bootstrap-native.contract.test.ts",
     "src/domain/workspaces/write-worker-loss-native.contract.test.ts"
   ],
-  "hydrate": ["src/domain/workspaces/hydration.contract.test.ts"],
+  "hydrate": [
+    "src/domain/workspaces/hydration.contract.test.ts"
+  ],
   "native worker discovery": [
     "src/openworkflow/workflows/workflow-discovery.contract.test.ts"
   ],
@@ -89,6 +95,9 @@
   ],
   "knowledge search at scale": [
     "src/domain/workspaces/knowledge-search.contract.test.ts"
+  ],
+  "knowledge store org walls (ClickHouse)": [
+    "src/knowledge-store/knowledge-store.contract.test.ts"
   ],
   "host Docker, zoekt and process environment": [
     "src/domain/ingestion/classify-kind-skill.contract.test.ts",

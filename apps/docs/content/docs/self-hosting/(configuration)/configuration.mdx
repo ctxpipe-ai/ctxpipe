@@ -13,6 +13,8 @@ values as production secrets.
 - PostgreSQL with pgvector. Compose uses PostgreSQL 17. AWS CDK
   uses Aurora PostgreSQL 16.
 - A graph database. FalkorDB is in the Compose stack.
+- ClickHouse 26.10 for the knowledge content. ClickHouse is in the Compose
+  stack.
 - A model provider: OpenRouter, Azure OpenAI, Amazon Bedrock, or another
   OpenAI-compatible API.
 - A public HTTPS origin for auth callbacks, webhooks, MCP, and Forge.
@@ -91,6 +93,19 @@ examples and embedding requirements.
 
 See [Graph databases](/docs/self-hosting/graph-databases) for provider support
 and tenancy behavior.
+
+## Knowledge store
+
+ClickHouse holds the knowledge content: the documents, their sections, and
+the relations between them.
+
+| Variable | Description |
+|---|---|
+| `CLICKHOUSE_URL` | Required. The ClickHouse HTTP URL with the user, the password, and the database: `http://user:password@host:8123/database`. URL-encode special characters in the password. The backend, the worker, and the migrations use it. |
+
+The migrations create the tables and a row policy for each table. Thus, the
+ClickHouse user needs SQL access management (`access_management`). If
+`CLICKHOUSE_URL` is not set, the migrations skip ClickHouse.
 
 ## Chat sandboxes
 

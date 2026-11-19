@@ -158,7 +158,7 @@ the repository root:
 | Sandboxes | `docker compose exec dind docker ps -a` | One container per recent conversation; stopped ones are idle sandboxes |
 | Memory cap | `docker compose exec dind cat /sys/fs/cgroup/ctxpipe-sandboxes/memory.current /sys/fs/cgroup/ctxpipe-sandboxes/memory.max` | Memory in use stays below the cap. Missing on hosts without cgroup v2 (`dind` logs a warning). |
 | Metadata block | `docker compose exec dind iptables -t raw -S PREROUTING` | Includes `-d 169.254.169.254/32 -j DROP` |
-| No published data stores | `docker port $(docker compose ps -q postgres falkordb)` | Prints nothing |
+| No published data stores | `docker port $(docker compose ps -q postgres falkordb clickhouse)` | Prints nothing |
 | No host socket | `docker inspect --format '{{range .Mounts}}{{.Source}} {{end}}' $(docker compose ps -q backend worker)` | No `/var/run/docker.sock` |
 
 ctxpipe removes sandboxes and Workspace bases on the same schedule as on AWS.

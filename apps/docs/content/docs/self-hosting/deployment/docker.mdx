@@ -53,14 +53,20 @@ at build time. After you change it, build the images again with
 | `codesearch` | The repository clone cache and the Zoekt indexes. Keep one replica. |
 | `postgres` | The application database |
 | `falkordb` | The default graph database |
+| `clickhouse` | The knowledge content |
 | `dind` | The Docker daemon for chat and ingestion sandboxes |
 | `chat-sandbox-image` | One-shot: builds the sandbox image inside `dind` |
 | `agent-vault` | Adds credentials to sandbox requests. It is the only address that sandboxes can reach. |
 | `agent-vault-secrets` | One-shot: generates the Agent Vault passwords |
 
 The backend is the only service on a public host port (`3000`). Compose binds
-`codesearch` (`3001`) and `ui` (`3002`) to `127.0.0.1` only. Postgres and
-FalkorDB have no host port.
+`codesearch` (`3001`) and `ui` (`3002`) to `127.0.0.1` only. Postgres,
+FalkorDB, and ClickHouse have no host port.
+
+Compose makes `CLICKHOUSE_URL` for `migrate`, `backend`, and `worker` from
+`CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`, and `CLICKHOUSE_DB` in `.env`. The
+defaults are `ctxpipe`. Set your own `CLICKHOUSE_PASSWORD` before the first
+start, and use only URL-safe characters in it.
 
 ## Settings that need an override file
 
@@ -129,6 +135,7 @@ The GitHub App therefore needs no variable.
 |---|---|---|
 | Postgres data | An anonymous volume of the `postgres` container, or your named volume | Yes |
 | Graph data | The `falkordb` container, or your named volume | Yes, or rebuild it from the Workspace repositories |
+| Knowledge content | `clickhouse_data` | Yes, or rebuild it from the Workspace repositories |
 | Repository clone cache | `repo_cache` | No, codesearch clones again |
 | Zoekt indexes | `zoekt_index_deploy` | No, codesearch indexes again |
 | Agent Vault passwords and data | `agent_vault_master`, `agent_vault_owner`, `agent_vault_data` | Keep them. New passwords do not match an existing Agent Vault. |
