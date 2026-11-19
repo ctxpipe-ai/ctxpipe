@@ -111,6 +111,10 @@ services:
       EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS}
 ```
 
+An S3 disk for the old ClickHouse parts also needs an override file: mount
+your storage file on the `clickhouse` service. See
+[Keep old parts on S3](/docs/self-hosting/configuration#keep-old-parts-on-s3).
+
 The in-product GitHub wizard stores the GitHub App credentials in the database.
 The GitHub App therefore needs no variable.
 

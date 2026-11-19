@@ -13,8 +13,8 @@ values as production secrets.
 - PostgreSQL with pgvector. Compose uses PostgreSQL 17. AWS CDK
   uses Aurora PostgreSQL 16.
 - A graph database. FalkorDB is in the Compose stack.
-- ClickHouse 26.10 for the knowledge content. ClickHouse is in the Compose
-  stack.
+- ClickHouse 26.10 for the new knowledge store. ClickHouse is in the Compose
+  stack. AWS CDK does not deploy it yet.
 - A model provider: OpenRouter, Azure OpenAI, Amazon Bedrock, or another
   OpenAI-compatible API.
 - A public HTTPS origin for auth callbacks, webhooks, MCP, and Forge.
@@ -96,12 +96,16 @@ and tenancy behavior.
 
 ## Knowledge store
 
-ClickHouse holds the knowledge content: the documents, their sections, and
-the relations between them.
+ClickHouse holds the content of the new knowledge store: the documents, their
+sections, and the relations between them. ctxpipe makes this content from the
+files of each Workspace repository.
+
+The new knowledge store is off for every organization. A later release
+explains how to turn it on.
 
 | Variable | Description |
 |---|---|
-| `CLICKHOUSE_URL` | Required. The ClickHouse HTTP URL with the user, the password, and the database: `http://user:password@host:8123/database`. URL-encode special characters in the password. Each process gets a different user (see below). |
+| `CLICKHOUSE_URL` | Required for an organization on the new knowledge store. The ClickHouse HTTP URL with the user, the password, and the database: `http://user:password@host:8123/database`. URL-encode special characters in the password. Each process gets a different user (see below). |
 | `CLICKHOUSE_READER_PASSWORD` | Migrations only. The password of the user `ctxpipe_reader`. |
 | `CLICKHOUSE_WRITER_PASSWORD` | Migrations only. The password of the user `ctxpipe_writer`. |
 
@@ -130,12 +134,99 @@ volumes `hot` and `cold`, or the migrations fail. Compose loads
 into `/etc/clickhouse-server/config.d/`. On another ClickHouse server, add that
 file in the same folder.
 
-The Compose service keeps both volumes on its local disk. To keep the old
-parts on S3, put an S3 disk under the volume `cold`. If you move the
-ClickHouse data to S3 behind a cache disk, set `boundary_alignment` of the
-cache disk to `131072` (128 KiB). The search reads small ranges of the vector
-column. With the default alignment of 4 MiB, a search that is not in the cache
-downloads about 1 GiB from S3 for 46 MiB of data on 1 million sections.
+The Compose service keeps both volumes on its local disk.
+
+### Keep old parts on S3
+
+This example replaces the disk of the volume `cold` with an S3 bucket behind a
+cache disk. Change the bucket URL, the Region, and the cache size:
+
+```xml title="clickhouse-storage-s3.xml"
+<clickhouse>
+  <storage_configuration>
+    <disks>
+      <cold_s3>
+        <type>s3</type>
+        <endpoint>https://example-bucket.s3.us-west-2.amazonaws.com/clickhouse/</endpoint>
+        <use_environment_credentials>true</use_environment_credentials>
+      </cold_s3>
+      <cold>
+        <type>cache</type>
+        <disk>cold_s3</disk>
+        <path>cold</path>
+        <max_size>50Gi</max_size>
+        <boundary_alignment>131072</boundary_alignment>
+      </cold>
+    </disks>
+    <policies>
+      <default>
+        <volumes>
+          <hot>
+            <disk>default</disk>
+          </hot>
+          <cold>
+            <disk>cold</disk>
+            <perform_ttl_move_on_insert>0</perform_ttl_move_on_insert>
+          </cold>
+        </volumes>
+        <move_factor>0</move_factor>
+      </default>
+    </policies>
+  </storage_configuration>
+</clickhouse>
+```
+
+On Compose, mount your file in place of the default file, in a
+`docker-compose.override.yml`:
+
+```yaml title="docker-compose.override.yml"
+services:
+  clickhouse:
+    volumes:
+      - ./clickhouse-storage-s3.xml:/etc/clickhouse-server/config.d/storage.xml:ro
+    environment:
+      AWS_ACCESS_KEY_ID: ${CLICKHOUSE_S3_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${CLICKHOUSE_S3_SECRET_ACCESS_KEY}
+```
+
+The search reads small ranges of the vector column, so the example sets
+`boundary_alignment` of the cache disk to `131072` (128 KiB). With the default
+alignment of 4 MiB, a search that is not in the cache downloads about 1 GiB
+from S3 for 46 MiB of data on 1 million sections.
+
+The cache files go to `/var/lib/clickhouse/caches/cold/`. Do not put the cache
+path under `/var/lib/clickhouse/disks/`: the image then makes that folder as
+`root`, and ClickHouse cannot start.
+
+With `use_environment_credentials`, ClickHouse uses the AWS credentials of its
+environment, or the instance role on EC2. Give them read, write, list, and
+delete access to the bucket prefix only. Set the S3 disk before the first
+start. A part that is already on the local volume `cold` does not move to S3.
+
+### Recover the knowledge store
+
+ClickHouse holds only content that ctxpipe makes from the Workspace
+repositories. If you lose the ClickHouse data:
+
+1. Restore a ClickHouse backup, if you have one.
+2. Run the migrations again, also after a restore. They make each missing
+   table and the users `ctxpipe_reader` and `ctxpipe_writer`. On Compose, set
+   the reader and writer passwords in `.env`, then run:
+
+   ```bash
+   docker compose --profile deploy run --rm migrate
+   ```
+
+3. Delete the index state of the knowledge store in Postgres. Do this also
+   after a restore: the backup can be older than the index state, and the
+   next run then does not apply the commits between them.
+
+   ```bash
+   docker compose exec postgres psql -U ctxpipe -c "DELETE FROM knowledge_state"
+   ```
+
+The next hydrate of each Workspace is a full rebuild. Until a Workspace
+completes its full rebuild, the graph database answers for it.
 
 ## Chat sandboxes
 
