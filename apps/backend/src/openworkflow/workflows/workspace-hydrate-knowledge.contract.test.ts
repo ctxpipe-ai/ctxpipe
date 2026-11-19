@@ -2,11 +2,12 @@ import { writeFileSync } from "node:fs"
 import { createServer } from "node:net"
 import { join } from "node:path"
 
-import { sql } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { http, passthrough } from "msw"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
 
-import { getSystemDb } from "../../db/client.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { orgFeatures } from "../../db/schema/org_features.js"
 import { servingIdForKnowledgePath } from "../../domain/workspaces/hydrate.js"
 import { createKnowledgeStore } from "../../knowledge-store/knowledge-store.js"
 import { migrateKnowledgeStore } from "../../knowledge-store/migrate.js"
@@ -16,6 +17,7 @@ import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
+import { knowledgeProjection } from "./knowledge-projection.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
 /*
@@ -225,4 +227,43 @@ it(
       expect(await runsOf("knowledge-projection", f.workspaceId)).toEqual([])
       expect(await runsOf("knowledge-maintenance", f.workspaceId)).toEqual([])
     }),
+)
+
+it(
+  "a queued knowledge projection of an org whose flag is now `off` writes nothing",
+  { timeout: 120_000 },
+  async () =>
+    withNativeHydrationFixture(
+      { files, knowledgePlane: { clickhouseUrl: writerUrl } },
+      async (f) => {
+        await f.publish()
+        await waitForKnowledgeState(f, { lastSha: f.sha })
+        f.git("checkout", "--", ".")
+        writeFileSync(join(f.directory, "d.md"), "# Delta\n")
+        f.git("add", "-A")
+        f.git("commit", "-q", "-m", "Add d")
+        f.git("push", "-q", f.remote, "HEAD:refs/heads/main")
+        await f.resolveRevision(true)
+        await withOrgDbContext(f.org.id, (db) =>
+          db
+            .update(orgFeatures)
+            .set({ value: "off" })
+            .where(eq(orgFeatures.organizationId, f.org.id)),
+        )
+        const handle = await f.runner.runWorkflow(knowledgeProjection.spec, {
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+        })
+        expect(await handle.result({ timeoutMs: 60_000 })).toBeNull()
+        expect(
+          await getKnowledgeState({
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+          }),
+        ).toMatchObject({ lastSha: f.sha, attemptShas: [] })
+        expect(await storedDocuments(f)).not.toHaveProperty(
+          servingIdForKnowledgePath(f.workspaceId, "d.md"),
+        )
+      },
+    ),
 )

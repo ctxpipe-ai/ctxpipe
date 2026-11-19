@@ -7,6 +7,7 @@ import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import { withSandboxLockIfFree } from "../../domain/workspaces/sandbox-lock-store.js"
 import { projectKnowledgePlane } from "../../knowledge-plane/writer.js"
 import { createKnowledgeStore } from "../../knowledge-store/knowledge-store.js"
+import { getOrgFeature } from "../../models/org-features.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
@@ -57,6 +58,11 @@ export const knowledgeProjection = defineWorkflow(
         },
         async () => {
           lockSignal.throwIfAborted()
+          // The flag is the gate before Workspace content goes to the
+          // embedding provider and to ClickHouse. A run can wait for a long
+          // time, so it reads the flag again at each attempt.
+          if ((await getOrgFeature(input.orgId, "knowledge_plane")) === "off")
+            return null
           const env = parseEnv(process.env)
           const workspace = await withOrgDbContext(input.orgId, () =>
             getWorkspaceById(input.workspaceId, input.orgId),
