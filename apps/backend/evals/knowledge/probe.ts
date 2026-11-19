@@ -113,9 +113,12 @@ async function observe<T>(
   } catch {
     // No JSON answer: the evidence is the status and the client error.
   }
-  const errors = [thrown, answer.error?.message?.slice(0, 500)].filter(
-    (part): part is string => Boolean(part),
-  )
+  const providerText = answer.error?.message?.slice(0, 500)
+  // The client error can already hold the routing message of the gateway.
+  const errors = [
+    thrown,
+    providerText && !thrown?.includes(providerText) ? providerText : null,
+  ].filter((part): part is string => Boolean(part))
   return {
     result,
     status: last?.status ?? null,
@@ -233,27 +236,37 @@ async function probeChecks(
 
   const dimensions = multimodalEmbeddingConfig.dimensions
   const pinned = PROVIDER_NAMES[multimodalEmbeddingConfig.upstreamProvider]
-  const embedded = async (name: string, input: EmbeddingInput) => {
-    const evidence = await observe(calls, () => embedMultimodal([input]))
+  const embedded = async (name: string, inputs: EmbeddingInput[]) => {
+    const evidence = await observe(calls, () => embedMultimodal(inputs))
     check(
       name,
       evidence,
       evidence.status === 200 &&
         evidence.provider === pinned &&
-        evidence.result?.length === 1 &&
-        evidence.result[0]?.length === dimensions,
-      `HTTP 200, the provider ${pinned}, and one vector of ${dimensions} dimensions`,
+        evidence.result?.length === inputs.length &&
+        evidence.result.every((vector) => vector.length === dimensions),
+      `HTTP 200, the provider ${pinned}, and ${inputs.length} vector(s) of ${dimensions} dimensions`,
     )
   }
-  await embedded("embedding-image", {
-    kind: "image",
-    bytes: image,
-    mimeType: "image/png",
-  })
-  await embedded("embedding-text", {
-    kind: "query",
-    text: "A red and blue checkerboard.",
-  })
+  await embedded("embedding-image", [
+    { kind: "image", bytes: image, mimeType: "image/png" },
+  ])
+  await embedded("embedding-text", [
+    { kind: "query", text: "A red and blue checkerboard." },
+  ])
+  // One full batch of document chunks, in the shape that the projection
+  // sends: one request with `batchSize` text inputs.
+  const { batchSize } = multimodalEmbeddingConfig
+  await embedded(
+    "embedding-text-batch",
+    Array.from({ length: batchSize }, (_, index) => ({
+      kind: "text" as const,
+      text: `Square ${index + 1} of the checkerboard is ${index % 2 === 0 ? "red" : "blue"}.`,
+      documentTitle: "Checkerboard",
+      chunkIndex: index,
+      chunkCount: batchSize,
+    })),
+  )
   return checks
 }
 
