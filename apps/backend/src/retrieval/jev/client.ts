@@ -33,6 +33,16 @@ export type JevState = (
 export type JevQuestion = { type: "noul"; instructions: string }
 
 /**
+ * A question with a fixed set of options. `criteria` gives the meaning of
+ * each option. Jev answers it with a probability for each option.
+ */
+export type JevChoiceQuestion<Option extends string> = {
+  type: "choice"
+  instructions: string
+  criteria: Record<Option, string>
+}
+
+/**
  * The failure of one Jev call. The message holds no request or response
  * text, because that can be customer content.
  * - `config`: the backend model settings cannot reach OpenRouter.
@@ -96,9 +106,63 @@ function openRouterSettings(): { base: string; apiKey: string } {
 }
 
 /**
- * Ask Jev the `questions` about the `state`, in one call. Returns the
- * probability of yes for each question key. The key and the base URL come
- * from the backend model settings (see `openRouterSettings`). A failure
+ * Ask Jev the yes/no `questions` about the `state`, in one call. Returns the
+ * probability of yes for each question key. See `decide` for the settings,
+ * the errors and the span.
+ */
+export function decideNoul(
+  state: JevState,
+  questions: Record<string, JevQuestion>,
+  options: DecideOptions,
+): Promise<Map<string, number>> {
+  return decide(state, questions, options, (key, answer) => {
+    const parsed = noulAnswer.safeParse(answer)
+    if (!parsed.success)
+      throw new JevError(
+        "invalid-answer",
+        `Jev gave no valid yes/no answer to question ${key}.`,
+      )
+    return parsed.data.noul
+  })
+}
+
+/**
+ * Ask Jev the choice `questions` about the `state`, in one call. Returns the
+ * probability of each option for each question key. An answer that does not
+ * give a probability for each option of its question is an `invalid-answer`.
+ * See `decide` for the settings, the errors and the span.
+ */
+export function decideChoice<Option extends string>(
+  state: JevState,
+  questions: Record<string, JevChoiceQuestion<Option>>,
+  options: DecideOptions,
+): Promise<Map<string, Record<Option, number>>> {
+  return decide(state, questions, options, (key, answer) => {
+    const names = Object.keys(questions[key]?.criteria ?? {}) as Option[]
+    const parsed = z
+      .object({
+        probabilities: z.object(
+          Object.fromEntries(
+            names.map((name) => [name, z.number().min(0).max(1)]),
+          ) as Record<Option, z.ZodNumber>,
+        ),
+      })
+      .safeParse(answer)
+    if (!parsed.success)
+      throw new JevError(
+        "invalid-answer",
+        `Jev gave no valid choice answer to question ${key}.`,
+      )
+    return parsed.data.probabilities as Record<Option, number>
+  })
+}
+
+type DecideOptions = { timeoutMs: number; attributes: Record<string, number> }
+
+/**
+ * Ask Jev the `questions` about the `state`, in one call, and parse the
+ * answer to each question key with `parseAnswer`. The key and the base URL
+ * come from the backend model settings (see `openRouterSettings`). A failure
  * throws a `JevError`. The call must not run inside an org database
  * transaction.
  *
@@ -106,11 +170,12 @@ function openRouterSettings(): { base: string; apiKey: string } {
  * (`gen_ai.usage.cost`), the latency and the `attributes` of the caller. The
  * span holds no prompt text: the state is customer content.
  */
-export async function decideNoul(
+async function decide<Answer>(
   state: JevState,
-  questions: Record<string, JevQuestion>,
-  options: { timeoutMs: number; attributes: Record<string, number> },
-): Promise<Map<string, number>> {
+  questions: Record<string, JevQuestion | JevChoiceQuestion<string>>,
+  options: DecideOptions,
+  parseAnswer: (key: string, answer: unknown) => Answer,
+): Promise<Map<string, Answer>> {
   assertNotInOrgDbContext()
   return trace.getTracer("ctxpipe-llm").startActiveSpan(
     "jev.decide",
@@ -190,17 +255,12 @@ export async function decideNoul(
           )
         const cost = gatewayCost(parsed.data.usage)
         if (cost !== undefined) span.setAttribute("gen_ai.usage.cost", cost)
-        const probabilities = new Map<string, number>()
-        for (const key of Object.keys(questions)) {
-          const answer = noulAnswer.safeParse(parsed.data.answers[key])
-          if (!answer.success)
-            throw new JevError(
-              "invalid-answer",
-              `Jev gave no valid yes/no answer to question ${key}.`,
-            )
-          probabilities.set(key, answer.data.noul)
-        }
-        return probabilities
+        return new Map(
+          Object.keys(questions).map((key) => [
+            key,
+            parseAnswer(key, parsed.data.answers[key]),
+          ]),
+        )
       } catch (error) {
         span.setStatus({
           code: SpanStatusCode.ERROR,
