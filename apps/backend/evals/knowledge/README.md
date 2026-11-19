@@ -98,6 +98,25 @@ The plan (`fixtures/corpora-v0.plan.json`) gives the slice of each source of ADR
 3. `issues` writes the newest issues before the cut-off date of each repository into the context repo, as the production issue mirror writes them (`github/issues/<owner>/<repo>/<n>.md`, with the source file of the snapshot repository in `sources`).
 4. `freeze` writes the SHA of the main branch of each context repo into the `corpora` of the dataset file. The questions of the file stay.
 
+### Probe the provider settings
+
+```sh
+factory eval knowledge:probe --repo CTXPIPE-CHECKOUT --out "$TMPDIR/knowledge-probe" [--max-cost 0.05]
+# or, with the model key in the environment:
+bun --env-file=.env.local evals/knowledge/cli.ts probe --out "$TMPDIR/knowledge-probe" [--cap-usd 0.05]
+```
+
+Before the first org leaves `off`, this command confirms with real calls that OpenRouter applies the request settings of the knowledge plane (ADR-068 decision 7). Each check sends its request through the real client (`decideNoul`, `embedMultimodal`), and it records the status, the `provider` field of the answer, and the error text:
+
+| Check | Passes when |
+| --- | --- |
+| `decisions-pinned` | The Decisions request with our provider block gets HTTP 200, a yes/no answer, and the provider `typesafe`. |
+| `decisions-refused-without-zdr-endpoint` | The same request with `ignore: ["typesafe"]` added to the provider block gets a 4xx refusal. TypeSafe is the only (ZDR) endpoint of Jev, so an endpoint that ignored the provider block would answer 200. `probe.ts` gives the full reason and its limit. |
+| `embedding-image` | An image (a PNG data URI of `fixtures/probe-checkerboard.png`) to the pinned embedding provider gets one vector of the configured dimension. |
+| `embedding-text` | The same for a fixed text. |
+
+The probe sends only the fixed text and the checkerboard image, and the default spend cap is $0.05. It writes `probe.json` and `probe.md` to `--out`. It needs no store, but the backend environment check still needs `DATABASE_URL` and `AUTH_SECRET` to be set. Exit codes: 0 all checks pass, 3 the spend cap stopped a call, 4 a check failed. When a check fails, report it. Do not change the request settings to make it pass.
+
 ## The run folder
 
 | File | Holds |
