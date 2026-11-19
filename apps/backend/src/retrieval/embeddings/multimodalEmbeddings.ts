@@ -22,7 +22,11 @@ import { dropEmptyEnvValues } from "../services/modelTierSpecs.js"
  */
 export const multimodalEmbeddingConfig = {
   model: "google/gemini-embedding-2",
-  /** The one upstream provider (OpenRouter slug). No fallback (ADR-068 decision 7). */
+  /**
+   * The one upstream provider (OpenRouter slug). No fallback (ADR-068
+   * decision 7). Its endpoints must be on the OpenRouter ZDR list
+   * (`GET /api/v1/endpoints/zdr`), because each request sets `zdr: true`.
+   */
   upstreamProvider: "google-vertex",
   dimensions: 1024,
   /** The maximum number of inputs in one request. */
@@ -86,8 +90,8 @@ class RetryableStatusError extends Error {}
 
 /**
  * Embed texts and images in one vector space. The result has the order of
- * `inputs`. Every request sets `provider.data_collection: "deny"` and pins
- * the upstream provider without fallback.
+ * `inputs`. Every request sets `provider.data_collection: "deny"` and
+ * `provider.zdr: true`, and pins the upstream provider without fallback.
  */
 export async function embedMultimodal(
   inputs: EmbeddingInput[],
@@ -111,6 +115,7 @@ export async function embedMultimodal(
         data_collection: "deny",
         order: [config.upstreamProvider],
         allow_fallbacks: false,
+        zdr: true,
       },
     })
     for (let attempt = 1; ; attempt++) {

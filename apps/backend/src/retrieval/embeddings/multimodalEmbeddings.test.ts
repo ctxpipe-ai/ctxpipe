@@ -94,6 +94,7 @@ describe("embedMultimodal", () => {
         data_collection: "deny",
         order: ["vendor-cloud"],
         allow_fallbacks: false,
+        zdr: true,
       })
     }
     expect(auth).toEqual([
