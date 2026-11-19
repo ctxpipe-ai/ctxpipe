@@ -117,7 +117,7 @@ Fix or dispute each finding. A hold ends when a later review no longer raises th
 
 ## Local development
 
-One [docker-compose.yml](docker-compose.yml) uses profiles ([ADR-015](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)). `pnpm dev:infra` starts the `infra` profile (Postgres, FalkorDB, OTEL, Agent Vault). `pnpm start` starts the `deploy` profile (production images). Details on Compose, migrations, the docs site, and container deploy: [`.ai/agents/local-development.md`](.ai/agents/local-development.md).
+One [docker-compose.yml](docker-compose.yml) uses profiles ([ADR-015](.ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md)). `pnpm dev:infra` starts the `infra` profile (Postgres, FalkorDB, ClickHouse, OTEL, Agent Vault). `pnpm start` starts the `deploy` profile (production images). Details on Compose, migrations, the docs site, and container deploy: [`.ai/agents/local-development.md`](.ai/agents/local-development.md).
 
 ### Agent runbook — host dev (run from repo root)
 

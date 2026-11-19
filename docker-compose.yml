@@ -2,9 +2,10 @@
 # Copy docker-compose.env.example → .env (Compose loads it from this directory).
 #
 # Profiles:
-#   infra  — Postgres, FalkorDB (host ports via infra-host-ports), contributor
-#            OTEL collector (host dev: pnpm dev:infra)
-#   deploy — App stack (pnpm start): postgres + falkordb + apps. No collector.
+#   infra  — Postgres, FalkorDB, ClickHouse (host ports via infra-host-ports),
+#            contributor OTEL collector (host dev: pnpm dev:infra)
+#   deploy — App stack (pnpm start): postgres + falkordb + clickhouse + apps.
+#            No collector.
 #            Set OTEL_EXPORTER_OTLP_* in .env to export to your own endpoint.
 #            Workspace chat sandboxes run in the `dind` Docker-in-Docker
 #            service on its own `sandbox` network (see the self-hosting docs).
@@ -53,6 +54,10 @@ x-agent-vault-limits: &agent-vault-limits
   AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY: "256"
   AGENT_VAULT_TELEMETRY: "false"
 
+# The ClickHouse server of the knowledge content (ADR-066), for backend, worker
+# and migrate. Use only URL-safe characters in CLICKHOUSE_PASSWORD.
+x-clickhouse-url: &clickhouse-url http://${CLICKHOUSE_USER:-ctxpipe}:${CLICKHOUSE_PASSWORD:-ctxpipe}@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}
+
 x-dind-image: &dind-image docker:29.8.2-dind@sha256:7dcdfc4a20246236f558175182ccace1eb15a41bd3eb119dd2284f393498b7c1
 
 services:
@@ -83,8 +88,34 @@ services:
       FALKORDB_ARGS: "CMD_INFO no"
     # Never published, like postgres.
 
-  # Host dev only: Postgres and FalkorDB on host ports, forwarded so the data
-  # stores themselves stay unpublished in every profile.
+  # The knowledge content (ADR-066), on local disk. The migrate service makes
+  # the tables, their org CHECK constraints and their row policies; the row
+  # policies need SQL access management for the user.
+  clickhouse:
+    profiles: [infra, deploy]
+    image: clickhouse/clickhouse-server:26.10.6.18@sha256:9c55d8d8a77e03e1fd399d59e4d0a1c7a5e42df70098ff1c5d8bd18eb1a5d106
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-ctxpipe}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-ctxpipe}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-ctxpipe}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    # Never published, like postgres.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # Host dev only: Postgres, FalkorDB and ClickHouse on host ports, forwarded
+  # so the data stores themselves stay unpublished in every profile.
   infra-host-ports:
     profiles: [infra]
     image: alpine/socat:latest@sha256:82ad20f6f6e29b91ff33b6662d24063522b1378f08fd8569cd3ab412cac13f50
@@ -97,13 +128,16 @@ services:
         socat TCP-LISTEN:6379,fork,reuseaddr TCP:falkordb:6379 &
         socat TCP-LISTEN:7687,fork,reuseaddr TCP:falkordb:7687 &
         socat TCP-LISTEN:3000,fork,reuseaddr TCP:falkordb:3000 &
+        socat TCP-LISTEN:8123,fork,reuseaddr TCP:clickhouse:8123 &
         wait
     ports:
       - "${CTXPIPE_POSTGRES_HOST_PORT:-5433}:5432"
       - "${CTXPIPE_FALKOR_REDIS_HOST_PORT:-6379}:6379"
       - "${CTXPIPE_FALKOR_BOLT_HOST_PORT:-7687}:7687"
       - "${CTXPIPE_FALKOR_ADMIN_HOST_PORT:-3003}:3000"
-    depends_on: [postgres, falkordb]
+      # Loopback only: the user of this port has SQL access management.
+      - "127.0.0.1:${CTXPIPE_CLICKHOUSE_HOST_PORT:-8123}:8123"
+    depends_on: [postgres, falkordb, clickhouse]
 
   otel-collector:
     profiles: [infra]
@@ -211,11 +245,14 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-ctxpipe}:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       DATABASE_APP_PASSWORD: ${POSTGRES_PASSWORD:-ctxpipe}
+      CLICKHOUSE_URL: *clickhouse-url
       # The backend modules migrate imports parse the app env, which needs it.
       AUTH_SECRET: ${AUTH_SECRET:-}
     command: ["bun", "run", "apps/backend/src/db/migrate.ts"]
     depends_on:
       postgres:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
 
   # Docker daemon for Workspace chat sandboxes (stock docker:dind). Only this
@@ -289,6 +326,7 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       GRAPH_DB_URI: redis://falkordb:6379
+      CLICKHOUSE_URL: *clickhouse-url
       UI_PROXY_URL: http://ui:3002
       CODESEARCH_URL: http://codesearch:3001
       # The worker gets the same PORT: ingest sandboxes call the API on it.
@@ -339,6 +377,8 @@ services:
         condition: service_healthy
       falkordb:
         condition: service_started
+      clickhouse:
+        condition: service_healthy
       ui:
         condition: service_started
 
@@ -356,6 +396,7 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       GRAPH_DB_URI: redis://falkordb:6379
+      CLICKHOUSE_URL: *clickhouse-url
       # Required to decrypt connection secrets (Slack bot tokens, GitHub App keys).
       AUTH_SECRET: ${AUTH_SECRET:-}
       AUTH_BASE_URL: ${AUTH_BASE_URL:-http://localhost:3000}
@@ -394,6 +435,8 @@ services:
         condition: service_healthy
       falkordb:
         condition: service_started
+      clickhouse:
+        condition: service_healthy
 
   ui:
     profiles: [deploy]
@@ -472,6 +515,8 @@ volumes:
   sandbox_client_certs:
   zoekt_index_deploy:
   repo_cache:
+  # The knowledge content. Derived from Git: a full hydrate rebuilds it.
+  clickhouse_data:
   # Agent Vault's SQLite store (run vaults are deleted when runs end) and the
   # generated passwords (master: Agent Vault only; owner: backend and worker).
   agent_vault_data:

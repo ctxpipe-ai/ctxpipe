@@ -41,6 +41,7 @@
     "@better-auth/infra": "^0.3.5",
     "@better-auth/oauth-provider": "^1.6.23",
     "@better-auth/passkey": "^1.6.23",
+    "@clickhouse/client": "^1.25.0",
     "@graphql-typed-document-node/core": "3.2.0",
     "@hono/mcp": "^0.2.3",
     "@hono/otel": "^1.1.2",

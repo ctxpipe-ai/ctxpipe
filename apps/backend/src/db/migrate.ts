@@ -3,6 +3,7 @@
 // DATABASE_APP_PASSWORD is optional when ctxpipe_app exists already.
 import { config } from "dotenv"
 
+import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
 import { flushEvlog, initEvlog, log } from "../observability/logger.js"
 import { describeMigrateError } from "./describe-migrate-error.js"
 import { runMigrations } from "./run-migrations.js"
@@ -24,6 +25,14 @@ try {
     connectionString,
     appRolePassword: process.env.DATABASE_APP_PASSWORD || undefined,
   })
+  // Optional until the hosted ClickHouse node exists (ADR-066 decision 10).
+  const clickhouseUrl = process.env.CLICKHOUSE_URL
+  if (clickhouseUrl) await migrateKnowledgeStore(clickhouseUrl)
+  else
+    log.info({
+      step: "migrate",
+      message: "[migrate] CLICKHOUSE_URL is not set: no ClickHouse migrations",
+    })
   log.info({ step: "migrate", message: "[migrate] done" })
 } catch (error) {
   exitCode = 1

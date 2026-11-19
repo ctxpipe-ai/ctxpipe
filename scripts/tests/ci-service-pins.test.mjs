@@ -33,6 +33,12 @@ test("the FalkorDB action and compose use the pinned digest", () => {
   assert.match(read("docker-compose.yml"), new RegExp(`image: ${image}\\n`))
 })
 
+test("compose runs the ClickHouse image that the contract tests use", () => {
+  const pin = pins.contracts.clickhouse
+  const image = `${pin.image}:${pin.tag}@${pin.digest}`
+  assert.match(read("docker-compose.yml"), new RegExp(`image: ${image}\\n`))
+})
+
 test("ci.yaml reads the previous release ref from the pins file", () => {
   const ci = read(".github/workflows/ci.yaml")
   assert.ok(

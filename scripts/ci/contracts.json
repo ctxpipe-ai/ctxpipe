@@ -90,6 +90,9 @@
   "knowledge search at scale": [
     "src/domain/workspaces/knowledge-search.contract.test.ts"
   ],
+  "knowledge store org walls (ClickHouse)": [
+    "src/knowledge-store/knowledge-store.contract.test.ts"
+  ],
   "host Docker, zoekt and process environment": [
     "src/domain/ingestion/classify-kind-skill.contract.test.ts",
     "src/domain/ingestion/ingest-decisions-skill.contract.test.ts",

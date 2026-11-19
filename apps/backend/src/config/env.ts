@@ -91,6 +91,15 @@ const envSchema = z.object({
   SMTP_CONNECTION_URL: z.string().url().optional(),
   EMAIL_FROM_ADDRESS: z.string().email().optional(),
 
+  /**
+   * The ClickHouse server of the knowledge content (ADR-066), as
+   * `http[s]://user:password@host:8123/database`. URL-encode special
+   * characters in the password. Required for self-host. Optional here until
+   * the hosted node exists: `KnowledgeStore` and the ClickHouse migrations
+   * need it.
+   */
+  CLICKHOUSE_URL: z.string().url().optional(),
+
   // Graph DB (OpenCypher: FalkorDB, Neo4j, Memgraph, Neptune)
   GRAPH_DB_URI: z.string().url().default("redis://falkordb:6379"),
   GRAPH_DB_USER: z.string().min(1).optional(),
