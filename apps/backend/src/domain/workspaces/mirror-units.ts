@@ -102,11 +102,12 @@ type ProviderSites = {
   linearWorkspaces: ReadonlySet<string>
 }
 
-function notionIdKey(id: string): string {
+export function notionIdKey(id: string): string {
   return id.replaceAll("-", "").toLowerCase()
 }
 
-function parseNotionPageUrl(rawUrl: string): string | null {
+/** `notion:<id>` for a Notion page URL, else null. */
+export function parseNotionPageUrl(rawUrl: string): string | null {
   let url: URL
   try {
     url = new URL(rawUrl.trim())
@@ -152,7 +153,7 @@ function urlKeys(url: string, sites: ProviderSites): string[] {
 }
 
 /** The Confluence page id that a mirror file name carries, or null. */
-function confluencePageIdOfPath(path: string): string | null {
+export function confluencePageIdOfPath(path: string): string | null {
   if (!path.startsWith("confluence/")) return null
   return /(?:^|\/)[^/]+--(\d+)(?:\.md|\/index\.md)$/.exec(path)?.[1] ?? null
 }
@@ -190,12 +191,18 @@ function unitKeys(
   if (identifier) keys.push(issueDedupKey(identifier))
   const page = confluencePageIdOfPath(path)
   if (page) keys.push(confluencePageDedupKey(page))
+  const thread = slackThreadKeyOfPath(path)
+  if (thread) keys.push(thread)
+  return keys
+}
+
+/** The thread key of a Slack mirror thread file, from its path, or null. */
+export function slackThreadKeyOfPath(path: string): string | null {
   const thread =
     /^slack\/channels\/[^/]+--([A-Z0-9]+)\/threads\/\d{4}\/\d{2}\/(\d+\.\d+)\/thread\.md$/.exec(
       path,
     )
-  if (thread?.[1] && thread[2]) keys.push(threadDedupKey(thread[1], thread[2]))
-  return keys
+  return thread?.[1] && thread[2] ? threadDedupKey(thread[1], thread[2]) : null
 }
 
 /**

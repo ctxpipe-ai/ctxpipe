@@ -20,6 +20,7 @@ import {
   it,
   vi,
 } from "vitest"
+import { stringify } from "yaml"
 
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
@@ -35,6 +36,8 @@ import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
 import { getKnowledgeState } from "../models/knowledge-state.js"
 import { createLogger, withLogger } from "../observability/logger.js"
 import { multimodalEmbeddingConfig } from "../retrieval/embeddings/multimodalEmbeddings.js"
+import { renderGithubPullRequest } from "../services/github/pull-request-mirror/converter.js"
+import { renderLinearIssue } from "../services/linear/converter.js"
 import { startClickHouse, userUrl } from "../test/clickhouse.js"
 import { projectKnowledgePlane } from "./writer.js"
 
@@ -50,7 +53,13 @@ config({ path: resolve(here, "../../.env.local"), quiet: true })
 const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`
 const orgId = `org_test_kwriter_${suffix}`
 const observedAt = new Date("2026-11-19T10:11:12.345Z")
-const tables = ["documents", "chunks", "relations", "relations_in"] as const
+const tables = [
+  "documents",
+  "chunks",
+  "relations",
+  "relations_in",
+  "doc_refs",
+] as const
 const EMBEDDINGS_URL = "https://embeddings.test/api/v1/embeddings"
 
 /** A vector that only the text of the input decides. */
@@ -257,6 +266,8 @@ async function content(workspaceId: string, paths: string[]) {
     paths.map((path) => [servingIdForKnowledgePath(workspaceId, path), path]),
   )
   const named = (key: unknown) => {
+    // A reference key target stays as it is.
+    if (String(key).startsWith("ref:")) return String(key)
     const path = pathOf.get(String(key))
     if (path === undefined) throw new Error(`No path for the key ${key}`)
     return path
@@ -337,6 +348,74 @@ const key = (workspaceId: string, path: string) =>
 const png = (seed: string) =>
   Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.from(seed)])
 
+/** A Linear issue mirror file, as the Linear sync writes it. */
+function linearIssue(identifier: string, description = "") {
+  return renderLinearIssue({
+    id: `issue-${identifier}`,
+    identifier,
+    title: `Issue ${identifier}`,
+    url: `https://linear.app/acme/issue/${identifier}/issue`,
+    priorityLabel: "No priority",
+    teamKey: identifier.split("-")[0] ?? "",
+    labels: [],
+    createdAt: new Date("2026-01-01T00:00:00Z"),
+    updatedAt: new Date("2026-01-02T00:00:00Z"),
+    comments: [],
+    attachments: [],
+    description,
+  })
+}
+
+const MERGED_AT = "2026-09-01T10:00:00.000Z"
+
+/** A merged pull request mirror file of acme/shop, as the GitHub sync writes it. */
+function mergedPull(number: number, body: string, files: string[] = []) {
+  return renderGithubPullRequest({
+    id: number,
+    number,
+    repository: "acme/shop",
+    url: `https://github.com/acme/shop/pull/${number}`,
+    title: `Change ${number}`,
+    body,
+    state: "closed",
+    merged: true,
+    mergedAt: MERGED_AT,
+    draft: false,
+    author: { login: "dev", type: "human" },
+    base: { ref: "main", sha: "a".repeat(40) },
+    head: { ref: "change", sha: "b".repeat(40) },
+    reviewDecision: null,
+    labels: [],
+    requestedReviewers: [],
+    createdAt: "2026-08-30T10:00:00Z",
+    updatedAt: MERGED_AT,
+    files: files.map((path) => ({ path, status: "modified" as const })),
+    reviews: [],
+    comments: [],
+    requiredChecks: [],
+  })
+}
+
+/** The GitHub source file of acme/shop (ADR-050). */
+const SHOP_SOURCE = {
+  path: "sources/github/acme/shop.md",
+  content:
+    "---\nprovider: github\nconnection: con_github1\nrepository: acme/shop\n---\n",
+}
+
+/** A unit that the extract wrote for acme/shop: a package or the Repository. */
+function shopUnit(kind: string, root?: string) {
+  return `---\n${stringify({
+    kind,
+    generated_by: "ctxpipe-extract",
+    sources: [SHOP_SOURCE.path],
+    ...(root === undefined ? {} : { root }),
+  })}---\n# ${kind}\n`
+}
+
+const historyIssue = linearIssue("ENG-1")
+const historyPull = mergedPull(42, "Fixes ENG-1.", ["apps/api/src/checkout.ts"])
+
 /** A real history: each commit exercises one rule of ADR-067. */
 async function writeHistory(remote: Remote): Promise<string[]> {
   const shas: string[] = []
@@ -359,13 +438,20 @@ async function writeHistory(remote: Remote): Promise<string[]> {
       "img/unused.png": png("unused"),
       "img/old.png": png("old"),
       "AGENTS.md": "# Agents\n",
+      // A merged pull request that names a Linear issue and changes a
+      // package: neither target file exists yet.
+      [historyPull.path]: historyPull.content,
+      [SHOP_SOURCE.path]: SHOP_SOURCE.content,
     }),
   )
-  // The link target appears; the image bytes change.
+  // The link target appears; the image bytes change. The reference key
+  // targets appear in a delta, with no change to the pull request file.
   shas.push(
     await remote.commit({
       "b.md": "# Beta\n\nBack to [alpha](a.md).\n",
       "img/d.png": png("two"),
+      [historyIssue.path]: historyIssue.content,
+      "knowledge/services/api.md": shopUnit("Service", "apps/api"),
     }),
   )
   // A file that does not parse, and a change of a file.
@@ -399,6 +485,10 @@ async function writeHistory(remote: Remote): Promise<string[]> {
 }
 
 const historyPaths = [
+  historyIssue.path,
+  historyPull.path,
+  SHOP_SOURCE.path,
+  "knowledge/services/api.md",
   "a.md",
   "b.md",
   "notes/c.md",
@@ -428,14 +518,41 @@ describe("projectKnowledgePlane", () => {
 
       const left = await content(stepwise, historyPaths)
       const right = await content(rebuilt, historyPaths)
-      expect(left.documents.map((row) => row.doc_key).sort()).toEqual([
-        "a.md",
-        "e.md",
-        "g.md",
-        "img/d.png",
-        "img/unused.png",
-        "notes/c.md",
-      ])
+      expect(left.documents.map((row) => row.doc_key).sort()).toEqual(
+        [
+          "a.md",
+          "e.md",
+          "g.md",
+          "img/d.png",
+          "img/unused.png",
+          "notes/c.md",
+          historyIssue.path,
+          historyPull.path,
+          SHOP_SOURCE.path,
+          "knowledge/services/api.md",
+        ].sort(),
+      )
+      // The keys of the mirror and package files, and the key relations of
+      // the pull request.
+      expect(left.doc_refs).toEqual(
+        expect.arrayContaining([
+          { ref_key: "iss:linear:ENG-1", doc_key: historyIssue.path },
+          {
+            ref_key: "changed:https://github.com/acme/shop#apps/api",
+            doc_key: "knowledge/services/api.md",
+          },
+        ]),
+      )
+      expect(
+        left.relations
+          .filter((row) => row.src_doc === historyPull.path)
+          .map((row) => [row.predicate, row.dst_doc]),
+      ).toEqual(
+        expect.arrayContaining([
+          ["LINKS_TO", "ref:iss:linear:ENG-1"],
+          ["CHANGED", "ref:changed:https://github.com/acme/shop#apps/api"],
+        ]),
+      )
       for (const table of [...tables])
         expect(left[table], table).toEqual(right[table])
       // A link target with no content has a row in both: a tombstone after
@@ -795,6 +912,234 @@ describe("projectKnowledgePlane", () => {
       expect(Object.keys(await statusOf(workspaceId)).sort()).toEqual(
         [key(workspaceId, "a.md"), key(workspaceId, "img/d.png")].sort(),
       )
+    } finally {
+      await remote.remove()
+    }
+  })
+})
+
+/**
+ * The frontier read of the file at `path`: each relation as its direction,
+ * its predicate, the path of the neighbor (the key of a `missing` key
+ * target) and the status of the neighbor.
+ */
+async function frontierOf(workspaceId: string, path: string) {
+  const relations = await store.readFrontier(
+    { orgId, workspaceIds: [workspaceId] },
+    [{ workspaceId, docKey: key(workspaceId, path) }],
+  )
+  return relations
+    .map(({ direction, relation, neighbor }) => ({
+      direction,
+      predicate: relation.predicate,
+      neighbor: neighbor?.path || neighbor?.docKey,
+      status: neighbor?.status,
+    }))
+    .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))
+}
+
+describe("reference keys (CTX-1400)", () => {
+  const issue = linearIssue("ENG-1")
+  const pull = mergedPull(
+    7,
+    "Fixes ENG-1. See https://linear.app/acme/issue/ENG-1/issue.",
+  )
+  /** The relation of the pull request to the issue, from both ends. */
+  const resolved = [
+    {
+      direction: "out",
+      predicate: "LINKS_TO",
+      neighbor: issue.path,
+      status: "active",
+    },
+  ]
+
+  it("a link from a pull request file to a Linear issue file resolves through the keys of the issue file", async () => {
+    const remote = await Remote.create()
+    try {
+      const workspaceId = await newWorkspace()
+      // A second file that states the same key: the read gives both.
+      const copy = { ...issue, path: "linear/teams/OPS/issues/ENG-1.md" }
+      await run(
+        remote,
+        workspaceId,
+        await remote.commit({
+          [pull.path]: pull.content,
+          [issue.path]: issue.content,
+          [copy.path]: copy.content,
+        }),
+      )
+      // The identifier and the URL name the same file: one relation.
+      expect(await frontierOf(workspaceId, pull.path)).toEqual([
+        { ...resolved[0], neighbor: issue.path },
+        { ...resolved[0], neighbor: copy.path },
+      ])
+      expect(await frontierOf(workspaceId, issue.path)).toEqual([
+        {
+          direction: "in",
+          predicate: "LINKS_TO",
+          neighbor: pull.path,
+          status: "active",
+        },
+      ])
+      const graph = await store.readGraph({ orgId, workspaceId }, 100)
+      expect(
+        graph.relations
+          .filter((relation) => relation.srcDoc === key(workspaceId, pull.path))
+          .map((relation) => relation.dstDoc)
+          .sort(),
+      ).toEqual(
+        [key(workspaceId, issue.path), key(workspaceId, copy.path)].sort(),
+      )
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("a link resolves when the target file comes after the source file, with no change to the source", async () => {
+    const remote = await Remote.create()
+    try {
+      const workspaceId = await newWorkspace()
+      await run(
+        remote,
+        workspaceId,
+        await remote.commit({ [pull.path]: pull.content }),
+      )
+      // A key with no document is a `missing` target, and the store keeps
+      // no placeholder row for it.
+      expect(await frontierOf(workspaceId, pull.path)).toEqual([
+        {
+          direction: "out",
+          predicate: "LINKS_TO",
+          neighbor: "ref:iss:linear:ENG-1",
+          status: "missing",
+        },
+        {
+          direction: "out",
+          predicate: "LINKS_TO",
+          neighbor: "ref:iss:linear:ENG-1@acme",
+          status: "missing",
+        },
+      ])
+      expect(Object.keys(await statusOf(workspaceId))).toEqual([
+        key(workspaceId, pull.path),
+      ])
+
+      const before = await store.readDocument(
+        { orgId, workspaceId },
+        key(workspaceId, pull.path),
+      )
+      expect(
+        await run(
+          remote,
+          workspaceId,
+          await remote.commit({ [issue.path]: issue.content }),
+        ),
+      ).toMatchObject({ mode: "delta", documentsChanged: 1 })
+      expect(
+        await store.readDocument(
+          { orgId, workspaceId },
+          key(workspaceId, pull.path),
+        ),
+      ).toEqual(before)
+      expect(await frontierOf(workspaceId, pull.path)).toEqual(resolved)
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("when the target file goes away, the link becomes missing", async () => {
+    const remote = await Remote.create()
+    try {
+      const workspaceId = await newWorkspace()
+      await run(
+        remote,
+        workspaceId,
+        await remote.commit({
+          [pull.path]: pull.content,
+          [issue.path]: issue.content,
+        }),
+      )
+      expect(await frontierOf(workspaceId, pull.path)).toEqual(resolved)
+
+      await run(
+        remote,
+        workspaceId,
+        await remote.commit({ [issue.path]: null }),
+      )
+      expect(await frontierOf(workspaceId, pull.path)).toEqual([
+        {
+          direction: "out",
+          predicate: "LINKS_TO",
+          neighbor: "ref:iss:linear:ENG-1",
+          status: "missing",
+        },
+        {
+          direction: "out",
+          predicate: "LINKS_TO",
+          neighbor: "ref:iss:linear:ENG-1@acme",
+          status: "missing",
+        },
+      ])
+      // The tombstone of the issue file states no key.
+      expect(
+        (
+          await store.readDocument(
+            { orgId, workspaceId },
+            key(workspaceId, issue.path),
+          )
+        )?.refKeys,
+      ).toEqual([])
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("a CHANGED claim of a merged pull request resolves to the package file whose root holds a changed file, and to the Repository file", async () => {
+    const remote = await Remote.create()
+    try {
+      const workspaceId = await newWorkspace()
+      const changes = mergedPull(8, "", ["apps/api/src/checkout.ts"])
+      await run(
+        remote,
+        workspaceId,
+        await remote.commit({
+          [SHOP_SOURCE.path]: SHOP_SOURCE.content,
+          "knowledge/services/api.md": shopUnit("Service", "apps/api"),
+          "knowledge/apps/web.md": shopUnit("App", "apps/web"),
+          "knowledge/codebases/shop.md": shopUnit("Repository"),
+          [changes.path]: changes.content,
+        }),
+      )
+      const relations = await store.readFrontier(
+        { orgId, workspaceIds: [workspaceId] },
+        [{ workspaceId, docKey: key(workspaceId, changes.path) }],
+      )
+      expect(
+        relations
+          .filter(({ relation }) => relation.predicate === "CHANGED")
+          .filter(({ neighbor }) => neighbor?.status === "active")
+          .map(({ relation, neighbor }) => [
+            neighbor?.path,
+            relation.validFrom?.toISOString(),
+          ])
+          .sort(),
+      ).toEqual([
+        ["knowledge/codebases/shop.md", MERGED_AT],
+        ["knowledge/services/api.md", MERGED_AT],
+      ])
+      expect(
+        (await frontierOf(workspaceId, "knowledge/services/api.md")).filter(
+          (relation) => relation.direction === "in",
+        ),
+      ).toEqual([
+        {
+          direction: "in",
+          predicate: "CHANGED",
+          neighbor: changes.path,
+          status: "active",
+        },
+      ])
     } finally {
       await remote.remove()
     }

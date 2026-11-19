@@ -4,18 +4,22 @@ import {
   type HydrateUnit,
   hydrateKnowledgeTree,
 } from "../domain/workspaces/hydrate.js"
-import { isLinkedRepositoryDeclaration } from "../domain/workspaces/layout.js"
+import {
+  isLinkedRepositoryDeclaration,
+  parseSimpleFrontMatter,
+} from "../domain/workspaces/layout.js"
 import {
   WORKSPACE_LINK_SCHEME,
   workspaceBlobTarget,
 } from "../domain/workspaces/mirror-units.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { workspaceRelativePath } from "../services/git/root-folder.js"
+import { type FileReferences, fileReferences } from "./reference-keys.js"
 
 /** The parse of one Workspace file for the knowledge plane. */
 type ParsedFile =
   /** A knowledge file. */
-  | { kind: "unit"; unit: HydrateUnit }
+  | { kind: "unit"; unit: HydrateUnit; references: FileReferences }
   /** A knowledge file that does not parse: a `failed` document (ADR-067 decision 8). */
   | { kind: "failed"; error: string }
   /** Not a knowledge file. */
@@ -43,10 +47,10 @@ export function isKnowledgePath(path: string): boolean {
  *   matter, whether the source file exists or not.
  * - A blob URL of the Workspace repository links to its path, whether the
  *   file exists or not.
- * - Not yet: the mirror reference links that a key gives (a Linear
- *   identifier, a provider URL) and the `CHANGED` claims of a merged pull
- *   request. Their target comes from the front matter of other files.
- *   CTX-1400 adds them with reference keys.
+ * - A mirror reference link (a Linear identifier, a provider URL) and a
+ *   `CHANGED` claim of a merged pull request name a reference key, and the
+ *   file states its own keys (`fileReferences`). The read finds the
+ *   documents of a key.
  *
  * The claims get no validity from the introducing commit: the writer reads
  * no history.
@@ -58,6 +62,8 @@ export function parseKnowledgeFile(input: {
   /** The path from the Workspace root. */
   path: string
   content: string
+  /** Path of each GitHub source file → its repository URL. */
+  sourceRepositories: ReadonlyMap<string, string>
 }): ParsedFile {
   const parsed = hydrateKnowledgeTree({
     workspaceId: input.workspaceId,
@@ -74,7 +80,18 @@ export function parseKnowledgeFile(input: {
     if (target && target !== unit.path && !unit.links.includes(link))
       unit.links.push(link)
   }
-  return { kind: "unit", unit }
+  return {
+    kind: "unit",
+    unit,
+    references: fileReferences({
+      path: unit.path,
+      kind: unit.kind ?? null,
+      body: unit.body,
+      links: unit.links,
+      attributes: parseSimpleFrontMatter(input.content).attributes,
+      sourceRepositories: input.sourceRepositories,
+    }),
+  }
 }
 
 /**

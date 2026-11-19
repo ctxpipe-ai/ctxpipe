@@ -31,7 +31,13 @@ import { migrateKnowledgeStore } from "./migrate.js"
  * constraint. Each wall is proved alone.
  */
 
-const tables = ["documents", "chunks", "relations", "relations_in"] as const
+const tables = [
+  "documents",
+  "chunks",
+  "relations",
+  "relations_in",
+  "doc_refs",
+] as const
 const orgA: KnowledgeScope = { orgId: "org_wall_a", workspaceId: "ws_same" }
 // The same Workspace id in both orgs: only the org can separate the rows.
 const orgB: KnowledgeScope = { orgId: "org_wall_b", workspaceId: "ws_same" }
@@ -106,6 +112,7 @@ function rowsOf(
         observedAt,
       },
     ],
+    refKeys: [`key:${docKey}`],
   }
 }
 
@@ -165,6 +172,7 @@ describe("KnowledgeStore", () => {
       "0002_relations_in.sql",
       "0003_chunks_index_granularity.sql",
       "0004_chunk_lines.sql",
+      "0005_doc_refs.sql",
     ])
   })
 
@@ -347,6 +355,7 @@ describe("org isolation of inserts", () => {
       chunks: { doc_key: "x.md", ordinal: 0, text: "x", embedding: [1] },
       relations: relationRow,
       relations_in: relationRow,
+      doc_refs: { ref_key: "key:x.md", doc_key: "x.md" },
     }
     for (const table of tables) {
       await expect(
@@ -721,10 +730,12 @@ describe("users and mutations", () => {
           embedding: [1],
         },
       ]
+      next.refKeys = ["key:doc-v2"]
       await writer.replaceDocuments(target, [next])
 
       const stored = await reader.readDocument(target, "doc.md")
       expect(stored?.document).toEqual(active(next))
+      expect(stored?.refKeys).toEqual(["key:doc-v2"])
       expect(stored?.chunks).toEqual(next.chunks)
       expect(stored?.outgoing).toEqual([
         { ...next.relations[0], srcDoc: "doc.md" },
@@ -751,6 +762,7 @@ describe("users and mutations", () => {
       })
       expect(stored?.chunks).toEqual([])
       expect(stored?.outgoing).toEqual([])
+      expect(stored?.refKeys).toEqual([])
       // doc.md still points at the tombstone.
       expect(stored?.incoming.map((relation) => relation.srcDoc)).toEqual([
         "doc.md",

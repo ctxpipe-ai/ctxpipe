@@ -50,6 +50,10 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
    - No stored value depends on another document, for example a degree or an in-degree.
    - Thus, a change to one file changes only the rows of that file.
    - Some links name their target by a key from the front matter of another file, for example a Linear identifier or an issue URL in a mirror file. Such a link targets that reference key. Each file states its own reference keys in `doc_refs` (decision 3), and the read resolves a key target through it. A key with no row is a `missing` target ([CTX-1400](https://linear.app/ctxpipe/issue/CTX-1400)). The `CHANGED` claims of a merged pull request work the same way.
+   - `relations.dst_doc` holds a key target as `ref:<key>`. A document key is a hash, so it never starts with `ref:`.
+   - A key target gets no stored `missing` placeholder (decision 7). The read gives a `missing` neighbor for it. Reason: a file names no Linear team, so each identifier in capitals (also `SHA-256`) is a key. A stored placeholder for each one would fill the `documents` table.
+   - A file cannot see which package roots exist. Thus a merged pull request has a `CHANGED` relation to each package whose root holds a changed file, and to its Repository. The old stack picks only the deepest root, and the Repository only for a file outside each root.
+   - A Linear URL key holds the Linear workspace of the URL, so a URL of another Linear workspace does not resolve. A Confluence URL key holds only the page id, because a mirror file does not name its site.
    - The `source_type` of a document is its source authority kind (`adr`, `merged-pr`, `docs`, `issue`, `open-pr`, `chat` or `other`), which the mapper takes from the file alone: its path, its kind and its own front matter. [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md) decision 4 ranks it ([CTX-1410](https://linear.app/ctxpipe/issue/CTX-1410)).
 6. **An image is a Git file like any other**, of kind `image`.
    - Its key is its path. A changed image file replaces its rows, and a removed image file becomes a tombstone, the same as any file.
