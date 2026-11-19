@@ -36,7 +36,7 @@ afterAll(async () => {
 })
 
 const source =
-  '# Alpha\n\nSee [the guide](old/guide.md#setup "Guide"), [the copy](gone/copy.md) and [the rate](old/rate%.md).\n'
+  '# Alpha\n\nSee [the guide](old/guide.md#setup "Guide"), [the copy](gone/copy.md) and [the rate](old/rate%.md). Run [the script](tools/run.sh).\n'
 const files = [
   { path: "notes/alpha.md", body: source },
   // The one file named `guide.md`: the link to `old/guide.md` points to it.
@@ -47,6 +47,9 @@ const files = [
   // One file named `rate%.md`, but its path needs an escape that the
   // hydrate does not decode.
   { path: "team/rate%.md", body: "# Rate\n" },
+  // A file that is not a document: the link to it has a `missing` row, but
+  // it is not broken.
+  { path: "notes/tools/run.sh", body: "echo run\n" },
   // The front matter does not close, so the file does not parse.
   { path: "broken.md", body: "---\ntitle: Broken\n# Broken\n" },
 ]
@@ -115,8 +118,8 @@ it(
         >
         expect(report).toMatchObject({
           outcome: "checked",
-          counts: { failed: 1, missing: 3, deleted: 0 },
-          findingCount: 4,
+          counts: { failed: 1, missing: 4, deleted: 0 },
+          findingCount: 5,
           rewrittenFiles: 1,
           writeJob: { started: true },
         })
@@ -141,6 +144,13 @@ it(
               status: "missing",
               path: "notes/alpha.md",
               target: "notes/old/rate%.md",
+              matches: 1,
+              fixed: false,
+            }),
+            expect.objectContaining({
+              status: "missing",
+              path: "notes/alpha.md",
+              target: "notes/tools/run.sh",
               matches: 1,
               fixed: false,
             }),
@@ -201,7 +211,7 @@ it(
         expect(
           f.git("--git-dir", f.remote, "show", `${tip}:notes/alpha.md`),
         ).toBe(
-          '# Alpha\n\nSee [the guide](../guides/guide.md#setup "Guide"), [the copy](gone/copy.md) and [the rate](old/rate%.md).',
+          '# Alpha\n\nSee [the guide](../guides/guide.md#setup "Guide"), [the copy](gone/copy.md) and [the rate](old/rate%.md). Run [the script](tools/run.sh).',
         )
         // The job deletes no file.
         expect(

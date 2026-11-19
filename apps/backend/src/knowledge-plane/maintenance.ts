@@ -196,9 +196,12 @@ export async function findKnowledgeRepairs(input: {
           // `workspace:` or other scheme link keeps its form, so it gets no
           // fix.
           const destination = match && posix.relative(folder || ".", match)
+          // A link to a file that exists but is not a document (a script, for
+          // example) also has a `missing` row: it is not broken.
           const fixed =
             writable &&
             status === "missing" &&
+            !tree.has(target) &&
             matches.length === 1 &&
             !!destination &&
             resolveHydrateLink(folder, destination) === match &&
@@ -230,8 +233,8 @@ export async function findKnowledgeRepairs(input: {
               doc: hashKey(docKey),
               path,
             })
-        if (edits.length)
-          files.push({ path, content: applyBodyEdits(content, edits) })
+        const next = applyBodyEdits(content, edits)
+        if (next !== content) files.push({ path, content: next })
       }
       return { counts, findings, files }
     },
