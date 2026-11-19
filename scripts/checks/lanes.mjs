@@ -378,9 +378,10 @@ export function runVitest(checks, trace) {
     if (codesearchLanes.includes(lane)) continue
     const { directory } = lanes[lane]
     const log = logFile(lane)
-    // The report is a file of this run only. It is not in .ci-results/checks,
-    // because another process on the same checkout can move or replace that
-    // folder while Vitest runs (rerun-failed.mjs moves it aside).
+    // The report is a file of this run only. Two runs on the same checkout
+    // (parallel runners, or factory check next to checks:run) can run the
+    // same lane at the same time. With one shared path, one run could read or
+    // delete the report of the other.
     const reportDirectory = mkdtempSync(join(tmpdir(), `ctxpipe-${lane}-`))
     const report = join(reportDirectory, "report.json")
     const laneConfig = { name: lane, ...lanes[lane] }

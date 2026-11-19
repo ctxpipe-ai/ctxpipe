@@ -49,7 +49,7 @@
       "enum": ["prerequisite", "runner"]
     },
     "log": {
-      "description": "Repo-relative path of the runner log for the group of checks.",
+      "description": "Path of the runner log for the group of checks: repo-relative, or absolute when the log folder is outside the checkout (run.mjs --logs).",
       "type": "string"
     },
     "message": {

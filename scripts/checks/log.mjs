@@ -16,12 +16,14 @@ export function setLogDirectory(path) {
 
 // The runner writes the output of each group of checks to its own log in
 // the log folder, because stdout carries only result records. Returns the
-// absolute path and the repo-relative path (the `log` of a record).
+// absolute path and the path for the `log` of a record: repo-relative in the
+// checkout, else absolute (a --logs folder outside the checkout).
 export function logFile(name) {
   mkdirSync(directory, { recursive: true })
   const path = join(directory, `${name}.log`)
   writeFileSync(path, "")
-  return { path, relative: relative(root, path) }
+  const inRepo = relative(root, path)
+  return { path, relative: inRepo.startsWith("..") ? path : inRepo }
 }
 
 // Runs a command with its output in the log, and returns the spawnSync result.
