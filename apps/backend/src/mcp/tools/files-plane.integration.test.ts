@@ -60,7 +60,9 @@ const checkoutFile = (version: string) =>
     `Version ${version} of the checkout service.`,
     "",
   ].join("\n")
-const paymentsFile = "# Payments team\n\nThe payments team owns checkout.\n"
+/** The payments unit names a source file: hydrate gives it a FROM_SOURCE claim. */
+const paymentsFile =
+  "---\nsources:\n  - sources/notes.md\n---\n# Payments team\n\nThe payments team owns checkout.\n"
 const observedAt = new Date("2026-11-01T00:00:00.000Z")
 
 let seed: SeededOrg
@@ -190,6 +192,7 @@ describe("read_file and list_files on the knowledge plane", () => {
     servedSha = await commit({
       [CHECKOUT]: checkoutFile("A"),
       [PAYMENTS]: paymentsFile,
+      "sources/notes.md": "# Meeting notes\n",
       "AGENTS.md": "# Agent instructions\n",
     })
     // After the served SHA: a changed unit and a new unit.
@@ -389,7 +392,18 @@ describe("read_file and list_files on the knowledge plane", () => {
       expect(result.isError).toBeFalsy()
       expect(structured(result)).toMatchObject({
         served: { sha: servedSha },
-        frontMatter: { updatedAt: new Date(clock).toISOString() },
+        frontMatter: {
+          updatedAt: new Date(clock).toISOString(),
+          // A claim that comes from another file (`sources/`) at the served SHA.
+          claims: [
+            {
+              to: "workspace:sources/notes.md",
+              predicate: "FROM_SOURCE",
+              confidence: 1,
+              source: "git",
+            },
+          ],
+        },
         content: "# Payments team\n\nThe payments team owns checkout.",
       })
     })
@@ -404,6 +418,13 @@ describe("read_file and list_files on the knowledge plane", () => {
           { path: "knowledge", type: "dir", units: 2 },
           { path: "knowledge/services", type: "dir", units: 1 },
           { path: "knowledge/teams", type: "dir", units: 1 },
+          { path: "sources", type: "dir", units: 1 },
+          {
+            path: "sources/notes.md",
+            type: "file",
+            ref: "sources/notes.md",
+            size: 16,
+          },
         ],
       })
       const services = structured(
@@ -425,15 +446,15 @@ describe("read_file and list_files on the knowledge plane", () => {
     })
 
     it("list_files pages with a cursor bound to the served SHA", async () => {
-      const first = structured(await listFiles({ limit: 2 }))
-      expect(first.entries).toHaveLength(2)
+      const first = structured(await listFiles({ limit: 3 }))
+      expect(first.entries).toHaveLength(3)
       expect(first.cursor).toEqual(expect.any(String))
       const next = structured(
-        await listFiles({ limit: 2, cursor: first.cursor }),
+        await listFiles({ limit: 3, cursor: first.cursor }),
       )
-      expect(next.entries).toEqual([
-        { path: "knowledge/teams", type: "dir", units: 1 },
-      ])
+      expect(next.entries.map((entry: { path: string }) => entry.path)).toEqual(
+        ["sources", "sources/notes.md"],
+      )
       expect(next.cursor).toBeUndefined()
     })
 

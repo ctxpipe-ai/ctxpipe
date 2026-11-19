@@ -4,6 +4,11 @@ import { parseEnv } from "../config/env.js"
 import { withOrgDbContext } from "../db/client.js"
 import { workspaces } from "../db/schema/workspaces.js"
 import {
+  SOURCES_FOLDER_PREFIX,
+  SOURCES_TREE_READ,
+  splitSourcesTree,
+} from "../domain/workspace-sources/source-tree.js"
+import {
   type HydrateUnit,
   hydrateKnowledgeTree,
   servingIdForKnowledgePath,
@@ -93,20 +98,41 @@ export async function readPlaneUnit(input: {
 }): Promise<{ unit: HydrateUnit; updatedAt: Date } | null> {
   const { orgId, workspaceId, sha, path } = input
   const repository = await workspaceRepository(orgId, workspaceId)
-  const file = await gitRead("mcp.read_file.git_failed", workspaceId, () =>
-    readFileAtGitSha({
-      url: repository.url,
-      sha,
-      path: workspaceRepositoryPath(repository.root, path),
-      token: repository.token,
-      treesOnly: true,
-    }),
+  // The `CHANGED` and `FROM_SOURCE` claims of a unit come from the files
+  // under `sources/`, so the parse gets them too, as the hydrate does.
+  const [file, sourcesTree] = await gitRead(
+    "mcp.read_file.git_failed",
+    workspaceId,
+    () =>
+      Promise.all([
+        readFileAtGitSha({
+          url: repository.url,
+          sha,
+          path: workspaceRepositoryPath(repository.root, path),
+          token: repository.token,
+          treesOnly: true,
+        }),
+        listMarkdownFilesAtGitSha({
+          ...SOURCES_TREE_READ,
+          prefix: SOURCES_FOLDER_PREFIX,
+          url: repository.url,
+          sha,
+          token: repository.token,
+          root: repository.root,
+        }),
+      ]),
   )
   if (file.kind === "missing") return null
-  const [unit] = hydrateKnowledgeTree({
+  const sources = splitSourcesTree(sourcesTree)
+  const unit = hydrateKnowledgeTree({
     workspaceId,
-    files: [{ path, content: Buffer.from(file.bytes).toString("utf8") }],
-  }).units
+    workspaceUrl: repository.url,
+    files: [
+      { path, content: Buffer.from(file.bytes).toString("utf8") },
+      ...sources.files.filter((source) => source.path !== path),
+    ],
+    sourceFiles: sources.sourceFiles,
+  }).units.find((parsed) => parsed.path === path)
   if (!unit) return null
   const [document] = await knowledgeStore().readDocuments(
     { orgId, workspaceIds: [workspaceId] },
