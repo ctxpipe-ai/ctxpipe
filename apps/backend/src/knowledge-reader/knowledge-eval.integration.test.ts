@@ -211,7 +211,6 @@ function planeRows(workspaceId: string): DocumentRows[] {
       sourceType: "docs",
       source: "",
       summary: unit.title,
-      s3Key: "",
       mime: "",
       validFrom: date(unit.validFrom),
       validTo: date(unit.validTo),
@@ -234,6 +233,7 @@ function planeRows(workspaceId: string): DocumentRows[] {
       validFrom: date(claim.validFrom),
       validTo: date(claim.validTo),
       source: "",
+      altText: "",
       observedAt,
     })),
   }))
