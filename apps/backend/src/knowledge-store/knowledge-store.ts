@@ -98,6 +98,9 @@ type Placeholder = { docKey: string; observedAt: Date } & (
   | { status: "failed"; error: string }
 )
 
+/** The count of the mutations (DELETEs) that a caller made. */
+export type MutationCounter = { mutations: number }
+
 /**
  * The changes of one write. A key is in one list only. Each list can be
  * empty or absent.
@@ -219,10 +222,13 @@ type KnowledgeGraph = {
 export type KnowledgeStore = {
   /**
    * Applies `changes` with one DELETE for each table, for each slice of at
-   * most {@link IN_LIST_CAP} keys (ADR-066 decision 8). Each DELETE is a
-   * mutation, and the mutations of one table run in order, so a caller
-   * gives all changes of a run in as few calls as it can. Returns the count
-   * of mutations.
+   * most {@link IN_LIST_CAP} keys (ADR-066 decision 8). The DELETE of
+   * `relations_in` (and of `doc_refs`) also filters by the link targets
+   * (and the reference keys) of the slice, and takes one more DELETE for
+   * each more {@link IN_LIST_CAP} of them. Each DELETE is a mutation, and
+   * the mutations of one table run in order, so a caller gives all changes
+   * of a run in as few calls as it can. Each DELETE adds 1 to
+   * `counter.mutations`, also when a later statement fails.
    *
    * - A document or a `failed` placeholder: deletes all rows of its key,
    *   then inserts the new rows.
@@ -239,7 +245,8 @@ export type KnowledgeStore = {
   applyDocuments(
     scope: KnowledgeScope,
     changes: DocumentChanges,
-  ): Promise<{ mutations: number }>
+    counter?: MutationCounter,
+  ): Promise<void>
   /** The key and the status of each document of the Workspace. */
   listDocumentKeys(scope: KnowledgeScope): Promise<DocumentKey[]>
   /**
@@ -307,7 +314,8 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     )
   const client = createClickHouseClient(url)
   return {
-    applyDocuments: (scope, changes) => applyDocuments(client, scope, changes),
+    applyDocuments: (scope, changes, counter) =>
+      applyDocuments(client, scope, changes, counter ?? { mutations: 0 }),
     listDocumentKeys: (scope) => listDocumentKeys(client, scope),
     listUnresolvedReferences: (scope) =>
       listUnresolvedReferences(client, scope),
@@ -406,22 +414,21 @@ const slices = <T>(items: T[]): T[][] =>
  *   `relations_in`) and the reference keys of each key;
  * - each document row of a key of `replaced`, and each row of a key of
  *   `deleted` that is not a tombstone.
- * Returns the count of DELETEs.
  */
 async function deleteRows(
   client: ClickHouseClient,
   scope: KnowledgeScope,
   replaced: string[],
   deleted: string[],
-): Promise<number> {
-  let mutations = 0
+  counter: MutationCounter,
+): Promise<void> {
   const remove = async (
     table: keyof TableRows,
     where: string,
     params: Record<string, unknown>,
   ) => {
     await deleteWhere(client, scope, table, where, params)
-    mutations++
+    counter.mutations++
   }
   const deletedKeys = new Set(deleted)
   for (const docKeys of slices([...replaced, ...deleted])) {
@@ -472,7 +479,6 @@ async function deleteRows(
       },
     )
   }
-  return mutations
 }
 
 type StoredRows = Omit<DocumentRows, "document"> & {
@@ -483,7 +489,8 @@ async function applyDocuments(
   client: ClickHouseClient,
   scope: KnowledgeScope,
   changes: DocumentChanges,
-): Promise<{ mutations: number }> {
+  counter: MutationCounter,
+): Promise<void> {
   assertScope(scope)
   const documents = changes.documents ?? []
   const placeholders = changes.placeholders ?? []
@@ -498,7 +505,7 @@ async function applyDocuments(
   ]
   if (new Set(allKeys).size !== allKeys.length)
     throw new Error("A write has the same document key two times")
-  if (allKeys.length === 0) return { mutations: 0 }
+  if (allKeys.length === 0) return
 
   const stored = await storedDocuments(client, scope, [...missing, ...deleted])
   const deletedAt = changes.deleted?.deletedAt
@@ -519,7 +526,12 @@ async function applyDocuments(
     : []
   const replacing: StoredRows[] = [
     ...documents.map(({ document, chunks, relations, refKeys }) => ({
-      document: { ...document, status: "active" as const, deletedAt: null, error: "" },
+      document: {
+        ...document,
+        status: "active" as const,
+        deletedAt: null,
+        error: "",
+      },
       chunks,
       relations,
       refKeys,
@@ -547,7 +559,7 @@ async function applyDocuments(
   // A key with no document row has no other row: each write deletes the
   // document row last and inserts it first. Thus a `missing` placeholder
   // needs no DELETE.
-  const mutations = await deleteRows(
+  await deleteRows(
     client,
     scope,
     replacing
@@ -555,9 +567,9 @@ async function applyDocuments(
       .filter((document) => document.status !== "missing")
       .map((document) => document.docKey),
     deleted,
+    counter,
   )
   await insertRows(client, scope, replacing)
-  return { mutations }
 }
 
 /** A document row with no content fields. */

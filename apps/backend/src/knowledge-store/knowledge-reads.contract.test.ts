@@ -205,13 +205,23 @@ async function seededDatabase(
   try {
     const inMain = { orgId: orgA.orgId, workspaceId: workspace }
     await store.applyDocuments(inMain, { documents: orgADocuments })
-    await store.applyDocuments(inMain, { deleted: { docKeys: ["deleted.md"], deletedAt: observedAt } })
-    await store.applyDocuments({ orgId: orgA.orgId, workspaceId: otherWorkspace }, { documents: [
-        document("other.md", [
-          { text: "zebracorn elsewhere", embedding: queryVector },
-        ]),
-      ] })
-    await store.applyDocuments({ orgId: orgB.orgId, workspaceId: workspace }, { documents: orgBDocuments })
+    await store.applyDocuments(inMain, {
+      deleted: { docKeys: ["deleted.md"], deletedAt: observedAt },
+    })
+    await store.applyDocuments(
+      { orgId: orgA.orgId, workspaceId: otherWorkspace },
+      {
+        documents: [
+          document("other.md", [
+            { text: "zebracorn elsewhere", embedding: queryVector },
+          ]),
+        ],
+      },
+    )
+    await store.applyDocuments(
+      { orgId: orgB.orgId, workspaceId: workspace },
+      { documents: orgBDocuments },
+    )
   } finally {
     await store.close()
   }

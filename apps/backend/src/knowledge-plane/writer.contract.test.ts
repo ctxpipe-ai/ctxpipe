@@ -1,8 +1,6 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
-import { createServer, request } from "node:http"
-import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -10,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { type ClickHouseClient, createClient } from "@clickhouse/client"
 import { config } from "dotenv"
 import { and, eq } from "drizzle-orm"
-import { HttpResponse, http } from "msw"
+import { bypass, HttpResponse, http, passthrough } from "msw"
 import { setupServer } from "msw/node"
 import {
   afterAll,
@@ -24,6 +22,7 @@ import {
 } from "vitest"
 import { stringify } from "yaml"
 
+import { recordSpans } from "../../test/spans.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { knowledgeState } from "../db/schema/knowledge_state.js"
@@ -104,79 +103,70 @@ const msw = setupServer(
       })),
     })
   }),
+  // The statements to ClickHouse: see `fault`.
+  http.post("*", async ({ request }) => {
+    if (!clickHouseOrigin || new URL(request.url).origin !== clickHouseOrigin)
+      return undefined
+    // An INSERT sends its statement in the URL, and the others in the body.
+    const statement = (
+      new URL(request.url).searchParams.get("query") ??
+      (await request.clone().text())
+    ).trim()
+    const fail =
+      fault.match.test(statement) && ++fault.statements === fault.failAt
+    // Without a content length, the client waits for the end of the body
+    // until its timeout.
+    const error = "Code: 1000. DB::Exception: the worker crashed"
+    const crash = () =>
+      new HttpResponse(error, {
+        status: 500,
+        headers: { "content-length": String(error.length) },
+      })
+    if (fail && !fault.after) return crash()
+    if (!fail) {
+      // A DELETE that the server refuses fails the run, so each DELETE
+      // before the crash got a success.
+      if (statement.startsWith("DELETE")) fault.deletes++
+      return passthrough()
+    }
+    // Send the statement, wait until ClickHouse applied it, then crash.
+    // fetch refuses the transfer-encoding header of the client.
+    const headers = new Headers(request.headers)
+    headers.delete("transfer-encoding")
+    const applied = await fetch(
+      bypass(request.url, {
+        method: "POST",
+        headers,
+        body: await request.clone().arrayBuffer(),
+      }),
+    )
+    await applied.arrayBuffer()
+    if (!applied.ok) throw new Error(`ClickHouse refused: ${statement}`)
+    return crash()
+  }),
 )
 
+/**
+ * The statements to ClickHouse. The statement `failAt` (1-based) of those
+ * whose text matches `match` fails, as a worker that dies there: before it
+ * gets to ClickHouse, or with `after`, when ClickHouse applied it. With
+ * `failAt` 0, no statement fails. `deletes` counts the DELETEs that got a
+ * success, so not the DELETE that fails after ClickHouse applied it.
+ */
+const fault = {
+  match: /./,
+  failAt: 0,
+  after: false,
+  statements: 0,
+  deletes: 0,
+}
+let clickHouseOrigin: string | undefined
+
+const spans = recordSpans()
 let stopClickHouse: (() => Promise<void>) | undefined
 let admin: ClickHouseClient
 let store: KnowledgeStore
-/** The writer store through the fault proxy. */
-let faultyStore: KnowledgeStore
-let stopProxy: (() => Promise<void>) | undefined
-
-/**
- * The statements that go through the fault proxy. The statement `failAt`
- * (1-based) of those whose text matches `match` fails, as a worker that
- * dies there: before it gets to ClickHouse, or with `after`, when
- * ClickHouse applied it. With `failAt` 0, no statement fails.
- */
-const fault = { match: /./, failAt: 0, after: false, statements: 0 }
-
-/** An HTTP proxy to the ClickHouse server at `target` that applies `fault`. */
-async function startFaultProxy(
-  target: string,
-): Promise<{ url: string; stop: () => Promise<void> }> {
-  const upstream = new URL(target)
-  const server = createServer(async (incoming, outgoing) => {
-    const chunks: Buffer[] = []
-    for await (const chunk of incoming) chunks.push(chunk as Buffer)
-    const body = Buffer.concat(chunks)
-    // An INSERT sends its statement in the URL, and the others in the body.
-    const statement =
-      new URL(incoming.url ?? "/", target).searchParams.get("query") ??
-      body.toString()
-    const fail =
-      fault.match.test(statement.trim()) &&
-      ++fault.statements === fault.failAt
-    const crash = () => {
-      outgoing.writeHead(500, { "content-type": "text/plain" })
-      outgoing.end("Code: 1000. DB::Exception: the worker crashed")
-    }
-    if (fail && !fault.after) return crash()
-    const forward = request(
-      {
-        host: upstream.hostname,
-        port: upstream.port,
-        path: incoming.url,
-        method: incoming.method,
-        headers: incoming.headers,
-      },
-      (answer) => {
-        if (fail) {
-          answer.resume()
-          answer.on("end", crash)
-          return
-        }
-        outgoing.writeHead(answer.statusCode ?? 500, answer.headers)
-        answer.pipe(outgoing)
-      },
-    )
-    forward.on("error", () => outgoing.destroy())
-    forward.end(body)
-  })
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
-  const proxy = new URL(target)
-  proxy.host = `127.0.0.1:${(server.address() as AddressInfo).port}`
-  return {
-    url: proxy.toString(),
-    stop: () =>
-      new Promise((resolve) => {
-        server.closeAllConnections()
-        server.close(() => resolve())
-      }),
-  }
-}
 const workspaceIds: string[] = []
-
 beforeAll(async () => {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
   initDb(process.env.DATABASE_URL)
@@ -196,18 +186,15 @@ beforeAll(async () => {
     writer: "writer-test",
   })
   admin = createClient({ url: adminUrl })
-  const writerUrl = userUrl(adminUrl, "ctxpipe_writer", "writer-test")
-  store = createKnowledgeStore(writerUrl)
-  const proxy = await startFaultProxy(writerUrl)
-  stopProxy = proxy.stop
-  faultyStore = createKnowledgeStore(proxy.url)
+  store = createKnowledgeStore(
+    userUrl(adminUrl, "ctxpipe_writer", "writer-test"),
+  )
+  clickHouseOrigin = new URL(adminUrl).origin
 }, 240_000)
 
 afterAll(async () => {
   msw.close()
   await store?.close()
-  await faultyStore?.close()
-  await stopProxy?.()
   await admin?.close()
   await stopClickHouse?.()
   for (const workspaceId of workspaceIds)
@@ -225,7 +212,13 @@ beforeEach(() => {
   embeddings.failAt = 0
   embeddings.inputs = []
   embeddings.refuse = null
-  Object.assign(fault, { match: /./, failAt: 0, after: false, statements: 0 })
+  Object.assign(fault, {
+    match: /./,
+    failAt: 0,
+    after: false,
+    statements: 0,
+    deletes: 0,
+  })
 })
 
 afterEach(() => {
@@ -406,8 +399,13 @@ async function keysOf(workspaceId: string) {
  * the INSERT of the tombstones, the tombstone and the old row both stay.
  */
 function halfTombstones(): KnowledgeStore {
-  Object.assign(fault, { match: /^DELETE/, failAt: 1, after: false })
-  return faultyStore
+  Object.assign(fault, {
+    match: /^DELETE/,
+    failAt: 1,
+    after: false,
+    statements: 0,
+  })
+  return store
 }
 
 const key = (workspaceId: string, path: string) =>
@@ -710,7 +708,7 @@ describe("projectKnowledgePlane", () => {
     try {
       const { failedTip, workspaceId } = await scenario(counted)
       Object.assign(fault, { match: writes, failAt: 0, statements: 0 })
-      await run(counted, workspaceId, failedTip, { store: faultyStore })
+      await run(counted, workspaceId, failedTip)
     } finally {
       await counted.remove()
     }
@@ -732,10 +730,8 @@ describe("projectKnowledgePlane", () => {
         const { base, failedTip, tip, workspaceId } = await scenario(remote)
         if (at === 0) embeddings.failAt = embeddings.requests + 1
         else Object.assign(fault, { match: writes, failAt: at, after })
-        fault.statements = 0
-        const crashed = await run(remote, workspaceId, failedTip, {
-          store: faultyStore,
-        }).then(
+        Object.assign(fault, { statements: 0, deletes: 0 })
+        const crashed = await run(remote, workspaceId, failedTip).then(
           () => false,
           () => true,
         )
@@ -746,6 +742,14 @@ describe("projectKnowledgePlane", () => {
             ? "the embedding request"
             : `write ${at} of ${statements}, ${after ? "after" : "before"} it`
         expect(crashed, point).toBe(true)
+        // The failed run reports the DELETEs that ClickHouse applied.
+        expect(
+          spans.spanNamed("knowledge.projection.apply")?.attributes,
+          point,
+        ).toMatchObject({
+          "ctxpipe.knowledge.outcome": "failed",
+          "ctxpipe.knowledge.mutations": fault.deletes,
+        })
         expect(await getKnowledgeState({ orgId, workspaceId })).toMatchObject({
           lastSha: base,
           attemptShas: [failedTip],
@@ -808,27 +812,42 @@ describe("projectKnowledgePlane", () => {
       await run(remote, workspaceId, await remote.commit(files("one")))
       const tip = await remote.commit(files("two"))
 
-      const since = await (
-        await admin.query({ query: "SELECT now64(6) AS at", format: "JSONEachRow" })
-      ).json<{ at: string }>()
-      const summary = await run(remote, workspaceId, tip)
-      expect(summary).toMatchObject({ mode: "delta", documentsChanged: 200 })
       // ClickHouse lists each mutation, with the Workspace in its command.
-      const mutations = await (
-        await admin.query({
-          query: `SELECT table, count() AS count FROM system.mutations
-                  WHERE database = currentDatabase()
-                    AND create_time >= toDateTime({since:String})
-                    AND position(command, {workspaceId:String}) > 0
-                  GROUP BY table ORDER BY table`,
-          query_params: { since: since[0]?.at ?? "", workspaceId },
-          format: "JSONEachRow",
-        })
-      ).json<{ table: string; count: number }>()
-      expect(mutations).toEqual(
-        [...tables].sort().map((table) => ({ table, count: 1 })),
-      )
-      expect(summary).toMatchObject({ mutations: 5 })
+      const mutations = async () =>
+        Object.fromEntries(
+          (
+            await (
+              await admin.query({
+                query: `SELECT table, count() AS count FROM system.mutations
+                        WHERE database = currentDatabase()
+                          AND position(command, {workspaceId:String}) > 0
+                        GROUP BY table`,
+                query_params: { workspaceId },
+                format: "JSONEachRow",
+              })
+            ).json<{ table: string; count: number }>()
+          ).map(({ table, count }) => [table, count]),
+        )
+      const before = await mutations()
+      expect(await run(remote, workspaceId, tip)).toMatchObject({
+        mode: "delta",
+        documentsChanged: 200,
+      })
+      const after = await mutations()
+      expect(
+        Object.fromEntries(
+          tables.map((table) => [
+            table,
+            (after[table] ?? 0) - (before[table] ?? 0),
+          ]),
+        ),
+      ).toEqual(Object.fromEntries(tables.map((table) => [table, 1])))
+      expect(
+        spans.spanNamed("knowledge.projection.apply")?.attributes,
+      ).toMatchObject({
+        "ctxpipe.knowledge.outcome": "completed",
+        "ctxpipe.knowledge.mutations": 5,
+      })
     } finally {
       await remote.remove()
     }

@@ -251,24 +251,29 @@ describe("read_file and list_files on the knowledge plane", () => {
     })
     const writer = createKnowledgeStore(url)
     try {
-      await writer.applyDocuments({ orgId: seed.orgId, workspaceId }, { documents: // The payments unit has no document row on the plane.
-        [CHECKOUT].map((path) => ({
-          document: {
-            docKey: servingIdForKnowledgePath(workspaceId, path),
-            kind: "",
-            title: path,
-            path,
-            sourceType: "docs",
-            source: "",
-            summary: "",
-            mime: "",
-            validFrom: null,
-            validTo: null,
-            observedAt,
-          },
-          chunks: [],
-          relations: [],
-        })) })
+      // The payments unit has no document row on the plane.
+      await writer.applyDocuments(
+        { orgId: seed.orgId, workspaceId },
+        {
+          documents: [CHECKOUT].map((path) => ({
+            document: {
+              docKey: servingIdForKnowledgePath(workspaceId, path),
+              kind: "",
+              title: path,
+              path,
+              sourceType: "docs",
+              source: "",
+              summary: "",
+              mime: "",
+              validFrom: null,
+              validTo: null,
+              observedAt,
+            },
+            chunks: [],
+            relations: [],
+          })),
+        },
+      )
     } finally {
       await writer.close()
     }

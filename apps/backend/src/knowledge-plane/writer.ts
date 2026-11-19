@@ -16,6 +16,7 @@ import {
   type DocumentStatus,
   type KnowledgeScope,
   type KnowledgeStore,
+  type MutationCounter,
   REFERENCE_TARGET_PREFIX,
 } from "../knowledge-store/knowledge-store.js"
 import {
@@ -70,8 +71,6 @@ type KnowledgeRunSummary =
       fullReason: KnowledgeFullReason | null
       /** The documents that the run replaced, made `failed` or made tombstones. */
       documentsChanged: number
-      /** The ClickHouse mutations (DELETEs) of the run. */
-      mutations: number
       /** The `failed` documents of the Workspace after the run. */
       failedCount: number
     }
@@ -135,6 +134,7 @@ export async function projectKnowledgePlane(input: {
         "ctxpipe.workspace.id": input.workspaceId,
       })
       let summary: KnowledgeRunSummary | undefined
+      const counter: MutationCounter = { mutations: 0 }
       /** Seconds from the commit of `last_sha` to that of the tip, at the start. */
       let lagSeconds: number | null = null
       try {
@@ -157,10 +157,11 @@ export async function projectKnowledgePlane(input: {
               tip: input.tip,
               projectionVersion,
             })
-            const { documentsChanged, mutations } = await applyChangeSet({
+            const documentsChanged = await applyChangeSet({
               ...input,
               directory,
               plan,
+              counter,
             })
             const failedCount = (
               await input.store.listDocumentKeys(key)
@@ -175,7 +176,6 @@ export async function projectKnowledgePlane(input: {
               mode: plan.kind,
               fullReason: plan.kind === "full" ? plan.reason : null,
               documentsChanged,
-              mutations,
               failedCount,
             }
           },
@@ -205,6 +205,7 @@ export async function projectKnowledgePlane(input: {
           seconds: (performance.now() - started) / 1000,
           summary,
           lagSeconds,
+          mutations: counter.mutations,
         })
         span.end()
       }
@@ -212,8 +213,16 @@ export async function projectKnowledgePlane(input: {
 }
 
 /**
- * The work of one change set. Returns the count of changed documents and
- * the count of ClickHouse mutations.
+ * The files of one store write. The store slices each IN list itself, so
+ * this is only a memory bound: the rows of a group (with a vector of 1024
+ * numbers for each chunk) stay in memory until its write, about 40 MB for
+ * 1000 documents of 5 chunks.
+ */
+const FILES_PER_WRITE = 1000
+
+/**
+ * The work of one change set. Returns the count of changed documents.
+ * `counter` gets the count of ClickHouse mutations.
  */
 async function applyChangeSet(input: {
   orgId: string
@@ -225,7 +234,8 @@ async function applyChangeSet(input: {
   observedAt: Date
   directory: string
   plan: KnowledgeChangeSet
-}): Promise<{ documentsChanged: number; mutations: number }> {
+  counter: MutationCounter
+}): Promise<number> {
   const { workspaceId, root, store, observedAt, directory, plan } = input
   const scope: KnowledgeScope = {
     orgId: input.orgId,
@@ -257,21 +267,18 @@ async function applyChangeSet(input: {
   const written = new Set<string>()
   const targets = new Set<string>()
   let changed = 0
-  let mutations = 0
   // One store write for each group of files, so that a run makes few
-  // mutations (ADR-066 decision 8). The rows of a group stay in memory
-  // until its write. The last write has the tombstones and the `missing`
-  // placeholders too, because they need the keys of all groups.
-  const groups = Array.from(
-    { length: Math.max(1, Math.ceil(files.length / 1000)) },
-    (_, index) => files.slice(index * 1000, (index + 1) * 1000),
-  )
-  for (const [index, group] of groups.entries()) {
+  // mutations (ADR-066 decision 8). The last write has the tombstones and
+  // the `missing` placeholders too, because they need the keys of all
+  // groups. A run with no file makes one write for its tombstones.
+  for (let at = 0; at === 0 || at < files.length; at += FILES_PER_WRITE) {
+    const group = files.slice(at, at + FILES_PER_WRITE)
     const documents: DocumentRows[] = []
     const failed: { docKey: string; error: string }[] = []
     await inBatches(group, 50, async (batch) => {
       const rows = await projectFiles({
         directory,
+        keyOf,
         workspaceId,
         blobPath,
         sourceRepositories,
@@ -291,7 +298,7 @@ async function applyChangeSet(input: {
     for (const { docKey } of failed) written.add(docKey)
     changed += documents.length + failed.length
 
-    const last = index === groups.length - 1
+    const last = at + FILES_PER_WRITE >= files.length
     // A tombstone for each document whose file is gone: in a delta, the
     // documents of the paths of the diff; in a full rebuild, each stored
     // document (the reconcile).
@@ -313,8 +320,9 @@ async function applyChangeSet(input: {
       : [...targets].filter(
           (docKey) => !written.has(docKey) && !deleted.has(docKey),
         )
-    mutations += (
-      await store.applyDocuments(scope, {
+    await store.applyDocuments(
+      scope,
+      {
         documents,
         placeholders: [
           ...failed.map((row) => ({
@@ -329,11 +337,12 @@ async function applyChangeSet(input: {
           })),
         ],
         deleted: { docKeys: stale, deletedAt: observedAt },
-      })
-    ).mutations
+      },
+      input.counter,
+    )
     changed += stale.length
   }
-  return { documentsChanged: changed, mutations }
+  return changed
 }
 
 /**
@@ -342,6 +351,8 @@ async function applyChangeSet(input: {
  */
 async function projectFiles(input: {
   directory: string
+  /** The document key of a path. */
+  keyOf: (path: string) => string
   workspaceId: string
   blobPath: ReturnType<typeof workspaceBlobPath>
   sourceRepositories: Map<string, string>
@@ -353,8 +364,7 @@ async function projectFiles(input: {
   documents: DocumentRows[]
   failed: { docKey: string; error: string }[]
 }> {
-  const { workspaceId, blobPath, observedAt } = input
-  const keyOf = (path: string) => servingIdForKnowledgePath(workspaceId, path)
+  const { workspaceId, keyOf, blobPath, observedAt } = input
   const contents = await readGitBlobs(input.directory, input.blobs)
   const documents: UnembeddedDocumentRows[] = []
   const images: {
@@ -682,6 +692,8 @@ function recordRun(input: {
   seconds: number
   summary: KnowledgeRunSummary | undefined
   lagSeconds: number | null
+  /** The mutations of the run, also of a failed run. */
+  mutations: number
 }): void {
   const { summary } = input
   const outcome = summary ? "completed" : "failed"
@@ -693,10 +705,17 @@ function recordRun(input: {
       unit: "s",
     })
     .record(input.seconds, { outcome, mode })
+  meter
+    .createHistogram("knowledge.projection.mutations", {
+      description: "The ClickHouse mutations of one knowledge projection run",
+      unit: "{mutation}",
+    })
+    .record(input.mutations, { outcome, mode })
   const fields: Record<string, string | number> = {
     "ctxpipe.knowledge.outcome": outcome,
     "ctxpipe.knowledge.mode": mode,
     "ctxpipe.knowledge.duration_s": input.seconds,
+    "ctxpipe.knowledge.mutations": input.mutations,
   }
   if (input.lagSeconds !== null) {
     meter
@@ -715,12 +734,6 @@ function recordRun(input: {
       })
       .add(summary.documentsChanged, { mode })
     meter
-      .createHistogram("knowledge.projection.mutations", {
-        description: "The ClickHouse mutations of one knowledge projection run",
-        unit: "{mutation}",
-      })
-      .record(summary.mutations, { mode })
-    meter
       .createHistogram("knowledge.projection.failed_documents", {
         description: "The failed documents of a Workspace after a run",
         unit: "{document}",
@@ -729,7 +742,6 @@ function recordRun(input: {
     Object.assign(fields, {
       "ctxpipe.knowledge.full_reason": summary.fullReason ?? "",
       "ctxpipe.knowledge.documents_changed": summary.documentsChanged,
-      "ctxpipe.knowledge.mutations": summary.mutations,
       "ctxpipe.knowledge.failed_count": summary.failedCount,
     })
   }
@@ -740,6 +752,7 @@ function recordRun(input: {
       mode,
       seconds: input.seconds,
       lagSeconds: input.lagSeconds,
+      mutations: input.mutations,
       ...summary,
     },
   })

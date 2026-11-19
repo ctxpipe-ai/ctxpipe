@@ -211,6 +211,7 @@ function planeRows(workspaceId: string): DocumentRows[] {
       sourceType: "docs",
       source: "",
       summary: unit.title,
+      s3Key: "",
       mime: "",
       validFrom: date(unit.validFrom),
       validTo: date(unit.validTo),
@@ -233,7 +234,6 @@ function planeRows(workspaceId: string): DocumentRows[] {
       validFrom: date(claim.validFrom),
       validTo: date(claim.validTo),
       source: "",
-      altText: "",
       observedAt,
     })),
   }))
@@ -312,7 +312,10 @@ describe("the knowledge eval harness", () => {
     })
     const writer = createKnowledgeStore(url)
     try {
-      await writer.applyDocuments({ orgId: seed.orgId, workspaceId }, { documents: planeRows(workspaceId) })
+      await writer.applyDocuments(
+        { orgId: seed.orgId, workspaceId },
+        { documents: planeRows(workspaceId) },
+      )
     } finally {
       await writer.close()
     }
