@@ -92,8 +92,8 @@ type KnowledgeRunSummary =
  *
  * An infrastructure error (Git, ClickHouse, Postgres, the embedding API)
  * throws, and `failKnowledgeRun` records it. The retry applies the same
- * files again. The caller holds the hydrate lock of the Workspace, so one
- * run of a Workspace runs at a time.
+ * files again. The caller holds the knowledge projection lease of the
+ * Workspace, so one run of a Workspace runs at a time.
  *
  * The vector of an image comes from its bytes at the tip. An image that the
  * embedding model does not take (its type or its size) gets a `failed`

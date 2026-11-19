@@ -36,6 +36,8 @@ import {
   getWorkspaceProjection,
   persistWorkspaceIndexResult,
 } from "../models/workspaces.js"
+import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
+import { knowledgeProjection } from "../openworkflow/workflows/knowledge-projection.js"
 import { repositoryIndex } from "../openworkflow/workflows/repository-index.js"
 import { workspaceHydrate } from "../openworkflow/workflows/workspace-hydrate.js"
 import { workspaceIndex } from "../openworkflow/workflows/workspace-index.js"
@@ -121,7 +123,9 @@ export type NativeHydrationOptions = {
   embeddings?: "ready" | "failed" | "empty"
   /**
    * Run the knowledge plane of ADR-067 too: the org flag `knowledge_plane`
-   * is `shadow`, and the worker writes to this ClickHouse URL.
+   * is `shadow`, and the worker writes to this ClickHouse URL. The fixture
+   * worker then uses the namespace of the file, where the hydrate queues the
+   * knowledge projection.
    */
   knowledgePlane?: { clickhouseUrl: string }
   missingTip?: boolean
@@ -714,15 +718,20 @@ async function createNativeHydrationFixture(
   })
   listenWithDockerOutsideMsw(server, { onUnhandledRequest: "error" })
   initDb(databaseUrl)
+  const namespaceId =
+    options.namespaceId ??
+    (options.knowledgePlane ? openWorkflowNamespaceId() : id)
   const backend = await BackendPostgres.connect(databaseUrl, {
     runMigrations: false,
-    namespaceId: options.namespaceId ?? id,
+    namespaceId,
   })
   const runner = new OpenWorkflow({ backend })
   runner.implementWorkflow(workspaceTipCheck.spec, workspaceTipCheck.fn)
   runner.implementWorkflow(workspaceHydrate.spec, workspaceHydrate.fn)
   runner.implementWorkflow(workspaceIndex.spec, workspaceIndex.fn)
   runner.implementWorkflow(repositoryIndex.spec, repositoryIndex.fn)
+  if (options.knowledgePlane)
+    runner.implementWorkflow(knowledgeProjection.spec, knowledgeProjection.fn)
   const worker = runner.newWorker({ concurrency: 2 })
   const gitTrace = join(tmpdir(), `ctxpipe-hydration-trace-${id}.jsonl`)
   // Outside the fixture worktree, so that a later commit cannot add it.
@@ -1029,7 +1038,7 @@ async function createNativeHydrationFixture(
           async () => {
             const open = await getSystemDb().execute(
               sql`select id from openworkflow.workflow_runs
-                where namespace_id = ${options.namespaceId ?? id}
+                where namespace_id = ${namespaceId}
                   and workflow_name = ${workspaceIndex.spec.name}
                   and input->'revision'->>'workspaceId' = ${workspaceId}
                   and status in ('pending', 'running', 'sleeping')`,

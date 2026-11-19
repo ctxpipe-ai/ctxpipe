@@ -57,11 +57,6 @@ import {
   workspaceFormatCacheValue,
 } from "../../domain/workspaces/workspace-format.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
-import {
-  type KnowledgeRemote,
-  projectKnowledgePlane,
-} from "../../knowledge-plane/writer.js"
-import { createKnowledgeStore } from "../../knowledge-store/knowledge-store.js"
 import { listOrgConnections } from "../../models/org-connections.js"
 import { getOrgFeature } from "../../models/org-features.js"
 import {
@@ -95,7 +90,7 @@ import { readGitFiles, readGitPackFromRemote } from "../../services/git/pack.js"
 import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
-import { knowledgeMaintenance } from "./knowledge-maintenance.js"
+import { knowledgeProjection } from "./knowledge-projection.js"
 
 const workspaceHydrateInputSchema = z
   .object({
@@ -188,11 +183,9 @@ export function defineWorkspaceHydrateWorkflow() {
       })
       if (!org) throw new Error(`Organization not found: ${input.orgId}`)
 
-      // The revision that the knowledge plane projects after the old stack,
-      // and its read access.
-      let knowledgeTarget:
-        | { revision: WorkspaceRevision; remote: KnowledgeRemote }
-        | undefined
+      // True when the hydrate resolved a revision: the knowledge plane then
+      // has a tip to project.
+      let queueKnowledgeProjection = false
       const result = await withOrgIdContext(
         { id: org.id, slug: org.slug },
         () =>
@@ -212,16 +205,24 @@ export function defineWorkspaceHydrateWorkflow() {
           // the lease expires in 30 seconds and the retry takes it again.
           postgresSandboxLocks(input.orgId).withLock(
             `workspace-hydrate:${input.workspaceId}`,
-            async (lockSignal) => {
-              const hydrated = await hydrateUnderLock(lockSignal)
-              // After the old projections, outside their error handling: a
-              // failure of the knowledge plane does not mark them failed.
-              if (knowledgeTarget)
-                await projectKnowledge(knowledgeTarget, lockSignal)
-              return hydrated
-            },
+            (lockSignal) => hydrateUnderLock(lockSignal),
           ),
       )
+      // After the old projections and outside the lock: the knowledge plane
+      // (ADR-067) runs as its own workflow. A failure or a ClickHouse outage
+      // does not mark the old projections failed, and does not delay them.
+      // Each hydrate queues one run, and the queued runs merge (the run
+      // applies the tip that the Workspace wants when it starts).
+      if (queueKnowledgeProjection)
+        await step.run({ name: "enqueue-knowledge-projection" }, async () => {
+          if ((await getOrgFeature(input.orgId, "knowledge_plane")) === "off")
+            return false
+          await enqueueWorkflow(knowledgeProjection.spec, {
+            orgId: input.orgId,
+            workspaceId: input.workspaceId,
+          })
+          return true
+        })
       // One event for each run: its outcome, and what it read and wrote. The
       // workflow logger emits a wide event only when it has a `step`.
       getLogger().set({
@@ -232,65 +233,6 @@ export function defineWorkspaceHydrateWorkflow() {
         },
       })
       return result
-
-      /**
-       * The ClickHouse projection of the knowledge plane (ADR-067), for an
-       * org whose flag is not `off`. The old stack keeps its own writes, so
-       * both stacks stay current (ADR-069 decision 9). An error throws in
-       * the step, so the step retries from the same `last_sha`.
-       */
-      async function projectKnowledge(
-        target: NonNullable<typeof knowledgeTarget>,
-        lockSignal: AbortSignal,
-      ) {
-        if ((await getOrgFeature(input.orgId, "knowledge_plane")) === "off")
-          return
-        const { revision } = target
-        await step.run(
-          {
-            name: "project-knowledge-plane",
-            retryPolicy: {
-              initialInterval: "10s",
-              backoffCoefficient: 2,
-              maximumInterval: "5m",
-              maximumAttempts: 6,
-            },
-          },
-          async () => {
-            lockSignal.throwIfAborted()
-            const store = createKnowledgeStore(env.CLICKHOUSE_URL)
-            try {
-              return await projectKnowledgePlane({
-                orgId: input.orgId,
-                workspaceId: input.workspaceId,
-                remote: target.remote,
-                root: workspaceRootPath(revision),
-                tip: revision.sha,
-                store,
-                observedAt: new Date(),
-              })
-            } finally {
-              await store.close()
-            }
-          },
-        )
-        // Also after a `current` result: a retry after a stop between
-        // `completeKnowledgeRun` and the step output gives `current`. The key
-        // queues one job for each tip.
-        await step.run({ name: "enqueue-knowledge-maintenance" }, async () => {
-          await enqueueWorkflow(
-            knowledgeMaintenance.spec,
-            {
-              orgId: input.orgId,
-              workspaceId: input.workspaceId,
-              sha: revision.sha,
-            },
-            {
-              idempotencyKey: `knowledge-maintenance:${input.workspaceId}:${revision.sha}`,
-            },
-          )
-        })
-      }
 
       async function hydrateUnderLock(lockSignal: AbortSignal) {
         const orgSql = <T>(fn: () => Promise<T>) =>
@@ -359,19 +301,7 @@ export function defineWorkspaceHydrateWorkflow() {
           }
           const { revision, token, workspace } = resolved
           failingRevision = revision
-          knowledgeTarget = {
-            revision,
-            remote: {
-              url: revision.remote.url,
-              token: async () =>
-                token ??
-                (await resolveRepositoryReadCredential({
-                  orgId: input.orgId,
-                  env,
-                  remote: revision.remote,
-                })),
-            },
-          }
+          queueKnowledgeProjection = true
           const desiredSha = revision.sha
           // Not the units: their bodies are the heaviest read of a Workspace, and only a run that reuses the active
           // projection (below) reads them. A no-op, an index lag and a new revision do not.
