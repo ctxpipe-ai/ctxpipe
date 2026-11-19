@@ -45,6 +45,12 @@ function rawFileContentType(path: string): string {
   return CONTENT_TYPES[extension] ?? "application/octet-stream"
 }
 
+/** The content type of an image file (`image/…`), else null. */
+export function imageContentType(path: string): string | null {
+  const contentType = rawFileContentType(path)
+  return contentType.startsWith("image/") ? contentType : null
+}
+
 function contentDisposition(kind: "inline" | "attachment", path: string) {
   const name = path.split("/").at(-1) || "file"
   const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, "_")
