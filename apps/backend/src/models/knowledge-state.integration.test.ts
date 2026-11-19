@@ -59,6 +59,28 @@ describe("knowledge_state (Postgres)", () => {
     await closeDb()
   })
 
+  it("refuses a run of a Workspace of another org, and an update without a run", async () => {
+    // Before the owning org has a row: no other org can take it.
+    await expect(
+      beginKnowledgeRun({ orgId: otherOrgId, workspaceId, tip: "sha-x" }),
+    ).rejects.toThrow(`has no Workspace ${workspaceId}`)
+    expect(await getKnowledgeState(workspace)).toBeNull()
+    expect(
+      await getKnowledgeState({ orgId: otherOrgId, workspaceId }),
+    ).toBeNull()
+    await expect(failKnowledgeRun(workspace)).rejects.toThrow(
+      "call beginKnowledgeRun first",
+    )
+    await expect(
+      completeKnowledgeRun({
+        ...workspace,
+        tip: "sha-x",
+        projectionVersion: "1:test-model",
+        failedCount: 0,
+      }),
+    ).rejects.toThrow("call beginKnowledgeRun first")
+  })
+
   it("adds each tip before a run, and moves last_sha and clears the list in one update", async () => {
     expect(await getKnowledgeState(workspace)).toBeNull()
 
@@ -109,14 +131,5 @@ describe("knowledge_state (Postgres)", () => {
       projectionVersion: "1:test-model",
       runStatus: "failed",
     })
-  })
-
-  it("shows the row only to its own org", async () => {
-    expect(
-      await getKnowledgeState({ orgId: otherOrgId, workspaceId }),
-    ).toBeNull()
-    await expect(
-      beginKnowledgeRun({ orgId: otherOrgId, workspaceId, tip: "sha-x" }),
-    ).rejects.toThrow()
   })
 })

@@ -68,7 +68,6 @@ function plan(
     state,
     tip,
     projectionVersion: options.projectionVersion ?? version,
-    sourcesFilePath,
   })
 }
 
@@ -196,14 +195,35 @@ describe("planKnowledgeChangeSet", () => {
     })
   })
 
-  it("rebuilds in full when only a failed run changed the sources config file", async () => {
-    const base = await commit({ "a.md": "a1", [sourcesFilePath]: "v: 1" })
+  it("rebuilds in full when a source file changed", async () => {
+    const source = "sources/linear/team.md"
+    const base = await commit({ "a.md": "a1", [source]: "team: A" })
+    const tip = await commit({ [source]: "team: B" })
+    expect(await plan(started(base, tip), tip)).toEqual({
+      kind: "full",
+      reason: "sources_config",
+      files: ["a.md", source],
+    })
+  })
+
+  it("rebuilds in full when only a failed run changed the sources", async () => {
+    const source = "sources/linear/team.md"
+    const base = await commit({
+      "a.md": "a1",
+      [sourcesFilePath]: "v: 1",
+      [source]: "team: A",
+    })
     const failed = await commit({ [sourcesFilePath]: "v: 2" })
     const tip = await commit({ [sourcesFilePath]: "v: 1" })
     expect(await plan(started(base, failed, tip), tip)).toMatchObject({
       kind: "full",
       reason: "sources_config",
     })
+    const failedSource = await commit({ [source]: "team: B" })
+    const revert = await commit({ [source]: "team: A" })
+    expect(
+      await plan(started(tip, failedSource, revert), revert),
+    ).toMatchObject({ kind: "full", reason: "sources_config" })
   })
 
   it("rebuilds in full when the list has more than 10 SHAs", async () => {

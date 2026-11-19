@@ -1,6 +1,7 @@
 import { parseNameStatus } from "../../services/git/name-status.js"
 import { listTreeBlobs, nativeGit } from "../../services/git/pack.js"
 import { workspaceRelativePath } from "../../services/git/root-folder.js"
+import { isSourcesTreePath } from "../workspace-sources/source-tree.js"
 
 /**
  * The projection version of the knowledge plane (ADR-067 decision 4): a code
@@ -13,7 +14,7 @@ export function knowledgeProjectionVersion(embeddingModel: string): string {
 }
 
 /** The reasons for a full rebuild instead of a delta. */
-export type KnowledgeFullReason =
+type KnowledgeFullReason =
   /** No run has completed for the Workspace. */
   | "first_run"
   /** The projection version of the code is not the stored version. */
@@ -22,7 +23,7 @@ export type KnowledgeFullReason =
   | "attempts"
   /** Git does not have `last_sha` or a SHA of `attempt_shas`. */
   | "missing_commit"
-  /** A diff changes the sources config file (ADR-050). */
+  /** A diff changes the sources (ADR-050): `.ctxpipe/sources.yaml` or `sources/`. */
   | "sources_config"
 
 /**
@@ -31,7 +32,7 @@ export type KnowledgeFullReason =
  * the tip tree, so that the writer can make each other document a tombstone.
  * All paths are relative to the Workspace root folder.
  */
-export type KnowledgeChangeSet =
+type KnowledgeChangeSet =
   | { kind: "delta"; changed: string[]; removed: string[] }
   | { kind: "full"; reason: KnowledgeFullReason; files: string[] }
 
@@ -60,8 +61,6 @@ export async function planKnowledgeChangeSet(input: {
   tip: string
   /** The current version (`knowledgeProjectionVersion`). */
   projectionVersion: string
-  /** The path of the sources config file, relative to the root folder. */
-  sourcesFilePath: string
 }): Promise<KnowledgeChangeSet> {
   const { directory, root, state, tip } = input
   const full = async (reason: KnowledgeFullReason) => ({
@@ -79,8 +78,8 @@ export async function planKnowledgeChangeSet(input: {
   const targets = [...new Set([...state.attemptShas, tip])]
   if (targets.length > 10) return full("attempts")
   const base = state.lastSha
-  for (const sha of [base, ...targets])
-    if (!(await hasCommit(directory, sha))) return full("missing_commit")
+  if (!(await hasCommits(directory, [base, ...targets])))
+    return full("missing_commit")
 
   // The status of each path in the diff to the tip, and in the diffs to the
   // other SHAs. `--no-renames` gives a rename as a removal and an addition.
@@ -90,7 +89,7 @@ export async function planKnowledgeChangeSet(input: {
     if (sha !== tip)
       for (const [path, status] of await diffPaths(directory, root, base, sha))
         if (!toTip.has(path)) others.set(path, status)
-  if (toTip.has(input.sourcesFilePath) || others.has(input.sourcesFilePath))
+  if ([...toTip.keys(), ...others.keys()].some(isSourcesTreePath))
     return full("sources_config")
 
   const changed: string[] = []
@@ -104,21 +103,25 @@ export async function planKnowledgeChangeSet(input: {
   return { kind: "delta", changed: changed.sort(), removed: removed.sort() }
 }
 
-async function hasCommit(directory: string, sha: string): Promise<boolean> {
-  try {
-    await nativeGit(directory, [
-      "--no-lazy-fetch",
-      "rev-parse",
-      "--verify",
-      "--quiet",
-      `${sha}^{commit}`,
-    ])
-    return true
-  } catch (error) {
-    // `--quiet` gives exit code 1 and no output when the commit is missing.
-    if ((error as { code?: unknown }).code === 1) return false
-    throw error
-  }
+/**
+ * True when Git has each commit. `cat-file --batch-check` answers `missing`
+ * for an object that is not there, with exit code 0, so an expected missing
+ * commit is not logged as a Git failure.
+ */
+async function hasCommits(
+  directory: string,
+  shas: readonly string[],
+): Promise<boolean> {
+  const output = await nativeGit(
+    directory,
+    ["--no-lazy-fetch", "cat-file", "--batch-check=%(objecttype)"],
+    shas.map((sha) => `${sha}^{commit}\n`).join(""),
+  )
+  return output
+    .toString()
+    .split("\n")
+    .slice(0, shas.length)
+    .every((line) => line === "commit")
 }
 
 /** The status letter (`A`, `M`, `D`, `T`) of each root-relative path that changed. */

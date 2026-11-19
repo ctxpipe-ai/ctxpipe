@@ -2,6 +2,7 @@ import { and, eq, sql } from "drizzle-orm"
 
 import { withOrgDbContext } from "../db/client.js"
 import { knowledgeState } from "../db/schema/knowledge_state.js"
+import { workspaces } from "../db/schema/workspaces.js"
 
 /*
  * The state updates of a knowledge run (ADR-067 decisions 2, 4 and 8). The
@@ -9,20 +10,19 @@ import { knowledgeState } from "../db/schema/knowledge_state.js"
  * updates need no compare-and-set.
  */
 
-type Workspace = { orgId: string; workspaceId: string }
+type KnowledgeStateKey = { orgId: string; workspaceId: string }
+
+function stateRow({ orgId, workspaceId }: KnowledgeStateKey) {
+  return and(
+    eq(knowledgeState.orgId, orgId),
+    eq(knowledgeState.workspaceId, workspaceId),
+  )
+}
 
 /** The state row of a Workspace, or null before its first run. */
-export async function getKnowledgeState({ orgId, workspaceId }: Workspace) {
-  const [row] = await withOrgDbContext(orgId, (db) =>
-    db
-      .select()
-      .from(knowledgeState)
-      .where(
-        and(
-          eq(knowledgeState.orgId, orgId),
-          eq(knowledgeState.workspaceId, workspaceId),
-        ),
-      ),
+export async function getKnowledgeState(key: KnowledgeStateKey) {
+  const [row] = await withOrgDbContext(key.orgId, (db) =>
+    db.select().from(knowledgeState).where(stateRow(key)),
   )
   return row ?? null
 }
@@ -30,13 +30,28 @@ export async function getKnowledgeState({ orgId, workspaceId }: Workspace) {
 /**
  * Add the tip to `attempt_shas` before the run writes a row. The list only
  * grows, so a crash at any point loses no SHA. A retry of the same tip adds
- * nothing.
+ * nothing. The Workspace must belong to the org: the foreign key does not
+ * check the org, so without this check an org could take the row of a
+ * Workspace of another org.
  */
 export async function beginKnowledgeRun(
-  input: Workspace & { tip: string },
+  input: KnowledgeStateKey & { tip: string },
 ): Promise<void> {
-  await withOrgDbContext(input.orgId, (db) =>
-    db
+  await withOrgDbContext(input.orgId, async (db) => {
+    const [workspace] = await db
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(
+        and(
+          eq(workspaces.orgId, input.orgId),
+          eq(workspaces.id, input.workspaceId),
+        ),
+      )
+    if (!workspace)
+      throw new Error(
+        `The org ${input.orgId} has no Workspace ${input.workspaceId}`,
+      )
+    await db
       .insert(knowledgeState)
       .values({
         workspaceId: input.workspaceId,
@@ -51,8 +66,8 @@ export async function beginKnowledgeRun(
           runStatus: "running",
           updatedAt: new Date(),
         },
-      }),
-  )
+      })
+  })
 }
 
 /**
@@ -60,46 +75,44 @@ export async function beginKnowledgeRun(
  * and `attempt_shas` becomes empty, in one update.
  */
 export async function completeKnowledgeRun(
-  input: Workspace & {
+  input: KnowledgeStateKey & {
     tip: string
     projectionVersion: string
+    /** The count of `failed` documents (ADR-067 decisions 8 and 11). */
     failedCount: number
   },
 ): Promise<void> {
-  await withOrgDbContext(input.orgId, (db) =>
-    db
-      .update(knowledgeState)
-      .set({
-        lastSha: input.tip,
-        attemptShas: [],
-        projectionVersion: input.projectionVersion,
-        runStatus: "completed",
-        failedCount: input.failedCount,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(knowledgeState.orgId, input.orgId),
-          eq(knowledgeState.workspaceId, input.workspaceId),
-        ),
-      ),
-  )
+  await updateState(input, {
+    lastSha: input.tip,
+    attemptShas: [],
+    projectionVersion: input.projectionVersion,
+    runStatus: "completed",
+    failedCount: input.failedCount,
+  })
 }
 
 /**
  * Record a run that stopped on an infrastructure error. `last_sha` and
  * `attempt_shas` stay, so the next run applies the same files again.
  */
-export async function failKnowledgeRun(input: Workspace): Promise<void> {
-  await withOrgDbContext(input.orgId, (db) =>
+export async function failKnowledgeRun(key: KnowledgeStateKey): Promise<void> {
+  await updateState(key, { runStatus: "failed" })
+}
+
+/** Update the row that `beginKnowledgeRun` made. Without that row, throw. */
+async function updateState(
+  key: KnowledgeStateKey,
+  values: Partial<typeof knowledgeState.$inferInsert>,
+): Promise<void> {
+  const updated = await withOrgDbContext(key.orgId, (db) =>
     db
       .update(knowledgeState)
-      .set({ runStatus: "failed", updatedAt: new Date() })
-      .where(
-        and(
-          eq(knowledgeState.orgId, input.orgId),
-          eq(knowledgeState.workspaceId, input.workspaceId),
-        ),
-      ),
+      .set({ ...values, updatedAt: new Date() })
+      .where(stateRow(key))
+      .returning({ workspaceId: knowledgeState.workspaceId }),
   )
+  if (!updated.length)
+    throw new Error(
+      `The Workspace ${key.workspaceId} has no knowledge run; call beginKnowledgeRun first`,
+    )
 }
