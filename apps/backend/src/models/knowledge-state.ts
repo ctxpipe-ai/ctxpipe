@@ -14,7 +14,7 @@ type KnowledgeStateKey = { orgId: string; workspaceId: string }
 
 function stateRow({ orgId, workspaceId }: KnowledgeStateKey) {
   return and(
-    eq(knowledgeState.orgId, orgId),
+    eq(knowledgeState.organizationId, orgId),
     eq(knowledgeState.workspaceId, workspaceId),
   )
 }
@@ -55,7 +55,7 @@ export async function beginKnowledgeRun(
       .insert(knowledgeState)
       .values({
         workspaceId: input.workspaceId,
-        orgId: input.orgId,
+        organizationId: input.orgId,
         attemptShas: [input.tip],
         runStatus: "running",
       })

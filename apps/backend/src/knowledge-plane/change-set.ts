@@ -1,7 +1,7 @@
-import { parseNameStatus } from "../../services/git/name-status.js"
-import { listTreeBlobs, nativeGit } from "../../services/git/pack.js"
-import { workspaceRelativePath } from "../../services/git/root-folder.js"
-import { isSourcesTreePath } from "../workspace-sources/source-tree.js"
+import { isSourcesTreePath } from "../domain/workspace-sources/source-tree.js"
+import { parseNameStatus } from "../services/git/name-status.js"
+import { listTreeBlobs, nativeGit } from "../services/git/pack.js"
+import { workspaceRelativePath } from "../services/git/root-folder.js"
 
 /**
  * The projection version of the knowledge plane (ADR-067 decision 4): a code
@@ -84,7 +84,7 @@ export async function planKnowledgeChangeSet(input: {
   // The status of each path in the diff to the tip, and in the diffs to the
   // other SHAs. `--no-renames` gives a rename as a removal and an addition.
   const toTip = await diffPaths(directory, root, base, tip)
-  const others = new Map<string, string>()
+  const others = new Map<string, DiffStatus>()
   for (const sha of targets)
     if (sha !== tip)
       for (const [path, status] of await diffPaths(directory, root, base, sha))
@@ -124,13 +124,16 @@ async function hasCommits(
     .every((line) => line === "commit")
 }
 
-/** The status letter (`A`, `M`, `D`, `T`) of each root-relative path that changed. */
+/** The status of a path in `diff-tree --no-renames`: added, modified, deleted, or a type change. */
+type DiffStatus = "A" | "M" | "D" | "T"
+
+/** The status of each root-relative path that changed. */
 async function diffPaths(
   directory: string,
   root: string,
   from: string,
   to: string,
-): Promise<Map<string, string>> {
+): Promise<Map<string, DiffStatus>> {
   const output = await nativeGit(directory, [
     "diff-tree",
     "-r",
@@ -144,7 +147,9 @@ async function diffPaths(
   return new Map(
     parseNameStatus(output).flatMap(({ status, to: path }) => {
       const relative = workspaceRelativePath(root, path)
-      return relative === null ? [] : [[relative, status.charAt(0)] as const]
+      return relative === null
+        ? []
+        : [[relative, status.charAt(0) as DiffStatus] as const]
     }),
   )
 }

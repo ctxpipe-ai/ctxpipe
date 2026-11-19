@@ -14,7 +14,7 @@ export const knowledgeState = pgTable.withRLS(
     workspaceId: text("workspace_id")
       .primaryKey()
       .references(() => workspaces.id, { onDelete: "cascade" }),
-    orgId: text("org_id").notNull(),
+    organizationId: text("organization_id").notNull(),
     /** The last commit that a run applied in full; null before the first. */
     lastSha: text("last_sha"),
     /** The tips of the runs that started after `last_sha` and did not complete. */
@@ -33,5 +33,5 @@ export const knowledgeState = pgTable.withRLS(
       .notNull()
       .defaultNow(),
   },
-  (t) => [orgIsolationPolicy(t.orgId)],
+  (t) => [orgIsolationPolicy(t.organizationId)],
 )

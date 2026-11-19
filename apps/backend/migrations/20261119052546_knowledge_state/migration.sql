@@ -1,6 +1,6 @@
 CREATE TABLE "knowledge_state" (
 	"workspace_id" text PRIMARY KEY,
-	"org_id" text NOT NULL,
+	"organization_id" text NOT NULL,
 	"last_sha" text,
 	"attempt_shas" text[] DEFAULT '{}'::text[] NOT NULL,
 	"projection_version" text,
@@ -11,4 +11,4 @@ CREATE TABLE "knowledge_state" (
 --> statement-breakpoint
 ALTER TABLE "knowledge_state" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "knowledge_state" ADD CONSTRAINT "knowledge_state_workspace_id_workspaces_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "workspaces"("id") ON DELETE CASCADE;--> statement-breakpoint
-CREATE POLICY "org_isolation" ON "knowledge_state" AS PERMISSIVE FOR ALL TO public USING ("knowledge_state"."org_id" = current_setting('app.organization_id', true)) WITH CHECK ("knowledge_state"."org_id" = current_setting('app.organization_id', true));
+CREATE POLICY "org_isolation" ON "knowledge_state" AS PERMISSIVE FOR ALL TO public USING ("knowledge_state"."organization_id" = current_setting('app.organization_id', true)) WITH CHECK ("knowledge_state"."organization_id" = current_setting('app.organization_id', true));

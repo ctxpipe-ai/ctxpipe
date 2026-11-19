@@ -71,7 +71,7 @@ function plan(
   })
 }
 
-/** The state of a run that started at `tip` after `lastSha`. */
+/** The state after `lastSha`, with these SHAs in `attempt_shas` (the tip included). */
 function started(lastSha: string, ...attemptShas: string[]) {
   return { lastSha, attemptShas, projectionVersion: version }
 }

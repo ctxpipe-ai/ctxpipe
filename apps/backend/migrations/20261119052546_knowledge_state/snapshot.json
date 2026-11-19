@@ -1,8 +1,8 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "ce89082a-ad33-461f-8cf7-d6764d3d6c92",
-  "prevIds": ["85eb4697-3ee2-4090-9594-f02c7b4a1803"],
+  "id": "c29c09a0-bc6e-473b-9987-1590297fd3a0",
+  "prevIds": ["97f0b935-293a-4ac4-b8d5-780f16beec32"],
   "ddl": [
     {
       "values": [
@@ -200,6 +200,12 @@
     {
       "isRlsEnabled": true,
       "name": "objects",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": true,
+      "name": "org_features",
       "entityType": "tables",
       "schema": "public"
     },
@@ -4043,7 +4049,7 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "org_id",
+      "name": "organization_id",
       "entityType": "columns",
       "schema": "public",
       "table": "knowledge_state"
@@ -4294,6 +4300,58 @@
       "entityType": "columns",
       "schema": "public",
       "table": "objects"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "organization_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "org_features"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "feature",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "org_features"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "value",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "org_features"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "org_features"
     },
     {
       "type": "text",
@@ -9067,6 +9125,19 @@
       "columnsTo": ["id"],
       "onUpdate": "NO ACTION",
       "onDelete": "CASCADE",
+      "name": "org_features_organization_id_organizations_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "org_features"
+    },
+    {
+      "nameExplicit": false,
+      "columns": ["organization_id"],
+      "schemaTo": "public",
+      "tableTo": "organizations",
+      "columnsTo": ["id"],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
       "name": "org_onboarding_organization_id_organizations_id_fkey",
       "entityType": "fks",
       "schema": "public",
@@ -9313,6 +9384,14 @@
       "entityType": "pks",
       "schema": "public",
       "table": "chat_metadata"
+    },
+    {
+      "columns": ["organization_id", "feature"],
+      "nameExplicit": false,
+      "name": "org_features_pkey",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "org_features"
     },
     {
       "columns": [
@@ -9962,8 +10041,8 @@
       "as": "PERMISSIVE",
       "for": "ALL",
       "roles": ["public"],
-      "using": "\"knowledge_state\".\"org_id\" = current_setting('app.organization_id', true)",
-      "withCheck": "\"knowledge_state\".\"org_id\" = current_setting('app.organization_id', true)",
+      "using": "\"knowledge_state\".\"organization_id\" = current_setting('app.organization_id', true)",
+      "withCheck": "\"knowledge_state\".\"organization_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
       "entityType": "policies",
       "schema": "public",
@@ -9979,6 +10058,17 @@
       "entityType": "policies",
       "schema": "public",
       "table": "objects"
+    },
+    {
+      "as": "PERMISSIVE",
+      "for": "ALL",
+      "roles": ["public"],
+      "using": "\"org_features\".\"organization_id\" = current_setting('app.organization_id', true)",
+      "withCheck": "\"org_features\".\"organization_id\" = current_setting('app.organization_id', true)",
+      "name": "org_isolation",
+      "entityType": "policies",
+      "schema": "public",
+      "table": "org_features"
     },
     {
       "as": "PERMISSIVE",
