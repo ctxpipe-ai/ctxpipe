@@ -410,6 +410,51 @@ describe("resolveDisagreements", () => {
       ])
     })
 
+    it("gives an expired position superseded, not disputed, when it ties with an expired rival", async () => {
+      server.use(unsure())
+      const expired = { validTo: "2026-10-15T00:00:00Z" }
+      expect(
+        statuses(await resolve(item("a", expired), item("b", expired))),
+      ).toEqual([
+        { status: "superseded", reason: { by: "tie-break", rule: "validity" } },
+        { status: "superseded", reason: { by: "tie-break", rule: "validity" } },
+      ])
+    })
+
+    it("uses only the valid items of a position for the rules after validity", async () => {
+      // Position 1 holds an expired ADR and a valid chat item. Its authority
+      // is the authority of the chat item, so the valid docs item wins.
+      server.use(
+        fixedJev({
+          pairs: {
+            "pair.1.2": "agrees",
+            "pair.1.3": "contradicts",
+            "pair.2.3": "contradicts",
+          },
+          statuses: {
+            "status.1": ["current", 0.4],
+            "status.2": ["current", 0.4],
+          },
+        }),
+      )
+      const result = await resolveDisagreements({
+        question: "q",
+        items: [
+          item("a", { sourceType: "adr", validTo: "2026-10-15T00:00:00Z" }),
+          item("b", { sourceType: "chat" }),
+          item("c", { sourceType: "docs" }),
+        ],
+        queryTime,
+      })
+      expect(statuses(result)).toEqual([
+        {
+          status: "superseded",
+          reason: { by: "tie-break", rule: "authority" },
+        },
+        { status: "current", reason: { by: "tie-break", rule: "authority" } },
+      ])
+    })
+
     it("reads a bad date as unknown, so that the next rule decides", async () => {
       server.use(unsure())
       expect(

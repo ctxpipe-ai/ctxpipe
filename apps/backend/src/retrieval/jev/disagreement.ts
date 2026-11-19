@@ -357,10 +357,19 @@ export async function resolveDisagreements({
     ["observed-at", ({ meta }) => timeOr(meta.observedAt, -Infinity)],
     ["confidence", ({ meta }) => meta.confidence ?? -1],
   ]
+  /**
+   * The best value of the items of a position. When a position has items
+   * that are valid at the query time, only those items count, so that a
+   * later rule does not use the metadata of an expired item.
+   */
   const bestOfPosition = (
     position: number,
     value: (item: EvidenceItem) => number,
-  ) => Math.max(...(members[position] ?? []).map(({ item }) => value(item)))
+  ) => {
+    const items = (members[position] ?? []).map(({ item }) => item)
+    const valid = items.filter(isValid)
+    return Math.max(...(valid.length > 0 ? valid : items).map(value))
+  }
   /**
    * Compare a position with a rival, rule by rule. Returns the first rule
    * that decides, with 1 when the position wins and -1 when the rival wins.
@@ -387,11 +396,11 @@ export async function resolveDisagreements({
    * SUPERSEDES replaces is superseded first, and it does not compete with
    * the other positions: the stored relations are not in the scalar order
    * of the later rules, so without this step a loop of rivals can make each
-   * position superseded. A position that loses to a competing rival is
-   * superseded. A position that ties with one is disputed. A position with
-   * no item valid at the query time is superseded when an item has expired,
-   * and scoped when its items are valid only later. Else the position is
-   * current. The reason is the rule of the first rival that gives the
+   * position superseded. Then a position with no item valid at the query
+   * time is superseded when an item has expired, and scoped when its items
+   * are valid only later. A position that loses to a competing rival is
+   * superseded. A position that ties with one is disputed. Else the
+   * position is current. The reason is the rule of the first rival that gives the
    * status.
    */
   const replacedByStored = (position: number) =>
@@ -403,6 +412,16 @@ export async function resolveDisagreements({
   ): { status: PositionStatus; rule: TieBreakRule } => {
     if (replacedByStored(position))
       return { status: "superseded", rule: "supersedes" }
+    const member = members[position] ?? []
+    if (!member.some(({ item }) => isValid(item)))
+      return {
+        status: member.some(
+          ({ item }) => timeOr(item.meta.validTo, Infinity) <= now,
+        )
+          ? "superseded"
+          : "scoped",
+        rule: "validity",
+      }
     const results = rivalsOf(position).map((rival) => ({
       rival,
       ...compare(position, rival),
@@ -414,16 +433,6 @@ export async function resolveDisagreements({
     if (lost) return { status: "superseded", rule: lost.rule }
     const tied = competing.find(({ result }) => result === 0)
     if (tied) return { status: "disputed", rule: tied.rule }
-    const member = members[position] ?? []
-    if (!member.some(({ item }) => isValid(item)))
-      return {
-        status: member.some(
-          ({ item }) => timeOr(item.meta.validTo, Infinity) <= now,
-        )
-          ? "superseded"
-          : "scoped",
-        rule: "validity",
-      }
     return { status: "current", rule: results[0]?.rule ?? "no-rival" }
   }
 
