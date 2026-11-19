@@ -219,7 +219,7 @@ export function knowledgeRows(input: {
         kind: "image",
         title: target.slice(target.lastIndexOf("/") + 1),
         path: target,
-        sourceType: sourceAuthority({ path: target, kind: "image" }),
+        sourceType: sourceAuthority({ path: target }),
         // The writer replaces the two placeholders with the org and the
         // Workspace of the write.
         s3Key: `{org_id}/{workspace_id}/${hash}`,

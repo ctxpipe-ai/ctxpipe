@@ -483,6 +483,7 @@ describe("knowledgeRows", () => {
     ["pagerduty/incidents/p1.md", "Incident.\n", "issue"],
     ["slack/channels/general/2026-11-19.md", "Hello.\n", "chat"],
     ["buildkite/builds/b1.md", "Build.\n", "other"],
+    ["github/discussions/acme/app/1.md", "Body.\n", "other"],
   ])("stores the source authority kind of %s", (path, content, expected) => {
     const [row] = rowsOf([{ path, content }], path)
     expect(row?.document.sourceType).toBe(expected)

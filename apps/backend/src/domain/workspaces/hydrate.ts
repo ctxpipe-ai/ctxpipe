@@ -85,7 +85,10 @@ export type HydrateUnit = {
   title: string | null
   /** The connector root of a mirror path (`linear`, …), else `authored`. */
   source: string
-  /** Front-matter `merged` of a pull request mirror file. */
+  /**
+   * Front-matter `merged` of a pull request mirror file. A missing value
+   * means not merged.
+   */
   merged?: boolean
   /** ISO time of the last commit that changed the path, when known. */
   updatedAt: string | null

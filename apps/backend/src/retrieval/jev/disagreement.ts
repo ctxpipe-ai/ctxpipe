@@ -337,8 +337,8 @@ export async function resolveDisagreements({
     [
       "authority",
       ({ meta }) => {
-        const rank = SOURCE_AUTHORITY_ORDER.indexOf(
-          meta.sourceType as (typeof SOURCE_AUTHORITY_ORDER)[number],
+        const rank = (SOURCE_AUTHORITY_ORDER as readonly string[]).indexOf(
+          meta.sourceType,
         )
         return rank === -1 ? -SOURCE_AUTHORITY_ORDER.length : -rank
       },
