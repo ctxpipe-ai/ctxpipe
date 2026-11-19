@@ -5,16 +5,22 @@ import { workspaceRelativePath } from "../services/git/root-folder.js"
 
 /**
  * The projection version of the knowledge plane (ADR-067 decision 4): a code
- * version and the embedding model name. A change of either value starts a
- * full rebuild of each Workspace, because the Git diff cannot show it.
+ * version, the embedding model id and its dimension, and the Workspace root
+ * folder. A change of any of them starts a full rebuild of the Workspace,
+ * because the Git diff cannot show it.
  */
-export function knowledgeProjectionVersion(embeddingModel: string): string {
+export function knowledgeProjectionVersion(input: {
+  embeddingModel: string
+  dimensions: number
+  /** The Workspace root folder; `""` is the repository root. */
+  root: string
+}): string {
   // Increase the code version when the parser or the chunking changes.
-  return `1:${embeddingModel}`
+  return JSON.stringify([1, input.embeddingModel, input.dimensions, input.root])
 }
 
 /** The reasons for a full rebuild instead of a delta. */
-type KnowledgeFullReason =
+export type KnowledgeFullReason =
   /** No run has completed for the Workspace. */
   | "first_run"
   /** The projection version of the code is not the stored version. */
@@ -32,7 +38,7 @@ type KnowledgeFullReason =
  * the tip tree, so that the writer can make each other document a tombstone.
  * All paths are relative to the Workspace root folder.
  */
-type KnowledgeChangeSet =
+export type KnowledgeChangeSet =
   | { kind: "delta"; changed: string[]; removed: string[] }
   | { kind: "full"; reason: KnowledgeFullReason; files: string[] }
 

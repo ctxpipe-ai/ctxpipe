@@ -11,7 +11,11 @@ import {
   planKnowledgeChangeSet,
 } from "./change-set.js"
 
-const version = knowledgeProjectionVersion("test-embedding-model")
+const version = knowledgeProjectionVersion({
+  embeddingModel: "test-embedding-model",
+  dimensions: 8,
+  root: "",
+})
 const sourcesFilePath = ".ctxpipe/sources.yaml"
 
 let directory: string
@@ -171,19 +175,26 @@ describe("planKnowledgeChangeSet", () => {
     })
   })
 
-  it("rebuilds in full when the projection version changed", async () => {
-    const base = await commit({ "a.md": "a1" })
-    const tip = await commit({ "b.md": "b1" })
-    expect(
-      await plan(started(base, tip), tip, {
-        projectionVersion: knowledgeProjectionVersion("another-model"),
-      }),
-    ).toEqual({
-      kind: "full",
-      reason: "projection_version",
-      files: ["a.md", "b.md"],
-    })
-  })
+  it.each([
+    { embeddingModel: "another-model", dimensions: 8, root: "" },
+    { embeddingModel: "test-embedding-model", dimensions: 16, root: "" },
+    { embeddingModel: "test-embedding-model", dimensions: 8, root: "docs" },
+  ])(
+    "rebuilds in full when a part of the projection version changed (%o)",
+    async (parts) => {
+      const base = await commit({ "a.md": "a1" })
+      const tip = await commit({ "b.md": "b1" })
+      expect(
+        await plan(started(base, tip), tip, {
+          projectionVersion: knowledgeProjectionVersion(parts),
+        }),
+      ).toEqual({
+        kind: "full",
+        reason: "projection_version",
+        files: ["a.md", "b.md"],
+      })
+    },
+  )
 
   it("rebuilds in full when the sources config file changed", async () => {
     const base = await commit({ "a.md": "a1", [sourcesFilePath]: "v: 1" })

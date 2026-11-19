@@ -94,6 +94,10 @@
     "src/knowledge-store/knowledge-store.contract.test.ts",
     "src/knowledge-store/knowledge-reads.contract.test.ts"
   ],
+  "knowledge projection writer (Git, Postgres, ClickHouse)": [
+    "src/knowledge-plane/writer.contract.test.ts",
+    "src/openworkflow/workflows/workspace-hydrate-knowledge.contract.test.ts"
+  ],
   "host Docker, zoekt and process environment": [
     "src/domain/ingestion/classify-kind-skill.contract.test.ts",
     "src/domain/ingestion/ingest-decisions-skill.contract.test.ts",

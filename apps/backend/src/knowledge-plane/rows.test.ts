@@ -6,7 +6,7 @@ import {
   hydrateKnowledgeTree,
   servingIdForKnowledgePath,
 } from "../domain/workspaces/hydrate.js"
-import { knowledgeRows } from "./rows.js"
+import { imageRows, knowledgeRows } from "./rows.js"
 
 const WS = "ws_1"
 const OBSERVED = new Date("2026-11-19T10:00:00.000Z")
@@ -21,12 +21,29 @@ function rowsOf(
   const { units } = hydrateKnowledgeTree({ workspaceId: WS, files })
   const unit = units.find((entry) => entry.path === path)
   if (!unit) throw new Error(`no unit for ${path}`)
-  return knowledgeRows({
-    workspaceId: WS,
-    unit,
-    imageHash: (image) => imageHashes.get(image) ?? null,
-    observedAt: OBSERVED,
-  })
+  const rows = knowledgeRows({ workspaceId: WS, unit, observedAt: OBSERVED })
+  // The writer makes an image document from each image file that Git has.
+  const pathOf = new Map(
+    [...imageHashes.keys()].map((image) => [key(image), image]),
+  )
+  return [
+    rows,
+    ...rows.relations.flatMap(({ predicate, dstDoc }) => {
+      const image = pathOf.get(dstDoc)
+      const hash = image === undefined ? null : imageHashes.get(image)
+      return predicate === "EMBEDS_IMAGE" && image !== undefined && hash
+        ? [
+            imageRows({
+              orgId: "org_1",
+              workspaceId: WS,
+              path: image,
+              hash,
+              observedAt: OBSERVED,
+            }),
+          ]
+        : []
+    }),
+  ]
 }
 
 const edges = (
@@ -62,9 +79,6 @@ describe("knowledgeRows", () => {
         document: {
           docKey: key("knowledge/payments/api.md"),
           kind: "KnowledgeUnit",
-          status: "active",
-          deletedAt: null,
-          error: "",
           title: "api",
           path: "knowledge/payments/api.md",
           sourceType: "docs",
@@ -165,10 +179,9 @@ describe("knowledgeRows", () => {
       new Map([[path, "2026-02-03T04:05:06.000Z"]]),
     )
     if (!unit) throw new Error("no unit")
-    const [rows] = knowledgeRows({
+    const rows = knowledgeRows({
       workspaceId: WS,
       unit,
-      imageHash: () => null,
       observedAt: OBSERVED,
     })
     expect(rows?.chunks).toEqual([
@@ -244,15 +257,12 @@ describe("knowledgeRows", () => {
         document: {
           docKey: image,
           kind: "image",
-          status: "active",
-          deletedAt: null,
-          error: "",
           title: "flow.png",
           path: "assets/flow.png",
           sourceType: "docs",
           source: "",
           summary: "",
-          s3Key: `{org_id}/{workspace_id}/${HASH}`,
+          s3Key: `org_1/ws_1/${HASH}`,
           mime: "image/png",
           validFrom: null,
           validTo: null,
@@ -334,7 +344,7 @@ describe("knowledgeRows", () => {
       kind: "image",
       path: "knowledge/arch/diagram.svg",
       mime: "image/svg+xml",
-      s3Key: `{org_id}/{workspace_id}/${HASH}`,
+      s3Key: `org_1/ws_1/${HASH}`,
     })
   })
 

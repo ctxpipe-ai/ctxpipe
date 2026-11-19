@@ -57,7 +57,13 @@ import {
   workspaceFormatCacheValue,
 } from "../../domain/workspaces/workspace-format.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
+import {
+  type KnowledgeRemote,
+  projectKnowledgePlane,
+} from "../../knowledge-plane/writer.js"
+import { createKnowledgeStore } from "../../knowledge-store/knowledge-store.js"
 import { listOrgConnections } from "../../models/org-connections.js"
+import { getOrgFeature } from "../../models/org-features.js"
 import {
   loadKnowledgeProjectionSource,
   reingestedRepositories,
@@ -86,8 +92,10 @@ import {
 } from "../../retrieval/services/modelProvider.js"
 import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
 import { readGitFiles, readGitPackFromRemote } from "../../services/git/pack.js"
+import { enqueueWorkflow } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
+import { knowledgeMaintenance } from "./knowledge-maintenance.js"
 
 const workspaceHydrateInputSchema = z
   .object({
@@ -180,6 +188,11 @@ export function defineWorkspaceHydrateWorkflow() {
       })
       if (!org) throw new Error(`Organization not found: ${input.orgId}`)
 
+      // The revision that the knowledge plane projects after the old stack,
+      // and its read access.
+      let knowledgeTarget:
+        | { revision: WorkspaceRevision; remote: KnowledgeRemote }
+        | undefined
       const result = await withOrgIdContext(
         { id: org.id, slug: org.slug },
         () =>
@@ -199,7 +212,14 @@ export function defineWorkspaceHydrateWorkflow() {
           // the lease expires in 30 seconds and the retry takes it again.
           postgresSandboxLocks(input.orgId).withLock(
             `workspace-hydrate:${input.workspaceId}`,
-            (lockSignal) => hydrateUnderLock(lockSignal),
+            async (lockSignal) => {
+              const hydrated = await hydrateUnderLock(lockSignal)
+              // After the old projections, outside their error handling: a
+              // failure of the knowledge plane does not mark them failed.
+              if (knowledgeTarget)
+                await projectKnowledge(knowledgeTarget, lockSignal)
+              return hydrated
+            },
           ),
       )
       // One event for each run: its outcome, and what it read and wrote. The
@@ -212,6 +232,66 @@ export function defineWorkspaceHydrateWorkflow() {
         },
       })
       return result
+
+      /**
+       * The ClickHouse projection of the knowledge plane (ADR-067), for an
+       * org whose flag is not `off`. The old stack keeps its own writes, so
+       * both stacks stay current (ADR-069 decision 9). An error throws in
+       * the step, so the step retries from the same `last_sha`.
+       */
+      async function projectKnowledge(
+        target: NonNullable<typeof knowledgeTarget>,
+        lockSignal: AbortSignal,
+      ) {
+        if ((await getOrgFeature(input.orgId, "knowledge_plane")) === "off")
+          return
+        const { revision } = target
+        await step.run(
+          {
+            name: "project-knowledge-plane",
+            retryPolicy: {
+              initialInterval: "10s",
+              backoffCoefficient: 2,
+              maximumInterval: "5m",
+              maximumAttempts: 6,
+            },
+          },
+          async () => {
+            lockSignal.throwIfAborted()
+            const store = createKnowledgeStore(env.CLICKHOUSE_URL)
+            try {
+              return await projectKnowledgePlane({
+                orgId: input.orgId,
+                workspaceId: input.workspaceId,
+                remote: target.remote,
+                root: workspaceRootPath(revision),
+                tip: revision.sha,
+                store,
+                observedAt: new Date(),
+              })
+            } finally {
+              await store.close()
+            }
+          },
+        )
+        // Also after a `current` result: a retry after a stop between
+        // `completeKnowledgeRun` and the step output gives `current`. The key
+        // queues one job for each tip.
+        await step.run({ name: "enqueue-knowledge-maintenance" }, async () => {
+          await enqueueWorkflow(
+            knowledgeMaintenance.spec,
+            {
+              orgId: input.orgId,
+              workspaceId: input.workspaceId,
+              sha: revision.sha,
+            },
+            {
+              idempotencyKey: `knowledge-maintenance:${input.workspaceId}:${revision.sha}`,
+            },
+          )
+        })
+      }
+
       async function hydrateUnderLock(lockSignal: AbortSignal) {
         const orgSql = <T>(fn: () => Promise<T>) =>
           withOrgDbContext(input.orgId, fn)
@@ -279,6 +359,19 @@ export function defineWorkspaceHydrateWorkflow() {
           }
           const { revision, token, workspace } = resolved
           failingRevision = revision
+          knowledgeTarget = {
+            revision,
+            remote: {
+              url: revision.remote.url,
+              token: async () =>
+                token ??
+                (await resolveRepositoryReadCredential({
+                  orgId: input.orgId,
+                  env,
+                  remote: revision.remote,
+                })),
+            },
+          }
           const desiredSha = revision.sha
           // Not the units: their bodies are the heaviest read of a Workspace, and only a run that reuses the active
           // projection (below) reads them. A no-op, an index lag and a new revision do not.

@@ -25,6 +25,7 @@ import { parseEnv } from "../config/env.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { connectionDirectory, connections } from "../db/schema/connections.js"
+import { orgFeatures } from "../db/schema/org_features.js"
 import { repositories } from "../db/schema/repositories.js"
 import { orgFirstWorkspaces, workspaces } from "../db/schema/workspaces.js"
 import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
@@ -118,6 +119,11 @@ export type NativeHydrationOptions = {
   pagerdutyResponses?: Record<string, { status?: number; body?: unknown }>
   confluenceResponses?: Record<string, { status?: number; body: unknown }>
   embeddings?: "ready" | "failed" | "empty"
+  /**
+   * Run the knowledge plane of ADR-067 too: the org flag `knowledge_plane`
+   * is `shadow`, and the worker writes to this ClickHouse URL.
+   */
+  knowledgePlane?: { clickhouseUrl: string }
   missingTip?: boolean
   writeStatus?: "read_only" | "writable"
   /**
@@ -171,6 +177,7 @@ async function createNativeHydrationFixture(
     MODEL_PROVIDER: process.env.MODEL_PROVIDER,
     MODEL_PROVIDER_API_KEY: process.env.MODEL_PROVIDER_API_KEY,
     MODEL_PROVIDER_URL: process.env.MODEL_PROVIDER_URL,
+    CLICKHOUSE_URL: process.env.CLICKHOUSE_URL,
   }
   Object.assign(process.env, {
     ...(options.semanticMergeResolution
@@ -179,6 +186,9 @@ async function createNativeHydrationFixture(
     MODEL_PROVIDER: "openai-like",
     MODEL_PROVIDER_API_KEY: "fixture-only",
     MODEL_PROVIDER_URL: "https://hydrate-model.test/v1",
+    ...(options.knowledgePlane
+      ? { CLICKHOUSE_URL: options.knowledgePlane.clickhouseUrl }
+      : {}),
   })
   const semanticRequests: unknown[] = []
   const tokenRequests: unknown[] = []
@@ -199,6 +209,14 @@ async function createNativeHydrationFixture(
   let beforeWriteProbe: (() => Promise<void>) | undefined
   let beforeWriteCredential: (() => Promise<void>) | undefined
   const server = setupServer(
+    ...(options.knowledgePlane
+      ? [
+          http.all(
+            `${new URL(options.knowledgePlane.clickhouseUrl).origin}/*`,
+            () => passthrough(),
+          ),
+        ]
+      : []),
     ...(options.chatAgent
       ? [
           http.all(/^http:\/\/(127\.0\.0\.1|localhost)[:/]/, () =>
@@ -671,11 +689,16 @@ async function createNativeHydrationFixture(
             { error: { message: "Embedding fixture unavailable" } },
             { status: 400 },
           )
-        const body = (await request.json()) as { input: string[] }
+        const body = (await request.json()) as {
+          input: unknown[]
+          dimensions?: number
+        }
         return HttpResponse.json({
           data: body.input.map((_, index) => ({
             index,
-            embedding: incompleteEmbeddings ? [] : Array(2000).fill(0.01),
+            embedding: incompleteEmbeddings
+              ? []
+              : Array(body.dimensions ?? 2000).fill(0.01),
           })),
         })
       },
@@ -838,6 +861,14 @@ async function createNativeHydrationFixture(
       await getSystemDb()
         .insert(organizations)
         .values({ ...org, createdAt: new Date() })
+    if (options.knowledgePlane)
+      await withOrgDbContext(org.id, (db) =>
+        db.insert(orgFeatures).values({
+          organizationId: org.id,
+          feature: "knowledge_plane",
+          value: "shadow",
+        }),
+      )
     if (github && !adopt) {
       await withOrgDbContext(org.id, (db) =>
         db.insert(connections).values({

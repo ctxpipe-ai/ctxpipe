@@ -45,6 +45,7 @@ it(
         "notion-sync-entity",
         "slack-mention-agent",
         "workspace-hydrate",
+        "knowledge-maintenance",
         "workspace-index",
         "repository-index",
         "repository-ingestion-v2",

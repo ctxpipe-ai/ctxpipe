@@ -10,93 +10,46 @@ import {
 import { knowledgeChunkRows } from "../domain/workspaces/knowledge-chunks.js"
 import { imageContentType } from "../domain/workspaces/raw-file.js"
 import { workspaceGraphNodes } from "../domain/workspaces/workspace-graph.js"
-
-// TEMPORARY copies of the types of `knowledge-store/knowledge-store.ts`
-// (CTX-1392, PR #848). When that PR is on `main`, import them from there and
-// delete these copies.
-type KnowledgeDocument = {
-  docKey: string
-  kind: string
-  status: "active" | "deleted" | "missing" | "failed"
-  deletedAt: Date | null
-  error: string
-  title: string
-  path: string
-  sourceType: string
-  source: string
-  summary: string
-  s3Key: string
-  mime: string
-  validFrom: Date | null
-  validTo: Date | null
-  observedAt: Date
-}
-
-type KnowledgeChunk = {
-  ordinal: number
-  text: string
-  startLine: number
-  endLine: number
-  embedding: number[]
-}
-
-type KnowledgeRelation = {
-  srcDoc: string
-  srcChunk: number
-  predicate: string
-  dstDoc: string
-  confidence: number
-  validFrom: Date | null
-  validTo: Date | null
-  source: string
-  observedAt: Date
-}
-
-type DocumentRows = {
-  document: KnowledgeDocument
-  chunks: KnowledgeChunk[]
-  relations: Omit<KnowledgeRelation, "srcDoc">[]
-}
+import type {
+  DocumentRows,
+  KnowledgeChunk,
+  KnowledgeRelation,
+} from "../knowledge-store/knowledge-store.js"
 
 /** The rows of one document before the embedding step adds the vectors. */
-type UnembeddedDocumentRows = Omit<DocumentRows, "chunks"> & {
+export type UnembeddedDocumentRows = Omit<DocumentRows, "chunks"> & {
   chunks: Omit<KnowledgeChunk, "embedding">[]
 }
 
 /**
  * Map one parsed Workspace file to its knowledge rows (ADR-066 decision 3):
- * first the `active` document of the file, with its chunks and its outgoing
- * relations, then one `image` document for each image that the file shows.
- * The function writes nothing, and the same input gives the same rows in the
- * same order. The rows hold no org and no Workspace: `KnowledgeStore` sets
- * them (decision 9).
+ * the `active` document of the file, with its chunks and its outgoing
+ * relations. The function writes nothing, and the same input gives the same
+ * rows in the same order. The rows hold no org and no Workspace:
+ * `KnowledgeStore` sets them (decision 9).
  *
  * A relation does not need a target row. Its target is the document key of
- * the resolved path, and the read resolves it (ADR-066 decision 5).
+ * the resolved path, and the read resolves it (ADR-066 decision 5). Each
+ * shown image has an `EMBEDS_IMAGE` relation to the key of its path. The
+ * image document comes from the image file (`imageRows`).
  *
- * Known gap: the parse (`hydrateKnowledgeTree`) reads the full tree for two
- * kinds of relation. A mirror reference link (`workspace:` scheme) and a
- * `FROM_SOURCE` claim are in the unit only when their target file is in the
- * tree. Thus the rows of a file can change when another file is added or
- * removed, and a writer that maps only the changed files must also map the
- * files that refer to them (CTX-1400).
- *
- * Give the unit after `applyEffectiveValidFromToUnits`. A validity bound that
- * is not a time (for example a Git SHA) becomes null.
+ * The rows depend only on the unit. Give a unit from `parseKnowledgeFile`,
+ * which parses one file alone (CTX-1400), and after
+ * `applyEffectiveValidFromToUnits`. A validity bound that is not a time (for
+ * example a Git SHA) becomes null.
  */
 export function knowledgeRows(input: {
   workspaceId: string
   unit: HydrateUnit
   /**
-   * The SHA-256 (hex) of the bytes of the image file at a Workspace path, or
-   * null when Git has no such file. An image with null has no image
-   * document: its relation points at a key with no row, as a link to a file
-   * that is not in Git does.
+   * The Workspace path of a blob URL of the Workspace repository
+   * (`workspaceBlobPath`), so that an image or a link with such a URL has a
+   * target. Without it, a URL has no target.
    */
-  imageHash: (path: string) => string | null
+  blobPath?: (url: string) => string | null
   observedAt: Date
-}): UnembeddedDocumentRows[] {
-  const { workspaceId, unit, imageHash, observedAt } = input
+}): UnembeddedDocumentRows {
+  const { workspaceId, unit, observedAt } = input
   const dir = unit.path.split("/").slice(0, -1).join("/")
   const keyOf = (path: string) => servingIdForKnowledgePath(workspaceId, path)
   /**
@@ -111,7 +64,12 @@ export function knowledgeRows(input: {
         : trimmed.split(/\s+/)[0]) ?? ""
     )
   }
-  const targetOf = (href: string) => resolveHydrateLink(dir, withoutTitle(href))
+  const targetOf = (href: string) => {
+    const destination = withoutTitle(href)
+    return /^https?:/i.test(destination)
+      ? (input.blobPath?.(destination) ?? "")
+      : resolveHydrateLink(dir, destination)
+  }
   const node = workspaceGraphNodes([unit])[0]
   if (!node) throw new Error(`No graph node for ${unit.path}`)
   const title = unit.title ?? node.name ?? ""
@@ -172,6 +130,8 @@ export function knowledgeRows(input: {
 
   const images = new Set(imagesOf(unit.body))
 
+  // The target is a Workspace path now. CTX-1400 adds a reference key (for
+  // example a Linear identifier) that the read resolves.
   const relation = (
     target: string,
     row: Pick<KnowledgeRelation, "predicate" | "confidence" | "source"> &
@@ -206,8 +166,7 @@ export function knowledgeRows(input: {
     ]
   })
 
-  const imageDocuments: UnembeddedDocumentRows[] = []
-  for (const target of images) {
+  for (const target of images)
     relations.push(
       relation(target, {
         predicate: "EMBEDS_IMAGE",
@@ -215,50 +174,56 @@ export function knowledgeRows(input: {
         source: "git",
       }),
     )
-    const hash = imageHash(target)
-    if (hash === null) continue
-    // Only the hash makes the key, never text from the file (ADR-066 decision 6).
-    if (!/^[0-9a-f]{64}$/.test(hash))
-      throw new Error(`The image hash of ${target} is not a SHA-256 hex digest`)
-    imageDocuments.push({
-      document: {
-        ...documentDefaults(observedAt),
-        docKey: keyOf(target),
-        kind: "image",
-        title: target.slice(target.lastIndexOf("/") + 1),
-        path: target,
-        sourceType: sourceAuthority({ path: target }),
-        // The writer replaces the two placeholders with the org and the
-        // Workspace of the write.
-        s3Key: `{org_id}/{workspace_id}/${hash}`,
-        // The embedding step reads the type, and it decides how to send a
-        // type that the model does not take (for example SVG).
-        mime: imageContentType(target) ?? "",
-      },
-      // The image embedding is the vector of this chunk. Its text stays empty:
-      // the alt text belongs to the file that shows the image, and two files
-      // can give one image different alt texts (ADR-066 decision 5).
-      chunks: [{ ordinal: 0, text: "", startLine: 0, endLine: 0 }],
-      relations: [],
-    })
-  }
 
-  return [
-    {
-      document: {
-        ...documentDefaults(observedAt),
-        docKey: unit.servingId,
-        kind: node.kind,
-        title,
-        path: unit.path,
-        sourceType: sourceAuthority(unit),
-        summary: node.summary ?? "",
-      },
-      chunks,
-      relations,
+  return {
+    document: {
+      ...documentDefaults(observedAt),
+      docKey: unit.servingId,
+      kind: node.kind,
+      title,
+      path: unit.path,
+      sourceType: sourceAuthority(unit),
+      summary: node.summary ?? "",
     },
-    ...imageDocuments,
-  ]
+    chunks,
+    relations,
+  }
+}
+
+/**
+ * The rows of the `image` document of the image file at `path`, whose bytes
+ * have the SHA-256 `hash` (hex). Only the hash makes the S3 key, never text
+ * from a file (ADR-066 decision 6).
+ */
+export function imageRows(input: {
+  orgId: string
+  workspaceId: string
+  path: string
+  hash: string
+  observedAt: Date
+}): UnembeddedDocumentRows {
+  const { path, hash, observedAt } = input
+  if (!/^[0-9a-f]{64}$/.test(hash))
+    throw new Error(`The image hash of ${path} is not a SHA-256 hex digest`)
+  return {
+    document: {
+      ...documentDefaults(observedAt),
+      docKey: servingIdForKnowledgePath(input.workspaceId, path),
+      kind: "image",
+      title: path.slice(path.lastIndexOf("/") + 1),
+      path,
+      sourceType: sourceAuthority({ path }),
+      s3Key: `${input.orgId}/${input.workspaceId}/${hash}`,
+      // The embedding step reads the type, and it decides how to send a
+      // type that the model does not take (for example SVG).
+      mime: imageContentType(path) ?? "",
+    },
+    // The image embedding is the vector of this chunk. Its text stays empty:
+    // the alt text belongs to the file that shows the image, and two files
+    // can give one image different alt texts (ADR-066 decision 5).
+    chunks: [{ ordinal: 0, text: "", startLine: 0, endLine: 0 }],
+    relations: [],
+  }
 }
 
 /**
@@ -313,9 +278,6 @@ function sourceAuthority(file: {
 
 function documentDefaults(observedAt: Date) {
   return {
-    status: "active" as const,
-    deletedAt: null,
-    error: "",
     source: "",
     summary: "",
     s3Key: "",
