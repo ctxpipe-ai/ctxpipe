@@ -5,6 +5,7 @@ import { z } from "zod"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { gatewayCost } from "../../observability/gatewayCost.js"
 import { withLlmGeneration } from "../../observability/llm-spans.js"
+import { dropEmptyEnvValues } from "../services/modelTierSpecs.js"
 
 /*
  * The embedding client of the knowledge plane (ADR-068 decisions 1, 5 and 7).
@@ -33,7 +34,7 @@ export const multimodalEmbeddingConfig = {
   maxBackoffMs: 8000,
 }
 
-export type MultimodalEmbeddingConfig = typeof multimodalEmbeddingConfig
+type MultimodalEmbeddingConfig = typeof multimodalEmbeddingConfig
 
 /** One input to embed. */
 export type EmbeddingInput =
@@ -51,6 +52,7 @@ export type EmbeddingInput =
       bytes: Uint8Array
       /** For example `image/png`. */
       mimeType: string
+      /** Sent as a text part with the image. A blank alt text sends the image only. */
       altText: string
     }
 
@@ -67,21 +69,22 @@ export type EmbeddingInput =
  *   significant bit first). Store it in a `FixedString(dimensions / 8)`
  *   column; the Hamming distance is `bitCount(bitXor(a, b))`.
  */
-export type Embedding = {
+type Embedding = {
   bfloat16: Uint16Array
   binary: Uint8Array
 }
 
-const DEFAULT_OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } }
 
-const envSchema = z.object({
-  MODEL_PROVIDER_API_KEY: z.string().trim().min(1),
-  MODEL_PROVIDER_URL: z
-    .string()
-    .url()
-    .optional()
-    .or(z.literal("").transform(() => undefined)),
-})
+const envSchema = z.preprocess(
+  dropEmptyEnvValues,
+  z.object({
+    MODEL_PROVIDER_API_KEY: z.string().trim().min(1),
+    MODEL_PROVIDER_URL: z.string().url().optional(),
+  }),
+)
 
 const responseSchema = z.object({
   data: z.array(
@@ -96,6 +99,9 @@ const responseSchema = z.object({
     .optional(),
 })
 
+/** A 429 or 5xx answer. The message holds only the status, never the body. */
+class RetryableStatusError extends Error {}
+
 /**
  * Embed texts and images in one vector space. The result has the order of
  * `inputs`. Every request sets `provider.data_collection: "deny"` and pins
@@ -103,58 +109,65 @@ const responseSchema = z.object({
  */
 export async function embedMultimodal(
   inputs: EmbeddingInput[],
-  options: { signal?: AbortSignal; config?: MultimodalEmbeddingConfig } = {},
+  config: MultimodalEmbeddingConfig = multimodalEmbeddingConfig,
 ): Promise<Embedding[]> {
   if (inputs.length === 0) return []
   assertNotInOrgDbContext()
-  const config = options.config ?? multimodalEmbeddingConfig
   if (config.dimensions % 8 !== 0) {
     throw new Error(
       `Embedding dimensions must be a multiple of 8, got ${config.dimensions}`,
     )
   }
   const env = envSchema.parse(process.env)
-  const url = `${(env.MODEL_PROVIDER_URL ?? DEFAULT_OPENROUTER_BASE).replace(/\/$/, "")}/embeddings`
+  const base = env.MODEL_PROVIDER_URL ?? "https://openrouter.ai/api/v1"
+  const url = `${base.replace(/\/$/, "")}/embeddings`
 
   const out: Embedding[] = []
   for (let start = 0; start < inputs.length; start += config.batchSize) {
     const batch = inputs.slice(start, start + config.batchSize)
-    const vectors = await embedBatch(batch, {
-      url,
-      apiKey: env.MODEL_PROVIDER_API_KEY,
-      config,
-      signal: options.signal,
+    const body = JSON.stringify({
+      model: config.model,
+      input: batch.map((input) => ({ content: contentParts(input) })),
+      dimensions: config.dimensions,
+      encoding_format: "float",
+      provider: {
+        data_collection: "deny",
+        order: [config.upstreamProvider],
+        allow_fallbacks: false,
+      },
     })
-    for (const vector of vectors) out.push(toEmbedding(vector))
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const vectors = await embedRequest(batch, body, {
+          url,
+          apiKey: env.MODEL_PROVIDER_API_KEY,
+          config,
+        })
+        for (const vector of vectors) out.push(toEmbedding(vector))
+        break
+      } catch (err) {
+        if (
+          !(err instanceof RetryableStatusError) ||
+          attempt >= config.maxAttempts
+        )
+          throw err
+        await sleep(
+          Math.min(config.backoffMs * 2 ** (attempt - 1), config.maxBackoffMs),
+        )
+      }
+    }
   }
   return out
 }
 
-/** One request, with retries. One span; it holds counts, never content. */
-async function embedBatch(
+/** One HTTP request in one span. The span holds counts, never content. */
+function embedRequest(
   batch: EmbeddingInput[],
-  request: {
-    url: string
-    apiKey: string
-    config: MultimodalEmbeddingConfig
-    signal?: AbortSignal
-  },
+  body: string,
+  request: { url: string; apiKey: string; config: MultimodalEmbeddingConfig },
 ): Promise<number[][]> {
-  const { config, signal } = request
-  const body = JSON.stringify({
-    model: config.model,
-    input: batch.map((input) => ({ content: contentParts(input) })),
-    dimensions: config.dimensions,
-    encoding_format: "float",
-    provider: {
-      data_collection: "deny",
-      order: [config.upstreamProvider],
-      allow_fallbacks: false,
-    },
-  })
-  let attempts = 0
+  const { config } = request
   let usage: { input?: number; cost?: number } | undefined
-
   return withLlmGeneration(
     {
       name: "embeddings.embedMultimodal",
@@ -171,60 +184,51 @@ async function embedBatch(
       resultAttributes: (vectors) => ({
         "ctxpipe.embeddings.count": vectors.length,
         "ctxpipe.embeddings.dimensions": config.dimensions,
-        "ctxpipe.embeddings.attempts": attempts,
       }),
       usageSoFar: () => usage,
     },
     async () => {
-      for (;;) {
-        signal?.throwIfAborted()
-        attempts += 1
-        const res = await fetch(request.url, {
-          method: "POST",
-          signal,
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${request.apiKey}`,
-          },
-          body,
-        })
-        const retryable = res.status === 429 || res.status >= 500
-        if (retryable && attempts < config.maxAttempts) {
-          await res.arrayBuffer()
-          const delay = Math.min(
-            config.backoffMs * 2 ** (attempts - 1),
-            config.maxBackoffMs,
-          )
-          await sleep(delay, undefined, { signal })
-          continue
-        }
-        if (!res.ok) {
-          throw new Error(
-            `Embedding request failed after ${attempts} attempt(s): ${res.status} ${await res.text()}`,
-          )
-        }
-        const data = responseSchema.parse(await res.json())
-        const input = data.usage?.prompt_tokens
-        const cost = gatewayCost(data.usage)
-        usage = {
-          ...(input !== undefined ? { input } : {}),
-          ...(cost !== undefined ? { cost } : {}),
-        }
-        return orderedVectors(data.data, batch.length, config.dimensions)
+      const res = await fetch(request.url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${request.apiKey}`,
+        },
+        body,
+      })
+      if (!res.ok) {
+        // The provider can echo the input in the body. Keep it out of the
+        // error, because the span status copies the error message.
+        await res.arrayBuffer()
+        const message = `Embedding request failed: HTTP ${res.status}`
+        if (res.status === 429 || res.status >= 500)
+          throw new RetryableStatusError(message)
+        throw new Error(message)
       }
+      const data = responseSchema.parse(await res.json())
+      const input = data.usage?.prompt_tokens
+      const cost = gatewayCost(data.usage)
+      usage = {
+        ...(input !== undefined ? { input } : {}),
+        ...(cost !== undefined ? { cost } : {}),
+      }
+      return orderedVectors(data.data, batch.length, config.dimensions)
     },
   )
 }
 
 /** The content parts of one input (ADR-068 decision 5). */
-function contentParts(input: EmbeddingInput) {
+function contentParts(input: EmbeddingInput): ContentPart[] {
   if (input.kind === "text") {
     // The one line of context: the document title and the chunk position.
-    const context = `${input.documentTitle} (part ${input.chunkIndex + 1} of ${input.chunkCount})`
+    const title = input.documentTitle.replace(/\s+/g, " ").trim()
+    const context = `${title} (part ${input.chunkIndex + 1} of ${input.chunkCount})`
     return [{ type: "text", text: `${context}\n\n${input.text}` }]
   }
   const dataUri = `data:${input.mimeType};base64,${Buffer.from(input.bytes).toString("base64")}`
-  const parts: unknown[] = [{ type: "image_url", image_url: { url: dataUri } }]
+  const parts: ContentPart[] = [
+    { type: "image_url", image_url: { url: dataUri } },
+  ]
   if (input.altText.trim()) parts.push({ type: "text", text: input.altText })
   return parts
 }
@@ -258,12 +262,10 @@ function toEmbedding(vector: number[]): Embedding {
   const bfloat16 = new Uint16Array(vector.length)
   const binary = new Uint8Array(vector.length / 8)
   for (let i = 0; i < vector.length; i++) {
-    const value = float32[i] as number
     const u = bits[i] as number
-    bfloat16[i] = Number.isNaN(value)
-      ? 0x7fc0
-      : (u + 0x7fff + ((u >>> 16) & 1)) >>> 16
-    if (value > 0)
+    // Round to the nearest even BFloat16. JSON numbers are never NaN.
+    bfloat16[i] = (u + 0x7fff + ((u >>> 16) & 1)) >>> 16
+    if ((float32[i] as number) > 0)
       binary[i >> 3] = (binary[i >> 3] as number) | (0x80 >> (i & 7))
   }
   return { bfloat16, binary }

@@ -9,7 +9,7 @@ import {
   multimodalEmbeddingConfig,
 } from "./multimodalEmbeddings.js"
 
-const URL = "https://gateway.test/api/v1/embeddings"
+const EMBEDDINGS_URL = "https://gateway.test/api/v1/embeddings"
 const server = useMswServer()
 const spans = recordSpans()
 
@@ -38,7 +38,7 @@ function text(n: number): EmbeddingInput {
   return {
     kind: "text",
     text: `chunk ${n}`,
-    documentTitle: "Design notes",
+    documentTitle: "Design\n  notes",
     chunkIndex: n,
     chunkCount: 5,
   }
@@ -53,7 +53,7 @@ type Body = {
 
 /** Answers each request with one vector for each input, `index` reversed. */
 function echoHandler(bodies: Body[]) {
-  return http.post(URL, async ({ request }) => {
+  return http.post(EMBEDDINGS_URL, async ({ request }) => {
     const body = (await request.json()) as Body
     bodies.push(body)
     const data = body.input
@@ -90,13 +90,13 @@ describe("embedMultimodal", () => {
     const bodies: Body[] = []
     const auth: (string | null)[] = []
     server.use(
-      http.post(URL, ({ request }) => {
+      http.post(EMBEDDINGS_URL, ({ request }) => {
         auth.push(request.headers.get("authorization"))
       }),
       echoHandler(bodies),
     )
 
-    const result = await embedMultimodal([0, 1, 2, 3, 4].map(text), { config })
+    const result = await embedMultimodal([0, 1, 2, 3, 4].map(text), config)
 
     expect(bodies.map((b) => b.input.length)).toEqual([2, 2, 1])
     for (const body of bodies) {
@@ -137,7 +137,7 @@ describe("embedMultimodal", () => {
           altText: "Deploy pipeline diagram",
         },
       ],
-      { config },
+      config,
     )
 
     expect(bodies[0]?.input).toEqual([
@@ -156,12 +156,12 @@ describe("embedMultimodal", () => {
   it("returns the BFloat16 bit patterns and the packed sign bits of known values", async () => {
     const values = [...KNOWN, 0, 0, -5, 0, 0, 0, 0, 2]
     server.use(
-      http.post(URL, () =>
+      http.post(EMBEDDINGS_URL, () =>
         HttpResponse.json({ data: [{ index: 0, embedding: values }] }),
       ),
     )
 
-    const [embedding] = await embedMultimodal([text(0)], { config })
+    const [embedding] = await embedMultimodal([text(0)], config)
 
     expect(Array.from(embedding?.bfloat16 ?? []).slice(0, 8)).toEqual(
       KNOWN_BF16,
@@ -172,58 +172,72 @@ describe("embedMultimodal", () => {
     ])
   })
 
-  it("retries 429 and 5xx, then records one span with tokens and cost and no content", async () => {
+  it("retries 429 and 5xx, with one span for each request and the usage on the answered one", async () => {
     const statuses = [429, 503]
     const bodies: Body[] = []
     const echo = echoHandler(bodies)
     server.use(
-      http.post(URL, () => {
+      http.post(EMBEDDINGS_URL, () => {
         const status = statuses.shift()
         return status ? new HttpResponse("busy", { status }) : undefined
       }),
       echo,
     )
 
-    const result = await embedMultimodal([text(0)], { config })
+    const result = await embedMultimodal([text(0)], config)
 
     expect(result).toHaveLength(1)
-    const generations = spans
+    const requests = spans
       .finishedSpans()
       .filter((s) => s.name === "embeddings.embedMultimodal")
-    expect(generations).toHaveLength(1)
-    const attrs = generations[0]?.attributes ?? {}
-    expect(attrs["ctxpipe.embeddings.attempts"]).toBe(3)
+    expect(requests.map((s) => s.status.message)).toEqual([
+      "Embedding request failed: HTTP 429",
+      "Embedding request failed: HTTP 503",
+      undefined,
+    ])
+    const attrs = requests[2]?.attributes ?? {}
     expect(attrs["gen_ai.usage.input_tokens"]).toBe(7)
     expect(attrs["gen_ai.usage.cost"]).toBe(0.002)
     expect(JSON.stringify(attrs)).not.toContain("chunk 0")
     expect(JSON.stringify(attrs)).not.toContain("Design notes")
   })
 
-  it("fails after the attempt cap", async () => {
+  it("fails after the attempt cap, and keeps an echoed input out of the error and the spans", async () => {
     let calls = 0
     server.use(
-      http.post(URL, () => {
+      http.post(EMBEDDINGS_URL, async ({ request }) => {
         calls += 1
-        return new HttpResponse("down", { status: 502 })
+        return new HttpResponse(`upstream error for: ${await request.text()}`, {
+          status: 502,
+        })
       }),
     )
 
-    await expect(embedMultimodal([text(0)], { config })).rejects.toThrow(
-      "failed after 3 attempt(s): 502",
+    const error = await embedMultimodal([text(0)], config).catch(
+      (err: unknown) => err,
     )
+
     expect(calls).toBe(3)
+    expect(String(error)).toBe("Error: Embedding request failed: HTTP 502")
+    const telemetry = JSON.stringify(
+      spans
+        .finishedSpans()
+        .map((s) => ({ status: s.status, attributes: s.attributes })),
+    )
+    expect(telemetry).toContain("HTTP 502")
+    expect(telemetry).not.toContain("chunk 0")
   })
 
   it("does not retry a 4xx other than 429", async () => {
     let calls = 0
     server.use(
-      http.post(URL, () => {
+      http.post(EMBEDDINGS_URL, () => {
         calls += 1
         return new HttpResponse("bad model", { status: 400 })
       }),
     )
 
-    await expect(embedMultimodal([text(0)], { config })).rejects.toThrow("400")
+    await expect(embedMultimodal([text(0)], config)).rejects.toThrow("400")
     expect(calls).toBe(1)
   })
 })
