@@ -852,12 +852,12 @@ describe("users and mutations", () => {
     it("a missing placeholder does not replace a document or a tombstone", async () => {
       const deletedAt = new Date("2026-11-20T08:00:00.123Z")
       await writer.markDeleted(target, ["gone.md"], deletedAt)
-      const before = await snapshot(target)
+      const unchanged = await snapshot(target)
       await writer.insertPlaceholders(target, [
         { docKey: "target.md", status: "missing", observedAt },
         { docKey: "gone.md", status: "missing", observedAt },
       ])
-      expect(await snapshot(target)).toEqual(before)
+      expect(await snapshot(target)).toEqual(unchanged)
       expect(
         (await reader.readDocument(target, "gone.md"))?.document,
       ).toMatchObject({ status: "deleted", deletedAt })
