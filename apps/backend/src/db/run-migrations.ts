@@ -8,16 +8,16 @@ import { log } from "../observability/logger.js"
 import { backfillNullOrgIds } from "./backfill-null-org-ids.js"
 import { backfillRepositoryIngestionRequests } from "./backfill-repository-ingestion-requests.js"
 import { clearRetiredWriteStepOutputs } from "./clear-retired-write-step-outputs.js"
+import { buildKnowledgeIndexes } from "./knowledge-indexes.js"
 import { checkKnowledgeSearchPlan } from "./knowledge-search-plan.js"
-import { buildKnowledgeVectorIndex } from "./knowledge-vector-index.js"
 import { migrateOpenWorkflow } from "./migrate-openworkflow.js"
 import { APP_ROLE_NAME, provisionAppRole } from "./provision-app-role.js"
 import { reconcileConnectionDirectory } from "./reconcile-connection-directory.js"
 
 /**
  * The one migrate sequence for hosted, Compose, CDK and local dev. Run it as the
- * table owner. Steps: app role, Drizzle, OpenWorkflow, the concurrent build of the
- * half-precision vector index, every backfill, grants,
+ * table owner. Steps: app role, Drizzle, OpenWorkflow, the concurrent builds of the
+ * knowledge chunks' indexes, every backfill, grants,
  * the plan of the knowledge search's full-text match as the app role.
  * Each step is idempotent, so a second run changes nothing.
  */
@@ -80,7 +80,7 @@ export async function runMigrations(options: {
     )
     await migrateOpenWorkflow(options.connectionString)
     // Outside Drizzle's transaction: a concurrent index build cannot run in one.
-    await buildKnowledgeVectorIndex(options.connectionString)
+    await buildKnowledgeIndexes(options.connectionString)
 
     await backfillNullOrgIds(pool)
     await backfillRepositoryIngestionRequests(pool)

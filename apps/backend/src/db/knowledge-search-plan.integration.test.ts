@@ -18,7 +18,7 @@ afterAll(async () => {
   await pool.end()
 })
 
-it("finds that the GIN index serves the org and the full-text match as the app role", async () => {
+it("finds that the GIN index serves the org, the Workspace and the full-text match as the app role", async () => {
   const plan = await checkKnowledgeSearchPlan(pool, APP_ROLE_NAME)
   expect(plan?.served).toBe(true)
 })

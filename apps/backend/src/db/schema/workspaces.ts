@@ -167,6 +167,13 @@ export const HALF_EMBEDDING_INDEX = `("embedding"::${HALF_EMBEDDING}) halfvec_co
 
 /** The org of a chunk for its full-text match; equal to `org_id` (byte equality). */
 const chunkSearchOrg = sql`("org_id" COLLATE "C")`
+/** The name of the full-text GIN index of the chunks, by org and Workspace. */
+export const KNOWLEDGE_SEARCH_INDEX = "workspace_knowledge_chunks_search_ws_idx"
+/**
+ * Its columns (the schema here, and the concurrent build in runMigrations): the org and the Workspace under
+ * `COLLATE "C"`, which no btree index holds, and the tsvector.
+ */
+export const KNOWLEDGE_SEARCH_INDEX_COLUMNS = `("org_id" COLLATE "C"), ("workspace_id" COLLATE "C"), "search"`
 
 /**
  * Search chunks of the active projection's knowledge units (ADR-051). A row
@@ -209,17 +216,19 @@ export const workspaceKnowledgeChunks = pgTable.withRLS(
       t.chunkHash,
     ),
     index("workspace_knowledge_chunks_org_id_idx").on(t.orgId),
-    // The org as `org_id COLLATE "C"` (btree_gin) and the tsvector: the full
-    // text match of workspaceKnowledgeChunkSearch. No other index has the org
-    // under that collation, so whatever the statistics, no btree serves it.
-    index("workspace_knowledge_chunks_search_idx").using(
+    // The org and the Workspace under `COLLATE "C"` (btree_gin) and the
+    // tsvector: the full-text match of workspaceKnowledgeChunkSearch, one
+    // Workspace at a time. No other index has them under that collation, so
+    // whatever the statistics, no btree serves the match, and it reads only
+    // the matches of the Workspace (CTX-1380). runMigrations builds it
+    // concurrently (knowledge-indexes.ts), as no migration can.
+    index(KNOWLEDGE_SEARCH_INDEX).using(
       "gin",
-      chunkSearchOrg,
-      t.search,
+      sql.raw(KNOWLEDGE_SEARCH_INDEX_COLUMNS),
     ),
     // The embeddings in half precision: half the pages of a cold walk, no loss
     // of recall measured (CTX-1380). runMigrations builds it concurrently
-    // (knowledge-vector-index.ts), as no migration can.
+    // (knowledge-indexes.ts), as no migration can.
     index(KNOWLEDGE_VECTOR_INDEX).using("hnsw", sql.raw(HALF_EMBEDDING_INDEX)),
     orgIsolationPolicy(t.orgId),
   ],
@@ -231,7 +240,7 @@ export const workspaceKnowledgeChunks = pgTable.withRLS(
  * is not leakproof, so Postgres does not use the GIN index for it on a table
  * whose RLS policy applies to the role. The view reads the table as its owner,
  * to whom the policy does not apply, and filters by the policy's condition,
- * on `org_id COLLATE "C"`: only `workspace_knowledge_chunks_search_idx` holds
+ * on `org_id COLLATE "C"`: only `KNOWLEDGE_SEARCH_INDEX` holds
  * the org that way, so one GIN scan serves the org and the match together.
  * `provisionAppRole` leaves the app role SELECT only on views, and the check
  * option keeps any write through the view in the session's org.

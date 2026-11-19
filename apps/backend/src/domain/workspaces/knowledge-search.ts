@@ -308,7 +308,7 @@ async function runSearch(
       claims: Array<{ predicate: string | null; to: string }>
       score: number | string
     }>(sql`
-      WITH lexical AS (${lexicalCandidates(query, where)}),
+      WITH lexical AS (${lexicalCandidates(query, input.workspaceIds, where)}),
       semantic AS (${semantic}),
       fused AS (
         SELECT ${tieBreakOuter},
@@ -370,12 +370,18 @@ const tieBreakOuter = sql`workspace_id, unit_id, chunk_hash, occurrence`
  * every chunk in scope. The view `workspace_knowledge_chunk_search` has the
  * policy's org filter and no policy. When a query also reads a table with a
  * policy, Postgres does not use the index for `@@` either, so the match is a
- * materialized CTE of the view alone. It has no condition that a btree index
- * can serve (not the Workspaces either), so whatever the statistics, the GIN
- * index serves the org and the match together. The other filters apply to
- * its rows.
+ * materialized CTE of the view alone.
+ *
+ * The match runs once for each Workspace, with the org, the Workspace (a
+ * constant) and the terms all conditions of `KNOWLEDGE_SEARCH_INDEX`: it reads only the matches
+ * of the scope, not those of the whole org (CTX-1380). It keeps their keys;
+ * the ranking reads the tsvector of the matches that pass the other filters.
  */
-export function lexicalCandidates(query: string, where: SQL): SQL {
+export function lexicalCandidates(
+  query: string,
+  workspaceIds: readonly string[],
+  where: SQL,
+): SQL {
   // Inline, not a CTE of its own: with a constant tsquery, the planner
   // estimates the match from the index statistics.
   const everyTerm = sql`plainto_tsquery('english', ${query})`
@@ -383,18 +389,28 @@ export function lexicalCandidates(query: string, where: SQL): SQL {
   // Every ordering ends with the chunk key, so ties give the same rows and
   // ranks on each run, and the candidate cut falls the same way.
   const tieBreak = sql`c.workspace_id, c.unit_id, c.chunk_hash, c.occurrence`
-  return sql`WITH matched AS MATERIALIZED (
-      SELECT m.workspace_id, m.unit_id, m.chunk_hash, m.occurrence, m.search
-      FROM workspace_knowledge_chunk_search AS m
-      WHERE m.search @@ ${anyTerm}
-    )
+  // One scan for each Workspace, its id a constant, so that the GIN index
+  // always takes it as a condition (a joined id it may leave to a filter).
+  const scans = sql.join(
+    workspaceIds.map(
+      (id) => sql`SELECT v.workspace_id, v.unit_id, v.chunk_hash, v.occurrence
+        FROM workspace_knowledge_chunk_search AS v
+        WHERE (v.workspace_id COLLATE "C") = (${id}::text COLLATE "C")
+          AND v.search @@ ${anyTerm}`,
+    ),
+    sql` UNION ALL `,
+  )
+  return sql`WITH matched AS MATERIALIZED (${scans})
     SELECT ${tieBreakOuter},
       row_number() OVER (ORDER BY every_match DESC, text_rank DESC, ${tieBreakOuter}) AS rank
     FROM (
       SELECT c.workspace_id, c.unit_id, c.chunk_hash, c.occurrence,
-        c.search @@ ${everyTerm} AS every_match,
-        ts_rank_cd(c.search, ${anyTerm}) AS text_rank
+        s.search @@ ${everyTerm} AS every_match,
+        ts_rank_cd(s.search, ${anyTerm}) AS text_rank
       FROM ${scopeOf(sql`matched`)}
+        JOIN workspace_knowledge_chunk_search AS s
+          ON s.workspace_id = c.workspace_id AND s.unit_id = c.unit_id
+          AND s.chunk_hash = c.chunk_hash AND s.occurrence = c.occurrence
       WHERE ${where}
       ORDER BY every_match DESC, text_rank DESC, ${tieBreak}
       LIMIT ${CANDIDATES}
