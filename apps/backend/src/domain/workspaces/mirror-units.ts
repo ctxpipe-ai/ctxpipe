@@ -209,7 +209,21 @@ function workspaceBlobPath(
   workspaceRepository: string | null,
   paths: ReadonlySet<string>,
 ): string | null {
-  if (!workspaceRepository) return null
+  const candidate = workspaceBlobTarget(url, workspaceRepository)
+  return candidate !== null && paths.has(candidate) ? candidate : null
+}
+
+/**
+ * The Workspace path that a blob URL of the Workspace repository names
+ * (`workspaceBlobPath`), whether the file exists or not. The URL alone gives
+ * the path, so the knowledge plane uses it for the rows of one file
+ * (CTX-1400).
+ */
+export function workspaceBlobTarget(
+  url: string,
+  workspaceRepository: string | null,
+): string | null {
+  if (!workspaceRepository || !URL.canParse(url)) return null
   const parsed = new URL(url)
   if (parsed.hostname.toLowerCase() !== "github.com") return null
   const [owner, repo, blob, ref, ...rest] = parsed.pathname
@@ -224,8 +238,7 @@ function workspaceBlobPath(
   ) {
     return null
   }
-  const candidate = decodeURIComponent(rest.join("/"))
-  return paths.has(candidate) ? candidate : null
+  return decodeURIComponent(rest.join("/"))
 }
 
 /**

@@ -184,6 +184,13 @@ export function hydrateKnowledgeTree(input: {
    * host makes no edge.
    */
   confluenceSiteHosts?: ReadonlySet<string>
+  /**
+   * Make a `FROM_SOURCE` claim for each source path of the front matter,
+   * whether the source file is in `files` or not. The knowledge plane
+   * parses one file alone, so its rows do not depend on other files
+   * (CTX-1400).
+   */
+  claimAllSources?: boolean
 }): {
   units: HydrateUnit[]
   skipped: HydrateSkip[]
@@ -298,7 +305,10 @@ export function hydrateKnowledgeTree(input: {
   )
   for (const unit of units) {
     unit.claims.push(
-      ...fromSourceClaims(attributes.get(unit.path) ?? {}, sourcePaths),
+      ...fromSourceClaims(
+        attributes.get(unit.path) ?? {},
+        input.claimAllSources ? null : sourcePaths,
+      ),
     )
   }
 
@@ -338,14 +348,18 @@ function sourcePathsOf(attributes: Record<string, unknown>): string[] {
 
 /**
  * One `FROM_SOURCE` claim for each path in the `sources` front matter that
- * names a source file (ADR-050). A URL or another path makes no claim.
+ * names a source file (ADR-050). A URL or another path makes no claim. With
+ * `sourcePaths`, only a source file of that set makes a claim; with null,
+ * each source path makes one, whether the file exists or not.
  */
 function fromSourceClaims(
   attributes: Record<string, unknown>,
-  sourcePaths: ReadonlySet<string>,
+  sourcePaths: ReadonlySet<string> | null,
 ): HydrateClaim[] {
   const targets = new Set(
-    sourcePathsOf(attributes).filter((path) => sourcePaths.has(path)),
+    sourcePathsOf(attributes).filter(
+      (path) => !sourcePaths || sourcePaths.has(path),
+    ),
   )
   return [...targets].map((path) => ({
     to: `${WORKSPACE_LINK_SCHEME}${path}`,

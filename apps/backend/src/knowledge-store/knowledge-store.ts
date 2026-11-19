@@ -17,7 +17,7 @@ export const ORG_SETTING = "SQL_ctxpipe_org_id"
 /** The org and the Workspace of each statement. */
 export type KnowledgeScope = { orgId: string; workspaceId: string }
 
-type DocumentStatus = "active" | "deleted" | "missing" | "failed"
+export type DocumentStatus = "active" | "deleted" | "missing" | "failed"
 
 export type KnowledgeDocument = {
   docKey: string
@@ -84,6 +84,8 @@ type Placeholder = { docKey: string; observedAt: Date } & (
   | { status: "missing" }
   | { status: "failed"; error: string }
 )
+
+type DocumentKey = { docKey: string; status: DocumentStatus }
 
 type StoredDocument = {
   document: KnowledgeDocument
@@ -190,9 +192,11 @@ export type KnowledgeStore = {
    * Makes a tombstone of each document (ADR-067 decision 6): status
    * `deleted` and `deletedAt`, with the other fields of its row. Deletes its
    * chunks and outgoing relations. The relations of other documents that
-   * point at it stay. A key with no row gets a tombstone with empty fields,
-   * so a retry after a failure between the DELETE and the INSERT still
-   * makes the tombstone.
+   * point at it stay. A key with no row gets a tombstone with empty fields.
+   * The tombstone goes in before the DELETE of the old row, so a failure
+   * between the two leaves both rows, never no row: a retry keeps the
+   * tombstone and deletes the old row. Until the retry, the key has two
+   * rows.
    */
   markDeleted(
     scope: KnowledgeScope,
@@ -208,9 +212,7 @@ export type KnowledgeStore = {
     placeholders: Placeholder[],
   ): Promise<void>
   /** The key and the status of each document of the Workspace. */
-  listDocumentKeys(
-    scope: KnowledgeScope,
-  ): Promise<{ docKey: string; status: DocumentStatus }[]>
+  listDocumentKeys(scope: KnowledgeScope): Promise<DocumentKey[]>
   readDocument(
     scope: KnowledgeScope,
     docKey: string,
@@ -455,7 +457,11 @@ const emptyDocument = (
   observedAt,
 })
 
-/** The stored document row of each key that has one. */
+/**
+ * The stored document row of each key that has one. A key with a tombstone
+ * and an old row (a `markDeleted` that stopped between its INSERT and its
+ * DELETE) gives the tombstone.
+ */
 async function storedDocuments(
   client: ClickHouseClient,
   scope: KnowledgeScope,
@@ -468,7 +474,11 @@ async function storedDocuments(
      WHERE ${scoped} AND doc_key IN {docKeys:Array(String)}`,
     { docKeys },
   )
-  return new Map(records.map((record) => [record.docKey, toDocument(record)]))
+  const stored = new Map<string, KnowledgeDocument>()
+  for (const record of records)
+    if (stored.get(record.docKey)?.status !== "deleted")
+      stored.set(record.docKey, toDocument(record))
+  return stored
 }
 
 async function insertPlaceholders(
@@ -515,34 +525,41 @@ async function markDeleted(
   docKeys: string[],
   deletedAt: Date,
 ): Promise<void> {
-  const stored = await storedDocuments(client, scope, docKeys)
-  await replaceRows(
+  assertScope(scope)
+  const keys = [...new Set(docKeys)]
+  if (keys.length === 0) return
+  const stored = await storedDocuments(client, scope, keys)
+  await deleteContent(client, scope, keys)
+  // A key that has a tombstone keeps it, with the date of the first
+  // deletion, also after a retry or the reconcile of a full rebuild.
+  await insertRows(
     client,
     scope,
-    [...new Set(docKeys)].map((docKey) => {
-      const document =
-        stored.get(docKey) ?? emptyDocument(docKey, "deleted", deletedAt)
-      return {
+    keys
+      .filter((docKey) => stored.get(docKey)?.status !== "deleted")
+      .map((docKey) => ({
         document: {
-          ...document,
+          ...(stored.get(docKey) ??
+            emptyDocument(docKey, "deleted", deletedAt)),
           status: "deleted",
-          // A tombstone keeps the date of the first deletion, also after a
-          // retry or the reconcile of a full rebuild.
-          deletedAt:
-            document.status === "deleted" && document.deletedAt
-              ? document.deletedAt
-              : deletedAt,
+          deletedAt,
           error: "",
         },
         chunks: [],
         relations: [],
-      }
-    }),
+      })),
+  )
+  await deleteWhere(
+    client,
+    scope,
+    "documents",
+    "doc_key IN {docKeys:Array(String)} AND status != 'deleted'",
+    { docKeys: keys },
   )
 }
 
 const listDocumentKeys = (client: ClickHouseClient, scope: KnowledgeScope) =>
-  select<{ docKey: string; status: DocumentStatus }>(
+  select<DocumentKey>(
     client,
     scope,
     `SELECT doc_key AS docKey, status FROM documents WHERE ${scoped}

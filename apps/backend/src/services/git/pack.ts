@@ -670,6 +670,31 @@ export async function readGitPackFromRemote(input: {
   )
 }
 
+/** The bytes of each blob, in the order of `blobs` (`git cat-file --batch`). */
+export async function readGitBlobs(
+  directory: string,
+  blobs: readonly string[],
+): Promise<Buffer[]> {
+  if (blobs.length === 0) return []
+  const output = await nativeGit(
+    directory,
+    ["cat-file", "--batch"],
+    `${blobs.join("\n")}\n`,
+  )
+  const out: Buffer[] = []
+  let at = 0
+  for (const blob of blobs) {
+    const end = output.indexOf(10, at)
+    const header = output.subarray(at, end).toString()
+    const size = Number(header.split(" ")[2])
+    if (!header.startsWith(`${blob} blob `) || !Number.isInteger(size))
+      throw new Error(`Git has no blob ${blob}`)
+    out.push(output.subarray(end + 1, end + 1 + size))
+    at = end + 1 + size + 1
+  }
+  return out
+}
+
 /** Every blob below the pack's root folder, with root-relative paths. */
 export async function listPackBlobs(
   directory: string,

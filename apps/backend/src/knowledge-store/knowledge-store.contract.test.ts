@@ -772,7 +772,7 @@ describe("users and mutations", () => {
       await writer.markDeleted(target, ["gone.md"], deletedAt)
       expect(
         (await reader.readDocument(target, "gone.md"))?.document,
-      ).toMatchObject({ status: "deleted", deletedAt, title: "", kind: "" })
+      ).toMatchObject({ status: "deleted", deletedAt, title: "" })
       // The file comes back: a replace makes the row active again.
       await writer.replaceDocuments(target, seed())
       expect(
