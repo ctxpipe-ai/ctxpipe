@@ -22,7 +22,8 @@ The dataset must cover three shapes of customer: one large monorepo, an org with
      - the search, the Jev layers and the disagreement step;
      - the same MCP tools as today.
    - The current Postgres and FalkorDB pipeline is the baseline arm of every eval.
-   - A "Jev off" arm uses only the search order, to show what Jev adds.
+   - The eval has exactly two arms: the current stack (the baseline) and the new plane. There is no arm without Jev, because Jev is a load-bearing part of the plane (the CTO, 2026-11-19).
+   - The improvement loop tunes Jev (questions, thresholds, budgets). A later comparison of Jev with another decision model swaps that model in behind the same judge interface, as a separate arm of the plane. It is not part of the first evals.
 2. **Public corpora.** Each source becomes one Workspace:
 
    | Source | Gives |
