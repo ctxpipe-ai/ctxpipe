@@ -56,7 +56,10 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
    - Before a chunk is embedded, it gets one line of context: the title and position of its document.
    - The evals pick the model. The candidates today are Gemini Embedding 2, Voyage Multimodal 3.5 and Titan Multimodal G1.
 6. **Images.** Jev sees the image bytes, which the backend reads from the S3 artifacts bucket. OCR or a vision-model description at ingest is optional, and the evals decide it.
-7. **Data receivers.** Jev receives the question, the text of the candidates and images. The embedding provider receives the content. Both are sub-processors for each org that uses the new plane ([ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md) decision 9).
+7. **Data receivers.** Jev receives the question, the text of the candidates and images. The embedding provider receives the content. Both are sub-processors for each org that uses the new plane ([ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md) decision 9). ADR-063 accepted the Jev endpoint only for public mock screenshots, so customer content needs more:
+   - Every Jev call and every embedding call sets `provider.data_collection: "deny"`.
+   - Every call pins its upstream provider, with no fallback to another provider (OpenRouter `provider.order` with `allow_fallbacks: false`). A call that the pinned provider cannot serve fails. It does not go to another provider.
+   - Before the flag of any org leaves `off` (this includes `shadow`), we confirm in writing the retention terms of TypeSafe and of the chosen embedding provider. We also confirm that OpenRouter applies `data_collection: "deny"` on the Decisions endpoint. Until then, the new plane runs only on the public eval corpora and our own org.
 
 ## Consequences
 

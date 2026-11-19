@@ -20,13 +20,15 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
 1. **The tables hold the current state only.** There are no row versions, no published pointer and no GC of versions.
 2. **The operational state lives in Postgres.** For each Workspace, a `knowledge_state` row holds:
    - `last_sha`, the last commit that a run applied in full;
-   - `attempt_sha`, the tip of the run in progress or of the last run that failed;
+   - `attempt_shas`, the tips of the runs that started after `last_sha` and did not complete (an empty list after a run that passes);
    - the projection version (decision 4), which includes the embedding model name;
    - the run status;
    - the failed count.
 3. **The queue.** Each commit or webhook queues a hydrate run. One run for each Workspace runs at a time. The queued runs for a Workspace merge, because each run goes to the current tip (the ADR-046 rule).
-4. **The diff.** A run first sets `attempt_sha` to its tip. It then applies the files of the Git diff from `last_sha` to its tip.
-   - If an earlier run failed, the run also applies the files of the diff from `last_sha` to the old `attempt_sha`, before it overwrites `attempt_sha`. Those are the files that the failed run can have changed. Without this step, a file that the failed run replaced and that a later commit changed back is not in the new diff, and its stale rows stay.
+4. **The diff.** Before a run writes any row, it adds its tip to `attempt_shas`. It then applies each file that is in the Git diff from `last_sha` to any SHA of `attempt_shas`. The list includes its own tip.
+   - The earlier SHAs of the list are the tips of failed runs. Their files are the files that those runs can have changed. Without them, a file that a failed run replaced and that a later commit changed back is not in the new diff, and its stale rows stay.
+   - The run only adds to the list, so a crash at any point loses no SHA.
+   - If the list has more than 10 SHAs, the run does a full rebuild.
    - It does a full rebuild instead if one of the conditions below is true. A full rebuild applies every file of the tree. It also reconciles: each document in ClickHouse whose file is not in the tree becomes a tombstone (decision 6). Thus a rebuild after a missing commit does not leave removed files `active`.
 
    The conditions for a full rebuild are:
@@ -45,7 +47,7 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
    - An infrastructure error throws, for example ClickHouse or the embedding API is down. The run retries from the same `last_sha`. An insert waits until the data is stored, so a reported success means stored rows.
    - A content error makes a `failed` placeholder with the error and an alert, for example a file that does not parse or embed. The run continues, so that one bad file does not block the Workspace.
    - A content error that the run records as a `failed` row counts as completed work. Only an infrastructure error stops `last_sha`.
-   - `last_sha` moves to the tip only when all of the work passes. Then the run clears `attempt_sha`. Nothing fails silently.
+   - `last_sha` moves to the tip only when all of the work passes. In the same update, the run clears `attempt_shas`. Nothing fails silently.
 9. **The maintenance job** is queued after each run.
    - It finds `deleted`, `missing` and `failed` documents.
    - It fixes the source in Git, for example a broken link or a file that does not parse. Its fixes come back through a normal run.
@@ -66,7 +68,7 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
 - **Tombstones grow,** because nothing removes them yet.
 - **A full rebuild** costs a full parse and full embeddings. A projection version change starts one for each Workspace.
 - **Amends** ADR-046 for the ClickHouse projection. The queue and tip rules stay.
-- **Tests** ([ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md)) must prove three things:
+- **Tests** ([ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md)) must prove that:
   - when a run applies a real history one commit at a time, the tables are the same as after a full rebuild at the tip;
   - a run that stops at a random point and then retries gives the same result, also when a later commit changes back a file of the failed run;
   - a full rebuild after a missing commit makes the documents of removed files tombstones;
