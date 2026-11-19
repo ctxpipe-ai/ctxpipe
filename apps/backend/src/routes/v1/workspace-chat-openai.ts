@@ -1,6 +1,10 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 
 import type { AppEnv } from "../../app/env.js"
+import {
+  type IngestModelTier,
+  isIngestModelTier,
+} from "../../domain/ingestion/ingest-opencode.js"
 import { startIngestModelCall } from "../../domain/ingestion/ingest-telemetry.js"
 import {
   observeWorkspaceChatCompletionStream,
@@ -81,15 +85,21 @@ const chatRoute = createRoute({
   },
 })
 
-function contractFromEnv(env: AppEnv["Variables"]["env"]) {
-  return workspaceChatOpenCodeContract({
-    MODEL_PROVIDER: env.MODEL_PROVIDER,
-    MODEL_PROVIDER_API_KEY: env.MODEL_PROVIDER_API_KEY,
-    MODEL_PROVIDER_URL: env.MODEL_PROVIDER_URL,
-    MODEL_FAST_NAME: env.MODEL_FAST_NAME,
-    MODEL_MEDIUM_NAME: env.MODEL_MEDIUM_NAME,
-    MODEL_HIGH_NAME: env.MODEL_HIGH_NAME,
-  })
+function contractFromEnv(
+  env: AppEnv["Variables"]["env"],
+  tier: IngestModelTier = "fast",
+) {
+  return workspaceChatOpenCodeContract(
+    {
+      MODEL_PROVIDER: env.MODEL_PROVIDER,
+      MODEL_PROVIDER_API_KEY: env.MODEL_PROVIDER_API_KEY,
+      MODEL_PROVIDER_URL: env.MODEL_PROVIDER_URL,
+      MODEL_FAST_NAME: env.MODEL_FAST_NAME,
+      MODEL_MEDIUM_NAME: env.MODEL_MEDIUM_NAME,
+      MODEL_HIGH_NAME: env.MODEL_HIGH_NAME,
+    },
+    tier,
+  )
 }
 
 /**
@@ -165,14 +175,19 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
         503,
       )
     }
-    const contract = contractFromEnv(env)
-    if (!contract.ok) {
-      return c.json({ error: contract.error }, 503)
-    }
     const body = (await c.req.json().catch(() => ({}))) as Record<
       string,
       unknown
     >
+    // The request's `model` of an ingest step is its tier name. Each other
+    // value from the sandbox (also a configured model name) gets the fast
+    // tier. A chat turn always uses the fast tier.
+    const tier =
+      token.ingest && isIngestModelTier(body.model) ? body.model : "fast"
+    const contract = contractFromEnv(env, tier)
+    if (!contract.ok) {
+      return c.json({ error: contract.error }, 503)
+    }
     const extras = lowerOpenAiChatCompletionsParams(contract.modelParams) ?? {}
     const forwarded = {
       ...body,
@@ -209,7 +224,10 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
     }
     // An ingest step has a model call span, attributed to its run.
     const ingestCall = token.ingest
-      ? startIngestModelCall(token.ingest, contract.modelBase)
+      ? startIngestModelCall(token.ingest, {
+          tier,
+          model: contract.modelBase,
+        })
       : undefined
     let recorded = false
     const record = (status: number) => {

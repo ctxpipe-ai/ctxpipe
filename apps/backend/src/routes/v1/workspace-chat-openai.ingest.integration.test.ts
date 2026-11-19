@@ -81,6 +81,8 @@ function app(): OpenAPIHono<AppEnv> {
     MODEL_PROVIDER_URL,
     MODEL_PROVIDER_API_KEY: "sk-upstream",
     MODEL_FAST_NAME: "test/model-fast",
+    MODEL_MEDIUM_NAME: "test/model-medium?reasoning.effort=xhigh",
+    MODEL_HIGH_NAME: "test/model-high",
   })
   const routes = new OpenAPIHono<AppEnv>().basePath(
     "/:orgSlug/api/v1/workspace-chat/openai",
@@ -96,7 +98,7 @@ function app(): OpenAPIHono<AppEnv> {
   return routes
 }
 
-async function complete(token: string): Promise<number> {
+async function complete(token: string, model?: string): Promise<number> {
   const res = await app().request(
     "/acme/api/v1/workspace-chat/openai/v1/chat/completions",
     {
@@ -105,11 +107,34 @@ async function complete(token: string): Promise<number> {
         "content-type": "application/json",
         authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ messages: [{ role: "user", content: "hi" }] }),
+      body: JSON.stringify({
+        ...(model ? { model } : {}),
+        messages: [{ role: "user", content: "hi" }],
+      }),
     },
   )
   await res.text()
   return res.status
+}
+
+/** Send one completion and return the body that the upstream receives. */
+async function upstreamBodyOf(
+  token: string,
+  model: string,
+): Promise<Record<string, unknown>> {
+  let received: Record<string, unknown> | undefined
+  server.use(
+    http.post(`${MODEL_PROVIDER_URL}/chat/completions`, async ({ request }) => {
+      received = (await request.json()) as Record<string, unknown>
+      return HttpResponse.json({
+        id: "chatcmpl_tier",
+        choices: [{ message: { role: "assistant", content: "ok" } }],
+      })
+    }),
+  )
+  expect(await complete(token, model)).toBe(200)
+  if (!received) throw new Error("The upstream received no request")
+  return received
 }
 
 async function listModels(token: string): Promise<number> {
@@ -326,6 +351,81 @@ describe("workspace-ingest-model capability", () => {
       "ctxpipe.ingest.shard": "0",
       "ctxpipe.ingest.step": "skill:root:docs",
     })
+  })
+
+  it("sends an ingest step to the configured model of the tier that it asks for", async () => {
+    const runId = await startRun(orgId)
+    const lockOwner = await holdShard(runId, 0)
+    const capability = await mintWorkspaceIngestRunCapability({
+      authSecret: AUTH_SECRET,
+      orgId,
+      orgSlug,
+      runId,
+      shard: 0,
+      step: "skill:root:apis",
+      lockOwner,
+    })
+    exporter.reset()
+    const medium = await upstreamBodyOf(capability, "medium")
+    expect(medium.model).toBe("test/model-medium")
+    expect(medium.reasoning_effort).toBe("xhigh")
+    const call = exporter
+      .getFinishedSpans()
+      .find((item) => item.name === "ingestion.model_call")
+    expect(call?.attributes).toMatchObject({
+      "gen_ai.request.model": "test/model-medium",
+      "ctxpipe.ingest.model_tier": "medium",
+    })
+    expect((await upstreamBodyOf(capability, "fast")).model).toBe(
+      "test/model-fast",
+    )
+  })
+
+  it("sends an ingest step that asks for an unknown model to the base model", async () => {
+    const runId = await startRun(orgId)
+    const lockOwner = await holdShard(runId, 0)
+    const capability = await mintWorkspaceIngestRunCapability({
+      authSecret: AUTH_SECRET,
+      orgId,
+      orgSlug,
+      runId,
+      shard: 0,
+      step: "skill:root:apis",
+      lockOwner,
+    })
+    // A free model name from the sandbox, also a configured model name, is
+    // not a tier.
+    // The plan uses no high tier, so a step cannot ask for it.
+    for (const asked of [
+      "vendor/expensive-model",
+      "test/model-medium",
+      "high",
+    ]) {
+      exporter.reset()
+      const body = await upstreamBodyOf(capability, asked)
+      expect(body.model).toBe("test/model-fast")
+      expect(body.reasoning_effort).toBeUndefined()
+      const call = exporter
+        .getFinishedSpans()
+        .find((item) => item.name === "ingestion.model_call")
+      expect(call?.attributes).toMatchObject({
+        "gen_ai.request.model": "test/model-fast",
+        "ctxpipe.ingest.model_tier": "fast",
+      })
+    }
+  })
+
+  it("keeps a chat turn on the base model when it asks for a tier", async () => {
+    const chat = await mintWorkspaceChatRunCapability({
+      authSecret: AUTH_SECRET,
+      orgId,
+      orgSlug,
+      conversationId,
+      expectedOwner: chatOwner,
+      revision,
+      purpose: "workspace-chat-model",
+    })
+    expect((await upstreamBodyOf(chat, "medium")).model).toBe("test/model-fast")
   })
 
   it("does not accept a chat capability as ingest, nor an ingest capability as chat", async () => {

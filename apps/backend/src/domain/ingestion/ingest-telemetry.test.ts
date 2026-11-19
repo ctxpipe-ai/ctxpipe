@@ -35,7 +35,7 @@ describe("ingest model call telemetry", () => {
   it("records one generation span of the run, with usage and the step", () => {
     const call = startIngestModelCall(
       { runId: "run_1", shard: 3, step: "skill:repository:apis:ws_1" },
-      "openai/gpt-5.6-terra",
+      { tier: "medium", model: "openai/gpt-5.6-terra" },
     )
     call.finish({
       status: 200,
@@ -52,6 +52,7 @@ describe("ingest model call telemetry", () => {
     expect(spans[0]?.attributes).toMatchObject({
       "gen_ai.operation.name": "chat",
       "gen_ai.request.model": "openai/gpt-5.6-terra",
+      "ctxpipe.ingest.model_tier": "medium",
       "gen_ai.usage.input_tokens": 100,
       "gen_ai.usage.output_tokens": 20,
       "gen_ai.usage.cache_read.input_tokens": 10,
@@ -65,7 +66,7 @@ describe("ingest model call telemetry", () => {
   it("holds no prompt or answer, and marks a server error", () => {
     const call = startIngestModelCall(
       { runId: "run_2", shard: 0, step: "s" },
-      "m",
+      { tier: "fast", model: "m" },
     )
     call.finish({ status: 502, durationMs: 5 })
     const span = exporter.getFinishedSpans()[0]
