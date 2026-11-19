@@ -107,7 +107,7 @@ type Resolution = {
 /** An item, its number in the state (from 1), and the index of its position. */
 type Entry = { item: EvidenceItem; n: number; position: number }
 
-/** The time of an ISO 8601 string, or `ifUnknown` for null or a bad date. */
+/** The time of a Date or an ISO 8601 string, or `ifUnknown` for null or a bad date. */
 function timeOr(value: Date | string | null, ifUnknown: number): number {
   const time =
     value === null
@@ -135,13 +135,11 @@ export function isValidAt(
 
 /**
  * The number of Jev calls that `resolveDisagreements` makes for `items`
- * items: one call for each batch of `batchSize` pairs, and at least one.
+ * items with the default batch size: one call for each batch of
+ * `BATCH_SIZE` pairs, and at least one.
  */
-export function disagreementCalls(
-  items: number,
-  batchSize = BATCH_SIZE,
-): number {
-  return Math.max(1, Math.ceil((items * (items - 1)) / 2 / batchSize))
+export function disagreementCalls(items: number): number {
+  return Math.max(1, Math.ceil((items * (items - 1)) / 2 / BATCH_SIZE))
 }
 
 /**
