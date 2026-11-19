@@ -219,7 +219,7 @@ export function knowledgeRows(input: {
         kind: "image",
         title: target.slice(target.lastIndexOf("/") + 1),
         path: target,
-        sourceType: connectorMirrorRoot(target) ?? "authored",
+        sourceType: sourceAuthority({ path: target }),
         // The writer replaces the two placeholders with the org and the
         // Workspace of the write.
         s3Key: `{org_id}/{workspace_id}/${hash}`,
@@ -243,7 +243,7 @@ export function knowledgeRows(input: {
         kind: node.kind,
         title,
         path: unit.path,
-        sourceType: unit.source,
+        sourceType: sourceAuthority(unit),
         summary: node.summary ?? "",
       },
       chunks,
@@ -251,6 +251,56 @@ export function knowledgeRows(input: {
     },
     ...imageDocuments,
   ]
+}
+
+/**
+ * The source authority kinds, from the highest authority to the lowest. The
+ * disagreement tie-break ranks `source_type` in this order. The kind `other`
+ * is not in the list, so it ranks below all of them.
+ */
+export const SOURCE_AUTHORITY_ORDER = [
+  "adr",
+  "merged-pr",
+  "docs",
+  "issue",
+  "open-pr",
+  "chat",
+] as const
+
+/**
+ * The source authority kind of a file. It comes from the file alone: its
+ * path, its document kind, and the `merged` field of its front matter, which
+ * the pull request mirror converter writes. The connector folder stays in
+ * the path.
+ */
+function sourceAuthority(file: {
+  path: string
+  kind?: string | null
+  merged?: boolean
+}): (typeof SOURCE_AUTHORITY_ORDER)[number] | "other" {
+  const [, folder] = file.path.split("/")
+  switch (connectorMirrorRoot(file.path)) {
+    case null: {
+      const name = file.path.slice(file.path.lastIndexOf("/") + 1)
+      return file.kind?.toLowerCase() === "decision" || /^adr-\d/i.test(name)
+        ? "adr"
+        : "docs"
+    }
+    case "notion":
+    case "confluence":
+      return "docs"
+    case "github":
+      if (folder === "pulls") return file.merged ? "merged-pr" : "open-pr"
+      return folder === "issues" ? "issue" : "other"
+    case "linear":
+    case "plain":
+    case "pagerduty":
+      return "issue"
+    case "slack":
+      return "chat"
+    default:
+      return "other"
+  }
 }
 
 function documentDefaults(observedAt: Date) {

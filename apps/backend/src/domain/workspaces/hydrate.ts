@@ -85,6 +85,11 @@ export type HydrateUnit = {
   title: string | null
   /** The connector root of a mirror path (`linear`, …), else `authored`. */
   source: string
+  /**
+   * Front-matter `merged` of a pull request mirror file. A missing value
+   * means not merged.
+   */
+  merged?: boolean
   /** ISO time of the last commit that changed the path, when known. */
   updatedAt: string | null
   /** File line of the first body line, after front matter. Read from Git only. */
@@ -239,6 +244,7 @@ export function hydrateKnowledgeTree(input: {
         parsed.attributes.claims.some((claim) => !claimHasEvidence(claim)),
       title: unitTitle(parsed.attributes.title, parsed.body),
       source: connectorMirrorRoot(path) ?? "authored",
+      merged: parsed.attributes.merged === true,
       updatedAt: file.lastCommitTimestamp ?? null,
       bodyStartLine: file.content
         .slice(0, file.content.length - parsed.body.length)

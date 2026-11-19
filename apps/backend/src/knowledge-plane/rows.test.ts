@@ -67,7 +67,7 @@ describe("knowledgeRows", () => {
           error: "",
           title: "api",
           path: "knowledge/payments/api.md",
-          sourceType: "authored",
+          sourceType: "docs",
           source: "",
           summary: "See [ledger](../billing/ledger.md).",
           s3Key: "",
@@ -233,7 +233,7 @@ describe("knowledgeRows", () => {
           error: "",
           title: "flow.png",
           path: "assets/flow.png",
-          sourceType: "authored",
+          sourceType: "docs",
           source: "",
           summary: "",
           s3Key: `{org_id}/{workspace_id}/${HASH}`,
@@ -454,5 +454,38 @@ describe("knowledgeRows", () => {
       "knowledge/payments/one.png",
       "knowledge/payments/two.webp",
     ])
+  })
+
+  it.each([
+    ["decisions/ADR-001-use-postgres.md", "# Use Postgres\n", "adr"],
+    ["knowledge/queue.md", "---\nkind: Decision\n---\nUse a queue.\n", "adr"],
+    [
+      "github/pulls/acme/app/12.md",
+      "---\nstate: closed\nmerged: true\n---\nBody.\n",
+      "merged-pr",
+    ],
+    [
+      "github/pulls/acme/app/13.md",
+      "---\nstate: open\nmerged: false\n---\nBody.\n",
+      "open-pr",
+    ],
+    [
+      "github/pulls/acme/app/14.md",
+      "---\nstate: closed\nmerged: false\n---\nBody.\n",
+      "open-pr",
+    ],
+    ["knowledge/payments/api.md", "The API.\n", "docs"],
+    ["notion/pages/roadmap.md", "Roadmap.\n", "docs"],
+    ["confluence/spaces/eng/page.md", "Page.\n", "docs"],
+    ["github/issues/acme/app/7.md", "Issue.\n", "issue"],
+    ["linear/issues/ENG-1.md", "Issue.\n", "issue"],
+    ["plain/threads/t1.md", "Thread.\n", "issue"],
+    ["pagerduty/incidents/p1.md", "Incident.\n", "issue"],
+    ["slack/channels/general/2026-11-19.md", "Hello.\n", "chat"],
+    ["buildkite/builds/b1.md", "Build.\n", "other"],
+    ["github/discussions/acme/app/1.md", "Body.\n", "other"],
+  ])("stores the source authority kind of %s", (path, content, expected) => {
+    const [row] = rowsOf([{ path, content }], path)
+    expect(row?.document.sourceType).toBe(expected)
   })
 })
