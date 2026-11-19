@@ -1,3 +1,5 @@
+import { z } from "zod"
+
 import { CATEGORIES, type Dataset, type Question } from "./dataset.js"
 import {
   meanMetrics,
@@ -8,17 +10,21 @@ import {
   type QuestionScore,
   scoreAnswer,
 } from "./metrics.js"
-import { ARM_NAMES, type Arm, type ArmAnswer, type Manifest } from "./runner.js"
+import {
+  ARM_NAMES,
+  ARMS,
+  type Arm,
+  type ArmAnswer,
+  type Manifest,
+} from "./runner.js"
 
 /*
  * The report of one run: JSON for tools, Markdown for people. The first
- * table compares each arm with the baseline arm, the current stack, for each
- * split and category (a CTO requirement). Each question also gets its change
- * against the kept run: the report of the last run that the improvement loop
- * kept (ADR-069 decision 7).
+ * table compares the plane with the baseline arm, the current stack, for
+ * each split and category (a CTO requirement). Each question also gets its
+ * change against the kept run: the report of the last run that the
+ * improvement loop kept (ADR-069 decision 7).
  */
-
-const BASELINE: Arm = "legacy"
 
 type Change = "better" | "worse" | "mixed" | "same" | "new"
 
@@ -26,26 +32,42 @@ type ComparisonRow = {
   split: Question["split"]
   category: Question["category"] | "all"
   questions: number
-  /** The mean of each metric for each arm. */
-  arms: Partial<Record<Arm, MetricValues>>
-  /** The change of each other arm against the baseline arm. */
-  change: Partial<Record<Arm, MetricValues>>
+  /** The mean of each metric on the baseline arm. */
+  baseline: MetricValues
+  plane: MetricValues
+  /** The plane value minus the baseline value. */
+  change: MetricValues
 }
 
 export type Report = {
   datasetVersion: string
-  baselineArm: { id: Arm; name: string }
-  arms: { id: Arm; name: string }[]
-  run: Omit<Manifest, "datasetVersion" | "arms">
+  arms: { baseline: string; plane: string }
+  run: Omit<Manifest, "datasetVersion">
   comparison: ComparisonRow[]
   operations: ({ arm: Arm; split: Question["split"] } & ReturnType<
     typeof operations
   >)[]
-  cost: { totalUsd: number; byArm: Partial<Record<Arm, number>> }
+  /** The cost of the model calls. In a replay, their cost when they were made. */
+  costUsd: number
   questions: (QuestionScore & { kept: MetricValues | null; change: Change })[]
-  /** Replay only: answers that the recording could not give in full. */
-  incomplete: { arm: Arm; question: string }[]
+  /**
+   * The questions that the report leaves out, because an arm has no complete
+   * answer: the spend cap stopped the run, or a replay missed a call.
+   */
+  incomplete: string[]
 }
+
+/** The part of a kept report that a new report compares with. */
+export const keptRunSchema = z.object({
+  questions: z.array(
+    z.object({
+      arm: z.enum(ARMS),
+      question: z.string(),
+      metrics: z.record(z.enum(METRICS), z.number().nullable()),
+    }),
+  ),
+})
+export type KeptRun = z.infer<typeof keptRunSchema>
 
 /** The change of `value` against `base` for each metric. */
 function delta(value: MetricValues, base: MetricValues): MetricValues {
@@ -69,26 +91,38 @@ function changeOf(now: MetricValues, kept: MetricValues | null): Change {
 }
 
 /**
- * Score the answers of a run and build its report. `kept` is the report of
- * the kept run, or null when there is none yet.
+ * Score the answers of a run and build its report. Only the questions with
+ * a complete answer from both arms count, so that both arms are compared on
+ * the same questions. `kept` is the kept run, or null when there is none.
  */
 export function buildReport(input: {
   manifest: Manifest
   dataset: Dataset
   answers: readonly ArmAnswer[]
-  kept: Report | null
+  kept: KeptRun | null
 }): Report {
   const { manifest } = input
-  const questions = new Map(input.dataset.questions.map((q) => [q.id, q]))
-  const complete = input.answers.filter((answer) => !answer.incomplete)
-  const scores = complete.flatMap((answer) => {
-    const question = questions.get(answer.question)
-    return question ? [scoreAnswer(question, answer, manifest.loop.keepAt)] : []
-  })
+  const complete = (id: string) =>
+    ARMS.every((arm) =>
+      input.answers.some(
+        (answer) =>
+          answer.arm === arm && answer.question === id && !answer.incomplete,
+      ),
+    )
+  const asked = input.dataset.questions.filter((question) =>
+    input.answers.some((answer) => answer.question === question.id),
+  )
+  const scores = asked
+    .filter((question) => complete(question.id))
+    .flatMap((question) =>
+      input.answers
+        .filter((answer) => answer.question === question.id)
+        .map((answer) => scoreAnswer(question, answer, manifest.loop.keepAt)),
+    )
   const keptScores = new Map(
     (input.kept?.questions ?? []).map((score) => [
       `${score.arm}\0${score.question}`,
-      score.metrics,
+      score.metrics as MetricValues,
     ]),
   )
   const comparison: ComparisonRow[] = []
@@ -100,74 +134,59 @@ export function buildReport(input: {
           (category === "all" || score.category === category),
       )
       if (group.length === 0) continue
-      const arms: ComparisonRow["arms"] = {}
-      for (const arm of manifest.arms)
-        arms[arm] = meanMetrics(group.filter((score) => score.arm === arm))
-      const base = arms[BASELINE]
-      const change: ComparisonRow["change"] = {}
-      for (const arm of manifest.arms) {
-        const values = arms[arm]
-        if (arm !== BASELINE && base && values)
-          change[arm] = delta(values, base)
-      }
+      const of = (arm: Arm) =>
+        meanMetrics(group.filter((score) => score.arm === arm))
+      const baseline = of("legacy")
+      const plane = of("plane")
       comparison.push({
         split,
         category,
         questions: new Set(group.map((score) => score.question)).size,
-        arms,
-        change,
+        baseline,
+        plane,
+        change: delta(plane, baseline),
       })
     }
-  const byArm: Report["cost"]["byArm"] = {}
-  for (const arm of manifest.arms)
-    byArm[arm] = scores
-      .filter((score) => score.arm === arm)
-      .reduce((sum, score) => sum + score.costUsd, 0)
-  const { datasetVersion: _version, arms: _arms, ...run } = manifest
+  const { datasetVersion, ...run } = manifest
   return {
-    datasetVersion: manifest.datasetVersion,
-    baselineArm: { id: BASELINE, name: ARM_NAMES[BASELINE] },
-    arms: manifest.arms.map((id) => ({ id, name: ARM_NAMES[id] })),
+    datasetVersion,
+    arms: { baseline: ARM_NAMES.legacy, plane: ARM_NAMES.plane },
     run,
     comparison,
-    operations: manifest.arms.flatMap((arm) =>
+    operations: ARMS.flatMap((arm) =>
       manifest.splits.flatMap((split) => {
         const group = scores.filter(
           (score) => score.arm === arm && score.split === split,
         )
-        return group.length ? [{ arm, split, ...operations(group) }] : []
+        return group.length
+          ? [{ arm, split, ...operations(group, manifest.mode === "live") }]
+          : []
       }),
     ),
-    cost: {
-      totalUsd: input.answers.reduce(
-        (sum, answer) => sum + answer.calls.costUsd,
-        0,
-      ),
-      byArm,
-    },
+    costUsd: input.answers.reduce(
+      (sum, answer) => sum + answer.calls.costUsd,
+      0,
+    ),
     questions: scores.map((score) => {
       const kept = keptScores.get(`${score.arm}\0${score.question}`) ?? null
       return { ...score, kept, change: changeOf(score.metrics, kept) }
     }),
-    incomplete: input.answers
-      .filter((answer) => answer.incomplete)
-      .map(({ arm, question }) => ({ arm, question })),
+    incomplete: asked
+      .filter((question) => !complete(question.id))
+      .map((question) => question.id),
   }
 }
 
 const value = (number: number | null) =>
   number === null ? "n/a" : number.toFixed(3)
-const signed = (number: number | null | undefined) =>
-  number === null || number === undefined
-    ? "n/a"
-    : `${number >= 0 ? "+" : ""}${number.toFixed(3)}`
+const signed = (number: number | null) =>
+  number === null ? "n/a" : `${number >= 0 ? "+" : ""}${number.toFixed(3)}`
 const ms = (number: number | null) =>
   number === null ? "n/a" : `${Math.round(number)} ms`
 const usd = (number: number) => `$${number.toFixed(4)}`
 
 /** The Markdown of a report. */
 export function renderMarkdown(report: Report): string {
-  const others = report.arms.filter((arm) => arm.id !== report.baselineArm.id)
   const lines = [
     "# Knowledge eval report",
     "",
@@ -176,45 +195,42 @@ export function renderMarkdown(report: Report): string {
     ...(report.run.stopped
       ? [
           "",
-          "**The spend cap stopped the run. The report holds only the answers before the stop.**",
+          "**The spend cap stopped the run. The report holds only the questions that both arms answered before the stop.**",
         ]
       : []),
     "",
-    `## Comparison with the ${report.baselineArm.name}`,
+    `## Comparison with the ${report.arms.baseline}`,
     "",
-    "Each arm ran the same questions on the same Workspaces, with the same requests and budgets. A change is the arm's value minus the baseline value.",
+    "Both arms ran the same questions on the same Workspaces, at the same SHA, with the same requests and budgets. The change is the plane value minus the baseline value.",
     "",
-    `| Split | Category | Questions | Metric | Baseline | ${others
-      .map((arm) => `${arm.name} | Change`)
-      .join(" | ")} |`,
-    `| --- | --- | ---: | --- | ---: | ${others.map(() => "---: | ---:").join(" | ")} |`,
+    `| Split | Category | Questions | Metric | Baseline | ${report.arms.plane} | Change |`,
+    "| --- | --- | ---: | --- | ---: | ---: | ---: |",
   ]
   for (const row of report.comparison)
     for (const metric of METRICS) {
-      const base = row.arms[report.baselineArm.id]?.[metric] ?? null
-      const values = others.map((arm) => row.arms[arm.id]?.[metric] ?? null)
-      if (base === null && values.every((item) => item === null)) continue
+      if (row.baseline[metric] === null && row.plane[metric] === null) continue
       lines.push(
-        `| ${row.split} | ${row.category} | ${row.questions} | ${METRIC_NAMES[metric]} | ${value(base)} | ${others
-          .map(
-            (arm, index) =>
-              `${value(values[index] ?? null)} | ${signed(row.change[arm.id]?.[metric])}`,
-          )
-          .join(" | ")} |`,
+        `| ${row.split} | ${row.category} | ${row.questions} | ${METRIC_NAMES[metric]} | ${value(row.baseline[metric])} | ${value(row.plane[metric])} | ${signed(row.change[metric])} |`,
       )
     }
   lines.push(
     "",
     "## Operations",
     "",
-    "| Arm | Split | Questions | Search p50 | Search p95 | get_related p50 | get_related p95 | Jev calls / question | Embedding calls / question | Cost | Errors |",
-    "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ...(report.run.mode === "replay"
+      ? [
+          "A replay answers each model call at once, so it gives no latency.",
+          "",
+        ]
+      : []),
+    "| Arm | Split | Questions | Search p50 | Search p95 | get_related p50 | get_related p95 | Jev calls / question | Embedding calls / question | Cost | Errors | Partial |",
+    "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ...report.operations.map(
       (row) =>
-        `| ${row.arm} | ${row.split} | ${row.questions} | ${ms(row.searchP50Ms)} | ${ms(row.searchP95Ms)} | ${ms(row.relatedP50Ms)} | ${ms(row.relatedP95Ms)} | ${row.jevCallsPerQuestion.toFixed(1)} | ${row.embeddingCallsPerQuestion.toFixed(1)} | ${usd(row.costUsd)} | ${row.errors} |`,
+        `| ${row.arm} | ${row.split} | ${row.questions} | ${ms(row.searchP50Ms)} | ${ms(row.searchP95Ms)} | ${ms(row.relatedP50Ms)} | ${ms(row.relatedP95Ms)} | ${row.jevCallsPerQuestion.toFixed(1)} | ${row.embeddingCallsPerQuestion.toFixed(1)} | ${usd(row.costUsd)} | ${row.errors} | ${row.partial} |`,
     ),
     "",
-    `Total model cost: ${usd(report.cost.totalUsd)}.`,
+    `Model cost: ${usd(report.costUsd)}${report.run.mode === "replay" ? " (the cost of the recorded calls when they were made)" : ""}.`,
     "",
     "## Changes against the kept run",
     "",
@@ -257,11 +273,11 @@ export function renderMarkdown(report: Report): string {
   if (report.incomplete.length)
     lines.push(
       "",
-      "## Incomplete answers",
+      "## Questions left out",
       "",
-      "The recording does not hold each model call of these answers, so the report leaves them out. Run them live to score them.",
+      "An arm has no complete answer to these questions: the spend cap stopped the run, or the recording of a replay does not hold each model call. Run them live to score them.",
       "",
-      ...report.incomplete.map((item) => `- ${item.question} (${item.arm})`),
+      ...report.incomplete.map((question) => `- ${question}`),
     )
   return `${lines.join("\n")}\n`
 }

@@ -11,20 +11,30 @@ import { resolveCallWorkspace } from "../../src/mcp/framework/call-workspace.js"
 import { McpToolError } from "../../src/mcp/framework/tool-errors.js"
 import { getRelatedInputShape } from "../../src/mcp/tools/get-related.js"
 import { readyKnowledgeShas } from "../../src/models/knowledge-state.js"
-import type { Dataset, Position, Question } from "./dataset.js"
-import type { CallCounts, ModelCalls, RecordedCall } from "./model-calls.js"
+import { POSITION_STATUSES } from "../../src/retrieval/jev/disagreement.js"
+import { type Dataset, datasetSchema, type Question } from "./dataset.js"
+import {
+  callCountsSchema,
+  type ModelCalls,
+  type RecordedCall,
+  recordedCallSchema,
+} from "./model-calls.js"
 
 /*
  * One eval run (ADR-069 decision 7): each question of the dataset, through
- * each arm, through the `KnowledgeReader` seam of the tools. Each arm gets
- * the same Workspace, the same question and the same request, so the
- * comparison is fair.
+ * both arms, through the `KnowledgeReader` seam of the tools. Both arms get
+ * the same Workspace, at the frozen SHA of the corpus, the same question and
+ * the same request, so the comparison is fair.
  *
  * The agent-task level of ADR-069 decision 6 (CTX-1117) comes later. It
  * reads the answers of `answers.jsonl`, or it adds one more step to `ask`.
  */
 
-/** The arms of ADR-069 decision 1. The first one is the baseline arm. */
+/**
+ * The two arms (a CTO decision): the baseline, which is the current stack,
+ * and the knowledge plane. Only the plane has Jev's p(answers) as its score
+ * and gives positions.
+ */
 export const ARMS = ["legacy", "plane"] as const
 export type Arm = (typeof ARMS)[number]
 
@@ -32,9 +42,6 @@ export const ARM_NAMES: Record<Arm, string> = {
   legacy: "baseline: current stack (Postgres + FalkorDB)",
   plane: "knowledge plane (ClickHouse + Jev)",
 }
-
-/** The search of each question asks for this many hits (search recall@50). */
-export const SEARCH_LIMIT = 50
 
 /** The Workspace of a corpus fixture id, in the database of the run. */
 export const targetsSchema = z.record(
@@ -81,42 +88,58 @@ export function applySettings(settings: Settings): () => void {
   }
 }
 
-type Ranked = {
-  refs: string[]
-  scores: number[]
-  partialReason?: string
-  latencyMs: number
-}
+/** A call that failed: the kind of the failure, and its latency. */
+const callFailureSchema = z.object({ error: z.string(), latencyMs: z.number() })
 
-/** The answer of one arm to one question. */
-export type ArmAnswer = {
-  arm: Arm
-  question: string
-  search: Ranked | { error: string; latencyMs: number }
+const rankedSchema = z.object({
+  refs: z.array(z.string()),
+  scores: z.array(z.number()),
+  partialReason: z.string().optional(),
+  latencyMs: z.number(),
+})
+
+/** The answer of one arm to one question (`answers.jsonl`). */
+const armAnswerSchema = z.object({
+  arm: z.enum(ARMS),
+  question: z.string(),
+  search: z.union([rankedSchema, callFailureSchema]),
   /** Only for a question with seeds. */
-  related?:
-    | (Ranked & { positions?: Position[] })
-    | { error: string; latencyMs: number }
-  calls: CallCounts
+  related: z
+    .union([
+      rankedSchema.extend({
+        positions: z
+          .array(
+            z.object({
+              refs: z.array(z.string()),
+              status: z.enum(POSITION_STATUSES),
+            }),
+          )
+          .optional(),
+      }),
+      callFailureSchema,
+    ])
+    .optional(),
+  calls: callCountsSchema,
   /** Replay only: the recording did not hold each call of this answer. */
-  incomplete?: true
-}
+  incomplete: z.literal(true).optional(),
+})
+export type ArmAnswer = z.infer<typeof armAnswerSchema>
 
-/** The facts of a run, for the report and for `rescore`. */
-export type Manifest = {
-  datasetVersion: string
-  arms: Arm[]
-  splits: ("dev" | "holdout")[]
+/** The facts of a run, for the report and for `rescore` (`manifest.json`). */
+const manifestSchema = z.object({
+  datasetVersion: z.string(),
+  splits: z.array(z.enum(["dev", "holdout"])),
   /** The query time of each question, so that a replay sends the same requests. */
-  now: string
-  settings: Settings
+  now: z.iso.datetime(),
+  settings: z.record(z.string(), z.number()),
   /** The effective settings of the loop. */
-  loop: typeof ORCHESTRATOR_DEFAULTS
-  mode: "live" | "replay"
-  capUsd: number
-  spentUsd: number
-  stopped: boolean
-}
+  loop: z.object({ keepAt: z.number() }).catchall(z.number()),
+  mode: z.enum(["live", "replay"]),
+  capUsd: z.number(),
+  spentUsd: z.number(),
+  stopped: z.boolean(),
+})
+export type Manifest = z.infer<typeof manifestSchema>
 
 /** The kind of a failure, for the answer. */
 function failure(error: unknown): string {
@@ -126,17 +149,22 @@ function failure(error: unknown): string {
 
 const relatedInput = z.object(getRelatedInputShape)
 
-/** The Workspace of each corpus, with the SHA that each stack serves. */
-async function resolveWorkspaces(dataset: Dataset, targets: Targets) {
-  const resolved = new Map<
-    string,
-    {
-      org: { id: string; slug: string }
-      workspace: { id: string; slug: string }
-      legacySha: string
-      planeSha: string | undefined
-    }
-  >()
+/** The org and the Workspace of a corpus, as the readers take them. */
+type EvalTarget = {
+  org: { id: string; slug: string }
+  workspace: { id: string; slug: string }
+}
+
+/**
+ * The Workspace of each corpus. Both stacks must serve the frozen SHA of the
+ * corpus, so that both arms read the same context repo that the gold labels
+ * describe (ADR-069 decision 4).
+ */
+async function resolveWorkspaces(
+  dataset: Dataset,
+  targets: Targets,
+): Promise<Map<string, EvalTarget & { sha: string }>> {
+  const resolved = new Map<string, EvalTarget & { sha: string }>()
   for (const corpus of dataset.corpora) {
     const target = targets[corpus.workspace]
     if (!target)
@@ -145,31 +173,32 @@ async function resolveWorkspaces(dataset: Dataset, targets: Targets) {
       )
     const org = { id: target.orgId, slug: target.orgSlug }
     const workspace = await resolveCallWorkspace(org, target.workspace)
-    if (!workspace.served)
+    const plane = (await readyKnowledgeShas(org.id, [workspace.id])).get(
+      workspace.id,
+    )
+    const { sha } = corpus.contextRepo
+    if (workspace.served?.sha !== sha || plane !== sha)
       throw new Error(
-        `Workspace ${target.workspace} has no published revision.`,
+        `Workspace ${workspace.slug} must serve the frozen SHA ${sha} of ${corpus.id} on both stacks. The old stack serves ${workspace.served?.sha ?? "nothing"}, and the plane serves ${plane ?? "nothing"}.`,
       )
-    const shas = await readyKnowledgeShas(org.id, [workspace.id])
     resolved.set(corpus.id, {
       org,
       workspace: { id: workspace.id, slug: workspace.slug },
-      legacySha: workspace.served.sha,
-      planeSha: shas.get(workspace.id),
+      sha,
     })
   }
   return resolved
 }
 
 /**
- * Run each question of `questions` through each arm, one after the other, so
- * that each latency is the latency of one request. Stops at the spend cap of
- * `calls`; the answer that the cap stopped is not kept.
+ * Run each question of `questions` through both arms, one after the other,
+ * so that each latency is the latency of one request. Stops at the spend
+ * cap of `calls`; the answer that the cap stopped is not kept.
  */
 export async function runEval(input: {
   dataset: Dataset
   questions: readonly Question[]
   targets: Targets
-  arms: readonly Arm[]
   calls: ModelCalls
   now: Date
 }): Promise<ArmAnswer[]> {
@@ -179,20 +208,15 @@ export async function runEval(input: {
   for (const question of input.questions) {
     const target = workspaces.get(question.corpus)
     if (!target) throw new Error(`No Workspace for ${question.corpus}.`)
-    for (const arm of input.arms) {
-      const sha = arm === "legacy" ? target.legacySha : target.planeSha
-      if (!sha)
-        throw new Error(
-          `Workspace ${target.workspace.slug} is not ready on the knowledge plane.`,
-        )
+    for (const arm of ARMS) {
       const reader: KnowledgeReader =
         arm === "legacy"
           ? legacyKnowledgeReader
           : planeKnowledgeReader({
-              shas: new Map([[target.workspace.id, sha]]),
+              shas: new Map([[target.workspace.id, target.sha]]),
             })
       calls.begin(arm, question.id)
-      const answer = await ask(reader, question, target, sha, now)
+      const answer = await ask(reader, question, target, now)
       const counts = calls.end()
       if (calls.stopped) return answers
       answers.push({
@@ -211,11 +235,7 @@ export async function runEval(input: {
 async function ask(
   reader: KnowledgeReader,
   question: Question,
-  target: {
-    org: { id: string; slug: string }
-    workspace: { id: string; slug: string }
-  },
-  sha: string,
+  target: EvalTarget & { sha: string },
   now: Date,
 ): Promise<Pick<ArmAnswer, "search" | "related">> {
   const validAt = question.validAt ? new Date(question.validAt) : undefined
@@ -226,7 +246,8 @@ async function ask(
       orgId: target.org.id,
       workspaceIds: [target.workspace.id],
       query: question.text,
-      limit: SEARCH_LIMIT,
+      // The most that a search gives: search recall@50 reads all of it.
+      limit: 50,
       ...(validAt ? { validAt } : {}),
     })
     search = {
@@ -245,12 +266,11 @@ async function ask(
     const ranking = await reader.related({
       org: target.org,
       workspace: target.workspace,
-      sha,
+      sha: target.sha,
       input: relatedInput.parse({
         workspace: target.workspace.slug,
         seeds: question.seeds,
         query: question.text,
-        intent: question.intent ?? "general",
         validAt: (validAt ?? now).toISOString(),
         // A seed can hold one of the positions. The traversal recall
         // counts only the gold documents that are not seeds.
@@ -280,14 +300,22 @@ async function ask(
   return { search, related }
 }
 
-const jsonl = (rows: readonly unknown[]) =>
-  rows.map((row) => JSON.stringify(row)).join("\n") + (rows.length ? "\n" : "")
+/** Write `value` as indented JSON. */
+export const writeJson = (file: string, value: unknown) =>
+  writeFile(file, `${JSON.stringify(value, null, 2)}\n`)
 
-const readJsonl = async <T>(file: string): Promise<T[]> =>
+/** Read a JSON file. */
+export const readJson = async (file: string): Promise<unknown> =>
+  JSON.parse(await readFile(file, "utf8"))
+
+const jsonl = (rows: readonly unknown[]) =>
+  rows.map((row) => `${JSON.stringify(row)}\n`).join("")
+
+const readJsonl = async <T>(file: string, schema: z.ZodType<T>) =>
   (await readFile(file, "utf8"))
     .split("\n")
     .filter(Boolean)
-    .map((line) => JSON.parse(line) as T)
+    .map((line) => schema.parse(JSON.parse(line)))
 
 /**
  * The run folder: `manifest.json`, the dataset and the targets of the run,
@@ -305,23 +333,22 @@ export async function writeRun(
   },
 ): Promise<void> {
   await mkdir(folder, { recursive: true })
-  const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`
-  await writeFile(join(folder, "manifest.json"), json(run.manifest))
-  await writeFile(join(folder, "dataset.json"), json(run.dataset))
-  await writeFile(join(folder, "targets.json"), json(run.targets))
+  await writeJson(join(folder, "manifest.json"), run.manifest)
+  await writeJson(join(folder, "dataset.json"), run.dataset)
+  await writeJson(join(folder, "targets.json"), run.targets)
   await writeFile(join(folder, "answers.jsonl"), jsonl(run.answers))
   await writeFile(join(folder, "calls.jsonl"), jsonl(run.calls))
 }
 
-/** Read a run folder that `writeRun` wrote. */
+/** Read and check a run folder that `writeRun` wrote. */
 export async function readRun(folder: string) {
-  const json = async (name: string) =>
-    JSON.parse(await readFile(join(folder, name), "utf8")) as unknown
   return {
-    manifest: (await json("manifest.json")) as Manifest,
-    dataset: (await json("dataset.json")) as Dataset,
-    targets: targetsSchema.parse(await json("targets.json")),
-    answers: await readJsonl<ArmAnswer>(join(folder, "answers.jsonl")),
-    calls: await readJsonl<RecordedCall>(join(folder, "calls.jsonl")),
+    manifest: manifestSchema.parse(
+      await readJson(join(folder, "manifest.json")),
+    ),
+    dataset: datasetSchema.parse(await readJson(join(folder, "dataset.json"))),
+    targets: targetsSchema.parse(await readJson(join(folder, "targets.json"))),
+    answers: await readJsonl(join(folder, "answers.jsonl"), armAnswerSchema),
+    calls: await readJsonl(join(folder, "calls.jsonl"), recordedCallSchema),
   }
 }

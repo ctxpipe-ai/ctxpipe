@@ -45,6 +45,8 @@ export type QuestionScore = {
   costUsd: number
   /** The failure of the search or of `get_related`. */
   error?: string
+  /** The search or `get_related` gave a partial answer (for example a timeout). */
+  partial: boolean
 }
 
 /** recall@k: the share of the gold documents in the first k refs. */
@@ -103,7 +105,8 @@ export function percentile(
  * Score one answer. `keepAt` is the p(answers) from which the plane keeps a
  * hit: a plane search says "no answer" when no Jev-judged hit reaches it.
  * The old stack has no such threshold, so it says "no answer" only with no
- * hit. Only the plane gives positions.
+ * hit. A search that failed or that the time budget cut gets no credit for
+ * "no answer". Only the plane gives positions.
  */
 export function scoreAnswer(
   question: Question,
@@ -142,7 +145,11 @@ export function scoreAnswer(
         question.seeds && targets.size > 0
           ? recallAt(related?.refs ?? [], targets, Number.POSITIVE_INFINITY)
           : null,
-      noAnswer: noAnswer ? (search && kept === 0 ? 1 : 0) : null,
+      noAnswer: noAnswer
+        ? search && search.partialReason !== "total_timeout" && kept === 0
+          ? 1
+          : 0
+        : null,
       positions:
         question.positions && answer.arm === "plane"
           ? positionsCorrect(question.positions, related?.positions ?? [])
@@ -154,6 +161,7 @@ export function scoreAnswer(
     embeddingCalls: answer.calls.embedding,
     costUsd: answer.calls.costUsd,
     ...(errors.length ? { error: errors.join("; ") } : {}),
+    partial: Boolean(search?.partialReason || related?.partialReason),
   }
 }
 
@@ -171,32 +179,50 @@ export function meanMetrics(scores: readonly QuestionScore[]): MetricValues {
   return values
 }
 
-/** The operations guards of a group of answers. */
-export function operations(scores: readonly QuestionScore[]) {
-  const related = scores
-    .map((score) => score.relatedMs)
-    .filter((value): value is number => value !== null)
+/**
+ * The operations guards of a group of answers. A replay answers each model
+ * call at once, so its latency is no guard: `measured` is then false and
+ * each latency is null.
+ */
+export function operations(
+  scores: readonly QuestionScore[],
+  measured: boolean,
+) {
+  const latency = (values: (number | null)[], p: number) =>
+    measured
+      ? percentile(
+          values.filter((value): value is number => value !== null),
+          p,
+        )
+      : null
   const sum = (pick: (score: QuestionScore) => number) =>
     scores.reduce((total, score) => total + pick(score), 0)
   const perQuestion = (total: number) =>
     scores.length ? total / scores.length : 0
   return {
     questions: scores.length,
-    searchP50Ms: percentile(
+    searchP50Ms: latency(
       scores.map((score) => score.searchMs),
       50,
     ),
-    searchP95Ms: percentile(
+    searchP95Ms: latency(
       scores.map((score) => score.searchMs),
       95,
     ),
-    relatedP50Ms: percentile(related, 50),
-    relatedP95Ms: percentile(related, 95),
+    relatedP50Ms: latency(
+      scores.map((score) => score.relatedMs),
+      50,
+    ),
+    relatedP95Ms: latency(
+      scores.map((score) => score.relatedMs),
+      95,
+    ),
     jevCallsPerQuestion: perQuestion(sum((score) => score.jevCalls)),
     embeddingCallsPerQuestion: perQuestion(
       sum((score) => score.embeddingCalls),
     ),
     costUsd: sum((score) => score.costUsd),
     errors: scores.filter((score) => score.error).length,
+    partial: scores.filter((score) => score.partial).length,
   }
 }

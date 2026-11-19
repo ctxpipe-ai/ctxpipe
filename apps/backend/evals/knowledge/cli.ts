@@ -1,8 +1,8 @@
 /**
  * The knowledge-plane evals (ADR-069 decisions 5 to 7). Run from
  * `apps/backend`, with the backend environment of the database that holds
- * the eval Workspaces (`DATABASE_URL`, `GRAPH_DB_URI`, `CLICKHOUSE_URL`, and
- * the model settings `MODEL_PROVIDER_*`):
+ * the eval Workspaces (`DATABASE_URL`, `AUTH_SECRET`, `GRAPH_DB_URI`,
+ * `CLICKHOUSE_URL`, and the model settings `MODEL_PROVIDER_*`):
  *
  *   bun evals/knowledge/cli.ts run --dataset FILE --targets FILE --out DIR \
  *     [--split dev|holdout] [--cap-usd 5] [--set NAME=VALUE] [--kept REPORT]
@@ -12,10 +12,10 @@
  *     --models A,B,C --out FILE [--cap-usd 5]
  *
  * See README.md. Exit code 0: done. 2: bad setup. 3: the spend cap stopped
- * the run (the report holds the answers before the stop).
+ * the command (the output holds the work before the stop).
  */
 import { execFile } from "node:child_process"
-import { readFile, writeFile } from "node:fs/promises"
+import { writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { parseArgs, promisify } from "node:util"
 
@@ -23,25 +23,38 @@ import { closeDb, initDb } from "../../src/db/client.js"
 import { ORCHESTRATOR_DEFAULTS } from "../../src/knowledge-reader/orchestrator.js"
 import { initEvlog } from "../../src/observability/logger.js"
 import { closeGraphDb } from "../../src/platform/graph/client.js"
+import { DEFAULT_OPENROUTER_BASE } from "../../src/retrieval/services/modelProvider.js"
 import { type Dataset, readDataset } from "./dataset.js"
 import { ModelCalls, type RecordedCall } from "./model-calls.js"
 import { labelWithPanel } from "./panel.js"
-import { buildReport, renderMarkdown, type Report } from "./report.js"
 import {
-  ARMS,
+  buildReport,
+  type KeptRun,
+  keptRunSchema,
+  renderMarkdown,
+  type Report,
+} from "./report.js"
+import {
   applySettings,
   type Manifest,
   parseSettings,
+  readJson,
   readRun,
   runEval,
   type Settings,
   type Targets,
   targetsSchema,
+  writeJson,
   writeRun,
 } from "./runner.js"
 
-/** The default spend cap of a run, in USD. */
-const DEFAULT_CAP_USD = 5
+/** The model calls go to `MODEL_PROVIDER_URL`, as in the readers. */
+const modelCalls = (capUsd: number, replay?: readonly RecordedCall[]) =>
+  new ModelCalls(
+    process.env.MODEL_PROVIDER_URL || DEFAULT_OPENROUTER_BASE,
+    capUsd,
+    replay,
+  )
 
 /**
  * Run the questions of `splits` through both arms, then write the run folder
@@ -56,15 +69,10 @@ export async function executeRun(input: {
   capUsd: number
   now: Date
   out: string
-  kept: Report | null
+  kept: KeptRun | null
   replay?: readonly RecordedCall[]
-  env: Record<string, string | undefined>
 }): Promise<Report> {
-  const calls = new ModelCalls(
-    input.env.MODEL_PROVIDER_URL || "https://openrouter.ai/api/v1",
-    input.capUsd,
-    input.replay,
-  )
+  const calls = modelCalls(input.capUsd, input.replay)
   const restoreSettings = applySettings(input.settings)
   const restoreFetch = calls.install()
   try {
@@ -74,13 +82,11 @@ export async function executeRun(input: {
         input.splits.includes(question.split),
       ),
       targets: input.targets,
-      arms: ARMS,
       calls,
       now: input.now,
     })
     const manifest: Manifest = {
       datasetVersion: input.dataset.version,
-      arms: [...ARMS],
       splits: input.splits,
       now: input.now.toISOString(),
       settings: input.settings,
@@ -103,10 +109,7 @@ export async function executeRun(input: {
       answers,
       kept: input.kept,
     })
-    await writeFile(
-      join(input.out, "report.json"),
-      `${JSON.stringify(report, null, 2)}\n`,
-    )
+    await writeJson(join(input.out, "report.json"), report)
     await writeFile(join(input.out, "report.md"), renderMarkdown(report))
     return report
   } finally {
@@ -117,8 +120,51 @@ export async function executeRun(input: {
 
 class SetupError extends Error {}
 
-const readJson = async (file: string) =>
-  JSON.parse(await readFile(file, "utf8")) as unknown
+/** Label a draft with the judge panel. Returns the exit code. */
+async function label(values: {
+  draft?: string
+  repo?: string
+  models?: string
+  out: string
+  capUsd: number
+}): Promise<number> {
+  if (!values.draft || !values.repo || !values.models)
+    throw new SetupError("label needs --draft, --repo and --models.")
+  const repo = values.repo
+  const draft = await readDataset(values.draft)
+  const shas = new Map(
+    draft.corpora.map((corpus) => [corpus.id, corpus.contextRepo.sha]),
+  )
+  const calls = modelCalls(values.capUsd)
+  const restore = calls.install()
+  try {
+    const labeled = await labelWithPanel({
+      draft,
+      models: values.models.split(",").filter(Boolean),
+      read: async (corpus, ref) =>
+        (
+          await promisify(execFile)("git", [
+            "-C",
+            repo,
+            "show",
+            `${shas.get(corpus)}:${ref}`,
+          ])
+        ).stdout,
+      env: process.env,
+      stopped: () => calls.stopped,
+    })
+    await writeJson(values.out, labeled.dataset)
+    await writeJson(`${values.out}.votes.json`, {
+      votes: labeled.votes,
+      dropped: labeled.dropped,
+      stopped: labeled.stopped,
+      spentUsd: calls.spentUsd,
+    })
+    return labeled.stopped ? 3 : 0
+  } finally {
+    restore()
+  }
+}
 
 async function main(argv: string[]): Promise<number> {
   const [command, ...rest] = argv
@@ -130,7 +176,8 @@ async function main(argv: string[]): Promise<number> {
       out: { type: "string" },
       from: { type: "string" },
       split: { type: "string" },
-      "cap-usd": { type: "string" },
+      // The default spend cap of a command, in USD.
+      "cap-usd": { type: "string", default: "5" },
       set: { type: "string", multiple: true },
       kept: { type: "string" },
       draft: { type: "string" },
@@ -138,55 +185,19 @@ async function main(argv: string[]): Promise<number> {
       models: { type: "string" },
     },
   })
-  const capUsd = Number(values["cap-usd"] ?? DEFAULT_CAP_USD)
+  const capUsd = Number(values["cap-usd"])
   if (!Number.isFinite(capUsd) || capUsd < 0)
     throw new SetupError("--cap-usd needs a number of 0 or more.")
   if (!values.out) throw new SetupError("Give --out.")
   const out = values.out
-
-  if (command === "label") {
-    if (!values.draft || !values.repo || !values.models)
-      throw new SetupError("label needs --draft, --repo and --models.")
-    const repo = values.repo
-    const draft = await readDataset(values.draft)
-    const shas = new Map(
-      draft.corpora.map((corpus) => [corpus.id, corpus.contextRepo.sha]),
-    )
-    const calls = new ModelCalls(
-      process.env.MODEL_PROVIDER_URL || "https://openrouter.ai/api/v1",
-      capUsd,
-    )
-    const restore = calls.install()
-    try {
-      const labeled = await labelWithPanel({
-        draft,
-        models: values.models.split(",").filter(Boolean),
-        read: async (corpus, ref) =>
-          (
-            await promisify(execFile)("git", [
-              "-C",
-              repo,
-              "show",
-              `${shas.get(corpus)}:${ref}`,
-            ])
-          ).stdout,
-        env: process.env,
-      })
-      await writeFile(out, `${JSON.stringify(labeled.dataset, null, 2)}\n`)
-      await writeFile(
-        `${out}.votes.json`,
-        `${JSON.stringify({ votes: labeled.votes, dropped: labeled.dropped, spentUsd: calls.spentUsd }, null, 2)}\n`,
-      )
-    } finally {
-      restore()
-    }
-    return calls.stopped ? 3 : 0
-  }
+  if (command === "label") return label({ ...values, out, capUsd })
 
   if (command !== "run" && command !== "rescore")
     throw new SetupError("Use the command run, rescore or label.")
   if (!process.env.DATABASE_URL) throw new SetupError("Set DATABASE_URL.")
-  const kept = values.kept ? ((await readJson(values.kept)) as Report) : null
+  const kept = values.kept
+    ? keptRunSchema.parse(await readJson(values.kept))
+    : null
   const settings = parseSettings(values.set ?? [])
   initDb(process.env.DATABASE_URL)
   try {
@@ -204,7 +215,6 @@ async function main(argv: string[]): Promise<number> {
         out,
         kept,
         replay: recorded.calls,
-        env: process.env,
       })
     } else {
       if (!values.dataset || !values.targets)
@@ -224,7 +234,6 @@ async function main(argv: string[]): Promise<number> {
         now: new Date(),
         out,
         kept,
-        env: process.env,
       })
     }
     process.stdout.write(`The report is in ${join(out, "report.md")}.\n`)

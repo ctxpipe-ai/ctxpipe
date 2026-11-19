@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises"
 
 import { z } from "zod"
 
-import { RELEVANCE_INTENTS } from "../../src/domain/workspaces/graph-relevance.js"
+import { POSITION_STATUSES } from "../../src/retrieval/jev/disagreement.js"
 
 /*
  * The question set of the knowledge-plane evals (ADR-069 decision 5),
@@ -20,14 +20,6 @@ export const CATEGORIES = [
   "disagreement",
   "image",
   "no-answer",
-] as const
-
-/** The status of a position, as the disagreement step of ADR-068 gives it. */
-export const POSITION_STATUSES = [
-  "current",
-  "superseded",
-  "disputed",
-  "scoped",
 ] as const
 
 const id = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/)
@@ -77,7 +69,6 @@ const questionSchema = z.strictObject({
    * the traversal recall and, with `positions`, the positions.
    */
   seeds: z.array(path).min(1).max(10).optional(),
-  intent: z.enum(RELEVANCE_INTENTS).optional(),
   /** The time of the question, for a `time` question. */
   validAt: z.iso.datetime({ offset: true }).optional(),
   /** The expected positions of a `disagreement` question. */

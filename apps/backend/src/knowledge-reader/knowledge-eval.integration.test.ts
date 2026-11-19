@@ -36,13 +36,15 @@ import { dropOrgGraph, seedRelatedWorkspace } from "../test/related-fixture.js"
  */
 
 const MODEL_URL = "https://eval-model.test/v1"
-const legacySha = "c".repeat(40)
-const planeSha = "d".repeat(40)
 const now = new Date("2026-11-19T00:00:00Z")
-const datasetFile = new URL(
-  "../../evals/knowledge/fixtures/ctxpipe-memory.dataset.json",
-  import.meta.url,
+const dataset = await readDataset(
+  new URL(
+    "../../evals/knowledge/fixtures/ctxpipe-memory.dataset.json",
+    import.meta.url,
+  ).pathname,
 )
+/** Both stacks serve the frozen SHA of the corpus. */
+const frozenSha = dataset.corpora[0]?.contextRepo.sha ?? ""
 
 type Unit = {
   path: string
@@ -242,7 +244,7 @@ const run = async (
   options: Partial<Parameters<typeof executeRun>[0]> = {},
 ) =>
   executeRun({
-    dataset: await readDataset(datasetFile.pathname),
+    dataset,
     targets,
     splits: ["dev", "holdout"],
     settings: {},
@@ -250,7 +252,6 @@ const run = async (
     now,
     out: join(folder, name),
     kept: null,
-    env: { MODEL_PROVIDER_URL: MODEL_URL },
     ...options,
   })
 
@@ -263,7 +264,6 @@ describe("the knowledge eval harness", () => {
     // ClickHouse and FalkorDB are real servers.
     models.listen({ onUnhandledRequest: "bypass" })
     folder = await mkdtemp(join(tmpdir(), "knowledge-eval-"))
-    const dataset = await readDataset(datasetFile.pathname)
     const titleOf = new Map(units.map((unit) => [unit.path, unit.title]))
     goldTitlesByQuestion = new Map(
       dataset.questions.map((question) => [
@@ -283,7 +283,7 @@ describe("the knowledge eval harness", () => {
     const { workspaceId } = await seedRelatedWorkspace({
       seed,
       slug: "memory",
-      sha: legacySha,
+      sha: frozenSha,
       units: units.map((unit) => ({
         ...unit,
         body: `# ${unit.title}\n\n${unit.body}`,
@@ -319,11 +319,11 @@ describe("the knowledge eval harness", () => {
     } finally {
       await writer.close()
     }
-    await beginKnowledgeRun({ orgId: seed.orgId, workspaceId, tip: planeSha })
+    await beginKnowledgeRun({ orgId: seed.orgId, workspaceId, tip: frozenSha })
     await completeKnowledgeRun({
       orgId: seed.orgId,
       workspaceId,
-      tip: planeSha,
+      tip: frozenSha,
       projectionVersion: "test",
       failedCount: 0,
     })
@@ -360,15 +360,17 @@ describe("the knowledge eval harness", () => {
         .map((row) => [
           row.split,
           Object.fromEntries(
-            Object.entries(row.arms).map(([arm, metrics]) => [
-              arm,
-              Object.fromEntries(
-                Object.entries(metrics).map(([metric, value]) => [
-                  metric,
-                  value === null ? null : Number(value.toFixed(3)),
-                ]),
-              ),
-            ]),
+            Object.entries({ legacy: row.baseline, plane: row.plane }).map(
+              ([arm, metrics]) => [
+                arm,
+                Object.fromEntries(
+                  Object.entries(metrics).map(([metric, value]) => [
+                    metric,
+                    value === null ? null : Number(value.toFixed(3)),
+                  ]),
+                ),
+              ],
+            ),
           ),
         ]),
     ),
@@ -378,8 +380,9 @@ describe("the knowledge eval harness", () => {
       jev: row.jevCallsPerQuestion,
       embedding: row.embeddingCallsPerQuestion,
       errors: row.errors,
+      partial: row.partial,
     })),
-    costUsd: Number(report.cost.totalUsd.toFixed(4)),
+    costUsd: Number(report.costUsd.toFixed(4)),
   })
 
   it("runs each question through both arms and writes the run folder and the report", async () => {
@@ -429,10 +432,38 @@ describe("the knowledge eval harness", () => {
       // pairs and the statuses). Embeddings: 1 for a search, 1 for
       // get_related.
       calls: [
-        { arm: "legacy", split: "dev", jev: 0, embedding: 1.375, errors: 0 },
-        { arm: "legacy", split: "holdout", jev: 0, embedding: 1.5, errors: 0 },
-        { arm: "plane", split: "dev", jev: 2.625, embedding: 1.375, errors: 0 },
-        { arm: "plane", split: "holdout", jev: 3.5, embedding: 1.5, errors: 0 },
+        {
+          arm: "legacy",
+          split: "dev",
+          jev: 0,
+          embedding: 1.375,
+          errors: 0,
+          partial: 0,
+        },
+        {
+          arm: "legacy",
+          split: "holdout",
+          jev: 0,
+          embedding: 1.5,
+          errors: 0,
+          partial: 0,
+        },
+        {
+          arm: "plane",
+          split: "dev",
+          jev: 2.625,
+          embedding: 1.375,
+          errors: 0,
+          partial: 0,
+        },
+        {
+          arm: "plane",
+          split: "holdout",
+          jev: 3.5,
+          embedding: 1.5,
+          errors: 0,
+          partial: 0,
+        },
       ],
       // 35 Jev calls at $0.001, and 34 embedding calls with no cost in the
       // answer, at the upper estimate of $0.001.
@@ -492,15 +523,37 @@ describe("the knowledge eval harness", () => {
     ).toBe(1)
   })
 
-  it("stops at the spend cap and keeps the answers before the stop", async () => {
+  it("stops at the spend cap and compares only the questions that both arms answered", async () => {
     const stopped = await run("capped", { capUsd: 0.005 })
     expect(stopped.run.stopped).toBe(true)
-    expect(stopped.run.spentUsd).toBeGreaterThanOrEqual(0.005)
+    // Each call in flight holds its upper cost, so the spend stays in the cap.
+    expect(stopped.run.spentUsd).toBeGreaterThan(0)
+    expect(stopped.run.spentUsd).toBeLessThanOrEqual(0.005)
     const recorded = await readRun(join(folder, "capped"))
     expect(recorded.answers.length).toBeGreaterThan(0)
     expect(recorded.answers.length).toBeLessThan(24)
+    const scored = stopped.questions.map((question) => question.question)
+    expect(scored.length).toBeGreaterThan(0)
+    for (const question of new Set(scored))
+      expect(scored.filter((id) => id === question)).toHaveLength(2)
     expect(
       await readFile(join(folder, "capped", "report.md"), "utf8"),
     ).toContain("The spend cap stopped the run.")
+  })
+
+  it("refuses a Workspace that does not serve the frozen SHA of the corpus", async () => {
+    const before = { ...requests }
+    await expect(
+      run("other-sha", {
+        dataset: {
+          ...dataset,
+          corpora: dataset.corpora.map((corpus) => ({
+            ...corpus,
+            contextRepo: { ...corpus.contextRepo, sha: "f".repeat(40) },
+          })),
+        },
+      }),
+    ).rejects.toThrow(/must serve the frozen SHA f{40}/)
+    expect(requests).toEqual(before)
   })
 })

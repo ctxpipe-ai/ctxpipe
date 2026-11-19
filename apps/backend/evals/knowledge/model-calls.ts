@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto"
 
+import { z } from "zod"
+
 import { gatewayCost } from "../../src/observability/gatewayCost.js"
 
 /*
@@ -7,47 +9,49 @@ import { gatewayCost } from "../../src/observability/gatewayCost.js"
  * stacks, and the judge panel. They all go to the model provider
  * (`MODEL_PROVIDER_URL`). The run puts this recorder in front of `fetch`, so
  * the readers stay as they are. The recorder:
- * - keeps each request and its raw answer, so that a later run can replay
- *   them with no new call (`rescore`);
+ * - keeps each Jev and embedding request and its raw answer, so that a later
+ *   run can replay them with no new call (`rescore`);
  * - counts the calls and the cost of each arm and question;
  * - stops at the spend cap.
  */
 
-export type CallKind = "jev" | "embedding" | "panel"
+type CallKind = "jev" | "embedding" | "panel"
 
 /** One model call, as the run folder keeps it (`calls.jsonl`). */
-export type RecordedCall = {
-  arm: string
-  question: string
-  kind: CallKind
+export const recordedCallSchema = z.object({
+  arm: z.string(),
+  question: z.string(),
+  kind: z.enum(["jev", "embedding"]),
   /** The SHA-256 of the kind and the request body: the replay key. */
-  key: string
-  request: unknown
-  status: number
-  /** The raw answer: the Jev probabilities, the vectors, the panel reply. */
-  response: string
-  costUsd: number
+  key: z.string(),
+  request: z.unknown(),
+  status: z.number().int(),
+  /** The raw answer: the Jev probabilities or the vectors. */
+  response: z.string(),
+  costUsd: z.number(),
   /** True when the answer had no cost, so `costUsd` is the upper estimate. */
-  estimated: boolean
-  latencyMs: number
-}
+  estimated: z.boolean(),
+  latencyMs: z.number(),
+})
+export type RecordedCall = z.infer<typeof recordedCallSchema>
 
 /** The calls of one arm on one question. */
-export type CallCounts = {
-  jev: number
-  embedding: number
-  panel: number
-  costUsd: number
+export const callCountsSchema = z.object({
+  jev: z.number(),
+  embedding: z.number(),
+  /** In a replay, the cost of the recorded calls when they were made. */
+  costUsd: z.number(),
   /** Replay only: calls that the recording does not hold. */
-  missing: number
-}
+  missing: z.number(),
+})
+export type CallCounts = z.infer<typeof callCountsSchema>
 
 /**
  * The cost of a call whose answer has no `usage.cost`: above the highest
  * cost that we saw for each kind (ADR-063 decision 5 for Jev and a panel
  * model). A missing cost never turns the spend cap off.
  */
-const UNKNOWN_COST_USD: Record<CallKind, number> = {
+const UPPER_COST_USD: Record<CallKind, number> = {
   jev: 0.002,
   embedding: 0.001,
   panel: 0.25,
@@ -56,7 +60,6 @@ const UNKNOWN_COST_USD: Record<CallKind, number> = {
 const emptyCounts = (): CallCounts => ({
   jev: 0,
   embedding: 0,
-  panel: 0,
   costUsd: 0,
   missing: 0,
 })
@@ -72,15 +75,27 @@ function kindOf(path: string): CallKind | null {
 const unavailable = (reason: string) =>
   Response.json({ error: { message: reason } }, { status: 503 })
 
+const parseOr = (text: string, fallback: unknown): unknown => {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return fallback
+  }
+}
+
 export class ModelCalls {
   readonly records: RecordedCall[] = []
+  /** The cost of the calls that went out. A replay sends none. */
   spentUsd = 0
   /** True after the spend cap stopped a call. The run then stops. */
   stopped = false
+  /** The upper cost of the calls that are in flight. */
+  private reservedUsd = 0
   private context = { arm: "", question: "" }
   private counts = emptyCounts()
   private readonly origin: string
-  private readonly replay: Map<string, RecordedCall> | null
+  /** The recorded answers of each arm, question and request, in order. */
+  private readonly replay: Map<string, RecordedCall[]> | null
 
   /**
    * `baseUrl` is `MODEL_PROVIDER_URL`. `capUsd` is the spend cap of the run.
@@ -92,9 +107,11 @@ export class ModelCalls {
     replay?: readonly RecordedCall[],
   ) {
     this.origin = new URL(baseUrl).origin
-    this.replay = replay
-      ? new Map(replay.map((call) => [call.key, call]))
-      : null
+    this.replay = replay ? new Map() : null
+    for (const call of replay ?? []) {
+      const key = this.replayKey(call.arm, call.question, call.key)
+      this.replay?.set(key, [...(this.replay.get(key) ?? []), call])
+    }
   }
 
   /** Start counting the calls of `arm` on `question`. */
@@ -119,6 +136,10 @@ export class ModelCalls {
     }
   }
 
+  private replayKey(arm: string, question: string, key: string): string {
+    return `${arm}\0${question}\0${key}`
+  }
+
   private async handle(
     request: Request,
     next: typeof fetch,
@@ -128,59 +149,45 @@ export class ModelCalls {
     if (!kind) return next(request)
     const body = await request.clone().text()
     const key = createHash("sha256").update(`${kind}\n${body}`).digest("hex")
-    if (this.replay) {
-      const recorded = this.replay.get(key)
-      if (!recorded) {
-        this.counts.missing += 1
-        return unavailable("The recording holds no answer for this call.")
-      }
-      this.count(kind, 0)
-      this.records.push({
-        ...recorded,
-        arm: this.context.arm,
-        question: this.context.question,
-      })
-      return new Response(recorded.response, {
-        status: recorded.status,
-        headers: { "content-type": "application/json" },
-      })
-    }
-    if (this.spentUsd >= this.capUsd) {
+    if (this.replay) return this.replayed(kind, key)
+    // Each call in flight holds its upper cost, so that calls in parallel
+    // cannot pass the cap together.
+    if (this.spentUsd + this.reservedUsd + UPPER_COST_USD[kind] > this.capUsd) {
       this.stopped = true
       return unavailable("The spend cap of the eval run is spent.")
     }
+    this.reservedUsd += UPPER_COST_USD[kind]
     const started = performance.now()
-    const response = await next(request)
-    const text = await response.text()
+    let response: Response
+    let text: string
+    try {
+      response = await next(request)
+      text = await response.text()
+    } finally {
+      this.reservedUsd -= UPPER_COST_USD[kind]
+    }
     const latencyMs = performance.now() - started
-    let usage: unknown
-    try {
-      usage = (JSON.parse(text) as { usage?: unknown }).usage
-    } catch {
-      usage = undefined
-    }
+    const usage = (parseOr(text, {}) as { usage?: unknown } | null)?.usage
     const known = gatewayCost(usage)
-    const costUsd = known ?? UNKNOWN_COST_USD[kind]
+    const costUsd = known ?? UPPER_COST_USD[kind]
     this.spentUsd += costUsd
-    this.count(kind, costUsd)
-    let parsed: unknown = body
-    try {
-      parsed = JSON.parse(body)
-    } catch {
-      // Keep the body as text.
+    this.counts.costUsd += costUsd
+    // A panel reply is no retrieval answer: the votes file keeps it.
+    if (kind !== "panel") {
+      this.counts[kind] += 1
+      this.records.push({
+        arm: this.context.arm,
+        question: this.context.question,
+        kind,
+        key,
+        request: parseOr(body, body),
+        status: response.status,
+        response: text,
+        costUsd,
+        estimated: known === undefined,
+        latencyMs: Math.round(latencyMs),
+      })
     }
-    this.records.push({
-      arm: this.context.arm,
-      question: this.context.question,
-      kind,
-      key,
-      request: parsed,
-      status: response.status,
-      response: text,
-      costUsd,
-      estimated: known === undefined,
-      latencyMs: Math.round(latencyMs),
-    })
     // The text is decoded, so only the content type still applies.
     return new Response(text, {
       status: response.status,
@@ -191,8 +198,27 @@ export class ModelCalls {
     })
   }
 
-  private count(kind: CallKind, costUsd: number): void {
+  /**
+   * The recorded answer of a call: the answers of the same request of the
+   * same arm and question come in the recorded order, so a retry gets the
+   * answer that it got live. After the last one, the same request gets the
+   * last answer again.
+   */
+  private replayed(kind: CallKind, key: string): Response {
+    const queue = this.replay?.get(
+      this.replayKey(this.context.arm, this.context.question, key),
+    )
+    const recorded = queue && queue.length > 1 ? queue.shift() : queue?.[0]
+    if (kind === "panel" || !recorded) {
+      this.counts.missing += 1
+      return unavailable("The recording holds no answer for this call.")
+    }
     this.counts[kind] += 1
-    this.counts.costUsd += costUsd
+    this.counts.costUsd += recorded.costUsd
+    this.records.push(recorded)
+    return new Response(recorded.response, {
+      status: recorded.status,
+      headers: { "content-type": "application/json" },
+    })
   }
 }

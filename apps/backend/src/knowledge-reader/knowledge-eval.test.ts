@@ -129,23 +129,33 @@ describe("the judge panel", () => {
       "new.md": [true, "current"],
       "noise.md": [true, "none"],
       "lonely.md": [false, "none"],
+      "split-a.md": [true, "current"],
+      "split-b.md": [true, "current"],
     },
     "openai/judge-b": {
       "old.md": [true, "superseded"],
       "new.md": [true, "scoped"],
       "noise.md": [false, "none"],
       "lonely.md": [false, "none"],
+      "split-a.md": [true, "current"],
+      "split-b.md": [true, "superseded"],
     },
     "google/judge-c": {
       "old.md": [true, "current"],
       "new.md": [true, "current"],
       "noise.md": [false, "none"],
       "lonely.md": [true, "none"],
+      "split-a.md": [true, "current"],
+      "split-b.md": [true, "scoped"],
     },
   }
   const asked: string[] = []
+  /** From this call on, the endpoint answers 503, as the spend cap does. */
+  let capAt = Number.POSITIVE_INFINITY
   const server = setupServer(
     http.post(`${BASE}/chat/completions`, async ({ request }) => {
+      if (asked.length >= capAt)
+        return HttpResponse.json({ error: "capped" }, { status: 503 })
       const body = (await request.json()) as {
         model: string
         messages: { content: string }[]
@@ -205,18 +215,38 @@ describe("the judge panel", () => {
         gold: ["lonely.md"],
         keyFacts: ["It says nothing useful."],
       },
+      {
+        id: "split-vote",
+        corpus: "corpus",
+        category: "disagreement",
+        split: "dev",
+        text: "Which plan holds?",
+        gold: ["split-a.md", "split-b.md"],
+        seeds: ["split-a.md"],
+        positions: [
+          { refs: ["split-a.md"], status: "current" },
+          { refs: ["split-b.md"], status: "superseded" },
+        ],
+        keyFacts: ["Plan A holds."],
+      },
     ],
+  }
+  const env = {
+    MODEL_PROVIDER_API_KEY: "fixture-only",
+    MODEL_PROVIDER_URL: BASE,
   }
 
   it("keeps the gold documents and the statuses that most models give", async () => {
+    asked.length = 0
     const labeled = await labelWithPanel({
       draft,
       models: Object.keys(replies),
       read: async (_corpus, ref) => `The text of ${ref}.`,
-      env: { MODEL_PROVIDER_API_KEY: "fixture-only", MODEL_PROVIDER_URL: BASE },
+      env,
+      stopped: () => false,
     })
-    // 4 documents, 3 models each.
-    expect(asked).toHaveLength(12)
+    // 6 documents, 3 models each.
+    expect(asked).toHaveLength(18)
     expect(labeled.dataset.questions).toEqual([
       {
         ...draft.questions[0],
@@ -229,11 +259,43 @@ describe("the judge panel", () => {
         ],
       },
     ])
-    // No gold document is left, so the question is out.
-    expect(labeled.dropped).toEqual(["lonely"])
+    expect(labeled.dropped).toEqual([
+      // No gold document is left.
+      {
+        question: "lonely",
+        reason: "the question needs at least one gold document",
+      },
+      // Each model gives split-b.md another status: a person decides.
+      {
+        question: "split-vote",
+        reason:
+          "no majority status for split-b.md; a disagreement question needs at least two positions",
+      },
+    ])
+    expect(labeled.stopped).toBe(false)
     expect(
       labeled.votes.find((vote) => vote.ref === "noise.md")?.votes,
     ).toHaveLength(3)
+  })
+
+  it("stops at the spend cap and keeps the votes before the stop", async () => {
+    asked.length = 0
+    capAt = 4
+    try {
+      const labeled = await labelWithPanel({
+        draft,
+        models: Object.keys(replies),
+        read: async (_corpus, ref) => `The text of ${ref}.`,
+        env,
+        stopped: () => asked.length >= capAt,
+      })
+      expect(labeled.stopped).toBe(true)
+      // The first document got its 3 votes; the stop came in the second.
+      expect(labeled.votes.map((vote) => vote.ref)).toEqual(["old.md"])
+      expect(labeled.dataset.questions).toEqual([])
+    } finally {
+      capAt = Number.POSITIVE_INFINITY
+    }
   })
 
   it("needs an odd number of model families, and never Jev", () => {
