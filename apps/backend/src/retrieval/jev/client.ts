@@ -2,8 +2,10 @@
 // questions with probabilities through the OpenRouter Decisions API. The
 // request shape is the same as in the visual critic
 // (`packages/visual-review/src/adapters/jev.ts`), but this client also pins
-// the upstream provider (ADR-068 decision 7), because it sends customer
-// content.
+// the upstream provider and requires a zero-data-retention (ZDR) endpoint
+// (ADR-068 decision 7), because it sends customer content. OpenRouter lists
+// TypeSafe as a ZDR endpoint of `typesafe/jev-1.14`
+// (`GET /api/v1/endpoints/zdr`).
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import { z } from "zod"
 
@@ -149,6 +151,7 @@ export async function decideNoul(
                   data_collection: "deny",
                   order: [JEV_PROVIDER],
                   allow_fallbacks: false,
+                  zdr: true,
                 },
               }),
               signal,
