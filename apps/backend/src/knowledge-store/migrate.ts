@@ -13,6 +13,8 @@ import { createClickHouseClient } from "./knowledge-store.js"
  * closed. The migration refuses a password that is the same as the password
  * of the admin user in `url`, and a reader password that is the same as the
  * writer password: each service must not be able to sign in as another user.
+ * For the same reason, it refuses both users when the admin password is
+ * `ctxpipe`, the public default of Compose.
  */
 type KnowledgeUserPasswords = {
   /** The user of the backend (`ctxpipe_reader`): SELECT only. */
@@ -43,6 +45,10 @@ export async function migrateKnowledgeStore(
   )
     throw new Error(
       "[migrate] The ClickHouse reader, writer and admin passwords must be different from each other",
+    )
+  if ((reader || writer) && admin === "ctxpipe")
+    throw new Error(
+      "[migrate] Set your own CLICKHOUSE_PASSWORD: the default admin password ctxpipe is public",
     )
   const migrationsFolder = new URL("./migrations/", import.meta.url)
   const client = createClickHouseClient(url)

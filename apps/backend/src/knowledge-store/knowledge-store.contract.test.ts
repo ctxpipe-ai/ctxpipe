@@ -700,6 +700,11 @@ describe("users and mutations", () => {
       await expect(migrateKnowledgeStore(adminUrl, users)).rejects.toThrow(
         /must be different from each other/,
       )
+    const publicAdmin = new URL(adminUrl)
+    publicAdmin.password = "ctxpipe"
+    await expect(
+      migrateKnowledgeStore(publicAdmin.toString(), passwords),
+    ).rejects.toThrow(/default admin password ctxpipe is public/)
   })
 
   it("a second migration sets a new password and keeps the grants", async () => {
