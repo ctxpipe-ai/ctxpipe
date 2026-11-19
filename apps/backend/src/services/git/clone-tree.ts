@@ -430,7 +430,7 @@ async function listTreeEntries(
  * blob too, but its bytes are the link target, not file content. A submodule
  * (160000) is a commit. The reads treat both as missing.
  */
-function isRegularFile(entry: { mode: string; kind: string }): boolean {
+export function isRegularFile(entry: { mode: string; kind: string }): boolean {
   return (
     entry.kind === "blob" &&
     (entry.mode === "100644" || entry.mode === "100755")
