@@ -8,7 +8,10 @@ import {
   workspaces,
 } from "../../db/schema/workspaces.js"
 import { fetchCheckoutFileBytes } from "../../domain/codeIngestion/codesearchClient.js"
+import type { HydrateClaim } from "../../domain/workspaces/hydrate.js"
 import { chunkKnowledgeBody } from "../../domain/workspaces/knowledge-chunks.js"
+import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
+import { readPlaneUnit } from "../../knowledge-reader/plane-files.js"
 import { activeProjectionSha } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { fitPage, measureResult, truncateText } from "../framework/budget.js"
@@ -66,6 +69,40 @@ const frontMatterSchema = z
     "The front matter of a knowledge unit, as ctxpipe parsed it: kind, title, source, last update, and claims. Only on the page that starts at the body.",
   )
 type FrontMatter = z.infer<typeof frontMatterSchema>
+
+/** The front matter of a unit, cut to the limits of one read. */
+function frontMatterOf(unit: {
+  kind: string | null
+  title: string | null
+  source: string | null
+  updatedAt: Date
+  claims: readonly HydrateClaim[]
+}): FrontMatter {
+  const claims: NonNullable<FrontMatter["claims"]> = unit.claims
+    .slice(0, MAX_FRONT_MATTER_CLAIMS)
+    .map((claim) => ({
+      to: truncateText(claim.to, MAX_FRONT_MATTER_TEXT),
+      ...(claim.predicate !== null ? { predicate: claim.predicate } : {}),
+      ...(claim.confidence !== null ? { confidence: claim.confidence } : {}),
+      ...(claim.validFrom !== null ? { validFrom: claim.validFrom } : {}),
+      ...(claim.validTo !== null ? { validTo: claim.validTo } : {}),
+      ...(claim.source !== null
+        ? { source: truncateText(claim.source, MAX_FRONT_MATTER_TEXT) }
+        : {}),
+    }))
+  return {
+    ...(unit.kind ? { kind: unit.kind } : {}),
+    ...(unit.title
+      ? { title: truncateText(unit.title, MAX_FRONT_MATTER_TEXT) }
+      : {}),
+    source: truncateText(unit.source ?? "authored", MAX_FRONT_MATTER_TEXT),
+    updatedAt: unit.updatedAt.toISOString(),
+    ...(claims.length ? { claims } : {}),
+    ...(unit.claims.length > claims.length
+      ? { moreClaims: unit.claims.length - claims.length }
+      : {}),
+  }
+}
 
 /**
  * A unit and the file line before its first body line: the lines of front
@@ -128,36 +165,47 @@ async function readUnit(
       first && bodyStart !== undefined
         ? Math.max(0, first.startLine - bodyStart)
         : 0
-    const claims: NonNullable<FrontMatter["claims"]> = row.claims
-      .slice(0, MAX_FRONT_MATTER_CLAIMS)
-      .map((claim) => ({
-        to: truncateText(claim.to, MAX_FRONT_MATTER_TEXT),
-        ...(claim.predicate !== null ? { predicate: claim.predicate } : {}),
-        ...(claim.confidence !== null ? { confidence: claim.confidence } : {}),
-        ...(claim.validFrom !== null ? { validFrom: claim.validFrom } : {}),
-        ...(claim.validTo !== null ? { validTo: claim.validTo } : {}),
-        ...(claim.source !== null
-          ? { source: truncateText(claim.source, MAX_FRONT_MATTER_TEXT) }
-          : {}),
-      }))
     return {
       text: row.body,
       lineOffset,
       sha: row.sha,
-      frontMatter: {
-        ...(row.kind ? { kind: row.kind } : {}),
-        ...(row.title
-          ? { title: truncateText(row.title, MAX_FRONT_MATTER_TEXT) }
-          : {}),
-        source: truncateText(row.source ?? "authored", MAX_FRONT_MATTER_TEXT),
-        updatedAt: row.updatedAt.toISOString(),
-        ...(claims.length ? { claims } : {}),
-        ...(row.claims.length > claims.length
-          ? { moreClaims: row.claims.length - claims.length }
-          : {}),
-      },
+      frontMatter: frontMatterOf(row),
     }
   })
+}
+
+/**
+ * A unit of the Workspace Git at the SHA that the knowledge plane serves.
+ * The text is the body without front matter, as on the old stack. The
+ * `updatedAt` of the front matter is the time that the plane observed the
+ * document, as in the results of the plane.
+ */
+async function readPlaneUnitFile(
+  org: CallOrg,
+  workspace: CallWorkspace,
+  sha: string,
+  path: string,
+): Promise<Awaited<ReturnType<typeof readUnit>>> {
+  const read = await readPlaneUnit({
+    orgId: org.id,
+    workspaceId: workspace.id,
+    sha,
+    path,
+  })
+  if (!read) return null
+  const { unit, observedAt } = read
+  return {
+    text: unit.body,
+    lineOffset: (unit.bodyStartLine ?? 1) - 1,
+    sha,
+    frontMatter: frontMatterOf({
+      kind: unit.kind ?? null,
+      title: unit.title,
+      source: unit.source,
+      updatedAt: observedAt,
+      claims: unit.claims,
+    }),
+  }
 }
 
 /** The published checkout of the repository; codesearch keeps the read inside it. */
@@ -281,13 +329,17 @@ export async function readFileByRef(
   if (ref.kind === "unit") {
     if (!workspace) throw new Error("A unit ref has a Workspace")
     const workspaceServed = requireServed(workspace)
-    const unit = await readUnit(org, workspace, ref.path)
+    const { planeShas } = await selectKnowledgeReader(org.id, [workspace.id])
+    const planeSha = planeShas.get(workspace.id)
+    const unit = planeSha
+      ? await readPlaneUnitFile(org, workspace, planeSha, ref.path)
+      : await readUnit(org, workspace, ref.path)
     text = unit?.text ?? null
     frontMatter = unit?.frontMatter
     lineOffset = unit?.lineOffset ?? 0
     served = {
       branch: workspaceServed.branch,
-      sha: unit?.sha ?? workspaceServed.sha,
+      sha: planeSha ?? unit?.sha ?? workspaceServed.sha,
     }
   } else {
     const repository = await requireLinkedRepository(
