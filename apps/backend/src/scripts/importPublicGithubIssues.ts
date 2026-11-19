@@ -4,8 +4,11 @@
  * as the production issue mirror writes. Only public data is read.
  *
  * Usage (apps/backend):
- *   bun run src/scripts/importPublicGithubIssues.ts --repository <owner/repo>
+ *   pnpm import-public-github-issues --repository <owner/repo>
  *     --until <ISO time> --out <directory> [--limit <n>]
+ *
+ * The package script runs Bun with `--no-env-file`, so that no `.env` file
+ * (a credential file) gives the token. Export `GITHUB_TOKEN` in the shell.
  *
  * `--until` is the cut-off: the issues created up to it, as they were at
  * that time. `--limit` keeps only the newest issues. The files go to

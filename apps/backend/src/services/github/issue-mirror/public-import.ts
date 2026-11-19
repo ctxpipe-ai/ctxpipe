@@ -14,9 +14,6 @@ type RestComment = Awaited<ReturnType<Rest["listComments"]>>["data"][number]
 type RestEvent = Awaited<ReturnType<Rest["listEvents"]>>["data"][number]
 type RestUser = RestIssue["user"]
 
-/** The production mirror keeps the 100 most recent comments of an issue. */
-const MIRRORED_COMMENTS = 100
-
 /** REST and GraphQL both give `type` `User`, `Bot` or `Organization`. */
 function actor(user: RestUser) {
   return actorFromGraphql(user && { login: user.login, __typename: user.type })
@@ -116,7 +113,8 @@ function snapshotAt(
         ? githubTime(until)
         : issue.updated_at,
     closedAt: state.closedAt,
-    comments: kept.slice(-MIRRORED_COMMENTS).map((comment) => ({
+    // The production mirror keeps the 100 most recent comments.
+    comments: kept.slice(-100).map((comment) => ({
       author: actor(comment.user),
       body: comment.body ?? "",
       createdAt: comment.created_at,
