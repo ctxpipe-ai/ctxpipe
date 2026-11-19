@@ -66,7 +66,6 @@ let slowJevCall: number | null = null
 let jevCalls = 0
 /** Answer the embedding of the plane after the 3-second budget. */
 let slowEmbedding = false
-const embeddingRequests: string[] = []
 
 /** The vector of a text on both stacks: the old stack has 2000 dimensions. */
 const planeVector = (text: string) => embedText(text).slice(0, 1024)
@@ -79,7 +78,6 @@ const models = setupServer(
     const texts = body.input.map((input) =>
       typeof input === "string" ? input : (input.content[0]?.text ?? ""),
     )
-    embeddingRequests.push(...texts)
     if (slowEmbedding && typeof body.input[0] !== "string") await delay(5_000)
     return HttpResponse.json({
       data: body.input.map((input, index) => ({
@@ -716,6 +714,17 @@ describe("the knowledge reader seam", () => {
       partialReason: "total_timeout",
     })
     expect(jevRequests).toEqual([])
+  }, 15_000)
+
+  it("on: when the time budget ends in the judge, search_knowledge gives the search order and says total_timeout", async () => {
+    await setFlag("on")
+    slowJevCall = 1
+    const content = structured(await searchCall({ workspaces: ["ready"] }))
+    expect(content).toMatchObject({
+      partial: true,
+      partialReason: "total_timeout",
+    })
+    expect((content.hits as unknown[]).length).toBe(units.length)
   }, 15_000)
 
   it("on: when the time budget ends in a layer, get_related returns the judged layers as partial", async () => {

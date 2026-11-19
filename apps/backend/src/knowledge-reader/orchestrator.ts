@@ -324,6 +324,11 @@ export async function traverse(input: {
   }
 }
 
+/** A document that a layer reaches, with the relation that reaches it. */
+type Candidate = Omit<JudgeInput, "text"> & {
+  parent: NonNullable<TraversalNode["parent"]>
+}
+
 /** True when the validity of a row overlaps the window (open ends count). */
 function overlaps(
   row: { validFrom: Date | null; validTo: Date | null },
@@ -345,12 +350,7 @@ function layerCandidates(
   frontier: ReadonlyMap<string, TraversalNode>,
   visited: ReadonlySet<string>,
   walk: WalkFilter,
-): {
-  picked: (Omit<JudgeInput, "text"> & {
-    parent: NonNullable<TraversalNode["parent"]>
-  })[]
-  capped: TraversalNode[]
-} {
+): { picked: Candidate[]; capped: TraversalNode[] } {
   const perNode = new Map<TraversalNode, FrontierRelation[]>()
   for (const item of relations) {
     const { relation, direction, neighbor } = item
@@ -383,12 +383,7 @@ function layerCandidates(
     list.push(item)
     perNode.set(from, list)
   }
-  const best = new Map<
-    string,
-    Omit<JudgeInput, "text"> & {
-      parent: NonNullable<TraversalNode["parent"]>
-    }
-  >()
+  const best = new Map<string, Candidate>()
   const capped: TraversalNode[] = []
   for (const [node, list] of perNode) {
     list.sort((a, b) => b.relation.confidence - a.relation.confidence)

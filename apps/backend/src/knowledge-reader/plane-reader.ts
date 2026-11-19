@@ -150,10 +150,11 @@ function queryTerms(query: string): string[] {
 
 /**
  * `search_knowledge` and the chat search: the hybrid search, then layer 0
- * (Jev orders the hits by p(answers)). When Jev fails or the time budget
- * ends during the judge, the hits keep the search order and the result says
- * `judge_unavailable`. When the budget ends before the search ends, there
- * are no hits and the result says `total_timeout`.
+ * (Jev orders the hits by p(answers)). When Jev fails, the hits keep the
+ * search order and the result says `judge_unavailable`. When the time
+ * budget ends during the judge, they keep the search order and the result
+ * says `total_timeout`; when it ends before the search ends, there are no
+ * hits.
  */
 async function search(
   request: SearchRequest,
@@ -198,17 +199,27 @@ async function search(
       hit.chunks.slice(0, ORCHESTRATOR_DEFAULTS.evidenceChunks),
     ),
   }))
+  // A Jev failure or the end of the time budget keeps the search order.
+  let unjudged: SearchResult["partialReason"]
   const [judged, relations] = await Promise.all([
-    // A Jev failure or the end of the time budget keeps the search order.
     judge(inputs, query, "search", deadline, meter).catch((error: unknown) => {
-      if (error instanceof JevError || isBudgetSpent(error)) return null
-      throw error
+      // A Jev timeout is the end of the budget: Jev gets the rest of it.
+      if (isBudgetSpent(error)) unjudged = "total_timeout"
+      else if (error instanceof JevError) unjudged = "judge_unavailable"
+      else throw error
+      return null
     }),
-    store.readFrontier(
-      scope,
-      inputs.map((input) => input.ref),
-      request.validAt ?? null,
-    ),
+    // The claims of the hits. With no time left, the hits have none.
+    beforeDeadline(deadline, () =>
+      store.readFrontier(
+        scope,
+        inputs.map((input) => input.ref),
+        request.validAt ?? null,
+      ),
+    ).catch((error: unknown) => {
+      if (!isBudgetSpent(error)) throw error
+      return []
+    }),
   ])
   const claimsOf = claimsByDocument(relations)
   const hits = found.flatMap(
@@ -246,7 +257,7 @@ async function search(
   hits.sort((a, b) => b.score - a.score || a.order - b.order)
   return {
     hits: hits.slice(0, limit).map(({ order: _order, ...hit }) => hit),
-    ...(judged ? {} : { partialReason: "judge_unavailable" as const }),
+    ...(unjudged ? { partialReason: unjudged } : {}),
   }
 }
 
