@@ -18,8 +18,14 @@
 -- (a full vector of 1024 BFloat16 values is 2 KiB, plus its binary form and
 -- its text). 60 GB holds about 20 million chunks that were written in the
 -- last 30 to 60 days (one month partition moves when its newest row is 30
--- days old). That is much more than we expect in the first months. A
--- Workspace that nobody changed in 30 days is read less, and the file cache
+-- days old). We do not know the write rate yet: the rollout starts with one
+-- org (ADR-069 decision 9), and the projection writes only changed files.
+-- A full rebuild of 1 million chunks writes about 3 GB, so 20 rebuilds of
+-- that size fit in the hot volume. A longer interval keeps more rebuilds
+-- hot, and move_factor then moves parts by size, not by age. A shorter
+-- interval sends the rows of a Workspace that changes each week or two to
+-- S3 while it is still in use. A Workspace that nobody changed in 30 days
+-- is read less, and the file cache
 -- keeps its parts fast when it is read. If the writes become more than the
 -- hot volume holds, move_factor moves the largest parts first, so the hot
 -- volume does not become full. A projection version change rewrites all

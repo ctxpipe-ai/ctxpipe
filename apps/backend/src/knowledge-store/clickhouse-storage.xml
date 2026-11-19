@@ -18,6 +18,8 @@
           </hot>
           <cold>
             <disk>cold</disk>
+            <!-- The same as on the hosted node: an INSERT of a row older than the TTL writes to hot, and a background
+                 move takes the part to cold. Thus a slow S3 upload does not slow the INSERT. -->
             <perform_ttl_move_on_insert>0</perform_ttl_move_on_insert>
           </cold>
         </volumes>
