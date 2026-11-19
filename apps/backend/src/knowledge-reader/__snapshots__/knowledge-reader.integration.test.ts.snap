@@ -41,6 +41,7 @@ exports[`the knowledge reader seam > on: the output of both tools has the shape 
         },
       ],
       "reason": {
+        "by": "string",
         "rule": "string",
       },
       "refs": [

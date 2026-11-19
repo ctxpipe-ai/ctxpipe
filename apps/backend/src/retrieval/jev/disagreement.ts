@@ -54,7 +54,7 @@ const KEYS = {
 }
 
 /** A fact is "yes" when its probability is at least its threshold. */
-export type FactThresholds = {
+type FactThresholds = {
   sameAt: number
   disagreeAt: number
   replacesAt: number
@@ -67,24 +67,30 @@ export type FactThresholds = {
  * updates or supersedes the position. `tie` applies when no rule decides
  * between the position and a rival.
  */
-type StatusRule =
-  | "supersedes"
-  | "updates"
-  | "validity"
-  | "authority"
-  | "observed-at"
-  | "confidence"
-  | "scoped"
-  | "no-rival"
-  | "tie"
+export const STATUS_RULES = [
+  "supersedes",
+  "updates",
+  "validity",
+  "authority",
+  "observed-at",
+  "confidence",
+  "scoped",
+  "no-rival",
+  "tie",
+] as const
+export type StatusRule = (typeof STATUS_RULES)[number]
 
 /** The result of `resolveDisagreements`. */
 type Resolution = {
-  /** Each position holds the ids of the items that agree. */
+  /**
+   * Each position holds the ids of the items that agree. The rules of code
+   * give each status; `by` keeps the name of the earlier tie-break, so that
+   * the output keeps its shape.
+   */
   positions: {
     itemIds: string[]
     status: PositionStatus
-    reason: { rule: StatusRule }
+    reason: { by: "tie-break"; rule: StatusRule }
   }[]
   /**
    * The label of each pair of items in two different positions.
@@ -435,7 +441,7 @@ export function decideDisagreements({
       return {
         itemIds: member.map(({ item }) => item.id),
         status,
-        reason: { rule },
+        reason: { by: "tie-break", rule },
       }
     }),
     pairs: crossPairs.map(({ a, b, label }) => ({

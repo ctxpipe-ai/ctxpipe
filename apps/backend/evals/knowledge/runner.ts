@@ -252,6 +252,7 @@ async function ask(
       // The most that a search gives: search recall@50 reads all of it.
       limit: 50,
       ...(validAt ? { validAt } : {}),
+      now,
     })
     search = {
       refs: result.hits.map((hit) => hit.path),

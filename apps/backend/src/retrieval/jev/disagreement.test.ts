@@ -217,7 +217,11 @@ describe("resolveDisagreements", () => {
       ["scoped.1"],
     ])
     expect(result.positions).toEqual([
-      { itemIds: ["a"], status: "scoped", reason: { rule: "scoped" } },
+      {
+        itemIds: ["a"],
+        status: "scoped",
+        reason: { by: "tie-break", rule: "scoped" },
+      },
     ])
   })
 

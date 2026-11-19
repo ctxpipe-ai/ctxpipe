@@ -34,7 +34,14 @@ export type KnowledgeStack = "legacy" | "plane"
 export type SearchRequest = Omit<
   KnowledgeSearchInput,
   "deadline" | "embedding" | "unitIds"
->
+> & {
+  /**
+   * The query time when `validAt` is not given: a hit that is not valid then
+   * comes after the valid hits. Now by default; an eval replay gives the
+   * recorded time.
+   */
+  now?: Date
+}
 
 export type SearchResult = {
   /** Best first. `projectionSha` is the SHA that the stack serves. */

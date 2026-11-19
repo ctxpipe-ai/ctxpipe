@@ -609,13 +609,13 @@ describe("the knowledge reader seam", () => {
       {
         refs: ["knowledge/teams/payments.md"],
         status: "current",
-        reason: { rule: "updates" },
+        reason: { by: "tie-break", rule: "updates" },
         against: [{ position: 1, label: "updates" }],
       },
       {
         refs: ["knowledge/decisions/adr-7.md"],
         status: "superseded",
-        reason: { rule: "updates" },
+        reason: { by: "tie-break", rule: "updates" },
         against: [{ position: 0, label: "updates" }],
       },
     ])

@@ -15,6 +15,7 @@ import {
   activeProjectionSha,
   projectionFromWorkspace,
 } from "../../models/workspaces.js"
+import type { StatusRule } from "../../retrieval/jev/disagreement.js"
 import {
   defaultCaps,
   type ExpandedNode,
@@ -60,7 +61,7 @@ export type RelatedPosition = {
   refs: string[]
   status: "current" | "superseded" | "disputed" | "scoped"
   /** The rule of the disagreement step that gave the status. */
-  reason: { rule: string }
+  reason: { by: "tie-break"; rule: StatusRule }
   against: { position: number; label: "contradicts" | "updates" }[]
 }
 

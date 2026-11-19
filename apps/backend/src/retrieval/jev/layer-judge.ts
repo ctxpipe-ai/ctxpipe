@@ -1,9 +1,10 @@
 // The layer judge of ADR-068 decision 2. For each candidate of one layer of
 // the traversal, Jev answers two yes/no questions: p(answers) gives the
 // final order, and p(explore) picks the next frontier. Each question asks
-// for one judgment. The metadata line stays in the state as context, but no
-// question asks Jev to weigh it: code applies the status and the validity
-// (ADR-068 decision 2).
+// for one judgment. The metadata line stays in the state, because a
+// question about a time needs the dates of a candidate to judge relevance.
+// No question asks Jev to weigh the metadata: code applies the status and
+// the validity (ADR-068 decision 2).
 import { decideNoul, type JevQuestion, type JevState } from "./client.js"
 import {
   type CandidateMeta,

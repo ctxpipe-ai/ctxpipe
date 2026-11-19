@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { useMswServer } from "../../../test/msw.js"
 import { recordSpans } from "../../../test/spans.js"
-import { decideChoice } from "./client.js"
+import { decideNoul } from "./client.js"
 
 const DECISIONS = "https://jev-gateway.test/api/alpha/decisions"
 
@@ -15,37 +15,30 @@ beforeEach(() => {
   vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
 })
 
-const question = {
-  type: "choice" as const,
-  instructions: "Is the sky blue or gray?",
-  criteria: { blue: "The sky is blue.", gray: "The sky is gray." },
-}
+const question = { type: "noul" as const, instructions: "Is the sky blue?" }
 
-describe("decideChoice", () => {
-  it("sends the choice questions in one pinned, no-retention call and returns the probability of each option", async () => {
+describe("decideNoul", () => {
+  it("sends the yes/no questions in one pinned, no-retention call and returns the probability of yes", async () => {
     let body: unknown
     server.use(
       http.post(DECISIONS, async ({ request }) => {
         body = await request.json()
         return HttpResponse.json({
           answers: {
-            sky: {
-              type: "choice",
-              probabilities: { blue: 0.7, gray: 0.3 },
-            },
+            sky: { type: "noul", noul: 0.7 },
           },
           usage: { cost: 0.002 },
         })
       }),
     )
 
-    const answers = await decideChoice(
+    const answers = await decideNoul(
       ["The state."],
       { sky: question },
       { timeoutMs: 5_000, attributes: { "jev.pairs": 1 } },
     )
 
-    expect(answers).toEqual(new Map([["sky", { blue: 0.7, gray: 0.3 }]]))
+    expect(answers).toEqual(new Map([["sky", 0.7]]))
     expect(body).toEqual({
       model: "typesafe/jev-1.14",
       state: ["The state."],
@@ -62,17 +55,15 @@ describe("decideChoice", () => {
     expect(span?.attributes["gen_ai.usage.cost"]).toBe(0.002)
   })
 
-  it("throws an invalid-answer JevError when an option has no probability", async () => {
+  it("throws an invalid-answer JevError when an answer has no probability", async () => {
     server.use(
       http.post(DECISIONS, () =>
-        HttpResponse.json({
-          answers: { sky: { type: "choice", probabilities: { blue: 0.7 } } },
-        }),
+        HttpResponse.json({ answers: { sky: { type: "noul" } } }),
       ),
     )
 
     await expect(
-      decideChoice(
+      decideNoul(
         ["The state."],
         { sky: question },
         { timeoutMs: 5_000, attributes: {} },

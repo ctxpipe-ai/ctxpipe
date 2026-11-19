@@ -218,7 +218,7 @@ async function search(
 ): Promise<SearchResult> {
   const query = request.query.trim()
   if (!query || request.workspaceIds.length === 0) return { hits: [] }
-  const queryTime = request.validAt ?? new Date()
+  const queryTime = request.validAt ?? request.now ?? new Date()
   const deadline = performance.now() + ORCHESTRATOR_DEFAULTS.timeBudgetMs
   const store = knowledgeStore()
   const scope = {
