@@ -260,6 +260,27 @@ describe("knowledgeRows", () => {
     ])
   })
 
+  it("maps a body link with a title to the key and the chunk of its path", () => {
+    const path = "knowledge/payments/api.md"
+    const [rows] = rowsOf(
+      [
+        {
+          path,
+          content:
+            '# API\n\nIntro.\n\n## Ledger\n\nSee [ledger](../billing/ledger.md "Ledger") and [it](../billing/ledger.md).\n',
+        },
+      ],
+      path,
+    )
+    expect(edges(rows?.relations ?? [])).toEqual([
+      {
+        predicate: "LINKS_TO",
+        dstDoc: key("knowledge/billing/ledger.md"),
+        srcChunk: 1,
+      },
+    ])
+  })
+
   it("gives a file with only front matter one chunk with its title, so each relation has a chunk", () => {
     const path = "knowledge/services/api.md"
     const [rows] = rowsOf(

@@ -63,7 +63,7 @@ export function rawFileHeaders(path: string, size: number) {
     "Content-Type": contentType,
     "Content-Length": String(size),
     "Content-Disposition": contentDisposition(
-      INLINE_IMAGE_TYPES.has(contentType) ? "inline" : "attachment",
+      inlineImageType(path) ? "inline" : "attachment",
       path,
     ),
     "X-Content-Type-Options": "nosniff",

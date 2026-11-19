@@ -143,22 +143,27 @@ export function knowledgeRows(input: {
     observedAt,
     ...row,
   })
-  const relations = unitRelations(unit)
-    // An image gets its own relation below, not a second `LINKS_TO`. The
-    // target of a link with a title keeps the title, so compare its path.
-    .filter(
-      (entry) =>
-        entry.from === "claim" || !images.has(withoutTitle(entry.target)),
-    )
-    .map((entry) =>
-      relation(entry.target, {
+  // The target of a body link with a title keeps the title, so the link
+  // relations use the path without it. An image gets its own relation below,
+  // not a second `LINKS_TO`.
+  const linked = new Set<string>()
+  const relations = unitRelations(unit).flatMap((entry) => {
+    const target =
+      entry.from === "claim" ? entry.target : withoutTitle(entry.target)
+    if (entry.from === "link") {
+      if (images.has(target) || linked.has(target)) return []
+      linked.add(target)
+    }
+    return [
+      relation(target, {
         predicate: entry.predicate,
         confidence: entry.confidence,
         validFrom: dateOrNull(normalizeValidityBound(entry.validFrom)),
         validTo: dateOrNull(normalizeValidityBound(entry.validTo)),
         source: entry.source ?? "",
       }),
-    )
+    ]
+  })
 
   const imageDocuments: UnembeddedDocumentRows[] = []
   for (const target of images) {
