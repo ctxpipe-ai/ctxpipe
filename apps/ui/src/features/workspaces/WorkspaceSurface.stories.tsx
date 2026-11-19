@@ -7,7 +7,6 @@ import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { responseGate } from "@/components/ui/skeletonMatchStory"
 import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
-import { FixedGraphLayoutContext } from "@/features/knowledge-graph/fixedGraphLayout"
 import { signedInHandlers } from "@/mocks/handlers"
 import {
   conversationDetailLoadingHandler,
@@ -35,13 +34,13 @@ import {
 } from "@/mocks/workspace-upgrades-handlers"
 
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import { withDocsGraphLayout } from "./docsGraphLayout"
 import type { IngestionItem } from "./ingestion"
 import {
   docsConversationDetail,
   docsWorkspace,
   docsWorkspaceDetail,
   docsWorkspaceGitTree,
-  docsWorkspaceGraphLayout,
   failedHydrateWorkspace,
   failedHydrateWorkspaceDetail,
   hydratingWorkspaceDetail,
@@ -1666,15 +1665,7 @@ export const FilesPane: Story = {
  * Graph pane is open and shows the knowledge graph.
  */
 export const GraphPane: Story = {
-  // The graph shows at fixed positions and runs no layout. A layout in the
-  // screenshot container runs on a CPU renderer and took up to 30 s.
-  decorators: [
-    (Story) => (
-      <FixedGraphLayoutContext.Provider value={docsWorkspaceGraphLayout}>
-        <Story />
-      </FixedGraphLayoutContext.Provider>
-    ),
-  ],
+  decorators: [withDocsGraphLayout],
   args: { paneParam: "graph" },
   parameters: {
     storyRoute: workspaceRoute({ pane: "graph" }),

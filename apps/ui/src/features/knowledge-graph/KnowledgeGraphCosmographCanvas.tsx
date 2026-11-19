@@ -508,11 +508,15 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
 
     async function load() {
       const hasEdges = links.length > 0
-      // A fixed layout applies only when it has a position for each point.
-      const fixed =
-        fixedLayout && points.every(({ id }) => fixedLayout[id])
-          ? fixedLayout
-          : null
+      const fixed = fixedLayout
+      // A fixed layout must place each point. A point with no position
+      // fails the graph, so that a story cannot fall back to the slow layout.
+      const unplaced = fixed && points.find(({ id }) => !fixed[id])
+      if (unplaced) {
+        setPrepStage("error")
+        setPrepError(`The fixed layout has no position for ${unplaced.id}.`)
+        return
+      }
 
       const prepConfig = {
         points: {

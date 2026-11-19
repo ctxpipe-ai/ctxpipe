@@ -6,7 +6,6 @@ import { type ComponentProps, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { Button } from "@/components/ui/Button"
-import { FixedGraphLayoutContext } from "@/features/knowledge-graph/fixedGraphLayout"
 import { signedInHandlers } from "@/mocks/handlers"
 import {
   conversationFilePutHandler,
@@ -37,6 +36,7 @@ import {
   clearAllConversationGitTreeSnapshots,
   writeConversationGitTreeSnapshot,
 } from "./conversation-git-tree-snapshot"
+import { withDocsGraphLayout } from "./docsGraphLayout"
 import {
   closeFileTab,
   type FileTabSession,
@@ -54,7 +54,6 @@ import {
   docsWorkspaceGitBlobs,
   docsWorkspaceGitTree,
   docsWorkspaceGraph,
-  docsWorkspaceGraphLayout,
   readOnlyWorkspaceDetail,
   skippedFilesWorkspaceDetail,
 } from "./workspace-fixtures"
@@ -933,15 +932,7 @@ export const TreeCollapsed: Story = {
  * with a Play layout control.
  */
 export const Graph: Story = {
-  // The graph shows at fixed positions and runs no layout. A layout in the
-  // screenshot container runs on a CPU renderer and took up to 30 s.
-  decorators: [
-    (Story) => (
-      <FixedGraphLayoutContext.Provider value={docsWorkspaceGraphLayout}>
-        <Story />
-      </FixedGraphLayoutContext.Provider>
-    ),
-  ],
+  decorators: [withDocsGraphLayout],
   args: { pane: { kind: "graph" } },
   parameters: {
     storyRoute: {
