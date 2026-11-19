@@ -41,6 +41,7 @@ export type QuestionScore = {
   searchMs: number
   relatedMs: number | null
   jevCalls: number
+  jevQuestions: number
   embeddingCalls: number
   costUsd: number
   /** The failure of the search or of `get_related`. */
@@ -159,6 +160,7 @@ export function scoreAnswer(
     searchMs: answer.search.latencyMs,
     relatedMs: answer.related?.latencyMs ?? null,
     jevCalls: answer.calls.jev,
+    jevQuestions: answer.calls.jevQuestions,
     embeddingCalls: answer.calls.embedding,
     costUsd: answer.calls.costUsd,
     ...(errors.length ? { error: errors.join("; ") } : {}),
@@ -219,6 +221,7 @@ export function operations(
       95,
     ),
     jevCallsPerQuestion: perQuestion(sum((score) => score.jevCalls)),
+    jevQuestionsPerQuestion: perQuestion(sum((score) => score.jevQuestions)),
     embeddingCallsPerQuestion: perQuestion(
       sum((score) => score.embeddingCalls),
     ),

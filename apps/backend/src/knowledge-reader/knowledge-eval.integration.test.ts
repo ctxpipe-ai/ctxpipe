@@ -85,9 +85,10 @@ const requests = { jev: 0, embedding: 0 }
 /**
  * The fixed Jev replies. The layer judge gives a high p(answers) and
  * p(explore) to a candidate that holds the title of a gold document of the
- * question, else a low one. In the disagreement step, each pair "updates",
- * and a position whose text says "Superseded by" is superseded, else
- * current. Each reply costs $0.001.
+ * question, else a low one. In the disagreement step, each pair makes
+ * claims about the same part of the question and disagrees, and an item
+ * changes or replaces the claim of an item whose text says "Superseded by"
+ * when its own text does not. No claim is scoped. Each reply costs $0.001.
  */
 function jevReply(
   body: { state: unknown[]; questions: Record<string, unknown> },
@@ -98,54 +99,24 @@ function jevReply(
   const question = /Question: <data>(.*?)<\/data>/.exec(text)?.[1] ?? ""
   const titles = goldTitles(question)
   const usage = { cost: 0.001 }
-  if (keys.every((key) => key.startsWith("pair."))) {
-    return {
-      usage,
-      answers: Object.fromEntries(
-        keys.map((key) => [
-          key,
-          {
-            type: "choice",
-            probabilities: {
-              agrees: 0.05,
-              contradicts: 0.05,
-              partial: 0.05,
-              updates: 0.8,
-              unrelated: 0.05,
-            },
-          },
-        ]),
-      ),
-    }
-  }
-  if (keys.every((key) => key.startsWith("status."))) {
-    // The state lists "Position N:", then the items of the position.
-    const sections = text.split(/^Position (\d+):$/m)
+  if (!keys.some((key) => /^(answers|explore)\./.test(key))) {
     const superseded = new Set<string>()
-    for (let index = 1; index < sections.length; index += 2) {
-      const section = (sections[index + 1] ?? "").split(
-        "Relations between the positions:",
-      )[0]
-      if (section?.includes("Superseded by"))
-        superseded.add(`status.${sections[index]}`)
+    body.state.forEach((part, index) => {
+      const n = typeof part === "string" && /^Item (\d+):$/.exec(part)?.[1]
+      if (n && String(body.state[index + 1]).includes("Superseded by"))
+        superseded.add(n)
+    })
+    const fact = (key: string) => {
+      const [name, from = "", to = ""] = key.split(".")
+      if (name === "same" || name === "disagree") return 0.9
+      if (name === "replaces")
+        return superseded.has(to) && !superseded.has(from) ? 0.9 : 0.1
+      return 0.1
     }
     return {
       usage,
       answers: Object.fromEntries(
-        keys.map((key) => {
-          const top = superseded.has(key) ? "superseded" : "current"
-          return [
-            key,
-            {
-              type: "choice",
-              probabilities: Object.fromEntries(
-                ["current", "superseded", "disputed", "scoped"].map(
-                  (status) => [status, status === top ? 0.8 : 0.05],
-                ),
-              ),
-            },
-          ]
-        }),
+        keys.map((key) => [key, { type: "noul", noul: fact(key) }]),
       ),
     }
   }
@@ -378,6 +349,7 @@ describe("the knowledge eval harness", () => {
       arm: row.arm,
       split: row.split,
       jev: row.jevCallsPerQuestion,
+      jevQuestions: row.jevQuestionsPerQuestion,
       embedding: row.embeddingCallsPerQuestion,
       errors: row.errors,
       partial: row.partial,
@@ -429,14 +401,15 @@ describe("the knowledge eval harness", () => {
           },
         },
       },
-      // Jev: 1 call for a search; 5 or 6 for get_related (2 layers, the
-      // pairs and the statuses). Embeddings: 1 for a search, 1 for
-      // get_related.
+      // Jev: 1 call for a search; 4 or 5 for get_related (the layers, and
+      // one call for the disagreement facts). Embeddings: 1 for a search, 1
+      // for get_related.
       calls: [
         {
           arm: "legacy",
           split: "dev",
           jev: 0,
+          jevQuestions: 0,
           embedding: 1.375,
           errors: 0,
           partial: 0,
@@ -445,6 +418,7 @@ describe("the knowledge eval harness", () => {
           arm: "legacy",
           split: "holdout",
           jev: 0,
+          jevQuestions: 0,
           embedding: 1.5,
           errors: 0,
           partial: 0,
@@ -452,7 +426,8 @@ describe("the knowledge eval harness", () => {
         {
           arm: "plane",
           split: "dev",
-          jev: 2.625,
+          jev: 2.25,
+          jevQuestions: 34,
           embedding: 1.375,
           errors: 0,
           partial: 0,
@@ -460,15 +435,16 @@ describe("the knowledge eval harness", () => {
         {
           arm: "plane",
           split: "holdout",
-          jev: 3.5,
+          jev: 3,
+          jevQuestions: 39.25,
           embedding: 1.5,
           errors: 0,
           partial: 0,
         },
       ],
-      // 35 Jev calls at $0.001, and 34 embedding calls with no cost in the
+      // 30 Jev calls at $0.001, and 34 embedding calls with no cost in the
       // answer, at the upper estimate of $0.001.
-      costUsd: 0.069,
+      costUsd: 0.064,
     })
     const markdown = await readFile(join(folder, "live", "report.md"), "utf8")
     const firstTable = markdown.slice(markdown.indexOf("\n## "))
@@ -482,7 +458,7 @@ describe("the knowledge eval harness", () => {
     expect(kept.answers).toHaveLength(24)
     // The raw Jev answers and the vectors are in the run folder.
     const jev = kept.calls.filter((call) => call.kind === "jev")
-    expect(jev).toHaveLength(35)
+    expect(jev).toHaveLength(30)
     expect(JSON.parse(jev[0]?.response ?? "{}")).toHaveProperty("answers")
     expect(kept.calls.filter((call) => call.kind === "embedding")).toHaveLength(
       34,
@@ -522,6 +498,33 @@ describe("the knowledge eval harness", () => {
           question.arm === "plane" && question.question === "billing-provider",
       )?.metrics.noAnswer,
     ).toBe(1)
+  })
+
+  it("scores a change of a fact threshold again from the kept calls, with no model call", async () => {
+    const before = { ...requests }
+    const recorded = await readRun(join(folder, "live"))
+    // At 0.95, no item changes or replaces another, so each pair
+    // contradicts. The rows tie on each rule, so each position is disputed.
+    const rescored = await run("rescore-facts", {
+      settings: { replacesAt: 0.95 },
+      capUsd: 0,
+      kept: live,
+      replay: recorded.calls,
+    })
+    expect(requests).toEqual(before)
+    expect(rescored.incomplete).toEqual([])
+    expect(
+      rescored.questions
+        .filter((question) => question.metrics.positions !== null)
+        .map(({ question, metrics }) => ({
+          question,
+          positions: metrics.positions,
+        })),
+    ).toEqual([
+      { question: "local-dev-infra", positions: 0 },
+      { question: "agent-memory", positions: 0 },
+      { question: "ops-observability", positions: 0 },
+    ])
   })
 
   it("stops at the spend cap and compares only the questions that both arms answered", async () => {

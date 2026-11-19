@@ -58,7 +58,9 @@ const planeSha = "b".repeat(40)
 /**
  * Jev answers from markers in the candidate text: "answer" gives a high
  * p(answers), "hub" a high p(explore). In the disagreement step, each pair
- * of items "updates", Position 1 is current and the others are superseded.
+ * of items makes claims about the same part of the question and disagrees,
+ * Item 1 changes or replaces the claim of each other item, and no claim is
+ * scoped.
  */
 const jevRequests: { candidates: number }[] = []
 /** The data URL of each image part that Jev got. */
@@ -106,40 +108,19 @@ const models = setupServer(
       jevCalls += 1
       if (jevCalls === slowJevCall) await delay(5_000)
       const keys = Object.keys(body.questions)
-      const disagreement = keys.every(
-        (key) => key.startsWith("pair.") || key.startsWith("status."),
-      )
+      const disagreement = !keys.some((key) => /^(answers|explore)\./.test(key))
       if (jevFails === "all" || (jevFails === "disagreement" && disagreement))
         return HttpResponse.json({ error: "down" }, { status: 503 })
       if (disagreement) {
         disagreementRequests.push(keys)
-        const spread = (options: string[], top: string) =>
-          Object.fromEntries(
-            options.map((option) => [option, option === top ? 0.8 : 0.05]),
-          )
+        const fact = (key: string) => {
+          const [name, from] = key.split(".")
+          if (name === "same" || name === "disagree") return 0.9
+          return name === "replaces" && from === "1" ? 0.9 : 0.1
+        }
         return HttpResponse.json({
           answers: Object.fromEntries(
-            keys.map((key) => [
-              key,
-              {
-                type: "choice",
-                probabilities: key.startsWith("pair.")
-                  ? spread(
-                      [
-                        "agrees",
-                        "contradicts",
-                        "partial",
-                        "updates",
-                        "unrelated",
-                      ],
-                      "updates",
-                    )
-                  : spread(
-                      ["current", "superseded", "disputed", "scoped"],
-                      key === "status.1" ? "current" : "superseded",
-                    ),
-              },
-            ]),
+            keys.map((key) => [key, { type: "noul", noul: fact(key) }]),
           ),
         })
       }
@@ -612,22 +593,29 @@ describe("the knowledge reader seam", () => {
       { candidates: 3 },
       { candidates: 1 },
     ])
-    // The disagreement step: one pair, then the status of each position.
+    // The disagreement step: one call with the facts of the pair and of
+    // each item. Code gives the status.
     expect(disagreementRequests).toEqual([
-      ["pair.1.2"],
-      ["status.1", "status.2"],
+      [
+        "same.1.2",
+        "disagree.1.2",
+        "replaces.1.2",
+        "replaces.2.1",
+        "scoped.1",
+        "scoped.2",
+      ],
     ])
     expect(content.positions).toEqual([
       {
         refs: ["knowledge/teams/payments.md"],
         status: "current",
-        reason: { by: "jev", probability: 0.8 },
+        reason: { by: "tie-break", rule: "updates" },
         against: [{ position: 1, label: "updates" }],
       },
       {
         refs: ["knowledge/decisions/adr-7.md"],
         status: "superseded",
-        reason: { by: "jev", probability: 0.8 },
+        reason: { by: "tie-break", rule: "updates" },
         against: [{ position: 0, label: "updates" }],
       },
     ])
@@ -719,6 +707,74 @@ describe("the knowledge reader seam", () => {
       await searchCall({ workspaces: ["ready"], sources: ["authored"] }),
     )
     expect((authored.hits as unknown[]).length).toBe(units.length)
+  })
+
+  it("on: search_knowledge puts a hit that is not valid now after the valid hits, through code", async () => {
+    await setFlag("on")
+    const { workspaceId } = await seedRelatedWorkspace({
+      seed,
+      slug: "history",
+      sha: planeSha,
+      units: [],
+    })
+    const key = (path: string) => servingIdForKnowledgePath(workspaceId, path)
+    const observedAt = new Date("2026-11-01T00:00:00Z")
+    // Jev gives the expired document a high p(answers) ("answer"), and the
+    // valid one a low p(answers).
+    const document = (path: string, text: string, validTo: Date | null) => ({
+      document: {
+        docKey: key(path),
+        kind: "Note",
+        title: path,
+        path,
+        sourceType: "docs",
+        source: "",
+        summary: "",
+        mime: "",
+        validFrom: null,
+        validTo,
+        observedAt,
+      },
+      chunks: [
+        {
+          ordinal: 0,
+          text,
+          startLine: 1,
+          endLine: 1,
+          embedding: planeVector(text),
+        },
+      ],
+      relations: [],
+    })
+    const writer = createKnowledgeStore(knowledgeUrl)
+    try {
+      await writer.applyDocuments(
+        { orgId: seed.orgId, workspaceId },
+        {
+          documents: [
+            document(
+              "knowledge/old.md",
+              "Checkout owner. answer",
+              new Date("2020-01-01T00:00:00Z"),
+            ),
+            document("knowledge/new.md", "Checkout owner.", null),
+          ],
+        },
+      )
+    } finally {
+      await writer.close()
+    }
+    await markReady(workspaceId)
+
+    const content = structured(await searchCall({ workspaces: ["history"] }))
+    expect(
+      (content.hits as { ref: string; score: number }[]).map(
+        ({ ref, score }) => [ref, score],
+      ),
+    ).toEqual([
+      ["knowledge/new.md", 0.1],
+      ["knowledge/old.md", 0.9],
+    ])
   })
 
   it("on: when the time budget ends before the search ends, search_knowledge has no hits and says total_timeout", async () => {
@@ -908,8 +964,8 @@ describe("the knowledge reader seam", () => {
     const event = events.find((item) => item.step === "knowledge_plane.shadow")
     expect(event).toMatchObject({
       tool: "get_related",
-      // Layer 0, two layers, one pair call and one status call.
-      plane: { jevCalls: 5, embeddingCalls: 1 },
+      // Layer 0, two layers, and one call for the disagreement facts.
+      plane: { jevCalls: 4, embeddingCalls: 1 },
     })
     expect(JSON.stringify(event)).not.toContain("knowledge/")
   })

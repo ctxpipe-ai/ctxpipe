@@ -34,7 +34,7 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
    - **p(answers):** "does this help answer the question?" It gives the final order.
    - **p(explore):** "must the traversal explore from here?" It picks the next frontier.
 
-   Each candidate goes to Jev with its text or image and its metadata: status, source type, dates, validity and confidence.
+   Each candidate goes to Jev with its text or image and its metadata: status, source type, dates, validity and confidence. The questions ask only for relevance and for exploration. They do not tell Jev to weigh the metadata ([CTX-1418](https://linear.app/ctxpipe/issue/CTX-1418)). Code applies the status and the validity: the store reads only `active` documents, the layers of `get_related` read only rows that are valid at `validAt` (now by default), a search hit that is not valid at `validAt` (or now) comes after the valid hits, and decision 4 gives the status of each position.
    - The "why" path is the parent chain that the traversal records.
    - The budgets stay in code: depth, fan-out, time and the visited set. `validAt` filters in SQL.
    - PageRank, the intent presets, the predicate weights and MMR go away. No separate ranker runs after the layers.
@@ -42,14 +42,19 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
    - `search_knowledge` is the search plus layer 0.
    - `get_related` is the full loop. Each layer reads the out-relations and in-relations of the frontier in one ClickHouse query.
    - With D = 3, one retrieval is about 6 ClickHouse queries and 5 Jev calls.
-4. **Disagreements are reasoned at query time, for each question.**
+4. **Disagreements are reasoned at query time, for each question. Jev gives small facts about the content; code decides** ([CTX-1418](https://linear.app/ctxpipe/issue/CTX-1418), the CTO, 2026-11-19).
    1. Take the top evidence set, about N = 10.
-   2. Jev labels each pair against the question: agrees, contradicts, partial, updates or unrelated.
-   3. Items that agree form a position.
-   4. Jev decides the status of each position: current, superseded, disputed or scoped. The dates, the validity and the source authority are evidence in its state, not weights in code. A deterministic tie-break applies only when Jev is unsure.
-   5. The output is structured positions, with their evidence and the reason. The calling agent writes the answer.
+   2. Jev answers yes/no questions (Noul) about the content only. Each question asks for one judgment, and "yes" means that the condition is present:
+      - for each pair: do the two items make a claim about the same part of the question; do the claims disagree; does Item a change or replace the claim of Item b (and the reverse);
+      - for each item: does its claim apply only to a part of the question, for example one team, one product or one time range.
 
-   A stored `SUPERSEDES` relation is strong evidence, not the mechanism.
+      The state holds the question and the passages. It does not hold the row data (dates, validity, source authority, stored relations, confidence), because code applies it. The questions go in the pair batches: for N = 10, 4 calls with at most 12 pairs each, in parallel (190 questions). No separate status call.
+   3. A pure function in code gives the label of each pair from the facts: unrelated, updates, agrees, partial (they disagree, and the claim of only one item applies to a part) or contradicts. Items that agree form a position.
+   4. The same function gives the status of each position (current, superseded, disputed or scoped) from the facts and the row data, with the first rule that decides: a stored `SUPERSEDES`, then Jev's "changes or replaces" in one direction, then the validity at the query time, the source authority, `observed_at` and the confidence. A position that ties with a rival on each rule is disputed. A position whose valid items all apply only to a part of the question is scoped.
+   5. Each fact is "yes" at a threshold that is a setting of the loop (`ORCHESTRATOR_DEFAULTS`). The function makes no call, so the evals score a change of a rule or a threshold again from the recorded answers ([ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md) decision 7).
+   6. The output is structured positions, with their evidence and the rule that gave the status. The calling agent writes the answer.
+
+   Why: Jev gives one fast judgment for each question, and the questions of one call do not see each other. A typed decision model follows the name of an option, not its definition, and the options of a Choice question compete. Thus a 5-way Choice with long definitions, or a question that weighs four factors, is not reliable. Small facts and rules in code are reliable and can be tested.
 5. **One multimodal vector space.**
    - Text and images are embedded through the OpenRouter embeddings endpoint, with one OpenAI-compatible client that can send `image_url` parts.
    - The model must also be usable outside AWS, for example by a self-hoster on Azure.
@@ -70,7 +75,7 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
 - **Cost:** each retrieval has a model cost (Jev and the query embedding).
 - **Open: what happens when Jev fails or is slow** (return the search order, or fail the call). The PoC decides it.
 - **Facts to verify:**
-  - how many Jev questions fit in one call (50 candidates × 2, or 45 pairs);
+  - how many Jev questions fit in one call (50 candidates × 2, or 12 pairs × 4 and the items);
   - Jev latency with images;
   - the speed of the binary scan from real S3 (the measurements of decision 1 used S3 on the same host).
 - **Amends** ADR-051 decision 6 (graph relevance) and section 8 (data layer) for orgs on the new plane. Until the rollout ends, the old ranking serves the other orgs.

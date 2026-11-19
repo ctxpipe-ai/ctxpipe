@@ -5,6 +5,7 @@ import { z } from "zod"
 import { RELEVANCE_INTENTS } from "../../domain/workspaces/graph-relevance.js"
 import type { Ranking } from "../../domain/workspaces/related-ranking.js"
 import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
+import { STATUS_RULES } from "../../retrieval/jev/disagreement.js"
 import { fitPage } from "../framework/budget.js"
 import {
   requireServed,
@@ -218,10 +219,9 @@ const positionSchema = z.object({
     .describe(
       "current: true now. superseded: replaced, or not valid now. disputed: contradicted, and no side wins. scoped: true only for a part of the question.",
     ),
-  reason: z.union([
-    z.object({ by: z.literal("jev"), probability: z.number() }),
-    z.object({ by: z.literal("tie-break"), rule: z.string() }),
-  ]),
+  reason: z
+    .object({ by: z.literal("tie-break"), rule: z.enum(STATUS_RULES) })
+    .describe("The rule of the disagreement step that gave the status."),
   against: z
     .array(
       z.object({

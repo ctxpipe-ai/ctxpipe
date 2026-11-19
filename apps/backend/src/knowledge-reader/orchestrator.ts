@@ -44,6 +44,16 @@ export const ORCHESTRATOR_DEFAULTS = {
   evidenceChunks: 2,
   /** The characters of evidence text of each candidate, at most. */
   evidenceChars: 1_500,
+  /**
+   * The disagreement step reads a Jev fact as "yes" when its p(yes) is at
+   * least this value: same part of the question, disagree, changes or
+   * replaces, and applies only to a part of the question (ADR-068
+   * decision 4).
+   */
+  sameAt: 0.5,
+  disagreeAt: 0.5,
+  replacesAt: 0.5,
+  scopedAt: 0.5,
 }
 
 /** The model calls of one retrieval, for the shadow log (no content). */
