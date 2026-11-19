@@ -49,8 +49,8 @@ type KnowledgeFinding = {
  * The one safe fix: a body link to a `missing` document, when exactly one
  * file of the tree has the same file name, points to that file. The new
  * destination is a plain relative path, because the hydrate does not decode
- * URL escapes: a path that needs an escape (a space, a parenthesis, `%`)
- * gets no fix. Each other finding is a report only:
+ * URL escapes: a path that needs an escape (a space, a parenthesis, `%`,
+ * `#`, `?`) gets no fix. Each other finding is a report only:
  * - a `failed` document (a file that does not parse);
  * - a reference to a `deleted` document;
  * - a reference to a `missing` document with no file or more than one file
@@ -164,7 +164,7 @@ export async function findKnowledgeRepairs(input: {
             matches.length === 1 &&
             !!destination &&
             !/^[a-z][a-z0-9+.-]*:/i.test(raw) &&
-            !/[\s()<>%\\]/.test(destination)
+            !/[\s()<>%#?\\]/.test(destination)
           if (fixed) {
             const suffix = raw.search(/[?#]/)
             edits.push({

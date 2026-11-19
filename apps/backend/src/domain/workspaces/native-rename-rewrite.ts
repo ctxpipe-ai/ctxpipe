@@ -176,7 +176,19 @@ function rewriteDocument(
     if (!moved && path === oldPath) return url
     const destination = moved ?? resolved
     if (!current.has(destination)) return url
-    return relativeLinkUrl(path, destination) + suffix
+    const relative = posix.relative(posix.dirname(path), destination)
+    return (
+      relative
+        .split("/")
+        .map((part) =>
+          encodeURIComponent(part).replace(
+            /[!'()*]/g,
+            (character) =>
+              `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+          ),
+        )
+        .join("/") + suffix
+    )
   }
   const body = markdownBodyOf(content)
   const edits: Array<{ start: number; end: number; value: string }> = []
@@ -251,18 +263,4 @@ function rewriteDocument(
     })
   }
   return next
-}
-
-/** The encoded relative link from the file `from` to the file `to`. */
-function relativeLinkUrl(from: string, to: string): string {
-  return posix
-    .relative(posix.dirname(from), to)
-    .split("/")
-    .map((part) =>
-      encodeURIComponent(part).replace(
-        /[!'()*]/g,
-        (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
-      ),
-    )
-    .join("/")
 }

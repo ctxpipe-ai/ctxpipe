@@ -62,6 +62,7 @@ export const knowledgeMaintenance = defineWorkflow(
       // nothing to check.
       if (state?.lastSha !== input.sha || !workspace || !org) {
         getLogger().set({
+          step: "knowledge-maintenance",
           knowledgeMaintenance: { sha: input.sha, outcome: "superseded" },
         })
         return { outcome: "superseded" as const }
@@ -99,7 +100,14 @@ export const knowledgeMaintenance = defineWorkflow(
               ...key,
               jobId: id,
               kind: "knowledge_maintenance",
+              // The binding of the scan: admission refuses the job when the
+              // Workspace changed its repository, branch or root folder.
               jobDesiredSha: input.sha,
+              jobGeneration: workspace.desiredGeneration,
+              jobWorkspaceUrl: workspace.workspaceRepositoryUrl,
+              ...(workspace.desiredDefaultBranch
+                ? { defaultBranch: workspace.desiredDefaultBranch }
+                : {}),
               mergeFiles: found.files,
             },
             { error: (error) => getLogger().error(error) },
@@ -117,7 +125,11 @@ export const knowledgeMaintenance = defineWorkflow(
         rewrittenFiles: found.files.length,
         writeJob,
       }
-      getLogger().set({ knowledgeMaintenance: { sha: input.sha, ...summary } })
+      getLogger().set({
+        // The wide event of a workflow is sent only with a step.
+        step: "knowledge-maintenance",
+        knowledgeMaintenance: { sha: input.sha, ...summary },
+      })
       return summary
     }),
 )
