@@ -42,7 +42,7 @@ Cloudflare Access protects every path of `pr-<N>.ctxpipe.dev` except the webhook
 - Run only trusted code with the token: a script from a checkout of `main`, never from the tree of a PR. A PR can change the script, and then it can send the token to a different location. For example, from `apps/backend` of a `main` checkout: `factory preview access -- bun run src/scripts/validateTarget.ts https://pr-<N>.ctxpipe.dev --no-mcp-read`.
 - A browser: never the headers. Do the steps of the [browser driver](harness.md#browser-driver), but write the response headers to a private temporary file (`-D "$(mktemp)"`), not to stdout.
 - Never print the two variables or the `CF_Authorization` cookie, and never put them in a report, a log, a file in a repository, a commit or a PR.
-- If `factory` says it cannot read the token, the AWS profiles of the host are older than this token: run `factory agent-host install ~/.factory/agent-host/$(cat ~/.factory/agent-host/current)/certificate.pem` once.
+- If `factory` says it cannot read the token, the AWS profiles of the host are older than this token: run `factory agent-host install <host>.pem` once, with the file that `factory agent-host issue` wrote for this host.
 - The token opens only the previews: a production host refuses it. It lasts 30 days, and WARP on the agent host replaces it. Details: the factory CLI README, "Previews".
 
 Only a pull request from ctxpipe-ai/ctxpipe itself into `main` gets a preview. `factory preview up` and the preview workflow refuse a PR from a fork. They refuse it before they build, push or clone anything. The [target guard](run-setup.md#target-guard) of this sweep does not admit `pr-<N>.ctxpipe.dev` yet ([CTX-1352](https://linear.app/ctxpipe/issue/CTX-1352)).
