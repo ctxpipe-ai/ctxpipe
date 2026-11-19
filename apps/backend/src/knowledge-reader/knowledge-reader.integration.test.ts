@@ -2,7 +2,7 @@ import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import { and, eq } from "drizzle-orm"
 import { initLogger } from "evlog"
-import { HttpResponse, http } from "msw"
+import { delay, HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import {
   afterAll,
@@ -59,7 +59,11 @@ const planeSha = "b".repeat(40)
  */
 const jevRequests: { candidates: number }[] = []
 const disagreementRequests: string[][] = []
-let jevFails = false
+/** Fail every Jev call, or only the calls of the disagreement step. */
+let jevFails: false | "all" | "disagreement" = false
+/** Answer this Jev call (from 1) after the 3-second budget, or none. */
+let slowJevCall: number | null = null
+let jevCalls = 0
 const embeddingRequests: string[] = []
 
 /** The vector of a text on both stacks: the old stack has 2000 dimensions. */
@@ -91,13 +95,15 @@ const models = setupServer(
         state: unknown[]
         questions: Record<string, unknown>
       }
-      if (jevFails) return HttpResponse.json({ error: "down" }, { status: 503 })
+      jevCalls += 1
+      if (jevCalls === slowJevCall) await delay(5_000)
       const keys = Object.keys(body.questions)
-      if (
-        keys.every(
-          (key) => key.startsWith("pair.") || key.startsWith("status."),
-        )
-      ) {
+      const disagreement = keys.every(
+        (key) => key.startsWith("pair.") || key.startsWith("status."),
+      )
+      if (jevFails === "all" || (jevFails === "disagreement" && disagreement))
+        return HttpResponse.json({ error: "down" }, { status: 503 })
+      if (disagreement) {
         disagreementRequests.push(keys)
         const spread = (options: string[], top: string) =>
           Object.fromEntries(
@@ -198,6 +204,7 @@ const units: (RelatedUnit & { text: string })[] = [
         to: "knowledge/decisions/adr-7.md",
         predicate: "GOVERNED_BY",
         confidence: 0.8,
+        validFrom: "2026-01-01T00:00:00Z",
       },
     ],
   },
@@ -248,7 +255,7 @@ function planeRows(workspaceId: string): DocumentRows[] {
       predicate: claim.predicate,
       dstDoc: key(claim.to),
       confidence: claim.confidence,
-      validFrom: null,
+      validFrom: claim.validFrom ? new Date(claim.validFrom) : null,
       validTo: null,
       source: "",
       observedAt,
@@ -398,7 +405,7 @@ describe("the knowledge reader seam", () => {
                   to: claim.to,
                   predicate: claim.predicate,
                   confidence: claim.confidence,
-                  validFrom: null,
+                  validFrom: claim.validFrom ?? null,
                   validTo: null,
                   source: null,
                 })),
@@ -432,6 +439,8 @@ describe("the knowledge reader seam", () => {
 
   beforeEach(() => {
     jevFails = false
+    slowJevCall = null
+    jevCalls = 0
     jevRequests.length = 0
     disagreementRequests.length = 0
     events.length = 0
@@ -576,8 +585,13 @@ describe("the knowledge reader seam", () => {
         ],
       }),
     ])
-    // Layer 1 judges the three neighbors; layer 2 the one neighbor of the hub.
-    expect(jevRequests).toEqual([{ candidates: 3 }, { candidates: 1 }])
+    // Layer 0 judges the seed; layer 1 the three neighbors; layer 2 the one
+    // neighbor of the hub.
+    expect(jevRequests).toEqual([
+      { candidates: 1 },
+      { candidates: 3 },
+      { candidates: 1 },
+    ])
     // The disagreement step: one pair, then the status of each position.
     expect(disagreementRequests).toEqual([
       ["pair.1.2"],
@@ -605,20 +619,20 @@ describe("the knowledge reader seam", () => {
     expect(tool?.description).toContain(
       "status (current, superseded, disputed, scoped)",
     )
-    const positions = (
-      tool?.outputSchema?.properties as Record<
-        string,
-        { description?: string; items: { properties: Record<string, unknown> } }
-      >
-    ).positions
-    expect(positions?.description).toBe(
+    const properties = tool?.outputSchema?.properties as Record<
+      string,
+      { description?: string; items: { properties: Record<string, unknown> } }
+    >
+    const positions = properties.positions
+    if (!positions) throw new Error("get_related has no positions output")
+    expect(positions.description).toBe(
       "The disagreement positions of the top results.",
     )
-    expect(positions?.items.properties.status).toMatchObject({
+    expect(positions.items.properties.status).toMatchObject({
       enum: ["current", "superseded", "disputed", "scoped"],
       description: expect.stringContaining("superseded: replaced"),
     })
-    expect(Object.keys(positions?.items.properties ?? {}).sort()).toEqual([
+    expect(Object.keys(positions.items.properties).sort()).toEqual([
       "against",
       "reason",
       "refs",
@@ -632,7 +646,91 @@ describe("the knowledge reader seam", () => {
     expect(
       (content.results as { ref: string }[]).map((result) => result.ref),
     ).toEqual(["knowledge/teams/payments.md"])
-    expect(jevRequests).toEqual([{ candidates: 3 }])
+    expect(jevRequests).toEqual([{ candidates: 1 }, { candidates: 3 }])
+  })
+
+  it("on: includeSeeds adds a seed that answers; layer 0 judges the seeds either way", async () => {
+    await setFlag("on")
+    const refs = async (args: Record<string, unknown>) =>
+      (structured(await relatedCall({ maxDepth: 1, ...args })).results as {
+        ref: string
+      }[]).map((result) => result.ref)
+    // The checkout seed does not answer ("hub" only), so it is no result.
+    expect(await refs({ includeSeeds: true })).toEqual([
+      "knowledge/teams/payments.md",
+    ])
+    expect(
+      await refs({
+        seeds: ["knowledge/teams/payments.md"],
+        includeSeeds: true,
+      }),
+    ).toEqual(["knowledge/teams/payments.md"])
+    // Jev does not explore from the payments team, so no layer runs.
+    expect(jevRequests.slice(-1)).toEqual([{ candidates: 1 }])
+  })
+
+  it("on: validBetween follows only relations valid in the window", async () => {
+    await setFlag("on")
+    const refs = async (validBetween: { from: string; to: string }) =>
+      (structured(await relatedCall({ maxDepth: 3, validBetween })).results as {
+        ref: string
+      }[]).map((result) => result.ref)
+    // GOVERNED_BY is valid from 2026-01-01.
+    expect(
+      await refs({ from: "2025-01-01T00:00:00Z", to: "2025-06-01T00:00:00Z" }),
+    ).toEqual(["knowledge/teams/payments.md"])
+    expect(
+      await refs({ from: "2026-02-01T00:00:00Z", to: "2026-03-01T00:00:00Z" }),
+    ).toEqual(["knowledge/teams/payments.md", "knowledge/decisions/adr-7.md"])
+  })
+
+  it("on: search_knowledge filters the sources in the store", async () => {
+    await setFlag("on")
+    const content = structured(
+      await searchCall({ workspaces: ["ready"], sources: ["linear"] }),
+    )
+    expect(content.hits).toEqual([])
+    const authored = structured(
+      await searchCall({ workspaces: ["ready"], sources: ["authored"] }),
+    )
+    expect((authored.hits as unknown[]).length).toBe(units.length)
+  })
+
+  it("on: when the time budget ends in a layer, get_related returns the judged layers as partial", async () => {
+    await setFlag("on")
+    // Call 1 judges the seed, call 2 layer 1, call 3 layer 2.
+    slowJevCall = 3
+    const content = structured(await relatedCall({ maxDepth: 3 }))
+    expect(content).toMatchObject({
+      partial: true,
+      partialReason: "total_timeout",
+    })
+    expect(
+      (content.results as { ref: string }[]).map((result) => result.ref),
+    ).toEqual(["knowledge/teams/payments.md"])
+    expect(content.positions).toBeUndefined()
+  }, 15_000)
+
+  it("on: when the time budget ends in the disagreement step, get_related has the results and no positions", async () => {
+    await setFlag("on")
+    // Calls 1 to 3 are the layers, call 4 the pairs.
+    slowJevCall = 4
+    const content = structured(await relatedCall({ maxDepth: 3 }))
+    expect(content).toMatchObject({
+      partial: true,
+      partialReason: "total_timeout",
+    })
+    expect((content.results as unknown[]).length).toBe(2)
+    expect(content.positions).toBeUndefined()
+  }, 15_000)
+
+  it("on: when Jev fails in the disagreement step, get_related fails with judge_unavailable", async () => {
+    await setFlag("on")
+    jevFails = "disagreement"
+    const result = await relatedCall({ maxDepth: 3 })
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain("judge_unavailable")
+    expect(jevRequests.length).toBe(3)
   })
 
   it("on: an unknown seed gives unknown_ref", async () => {
@@ -644,7 +742,7 @@ describe("the knowledge reader seam", () => {
 
   it("on: when Jev fails, search_knowledge gives the search order with a flag", async () => {
     await setFlag("on")
-    jevFails = true
+    jevFails = "all"
     const result = await searchCall({ workspaces: ["ready"] })
     expect(result.isError).toBeFalsy()
     const content = structured(result)
@@ -657,7 +755,7 @@ describe("the knowledge reader seam", () => {
 
   it("on: when Jev fails, get_related fails with judge_unavailable", async () => {
     await setFlag("on")
-    jevFails = true
+    jevFails = "all"
     const result = await relatedCall({ maxDepth: 2 })
     expect(result.isError).toBe(true)
     const text = JSON.stringify(result.content)
@@ -761,8 +859,8 @@ describe("the knowledge reader seam", () => {
     const event = events.find((item) => item.step === "knowledge_plane.shadow")
     expect(event).toMatchObject({
       tool: "get_related",
-      // Two layers, one pair and one status call.
-      plane: { jevCalls: 4, embeddingCalls: 1 },
+      // Layer 0, two layers, one pair call and one status call.
+      plane: { jevCalls: 5, embeddingCalls: 1 },
     })
     expect(JSON.stringify(event)).not.toContain("knowledge/")
   })

@@ -110,6 +110,10 @@ export type SearchQuery = {
   kinds?: string[]
   /** Only documents with a path that starts with this text. */
   pathPrefix?: string
+  /** Only documents of these source types. Empty or absent: all. */
+  sourceTypes?: string[]
+  /** Only documents observed after this time. */
+  observedAfter?: Date | null
   /** Only documents that are valid at this time. */
   validAt?: Date | null
 }
@@ -213,6 +217,11 @@ export type KnowledgeStore = {
     refs: DocumentRef[],
     validAt?: Date | null,
   ): Promise<FrontierRelation[]>
+  /** The document rows of `refs`, with no chunks. */
+  readDocuments(
+    scope: KnowledgeReadScope,
+    refs: DocumentRef[],
+  ): Promise<{ workspaceId: string; document: KnowledgeDocument }[]>
   /** The documents `refs` with their chunks closest to `vector`. */
   readEvidence(
     scope: KnowledgeReadScope,
@@ -259,6 +268,7 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     search: (scope, query) => search(client, scope, query),
     readFrontier: (scope, refs, validAt) =>
       readFrontier(client, scope, refs, validAt),
+    readDocuments: (scope, refs) => readDocuments(client, scope, refs),
     readEvidence: (scope, refs, vector, chunksPerDocument) =>
       readEvidence(client, scope, refs, vector, chunksPerDocument),
     readGraph: (scope, limit) => readGraph(client, scope, limit),
@@ -790,7 +800,8 @@ function vectorBits(vector: number[]): string {
 type ChunkKey = { workspaceId: string; docKey: string; ordinal: number }
 const chunkId = (key: ChunkKey) =>
   JSON.stringify([key.workspaceId, key.docKey, key.ordinal])
-const documentId = (ref: DocumentRef) =>
+/** The key of a document of a read: its Workspace and its document key. */
+export const documentId = (ref: DocumentRef) =>
   JSON.stringify([ref.workspaceId, ref.docKey])
 /** The value of a `{refs:Array(Tuple(String, String))}` parameter. */
 const refTuples = (refs: DocumentRef[]) =>
@@ -813,7 +824,15 @@ const refTuples = (refs: DocumentRef[]) =>
 async function search(
   client: ClickHouseClient,
   scope: KnowledgeReadScope,
-  { vector, terms, kinds = [], pathPrefix = "", validAt = null }: SearchQuery,
+  {
+    vector,
+    terms,
+    kinds = [],
+    pathPrefix = "",
+    sourceTypes = [],
+    observedAfter = null,
+    validAt = null,
+  }: SearchQuery,
 ): Promise<SearchHit[]> {
   // hasToken refuses a term with a separator in it. Split each term as the
   // splitByNonAlpha tokenizer of the text index does: at each ASCII character
@@ -831,6 +850,8 @@ async function search(
     terms: uniqueTerms,
     kinds,
     pathPrefix,
+    sourceTypes,
+    observedAfter: observedAfter && clickHouseTime(observedAfter),
     validAt: validAt && clickHouseTime(validAt),
     ...Object.fromEntries(uniqueTerms.map((term, i) => [`term${i}`, term])),
   }
@@ -838,6 +859,9 @@ async function search(
   const searchable = `${inWorkspaces} AND status = 'active'
     AND (empty({kinds:Array(String)}) OR has({kinds:Array(String)}, kind))
     AND startsWith(path, {pathPrefix:String})
+    AND (empty({sourceTypes:Array(String)}) OR has({sourceTypes:Array(String)}, source_type))
+    AND ({observedAfter:Nullable(DateTime64(3, 'UTC'))} IS NULL
+      OR observed_at > {observedAfter:Nullable(DateTime64(3, 'UTC'))})
     AND ${validDuring()}`
   const inSearchable = `(workspace_id, doc_key) IN (
     SELECT workspace_id, doc_key FROM documents WHERE ${searchable})`
@@ -1036,6 +1060,29 @@ async function readFrontier(
     relation: toRelation(relation),
     // Without a match, the LEFT JOIN gives a tuple of default values.
     neighbor: neighbor.docKey ? toDocument(neighbor) : null,
+  }))
+}
+
+/** The document row of each of `refs` that has one, in one query. */
+async function readDocuments(
+  client: ClickHouseClient,
+  scope: KnowledgeReadScope,
+  refs: DocumentRef[],
+): Promise<{ workspaceId: string; document: KnowledgeDocument }[]> {
+  assertReadScope(scope)
+  if (refs.length === 0) return []
+  const rows = await selectIn<DocumentRecord & { workspaceId: string }>(
+    client,
+    scope,
+    `SELECT workspace_id AS workspaceId, ${documentColumns} FROM documents
+     WHERE ${inWorkspaces}
+       AND (workspace_id, doc_key) IN {refs:Array(Tuple(String, String))}
+     ORDER BY workspaceId, docKey`,
+    { refs: refTuples(refs) },
+  )
+  return rows.map(({ workspaceId, ...record }) => ({
+    workspaceId,
+    document: toDocument(record),
   }))
 }
 

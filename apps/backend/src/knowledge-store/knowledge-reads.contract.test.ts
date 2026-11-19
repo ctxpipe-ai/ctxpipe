@@ -132,7 +132,12 @@ const orgADocuments: DocumentRows[] = [
   document(
     "guides/setup.md",
     [{ text: "setup guide", embedding: nearQuery(3) }],
-    { kind: "guide", path: "guides/setup.md" },
+    {
+      kind: "guide",
+      path: "guides/setup.md",
+      sourceType: "linear",
+      observedAt: new Date("2026-11-20T00:00:00.000Z"),
+    },
   ),
   // More than 50 chunks near the query, so that the top 50 is a choice.
   ...Array.from({ length: 80 }, (_, i) =>
@@ -409,6 +414,20 @@ describe("search", () => {
     ])
   })
 
+  it("filters by source type and by the time a document was observed", async () => {
+    expect(hitKeys(await search({ sourceTypes: ["linear"] }))).toEqual([
+      "guides/setup.md",
+    ])
+    expect(
+      hitKeys(
+        await search({ observedAfter: new Date("2026-11-19T12:00:00.000Z") }),
+      ),
+    ).toEqual(["guides/setup.md"])
+    expect(
+      hitKeys(await search({ sourceTypes: ["linear", "git"] })).length,
+    ).toBeGreaterThan(1)
+  })
+
   it("searches several Workspaces of the org in one call", async () => {
     expect(hitKeys(await search({ terms: ["elsewhere"] }))).not.toContain(
       "other.md",
@@ -488,6 +507,23 @@ describe("frontier relations", () => {
   })
 })
 
+describe("document read", () => {
+  it("returns the row of each document that has one, with no chunks", async () => {
+    const documents = await store.readDocuments(orgA, [
+      { workspaceId: workspace, docKey: "vector.md" },
+      { workspaceId: workspace, docKey: "ghost.md" },
+      { workspaceId: otherWorkspace, docKey: "vector.md" },
+    ])
+    expect(
+      documents.map(({ workspaceId, document }) => [
+        workspaceId,
+        document.docKey,
+        document.status,
+      ]),
+    ).toEqual([[workspace, "vector.md", "active"]])
+  })
+})
+
 describe("evidence read", () => {
   it("returns each document with its chunks closest to the query vector", async () => {
     const evidence = await store.readEvidence(
@@ -550,6 +586,7 @@ async function readAllForOrgA(
       terms: ["zebracorn", "Org", "B"],
     }),
     await reader.readFrontier(orgA, refs),
+    await reader.readDocuments(orgA, refs),
     await reader.readEvidence(orgA, refs, queryVector, 3),
     await reader.readGraph({ orgId: orgA.orgId, workspaceId: workspace }, 1000),
   ])

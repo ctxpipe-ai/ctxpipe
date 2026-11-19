@@ -74,10 +74,19 @@ export type Ranking = {
 }
 
 /** Results that one ranking keeps. A page takes at most 50 of them. */
-const RANKED_LIMIT = 100
+export const RANKED_LIMIT = 100
 
-function round(value: number): number {
+/** A score or a weight of a result, as both stacks give it. */
+export function round(value: number): number {
   return Number(value.toPrecision(3))
+}
+
+/** The error for seed refs that name no knowledge unit. */
+export function unknownRefError(unknown: readonly string[]): McpToolError {
+  return new McpToolError(
+    "unknown_ref",
+    `No knowledge unit for: ${unknown.join(", ")}. Use paths from search_knowledge or an earlier result.`,
+  )
 }
 
 /**
@@ -150,12 +159,7 @@ async function resolveSeeds(
   )
   const found = new Set(rows.map((row) => row.path))
   const unknown = paths.filter((path) => !found.has(path))
-  if (unknown.length > 0) {
-    throw new McpToolError(
-      "unknown_ref",
-      `No knowledge unit for: ${unknown.join(", ")}. Use paths from search_knowledge or an earlier result.`,
-    )
-  }
+  if (unknown.length > 0) throw unknownRefError(unknown)
   return rows.map((row) => row.id)
 }
 
@@ -180,7 +184,7 @@ export async function rankWorkspaceRelated(
   org: CallOrg,
   workspace: { id: string; slug: string },
   sha: string,
-  input: z.infer<z.ZodObject<typeof getRelatedInputShape>>,
+  input: RelatedInput,
   now: Date,
   options: { caps?: GraphExpandParams["caps"] } = {},
 ): Promise<Ranking> {

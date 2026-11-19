@@ -10,14 +10,18 @@ import {
 } from "../domain/workspaces/graph-relevance.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
 import type { KnowledgeHit } from "../domain/workspaces/knowledge-search.js"
-import type {
-  Ranking,
-  RelatedPosition,
-  RelatedResult,
+import {
+  RANKED_LIMIT,
+  type Ranking,
+  type RelatedPosition,
+  type RelatedResult,
+  round,
+  unknownRefError,
 } from "../domain/workspaces/related-ranking.js"
 import { workspaceGraphFromSignals } from "../domain/workspaces/workspace-graph.js"
 import {
   createKnowledgeStore,
+  documentId,
   type FrontierRelation,
   type KnowledgeDocument,
   type KnowledgeRelation,
@@ -36,7 +40,10 @@ import type {
   SearchResult,
 } from "./knowledge-reader.js"
 import {
+  beforeDeadline,
   evidenceText,
+  isBudgetSpent,
+  jevMeta,
   judge,
   type ModelMeter,
   ORCHESTRATOR_DEFAULTS,
@@ -50,16 +57,12 @@ import {
  * of the old stack, so the tools do not change.
  */
 
-let opened: { url: string | undefined; store: KnowledgeStore } | undefined
+let opened: KnowledgeStore | undefined
 
-/** The store of `CLICKHOUSE_URL` (the reader user), opened once. */
+/** The store of `CLICKHOUSE_URL` (the reader user), opened on first use. */
 function knowledgeStore(): KnowledgeStore {
-  const url = parseEnv(process.env).CLICKHOUSE_URL
-  if (opened && opened.url === url) return opened.store
-  void opened?.store.close()
-  const store = createKnowledgeStore(url)
-  opened = { url, store }
-  return store
+  opened ??= createKnowledgeStore(parseEnv(process.env).CLICKHOUSE_URL)
+  return opened
 }
 
 /**
@@ -127,7 +130,7 @@ export function planeKnowledgeReader(input: {
       return payload
     },
     expand: ({ orgId, workspaceId, params }) =>
-      expand({ orgId, workspaceIds: [workspaceId] }, params),
+      expand(orgId, workspaceId, params),
   }
 }
 
@@ -158,26 +161,22 @@ async function search(
 ): Promise<SearchResult> {
   const query = request.query.trim()
   if (!query || request.workspaceIds.length === 0) return { hits: [] }
-  const started = performance.now()
+  const deadline = performance.now() + ORCHESTRATOR_DEFAULTS.timeBudgetMs
   const store = knowledgeStore()
   const scope = {
     orgId: request.orgId,
     workspaceIds: [...request.workspaceIds],
   }
-  const found = (
-    await store.search(scope, {
-      vector: await embed(query),
-      terms: queryTerms(query),
-      kinds: request.kinds ? [...request.kinds] : undefined,
-      pathPrefix: request.pathPrefix,
-      validAt: request.validAt ?? null,
-    })
-  ).filter(
-    ({ document }) =>
-      (!request.sources?.length ||
-        request.sources.includes(document.sourceType || "authored")) &&
-      (!request.updatedAfter || document.observedAt > request.updatedAfter),
-  )
+  // The store applies each filter before it cuts the candidates.
+  const found = await store.search(scope, {
+    vector: await embed(query),
+    terms: queryTerms(query),
+    kinds: request.kinds ? [...request.kinds] : undefined,
+    pathPrefix: request.pathPrefix,
+    sourceTypes: request.sources ? [...request.sources] : undefined,
+    observedAfter: request.updatedAfter ?? null,
+    validAt: request.validAt ?? null,
+  })
   const limit = Math.min(Math.max(Math.trunc(request.limit ?? 10), 1), 50)
   const inputs = found.map((hit) => ({
     ref: { workspaceId: hit.workspaceId, docKey: hit.document.docKey },
@@ -185,18 +184,12 @@ async function search(
     text: evidenceText(
       hit.document,
       hit.chunks.slice(0, ORCHESTRATOR_DEFAULTS.evidenceChunks),
-      ORCHESTRATOR_DEFAULTS.evidenceChars,
     ),
   }))
   const [judged, relations] = await Promise.all([
-    judge(
-      inputs,
-      query,
-      "search",
-      ORCHESTRATOR_DEFAULTS.timeBudgetMs - (performance.now() - started),
-      meter,
-    ).catch((error: unknown) => {
-      if (error instanceof JevError) return null
+    // A Jev failure or the end of the time budget keeps the search order.
+    judge(inputs, query, "search", deadline, meter).catch((error: unknown) => {
+      if (error instanceof JevError || isBudgetSpent(error)) return null
       throw error
     }),
     store.readFrontier(
@@ -226,7 +219,12 @@ async function search(
           endLine: chunk.endLine,
           text: chunk.text,
           claims:
-            claimsOf.get(`${hit.workspaceId}\0${hit.document.docKey}`) ?? [],
+            claimsOf.get(
+              documentId({
+                workspaceId: hit.workspaceId,
+                docKey: hit.document.docKey,
+              }),
+            ) ?? [],
           score: judged ? (judged[index]?.pAnswers ?? 0) : chunk.score,
         },
       ]
@@ -249,7 +247,7 @@ function claimsByDocument(
     // The relation of a file to an image that it shows is no claim.
     if (direction !== "out" || relation.predicate === "EMBEDS_IMAGE") continue
     if (!neighbor?.path) continue
-    const key = `${workspaceId}\0${relation.srcDoc}`
+    const key = documentId({ workspaceId, docKey: relation.srcDoc })
     const list = claims.get(key) ?? []
     list.push({ predicate: relation.predicate, to: neighbor.path })
     claims.set(key, list)
@@ -258,11 +256,13 @@ function claimsByDocument(
 }
 
 /**
- * `get_related`: the seeds are the first frontier, then up to D layers of
- * the loop. A result is a judged document with p(answers) of at least the
- * `keepAt` setting; p(answers) is its score. Then the disagreement step
- * gives the positions of the top results (ADR-068 decision 4). When Jev
- * fails, the call fails with `judge_unavailable`.
+ * `get_related`: layer 0 judges the seeds, then up to D layers of the loop.
+ * A result is a judged document with p(answers) of at least the `keepAt`
+ * setting (a seed only with `includeSeeds`); p(answers) is its score. Then
+ * the disagreement step gives the positions of the top results (ADR-068
+ * decision 4). When the time budget ends, the result is partial, with
+ * `total_timeout` and no positions. When Jev fails, the call fails with
+ * `judge_unavailable`.
  */
 async function related(
   { org, workspace, input, now }: RelatedRequest,
@@ -276,27 +276,37 @@ async function related(
   const question =
     input.query ??
     `Which knowledge is related to ${paths.join(", ")}? The kind of question: ${input.intent}.`
-  const vector = await embed(question)
   const seedRefs = paths.map((path) => ({
     workspaceId: workspace.id,
     docKey: servingIdForKnowledgePath(workspace.id, path),
   }))
-  const evidence = await store.readEvidence(
-    scope,
-    seedRefs,
-    vector,
-    ORCHESTRATOR_DEFAULTS.evidenceChunks,
-  )
+  let vector: number[]
+  let evidence: Awaited<ReturnType<KnowledgeStore["readEvidence"]>>
+  try {
+    vector = await beforeDeadline(deadline, () => embed(question))
+    evidence = await beforeDeadline(deadline, () =>
+      store.readEvidence(
+        scope,
+        seedRefs,
+        vector,
+        ORCHESTRATOR_DEFAULTS.evidenceChunks,
+      ),
+    )
+  } catch (error) {
+    if (!isBudgetSpent(error)) throw error
+    return {
+      results: [],
+      explored: { nodes: 0, edges: 0 },
+      partial: true,
+      partialReason: "total_timeout",
+      cappedHubs: [],
+    }
+  }
   const seeds = evidence.filter((item) => item.document.status === "active")
   const unknown = paths.filter(
     (path) => !seeds.some((seed) => seed.document.path === path),
   )
-  if (unknown.length > 0) {
-    throw new McpToolError(
-      "unknown_ref",
-      `No knowledge unit for: ${unknown.join(", ")}. Use paths from search_knowledge or an earlier result.`,
-    )
-  }
+  if (unknown.length > 0) throw unknownRefError(unknown)
   const upper = (values: readonly string[] | undefined) =>
     values && new Set(values.map((value) => value.toUpperCase()))
   let traversal: Awaited<ReturnType<typeof traverse>>
@@ -312,13 +322,8 @@ async function related(
       seeds: seeds.map((seed) => ({
         ref: { workspaceId: seed.workspaceId, docKey: seed.document.docKey },
         document: seed.document,
-        text: evidenceText(
-          seed.document,
-          seed.chunks,
-          ORCHESTRATOR_DEFAULTS.evidenceChars,
-        ),
+        text: evidenceText(seed.document, seed.chunks),
       })),
-      judgeSeeds: input.includeSeeds,
       maxDepth: input.maxDepth,
       walk: {
         direction: input.direction,
@@ -334,6 +339,14 @@ async function related(
         validAt: input.validBetween
           ? null
           : new Date(input.validAt ?? Date.now()),
+        ...(input.validBetween
+          ? {
+              validBetween: {
+                from: new Date(input.validBetween.from),
+                to: new Date(input.validBetween.to),
+              },
+            }
+          : {}),
       },
       meter,
     })
@@ -341,19 +354,20 @@ async function related(
       0,
       ORCHESTRATOR_DEFAULTS.disagreementItems,
     )
-    if (top.length > 0 && !traversal.partialReason) {
-      if (performance.now() >= deadline)
+    if (top.length > 0 && !traversal.partialReason)
+      positions = await disagreementPositions(
+        question,
+        top,
+        traversal.relations,
+        now,
+        deadline,
+        meter,
+      ).catch((error: unknown) => {
+        // The end of the budget gives the ranking with no positions.
+        if (!isBudgetSpent(error)) throw error
         traversal.partialReason = "total_timeout"
-      else
-        positions = await disagreementPositions(
-          question,
-          top,
-          traversal.relations,
-          now,
-          deadline - performance.now(),
-          meter,
-        )
-    }
+        return undefined
+      })
   } catch (error) {
     if (!(error instanceof JevError)) throw error
     throw new McpToolError(
@@ -362,7 +376,9 @@ async function related(
     )
   }
   return {
-    results: keptNodes(traversal.nodes, input).slice(0, 100).map(relatedResult),
+    results: keptNodes(traversal.nodes, input)
+      .slice(0, RANKED_LIMIT)
+      .map(relatedResult),
     ...(positions ? { positions } : {}),
     explored: traversal.explored,
     partial: traversal.partialReason !== undefined,
@@ -377,7 +393,8 @@ async function related(
 
 /**
  * The judged documents that answer (p(answers) of at least `keepAt`) and
- * pass the kind filters of the call, best first.
+ * pass the kind filters of the call, best first. A seed is one only with
+ * `includeSeeds`.
  */
 function keptNodes(
   nodes: readonly TraversalNode[],
@@ -390,6 +407,7 @@ function keptNodes(
   return nodes
     .filter(
       (node) =>
+        (node.depth > 0 || input.includeSeeds) &&
         node.pAnswers >= ORCHESTRATOR_DEFAULTS.keepAt &&
         (!keptKinds || keptKinds.has(kindKey(node.document.kind))) &&
         !droppedKinds.has(kindKey(node.document.kind)),
@@ -413,33 +431,31 @@ async function disagreementPositions(
   top: readonly TraversalNode[],
   relations: readonly KnowledgeRelation[],
   queryTime: Date,
-  timeoutMs: number,
+  deadline: number,
   meter: ModelMeter,
 ): Promise<RelatedPosition[]> {
-  // The pairs go to Jev in batches of 15 (the resolver default), and one
-  // more call gives the status of each position.
+  // The pairs go to Jev in batches of `batchSize`, then one call gives the
+  // status of each position.
+  const batchSize = 15
   const pairs = (top.length * (top.length - 1)) / 2
-  meter.jevCalls += Math.ceil(pairs / 15) + 1
+  meter.jevCalls += Math.ceil(pairs / batchSize) + 1
   meter.jevCandidates += top.length
-  const resolution = await resolveDisagreements({
-    question,
-    queryTime,
-    timeoutMs: Math.max(1, Math.floor(timeoutMs)),
-    items: top.map(({ document, text }, index) => ({
-      id: String(index),
-      passage: text,
-      meta: {
-        status: document.status,
-        sourceType: document.sourceType || "authored",
-        observedAt: document.observedAt.toISOString(),
-        validFrom: document.validFrom?.toISOString() ?? null,
-        validTo: document.validTo?.toISOString() ?? null,
-        confidence: null,
-        documentKey: document.docKey,
-      },
-    })),
-    relations,
-  })
+  // The resolver makes two calls one after the other, and each gets the rest
+  // of the budget, so the deadline also bounds both together.
+  const resolution = await beforeDeadline(deadline, () =>
+    resolveDisagreements({
+      question,
+      queryTime,
+      batchSize,
+      timeoutMs: Math.max(1, Math.floor(deadline - performance.now())),
+      items: top.map(({ document, text }, index) => ({
+        id: String(index),
+        passage: text,
+        meta: { ...jevMeta(document), documentKey: document.docKey },
+      })),
+      relations,
+    }),
+  )
   return resolution.positions.map((position, index) => ({
     refs: position.itemIds.map((id) => top[Number(id)]?.document.path ?? ""),
     status: position.status,
@@ -460,8 +476,6 @@ async function disagreementPositions(
       ),
   }))
 }
-
-const round = (value: number) => Number(value.toPrecision(3))
 
 /** One result, with its "why" path: the parent chain from a seed. */
 function relatedResult(node: TraversalNode): RelatedResult {
@@ -495,7 +509,8 @@ function relatedResult(node: TraversalNode): RelatedResult {
  * document (highest confidence first). It has no judge.
  */
 async function expand(
-  scope: { orgId: string; workspaceIds: string[] },
+  orgId: string,
+  workspaceId: string,
   params: {
     seeds: string[]
     maxDepth?: number
@@ -503,13 +518,12 @@ async function expand(
   },
 ): Promise<GraphExpansion> {
   const store = knowledgeStore()
-  const [workspaceId] = scope.workspaceIds
-  if (!workspaceId) throw new Error("A walk needs a Workspace")
+  const scope = { orgId, workspaceIds: [workspaceId] }
+  // The default of the old walk (`expandWorkspaceGraph`).
   const maxFanOut = params.maxFanOut ?? 50
-  const seeds = await Promise.all(
-    params.seeds.map((docKey) =>
-      store.readDocument({ orgId: scope.orgId, workspaceId }, docKey),
-    ),
+  const seeds = await store.readDocuments(
+    scope,
+    params.seeds.map((docKey) => ({ workspaceId, docKey })),
   )
   const nodes = new Map<string, ExpandedNode>()
   const add = (document: KnowledgeDocument, depth: number) =>
