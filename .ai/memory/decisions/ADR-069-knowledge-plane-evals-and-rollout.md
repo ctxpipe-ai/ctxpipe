@@ -106,7 +106,7 @@ The dataset must cover three shapes of customer: one large monorepo, an org with
    - **Both stacks stay current.** While the flag is not `off`, the worker writes both stacks, so `on → off` needs no rebuild. ClickHouse serves a Workspace only when `knowledge_state` says that it is ready.
    - **Cursors.** A cursor records the stack that made it. A cursor from the other stack fails with a clear error.
    - **Order:** our own org first, then chosen customer orgs one at a time, each in `shadow` first.
-   - **Agreement.** Before a customer's flag leaves `off`, two conditions must be true. First, the retention terms of [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md) decision 7 are confirmed. Second, the customer agrees to the new sub-processors (Jev and the embedding provider). Shadow logs hold ids, scores and timings, no content.
+   - **Agreement.** Before the flag of any org leaves `off`, our own org included, two conditions must be true. First, the retention terms of [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md) decision 7 are confirmed. Second, for a customer org, the customer agrees to the new sub-processors (Jev and the embedding provider). Shadow logs hold ids, scores and timings, no content.
    - **The end.** When all orgs are `on` and their metrics are at least as good, we remove the old stack, the dual write and the flag.
 
 ## Consequences
