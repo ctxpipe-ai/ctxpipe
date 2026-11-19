@@ -178,7 +178,6 @@
     "RECENCY_HALF_LIFE_DAYS"
   ],
   "apps/backend/src/retrieval/services/modelProvider.ts": [
-    "DEFAULT_OPENROUTER_BASE",
     "EMBEDDING_SINGLE_CONCURRENCY"
   ],
   "apps/backend/src/retrieval/services/providers/bedrockEmbeddings.ts": [
