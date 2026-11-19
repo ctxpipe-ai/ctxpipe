@@ -403,8 +403,9 @@ async function listTreeEntries(
     .split("\0")
     .filter(Boolean)
     .map((record) => {
-      const entry =
-        /^(\d+) (\w+) ([0-9a-f]+)(?: +(\d+|-))?\t([\s\S]+)$/.exec(record)
+      const entry = /^(\d+) (\w+) ([0-9a-f]+)(?: +(\d+|-))?\t([\s\S]+)$/.exec(
+        record,
+      )
       if (
         !entry?.[1] ||
         !entry[2] ||
@@ -431,7 +432,8 @@ async function listTreeEntries(
  */
 function isRegularFile(entry: { mode: string; kind: string }): boolean {
   return (
-    entry.kind === "blob" && (entry.mode === "100644" || entry.mode === "100755")
+    entry.kind === "blob" &&
+    (entry.mode === "100644" || entry.mode === "100755")
   )
 }
 
