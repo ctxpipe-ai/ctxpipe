@@ -37,7 +37,7 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
      - `status`;
      - `deleted_at` and `error`;
      - `kind`, title, path, source type, source and summary;
-     - `mime` for an image (the `s3_key` column stays empty, see decision 6);
+     - `mime` for an image;
      - `valid_from`, `valid_to` and `observed_at`.
    - `chunks`: the sections of a document. It holds `ordinal`, `text`, the full vector and its binary form (the search is in [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md)), and a text index on `text`.
    - `relations`: `(src_doc, src_chunk, predicate, dst_doc)`, with confidence, validity, source and `observed_at`. It sorts by `src_doc`, for the outgoing relations.
@@ -54,7 +54,7 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
 6. **An image is a Git file like any other**, of kind `image`.
    - Its key is its path. A changed image file replaces its rows, and a removed image file becomes a tombstone, the same as any file.
    - A file that shows an image states only an `EMBEDS_IMAGE` relation to the image's path, with the alt text on the relation. If the image has no row, the target is a `missing` placeholder. Thus the rows of a file do not depend on the bytes of an image (decision 5).
-   - The bytes stay only in the Workspace Git. There is no copy in object storage and no store setting (the CTO, 2026-11-19).
+   - The bytes stay only in the Workspace Git. There is no copy in object storage and no store setting (the CTO, 2026-11-19). The `s3_key` column is dropped ([CTX-1412](https://linear.app/ctxpipe/issue/CTX-1412)).
      - The writer reads the bytes from Git at the tip of its run, and embeds them.
      - The backend reads the bytes for Jev from the Workspace Git at the served SHA (`knowledge_state.last_sha`), by the image's path. It reads only the repository of the Workspace of the request, so no row can point it at the image of another org.
    - Each image has one chunk row. Its vector is the image embedding. Its text comes only from the bytes: the OCR text or a description, if the evals choose one, else empty.
