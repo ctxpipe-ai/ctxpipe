@@ -18,6 +18,7 @@ const JEV_MODEL = "typesafe/jev-1.14"
  * The OpenRouter slug of the only upstream provider that can serve
  * `JEV_MODEL`. Each request pins it, with no fallback (ADR-068 decision 7).
  */
+// scope-allow: the pinned provider stays next to the model id.
 const JEV_PROVIDER = "typesafe"
 
 /** The state of a decisions request: text, and each image as a data URL. */
@@ -109,7 +110,6 @@ export async function decideNoul(
   options: { timeoutMs: number; attributes: Record<string, number> },
 ): Promise<Map<string, number>> {
   assertNotInOrgDbContext()
-  const { base, apiKey } = openRouterSettings()
   return trace.getTracer("ctxpipe-llm").startActiveSpan(
     "jev.decide",
     {
@@ -124,6 +124,7 @@ export async function decideNoul(
     async (span) => {
       const started = performance.now()
       try {
+        const { base, apiKey } = openRouterSettings()
         const signal = AbortSignal.timeout(options.timeoutMs)
         let status: number
         let body: string

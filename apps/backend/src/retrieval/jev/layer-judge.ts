@@ -50,11 +50,11 @@ function metaLine(meta: CandidateMeta): string {
 }
 
 /**
- * Wrap text in a `<data>` block. A `<data>` or `</data>` tag in the text is
- * removed, so that the text cannot close the block and give instructions.
+ * Wrap text in a `<data>` block. The angle brackets of the text are escaped,
+ * so that the text cannot close the block and give instructions.
  */
 const dataBlock = (text: string) =>
-  `<data>${text.replace(/<\/?data\s*>/gi, "")}</data>`
+  `<data>${text.replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</data>`
 
 /**
  * Judge the candidates of one layer for the `question`. Returns p(answers)
