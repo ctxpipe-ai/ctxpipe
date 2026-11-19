@@ -205,7 +205,16 @@ function embedRequest(
           throw new RetryableStatusError(message)
         throw new Error(message)
       }
-      const data = responseSchema.parse(await res.json())
+      // A parse error can quote the body, and the provider can echo the input
+      // in it. Keep it out of the error, as for a failed status.
+      const parsed = responseSchema.safeParse(
+        await res.json().catch(() => undefined),
+      )
+      if (!parsed.success)
+        throw new Error(
+          "Embedding response is not valid JSON of the expected shape",
+        )
+      const data = parsed.data
       const input = data.usage?.prompt_tokens
       const cost = gatewayCost(data.usage)
       usage = {
@@ -253,7 +262,8 @@ function orderedVectors(
     }
     out[row.index] = row.embedding
   }
-  return out as number[][]
+  // The count and the unique indexes are checked, so each slot is set.
+  return out.map((vector) => vector ?? [])
 }
 
 function toEmbedding(vector: number[]): Embedding {

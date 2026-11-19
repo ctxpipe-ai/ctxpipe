@@ -228,6 +228,31 @@ describe("embedMultimodal", () => {
     expect(telemetry).not.toContain("chunk 0")
   })
 
+  it("keeps an echoed input in a malformed answer out of the error and the spans", async () => {
+    server.use(
+      http.post(
+        EMBEDDINGS_URL,
+        async ({ request }) =>
+          new HttpResponse(`{not json ${await request.text()}`, {
+            status: 200,
+          }),
+      ),
+    )
+
+    const error = await embedMultimodal([text(0)], config).catch(
+      (err: unknown) => err,
+    )
+
+    expect(String(error)).not.toContain("chunk 0")
+    const telemetry = JSON.stringify(
+      spans
+        .finishedSpans()
+        .map((s) => ({ status: s.status, attributes: s.attributes })),
+    )
+    expect(telemetry).toContain("not valid JSON")
+    expect(telemetry).not.toContain("chunk 0")
+  })
+
   it("does not retry a 4xx other than 429", async () => {
     let calls = 0
     server.use(
