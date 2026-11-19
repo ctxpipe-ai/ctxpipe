@@ -105,6 +105,19 @@ const responseSchema = z.object({
 class RetryableStatusError extends Error {}
 
 /**
+ * An answer with a status that a retry does not change (a 4xx other than
+ * 429). The message holds only the status, never the body.
+ */
+export class EmbeddingStatusError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message)
+  }
+}
+
+/**
  * Embed texts and images in one vector space. The result has the order of
  * `inputs`. Every request sets `provider.data_collection: "deny"` and
  * `provider.zdr: true`, and pins the upstream provider without fallback.
@@ -201,7 +214,7 @@ function embedRequest(
         const message = `Embedding request failed: HTTP ${res.status}`
         if (res.status === 429 || res.status >= 500)
           throw new RetryableStatusError(message)
-        throw new Error(message)
+        throw new EmbeddingStatusError(message, res.status)
       }
       // A parse error can quote the body, and the provider can echo the input
       // in it. Keep it out of the error, as for a failed status.

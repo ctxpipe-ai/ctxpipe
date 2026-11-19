@@ -1217,16 +1217,21 @@ describe("POST /{repoId}/blobs-query", () => {
   let work: string
   let sha: string
 
-  /** The route with the token `auth`; the default is a user of the org. */
-  function blobsApp(auth: Partial<AppEnv["Variables"]["auth"]> = {}) {
+  /**
+   * The route with the token `auth`; the default is the service token of the
+   * backend for the commit `sha`.
+   */
+  function blobsApp(auth?: Partial<AppEnv["Variables"]["auth"]>) {
     const app = new OpenAPIHono<AppEnv>()
     app.use("*", async (c, next) => {
       c.set("db", {} as AppEnv["Variables"]["db"])
       c.set("auth", {
-        sub: "user_test",
+        sub: "repo:repo_abcdef27",
         orgId: "org_mock123",
-        principal: "user",
-        ...auth,
+        principal: "service",
+        ...(auth ?? {
+          repositoryRevisions: [{ repositoryId: "repo_abcdef27", sha }],
+        }),
       } as AppEnv["Variables"]["auth"])
       await next()
     })
@@ -1325,10 +1330,13 @@ describe("POST /{repoId}/blobs-query", () => {
   })
 
   it("gives null for each path of a commit that the clone does not have", async () => {
-    const result = await query({
-      sha: "f".repeat(40),
-      paths: ["docs/img/flow.png"],
-    })
+    const missing = "f".repeat(40)
+    const result = await query(
+      { sha: missing, paths: ["docs/img/flow.png"] },
+      {
+        repositoryRevisions: [{ repositoryId: "repo_abcdef27", sha: missing }],
+      },
+    )
 
     expect(result).toEqual({
       status: 200,
@@ -1350,36 +1358,31 @@ describe("POST /{repoId}/blobs-query", () => {
     })
   })
 
-  it("refuses a path that leaves the root, and a token that does not name the repository or the commit", async () => {
+  it("refuses a path that leaves the root, and a token that does not name the commit", async () => {
     expect((await query({ paths: ["../secret.txt"] })).status).toBe(400)
+    const refused = async (auth: Partial<AppEnv["Variables"]["auth"]>) =>
+      (await query({ paths: ["docs/img/flow.png"] }, auth)).status
+    // A Workspace token reads only the published checkout, not a commit.
     expect(
-      (
-        await query(
-          { paths: ["docs/img/flow.png"] },
-          { workspaceId: "ws_1", workspaceRepositoryIds: ["repo_other"] },
-        )
-      ).status,
+      await refused({
+        workspaceId: "ws_1",
+        workspaceRepositoryIds: ["repo_abcdef27"],
+      }),
+    ).toBe(403)
+    // A token of the org with no revisions.
+    expect(await refused({ sub: "user_test", principal: "user" })).toBe(403)
+    // Another commit, or the commit of another repository.
+    expect(
+      await refused({
+        repositoryRevisions: [
+          { repositoryId: "repo_abcdef27", sha: "e".repeat(40) },
+        ],
+      }),
     ).toBe(403)
     expect(
-      (
-        await query(
-          { paths: ["docs/img/flow.png"] },
-          {
-            repositoryRevisions: [
-              { repositoryId: "repo_abcdef27", sha: "e".repeat(40) },
-            ],
-          },
-        )
-      ).status,
+      await refused({
+        repositoryRevisions: [{ repositoryId: "repo_other", sha }],
+      }),
     ).toBe(403)
-    expect(
-      await query(
-        { paths: ["docs/img/flow.png"] },
-        { workspaceId: "ws_1", workspaceRepositoryIds: ["repo_abcdef27"] },
-      ),
-    ).toEqual({
-      status: 200,
-      body: { "docs/img/flow.png": png.toString("base64") },
-    })
   })
 })

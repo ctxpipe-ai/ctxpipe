@@ -1062,7 +1062,12 @@ describe("the knowledge reader seam", () => {
       // Smaller than Jev takes: it goes as its text.
       [tiny]: png(100, 100),
     }
-    const reads: { repositoryId: string; sha: string; paths: string[] }[] = []
+    const reads: {
+      repositoryId: string
+      sha: string
+      paths: string[]
+      claims: Record<string, unknown>
+    }[] = []
     let codesearchDown = false
     vi.stubEnv("CODESEARCH_URL", "http://codesearch.test")
     models.use(
@@ -1073,7 +1078,16 @@ describe("the knowledge reader seam", () => {
             sha: string
             paths: string[]
           }
-          reads.push({ repositoryId: String(params.repoId), sha, paths })
+          const token = request.headers.get("authorization") ?? ""
+          const claims = JSON.parse(
+            Buffer.from(token.split(".")[1] ?? "", "base64url").toString(),
+          ) as Record<string, unknown>
+          reads.push({
+            repositoryId: String(params.repoId),
+            sha,
+            paths,
+            claims,
+          })
           if (codesearchDown)
             return HttpResponse.json({ error: "down" }, { status: 503 })
           return HttpResponse.json(
@@ -1107,6 +1121,14 @@ describe("the knowledge reader seam", () => {
         [repositoryId, planeSha, flow],
         [repositoryId, planeSha, tiny],
       ])
+      // The token names only this commit: no Workspace scope, which would
+      // read the published checkout.
+      for (const { claims } of reads) {
+        expect(claims.repositoryRevisions).toEqual([
+          { repositoryId, sha: planeSha },
+        ])
+        expect(claims.workspaceId).toBeUndefined()
+      }
 
       // When codesearch fails, each image goes to Jev as its text, and the
       // call does not fail.

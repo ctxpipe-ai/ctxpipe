@@ -144,11 +144,13 @@ export function knowledgeRows(input: {
       chunkLinks.findIndex((targets) => targets.includes(target)),
     )
 
-  // Each shown image with each of its alt texts. Two references to one image
-  // with the same alt text give one relation.
-  const images = new Map<string, { target: string; alt: string }>()
-  for (const image of imagesOf(unit.body))
-    images.set(JSON.stringify([image.target, image.alt]), image)
+  // Each shown image with each of its alt texts, outside fenced code of the
+  // whole body.
+  const imageKey = (image: { target: string; alt: string }) =>
+    JSON.stringify([image.target, image.alt])
+  const images = new Map(
+    imagesOf(unit.body).map((image) => [imageKey(image), image]),
+  )
   const shown = new Set([...images.values()].map(({ target }) => target))
 
   // The target is a Workspace path. A reference key target comes below.
@@ -187,22 +189,34 @@ export function knowledgeRows(input: {
     ]
   })
 
-  // The relation of an image reference takes the first chunk that has the
-  // same reference.
-  for (const { target, alt } of images.values()) {
-    const chunk = chunkImages.findIndex((list) =>
-      list.some((image) => image.target === target && image.alt === alt),
-    )
-    relations.push({
-      ...relation(target, {
-        predicate: "EMBEDS_IMAGE",
-        confidence: 1,
-        source: "git",
-        altText: alt,
-      }),
-      ...(chunk >= 0 ? { srcChunk: chunk } : {}),
-    })
-  }
+  // One relation for each image and alt text in each chunk that shows it.
+  // Two references with the same alt text in one chunk give one relation. A
+  // reference that no chunk has takes the first chunk that links to the
+  // image.
+  const imageRelation = (
+    image: { target: string; alt: string },
+    srcChunk: number,
+  ) => ({
+    ...relation(image.target, {
+      predicate: "EMBEDS_IMAGE",
+      confidence: 1,
+      source: "git",
+      altText: image.alt,
+    }),
+    srcChunk,
+  })
+  const placed = new Set<string>()
+  chunkImages.forEach((list, index) => {
+    for (const key of new Set(list.map(imageKey))) {
+      const image = images.get(key)
+      if (!image) continue
+      placed.add(key)
+      relations.push(imageRelation(image, index))
+    }
+  })
+  for (const [key, image] of images)
+    if (!placed.has(key))
+      relations.push(imageRelation(image, chunkOf(image.target)))
 
   for (const link of input.references.links)
     relations.push({

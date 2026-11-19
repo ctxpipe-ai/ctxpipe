@@ -26,6 +26,7 @@ import {
 } from "../models/knowledge-state.js"
 import { getLogger } from "../observability/logger.js"
 import {
+  EmbeddingStatusError,
   type EmbeddingInput,
   embedMultimodal,
   multimodalEmbeddingConfig,
@@ -305,9 +306,11 @@ async function applyChangeSet(input: {
         })
       }
     }
+    const embeddedImages = await embedImages(images)
+    failed.push(...embeddedImages.failed)
     await store.replaceDocuments(scope, [
       ...(await embedDocuments(documents)),
-      ...(await embedImages(images)),
+      ...embeddedImages.documents,
     ])
     await store.insertPlaceholders(
       scope,
@@ -315,7 +318,7 @@ async function applyChangeSet(input: {
     )
     for (const { document, relations } of [
       ...documents,
-      ...images.map((image) => image.rows),
+      ...embeddedImages.documents,
     ]) {
       written.add(document.docKey)
       for (const relation of relations)
@@ -323,7 +326,8 @@ async function applyChangeSet(input: {
           targets.add(relation.dstDoc)
     }
     for (const { docKey } of failed) written.add(docKey)
-    changed += documents.length + images.length + failed.length
+    changed +=
+      documents.length + embeddedImages.documents.length + failed.length
   })
 
   // The store skips each target that has a row.
@@ -458,10 +462,18 @@ function embeddableImage(
  * image, whose text is empty, so the request has the image part only
  * (ADR-066 decision 6). Images share a request until their bytes reach
  * `maxImageBytes`, so that one request stays in the provider limit.
+ *
+ * The model can refuse the bytes of an image with a good header (for
+ * example a cut file). When it refuses a request (HTTP 400, 413 or 422),
+ * each image of the request goes again alone, and an image that it refuses
+ * alone gets a `failed` document. Another error fails the run.
  */
 async function embedImages(
   images: { rows: UnembeddedDocumentRows; bytes: Buffer; mimeType: string }[],
-): Promise<DocumentRows[]> {
+): Promise<{
+  documents: DocumentRows[]
+  failed: { docKey: string; error: string }[]
+}> {
   const requests: (typeof images)[] = []
   let size = 0
   for (const image of images) {
@@ -477,24 +489,51 @@ async function embedImages(
       size = image.bytes.length
     }
   }
-  const vectors: number[][] = []
-  for (const request of requests)
-    vectors.push(
-      ...(await embedMultimodal(
-        request.map(({ bytes, mimeType }) => ({
-          kind: "image" as const,
-          bytes,
-          mimeType,
-        })),
-      )),
+  const embed = (request: typeof images) =>
+    embedMultimodal(
+      request.map(({ bytes, mimeType }) => ({
+        kind: "image" as const,
+        bytes,
+        mimeType,
+      })),
     )
-  return images.map(({ rows }, index) => ({
-    ...rows,
-    chunks: rows.chunks.map((chunk) => ({
-      ...chunk,
-      embedding: vectors[index] ?? [],
-    })),
-  }))
+  /** The status of a refusal of the content, else null. */
+  const refused = (error: unknown) =>
+    error instanceof EmbeddingStatusError &&
+    [400, 413, 422].includes(error.status)
+      ? error.status
+      : null
+  const documents: DocumentRows[] = []
+  const failed: { docKey: string; error: string }[] = []
+  const add = (image: (typeof images)[number], vector: number[]) =>
+    documents.push({
+      ...image.rows,
+      chunks: image.rows.chunks.map((chunk) => ({
+        ...chunk,
+        embedding: vector,
+      })),
+    })
+  for (const request of requests) {
+    try {
+      const vectors = await embed(request)
+      request.forEach((image, index) => add(image, vectors[index] ?? []))
+    } catch (error) {
+      if (refused(error) === null) throw error
+      for (const image of request) {
+        try {
+          add(image, (await embed([image]))[0] ?? [])
+        } catch (alone) {
+          const status = refused(alone)
+          if (status === null) throw alone
+          failed.push({
+            docKey: image.rows.document.docKey,
+            error: `The embedding model refused the image (HTTP ${status}).`,
+          })
+        }
+      }
+    }
+  }
+  return { documents, failed }
 }
 
 /**

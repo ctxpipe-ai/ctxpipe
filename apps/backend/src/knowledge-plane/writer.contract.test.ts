@@ -73,22 +73,27 @@ function vectorOf(content: unknown): number[] {
 }
 
 /**
- * The embedding requests; `failAt` answers that request (1-based) with a 400.
+ * The embedding requests; `failAt` answers that request (1-based) with a 401,
+ * an error that fails the run. A 400 is a refusal of the content.
  * `inputs` holds the content parts of each request.
  */
 const embeddings = {
   requests: 0,
   failAt: 0,
   inputs: [] as { content: unknown }[][],
+  /** A request that holds this text (an image in base64) gets a 400. */
+  refuse: null as string | null,
 }
 const msw = setupServer(
   http.post(EMBEDDINGS_URL, async ({ request }) => {
     embeddings.requests++
     if (embeddings.requests === embeddings.failAt)
-      return HttpResponse.json({ error: "down" }, { status: 400 })
+      return HttpResponse.json({ error: "down" }, { status: 401 })
     const body = (await request.json()) as {
       input: { content: unknown }[]
     }
+    if (embeddings.refuse && JSON.stringify(body).includes(embeddings.refuse))
+      return HttpResponse.json({ error: "bad image" }, { status: 400 })
     embeddings.inputs.push(body.input)
     return HttpResponse.json({
       data: body.input.map((input, index) => ({
@@ -147,6 +152,7 @@ beforeEach(() => {
   embeddings.requests = 0
   embeddings.failAt = 0
   embeddings.inputs = []
+  embeddings.refuse = null
 })
 
 afterEach(() => {
@@ -870,7 +876,7 @@ describe("projectKnowledgePlane", () => {
       const four = await remote.commit({ "b.md": "# Beta again\n" })
       embeddings.failAt = embeddings.requests + 1
       await expect(run(remote, workspaceId, four)).rejects.toThrow(
-        /Embedding request failed: HTTP 400/,
+        /Embedding request failed: HTTP 401/,
       )
       expect(await getKnowledgeState(scope)).toMatchObject({
         lastSha: three,
@@ -1247,6 +1253,37 @@ describe("reference keys (CTX-1400)", () => {
           status: "active",
         },
       ])
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("gives a failed document to an image that the model refuses, and embeds the other images of its request", async () => {
+    const remote = await Remote.create()
+    try {
+      const workspaceId = await newWorkspace()
+      const scope = { orgId, workspaceId }
+      // A cut file: its header is good, and the model refuses its bytes.
+      embeddings.refuse = png("cut").toString("base64")
+      const tip = await remote.commit({
+        "a.md": "# Alpha\n\n![A](a.png) ![Cut](cut.png) ![Z](z.png)\n",
+        "a.png": png("a"),
+        "cut.png": png("cut"),
+        "z.png": png("z"),
+      })
+      const summary = await run(remote, workspaceId, tip)
+      expect(summary).toMatchObject({ mode: "full", failedCount: 1 })
+      const documentOf = async (path: string) =>
+        (await store.readDocument(scope, key(workspaceId, path)))?.document
+      expect(await documentOf("cut.png")).toMatchObject({
+        status: "failed",
+        error: "The embedding model refused the image (HTTP 400).",
+      })
+      for (const path of ["a.png", "z.png"])
+        expect(
+          (await store.readDocument(scope, key(workspaceId, path)))?.chunks[0]
+            ?.embedding,
+        ).toHaveLength(multimodalEmbeddingConfig.dimensions)
     } finally {
       await remote.remove()
     }

@@ -169,7 +169,6 @@ function gitImageBytes(shas: ReadonlyMap<string, string>): ImageBytes {
     return fetchCommitBlob({
       repositoryId: repository.repositoryId,
       orgId: requireCurrentOrgId(),
-      workspaceId,
       sha,
       path,
       ...(repository.rootPath ? { root: repository.rootPath } : {}),

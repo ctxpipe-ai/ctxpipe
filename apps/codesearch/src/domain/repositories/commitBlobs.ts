@@ -1,3 +1,5 @@
+import { log } from "../../observability/logger.js"
+
 /**
  * The bytes of the regular files `paths` at the commit `sha`, from the object
  * store of the bare shared clone at `clonePath` (CTX-1412). It never reads a
@@ -30,8 +32,12 @@ export async function readCommitBlobs(input: {
       "--",
       ...input.paths.map(full),
     ])
-  } catch {
-    // The clone or the commit is not there.
+  } catch (error) {
+    // The clone or the commit is not there, or the clone is damaged.
+    log.warn({
+      step: "codesearch.blobs_query.ls_tree_failed",
+      error: error instanceof Error ? error.message : String(error),
+    })
     return result
   }
   const blobs = new Map<string, { oid: string; size: number }>()

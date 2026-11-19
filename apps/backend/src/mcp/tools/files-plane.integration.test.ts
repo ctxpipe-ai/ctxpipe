@@ -263,7 +263,6 @@ describe("read_file and list_files on the knowledge plane", () => {
             sourceType: "docs",
             source: "",
             summary: "",
-            s3Key: "",
             mime: "",
             validFrom: null,
             validTo: null,

@@ -404,7 +404,7 @@ describe("knowledgeRows", () => {
       "",
       "## Again",
       "",
-      "![Flow again](./flow.png)",
+      "![Flow again](./flow.png) ![The payment flow](./flow.png)",
       "",
       "[map]: ./map.jpg",
       "[logo]: ./logo.png",
@@ -421,17 +421,11 @@ describe("knowledgeRows", () => {
         })),
     ).toEqual([
       { dstDoc: key("knowledge/arch/blank.png"), altText: "", srcChunk: 0 },
-      // The same alt text twice gives one relation; another alt text of the
-      // same image, in another chunk, gives its own relation.
+      // The same alt text twice in one chunk gives one relation.
       {
         dstDoc: key("knowledge/arch/flow.png"),
         altText: "The payment flow",
         srcChunk: 0,
-      },
-      {
-        dstDoc: key("knowledge/arch/flow.png"),
-        altText: "Flow again",
-        srcChunk: 1,
       },
       {
         dstDoc: key("knowledge/arch/map.jpg"),
@@ -439,6 +433,17 @@ describe("knowledgeRows", () => {
         srcChunk: 0,
       },
       { dstDoc: key("knowledge/arch/logo.png"), altText: "logo", srcChunk: 0 },
+      // Another chunk gives its own relations, also for the same alt text.
+      {
+        dstDoc: key("knowledge/arch/flow.png"),
+        altText: "Flow again",
+        srcChunk: 1,
+      },
+      {
+        dstDoc: key("knowledge/arch/flow.png"),
+        altText: "The payment flow",
+        srcChunk: 1,
+      },
     ])
     expect(
       (rows?.relations ?? [])

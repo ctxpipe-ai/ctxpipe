@@ -5,11 +5,7 @@ import { createRoute, z } from "@hono/zod-openapi"
 import { HTTPException } from "hono/http-exception"
 
 import type { AppEnv } from "../app/env.js"
-import {
-  checkoutKeyFromAuth,
-  indexCheckoutFromAuth,
-  workspaceLinksRepository,
-} from "../auth/jwt.js"
+import { checkoutKeyFromAuth, indexCheckoutFromAuth } from "../auth/jwt.js"
 import {
   tryWithRepositoryPurgeOperation,
   withRepositoryPurgeOperation,
@@ -557,7 +553,7 @@ const blobsQueryRoute = createRoute({
   method: "post",
   path: "/{repoId}/blobs-query",
   description:
-    "The bytes of regular files at a commit, from the Git object store of the repository. A symlink, a submodule, a folder, a missing path, a missing commit or a blob over the limit gives null.",
+    "The bytes of regular files at a commit, from the Git object store of the repository. The token must name the commit in its repository revisions. A symlink, a submodule, a folder, a missing path, a missing commit or a blob over the limit gives null.",
   request: {
     params: z.object({ repoId: repoIdParam }),
     body: {
@@ -1027,14 +1023,15 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const { sha, paths, root, maxBytes } = c.req.valid("json")
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo) return c.json(repositoryNotFoundBody, 404)
-    // A token with revisions must name this commit, and a Workspace token
-    // must link this repository.
-    const allowed = auth.repositoryRevisions
-      ? auth.repositoryRevisions.some(
-          (item) => item.repositoryId === repoId && item.sha === sha,
-        )
-      : !auth.workspaceId || workspaceLinksRepository(auth, repoId)
-    if (!allowed) throw new HTTPException(403, { message: "Access denied" })
+    // Only a token that names this commit of this repository: a Workspace
+    // token reads only the published checkout (ADR-046), so it cannot read
+    // another commit here.
+    if (
+      !auth.repositoryRevisions?.some(
+        (item) => item.repositoryId === repoId && item.sha === sha,
+      )
+    )
+      throw new HTTPException(403, { message: "Access denied" })
     const blobs = await readCommitBlobs({
       clonePath: repoSharedClonePath(repo.orgId, repo.id),
       sha,
