@@ -147,11 +147,13 @@ describe("KnowledgeStore", () => {
       ).rejects.toThrow(/org and a Workspace/)
       const noWorkspace = { orgId: "org", workspaceId: "" }
       for (const mutation of [
-        store.replaceDocuments(noWorkspace, [rowsOf("x")]),
-        store.markDeleted(noWorkspace, ["x.md"], observedAt),
-        store.insertPlaceholders(noWorkspace, [
-          { docKey: "x.md", status: "missing", observedAt },
-        ]),
+        store.applyDocuments(noWorkspace, { documents: [rowsOf("x")] }),
+        store.applyDocuments(noWorkspace, {
+          deleted: { docKeys: ["x.md"], deletedAt: observedAt },
+        }),
+        store.applyDocuments(noWorkspace, {
+          placeholders: [{ docKey: "x.md", status: "missing", observedAt }],
+        }),
         store.listDocumentKeys({ orgId: "", workspaceId: "ws" }),
       ])
         await expect(mutation).rejects.toThrow(/org and a Workspace/)
@@ -182,7 +184,7 @@ describe("KnowledgeStore", () => {
     try {
       const source = rowsOf("Source", "source.md", "target.md")
       const target = rowsOf("Target", "target.md", "other.md")
-      await store.replaceDocuments(orgA, [source, target])
+      await store.applyDocuments(orgA, { documents: [source, target] })
 
       expect(await store.readDocument(orgA, "missing.md")).toBeNull()
       const stored = await store.readDocument(orgA, "target.md")
@@ -214,7 +216,7 @@ describe("KnowledgeStore", () => {
           embedding: [1, -1, 1, -1, 0, 0, 0, 0.5, -2, 2, 2, 2, 2, 2, 2, 2, 3],
         },
       ]
-      await store.replaceDocuments(orgA, [rows])
+      await store.applyDocuments(orgA, { documents: [rows] })
     } finally {
       await store.close()
     }
@@ -236,8 +238,8 @@ describe("org isolation of reads", () => {
     url = await freshDatabase()
     const store = createKnowledgeStore(url)
     try {
-      await store.replaceDocuments(orgA, [rowsOf("Org A")])
-      await store.replaceDocuments(orgB, [rowsOf("Org B")])
+      await store.applyDocuments(orgA, { documents: [rowsOf("Org A")] })
+      await store.applyDocuments(orgB, { documents: [rowsOf("Org B")] })
     } finally {
       await store.close()
     }
@@ -298,12 +300,18 @@ describe("org isolation of reads", () => {
       })
     const store = createKnowledgeStore(policyFree)
     try {
-      await store.replaceDocuments(orgA, [rowsOf("Org A", "shared.md")])
-      await store.replaceDocuments(orgA, [rowsOf("Org A source", "a.md")])
-      await store.replaceDocuments(orgB, [rowsOf("Org B", "shared.md")])
-      await store.replaceDocuments(orgB, [
-        rowsOf("Org B target", "target.md", "other.md"),
-      ])
+      await store.applyDocuments(orgA, {
+        documents: [rowsOf("Org A", "shared.md")],
+      })
+      await store.applyDocuments(orgA, {
+        documents: [rowsOf("Org A source", "a.md")],
+      })
+      await store.applyDocuments(orgB, {
+        documents: [rowsOf("Org B", "shared.md")],
+      })
+      await store.applyDocuments(orgB, {
+        documents: [rowsOf("Org B target", "target.md", "other.md")],
+      })
       // Without the policy, a statement for org B sees both orgs.
       const all = await rawRows<{ org_id: string }>(
         client,
@@ -405,7 +413,7 @@ describe("org isolation of inserts", () => {
     for (const relation of rows.relations) Object.assign(relation, smuggle)
     const store = createKnowledgeStore(url)
     try {
-      await store.replaceDocuments(orgA, [rows])
+      await store.applyDocuments(orgA, { documents: [rows] })
       expect(await store.readDocument(orgB, "shared.md")).toBeNull()
       expect(
         (await store.readDocument(orgA, "shared.md"))?.chunks,
@@ -502,8 +510,8 @@ describe("known gap: the row policy does not filter changes", () => {
     const url = await freshDatabase()
     const store = createKnowledgeStore(url)
     try {
-      await store.replaceDocuments(orgA, [rowsOf("Org A")])
-      await store.replaceDocuments(orgB, [rowsOf("Org B")])
+      await store.applyDocuments(orgA, { documents: [rowsOf("Org A")] })
+      await store.applyDocuments(orgB, { documents: [rowsOf("Org B")] })
       await rawClient(url).command({
         query: "DELETE FROM documents WHERE doc_key = 'shared.md'",
         clickhouse_settings: { [ORG_SETTING]: orgA.orgId },
@@ -569,7 +577,9 @@ describe("users and mutations", () => {
 
   it("the reader user can read, and cannot insert, update or delete", async () => {
     const scope = { orgId: "org_users", workspaceId: "ws_reader" }
-    await writer.replaceDocuments(scope, [rowsOf("Reader", "r.md")])
+    await writer.applyDocuments(scope, {
+      documents: [rowsOf("Reader", "r.md")],
+    })
     expect((await reader.readDocument(scope, "r.md"))?.document.title).toBe(
       "Reader",
     )
@@ -578,15 +588,17 @@ describe("users and mutations", () => {
     ])
 
     await expect(
-      reader.replaceDocuments(scope, [rowsOf("Changed", "r.md")]),
+      reader.applyDocuments(scope, { documents: [rowsOf("Changed", "r.md")] }),
     ).rejects.toThrow(denied)
     await expect(
-      reader.markDeleted(scope, ["r.md"], observedAt),
+      reader.applyDocuments(scope, {
+        deleted: { docKeys: ["r.md"], deletedAt: observedAt },
+      }),
     ).rejects.toThrow(denied)
     await expect(
-      reader.insertPlaceholders(scope, [
-        { docKey: "p.md", status: "missing", observedAt },
-      ]),
+      reader.applyDocuments(scope, {
+        placeholders: [{ docKey: "p.md", status: "missing", observedAt }],
+      }),
     ).rejects.toThrow(denied)
     const client = rawClient(readerUrl)
     const settings = { [ORG_SETTING]: scope.orgId }
@@ -710,7 +722,7 @@ describe("users and mutations", () => {
         { orgId: "org_m_b", workspaceId: `ws_m_${run}` },
       ]
       for (const scope of [target, ...others])
-        await writer.replaceDocuments(scope, seed())
+        await writer.applyDocuments(scope, { documents: seed() })
       before = await Promise.all(others.map(snapshot))
     })
 
@@ -720,7 +732,7 @@ describe("users and mutations", () => {
       await expectSameRelations(target)
     })
 
-    it("replaceDocuments replaces the document, its chunks and its outgoing relations", async () => {
+    it("a document replaces the document, its chunks and its outgoing relations", async () => {
       const next = rowsOf("Doc v2", "doc.md", "new-target.md")
       next.chunks = [
         {
@@ -732,7 +744,7 @@ describe("users and mutations", () => {
         },
       ]
       next.refKeys = ["key:doc-v2"]
-      await writer.replaceDocuments(target, [next])
+      await writer.applyDocuments(target, { documents: [next] })
 
       const stored = await reader.readDocument(target, "doc.md")
       expect(stored?.document).toEqual(active(next))
@@ -746,13 +758,15 @@ describe("users and mutations", () => {
       ).toEqual([])
       // A second run of the same replace (a retry) gives the same rows.
       const once = await snapshot(target)
-      await writer.replaceDocuments(target, [next])
+      await writer.applyDocuments(target, { documents: [next] })
       expect(await snapshot(target)).toEqual(once)
     })
 
-    it("markDeleted makes a tombstone and keeps the relations that point at it", async () => {
+    it("a tombstone keeps the fields of the document and the relations that point at it", async () => {
       const deletedAt = new Date("2026-11-20T08:00:00.123Z")
-      await writer.markDeleted(target, ["target.md"], deletedAt)
+      await writer.applyDocuments(target, {
+        deleted: { docKeys: ["target.md"], deletedAt: deletedAt },
+      })
 
       const stored = await reader.readDocument(target, "target.md")
       expect(stored?.document).toMatchObject({
@@ -776,33 +790,39 @@ describe("users and mutations", () => {
         { docKey: "target.md", status: "deleted" },
       ])
       // A retry keeps the date of the first deletion.
-      await writer.markDeleted(target, ["target.md"], observedAt)
+      await writer.applyDocuments(target, {
+        deleted: { docKeys: ["target.md"], deletedAt: observedAt },
+      })
       expect(
         (await reader.readDocument(target, "target.md"))?.document.deletedAt,
       ).toEqual(deletedAt)
       // A key with no row: a retry after a failure between the DELETE and
       // the INSERT of a tombstone still makes the tombstone.
-      await writer.markDeleted(target, ["gone.md"], deletedAt)
+      await writer.applyDocuments(target, {
+        deleted: { docKeys: ["gone.md"], deletedAt: deletedAt },
+      })
       expect(
         (await reader.readDocument(target, "gone.md"))?.document,
       ).toMatchObject({ status: "deleted", deletedAt, title: "" })
       // The file comes back: a replace makes the row active again.
-      await writer.replaceDocuments(target, seed())
+      await writer.applyDocuments(target, { documents: seed() })
       expect(
         (await reader.readDocument(target, "target.md"))?.document.status,
       ).toBe("active")
     })
 
-    it("insertPlaceholders replaces each document with a missing or failed row", async () => {
-      await writer.insertPlaceholders(target, [
-        { docKey: "nowhere.md", status: "missing", observedAt },
-        {
-          docKey: "doc.md",
-          status: "failed",
-          error: "parse error",
-          observedAt,
-        },
-      ])
+    it("a placeholder replaces each document with a missing or failed row", async () => {
+      await writer.applyDocuments(target, {
+        placeholders: [
+          { docKey: "nowhere.md", status: "missing", observedAt },
+          {
+            docKey: "doc.md",
+            status: "failed",
+            error: "parse error",
+            observedAt,
+          },
+        ],
+      })
       expect(await reader.listDocumentKeys(target)).toEqual([
         { docKey: "doc.md", status: "failed" },
         { docKey: "nowhere.md", status: "missing" },
@@ -823,25 +843,87 @@ describe("users and mutations", () => {
 
     it("a missing placeholder does not replace a document or a tombstone", async () => {
       const deletedAt = new Date("2026-11-20T08:00:00.123Z")
-      await writer.markDeleted(target, ["gone.md"], deletedAt)
+      await writer.applyDocuments(target, {
+        deleted: { docKeys: ["gone.md"], deletedAt: deletedAt },
+      })
       const unchanged = await snapshot(target)
-      await writer.insertPlaceholders(target, [
-        { docKey: "target.md", status: "missing", observedAt },
-        { docKey: "gone.md", status: "missing", observedAt },
-      ])
+      await writer.applyDocuments(target, {
+        placeholders: [
+          { docKey: "target.md", status: "missing", observedAt },
+          { docKey: "gone.md", status: "missing", observedAt },
+        ],
+      })
       expect(await snapshot(target)).toEqual(unchanged)
       expect(
         (await reader.readDocument(target, "gone.md"))?.document,
       ).toMatchObject({ status: "deleted", deletedAt })
     })
 
+    it("applies documents, placeholders and tombstones with one DELETE for each table", async () => {
+      const deletedAt = new Date("2026-11-20T08:00:00.123Z")
+      const counter = { mutations: 0 }
+      await writer.applyDocuments(
+        target,
+        {
+          documents: [rowsOf("Doc v2", "doc.md", "new.md")],
+          placeholders: [
+            { docKey: "new.md", status: "missing", observedAt },
+            { docKey: "broken.md", status: "failed", error: "no", observedAt },
+          ],
+          deleted: { docKeys: ["target.md"], deletedAt },
+        },
+        counter,
+      )
+      expect(counter).toEqual({ mutations: 5 })
+      expect(await reader.listDocumentKeys(target)).toEqual([
+        { docKey: "broken.md", status: "failed" },
+        { docKey: "doc.md", status: "active" },
+        { docKey: "new.md", status: "missing" },
+        { docKey: "target.md", status: "deleted" },
+      ])
+      expect(
+        (await reader.readDocument(target, "target.md"))?.document,
+      ).toMatchObject({ title: "Target", deletedAt })
+      // Only `missing` placeholders: no DELETE.
+      await writer.applyDocuments(
+        target,
+        {
+          placeholders: [{ docKey: "other.md", status: "missing", observedAt }],
+        },
+        counter,
+      )
+      expect(counter).toEqual({ mutations: 5 })
+    })
+
+    it("splits a write of more than 1000 keys into a DELETE for each slice of 1000 keys", async () => {
+      const docKeys = Array.from({ length: 1500 }, (_, index) => `n${index}.md`)
+      // Each slice: chunks, relations and documents. No key has a relation
+      // or a reference key, so no DELETE of relations_in or doc_refs runs.
+      const counter = { mutations: 0 }
+      await writer.applyDocuments(
+        target,
+        { deleted: { docKeys, deletedAt: observedAt } },
+        counter,
+      )
+      expect(counter).toEqual({ mutations: 6 })
+      expect(
+        (await reader.listDocumentKeys(target)).filter(
+          (key) => key.status === "deleted",
+        ),
+      ).toHaveLength(1500)
+    })
+
     it("a document key cannot change the predicates of a statement", async () => {
       const injected = "x') OR (1 = 1"
-      await writer.markDeleted(target, [injected], observedAt)
-      await writer.insertPlaceholders(target, [
-        { docKey: injected, status: "missing", observedAt },
-      ])
-      await writer.replaceDocuments(target, [rowsOf("Injected", injected)])
+      await writer.applyDocuments(target, {
+        deleted: { docKeys: [injected], deletedAt: observedAt },
+      })
+      await writer.applyDocuments(target, {
+        placeholders: [{ docKey: injected, status: "missing", observedAt }],
+      })
+      await writer.applyDocuments(target, {
+        documents: [rowsOf("Injected", injected)],
+      })
       expect(await reader.listDocumentKeys(target)).toEqual([
         { docKey: "doc.md", status: "active" },
         { docKey: "target.md", status: "active" },
@@ -849,19 +931,26 @@ describe("users and mutations", () => {
       ])
     })
 
-    it("refuses a batch with the same document key two times", async () => {
+    it("refuses a write with the same document key two times, also in two lists", async () => {
       const unchanged = await snapshot(target)
       await expect(
-        writer.replaceDocuments(target, [
-          rowsOf("A", "doc.md"),
-          rowsOf("B", "doc.md"),
-        ]),
+        writer.applyDocuments(target, {
+          documents: [rowsOf("A", "doc.md"), rowsOf("B", "doc.md")],
+        }),
       ).rejects.toThrow(/two times/)
       await expect(
-        writer.insertPlaceholders(target, [
-          { docKey: "new.md", status: "missing", observedAt },
-          { docKey: "new.md", status: "missing", observedAt },
-        ]),
+        writer.applyDocuments(target, {
+          placeholders: [
+            { docKey: "new.md", status: "missing", observedAt },
+            { docKey: "new.md", status: "missing", observedAt },
+          ],
+        }),
+      ).rejects.toThrow(/two times/)
+      await expect(
+        writer.applyDocuments(target, {
+          documents: [rowsOf("A", "doc.md")],
+          deleted: { docKeys: ["doc.md"], deletedAt: observedAt },
+        }),
       ).rejects.toThrow(/two times/)
       expect(await snapshot(target)).toEqual(unchanged)
     })
@@ -897,11 +986,13 @@ describe("reference keys", () => {
     try {
       // `key:target.md` is a key of target.md; `key:gone` is a key of no
       // document.
-      await store.replaceDocuments(orgA, [
-        rowsOf("Source", "source.md", "ref:key:target.md"),
-        rowsOf("Other", "other.md", "ref:key:gone"),
-        rowsOf("Target", "target.md", "plain.md"),
-      ])
+      await store.applyDocuments(orgA, {
+        documents: [
+          rowsOf("Source", "source.md", "ref:key:target.md"),
+          rowsOf("Other", "other.md", "ref:key:gone"),
+          rowsOf("Target", "target.md", "plain.md"),
+        ],
+      })
       expect(await store.listUnresolvedReferences(orgA)).toEqual([
         { srcDoc: "other.md", dstDoc: "ref:key:gone" },
       ])
