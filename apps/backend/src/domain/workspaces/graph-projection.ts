@@ -20,6 +20,7 @@ import {
 } from "../../platform/graph/client.js"
 import { ensureWorkspaceGraphIndexes } from "../../platform/graph/indexes.js"
 import { FROM_SOURCE_PREDICATE } from "./graph-relevance.js"
+import { normalizeValidityBound } from "./hydrate-phases.js"
 import { type HydrateUnit, hydrateUnitsToProjectionClaims } from "./hydrate.js"
 import {
   type PublishedProjection,
@@ -306,18 +307,6 @@ async function applyWorkspaceGraphDelta(
     nodesWritten: Number(record.get("writtenNodes")),
     edgesWritten: Number(record.get("writtenEdges")),
   }
-}
-
-/** A non-time value is no bound. A time without an offset uses UTC. */
-export function normalizeValidityBound(value: string | null): string | null {
-  const raw = value?.trim()
-  if (!raw || !/^\d{4}-\d{2}-\d{2}/.test(raw)) return null
-  const utc =
-    raw.length > 10 && !/(?:z|[+-]\d{2}(?::?\d{2})?)$/i.test(raw.slice(10))
-      ? `${raw}Z`
-      : raw
-  const time = new Date(utc)
-  return Number.isNaN(time.getTime()) ? null : time.toISOString()
 }
 
 /**

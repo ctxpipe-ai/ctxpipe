@@ -202,15 +202,20 @@ describe("knowledgeRows", () => {
 
   it("maps an image to an image document whose key comes from the hash only", () => {
     const path = "knowledge/arch/overview.md"
-    const content =
-      "# Overview\n\nThe system.\n\n## Diagram\n\n" +
-      "![Request flow](../../assets/flow.png)\n" +
-      "![Again](../../assets/flow.png)\n" +
-      "![Other org](org_x/ws_y/" +
-      "b".repeat(64) +
-      ".png)\n" +
-      "![Remote](https://example.com/remote.png)\n" +
-      "![Not an image](./notes.md)\n"
+    const content = [
+      "# Overview",
+      "",
+      "The system.",
+      "",
+      "## Diagram",
+      "",
+      "![Request flow](../../assets/flow.png)",
+      "![Again](../../assets/flow.png)",
+      `![Other org](org_x/ws_y/${"b".repeat(64)}.png)`,
+      "![Remote](https://example.com/remote.png)",
+      "![Not an image](./notes.md)",
+      "",
+    ].join("\n")
     const rows = rowsOf(
       [{ path, content }],
       path,
@@ -239,7 +244,7 @@ describe("knowledgeRows", () => {
     expect(rows.chunks.at(-1)).toEqual({
       doc_id: image,
       ordinal: 0,
-      text: "Request flow",
+      text: "",
     })
     // The key-like path in the content gets a relation to its own document
     // key, but no image document, because it has no hash. The Markdown file
@@ -266,6 +271,32 @@ describe("knowledgeRows", () => {
     expect(rows.documents.map((row) => row.s3_key)).toEqual([
       null,
       `{org_id}/{workspace_id}/${HASH}`,
+    ])
+  })
+
+  it("gives a file with only front matter one chunk with its title, so each relation has a chunk", () => {
+    const path = "knowledge/services/api.md"
+    const rows = rowsOf(
+      [
+        {
+          path,
+          content: `---\n${stringify({
+            title: "Payments API",
+            claims: [{ to: "../billing/ledger.md", predicate: "DEPENDS_ON" }],
+          })}---\n`,
+        },
+      ],
+      path,
+    )
+    expect(rows.chunks).toEqual([
+      { doc_id: key(path), ordinal: 0, text: "Payments API" },
+    ])
+    expect(rows.relations).toEqual([
+      expect.objectContaining({
+        src_chunk: 0,
+        predicate: "DEPENDS_ON",
+        dst_doc: key("knowledge/billing/ledger.md"),
+      }),
     ])
   })
 

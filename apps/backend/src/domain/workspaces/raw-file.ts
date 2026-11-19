@@ -45,6 +45,12 @@ function rawFileContentType(path: string): string {
   return CONTENT_TYPES[extension] ?? "application/octet-stream"
 }
 
+/** The type of a raster image that the Files pane shows inline, else null. */
+export function inlineImageType(path: string): string | null {
+  const contentType = rawFileContentType(path)
+  return INLINE_IMAGE_TYPES.has(contentType) ? contentType : null
+}
+
 function contentDisposition(kind: "inline" | "attachment", path: string) {
   const name = path.split("/").at(-1) || "file"
   const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, "_")

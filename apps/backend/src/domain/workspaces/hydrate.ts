@@ -408,61 +408,94 @@ export function hydrateUnitsToProjectionClaims(
     source: string | null
   }> = []
   for (const unit of units) {
-    const dir = unit.path.split("/").slice(0, -1).join("/")
-    const bodyTargets = new Set(
-      unit.links.map((href) => resolveHydrateLink(dir, href)),
-    )
-    for (const [index, claim] of unit.claims.entries()) {
-      const target = resolveHydrateLink(dir, claim.to)
-      // A predicate-less claim adds no second layer over the permanent body link.
-      if (!claim.predicate && bodyTargets.has(target)) continue
-      const object = byPath.get(target)
+    for (const relation of unitRelations(unit)) {
+      const object = byPath.get(relation.target)
       if (!object) continue
-      const validFrom = effectiveValidFrom({
-        recorded: claim.validFrom,
-        introducingCommitTimestamp: introducingCommitTimestamp ?? null,
-      })
+      const isClaim = relation.from === "claim"
+      const validFrom = isClaim
+        ? effectiveValidFrom({
+            recorded: relation.validFrom,
+            introducingCommitTimestamp: introducingCommitTimestamp ?? null,
+          })
+        : null
       claims.push({
-        id: `${unit.servingId}:${index}`,
+        id: isClaim
+          ? `${unit.servingId}:${relation.index}`
+          : `${unit.servingId}:link:${relation.index}`,
         subjectId: unit.servingId,
         objectId: object.servingId,
         subjectKind: "KnowledgeUnit",
         objectKind: "KnowledgeUnit",
-        predicate: claim.predicate || "LINKS_TO",
+        predicate: relation.predicate,
         status: "active",
-        aggregatedConfidence: claim.confidence ?? unit.confidence ?? 0.5,
+        aggregatedConfidence: relation.confidence,
         sourceCount: 1,
         lastObservedAt: validFrom ?? "1970-01-01T00:00:00.000Z",
         validFrom,
-        validTo: claim.validTo,
-        source: claim.source,
-      })
-    }
-    const emittedBodyTargets = new Set<string>()
-    for (const [index, href] of unit.links.entries()) {
-      const target = resolveHydrateLink(dir, href)
-      const object = byPath.get(target)
-      if (!object) continue
-      if (emittedBodyTargets.has(target)) continue
-      emittedBodyTargets.add(target)
-      claims.push({
-        id: `${unit.servingId}:link:${index}`,
-        subjectId: unit.servingId,
-        objectId: object.servingId,
-        subjectKind: "KnowledgeUnit",
-        objectKind: "KnowledgeUnit",
-        predicate: "LINKS_TO",
-        status: "active",
-        aggregatedConfidence: 1,
-        sourceCount: 1,
-        lastObservedAt: "1970-01-01T00:00:00.000Z",
-        validFrom: null,
-        validTo: null,
-        source: "git",
+        validTo: relation.validTo,
+        source: relation.source,
       })
     }
   }
   return claims
+}
+
+/** One outgoing relation of a unit, before its target is looked up. */
+type UnitRelation = {
+  /** A claim of the front matter, or a link of the body or the mirror. */
+  from: "claim" | "link"
+  /** The index of the claim in `claims`, or of the link in `links`. */
+  index: number
+  /** The Workspace path of the target. */
+  target: string
+  predicate: string
+  confidence: number
+  validFrom: string | null
+  validTo: string | null
+  source: string | null
+}
+
+/**
+ * The outgoing relations of one unit: its claims, then one `LINKS_TO` for
+ * each link target. The targets are paths, and no target needs to exist.
+ */
+export function unitRelations(unit: HydrateUnit): UnitRelation[] {
+  const dir = unit.path.split("/").slice(0, -1).join("/")
+  const linkTargets = unit.links.map((href) => resolveHydrateLink(dir, href))
+  const bodyTargets = new Set(linkTargets)
+  const relations: UnitRelation[] = []
+  for (const [index, claim] of unit.claims.entries()) {
+    const target = resolveHydrateLink(dir, claim.to)
+    if (!target) continue
+    // A predicate-less claim adds no second layer over the permanent body link.
+    if (!claim.predicate && bodyTargets.has(target)) continue
+    relations.push({
+      from: "claim",
+      index,
+      target,
+      predicate: claim.predicate || "LINKS_TO",
+      confidence: claim.confidence ?? unit.confidence ?? 0.5,
+      validFrom: claim.validFrom,
+      validTo: claim.validTo,
+      source: claim.source,
+    })
+  }
+  const linked = new Set<string>()
+  for (const [index, target] of linkTargets.entries()) {
+    if (!target || linked.has(target)) continue
+    linked.add(target)
+    relations.push({
+      from: "link",
+      index,
+      target,
+      predicate: "LINKS_TO",
+      confidence: 1,
+      validFrom: null,
+      validTo: null,
+      source: "git",
+    })
+  }
+  return relations
 }
 
 export function resolveHydrateLink(fromDir: string, href: string): string {
