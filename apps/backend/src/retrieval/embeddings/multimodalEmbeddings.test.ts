@@ -292,20 +292,29 @@ describe("embedMultimodal", () => {
     ).toContain("No endpoints found that can handle the requested parameters.")
   })
 
-  it("keeps another 4xx message out of the error, because it can echo the input", async () => {
-    server.use(
-      http.post(EMBEDDINGS_URL, async ({ request }) =>
-        HttpResponse.json(
-          { error: { message: `Invalid input: ${await request.text()}` } },
-          { status: 400 },
+  it.each([
+    (input: string) => `Invalid input: ${input}`,
+    (input: string) => `No endpoints found for input: ${input}`,
+    (input: string) =>
+      `No endpoints found that can handle the requested parameters. ${input}`,
+    (input: string) => `No allowed providers are available for ${input}.`,
+  ])(
+    "keeps another 4xx message out of the error, because it can echo the input (%#)",
+    async (echo) => {
+      server.use(
+        http.post(EMBEDDINGS_URL, async ({ request }) =>
+          HttpResponse.json(
+            { error: { message: echo(await request.text()) } },
+            { status: 400 },
+          ),
         ),
-      ),
-    )
+      )
 
-    const error = await embedMultimodal([text(0)], config).catch(
-      (err: unknown) => err,
-    )
+      const error = await embedMultimodal([text(0)], config).catch(
+        (err: unknown) => err,
+      )
 
-    expect(String(error)).toBe("Error: Embedding request failed: HTTP 400")
-  })
+      expect(String(error)).toBe("Error: Embedding request failed: HTTP 400")
+    },
+  )
 })

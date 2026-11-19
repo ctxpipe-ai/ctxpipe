@@ -117,7 +117,7 @@ Before the first org leaves `off`, this command confirms with real calls that Op
 | `embedding-text` | The same for a fixed text. |
 | `embedding-text-batch` | One full batch (`batchSize`, 16) of fixed document chunks, in the shape that the projection sends, gets one vector of the configured dimension for each chunk. |
 
-The probe sends only the fixed text and the checkerboard image, and the default spend cap is $0.05. It writes `probe.json` and `probe.md` to `--out`. It needs no store, but the backend environment check still needs `DATABASE_URL` and `AUTH_SECRET` to be set. Exit codes: 0 all checks pass, 3 the spend cap stopped a call, 4 a check failed. A failed check shows the error of the client. It keeps a fixed routing message of OpenRouter ("No endpoints found …"), but no other error text, because that can echo the input. When a check fails, report it. Do not change the request settings to make it pass.
+The probe sends only fixed texts (one query and one batch of 16 checkerboard chunks) and the checkerboard image, and the default spend cap is $0.05. It writes `probe.json` and `probe.md` to `--out`. It needs no store, but the backend environment check still needs `DATABASE_URL` and `AUTH_SECRET` to be set. Exit codes: 0 all checks pass, 3 the spend cap stopped a call, 4 a check failed. A failed check shows the error of the client, then the error text of the provider. The client error keeps only a complete routing message of OpenRouter (for example "No endpoints found that can handle the requested parameters."), because other error text can echo the input. The probe sends only fixed public inputs, so it also shows the provider text. When a check fails, report it. Do not change the request settings to make it pass.
 
 ## The run folder
 
