@@ -956,8 +956,10 @@ export const Graph: Story = {
     await canvas.findByRole(
       "button",
       { name: "Play layout" },
-      // The layout runs in WebGL, which is slow on a CPU renderer.
-      { timeout: 30_000 },
+      // The layout runs in WebGL. The screenshot container renders WebGL on
+      // the CPU: with one CPU, the 300 steps took up to 41 s. The bound is
+      // about 2x that, and less than the 120 s of the runner for each story.
+      { timeout: 80_000 },
     )
   },
 }
