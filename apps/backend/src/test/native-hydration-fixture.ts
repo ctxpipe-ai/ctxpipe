@@ -149,7 +149,11 @@ async function createNativeHydrationFixture(
   options: NativeHydrationOptions = {},
 ) {
   const { github = false, writeStatus, missingTip = false } = options
-  const count = options.files?.length ?? options.count ?? 1
+  // A symlink is not content, so the hydrate makes no unit of it (CTX-1414).
+  const count =
+    options.files?.filter((file) => file.mode !== "120000").length ??
+    options.count ??
+    1
   const embeddingFailure = options.embeddings === "failed"
   const incompleteEmbeddings = options.embeddings === "empty"
   const databaseUrl = process.env.DATABASE_URL
