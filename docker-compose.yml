@@ -103,6 +103,8 @@ services:
         hard: 262144
     volumes:
       - clickhouse_data:/var/lib/clickhouse
+      # The storage policy with the volume cold (ADR-066 decision 10).
+      - ./apps/backend/src/knowledge-store/clickhouse-storage.xml:/etc/clickhouse-server/config.d/storage.xml:ro
     # Never published, like postgres.
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping || exit 1"]

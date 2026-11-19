@@ -123,7 +123,15 @@ default `ctxpipe`. They store a salted SHA-256 hash of the password. To change
 a password, set the new value and run the migrations again. If
 `CLICKHOUSE_URL` is not set, the migrations skip ClickHouse.
 
-The Compose service keeps all data on its local disk. If you move the
+The knowledge tables move a part to the volume `cold` when its newest row is
+30 days old. Thus the `default` storage policy of the server must have the
+volumes `hot` and `cold`, or the migrations fail. Compose loads
+[`clickhouse-storage.xml`](https://github.com/ctxpipe-ai/ctxpipe/blob/main/apps/backend/src/knowledge-store/clickhouse-storage.xml)
+into `/etc/clickhouse-server/config.d/`. On another ClickHouse server, add that
+file in the same folder.
+
+The Compose service keeps both volumes on its local disk. To keep the old
+parts on S3, put an S3 disk under the volume `cold`. If you move the
 ClickHouse data to S3 behind a cache disk, set `boundary_alignment` of the
 cache disk to `131072` (128 KiB). The search reads small ranges of the vector
 column. With the default alignment of 4 MiB, a search that is not in the cache

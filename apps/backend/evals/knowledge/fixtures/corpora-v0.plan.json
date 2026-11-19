@@ -1,0 +1,82 @@
+{
+  "version": "0",
+  "cutoff": "2026-11-01T00:00:00Z",
+  "owner": "ctxpipe-ai",
+  "prefix": "eval-v0-",
+  "corpora": [
+    {
+      "id": "backstage",
+      "workspace": "backstage-v0",
+      "repositories": [
+        {
+          "source": "backstage/backstage",
+          "sha": "8514f7c19cda22aa63bc72281a1d1c4229a54b54",
+          "issues": 1500
+        }
+      ]
+    },
+    {
+      "id": "kubernetes",
+      "workspace": "kubernetes-v0",
+      "repositories": [
+        {
+          "source": "kubernetes/kubernetes",
+          "sha": "07f8a0edfd890e4f5f24197e6a50ed1c6dd0c9e8",
+          "issues": 1000
+        },
+        {
+          "source": "kubernetes/enhancements",
+          "sha": "ebf37575297a991155890e7f1fae7c62bbee7ca0",
+          "issues": 500
+        },
+        {
+          "source": "kubernetes/community",
+          "sha": "07db4ef4ba5a90903f3dd5e35976970dafa1face",
+          "issues": 0
+        },
+        {
+          "source": "kubernetes/website",
+          "sha": "80f8465181e32d4751af070ba4d801e4ce4371ce",
+          "issues": 300
+        },
+        {
+          "source": "kubernetes-sigs/kind",
+          "sha": "4b8b4fedae60a3cf6a9e6bb3eca724c375c974c4",
+          "issues": 200
+        }
+      ]
+    },
+    {
+      "id": "rust",
+      "workspace": "rust-v0",
+      "repositories": [
+        {
+          "source": "rust-lang/rust",
+          "sha": "e3b9a8345a8a58fda3ac9446c532625d5a59acd8",
+          "issues": 1000
+        },
+        {
+          "source": "rust-lang/cargo",
+          "sha": "b925b29b9c8943d7dc05d3e07091948d45db6d46",
+          "issues": 300
+        },
+        {
+          "source": "rust-lang/rfcs",
+          "sha": "f43d5789b838fb0d80962e3d4b45fb9ddfcc9a07",
+          "issues": 500
+        }
+      ]
+    },
+    {
+      "id": "ctxpipe",
+      "workspace": "ctxpipe-v0",
+      "repositories": [
+        {
+          "source": "ctxpipe-ai/ctxpipe",
+          "sha": "3147728c3dd5c188f594258f8b08c0f2582cf54e",
+          "issues": 0
+        }
+      ]
+    }
+  ]
+}

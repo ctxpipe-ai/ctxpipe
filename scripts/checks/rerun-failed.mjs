@@ -6,7 +6,6 @@ import {
   closeSync,
   readdirSync,
   readFileSync,
-  renameSync,
   writeFileSync,
 } from "node:fs"
 import { join, resolve } from "node:path"
@@ -81,15 +80,17 @@ export function main(directory, only) {
       `Not run again (the Results writer does not quarantine their keys):\n${notRerun.join("\n")}`,
     )
   }
-  const logs = join(root, ".ci-results", "checks")
-  const first = join(root, ".ci-results", "checks-first-run")
-  if (existsSync(logs)) renameSync(logs, first)
   const records = openSync(join(out, "rerun.ndjson"), "w")
   try {
     const run = spawnSync(
       process.execPath,
       [
         join(root, "scripts", "checks", "run.mjs"),
+        // The rerun writes its own log folder. It does not move
+        // .ci-results/checks, which another runner on the same checkout
+        // can write at the same time.
+        "--logs",
+        join(out, "checks"),
         // A step with a credential lists the checks in an earlier step
         // (selected.mjs, MANIFEST), so the rerun lists none either.
         ...(process.env.MANIFEST
@@ -108,8 +109,6 @@ export function main(directory, only) {
     )
   } finally {
     closeSync(records)
-    if (existsSync(logs)) renameSync(logs, join(out, "checks"))
-    if (existsSync(first)) renameSync(first, logs)
   }
   return 0
 }

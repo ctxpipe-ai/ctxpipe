@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -117,6 +117,20 @@ describe("a pack with a Workspace root folder", () => {
   it("reads only the files below the root folder, as root-relative paths", async () => {
     expect(
       (await readGitFiles(base, () => true, undefined, null))
+        .map((file) => file.path)
+        .sort(),
+    ).toEqual(["AGENTS.md", "knowledge/services/a.md"])
+  })
+
+  it("treats a symlink as a missing file", async () => {
+    await symlink(
+      "a.md",
+      join(directory, "docs/context/knowledge/services/link.md"),
+    )
+    await nativeGit(directory, ["add", "-A"])
+    const tip = await commitOutside("export const tip = 1\n")
+    expect(
+      (await readGitFiles(tip, () => true, undefined, null))
         .map((file) => file.path)
         .sort(),
     ).toEqual(["AGENTS.md", "knowledge/services/a.md"])
