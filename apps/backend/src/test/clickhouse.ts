@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process"
 import { randomUUID } from "node:crypto"
+import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import {
@@ -41,8 +42,7 @@ export async function startClickHouse(): Promise<{
 }> {
   const container = `ctxpipe-knowledge-${randomUUID().slice(0, 8)}`
   await docker(
-    "run",
-    "-d",
+    "create",
     "--name",
     container,
     "-p",
@@ -56,6 +56,16 @@ export async function startClickHouse(): Promise<{
     "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1",
     contractImage("clickhouse"),
   )
+  // The storage policy with the volume cold, which the TTL of the migrations
+  // needs. docker cp also works when the Docker daemon is on another host.
+  await docker(
+    "cp",
+    fileURLToPath(
+      new URL("../knowledge-store/clickhouse-storage.xml", import.meta.url),
+    ),
+    `${container}:/etc/clickhouse-server/config.d/storage.xml`,
+  )
+  await docker("start", container)
   const clients: ClickHouseClient[] = []
   const stop = async () => {
     await Promise.all(clients.map((client) => client.close()))

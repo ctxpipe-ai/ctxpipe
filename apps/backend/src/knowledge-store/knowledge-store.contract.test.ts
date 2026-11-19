@@ -176,6 +176,7 @@ describe("KnowledgeStore", () => {
       "0004_chunk_lines.sql",
       "0005_doc_refs.sql",
       "0006_images_in_git.sql",
+      "0007_cold_parts_by_age.sql",
     ])
   })
 
@@ -547,7 +548,7 @@ describe("users and mutations", () => {
     for (const table of tables)
       result[table] = await rawRows(
         client,
-        `SELECT * EXCEPT (org_id, workspace_id) FROM ${table}
+        `SELECT * EXCEPT (org_id, workspace_id, written_at) FROM ${table}
          WHERE org_id = '${scope.orgId}' AND workspace_id = '${scope.workspaceId}'
          ORDER BY ALL`,
         scope.orgId,
