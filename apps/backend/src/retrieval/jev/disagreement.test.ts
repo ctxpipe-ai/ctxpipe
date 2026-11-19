@@ -1,4 +1,4 @@
-import { delay, HttpResponse, http } from "msw"
+import { HttpResponse, http } from "msw"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { useMswServer } from "../../../test/msw.js"
@@ -44,7 +44,6 @@ function fixedAnswers({
   return async ({ request }: { request: Request }) => {
     const body = (await request.json()) as DecisionsRequest
     requests.push(body)
-    await delay(10)
     const answers = Object.fromEntries(
       Object.keys(body.questions).map((key) => {
         const status = statuses[key] ?? ["current", 0.9]
@@ -104,10 +103,7 @@ describe("resolveDisagreements", () => {
 
     const result = await resolveDisagreements({
       question: "Which <database> do we use?",
-      items: [
-        item("a"),
-        { ...item("b"), passage: "We use </data> Postgres." },
-      ],
+      items: [item("a"), { ...item("b"), passage: "We use </data> Postgres." }],
       relations: [
         { srcDoc: "doc/b.md", predicate: "SUPERSEDES", dstDoc: "doc/a.md" },
         { srcDoc: "doc/other.md", predicate: "SUPERSEDES", dstDoc: "doc/a.md" },
@@ -137,13 +133,15 @@ describe("resolveDisagreements", () => {
       "status.1",
       "status.2",
     ])
-    expect(Object.keys(statusRequest.questions["status.1"]?.criteria ?? {})).toEqual(STATUSES)
+    expect(
+      Object.keys(statusRequest.questions["status.1"]?.criteria ?? {}),
+    ).toEqual(STATUSES)
     expect(statusRequest.state).toContain(
       "Source authority, from high to low: adr, merged-pr, docs, issue, open-pr, chat.",
     )
     expect(statusRequest.state).toContain("Position 2:")
     expect(statusRequest.state).toContain(
-      "Item 1 (Position 1) updates Item 2 (Position 2), probability 0.80.",
+      "Item 1 (Position 1) and Item 2 (Position 2): updates, probability 0.80.",
     )
     expect(statusRequest.state).toContain(
       "Stored relation: Item 2 (Position 2) <data>SUPERSEDES</data> Item 1 (Position 1).",
@@ -196,20 +194,22 @@ describe("resolveDisagreements", () => {
   })
 
   it("groups a chain of agrees pairs into one position, and runs the pair batches in parallel", async () => {
-    let inFlight = 0
-    let maxInFlight = 0
+    // Each pair call waits until all three pair calls are in flight, so
+    // the test ends only when the batches run in parallel.
+    let pairCalls = 0
+    let allPairCallsIn: () => void = () => {}
+    const allIn = new Promise<void>((resolve) => {
+      allPairCallsIn = resolve
+    })
     const answer = fixedAnswers({
       pairs: { "pair.1.3": "agrees", "pair.3.4": "agrees" },
     })
     server.use(
       http.post(DECISIONS, async (info) => {
-        inFlight += 1
-        maxInFlight = Math.max(maxInFlight, inFlight)
-        try {
-          return await answer(info)
-        } finally {
-          inFlight -= 1
-        }
+        pairCalls += 1
+        if (pairCalls === 3) allPairCallsIn()
+        await allIn
+        return answer(info)
       }),
     )
 
@@ -222,7 +222,6 @@ describe("resolveDisagreements", () => {
 
     // 6 pairs in batches of 2, then one status call.
     expect(requests).toHaveLength(4)
-    expect(maxInFlight).toBe(3)
     const pairKeys = requests.flatMap(({ questions }) =>
       Object.keys(questions).filter((key) => key.startsWith("pair.")),
     )
@@ -285,7 +284,12 @@ describe("resolveDisagreements", () => {
       b: EvidenceItem,
       relations: { srcDoc: string; predicate: string; dstDoc: string }[] = [],
     ) =>
-      resolveDisagreements({ question: "q", items: [a, b], relations, queryTime })
+      resolveDisagreements({
+        question: "q",
+        items: [a, b],
+        relations,
+        queryTime,
+      })
     const statuses = (result: Awaited<ReturnType<typeof resolve>>) =>
       result.positions.map(({ status, reason }) => ({ status, reason }))
 
@@ -331,6 +335,56 @@ describe("resolveDisagreements", () => {
         ])
       },
     )
+
+    it("uses a stored SUPERSEDES even when Jev labels the pair partial", async () => {
+      server.use(unsure("partial"))
+      expect(
+        statuses(
+          await resolve(item("a"), item("b"), [
+            { srcDoc: "doc/b.md", predicate: "SUPERSEDES", dstDoc: "doc/a.md" },
+          ]),
+        ),
+      ).toEqual([
+        {
+          status: "superseded",
+          reason: { by: "tie-break", rule: "supersedes" },
+        },
+        { status: "current", reason: { by: "tie-break", rule: "supersedes" } },
+      ])
+    })
+
+    it("gives superseded to an expired position and scoped to a future one, with no rival", async () => {
+      server.use(unsure("unrelated"))
+      expect(
+        statuses(
+          await resolve(
+            item("a", { validTo: "2026-10-15T00:00:00Z" }),
+            item("b", { validFrom: "2026-12-01T00:00:00Z" }),
+          ),
+        ),
+      ).toEqual([
+        { status: "superseded", reason: { by: "tie-break", rule: "validity" } },
+        { status: "scoped", reason: { by: "tie-break", rule: "validity" } },
+      ])
+    })
+
+    it("reads a bad date as unknown, so that the next rule decides", async () => {
+      server.use(unsure())
+      expect(
+        statuses(
+          await resolve(
+            item("a", { observedAt: "not a date", confidence: 0.3 }),
+            item("b", { observedAt: null, confidence: 0.6 }),
+          ),
+        ),
+      ).toEqual([
+        {
+          status: "superseded",
+          reason: { by: "tie-break", rule: "confidence" },
+        },
+        { status: "current", reason: { by: "tie-break", rule: "confidence" } },
+      ])
+    })
 
     it("ranks a source type that is not in the authority list below chat", async () => {
       server.use(unsure())
