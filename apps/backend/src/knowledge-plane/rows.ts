@@ -8,7 +8,7 @@ import {
   unitRelations,
 } from "../domain/workspaces/hydrate.js"
 import { knowledgeChunkRows } from "../domain/workspaces/knowledge-chunks.js"
-import { inlineImageType } from "../domain/workspaces/raw-file.js"
+import { imageContentType } from "../domain/workspaces/raw-file.js"
 import { workspaceGraphNodes } from "../domain/workspaces/workspace-graph.js"
 
 // TEMPORARY copies of the types of `knowledge-store/knowledge-store.ts`
@@ -128,7 +128,7 @@ export function knowledgeRows(input: {
   const images = new Set(
     Array.from(unit.body.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g), (match) =>
       targetOf(match[1] ?? ""),
-    ).filter((target) => inlineImageType(target)),
+    ).filter((target) => imageContentType(target)),
   )
 
   const relation = (
@@ -192,7 +192,9 @@ export function knowledgeRows(input: {
         // The writer replaces the two placeholders with the org and the
         // Workspace of the write.
         s3Key: `{org_id}/{workspace_id}/${hash}`,
-        mime: inlineImageType(target) ?? "",
+        // The embedding step reads the type, and it decides how to send a
+        // type that the model does not take (for example SVG).
+        mime: imageContentType(target) ?? "",
       },
       // The image embedding is the vector of this chunk. Its text stays empty:
       // the alt text belongs to the file that shows the image, and two files

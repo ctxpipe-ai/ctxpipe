@@ -45,10 +45,10 @@ function rawFileContentType(path: string): string {
   return CONTENT_TYPES[extension] ?? "application/octet-stream"
 }
 
-/** The type of a raster image that the Files pane shows inline, else null. */
-export function inlineImageType(path: string): string | null {
+/** The content type of an image file (`image/…`), else null. */
+export function imageContentType(path: string): string | null {
   const contentType = rawFileContentType(path)
-  return INLINE_IMAGE_TYPES.has(contentType) ? contentType : null
+  return contentType.startsWith("image/") ? contentType : null
 }
 
 function contentDisposition(kind: "inline" | "attachment", path: string) {
@@ -63,7 +63,7 @@ export function rawFileHeaders(path: string, size: number) {
     "Content-Type": contentType,
     "Content-Length": String(size),
     "Content-Disposition": contentDisposition(
-      inlineImageType(path) ? "inline" : "attachment",
+      INLINE_IMAGE_TYPES.has(contentType) ? "inline" : "attachment",
       path,
     ),
     "X-Content-Type-Options": "nosniff",

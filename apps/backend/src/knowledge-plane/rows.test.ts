@@ -305,6 +305,21 @@ describe("knowledgeRows", () => {
     ])
   })
 
+  it("maps an SVG reference to an image document with its type", () => {
+    const path = "knowledge/arch/a.md"
+    const rows = rowsOf(
+      [{ path, content: "![Architecture](diagram.svg)\n" }],
+      path,
+      new Map([["knowledge/arch/diagram.svg", HASH]]),
+    )
+    expect(rows[1]?.document).toMatchObject({
+      kind: "image",
+      path: "knowledge/arch/diagram.svg",
+      mime: "image/svg+xml",
+      s3Key: `{org_id}/{workspace_id}/${HASH}`,
+    })
+  })
+
   it("refuses an image hash that is not a SHA-256 hex digest", () => {
     const path = "knowledge/a.md"
     expect(() =>
