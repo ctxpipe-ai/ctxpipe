@@ -12,9 +12,11 @@
  *     --models A,B,C --out FILE [--cap-usd 5]
  *   bun evals/knowledge/cli.ts corpus snapshot|issues|freeze --plan FILE \
  *     --out FILE
+ *   bun evals/knowledge/cli.ts probe --out DIR [--cap-usd 0.05]
  *
  * See README.md. Exit code 0: done. 2: bad setup. 3: the spend cap stopped
- * the command (the output holds the work before the stop).
+ * the command (the output holds the work before the stop). 4: a check of
+ * `probe` failed.
  */
 import { execFile } from "node:child_process"
 import { writeFile } from "node:fs/promises"
@@ -37,6 +39,7 @@ import {
 import { type Dataset, readDataset } from "./dataset.js"
 import { ModelCalls, type RecordedCall } from "./model-calls.js"
 import { labelWithPanel } from "./panel.js"
+import { probe } from "./probe.js"
 import {
   buildReport,
   type KeptRun,
@@ -221,8 +224,9 @@ async function main(argv: string[]): Promise<number> {
       out: { type: "string" },
       from: { type: "string" },
       split: { type: "string" },
-      // The default spend cap of a command, in USD.
-      "cap-usd": { type: "string", default: "5" },
+      // The spend cap of the command, in USD. The default is $5, and $0.05
+      // for `probe`.
+      "cap-usd": { type: "string" },
       set: { type: "string", multiple: true },
       kept: { type: "string" },
       draft: { type: "string" },
@@ -230,16 +234,23 @@ async function main(argv: string[]): Promise<number> {
       models: { type: "string" },
     },
   })
-  const capUsd = Number(values["cap-usd"])
+  const capUsd = Number(values["cap-usd"] ?? (command === "probe" ? 0.05 : 5))
   if (!Number.isFinite(capUsd) || capUsd < 0)
     throw new SetupError("--cap-usd needs a number of 0 or more.")
   if (!values.out) throw new SetupError("Give --out.")
   const out = values.out
   if (command === "label") return label({ ...values, out, capUsd })
   if (command === "corpus") return corpus(positionals[0], values.plan, out)
+  if (command === "probe") {
+    if (!process.env.MODEL_PROVIDER_API_KEY)
+      throw new SetupError("probe needs MODEL_PROVIDER_API_KEY.")
+    return probe({ out, calls: modelCalls(capUsd), capUsd })
+  }
 
   if (command !== "run" && command !== "rescore")
-    throw new SetupError("Use the command run, rescore, label or corpus.")
+    throw new SetupError(
+      "Use the command run, rescore, label, corpus or probe.",
+    )
   if (!process.env.DATABASE_URL) throw new SetupError("Set DATABASE_URL.")
   const kept = values.kept
     ? keptRunSchema.parse(await readJson(values.kept))
