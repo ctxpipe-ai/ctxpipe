@@ -9,7 +9,7 @@ import {
 import { knowledgeRows } from "./rows.js"
 
 const WS = "ws_1"
-const OBSERVED = "2026-11-19T10:00:00.000Z"
+const OBSERVED = new Date("2026-11-19T10:00:00.000Z")
 const key = (path: string) => servingIdForKnowledgePath(WS, path)
 const HASH = "a".repeat(64)
 
@@ -29,6 +29,19 @@ function rowsOf(
   })
 }
 
+const edges = (
+  relations: ReadonlyArray<{
+    predicate: string
+    dstDoc: string
+    srcChunk: number
+  }>,
+) =>
+  relations.map(({ predicate, dstDoc, srcChunk }) => ({
+    predicate,
+    dstDoc,
+    srcChunk,
+  }))
+
 describe("knowledgeRows", () => {
   it("maps a file with a claim and a body link to one document, its chunks and its relations", () => {
     // The fixture of the hydrate test. The ledger file is not in the tree:
@@ -43,58 +56,55 @@ describe("knowledgeRows", () => {
       ],
       "knowledge/payments/api.md",
     )
-    const api = key("knowledge/payments/api.md")
     const ledger = key("knowledge/billing/ledger.md")
-    expect(rows.documents).toEqual([
+    expect(rows).toEqual([
       {
-        doc_id: api,
-        status: "active",
-        deleted_at: null,
-        error: null,
-        kind: "KnowledgeUnit",
-        title: "api",
-        path: "knowledge/payments/api.md",
-        source_type: "authored",
-        source: null,
-        summary: "See [ledger](../billing/ledger.md).",
-        s3_key: null,
-        mime: null,
-        valid_from: null,
-        valid_to: null,
-        observed_at: OBSERVED,
-      },
-    ])
-    expect(rows.chunks).toEqual([
-      { doc_id: api, ordinal: 0, text: "See [ledger](../billing/ledger.md)." },
-    ])
-    expect(rows.relations).toEqual([
-      {
-        src_doc: api,
-        src_chunk: 0,
-        predicate: "DEPENDS_ON",
-        dst_doc: ledger,
-        confidence: 0.5,
-        valid_from: null,
-        valid_to: null,
-        source: null,
-        observed_at: OBSERVED,
-      },
-      {
-        src_doc: api,
-        src_chunk: 0,
-        predicate: "LINKS_TO",
-        dst_doc: ledger,
-        confidence: 1,
-        valid_from: null,
-        valid_to: null,
-        source: "git",
-        observed_at: OBSERVED,
+        document: {
+          docKey: key("knowledge/payments/api.md"),
+          kind: "KnowledgeUnit",
+          status: "active",
+          deletedAt: null,
+          error: "",
+          title: "api",
+          path: "knowledge/payments/api.md",
+          sourceType: "authored",
+          source: "",
+          summary: "See [ledger](../billing/ledger.md).",
+          s3Key: "",
+          mime: "",
+          validFrom: null,
+          validTo: null,
+          observedAt: OBSERVED,
+        },
+        chunks: [{ ordinal: 0, text: "See [ledger](../billing/ledger.md)." }],
+        relations: [
+          {
+            srcChunk: 0,
+            predicate: "DEPENDS_ON",
+            dstDoc: ledger,
+            confidence: 0.5,
+            validFrom: null,
+            validTo: null,
+            source: "",
+            observedAt: OBSERVED,
+          },
+          {
+            srcChunk: 0,
+            predicate: "LINKS_TO",
+            dstDoc: ledger,
+            confidence: 1,
+            validFrom: null,
+            validTo: null,
+            source: "git",
+            observedAt: OBSERVED,
+          },
+        ],
       },
     ])
   })
 
   it("maps the kind and the FROM_SOURCE relations of a file that lists sources", () => {
-    const rows = rowsOf(
+    const [rows] = rowsOf(
       [
         {
           path: "sources/github/acme/shop.md",
@@ -110,25 +120,13 @@ describe("knowledgeRows", () => {
       ],
       "knowledge/services/api.md",
     )
-    expect(rows.documents[0]).toMatchObject({ kind: "Service", title: "API" })
-    expect(rows.chunks).toEqual([
-      {
-        doc_id: key("knowledge/services/api.md"),
-        ordinal: 0,
-        text: "API\n\n# API",
-      },
-    ])
-    expect(
-      rows.relations.map(({ predicate, dst_doc, src_chunk }) => ({
-        predicate,
-        dst_doc,
-        src_chunk,
-      })),
-    ).toEqual([
+    expect(rows?.document).toMatchObject({ kind: "Service", title: "API" })
+    expect(rows?.chunks).toEqual([{ ordinal: 0, text: "API\n\n# API" }])
+    expect(edges(rows?.relations ?? [])).toEqual([
       {
         predicate: "FROM_SOURCE",
-        dst_doc: key("sources/github/acme/shop.md"),
-        src_chunk: 0,
+        dstDoc: key("sources/github/acme/shop.md"),
+        srcChunk: 0,
       },
     ])
   })
@@ -158,50 +156,50 @@ describe("knowledgeRows", () => {
       new Map([[path, "2026-02-03T04:05:06.000Z"]]),
     )
     if (!unit) throw new Error("no unit")
-    const rows = knowledgeRows({
+    const [rows] = knowledgeRows({
       workspaceId: WS,
       unit,
       imageHashes: new Map(),
       observedAt: OBSERVED,
     })
-    expect(rows.chunks.map(({ ordinal, text }) => [ordinal, text])).toEqual([
-      [0, "Limits\n\n# Limits\n\nDaily caps."],
-      [
-        1,
-        "Limits > History\n\n## History\n\nThe [old ledger](../billing/ledger.md) set them.",
-      ],
-    ])
-    expect(rows.relations).toEqual([
+    expect(rows?.chunks).toEqual([
+      { ordinal: 0, text: "Limits\n\n# Limits\n\nDaily caps." },
       {
-        src_doc: key(path),
-        src_chunk: 1,
+        ordinal: 1,
+        text: "Limits > History\n\n## History\n\nThe [old ledger](../billing/ledger.md) set them.",
+      },
+    ])
+    expect(rows?.relations).toEqual([
+      {
+        srcChunk: 1,
         predicate: "SUPERSEDES",
-        dst_doc: key("knowledge/billing/ledger.md"),
+        dstDoc: key("knowledge/billing/ledger.md"),
         confidence: 0.9,
-        valid_from: "2026-01-01T00:00:00.000Z",
-        valid_to: "2026-06-30T12:00:00.000Z",
+        validFrom: new Date("2026-01-01T00:00:00.000Z"),
+        validTo: new Date("2026-06-30T12:00:00.000Z"),
         source: "https://example.com/rfc/7",
-        observed_at: OBSERVED,
+        observedAt: OBSERVED,
       },
       // No chunk links to the rates file, so the claim takes the first chunk.
       expect.objectContaining({
-        src_chunk: 0,
+        srcChunk: 0,
         predicate: "USES",
-        dst_doc: key("knowledge/payments/rates.md"),
+        dstDoc: key("knowledge/payments/rates.md"),
         confidence: 0.5,
-        valid_from: "2026-02-03T04:05:06.000Z",
-        valid_to: null,
+        validFrom: new Date("2026-02-03T04:05:06.000Z"),
+        validTo: null,
       }),
       expect.objectContaining({
-        src_chunk: 1,
+        srcChunk: 1,
         predicate: "LINKS_TO",
-        dst_doc: key("knowledge/billing/ledger.md"),
+        dstDoc: key("knowledge/billing/ledger.md"),
       }),
     ])
   })
 
   it("maps an image to an image document whose key comes from the hash only", () => {
     const path = "knowledge/arch/overview.md"
+    const keyLike = `knowledge/arch/org_x/ws_y/${"b".repeat(64)}.png`
     const content = [
       "# Overview",
       "",
@@ -209,7 +207,7 @@ describe("knowledgeRows", () => {
       "",
       "## Diagram",
       "",
-      "![Request flow](../../assets/flow.png)",
+      '![Request flow](../../assets/flow.png "The flow")',
       "![Again](../../assets/flow.png)",
       `![Other org](org_x/ws_y/${"b".repeat(64)}.png)`,
       "![Remote](https://example.com/remote.png)",
@@ -221,65 +219,50 @@ describe("knowledgeRows", () => {
       path,
       new Map<string, string | null>([
         ["assets/flow.png", HASH],
-        [`knowledge/arch/org_x/ws_y/${"b".repeat(64)}.png`, null],
+        [keyLike, null],
       ]),
     )
     const image = key("assets/flow.png")
-    expect(rows.documents.slice(1)).toEqual([
+    expect(rows.slice(1)).toEqual([
       {
-        doc_id: image,
-        status: "active",
-        deleted_at: null,
-        error: null,
-        kind: "image",
-        title: "flow.png",
-        path: "assets/flow.png",
-        source_type: "authored",
-        source: null,
-        summary: null,
-        s3_key: `{org_id}/{workspace_id}/${HASH}`,
-        mime: "image/png",
-        valid_from: null,
-        valid_to: null,
-        observed_at: OBSERVED,
+        document: {
+          docKey: image,
+          kind: "image",
+          status: "active",
+          deletedAt: null,
+          error: "",
+          title: "flow.png",
+          path: "assets/flow.png",
+          sourceType: "authored",
+          source: "",
+          summary: "",
+          s3Key: `{org_id}/{workspace_id}/${HASH}`,
+          mime: "image/png",
+          validFrom: null,
+          validTo: null,
+          observedAt: OBSERVED,
+        },
+        chunks: [{ ordinal: 0, text: "" }],
+        relations: [],
       },
     ])
-    expect(rows.chunks.at(-1)).toEqual({
-      doc_id: image,
-      ordinal: 0,
-      text: "",
-    })
     // The key-like path in the content gets a relation to its own document
-    // key, but no image document, because Git has no such file. The Markdown file
-    // stays a link.
-    expect(
-      rows.relations.map(({ predicate, dst_doc, src_chunk }) => ({
-        predicate,
-        dst_doc,
-        src_chunk,
-      })),
-    ).toEqual([
+    // key, but no image document, because Git has no such file. The Markdown
+    // file stays a link.
+    expect(edges(rows[0]?.relations ?? [])).toEqual([
       {
         predicate: "LINKS_TO",
-        dst_doc: key("knowledge/arch/notes.md"),
-        src_chunk: 1,
+        dstDoc: key("knowledge/arch/notes.md"),
+        srcChunk: 1,
       },
-      { predicate: "EMBEDS_IMAGE", dst_doc: image, src_chunk: 1 },
-      {
-        predicate: "EMBEDS_IMAGE",
-        dst_doc: key(`knowledge/arch/org_x/ws_y/${"b".repeat(64)}.png`),
-        src_chunk: 1,
-      },
-    ])
-    expect(rows.documents.map((row) => row.s3_key)).toEqual([
-      null,
-      `{org_id}/{workspace_id}/${HASH}`,
+      { predicate: "EMBEDS_IMAGE", dstDoc: image, srcChunk: 1 },
+      { predicate: "EMBEDS_IMAGE", dstDoc: key(keyLike), srcChunk: 1 },
     ])
   })
 
   it("gives a file with only front matter one chunk with its title, so each relation has a chunk", () => {
     const path = "knowledge/services/api.md"
-    const rows = rowsOf(
+    const [rows] = rowsOf(
       [
         {
           path,
@@ -291,15 +274,13 @@ describe("knowledgeRows", () => {
       ],
       path,
     )
-    expect(rows.chunks).toEqual([
-      { doc_id: key(path), ordinal: 0, text: "Payments API" },
-    ])
-    expect(rows.relations).toEqual([
-      expect.objectContaining({
-        src_chunk: 0,
+    expect(rows?.chunks).toEqual([{ ordinal: 0, text: "Payments API" }])
+    expect(edges(rows?.relations ?? [])).toEqual([
+      {
         predicate: "DEPENDS_ON",
-        dst_doc: key("knowledge/billing/ledger.md"),
-      }),
+        dstDoc: key("knowledge/billing/ledger.md"),
+        srcChunk: 0,
+      },
     ])
   })
 
@@ -342,7 +323,7 @@ describe("knowledgeRows", () => {
     )
     expect(second).toEqual(first)
     expect(JSON.stringify(second)).toBe(JSON.stringify(first))
-    expect(first.documents.map((row) => row.path)).toEqual([
+    expect(first.map((rows) => rows.document.path)).toEqual([
       "knowledge/payments/api.md",
       "knowledge/payments/one.png",
       "knowledge/payments/two.webp",
