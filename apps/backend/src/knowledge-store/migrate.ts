@@ -10,8 +10,9 @@ import { createClickHouseClient } from "./knowledge-store.js"
  * The passwords of the two ClickHouse users that the migration makes. If a
  * password is not set, the migration does not make or change that user. A
  * user that does not exist cannot connect, so a missing password fails
- * closed. A password that is the same as the password of the admin user in
- * `url` is refused.
+ * closed. The migration refuses a password that is the same as the password
+ * of the admin user in `url`, and a reader password that is the same as the
+ * writer password: each service must not be able to sign in as another user.
  */
 type KnowledgeUserPasswords = {
   /** The user of the backend (`ctxpipe_reader`): SELECT only. */
@@ -34,12 +35,15 @@ export async function migrateKnowledgeStore(
   url: string,
   passwords: KnowledgeUserPasswords = {},
 ): Promise<void> {
-  const adminPassword = decodeURIComponent(new URL(url).password)
-  for (const password of [passwords.reader, passwords.writer])
-    if (password && password === adminPassword)
-      throw new Error(
-        "[migrate] The ClickHouse reader and writer passwords must be different from the admin password",
-      )
+  const { reader, writer } = passwords
+  const admin = decodeURIComponent(new URL(url).password)
+  if (
+    (reader && (reader === admin || reader === writer)) ||
+    (writer && writer === admin)
+  )
+    throw new Error(
+      "[migrate] The ClickHouse reader, writer and admin passwords must be different from each other",
+    )
   const migrationsFolder = new URL("./migrations/", import.meta.url)
   const client = createClickHouseClient(url)
   try {

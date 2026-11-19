@@ -74,8 +74,7 @@ Compose gives each service its own ClickHouse user in `CLICKHOUSE_URL`:
 Set `CLICKHOUSE_READER_PASSWORD` and `CLICKHOUSE_WRITER_PASSWORD` before the
 first start. They have no default. Without them, `migrate` does not make the
 two users, and the backend and the worker cannot connect to ClickHouse.
-`migrate` refuses a reader or writer password that is the same as
-`CLICKHOUSE_PASSWORD`. The default admin user and password are `ctxpipe`, so
+`migrate` refuses the same value in two of the three passwords. The default admin user and password are `ctxpipe`, so
 also set your own `CLICKHOUSE_PASSWORD`. Use only URL-safe characters in each
 password. `CLICKHOUSE_DB` sets the database (default `ctxpipe`). To change a
 reader or writer password, change it in `.env` and run `migrate` again.

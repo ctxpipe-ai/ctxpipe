@@ -691,13 +691,14 @@ describe("users and mutations", () => {
       await expect(client.command({ query }), query).rejects.toThrow(denied)
   })
 
-  it("refuses a reader or writer password that is the admin password", async () => {
+  it("refuses a reader, writer or admin password that is the same as another", async () => {
     for (const users of [
       { reader: "knowledge-test" },
       { writer: "knowledge-test" },
+      { reader: "same-password", writer: "same-password" },
     ])
       await expect(migrateKnowledgeStore(adminUrl, users)).rejects.toThrow(
-        /different from the admin password/,
+        /must be different from each other/,
       )
   })
 

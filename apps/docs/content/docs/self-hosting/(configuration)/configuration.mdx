@@ -117,7 +117,7 @@ Give each process its own ClickHouse user in `CLICKHOUSE_URL`:
 
 The migrations create or update a user only when its password is set. Without
 the password, the user does not exist and cannot connect. The migrations refuse
-a reader or writer password that is the same as the admin password. They store
+the same value for two of the admin, reader, and writer passwords. They store
 a salted SHA-256 hash of the password. To change a password, set the new
 value and run the migrations again. If `CLICKHOUSE_URL` is not set, the
 migrations skip ClickHouse.
