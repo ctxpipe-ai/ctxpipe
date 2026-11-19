@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto"
-
 import { metrics, type Span, SpanStatusCode, trace } from "@opentelemetry/api"
 
 import { githubSourceRepositories } from "../domain/workspace-sources/github-sources.js"
@@ -9,7 +7,10 @@ import {
 } from "../domain/workspace-sources/source-tree.js"
 import { SOURCES_FILE_PATH } from "../domain/workspace-sources/sources-file.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
-import { imageContentType } from "../domain/workspaces/raw-file.js"
+import {
+  imageContentType,
+  imageOfBytes,
+} from "../domain/workspaces/raw-file.js"
 import {
   type DocumentRows,
   type DocumentStatus,
@@ -78,9 +79,8 @@ type KnowledgeRunSummary =
  * 1. `beginKnowledgeRun` adds the tip to `attempt_shas`.
  * 2. The planner gives the change set: a delta, or a full rebuild.
  * 3. Each changed document file replaces the rows of its document: a
- *    knowledge file (Markdown) or an image file (its key is its path, and
- *    its `s3_key` has the hash of its bytes). A knowledge file that does not
- *    parse gets a `failed` document.
+ *    knowledge file (Markdown) or an image file (its key is its path). A
+ *    knowledge file that does not parse gets a `failed` document.
  * 4. Each relation target with no row gets a `missing` placeholder. A
  *    reference key target gets none: the read resolves it (ADR-066
  *    decision 5).
@@ -93,7 +93,10 @@ type KnowledgeRunSummary =
  * files again. The caller holds the hydrate lock of the Workspace, so one
  * run of a Workspace runs at a time.
  *
- * Images get no bytes in S3 and no embedding yet (CTX-1412).
+ * The vector of an image comes from its bytes at the tip. An image that the
+ * embedding model does not take (its type or its size) gets a `failed`
+ * document, and the run goes on (ADR-066 decision 6). The bytes stay in
+ * the Workspace Git: the writer stores no copy.
  */
 export async function projectKnowledgePlane(input: {
   orgId: string
@@ -253,19 +256,24 @@ async function applyChangeSet(input: {
       batch.map((path) => tree.get(path) ?? ""),
     )
     const documents: UnembeddedDocumentRows[] = []
-    const images: UnembeddedDocumentRows[] = []
+    const images: {
+      rows: UnembeddedDocumentRows
+      bytes: Buffer
+      mimeType: string
+    }[] = []
     const failed: { docKey: string; error: string }[] = []
     for (const [index, path] of batch.entries()) {
       const bytes = contents[index] ?? Buffer.alloc(0)
       if (!isKnowledgePath(path)) {
-        images.push(
-          imageRows({
-            ...scope,
-            path,
-            hash: createHash("sha256").update(bytes).digest("hex"),
-            observedAt,
-          }),
-        )
+        const image = embeddableImage(path, bytes)
+        if ("error" in image)
+          failed.push({ docKey: keyOf(path), error: image.error })
+        else
+          images.push({
+            rows: imageRows({ workspaceId, path, observedAt }),
+            bytes,
+            mimeType: image.mimeType,
+          })
         continue
       }
       // The parse and the mapper read no Git and no network: an error here
@@ -299,17 +307,16 @@ async function applyChangeSet(input: {
     }
     await store.replaceDocuments(scope, [
       ...(await embedDocuments(documents)),
-      // No image bytes yet, so no image embedding (CTX-1412).
-      ...images.map((rows) => ({
-        ...rows,
-        chunks: rows.chunks.map((chunk) => ({ ...chunk, embedding: [] })),
-      })),
+      ...(await embedImages(images)),
     ])
     await store.insertPlaceholders(
       scope,
       failed.map((row) => ({ ...row, status: "failed", observedAt })),
     )
-    for (const { document, relations } of [...documents, ...images]) {
+    for (const { document, relations } of [
+      ...documents,
+      ...images.map((image) => image.rows),
+    ]) {
       written.add(document.docKey)
       for (const relation of relations)
         if (!relation.dstDoc.startsWith(REFERENCE_TARGET_PREFIX))
@@ -416,6 +423,76 @@ async function embedDocuments(
     chunks: rows.chunks.map((chunk) => ({
       ...chunk,
       embedding: chunk.text.trim() ? (vectors[next++] ?? []) : [],
+    })),
+  }))
+}
+
+/**
+ * The type of the image file at `path`, from its bytes, when the embedding
+ * model takes it; else the error for the `failed` document of the file. The
+ * type comes from the bytes, so a file with a wrong name (or bytes that are
+ * not an image) does not go to the model and fail the run.
+ */
+function embeddableImage(
+  path: string,
+  bytes: Buffer,
+): { mimeType: string } | { error: string } {
+  const { imageTypes, maxImageBytes } = multimodalEmbeddingConfig
+  const image = imageOfBytes(bytes)
+  // The type of the bytes, else the type of the file name.
+  const type = image?.contentType ?? imageContentType(path) ?? "unknown"
+  if (!imageTypes.includes(type))
+    return {
+      error: `The embedding model does not take images of type ${type}.`,
+    }
+  if (!image) return { error: `The bytes are not an image of type ${type}.` }
+  if (bytes.length > maxImageBytes)
+    return {
+      error: `The image has ${bytes.length} bytes. The embedding model takes at most ${maxImageBytes}.`,
+    }
+  return { mimeType: image.contentType }
+}
+
+/**
+ * Embed the bytes of each image. The vector goes on the one chunk of the
+ * image, whose text is empty, so the request has the image part only
+ * (ADR-066 decision 6). Images share a request until their bytes reach
+ * `maxImageBytes`, so that one request stays in the provider limit.
+ */
+async function embedImages(
+  images: { rows: UnembeddedDocumentRows; bytes: Buffer; mimeType: string }[],
+): Promise<DocumentRows[]> {
+  const requests: (typeof images)[] = []
+  let size = 0
+  for (const image of images) {
+    const last = requests.at(-1)
+    if (
+      last &&
+      size + image.bytes.length <= multimodalEmbeddingConfig.maxImageBytes
+    ) {
+      last.push(image)
+      size += image.bytes.length
+    } else {
+      requests.push([image])
+      size = image.bytes.length
+    }
+  }
+  const vectors: number[][] = []
+  for (const request of requests)
+    vectors.push(
+      ...(await embedMultimodal(
+        request.map(({ bytes, mimeType }) => ({
+          kind: "image" as const,
+          bytes,
+          mimeType,
+        })),
+      )),
+    )
+  return images.map(({ rows }, index) => ({
+    ...rows,
+    chunks: rows.chunks.map((chunk) => ({
+      ...chunk,
+      embedding: vectors[index] ?? [],
     })),
   }))
 }

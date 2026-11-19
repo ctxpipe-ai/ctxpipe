@@ -6,6 +6,7 @@ import { directWriteRoute } from "../../auth/write-grant.js"
 import { CodesearchCheckoutError } from "../../domain/codeIngestion/codesearchClient.js"
 import {
   listWorkspaceCheckoutPaths,
+  publishedWorkspaceCheckout,
   readWorkspaceCheckoutFile,
 } from "../../domain/workspaces/checkout-read.js"
 import { fileTreeFromPaths } from "../../domain/workspaces/file-tree.js"
@@ -24,9 +25,6 @@ import {
   rawFileHeaders,
   rawFileTooLargeMessage,
 } from "../../domain/workspaces/raw-file.js"
-import { publishedProjection } from "../../domain/workspaces/revision.js"
-import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
-import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
   WRITE_JOB_STATUSES,
   type WriteJobStatus,
@@ -35,7 +33,6 @@ import { generateObjectId } from "../../lib/id.js"
 import { getWorkspaceFileJobStatus } from "../../models/workspace-write-jobs.js"
 import {
   getWorkspaceBySlug,
-  getWorkspaceSearchProjection,
   legacyKnowledgePaths,
   listWorkspaceKnowledgeFiles,
   writesLegacyKnowledge,
@@ -401,35 +398,15 @@ async function loadWorkspaceGitExplorer(c: Context<AppEnv>) {
   if (!workspace) {
     return { ok: false as const, status: 404 as const, error: "Not found" }
   }
-  const snapshot = await getWorkspaceSearchProjection(workspace.id)
-  const projection = publishedProjection(snapshot.projection)
-  const published =
-    projection?.kind === "active" ? projection.stores.index.published : null
-  const repository = published
-    ? snapshot.repositories.find(
-        (repo) =>
-          repo.sha === published.sha &&
-          normalizeWorkspaceRepositoryUrl(repo.gitUrl) ===
-            normalizeWorkspaceRepositoryUrl(published.remote.url),
-      )
-    : null
-  if (!published || !repository)
+  const input = await publishedWorkspaceCheckout(workspace.id)
+  if (!input)
     return {
       ok: false as const,
       status: 409 as const,
       error:
         "This Workspace must finish indexing before its published files can be browsed.",
     }
-  return {
-    ok: true as const,
-    workspace,
-    input: {
-      workspaceId: workspace.id,
-      repositoryId: repository.id,
-      sha: published.sha,
-      rootPath: workspaceRootPath(published),
-    },
-  }
+  return { ok: true as const, workspace, input }
 }
 
 function gitExplorerUpstreamError(error: unknown, step: string) {

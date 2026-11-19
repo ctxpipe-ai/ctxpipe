@@ -29,6 +29,18 @@ export const multimodalEmbeddingConfig = {
    */
   upstreamProvider: "google-vertex",
   dimensions: 1024,
+  /**
+   * The image types that the model takes. An image file of another type (for
+   * example SVG) gets a `failed` document and no vector (ADR-066 decision 6).
+   */
+  imageTypes: ["image/png", "image/jpeg"],
+  /**
+   * The largest image file that the writer embeds, and the most image bytes
+   * of one request. A larger image gets a `failed` document. The base64 form
+   * of the bytes is a third larger. The first real call confirms the
+   * provider limit.
+   */
+  maxImageBytes: 10 * 1024 * 1024,
   /** The maximum number of inputs in one request. */
   batchSize: 16,
   /** The maximum number of attempts of one request (429 and 5xx retry). */
@@ -54,12 +66,14 @@ export type EmbeddingInput =
       chunkCount: number
     }
   | {
+      /**
+       * An image, with no text: the vector of an image comes only from its
+       * bytes (ADR-066 decision 6).
+       */
       kind: "image"
       bytes: Uint8Array
       /** For example `image/png`. */
       mimeType: string
-      /** Sent as a text part with the image. A blank alt text sends the image only. */
-      altText: string
     }
 
 type ContentPart =
@@ -220,11 +234,7 @@ function contentParts(input: EmbeddingInput): ContentPart[] {
     return [{ type: "text", text: `${context}\n\n${input.text}` }]
   }
   const dataUri = `data:${input.mimeType};base64,${Buffer.from(input.bytes).toString("base64")}`
-  const parts: ContentPart[] = [
-    { type: "image_url", image_url: { url: dataUri } },
-  ]
-  if (input.altText.trim()) parts.push({ type: "text", text: input.altText })
-  return parts
+  return [{ type: "image_url", image_url: { url: dataUri } }]
 }
 
 function orderedVectors(

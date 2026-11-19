@@ -15,9 +15,10 @@ export function knowledgeProjectionVersion(input: {
   /** The Workspace root folder; `""` is the repository root. */
   root: string
 }): string {
-  // Increase the code version when the parser or the chunking changes.
-  // 2: the reference keys of CTX-1400.
-  return JSON.stringify([2, input.embeddingModel, input.dimensions, input.root])
+  // Increase the code version when the parser, the chunking or the mapper
+  // changes. 2: the reference keys of CTX-1400. 3: image vectors and the alt
+  // text of EMBEDS_IMAGE (CTX-1412).
+  return JSON.stringify([3, input.embeddingModel, input.dimensions, input.root])
 }
 
 /** The reasons for a full rebuild instead of a delta. */

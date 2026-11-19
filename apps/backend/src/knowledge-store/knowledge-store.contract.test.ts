@@ -78,7 +78,6 @@ function rowsOf(
       sourceType: "git",
       source: "workspace",
       summary: `${title} summary`,
-      s3Key: "",
       mime: "",
       validFrom: new Date("2026-01-01T00:00:00.000Z"),
       validTo: null,
@@ -109,6 +108,7 @@ function rowsOf(
         validFrom: null,
         validTo: null,
         source: "link",
+        altText: "",
         observedAt,
       },
     ],
@@ -173,6 +173,7 @@ describe("KnowledgeStore", () => {
       "0003_chunks_index_granularity.sql",
       "0004_chunk_lines.sql",
       "0005_doc_refs.sql",
+      "0006_images_in_git.sql",
     ])
   })
 

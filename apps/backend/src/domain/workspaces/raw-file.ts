@@ -1,3 +1,5 @@
+import { imageSize } from "image-size"
+
 /**
  * Raw file bytes for the Files pane: image preview and download.
  *
@@ -43,6 +45,26 @@ function rawFileContentType(path: string): string {
   const dot = name.lastIndexOf(".")
   const extension = dot > 0 ? name.slice(dot + 1).toLowerCase() : ""
   return CONTENT_TYPES[extension] ?? "application/octet-stream"
+}
+
+/**
+ * The content type (`image/…`) and the size in pixels of image bytes, from
+ * their header, or null when the bytes are not an image of a known type. The
+ * file name does not count.
+ */
+export function imageOfBytes(
+  bytes: Uint8Array,
+): { contentType: string; width: number; height: number } | null {
+  try {
+    const { type, width, height } = imageSize(bytes)
+    const contentType = CONTENT_TYPES[type ?? ""]
+    return contentType?.startsWith("image/")
+      ? { contentType, width, height }
+      : null
+  } catch {
+    // The header is not one of an image type that the size reader knows.
+    return null
+  }
 }
 
 /** The content type of an image file (`image/…`), else null. */
