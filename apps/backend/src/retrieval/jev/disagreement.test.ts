@@ -353,6 +353,48 @@ describe("resolveDisagreements", () => {
       ])
     })
 
+    it("does not let a position that a stored SUPERSEDES replaces win over another rival", async () => {
+      // A SUPERSEDES B, and the authority is B > C > A. Without the first
+      // step, each position loses to one rival and all three are superseded.
+      server.use(
+        fixedJev({
+          pairs: {
+            "pair.1.2": "contradicts",
+            "pair.1.3": "contradicts",
+            "pair.2.3": "contradicts",
+          },
+          statuses: {
+            "status.1": ["current", 0.4],
+            "status.2": ["current", 0.4],
+            "status.3": ["current", 0.4],
+          },
+        }),
+      )
+      const result = await resolveDisagreements({
+        question: "q",
+        items: [
+          item("a", { sourceType: "chat" }),
+          item("b", { sourceType: "adr" }),
+          item("c", { sourceType: "docs" }),
+        ],
+        relations: [
+          { srcDoc: "doc/a.md", predicate: "SUPERSEDES", dstDoc: "doc/b.md" },
+        ],
+        queryTime,
+      })
+      expect(statuses(result)).toEqual([
+        {
+          status: "superseded",
+          reason: { by: "tie-break", rule: "authority" },
+        },
+        {
+          status: "superseded",
+          reason: { by: "tie-break", rule: "supersedes" },
+        },
+        { status: "current", reason: { by: "tie-break", rule: "authority" } },
+      ])
+    })
+
     it("gives superseded to an expired position and scoped to a future one, with no rival", async () => {
       server.use(unsure("unrelated"))
       expect(

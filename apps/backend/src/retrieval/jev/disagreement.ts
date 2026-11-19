@@ -131,6 +131,8 @@ function topOption<Option extends string>(
   key: string,
 ): { option: Option; probability: number } {
   const probabilities = answers.get(key)
+  // `decide` gives an answer for each question key or throws, so this
+  // guard only narrows the type.
   if (!probabilities)
     throw new JevError("invalid-answer", `Jev gave no answer to ${key}.`)
   const option = options.reduce((best, next) =>
@@ -381,20 +383,36 @@ export async function resolveDisagreements({
     return { rule: "tie", result: 0 }
   }
   /**
-   * The status of a position when Jev is not sure. A position that loses
-   * to a rival is superseded. A position that ties with a rival is
-   * disputed. A position with no item valid at the query time is
-   * superseded when an item has expired, and scoped when its items are
-   * valid only later. Else the position is current. The reason is the rule
-   * of the first rival that gives the status.
+   * The status of a position when Jev is not sure. A rival that a stored
+   * SUPERSEDES replaces is superseded first, and it does not compete with
+   * the other positions: the stored relations are not in the scalar order
+   * of the later rules, so without this step a loop of rivals can make each
+   * position superseded. A position that loses to a competing rival is
+   * superseded. A position that ties with one is disputed. A position with
+   * no item valid at the query time is superseded when an item has expired,
+   * and scoped when its items are valid only later. Else the position is
+   * current. The reason is the rule of the first rival that gives the
+   * status.
    */
+  const replacedByStored = (position: number) =>
+    rivalsOf(position).some(
+      (rival) => supersedes(rival, position) && !supersedes(position, rival),
+    )
   const tieBreak = (
     position: number,
   ): { status: PositionStatus; rule: TieBreakRule } => {
-    const results = rivalsOf(position).map((rival) => compare(position, rival))
-    const lost = results.find(({ result }) => result === -1)
+    if (replacedByStored(position))
+      return { status: "superseded", rule: "supersedes" }
+    const results = rivalsOf(position).map((rival) => ({
+      rival,
+      ...compare(position, rival),
+    }))
+    const competing = results.filter(
+      ({ result, rival }) => result === 1 || !replacedByStored(rival),
+    )
+    const lost = competing.find(({ result }) => result === -1)
     if (lost) return { status: "superseded", rule: lost.rule }
-    const tied = results.find(({ result }) => result === 0)
+    const tied = competing.find(({ result }) => result === 0)
     if (tied) return { status: "disputed", rule: tied.rule }
     const member = members[position] ?? []
     if (!member.some(({ item }) => isValid(item)))
