@@ -54,9 +54,11 @@ const planeSha = "b".repeat(40)
 
 /**
  * Jev answers from markers in the candidate text: "answer" gives a high
- * p(answers), "hub" a high p(explore).
+ * p(answers), "hub" a high p(explore). In the disagreement step, each pair
+ * of items "updates", Position 1 is current and the others are superseded.
  */
 const jevRequests: { candidates: number }[] = []
+const disagreementRequests: string[][] = []
 let jevFails = false
 const embeddingRequests: string[] = []
 
@@ -90,6 +92,43 @@ const models = setupServer(
         questions: Record<string, unknown>
       }
       if (jevFails) return HttpResponse.json({ error: "down" }, { status: 503 })
+      const keys = Object.keys(body.questions)
+      if (
+        keys.every(
+          (key) => key.startsWith("pair.") || key.startsWith("status."),
+        )
+      ) {
+        disagreementRequests.push(keys)
+        const spread = (options: string[], top: string) =>
+          Object.fromEntries(
+            options.map((option) => [option, option === top ? 0.8 : 0.05]),
+          )
+        return HttpResponse.json({
+          answers: Object.fromEntries(
+            keys.map((key) => [
+              key,
+              {
+                type: "choice",
+                probabilities: key.startsWith("pair.")
+                  ? spread(
+                      [
+                        "agrees",
+                        "contradicts",
+                        "partial",
+                        "updates",
+                        "unrelated",
+                      ],
+                      "updates",
+                    )
+                  : spread(
+                      ["current", "superseded", "disputed", "scoped"],
+                      key === "status.1" ? "current" : "superseded",
+                    ),
+              },
+            ]),
+          ),
+        })
+      }
       const answers: Record<string, { type: "noul"; noul: number }> = {}
       body.state.forEach((part, index) => {
         const n =
@@ -394,6 +433,7 @@ describe("the knowledge reader seam", () => {
   beforeEach(() => {
     jevFails = false
     jevRequests.length = 0
+    disagreementRequests.length = 0
     events.length = 0
   })
 
@@ -486,7 +526,11 @@ describe("the knowledge reader seam", () => {
     const planeSearch = structured(await searchCall({ workspaces: ["ready"] }))
     const planeRelated = structured(await relatedCall({ maxDepth: 2 }))
     expect(shapeOf(planeSearch)).toEqual(shapeOf(legacySearch))
-    expect(shapeOf(planeRelated)).toEqual(shapeOf(legacyRelated))
+    // Only the plane gives the disagreement positions.
+    const { positions, ...rankedOnly } = planeRelated
+    expect(positions).toEqual(expect.any(Array))
+    expect(shapeOf(rankedOnly)).toEqual(shapeOf(legacyRelated))
+    expect(legacyRelated.positions).toBeUndefined()
     expect(shapeOf(planeSearch)).toMatchSnapshot()
     expect(shapeOf(planeRelated)).toMatchSnapshot()
   })
@@ -534,6 +578,52 @@ describe("the knowledge reader seam", () => {
     ])
     // Layer 1 judges the three neighbors; layer 2 the one neighbor of the hub.
     expect(jevRequests).toEqual([{ candidates: 3 }, { candidates: 1 }])
+    // The disagreement step: one pair, then the status of each position.
+    expect(disagreementRequests).toEqual([
+      ["pair.1.2"],
+      ["status.1", "status.2"],
+    ])
+    expect(content.positions).toEqual([
+      {
+        refs: ["knowledge/teams/payments.md"],
+        status: "current",
+        reason: { by: "jev", probability: 0.8 },
+        against: [{ position: 1, label: "updates" }],
+      },
+      {
+        refs: ["knowledge/decisions/adr-7.md"],
+        status: "superseded",
+        reason: { by: "jev", probability: 0.8 },
+        against: [{ position: 0, label: "updates" }],
+      },
+    ])
+  })
+
+  it("get_related tells agents about the positions in its description and output schema", async () => {
+    const { tools } = await related.listTools()
+    const tool = tools.find((item) => item.name === "get_related")
+    expect(tool?.description).toContain(
+      "status (current, superseded, disputed, scoped)",
+    )
+    const positions = (
+      tool?.outputSchema?.properties as Record<
+        string,
+        { description?: string; items: { properties: Record<string, unknown> } }
+      >
+    ).positions
+    expect(positions?.description).toBe(
+      "The disagreement positions of the top results.",
+    )
+    expect(positions?.items.properties.status).toMatchObject({
+      enum: ["current", "superseded", "disputed", "scoped"],
+      description: expect.stringContaining("superseded: replaced"),
+    })
+    expect(Object.keys(positions?.items.properties ?? {}).sort()).toEqual([
+      "against",
+      "reason",
+      "refs",
+      "status",
+    ])
   })
 
   it("on: get_related with maxDepth 1 does not explore past the first layer", async () => {
@@ -671,7 +761,8 @@ describe("the knowledge reader seam", () => {
     const event = events.find((item) => item.step === "knowledge_plane.shadow")
     expect(event).toMatchObject({
       tool: "get_related",
-      plane: { jevCalls: 2, embeddingCalls: 1 },
+      // Two layers, one pair and one status call.
+      plane: { jevCalls: 4, embeddingCalls: 1 },
     })
     expect(JSON.stringify(event)).not.toContain("knowledge/")
   })

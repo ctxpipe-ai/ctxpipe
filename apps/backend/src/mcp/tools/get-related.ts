@@ -211,6 +211,29 @@ const resultSchema = z.object({
 })
 type RelatedResult = z.infer<typeof resultSchema>
 
+const positionSchema = z.object({
+  refs: z.array(z.string()).describe("The results that make one claim."),
+  status: z
+    .enum(["current", "superseded", "disputed", "scoped"])
+    .describe(
+      "current: true now. superseded: replaced, or not valid now. disputed: contradicted, and no side wins. scoped: true only for a part of the question.",
+    ),
+  reason: z.union([
+    z.object({ by: z.literal("jev"), probability: z.number() }),
+    z.object({ by: z.literal("tie-break"), rule: z.string() }),
+  ]),
+  against: z
+    .array(
+      z.object({
+        position: z.number().int(),
+        label: z.enum(["contradicts", "updates"]),
+      }),
+    )
+    .describe(
+      "The positions (index in positions) that this one contradicts or updates.",
+    ),
+})
+
 /**
  * Rankings by revision, parameters and ranking time, so that page 2 needs no
  * graph query. An entry ends 10 minutes after it was set. A page after that
@@ -240,7 +263,7 @@ export const getRelatedTool = defineMcpReadTool({
   name: "get_related",
   title: "Get related knowledge",
   description:
-    "Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. Finds knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Set intent (why, ownership, change, dependencies, structure, provenance) or give the question as query. Each intent walks its own edges first and puts its answer kinds first; with few results, a second walk follows all edges. No walk of all edges follows FROM_SOURCE; the provenance intent walks it, to find the sources a unit came from. Each result can explain why: the path of predicates from a seed. Filter by predicates, kinds, direction, depth and time. For plain neighbors, set maxDepth 1 and no query. Send independent calls in parallel.",
+    "Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. Finds knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Set intent (why, ownership, change, dependencies, structure, provenance) or give the question as query. Each intent walks its own edges first and puts its answer kinds first; with few results, a second walk follows all edges. No walk of all edges follows FROM_SOURCE; the provenance intent walks it, to find the sources a unit came from. Each result can explain why: the path of predicates from a seed. With positions, the top results are grouped by the claim they make, each with a status (current, superseded, disputed, scoped) and the positions it contradicts or updates: prefer a current position. Filter by predicates, kinds, direction, depth and time. For plain neighbors, set maxDepth 1 and no query. Send independent calls in parallel.",
   org: "required",
   inputShape: getRelatedInputShape,
   outputSchema: z.object({
@@ -251,6 +274,10 @@ export const getRelatedTool = defineMcpReadTool({
     partialReason: z.string().optional(),
     cappedHubs: z.array(z.string()).optional(),
     results: z.array(resultSchema),
+    positions: z
+      .array(positionSchema)
+      .optional()
+      .describe("The disagreement positions of the top results."),
     cursor: z.string().optional(),
     truncated: z.boolean().optional(),
   }),
@@ -319,6 +346,7 @@ export const getRelatedTool = defineMcpReadTool({
       ...(header.partialReason ? { partialReason: header.partialReason } : {}),
       ...(header.cappedHubs.length ? { cappedHubs: header.cappedHubs } : {}),
       results: page,
+      ...(header.positions ? { positions: header.positions } : {}),
     })
     const { page, nextOffset, truncated } = fitPage(items, {
       offset,

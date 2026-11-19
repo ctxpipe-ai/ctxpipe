@@ -2,6 +2,7 @@ import type {
   DocumentRef,
   FrontierRelation,
   KnowledgeDocument,
+  KnowledgeRelation,
   KnowledgeReadScope,
   KnowledgeStore,
 } from "../knowledge-store/knowledge-store.js"
@@ -24,6 +25,8 @@ export const ORCHESTRATOR_DEFAULTS = {
   fanOut: 50,
   /** The time of one retrieval, from the first read to the last judge. */
   timeBudgetMs: 3_000,
+  /** The top results that the disagreement step compares (N). */
+  disagreementItems: 10,
   /** A candidate is a result when p(answers) is at least this value. */
   keepAt: 0.5,
   /** The loop explores from a candidate when p(explore) is at least this. */
@@ -137,6 +140,8 @@ type WalkFilter = {
 type Traversal = {
   /** Each judged document, in the order of the layers. */
   nodes: TraversalNode[]
+  /** Each relation that the layers read. */
+  relations: KnowledgeRelation[]
   explored: { nodes: number; edges: number }
   partialReason?: "total_timeout"
   /** Frontier documents with more relations than `maxFanOut`. */
@@ -153,6 +158,8 @@ const refKey = (ref: DocumentRef) =>
  */
 export async function traverse(input: {
   store: KnowledgeStore
+  /** The `performance.now()` time at which the retrieval must end. */
+  deadline: number
   scope: KnowledgeReadScope
   question: string
   intent: string
@@ -165,8 +172,7 @@ export async function traverse(input: {
   settings?: OrchestratorSettings
 }): Promise<Traversal> {
   const settings = input.settings ?? ORCHESTRATOR_DEFAULTS
-  const deadline = performance.now() + settings.timeBudgetMs
-  const left = () => deadline - performance.now()
+  const left = () => input.deadline - performance.now()
   const judgeAll = async (layer: JudgeInput[]) =>
     judge(layer, input.question, input.intent, left(), input.meter)
 
@@ -187,7 +193,7 @@ export async function traverse(input: {
   }
   const visited = new Set(seedNodes.map((node) => refKey(node.ref)))
   const cappedHubs: KnowledgeDocument[] = []
-  let edges = 0
+  const read: KnowledgeRelation[] = []
   let frontier = seedNodes
   let partialReason: Traversal["partialReason"]
 
@@ -206,7 +212,7 @@ export async function traverse(input: {
       frontier.map((node) => node.ref),
       input.walk.validAt,
     )
-    edges += relations.length
+    read.push(...relations.map((item) => item.relation))
     const candidates = layerCandidates(relations, byKey, visited, input.walk)
     cappedHubs.push(...candidates.capped.map((node) => node.document))
     const layer = candidates.picked.slice(0, settings.fanOut)
@@ -254,7 +260,8 @@ export async function traverse(input: {
   }
   return {
     nodes,
-    explored: { nodes: visited.size, edges },
+    relations: read,
+    explored: { nodes: visited.size, edges: read.length },
     ...(partialReason ? { partialReason } : {}),
     cappedHubs,
   }

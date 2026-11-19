@@ -32,6 +32,24 @@ exports[`the knowledge reader seam > on: the output of both tools has the shape 
     "nodes": "number",
   },
   "partial": "boolean",
+  "positions": [
+    {
+      "against": [
+        {
+          "label": "string",
+          "position": "number",
+        },
+      ],
+      "reason": {
+        "by": "string",
+        "probability": "number",
+      },
+      "refs": [
+        "string",
+      ],
+      "status": "string",
+    },
+  ],
   "results": [
     {
       "depth": "number",

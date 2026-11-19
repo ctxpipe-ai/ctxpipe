@@ -12,6 +12,7 @@ import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
 import type { KnowledgeHit } from "../domain/workspaces/knowledge-search.js"
 import type {
   Ranking,
+  RelatedPosition,
   RelatedResult,
 } from "../domain/workspaces/related-ranking.js"
 import { workspaceGraphFromSignals } from "../domain/workspaces/workspace-graph.js"
@@ -19,6 +20,7 @@ import {
   createKnowledgeStore,
   type FrontierRelation,
   type KnowledgeDocument,
+  type KnowledgeRelation,
   type KnowledgeStore,
 } from "../knowledge-store/knowledge-store.js"
 import { truncateText } from "../mcp/framework/budget.js"
@@ -26,6 +28,7 @@ import { checkPath } from "../mcp/framework/refs.js"
 import { McpToolError } from "../mcp/framework/tool-errors.js"
 import { embedMultimodal } from "../retrieval/embeddings/multimodalEmbeddings.js"
 import { JevError } from "../retrieval/jev/client.js"
+import { resolveDisagreements } from "../retrieval/jev/disagreement.js"
 import type {
   KnowledgeReader,
   RelatedRequest,
@@ -257,14 +260,16 @@ function claimsByDocument(
 /**
  * `get_related`: the seeds are the first frontier, then up to D layers of
  * the loop. A result is a judged document with p(answers) of at least the
- * `keepAt` setting; p(answers) is its score. When Jev fails, the call fails
- * with `judge_unavailable`.
+ * `keepAt` setting; p(answers) is its score. Then the disagreement step
+ * gives the positions of the top results (ADR-068 decision 4). When Jev
+ * fails, the call fails with `judge_unavailable`.
  */
 async function related(
-  { org, workspace, input }: RelatedRequest,
+  { org, workspace, input, now }: RelatedRequest,
   embed: (text: string) => Promise<number[]>,
   meter: ModelMeter,
 ): Promise<Ranking> {
+  const deadline = performance.now() + ORCHESTRATOR_DEFAULTS.timeBudgetMs
   const store = knowledgeStore()
   const scope = { orgId: org.id, workspaceIds: [workspace.id] }
   const paths = [...new Set(input.seeds.map((ref) => checkPath(ref, ref)))]
@@ -295,9 +300,11 @@ async function related(
   const upper = (values: readonly string[] | undefined) =>
     values && new Set(values.map((value) => value.toUpperCase()))
   let traversal: Awaited<ReturnType<typeof traverse>>
+  let positions: RelatedPosition[] | undefined
   try {
     traversal = await traverse({
       store,
+      deadline,
       scope,
       question,
       intent: input.intent,
@@ -330,6 +337,23 @@ async function related(
       },
       meter,
     })
+    const top = keptNodes(traversal.nodes, input).slice(
+      0,
+      ORCHESTRATOR_DEFAULTS.disagreementItems,
+    )
+    if (top.length > 0 && !traversal.partialReason) {
+      if (performance.now() >= deadline)
+        traversal.partialReason = "total_timeout"
+      else
+        positions = await disagreementPositions(
+          question,
+          top,
+          traversal.relations,
+          now,
+          deadline - performance.now(),
+          meter,
+        )
+    }
   } catch (error) {
     if (!(error instanceof JevError)) throw error
     throw new McpToolError(
@@ -337,11 +361,33 @@ async function related(
       "The relevance judge did not answer, so get_related has no ranking. Try again later, or use search_knowledge.",
     )
   }
+  return {
+    results: keptNodes(traversal.nodes, input).slice(0, 100).map(relatedResult),
+    ...(positions ? { positions } : {}),
+    explored: traversal.explored,
+    partial: traversal.partialReason !== undefined,
+    ...(traversal.partialReason
+      ? { partialReason: traversal.partialReason }
+      : {}),
+    cappedHubs: [
+      ...new Set(traversal.cappedHubs.map((document) => document.path)),
+    ].slice(0, 20),
+  }
+}
+
+/**
+ * The judged documents that answer (p(answers) of at least `keepAt`) and
+ * pass the kind filters of the call, best first.
+ */
+function keptNodes(
+  nodes: readonly TraversalNode[],
+  input: RelatedRequest["input"],
+): TraversalNode[] {
   const keptKinds = input.kinds?.length
     ? new Set(input.kinds.map(kindKey))
     : null
   const droppedKinds = new Set((input.excludeKinds ?? []).map(kindKey))
-  const results = traversal.nodes
+  return nodes
     .filter(
       (node) =>
         node.pAnswers >= ORCHESTRATOR_DEFAULTS.keepAt &&
@@ -354,19 +400,65 @@ async function related(
         a.depth - b.depth ||
         a.document.path.localeCompare(b.document.path),
     )
-    .slice(0, 100)
-    .map(relatedResult)
-  return {
-    results,
-    explored: traversal.explored,
-    partial: traversal.partialReason !== undefined,
-    ...(traversal.partialReason
-      ? { partialReason: traversal.partialReason }
-      : {}),
-    cappedHubs: [
-      ...new Set(traversal.cappedHubs.map((document) => document.path)),
-    ].slice(0, 20),
-  }
+}
+
+/**
+ * The disagreement step of ADR-068 decision 4 on the top results: the
+ * positions, each with its refs, its status, the reason of the status, and
+ * the positions that it contradicts or updates. A Jev failure throws its
+ * `JevError`.
+ */
+async function disagreementPositions(
+  question: string,
+  top: readonly TraversalNode[],
+  relations: readonly KnowledgeRelation[],
+  queryTime: Date,
+  timeoutMs: number,
+  meter: ModelMeter,
+): Promise<RelatedPosition[]> {
+  // The pairs go to Jev in batches of 15 (the resolver default), and one
+  // more call gives the status of each position.
+  const pairs = (top.length * (top.length - 1)) / 2
+  meter.jevCalls += Math.ceil(pairs / 15) + 1
+  meter.jevCandidates += top.length
+  const resolution = await resolveDisagreements({
+    question,
+    queryTime,
+    timeoutMs: Math.max(1, Math.floor(timeoutMs)),
+    items: top.map(({ document, text }, index) => ({
+      id: String(index),
+      passage: text,
+      meta: {
+        status: document.status,
+        sourceType: document.sourceType || "authored",
+        observedAt: document.observedAt.toISOString(),
+        validFrom: document.validFrom?.toISOString() ?? null,
+        validTo: document.validTo?.toISOString() ?? null,
+        confidence: null,
+        documentKey: document.docKey,
+      },
+    })),
+    relations,
+  })
+  return resolution.positions.map((position, index) => ({
+    refs: position.itemIds.map((id) => top[Number(id)]?.document.path ?? ""),
+    status: position.status,
+    reason: position.reason,
+    against: resolution.pairs
+      .flatMap(({ positions: [a, b], label }) => {
+        if (label !== "contradicts" && label !== "updates") return []
+        if (a === index) return [{ position: b, label }]
+        if (b === index) return [{ position: a, label }]
+        return []
+      })
+      .filter(
+        (entry, at, all) =>
+          all.findIndex(
+            (other) =>
+              other.position === entry.position && other.label === entry.label,
+          ) === at,
+      ),
+  }))
 }
 
 const round = (value: number) => Number(value.toPrecision(3))

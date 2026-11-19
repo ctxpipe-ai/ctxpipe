@@ -50,9 +50,23 @@ export type RelatedResult = {
   path?: { from: string; to: string; predicate: string; weight: number }[]
 }
 
+/**
+ * One position of the disagreement step (ADR-068 decision 4): the results
+ * that agree, the status of their claim, the reason of the status, and the
+ * positions (by index) that it contradicts or updates. Only the knowledge
+ * plane gives positions.
+ */
+export type RelatedPosition = {
+  refs: string[]
+  status: "current" | "superseded" | "disputed" | "scoped"
+  reason: { by: "jev"; probability: number } | { by: "tie-break"; rule: string }
+  against: { position: number; label: "contradicts" | "updates" }[]
+}
+
 /** The ranking of one call, before paging. */
 export type Ranking = {
   results: RelatedResult[]
+  positions?: RelatedPosition[]
   explored: { nodes: number; edges: number }
   partial: boolean
   partialReason?: string
