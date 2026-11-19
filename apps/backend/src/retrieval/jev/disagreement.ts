@@ -2,6 +2,7 @@
 // pair of evidence items against the question. Items that agree form one
 // position. Then Jev gives the status of each position. When Jev is not sure
 // of a status, a deterministic tie-break gives it.
+import { SOURCE_AUTHORITY_ORDER } from "../../knowledge-plane/rows.js"
 import type { KnowledgeRelation } from "../../knowledge-store/knowledge-store.js"
 import {
   decideChoice,
@@ -42,20 +43,6 @@ const POSITION_STATUSES = [
   "scoped",
 ] as const
 type PositionStatus = (typeof POSITION_STATUSES)[number]
-
-/**
- * The source types, from the highest authority to the lowest. The tie-break
- * uses this order, and the state of the status question gives it to Jev. A
- * source type that is not in the list ranks below all of them.
- */
-const SOURCE_AUTHORITY_ORDER = [
-  "adr",
-  "merged-pr",
-  "docs",
-  "issue",
-  "open-pr",
-  "chat",
-]
 
 /** The wording of the questions to Jev. The evals of ADR-069 tune it. */
 const WORDING = {
@@ -350,7 +337,9 @@ export async function resolveDisagreements({
     [
       "authority",
       ({ meta }) => {
-        const rank = SOURCE_AUTHORITY_ORDER.indexOf(meta.sourceType)
+        const rank = SOURCE_AUTHORITY_ORDER.indexOf(
+          meta.sourceType as (typeof SOURCE_AUTHORITY_ORDER)[number],
+        )
         return rank === -1 ? -SOURCE_AUTHORITY_ORDER.length : -rank
       },
     ],
