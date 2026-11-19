@@ -78,6 +78,7 @@ endpoint, logs go to stdout.
 | `codesearch` | clone failures, indexing failures, Zoekt errors |
 | `postgres` | connection limits, slow queries, disk pressure |
 | `graph database` | connection failures, memory pressure, query errors |
+| `clickhouse` | disk use of the hot volume, the count of pending mutations in `system.mutations`, query errors |
 
 Set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`,
 `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`, and `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`
@@ -96,6 +97,7 @@ changes.
 |---|---|
 | Postgres | Required. Use managed database backups or `pg_dump`/physical backups. Test restore regularly. |
 | Graph database | Back up or snapshot according to provider guidance. On Compose, mount a named volume first (see [Docker](/docs/self-hosting/deployment/docker#persistent-state)). |
+| ClickHouse | Optional. Back up `clickhouse_data` for fast recovery. Without a backup, a full rebuild makes the content again from the Workspace repositories (see [Recover the knowledge store](/docs/self-hosting/configuration#recover-the-knowledge-store)). |
 | `repo_cache` | Optional but recommended for large/private repositories. Rebuildable by recloning. |
 | `zoekt_index_deploy` | Optional but recommended for large deployments. Rebuildable by reindexing. |
 | Secrets | Export from your secret manager or platform. Keep historical values needed for rollback. |
@@ -247,6 +249,25 @@ clones the repository again while a new base builds.
 - Confirm the graph database is reachable from backend and worker.
 - Check backend logs around graph snapshot/read operations.
 - Re-run repository ingestion if graph data needs to be rebuilt.
+
+### An index run of the knowledge store takes longer than usual
+
+For an organization on the new knowledge store, some events start a full
+rebuild of a Workspace, for example a force-push to the Workspace repository
+that removed the last indexed commit. A full rebuild reads and embeds each file
+again, so it takes longer. Chat and MCP continue to answer from the index. See
+[Changes and full rebuilds](/docs/workspaces/indexing#changes-and-full-rebuilds).
+The worker log of each run has `knowledgeProjection.mode` (`delta` or
+`full`) and `knowledgeProjection.fullReason`. The span of the run has the same
+reason in `ctxpipe.knowledge.full_reason`. The reasons are:
+
+| Reason | Cause |
+|---|---|
+| `first_run` | The first run of the Workspace on the knowledge store |
+| `missing_commit` | The last indexed commit, or the commit of a failed run, is not in the repository any more |
+| `projection_version` | A new ctxpipe version, a new embedding model, or a new Workspace root folder |
+| `sources_config` | A change to `.ctxpipe/sources.yaml` or `sources/` |
+| `attempts` | More than 10 runs after the last indexed commit did not complete |
 
 ### Confluence setup stalls
 

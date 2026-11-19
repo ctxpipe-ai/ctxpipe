@@ -31,6 +31,40 @@ change, so new content can take a few minutes to show in answers.
   </Step>
 </Steps>
 
+## Changes and full rebuilds
+
+ctxpipe moves the search and graph data of each organization to a new
+knowledge store, one organization at a time. On the new knowledge store, an
+index run of the Workspace repository applies only the files that changed
+after the last indexed commit. A file that you remove from the repository
+leaves the index.
+
+Some events start a **full rebuild**. A full rebuild reads all the knowledge
+files at the newest commit again:
+
+- The last indexed commit is not in the Workspace repository any more. For
+  example, somebody force-pushed the default branch, and Git then deleted the
+  old commits (a garbage collection). Without that commit, ctxpipe cannot find
+  which files changed.
+- The first index run of a Workspace.
+- A new ctxpipe version changes how ctxpipe reads files or makes embeddings.
+- A change to the sources of the Workspace (`.ctxpipe/sources.yaml` or
+  `sources/`).
+- Many index runs after the last indexed commit did not complete.
+
+During a full rebuild:
+
+- The run takes longer than a usual run, because ctxpipe reads and embeds each
+  file again.
+- Chat, search, the graph, and MCP continue to answer from the index. ctxpipe
+  replaces the files in groups, so an answer during the run can include some
+  files from the old commit and some from the new commit.
+- A file that is not at the newest commit leaves the index when the run ends.
+- When the run completes, the index is the same as the files at the newest
+  commit. You do not have to do anything.
+
+If a run fails, the next run tries the same files again.
+
 ## How extraction works
 
 Extraction reads one linked repository at one commit. It writes services,
