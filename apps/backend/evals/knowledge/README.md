@@ -75,7 +75,7 @@ bun --env-file=.env.local evals/knowledge/cli.ts label \
   --out LABELED.json [--cap-usd 5]
 ```
 
-A model drafts the questions and the labels. The panel then labels each drafted gold document by majority, as in ADR-063: does it answer the question, and what is the status of its claim. Each document of a position gets the status that most models give it. The panel needs an odd number of models, at least three, each of a different family. Jev is never a judge. The calls go one at a time.
+A model drafts the questions and the labels. The panel then labels each drafted gold document by majority, as in ADR-063: does it answer the question, and what is the status of its claim. Each document of a position gets the status that most models give it. The panel needs three models, each of a different family. Jev is never a judge. The calls go one at a time.
 
 The command reads each document with `git show SHA:PATH` from the clone. It writes the labeled dataset, and each vote to `LABELED.json.votes.json`. These questions are out of the labeled dataset, and the votes file gives the reason: a position document with no majority status (a person decides), or a question that the labels leave invalid (for example no gold document left). When the spend cap stops the command, the output holds the questions and the votes before the stop.
 

@@ -12,8 +12,8 @@ import {
 } from "./dataset.js"
 
 /*
- * The judge panel of ADR-069 decision 5: models of three or more families
- * label the drafted gold data by majority, as in ADR-063. Jev is never a
+ * The judge panel of ADR-069 decision 5: models of three families label the
+ * drafted gold data by majority, as in ADR-063. Jev is never a
  * judge, because Jev is part of the system under test. Each model judges
  * each drafted gold document of a question: does it answer the question,
  * and what is the status of its claim. A document stays gold when most
@@ -49,12 +49,11 @@ export type PanelVote = {
 }
 
 /**
- * Check the panel: an odd number of at least three models, each of another
- * family (the provider part of `provider/model`), and no Jev model.
+ * Check the panel: three models, each of another family (the provider part
+ * of `provider/model`), and no Jev model.
  */
 export function checkPanel(models: readonly string[]): void {
-  if (models.length < 3 || models.length % 2 === 0)
-    throw new Error("The panel needs an odd number of models, at least three.")
+  if (models.length !== 3) throw new Error("The panel needs three models.")
   const families = models.map((model) => model.split("/")[0])
   if (new Set(families).size !== models.length)
     throw new Error("Each panel model must be of a different family.")

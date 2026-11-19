@@ -315,8 +315,10 @@ describe("the judge panel", () => {
     expect(asked).toEqual([])
   })
 
-  it("needs an odd number of model families, and never Jev", () => {
-    expect(() => checkPanel(["anthropic/a", "openai/b"])).toThrow(/odd number/)
+  it("needs three model families, and never Jev", () => {
+    expect(() => checkPanel(["anthropic/a", "openai/b"])).toThrow(
+      /three models/,
+    )
     expect(() =>
       checkPanel(["anthropic/a", "anthropic/b", "openai/c"]),
     ).toThrow(/different family/)
