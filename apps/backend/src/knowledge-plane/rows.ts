@@ -86,15 +86,15 @@ export function knowledgeRows(input: {
   workspaceId: string
   unit: HydrateUnit
   /**
-   * For each image path that the file shows: the SHA-256 (hex) of its bytes,
-   * or null when Git has no such file. An image with null has no image
+   * The SHA-256 (hex) of the bytes of the image file at a Workspace path, or
+   * null when Git has no such file. An image with null has no image
    * document: its relation points at a key with no row, as a link to a file
-   * that is not in Git does. A path with no entry is an error of the caller.
+   * that is not in Git does.
    */
-  imageHashes: ReadonlyMap<string, string | null>
+  imageHash: (path: string) => string | null
   observedAt: Date
 }): UnembeddedDocumentRows[] {
-  const { workspaceId, unit, imageHashes, observedAt } = input
+  const { workspaceId, unit, imageHash, observedAt } = input
   const dir = unit.path.split("/").slice(0, -1).join("/")
   const keyOf = (path: string) => servingIdForKnowledgePath(workspaceId, path)
   /** A Markdown link destination without its optional title. */
@@ -121,18 +121,23 @@ export function knowledgeRows(input: {
       (match) => [match[1]?.toLowerCase() ?? "", match[2] ?? ""] as const,
     ),
   )
-  /** The image targets of a text: inline and reference-style images. */
-  const imagesOf = (text: string) =>
-    [
+  /**
+   * The image targets of a text: inline and reference-style images, outside
+   * fenced code.
+   */
+  const imagesOf = (raw: string) => {
+    const text = withoutFencedCode(raw)
+    return [
       ...Array.from(text.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g), (m) => m[1]),
       ...Array.from(
-        text.matchAll(/!\[([^\]]*)\](?:\[([^\]]*)\]|(?![(\[]))/g),
+        text.matchAll(/!\[([^\]]*)\](?:\[([^\]]*)\]|(?![([]))/g),
         (m) => definitions.get((m[2] || m[1] || "").toLowerCase()),
       ),
     ].flatMap((href) => {
       const target = href ? targetOf(href) : ""
       return target && imageContentType(target) ? [target] : []
     })
+  }
   const chunkLinks = chunks.map((chunk) => [
     ...markdownLinks(chunk.text).map(targetOf),
     ...imagesOf(chunk.text),
@@ -191,9 +196,7 @@ export function knowledgeRows(input: {
         source: "git",
       }),
     )
-    const hash = imageHashes.get(target)
-    if (hash === undefined)
-      throw new Error(`No image hash for ${target}, shown by ${unit.path}`)
+    const hash = imageHash(target)
     if (hash === null) continue
     // Only the hash makes the key, never text from the file (ADR-066 decision 6).
     if (!/^[0-9a-f]{64}$/.test(hash))
@@ -252,6 +255,29 @@ function documentDefaults(observedAt: Date) {
     validTo: null,
     observedAt,
   }
+}
+
+/** The text with each line of a fenced code block made empty. */
+function withoutFencedCode(text: string): string {
+  let fence: string | null = null
+  return text
+    .split("\n")
+    .map((line) => {
+      const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1]
+      if (fence) {
+        if (
+          marker !== undefined &&
+          marker[0] === fence[0] &&
+          marker.length >= fence.length &&
+          line.trim() === marker
+        )
+          fence = null
+        return ""
+      }
+      if (marker) fence = marker
+      return marker ? "" : line
+    })
+    .join("\n")
 }
 
 function dateOrNull(iso: string | null): Date | null {

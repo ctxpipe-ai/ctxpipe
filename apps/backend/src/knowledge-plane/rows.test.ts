@@ -24,7 +24,7 @@ function rowsOf(
   return knowledgeRows({
     workspaceId: WS,
     unit,
-    imageHashes,
+    imageHash: (image) => imageHashes.get(image) ?? null,
     observedAt: OBSERVED,
   })
 }
@@ -159,7 +159,7 @@ describe("knowledgeRows", () => {
     const [rows] = knowledgeRows({
       workspaceId: WS,
       unit,
-      imageHashes: new Map(),
+      imageHash: () => null,
       observedAt: OBSERVED,
     })
     expect(rows?.chunks).toEqual([
@@ -377,11 +377,34 @@ describe("knowledgeRows", () => {
     ).toThrow("not a SHA-256 hex digest")
   })
 
-  it("refuses an image that has no entry in the hashes", () => {
+  it("ignores image syntax in fenced code", () => {
     const path = "knowledge/a.md"
-    expect(() =>
-      rowsOf([{ path, content: "![x](x.png)\n" }], path, new Map()),
-    ).toThrow("No image hash for knowledge/x.png")
+    const content = [
+      "# A",
+      "",
+      "````md",
+      "![x](x.png) ![y][y]",
+      "```",
+      "![z](z.png)",
+      "````",
+      "",
+      "[y]: ./y.png",
+      "",
+    ].join("\n")
+    const rows = rowsOf(
+      [{ path, content }],
+      path,
+      new Map(
+        ["x.png", "y.png", "z.png"].map((name): [string, string] => [
+          `knowledge/${name}`,
+          HASH,
+        ]),
+      ),
+    )
+    expect(rows).toHaveLength(1)
+    expect(
+      rows[0]?.relations.filter((edge) => edge.predicate === "EMBEDS_IMAGE"),
+    ).toEqual([])
   })
 
   it("gives the same rows in the same order for the same input", () => {
