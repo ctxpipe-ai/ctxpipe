@@ -5,6 +5,8 @@ import {
   TupleParam,
 } from "@clickhouse/client"
 
+import { CONNECTOR_MIRROR_ROOTS } from "../domain/codeIngestion/connectorMirrorPaths.js"
+
 /**
  * The per-query custom setting that holds the org of a statement. The row
  * policy and the CHECK constraint of each knowledge table compare `org_id`
@@ -110,8 +112,12 @@ export type SearchQuery = {
   kinds?: string[]
   /** Only documents with a path that starts with this text. */
   pathPrefix?: string
-  /** Only documents of these source types. Empty or absent: all. */
-  sourceTypes?: string[]
+  /**
+   * Only documents from these sources: a connector mirror root (the first
+   * folder of the path, for example `linear`), or `authored` for a path
+   * outside the mirror roots. Empty or absent: all.
+   */
+  sources?: string[]
   /** Only documents observed after this time. */
   observedAfter?: Date | null
   /** Only documents that are valid at this time. */
@@ -829,7 +835,7 @@ async function search(
     terms,
     kinds = [],
     pathPrefix = "",
-    sourceTypes = [],
+    sources = [],
     observedAfter = null,
     validAt = null,
   }: SearchQuery,
@@ -850,7 +856,8 @@ async function search(
     terms: uniqueTerms,
     kinds,
     pathPrefix,
-    sourceTypes,
+    sources,
+    mirrorRoots: CONNECTOR_MIRROR_ROOTS,
     observedAfter: observedAfter && clickHouseTime(observedAfter),
     validAt: validAt && clickHouseTime(validAt),
     ...Object.fromEntries(uniqueTerms.map((term, i) => [`term${i}`, term])),
@@ -859,7 +866,9 @@ async function search(
   const searchable = `${inWorkspaces} AND status = 'active'
     AND (empty({kinds:Array(String)}) OR has({kinds:Array(String)}, kind))
     AND startsWith(path, {pathPrefix:String})
-    AND (empty({sourceTypes:Array(String)}) OR has({sourceTypes:Array(String)}, source_type))
+    AND (empty({sources:Array(String)}) OR has({sources:Array(String)},
+      ifNull(arrayFirst(root -> path = root OR startsWith(path, concat(root, '/')),
+        {mirrorRoots:Array(Nullable(String))}), 'authored')))
     AND ({observedAfter:Nullable(DateTime64(3, 'UTC'))} IS NULL
       OR observed_at > {observedAfter:Nullable(DateTime64(3, 'UTC'))})
     AND ${validDuring()}`

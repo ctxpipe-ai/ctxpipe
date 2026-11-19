@@ -1,4 +1,5 @@
 import { parseEnv } from "../config/env.js"
+import { connectorMirrorRoot } from "../domain/codeIngestion/connectorMirrorPaths.js"
 import type {
   ExpandedEdge,
   ExpandedNode,
@@ -134,6 +135,15 @@ export function planeKnowledgeReader(input: {
   }
 }
 
+/**
+ * The `source` of a result, as the old stack gives it: the connector mirror
+ * root of the path, else `authored`. The `source_type` of the plane is the
+ * authority kind of the source (CTX-1410), which only Jev reads.
+ */
+function sourceOf(document: KnowledgeDocument): string {
+  return connectorMirrorRoot(document.path) ?? "authored"
+}
+
 /** The file name of a path without `.md`, as the old graph names a node. */
 function fileName(path: string): string {
   return (path.split("/").pop() ?? path).replace(/\.md$/i, "")
@@ -181,7 +191,7 @@ async function search(
         terms: queryTerms(query),
         kinds: request.kinds ? [...request.kinds] : undefined,
         pathPrefix: request.pathPrefix,
-        sourceTypes: request.sources ? [...request.sources] : undefined,
+        sources: request.sources ? [...request.sources] : undefined,
         observedAfter: request.updatedAfter ?? null,
         validAt: request.validAt ?? null,
       }),
@@ -235,7 +245,7 @@ async function search(
           path: hit.document.path,
           kind: hit.document.kind || null,
           title: hit.document.title || null,
-          source: hit.document.sourceType || "authored",
+          source: sourceOf(hit.document),
           updatedAt: hit.document.observedAt,
           projectionSha: sha,
           startLine: chunk.startLine,
@@ -515,7 +525,7 @@ function relatedResult(node: TraversalNode): RelatedResult {
     ref: document.path,
     title: document.title || null,
     kind: document.kind || null,
-    source: document.sourceType || "authored",
+    source: sourceOf(document),
     updatedAt: document.observedAt.toISOString(),
     ...(document.summary
       ? { summary: truncateText(document.summary, 200) }

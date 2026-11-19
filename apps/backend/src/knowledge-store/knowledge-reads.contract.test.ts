@@ -125,6 +125,8 @@ const orgADocuments: DocumentRows[] = [
   ]),
   // Close vector and the query term, valid in 2020 only.
   document("old.md", [{ text: "zebracorn of 2020", embedding: nearQuery(7) }], {
+    // A file of the Linear mirror.
+    path: "linear/old.md",
     validFrom: new Date("2020-01-01T00:00:00.000Z"),
     validTo: new Date("2021-01-01T00:00:00.000Z"),
     relations: [{ dstDoc: "vector.md" }],
@@ -135,7 +137,6 @@ const orgADocuments: DocumentRows[] = [
     {
       kind: "guide",
       path: "guides/setup.md",
-      sourceType: "linear",
       observedAt: new Date("2026-11-20T00:00:00.000Z"),
     },
   ),
@@ -414,18 +415,24 @@ describe("search", () => {
     ])
   })
 
-  it("filters by source type and by the time a document was observed", async () => {
-    expect(hitKeys(await search({ sourceTypes: ["linear"] }))).toEqual([
-      "guides/setup.md",
-    ])
+  it("filters by source and by the time a document was observed", async () => {
+    // The source is the mirror root of the path, else authored.
+    expect(
+      hitKeys(await search({ terms: ["zebracorn"], sources: ["linear"] })),
+    ).toEqual(["old.md"])
+    expect(
+      hitKeys(await search({ terms: ["zebracorn"], sources: ["authored"] })),
+    ).not.toContain("old.md")
     expect(
       hitKeys(
         await search({ observedAfter: new Date("2026-11-19T12:00:00.000Z") }),
       ),
     ).toEqual(["guides/setup.md"])
     expect(
-      hitKeys(await search({ sourceTypes: ["linear", "git"] })).length,
-    ).toBeGreaterThan(1)
+      hitKeys(
+        await search({ terms: ["zebracorn"], sources: ["linear", "authored"] }),
+      ),
+    ).toEqual(expect.arrayContaining(["old.md", "lexical.md"]))
   })
 
   it("searches several Workspaces of the org in one call", async () => {

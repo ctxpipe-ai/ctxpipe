@@ -107,7 +107,7 @@ type Judgment = { pAnswers: number; pExplore: number }
 export function jevMeta(document: KnowledgeDocument): CandidateMeta {
   return {
     status: document.status,
-    sourceType: document.sourceType || "authored",
+    sourceType: document.sourceType || "other",
     observedAt: document.observedAt.toISOString(),
     validFrom: document.validFrom?.toISOString() ?? null,
     validTo: document.validTo?.toISOString() ?? null,

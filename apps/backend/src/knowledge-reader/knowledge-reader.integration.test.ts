@@ -233,7 +233,7 @@ function planeRows(workspaceId: string): DocumentRows[] {
       kind: unit.kind,
       title: unit.title ?? unit.path,
       path: unit.path,
-      sourceType: "authored",
+      sourceType: "docs",
       source: "",
       summary: unit.title ?? "",
       s3Key: "",
