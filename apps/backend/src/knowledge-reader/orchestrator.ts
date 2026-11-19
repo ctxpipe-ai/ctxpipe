@@ -1,3 +1,4 @@
+import { imageOfBytes } from "../domain/workspaces/raw-file.js"
 import {
   type DocumentRef,
   documentId,
@@ -7,8 +8,12 @@ import {
   type KnowledgeReadScope,
   type KnowledgeStore,
 } from "../knowledge-store/knowledge-store.js"
+import { getLogger } from "../observability/logger.js"
 import { JevError } from "../retrieval/jev/client.js"
-import { judgeLayer } from "../retrieval/jev/layer-judge.js"
+import {
+  judgeLayer,
+  type LayerCandidate,
+} from "../retrieval/jev/layer-judge.js"
 import type { CandidateMeta } from "../retrieval/jev/state.js"
 
 /*
@@ -94,6 +99,15 @@ export function isBudgetSpent(error: unknown): boolean {
   )
 }
 
+/**
+ * Reads the bytes of the image file at `path` of a Workspace, or null when
+ * the file is not there (ADR-068 decision 6).
+ */
+export type ImageBytes = (
+  ref: DocumentRef,
+  path: string,
+) => Promise<Uint8Array | null>
+
 /** A document with the text that Jev reads for it. */
 export type JudgeInput = {
   ref: DocumentRef
@@ -117,8 +131,9 @@ export function jevMeta(document: KnowledgeDocument): CandidateMeta {
 
 /**
  * Judge `inputs` for `question` in one layer, before `deadline`. Throws the
- * `JevError` of a failed call. An image goes to Jev as its metadata and its
- * title only: the backend does not read image bytes yet.
+ * `JevError` of a failed call. An image goes to Jev as its bytes, which
+ * `imageBytes` reads. It goes as its text (its title and its path) when it
+ * has no bytes, or when Jev cannot take them (see `jevImage`).
  */
 export async function judge(
   inputs: readonly JudgeInput[],
@@ -126,26 +141,71 @@ export async function judge(
   intent: string,
   deadline: number,
   meter: ModelMeter,
+  imageBytes: ImageBytes,
 ): Promise<Judgment[]> {
   if (inputs.length === 0) return []
   meter.jevCalls += Math.ceil(inputs.length / JEV_BATCH)
   meter.jevCandidates += inputs.length
-  const judged = await beforeDeadline(deadline, () =>
+  const judged = await beforeDeadline(deadline, async () =>
     judgeLayer({
       question,
       intent,
-      timeoutMs: Math.max(1, Math.floor(deadline - performance.now())),
       batchSize: JEV_BATCH,
-      candidates: inputs.map(({ document, text }, index) => ({
-        id: String(index),
-        text,
-        meta: jevMeta(document),
-      })),
+      candidates: await Promise.all(
+        inputs.map(
+          async ({ ref, document, text }, index): Promise<LayerCandidate> => {
+            const meta = jevMeta(document)
+            const image =
+              document.kind === "image"
+                ? await jevImage(ref, document.path, imageBytes)
+                : null
+            return image
+              ? { id: String(index), image, meta }
+              : { id: String(index), text, meta }
+          },
+        ),
+      ),
+      // After the image reads: Jev gets the rest of the budget.
+      timeoutMs: Math.max(1, Math.floor(deadline - performance.now())),
     }),
   )
   return inputs.map(
     (_, index) => judged.get(String(index)) ?? { pAnswers: 0, pExplore: 0 },
   )
+}
+
+/**
+ * The image at `path` in a form that Jev takes: a PNG or a JPEG with each
+ * side from 280 to 1568 px. Null for another image, or when the read
+ * fails: then the image goes to Jev as its text. Scaling an image to fit is
+ * not done yet.
+ */
+async function jevImage(
+  ref: DocumentRef,
+  path: string,
+  imageBytes: ImageBytes,
+): Promise<{ mediaType: string; bytes: Uint8Array } | null> {
+  let bytes: Uint8Array | null
+  try {
+    bytes = await imageBytes(ref, path)
+  } catch (error) {
+    getLogger().warn("Reading an image for Jev failed", {
+      step: "knowledge-reader.image",
+      workspaceId: ref.workspaceId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return null
+  }
+  const image = bytes && imageOfBytes(bytes)
+  if (!bytes || !image) return null
+  // Jev is another model than the embedding model, so it has its own list
+  // of image types.
+  const fits = (side: number) => side >= 280 && side <= 1568
+  return ["image/png", "image/jpeg"].includes(image.contentType) &&
+    fits(image.width) &&
+    fits(image.height)
+    ? { mediaType: image.contentType, bytes }
+    : null
 }
 
 /** The text of a candidate for Jev: its title, then its evidence chunks. */
@@ -223,6 +283,7 @@ export async function traverse(input: {
   maxDepth: number
   walk: WalkFilter
   meter: ModelMeter
+  imageBytes: ImageBytes
 }): Promise<Traversal> {
   const { deadline } = input
   const settings = ORCHESTRATOR_DEFAULTS
@@ -238,6 +299,7 @@ export async function traverse(input: {
       input.intent,
       deadline,
       input.meter,
+      input.imageBytes,
     )
     const seeds = input.seeds.map((seed, index): TraversalNode => ({
       ...seed,
@@ -296,6 +358,7 @@ export async function traverse(input: {
         input.intent,
         deadline,
         input.meter,
+        input.imageBytes,
       )
       const layerNodes = inputs.map((candidate, index): TraversalNode => ({
         ref: candidate.ref,

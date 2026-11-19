@@ -18,6 +18,8 @@ import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
 import { withOrgDbContext } from "../db/client.js"
 import { knowledgeState } from "../db/schema/knowledge_state.js"
 import { orgFeatures } from "../db/schema/org_features.js"
+import { repositories } from "../db/schema/repositories.js"
+import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { workspaceKnowledgeUnits, workspaces } from "../db/schema/workspaces.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
 import {
@@ -25,6 +27,7 @@ import {
   type DocumentRows,
 } from "../knowledge-store/knowledge-store.js"
 import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
+import { generateObjectId } from "../lib/id.js"
 import { getRelatedTool } from "../mcp/tools/get-related.js"
 import { searchKnowledgeTool } from "../mcp/tools/search-knowledge.js"
 import {
@@ -58,6 +61,10 @@ const planeSha = "b".repeat(40)
  * of items "updates", Position 1 is current and the others are superseded.
  */
 const jevRequests: { candidates: number }[] = []
+/** The data URL of each image part that Jev got. */
+const jevImages: string[] = []
+/** The text of each candidate that Jev got. */
+const jevTexts: string[] = []
 const disagreementRequests: string[][] = []
 /** Fail every Jev call, or only the calls of the disagreement step. */
 let jevFails: false | "all" | "disagreement" = false
@@ -141,7 +148,13 @@ const models = setupServer(
         const n =
           typeof part === "string" && /^Candidate (\d+) \(/.exec(part)?.[1]
         if (!n) return
-        const text = String(body.state[index + 1])
+        const content = body.state[index + 1] as
+          | string
+          | { type: "image_url"; image_url: { url: string } }
+        // The stub scores each image part as an answer.
+        if (typeof content !== "string") jevImages.push(content.image_url.url)
+        else jevTexts.push(content)
+        const text = typeof content === "string" ? content : "answer"
         answers[`answers.${n}`] = {
           type: "noul",
           noul: text.includes("answer") ? 0.9 : 0.1,
@@ -236,7 +249,6 @@ function planeRows(workspaceId: string): DocumentRows[] {
       sourceType: "docs",
       source: "",
       summary: unit.title ?? "",
-      s3Key: "",
       mime: "",
       validFrom: null,
       validTo: null,
@@ -259,6 +271,7 @@ function planeRows(workspaceId: string): DocumentRows[] {
       validFrom: claim.validFrom ? new Date(claim.validFrom) : null,
       validTo: null,
       source: "",
+      altText: "",
       observedAt,
     })),
   }))
@@ -266,6 +279,8 @@ function planeRows(workspaceId: string): DocumentRows[] {
 
 let seed: SeededOrg
 let clickHouse: Awaited<ReturnType<typeof startClickHouse>>
+/** The admin URL of the knowledge database, for test writes. */
+let knowledgeUrl: string
 let search: Client
 let related: Client
 const events: Record<string, unknown>[] = []
@@ -374,6 +389,7 @@ describe("the knowledge reader seam", () => {
     })
     clickHouse = await startClickHouse()
     const url = await clickHouse.freshDatabase()
+    knowledgeUrl = url
     await migrateKnowledgeStore(url, {
       reader: "reader-test",
       writer: "writer-test",
@@ -444,6 +460,8 @@ describe("the knowledge reader seam", () => {
     slowEmbedding = false
     jevCalls = 0
     jevRequests.length = 0
+    jevImages.length = 0
+    jevTexts.length = 0
     disagreementRequests.length = 0
     events.length = 0
   })
@@ -931,5 +949,206 @@ describe("the knowledge reader seam", () => {
       "DEPENDS_ON",
       "GOVERNED_BY",
     ])
+  })
+
+  it("on: Jev gets the bytes of an image from the Workspace Git at the served SHA", async () => {
+    await setFlag("on")
+    const doc = "knowledge/flows.md"
+    const flow = "knowledge/img/flow.png"
+    const tiny = "knowledge/img/tiny.png"
+    const { workspaceId } = await seedRelatedWorkspace({
+      seed,
+      slug: "pictures",
+      sha: planeSha,
+      units: [{ path: doc, kind: "Note", title: "Flows" }],
+    })
+    const repositoryId = generateObjectId("repo")
+    await withOrgDbContext(seed.orgId, async (db) => {
+      await db.insert(repositories).values({
+        id: repositoryId,
+        orgId: seed.orgId,
+        name: "acme/pictures",
+        gitUrl: "https://git.example.test/acme/pictures.git",
+        lastIngestedHash: planeSha,
+      })
+      await db.insert(repositoryCheckouts).values({
+        id: generateObjectId("checkout"),
+        orgId: seed.orgId,
+        repositoryId,
+        checkoutKey: `rev:${planeSha}`,
+        ref: "main",
+        commitSha: planeSha,
+      })
+    })
+    const key = (path: string) => servingIdForKnowledgePath(workspaceId, path)
+    const observedAt = new Date("2026-11-01T00:00:00Z")
+    const imageDocument = (path: string): DocumentRows => ({
+      document: {
+        docKey: key(path),
+        kind: "image",
+        title: path.split("/").at(-1) ?? path,
+        path,
+        sourceType: "docs",
+        source: "",
+        summary: "",
+        mime: "image/png",
+        validFrom: null,
+        validTo: null,
+        observedAt,
+      },
+      chunks: [
+        {
+          ordinal: 0,
+          text: "",
+          startLine: 0,
+          endLine: 0,
+          embedding: planeVector(path),
+        },
+      ],
+      relations: [],
+    })
+    const embeds = (path: string, altText: string) => ({
+      srcChunk: 0,
+      predicate: "EMBEDS_IMAGE",
+      dstDoc: key(path),
+      confidence: 1,
+      validFrom: null,
+      validTo: null,
+      source: "git",
+      altText,
+      observedAt,
+    })
+    const writer = createKnowledgeStore(knowledgeUrl)
+    try {
+      await writer.replaceDocuments({ orgId: seed.orgId, workspaceId }, [
+        {
+          document: {
+            ...imageDocument(doc).document,
+            kind: "Note",
+            title: "Flows",
+            mime: "",
+          },
+          chunks: [
+            {
+              ordinal: 0,
+              text: "The flows. hub",
+              startLine: 1,
+              endLine: 3,
+              embedding: planeVector("The flows. hub"),
+            },
+          ],
+          relations: [embeds(flow, "The flow"), embeds(tiny, "")],
+        },
+        imageDocument(flow),
+        imageDocument(tiny),
+      ])
+    } finally {
+      await writer.close()
+    }
+    await markReady(workspaceId)
+
+    /** A PNG header with the size of the image. */
+    const png = (width: number, height: number) => {
+      const bytes = Buffer.alloc(33)
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes)
+      bytes.writeUInt32BE(13, 8)
+      bytes.write("IHDR", 12, "ascii")
+      bytes.writeUInt32BE(width, 16)
+      bytes.writeUInt32BE(height, 20)
+      return bytes
+    }
+    const files: Record<string, Buffer> = {
+      [flow]: png(800, 600),
+      // Smaller than Jev takes: it goes as its text.
+      [tiny]: png(100, 100),
+    }
+    const reads: {
+      repositoryId: string
+      sha: string
+      paths: string[]
+      claims: Record<string, unknown>
+    }[] = []
+    let codesearchDown = false
+    vi.stubEnv("CODESEARCH_URL", "http://codesearch.test")
+    models.use(
+      http.post(
+        "http://codesearch.test/:repoId/blobs-query",
+        async ({ request, params }) => {
+          const { sha, paths } = (await request.json()) as {
+            sha: string
+            paths: string[]
+          }
+          const token = request.headers.get("authorization") ?? ""
+          const claims = JSON.parse(
+            Buffer.from(token.split(".")[1] ?? "", "base64url").toString(),
+          ) as Record<string, unknown>
+          reads.push({
+            repositoryId: String(params.repoId),
+            sha,
+            paths,
+            claims,
+          })
+          if (codesearchDown)
+            return HttpResponse.json({ error: "down" }, { status: 503 })
+          return HttpResponse.json(
+            Object.fromEntries(
+              paths.map((path) => [
+                path,
+                files[path]?.toString("base64") ?? null,
+              ]),
+            ),
+          )
+        },
+      ),
+    )
+    try {
+      const result = await relatedCall({
+        workspace: "pictures",
+        seeds: [doc],
+        maxDepth: 1,
+      })
+      expect(result.isError).toBeFalsy()
+      expect(jevImages).toEqual([
+        `data:image/png;base64,${files[flow]?.toString("base64")}`,
+      ])
+      // One read of each image, in the Workspace repository at the served
+      // SHA of the plane.
+      expect(
+        reads
+          .map(({ repositoryId, sha, paths }) => [repositoryId, sha, ...paths])
+          .sort(),
+      ).toEqual([
+        [repositoryId, planeSha, flow],
+        [repositoryId, planeSha, tiny],
+      ])
+      // The token names only this commit: no Workspace scope, which would
+      // read the published checkout.
+      for (const { claims } of reads) {
+        expect(claims.repositoryRevisions).toEqual([
+          { repositoryId, sha: planeSha },
+        ])
+        expect(claims.workspaceId).toBeUndefined()
+      }
+
+      // When codesearch fails, each image goes to Jev as its text, and the
+      // call does not fail.
+      codesearchDown = true
+      jevImages.length = 0
+      jevTexts.length = 0
+      // Another question, so that no cached result answers.
+      const fallback = await relatedCall({
+        workspace: "pictures",
+        seeds: [doc],
+        maxDepth: 1,
+        query: "Which diagram shows the flow?",
+      })
+      expect(fallback.isError).toBeFalsy()
+      expect(jevImages).toEqual([])
+      expect(jevTexts.some((text) => text.includes(`[image] ${flow}`))).toBe(
+        true,
+      )
+    } finally {
+      models.resetHandlers()
+    }
   })
 })

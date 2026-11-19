@@ -37,7 +37,6 @@ export type KnowledgeDocument = {
   sourceType: string
   source: string
   summary: string
-  s3Key: string
   mime: string
   validFrom: Date | null
   validTo: Date | null
@@ -63,6 +62,11 @@ export type KnowledgeRelation = {
   validFrom: Date | null
   validTo: Date | null
   source: string
+  /**
+   * The alt text of an image reference, on its `EMBEDS_IMAGE` relation
+   * (ADR-066 decision 6). Empty on each other relation.
+   */
+  altText: string
   observedAt: Date
 }
 
@@ -491,7 +495,6 @@ const emptyDocument = (
   sourceType: "",
   source: "",
   summary: "",
-  s3Key: "",
   mime: "",
   validFrom: null,
   validTo: null,
@@ -618,6 +621,7 @@ type RelationColumns = ScopeColumns & {
   valid_from: string | null
   valid_to: string | null
   source: string
+  alt_text: string
   observed_at: string
 }
 type TableRows = {
@@ -632,7 +636,6 @@ type TableRows = {
     source_type: string
     source: string
     summary: string
-    s3_key: string
     mime: string
     valid_from: string | null
     valid_to: string | null
@@ -694,7 +697,6 @@ async function insertRows(
       source_type: document.sourceType,
       source: document.source,
       summary: document.summary,
-      s3_key: document.s3Key,
       mime: document.mime,
       valid_from: document.validFrom?.toISOString() ?? null,
       valid_to: document.validTo?.toISOString() ?? null,
@@ -726,6 +728,7 @@ async function insertRows(
       valid_from: relation.validFrom?.toISOString() ?? null,
       valid_to: relation.validTo?.toISOString() ?? null,
       source: relation.source,
+      alt_text: relation.altText,
       observed_at: relation.observedAt.toISOString(),
     })),
   )
@@ -748,12 +751,12 @@ async function insertRows(
 
 const documentColumns = `doc_key AS docKey, kind, status,
   deleted_at AS deletedAt, error, title, path, source_type AS sourceType,
-  source, summary, s3_key AS s3Key, mime, valid_from AS validFrom,
+  source, summary, mime, valid_from AS validFrom,
   valid_to AS validTo, observed_at AS observedAt`
 
 const relationColumns = `src_doc AS srcDoc, src_chunk AS srcChunk, predicate,
   dst_doc AS dstDoc, confidence, valid_from AS validFrom, valid_to AS validTo,
-  source, observed_at AS observedAt`
+  source, alt_text AS altText, observed_at AS observedAt`
 
 async function readDocument(
   client: ClickHouseClient,
@@ -1118,7 +1121,7 @@ async function readFrontier(
   // relations_in has the columns of relations, sorted by dst_doc. A UNION
   // ALL takes the columns of each branch in this order.
   const edgeColumns = `workspace_id, src_doc, src_chunk, predicate, dst_doc,
-    confidence, valid_from, valid_to, source, observed_at`
+    confidence, valid_from, valid_to, source, alt_text, observed_at`
   const isKey = (column: string) => `startsWith(${column}, {prefix:String})`
   const rows = await selectIn<
     RelationRecord & {
@@ -1146,7 +1149,7 @@ async function readFrontier(
        SELECT 'out', ${resolvedTarget("o")},
          o.workspace_id, o.src_doc, o.src_chunk, o.predicate,
          ${resolvedTarget("o")}, o.confidence,
-         o.valid_from, o.valid_to, o.source, o.observed_at
+         o.valid_from, o.valid_to, o.source, o.alt_text, o.observed_at
        FROM out_edges AS o
        LEFT JOIN (
          ${keyTargets(`${inWorkspaces} AND ref_key IN (
@@ -1164,7 +1167,7 @@ async function readFrontier(
        UNION ALL
        SELECT 'in', i.src_doc, i.workspace_id, i.src_doc, i.src_chunk,
          i.predicate, k.doc_key, i.confidence, i.valid_from, i.valid_to,
-         i.source, i.observed_at
+         i.source, i.alt_text, i.observed_at
        FROM relations_in AS i
        INNER JOIN own_keys AS k
          ON k.workspace_id = i.workspace_id AND k.target = i.dst_doc
@@ -1180,6 +1183,7 @@ async function readFrontier(
        edges.predicate AS predicate, edges.dst_doc AS dstDoc,
        edges.confidence AS confidence, edges.valid_from AS validFrom,
        edges.valid_to AS validTo, edges.source AS source,
+       edges.alt_text AS altText,
        edges.observed_at AS observedAt, neighbors.document AS neighbor
      FROM edges
      LEFT JOIN (
@@ -1319,10 +1323,10 @@ async function readGraph(
          rel.predicate AS predicate, ${resolvedTarget("rel")} AS dstDoc,
          rel.confidence AS confidence, rel.valid_from AS validFrom,
          rel.valid_to AS validTo, rel.source AS source,
-         rel.observed_at AS observedAt
+         rel.alt_text AS altText, rel.observed_at AS observedAt
        FROM (
          SELECT src_doc, src_chunk, predicate, dst_doc, confidence,
-           valid_from, valid_to, source, observed_at
+           valid_from, valid_to, source, alt_text, observed_at
          FROM relations WHERE ${scoped}
        ) AS rel
        LEFT JOIN (${keyTargets(scoped)}) AS keys
