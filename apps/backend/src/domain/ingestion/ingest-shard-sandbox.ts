@@ -8,7 +8,6 @@ import { repositoryRevisionCheckoutKey } from "../../../../../shared/workspace-c
 import { type Env, parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { listWorkspaceUnitsAtRevision } from "../../models/workspaces.js"
-import type { ModelTier } from "../../retrieval/services/providers/providerTypes.js"
 import { gitRemoteEnvironment } from "../../services/git/clone-tree.js"
 import { resolvePlainGitRemote } from "../../services/git/plain-git-remote.js"
 import { agentCoreRuntime } from "../workspaces/agentcore-sandbox-provider.js"
@@ -38,7 +37,10 @@ import {
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
 import { stepContextIndex } from "./context-index.js"
 import { holdScratch, releaseScratch } from "./held-scratch.js"
-import { ingestOpenCodeConfig } from "./ingest-opencode.js"
+import {
+  type IngestModelTier,
+  ingestOpenCodeConfig,
+} from "./ingest-opencode.js"
 import {
   assertIngestProvider,
   collectIngestStep,
@@ -356,6 +358,8 @@ async function shardSandbox(
 }
 
 function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
+  // The tier of a model step with no tier, and the OpenCode default model.
+  const defaultTier: IngestModelTier = "medium"
   const firstWorkspace = spec.destinations[0]?.workspaceId
   if (!firstWorkspace) throw new Error("An ingest shard needs a destination")
   const target = {
@@ -431,10 +435,8 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
             await prepareIngestShard(handle, root, {
               bundle: spec.bundle,
               opencodeConfig: ingestOpenCodeConfig({
-                // The model proxy maps each tier name to the configured
-                // model of that tier.
-                modelBase: "medium" satisfies ModelTier,
-                models: ["fast" satisfies ModelTier],
+                modelBase: defaultTier,
+                models: ["fast" satisfies IngestModelTier],
                 skills: spec.bundle.skills,
                 proxyAddsCredentials: true,
                 toolBridgeUrl: egress.bridge.url,
@@ -498,7 +500,7 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
             sourcePath: destination.sourcePath,
             index: json,
             ...(step.run === "model"
-              ? { model: `ctxpipe/${step.tier ?? "medium"}` }
+              ? { model: `ctxpipe/${step.tier ?? defaultTier}` }
               : {}),
           })
           return {

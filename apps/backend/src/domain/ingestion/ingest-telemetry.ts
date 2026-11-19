@@ -7,8 +7,8 @@ import {
 
 import { log } from "../../observability/logger.js"
 import { isWorkflowControlSignal } from "../../openworkflow/isSleepSignal.js"
-import type { ModelTier } from "../../retrieval/services/providers/providerTypes.js"
 import type { WorkspaceChatCompletionUsage } from "../workspaces/workspace-chat-model-proxy.js"
+import type { IngestModelTier } from "./ingest-opencode.js"
 
 /*
  * Telemetry of an ingestion v2 run (ADR-052, T11). Attribute names follow
@@ -108,7 +108,7 @@ export function logIngestEvent(
  */
 export function startIngestModelCall(
   ingest: { runId: string; shard: number; step: string },
-  call: { tier: ModelTier; model: string },
+  call: { tier: IngestModelTier; model: string },
 ): {
   finish: (result: {
     status: number

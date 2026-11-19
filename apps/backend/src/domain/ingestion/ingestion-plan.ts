@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto"
 import { gunzipSync, gzipSync } from "node:zlib"
 
-import type { ModelTier } from "../../retrieval/services/providers/providerTypes.js"
 import type { RootFile } from "./context-index.js"
 import {
   type DiscoveredRoot,
   type RefusedRoot,
   resolveDiscoveredRoots,
 } from "./discovered-roots.js"
+import type { IngestModelTier } from "./ingest-opencode.js"
 import type { IngestRootMap } from "./ingest-shard-runtime.js"
 
 /*
@@ -54,7 +54,7 @@ export type IngestSkillPlan = {
   scope: "first" | "root" | "repository"
   /** `script`: a plain command; `model`: one OpenCode run. */
   run: "script" | "model"
-  tier?: ModelTier
+  tier?: IngestModelTier
 }
 
 /**

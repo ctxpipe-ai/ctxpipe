@@ -379,9 +379,6 @@ describe("workspace-ingest-model capability", () => {
     expect((await upstreamBodyOf(capability, "fast")).model).toBe(
       "test/model-fast",
     )
-    expect((await upstreamBodyOf(capability, "high")).model).toBe(
-      "test/model-high",
-    )
   })
 
   it("sends an ingest step that asks for an unknown model to the base model", async () => {
@@ -398,7 +395,12 @@ describe("workspace-ingest-model capability", () => {
     })
     // A free model name from the sandbox, also a configured model name, is
     // not a tier.
-    for (const asked of ["vendor/expensive-model", "test/model-medium"]) {
+    // The plan uses no high tier, so a step cannot ask for it.
+    for (const asked of [
+      "vendor/expensive-model",
+      "test/model-medium",
+      "high",
+    ]) {
       exporter.reset()
       const body = await upstreamBodyOf(capability, asked)
       expect(body.model).toBe("test/model-fast")

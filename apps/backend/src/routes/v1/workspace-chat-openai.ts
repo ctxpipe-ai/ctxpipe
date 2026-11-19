@@ -1,6 +1,10 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 
 import type { AppEnv } from "../../app/env.js"
+import {
+  type IngestModelTier,
+  isIngestModelTier,
+} from "../../domain/ingestion/ingest-opencode.js"
 import { startIngestModelCall } from "../../domain/ingestion/ingest-telemetry.js"
 import {
   observeWorkspaceChatCompletionStream,
@@ -19,7 +23,6 @@ import { workspaceChatBearerToken } from "../../domain/workspaces/workspace-chat
 import { applyAttribution } from "../../observability/attribution.js"
 import { getLogger } from "../../observability/logger.js"
 import { lowerOpenAiChatCompletionsParams } from "../../retrieval/services/providers/openAILikeModelProvider.js"
-import type { ModelTier } from "../../retrieval/services/providers/providerTypes.js"
 import { handleBedrockChatCompletion } from "./bedrockOpenAiProxy.js"
 import {
   forwardToUpstream,
@@ -84,7 +87,7 @@ const chatRoute = createRoute({
 
 function contractFromEnv(
   env: AppEnv["Variables"]["env"],
-  tier: ModelTier = "fast",
+  tier: IngestModelTier = "fast",
 ) {
   return workspaceChatOpenCodeContract(
     {
@@ -97,17 +100,6 @@ function contractFromEnv(
     },
     tier,
   )
-}
-
-/**
- * The tier of an ingest model call. The sandbox's OpenCode config names
- * each model by its tier, so the request's `model` is the tier name. The
- * sandbox is less trusted than the backend: only a tier name selects a
- * model, and each other value (also a configured model name) gets the
- * fast tier.
- */
-function ingestTier(requested: unknown): ModelTier {
-  return requested === "medium" || requested === "high" ? requested : "fast"
 }
 
 /**
@@ -187,8 +179,11 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
       string,
       unknown
     >
-    // A chat turn always uses the fast tier.
-    const tier = token.ingest ? ingestTier(body.model) : "fast"
+    // The request's `model` of an ingest step is its tier name. Each other
+    // value from the sandbox (also a configured model name) gets the fast
+    // tier. A chat turn always uses the fast tier.
+    const tier =
+      token.ingest && isIngestModelTier(body.model) ? body.model : "fast"
     const contract = contractFromEnv(env, tier)
     if (!contract.ok) {
       return c.json({ error: contract.error }, 503)
