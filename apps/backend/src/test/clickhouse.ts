@@ -15,6 +15,14 @@ const exec = promisify(execFile)
 const docker = async (...args: string[]) =>
   (await exec("docker", args, { timeout: 180_000 })).stdout.trim()
 
+/** `url` with the user `user` and its password: the URL of that user. */
+export function userUrl(url: string, user: string, password: string): string {
+  const withUser = new URL(url)
+  withUser.username = user
+  withUser.password = password
+  return withUser.toString()
+}
+
 /**
  * A ClickHouse server of the pinned image in Docker, for the contract tests of
  * KnowledgeStore. Call `stop` in `afterAll`.

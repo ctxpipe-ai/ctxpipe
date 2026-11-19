@@ -1,7 +1,7 @@
 import type { ClickHouseClient } from "@clickhouse/client"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
-import { startClickHouse } from "../test/clickhouse.js"
+import { startClickHouse, userUrl } from "../test/clickhouse.js"
 import {
   createKnowledgeStore,
   type DocumentRows,
@@ -229,14 +229,6 @@ async function seededDatabase(
   return url
 }
 
-/** The URL of `url` for the reader user of the backend. */
-function readerUrl(url: string): string {
-  const reader = new URL(url)
-  reader.username = "ctxpipe_reader"
-  reader.password = readerPassword
-  return reader.toString()
-}
-
 let store: ReturnType<typeof createKnowledgeStore>
 
 beforeAll(async () => {
@@ -248,7 +240,7 @@ beforeAll(async () => {
     reader: readerPassword,
     writer: "writer-test",
   })
-  store = createKnowledgeStore(readerUrl(url))
+  store = createKnowledgeStore(userUrl(url, "ctxpipe_reader", readerPassword))
 }, 240_000)
 
 afterAll(async () => {
@@ -538,7 +530,7 @@ async function readAllForOrgA(
       terms: ["zebracorn", "Org", "B"],
     }),
     await reader.readFrontier(orgA, refs),
-    await reader.readEvidence(orgA, refs, queryVector),
+    await reader.readEvidence(orgA, refs, queryVector, 3),
     await reader.readGraph({ orgId: orgA.orgId, workspaceId: workspace }, 1000),
   ])
 }

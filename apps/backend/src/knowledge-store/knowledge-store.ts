@@ -212,7 +212,7 @@ type KnowledgeStore = {
     scope: KnowledgeReadScope,
     refs: DocumentRef[],
     vector: number[],
-    chunksPerDocument?: number,
+    chunksPerDocument: number,
   ): Promise<Evidence[]>
   /** The documents and relations of a Workspace, at most `limit` of each. */
   readGraph(scope: KnowledgeScope, limit: number): Promise<KnowledgeGraph>
@@ -278,6 +278,7 @@ const scopeParams = (
   workspaceId: scope.workspaceId,
 })
 
+/** Runs one read for the Workspace of `scope` (`scoped`). */
 async function select<T>(
   client: ClickHouseClient,
   scope: KnowledgeScope,
@@ -285,16 +286,12 @@ async function select<T>(
   params: Record<string, unknown> = {},
 ): Promise<T[]> {
   assertScope(scope)
-  const result = await client.query({
+  return selectIn<T>(
+    client,
+    { orgId: scope.orgId, workspaceIds: [scope.workspaceId] },
     query,
-    query_params: scopeParams(scope, params),
-    format: "JSONEachRow",
-    clickhouse_settings: {
-      [ORG_SETTING]: scope.orgId,
-      date_time_output_format: "iso",
-    },
-  })
-  return result.json<T>()
+    scopeParams(scope, params),
+  )
 }
 
 /**
@@ -807,7 +804,6 @@ async function search(
   scope: KnowledgeReadScope,
   { vector, terms, kinds = [], pathPrefix = "", validAt = null }: SearchQuery,
 ): Promise<SearchHit[]> {
-  assertReadScope(scope)
   // hasToken refuses a term with a separator in it. Split each term as the
   // splitByNonAlpha tokenizer of the text index does: at each ASCII character
   // that is not a letter or a digit.
@@ -1037,7 +1033,7 @@ async function readEvidence(
   scope: KnowledgeReadScope,
   refs: DocumentRef[],
   vector: number[],
-  chunksPerDocument = 3,
+  chunksPerDocument: number,
 ): Promise<Evidence[]> {
   assertReadScope(scope)
   if (refs.length === 0) return []

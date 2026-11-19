@@ -9,7 +9,10 @@ import {
   it,
 } from "vitest"
 
-import { startClickHouse } from "../test/clickhouse.js"
+import {
+  startClickHouse,
+  userUrl as databaseUserUrl,
+} from "../test/clickhouse.js"
 import {
   createKnowledgeStore,
   type DocumentRows,
@@ -501,12 +504,8 @@ describe("users and mutations", () => {
   let reader: ReturnType<typeof createKnowledgeStore>
   let writer: ReturnType<typeof createKnowledgeStore>
 
-  const userUrl = (user: string, password: string) => {
-    const url = new URL(adminUrl)
-    url.username = user
-    url.password = password
-    return url.toString()
-  }
+  const userUrl = (user: string, password: string) =>
+    databaseUserUrl(adminUrl, user, password)
 
   /** All rows of a scope in each table, as the admin user reads them. */
   async function snapshot(scope: KnowledgeScope) {
