@@ -61,7 +61,7 @@ import {
 let opened: KnowledgeStore | undefined
 
 /** The store of `CLICKHOUSE_URL` (the reader user), opened on first use. */
-function knowledgeStore(): KnowledgeStore {
+export function knowledgeStore(): KnowledgeStore {
   opened ??= createKnowledgeStore(parseEnv(process.env).CLICKHOUSE_URL)
   return opened
 }

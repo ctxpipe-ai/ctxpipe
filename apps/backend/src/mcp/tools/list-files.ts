@@ -7,6 +7,11 @@ import {
   CodesearchCheckoutError,
   globCheckoutFiles,
 } from "../../domain/codeIngestion/codesearchClient.js"
+import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
+import {
+  listPlaneUnitFiles,
+  type UnitFile,
+} from "../../knowledge-reader/plane-files.js"
 import { log } from "../../observability/logger.js"
 import { fitPage } from "../framework/budget.js"
 import {
@@ -60,19 +65,14 @@ function sortEntries(entries: Entry[]): Entry[] {
   )
 }
 
-/**
- * The entries at most `depth` levels below `folder` among the unit paths of
- * the projection. A file has its size in bytes; a folder has the number of
- * units below it, at any depth.
- */
-async function listUnitFolder(
+/** The unit paths below `folder` in the projection, with the size of each body. */
+async function listUnitRows(
   orgId: string,
   workspaceId: string,
   folder: string,
-  depth: number,
-): Promise<Entry[]> {
+): Promise<UnitFile[]> {
   const prefix = folder ? `${folder}/` : ""
-  const rows = await withOrgDbContext(orgId, (db) =>
+  return withOrgDbContext(orgId, (db) =>
     db
       .select({
         path: workspaceKnowledgeUnits.path,
@@ -87,14 +87,27 @@ async function listUnitFolder(
         ),
       ),
   )
+}
+
+/**
+ * The entries at most `depth` levels below `folder` among the unit files
+ * below it. A file has its size in bytes; a folder has the number of units
+ * below it, at any depth.
+ */
+function folderEntries(
+  units: readonly UnitFile[],
+  folder: string,
+  depth: number,
+): Entry[] {
+  const prefix = folder ? `${folder}/` : ""
   const entries = new Map<string, Entry>()
-  for (const row of rows) {
-    const parts = row.path.slice(prefix.length).split("/")
+  for (const unit of units) {
+    const parts = unit.path.slice(prefix.length).split("/")
     if (parts.some((part) => !part)) continue
     for (let level = 1; level <= Math.min(depth, parts.length); level++) {
       const path = `${prefix}${parts.slice(0, level).join("/")}`
       if (level === parts.length) {
-        entries.set(path, { path, type: "file", ref: path, size: row.size })
+        entries.set(path, { path, type: "file", ref: path, size: unit.size })
       } else {
         const dir = entries.get(path) ?? { path, type: "dir", units: 0 }
         dir.units = (dir.units ?? 0) + 1
@@ -205,7 +218,21 @@ export const listFilesTool = defineMcpReadTool({
     let entries: Entry[]
     let listTruncated = false
     if (input.repository === undefined) {
-      entries = await listUnitFolder(org.id, workspace.id, folder, input.depth)
+      const { planeShas } = await selectKnowledgeReader(org.id, [workspace.id])
+      const planeSha = planeShas.get(workspace.id)
+      if (planeSha) served = { ...workspaceServed, sha: planeSha }
+      entries = folderEntries(
+        planeSha
+          ? await listPlaneUnitFiles({
+              orgId: org.id,
+              workspaceId: workspace.id,
+              sha: planeSha,
+              folder,
+            })
+          : await listUnitRows(org.id, workspace.id, folder),
+        folder,
+        input.depth,
+      )
     } else {
       const repository = await requireLinkedRepository(
         org,
