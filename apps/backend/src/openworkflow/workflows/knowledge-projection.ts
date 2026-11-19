@@ -4,7 +4,7 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
-import { postgresSandboxLocks } from "../../domain/workspaces/sandbox-lock-store.js"
+import { withSandboxLockIfFree } from "../../domain/workspaces/sandbox-lock-store.js"
 import { projectKnowledgePlane } from "../../knowledge-plane/writer.js"
 import { createKnowledgeStore } from "../../knowledge-store/knowledge-store.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
@@ -25,7 +25,9 @@ import { knowledgeMaintenance } from "./knowledge-maintenance.js"
  * time.
  *
  * An infrastructure error throws in the step. The step retries from the same
- * `last_sha`, and the next run starts from it too (ADR-067 decision 8).
+ * `last_sha`, and the next run starts from it too (ADR-067 decision 8). When
+ * the outage is longer than the retries, the run fails, and the next hydrate
+ * of the Workspace queues a new run. Until then, the lag metric shows it.
  */
 export const knowledgeProjection = defineWorkflow(
   {
@@ -42,54 +44,69 @@ export const knowledgeProjection = defineWorkflow(
     }),
   },
   async ({ input, step }) => {
-    const applied = await postgresSandboxLocks(input.orgId).withLock(
-      `knowledge-projection:${input.workspaceId}`,
-      (lockSignal) =>
-        step.run(
-          {
-            name: "project-knowledge-plane",
-            retryPolicy: {
-              initialInterval: "10s",
-              backoffCoefficient: 2,
-              maximumInterval: "5m",
-              maximumAttempts: 6,
-            },
+    const project = (lockSignal: AbortSignal) =>
+      step.run(
+        {
+          name: "project-knowledge-plane",
+          retryPolicy: {
+            initialInterval: "10s",
+            backoffCoefficient: 2,
+            maximumInterval: "5m",
+            maximumAttempts: 6,
           },
-          async () => {
-            lockSignal.throwIfAborted()
-            const env = parseEnv(process.env)
-            const workspace = await withOrgDbContext(input.orgId, () =>
-              getWorkspaceById(input.workspaceId, input.orgId),
-            )
-            // A Workspace that is gone, or that has no tip yet: its hydrate
-            // queues a run when it has one.
-            if (!workspace?.desiredSha) return null
-            const tip = workspace.desiredSha
-            const store = createKnowledgeStore(env.CLICKHOUSE_URL)
-            try {
-              const summary = await projectKnowledgePlane({
+        },
+        async () => {
+          lockSignal.throwIfAborted()
+          const env = parseEnv(process.env)
+          const workspace = await withOrgDbContext(input.orgId, () =>
+            getWorkspaceById(input.workspaceId, input.orgId),
+          )
+          // A Workspace that is gone, or that has no tip yet: its hydrate
+          // queues a run when it has one.
+          if (!workspace?.desiredSha) return null
+          const tip = workspace.desiredSha
+          const store = createKnowledgeStore(env.CLICKHOUSE_URL)
+          try {
+            const summary = await projectKnowledgePlane({
+              orgId: input.orgId,
+              workspaceId: input.workspaceId,
+              remote: workspaceGitRead({
                 orgId: input.orgId,
-                workspaceId: input.workspaceId,
-                remote: workspaceGitRead({
-                  orgId: input.orgId,
-                  env,
-                  remote: {
-                    url: workspace.workspaceRepositoryUrl,
-                    connectionId: workspace.githubConnectionId,
-                  },
-                }),
-                root: workspaceRootPath(workspace),
-                tip,
-                store,
-                observedAt: new Date(),
-              })
-              return { tip, summary }
-            } finally {
-              await store.close()
-            }
-          },
-        ),
+                env,
+                remote: {
+                  url: workspace.workspaceRepositoryUrl,
+                  connectionId: workspace.githubConnectionId,
+                },
+              }),
+              root: workspaceRootPath(workspace),
+              tip,
+              store,
+              observedAt: new Date(),
+            })
+            return { tip, summary }
+          } finally {
+            await store.close()
+          }
+        },
+      )
+    // A run that finds the lease busy sleeps and tries again. A sleeping run
+    // holds no worker slot, so the runs that queue during a ClickHouse outage
+    // do not take the slots of the hydrate. The run that gets the lease
+    // reads the newest tip, so a later run often only finds `current`.
+    let locked = await withSandboxLockIfFree(
+      input.orgId,
+      `knowledge-projection:${input.workspaceId}`,
+      project,
     )
+    for (let wait = 0; locked.busy; wait++) {
+      await step.sleep(`await-knowledge-lease-${wait}`, "1 minute")
+      locked = await withSandboxLockIfFree(
+        input.orgId,
+        `knowledge-projection:${input.workspaceId}`,
+        project,
+      )
+    }
+    const applied = locked.value
     if (!applied) return null
     // Also after a `current` result: a retry after a stop between
     // `completeKnowledgeRun` and the step output gives `current`. The key

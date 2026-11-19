@@ -16,7 +16,6 @@ import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
-import { openWorkflowNamespaceId } from "../namespace.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
 /*
@@ -115,7 +114,6 @@ it(
       {
         files,
         knowledgePlane: { clickhouseUrl: writerUrl },
-        namespaceId: openWorkflowNamespaceId(),
       },
       async (f) => {
         await f.publish()
@@ -151,7 +149,6 @@ it(
       {
         files,
         knowledgePlane: { clickhouseUrl: writerUrl },
-        namespaceId: openWorkflowNamespaceId(),
       },
       async (f) => {
         await f.publish()
@@ -172,11 +169,11 @@ it(
         const tip = f.git("rev-parse", "HEAD")
         const revision = await f.resolveRevision(true)
         expect(revision.sha).toBe(tip)
-        vi.stubEnv("CLICKHOUSE_URL", down)
+        // The fixture cleanup restores the variable, also after a failure.
+        process.env.CLICKHOUSE_URL = down
 
-        // The old stack does not wait for the knowledge plane. Before this
-        // change, the hydrate waited for 6 attempts of the writer (more than
-        // 5 minutes).
+        // The old stack does not wait for the knowledge plane: the hydrate
+        // completes in much less time than the retries of the writer.
         const handle = await f.runner.runWorkflow(workspaceHydrate.spec, {
           orgId: f.org.id,
           workspaceId: f.workspaceId,
@@ -200,7 +197,7 @@ it(
         ).toHaveLength(1)
 
         // ClickHouse is back: the retry of the step applies the tip.
-        vi.stubEnv("CLICKHOUSE_URL", writerUrl)
+        process.env.CLICKHOUSE_URL = writerUrl
         await waitForKnowledgeState(f, {
           lastSha: tip,
           attemptShas: [],
@@ -209,7 +206,6 @@ it(
         expect(await storedDocuments(f)).toMatchObject({
           [servingIdForKnowledgePath(f.workspaceId, "d.md")]: "active",
         })
-        vi.unstubAllEnvs()
       },
     ),
 )

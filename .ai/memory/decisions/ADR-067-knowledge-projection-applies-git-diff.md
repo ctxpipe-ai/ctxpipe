@@ -1,6 +1,6 @@
 # ADR-067: The knowledge projection applies the Git diff, with eventual consistency
 
-**Status:** Accepted (the CTO, 2026-11-19; the code does not implement it yet) | **Date:** 2026-11-19 (revised 2026-11-20: the projection runs as its own workflow, outside the hydrate lock) | **Tags:** knowledge, clickhouse, hydrate, consistency, git
+**Status:** Accepted (the CTO, 2026-11-19; the writer, the state and the maintenance job are built) | **Date:** 2026-11-19 (revised 2026-11-20: the projection runs as its own workflow, outside the hydrate lock) | **Tags:** knowledge, clickhouse, hydrate, consistency, git
 
 ## Context
 
@@ -25,7 +25,9 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
    - the run status;
    - the failed count.
 3. **The queue.** Each commit or webhook queues a hydrate run. After the hydrate releases the Workspace hydrate lock, it queues one `knowledge-projection` run. One projection run for each Workspace runs at a time, under its own lease. The queued runs for a Workspace merge, because each run goes to the current tip (the ADR-046 rule): the run reads the tip that the Workspace wants when it starts, not the SHA of its trigger.
-   - The projection does not run inside the hydrate lock. Thus a ClickHouse outage or a slow embedding API does not delay the old stack ([ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md) decision 9). The projection run retries by itself, and the next hydrate queues a new run.
+   - The projection does not run inside the hydrate lock. Thus a ClickHouse outage or a slow embedding API does not delay the old stack ([ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md) decision 9).
+   - A run that finds the lease busy sleeps and tries again. A sleeping run holds no worker slot.
+   - The projection run retries by itself, for about 5 minutes. When an outage is longer, the run fails, and the next hydrate of the Workspace queues a new run. Until then, the lag metric (decision 11) shows it.
 4. **The diff.** Before a run writes any row, it adds its tip to `attempt_shas`. It then applies each file that is in the Git diff from `last_sha` to any SHA of `attempt_shas`. The list includes its own tip.
    - The earlier SHAs of the list are the tips of failed runs. Their files are the files that those runs can have changed. Without them, a file that a failed run replaced and that a later commit changed back is not in the new diff, and its stale rows stay.
    - The run only adds to the list, so a crash at any point loses no SHA.

@@ -183,9 +183,9 @@ export function defineWorkspaceHydrateWorkflow() {
       })
       if (!org) throw new Error(`Organization not found: ${input.orgId}`)
 
-      // The hydrate resolved a revision, so the knowledge plane has a tip to
-      // project.
-      let knowledgeTip = false
+      // True when the hydrate resolved a revision: the knowledge plane then
+      // has a tip to project.
+      let queueKnowledgeProjection = false
       const result = await withOrgIdContext(
         { id: org.id, slug: org.slug },
         () =>
@@ -213,7 +213,7 @@ export function defineWorkspaceHydrateWorkflow() {
       // does not mark the old projections failed, and does not delay them.
       // Each hydrate queues one run, and the queued runs merge (the run
       // applies the tip that the Workspace wants when it starts).
-      if (knowledgeTip)
+      if (queueKnowledgeProjection)
         await step.run({ name: "enqueue-knowledge-projection" }, async () => {
           if ((await getOrgFeature(input.orgId, "knowledge_plane")) === "off")
             return false
@@ -301,7 +301,7 @@ export function defineWorkspaceHydrateWorkflow() {
           }
           const { revision, token, workspace } = resolved
           failingRevision = revision
-          knowledgeTip = true
+          queueKnowledgeProjection = true
           const desiredSha = revision.sha
           // Not the units: their bodies are the heaviest read of a Workspace, and only a run that reuses the active
           // projection (below) reads them. A no-op, an index lag and a new revision do not.
