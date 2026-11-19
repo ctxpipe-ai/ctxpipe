@@ -46,6 +46,7 @@ it(
         "slack-mention-agent",
         "workspace-hydrate",
         "knowledge-maintenance",
+        "knowledge-projection",
         "workspace-index",
         "repository-index",
         "repository-ingestion-v2",

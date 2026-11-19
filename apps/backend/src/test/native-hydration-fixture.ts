@@ -36,6 +36,7 @@ import {
   getWorkspaceProjection,
   persistWorkspaceIndexResult,
 } from "../models/workspaces.js"
+import { knowledgeProjection } from "../openworkflow/workflows/knowledge-projection.js"
 import { repositoryIndex } from "../openworkflow/workflows/repository-index.js"
 import { workspaceHydrate } from "../openworkflow/workflows/workspace-hydrate.js"
 import { workspaceIndex } from "../openworkflow/workflows/workspace-index.js"
@@ -121,7 +122,10 @@ export type NativeHydrationOptions = {
   embeddings?: "ready" | "failed" | "empty"
   /**
    * Run the knowledge plane of ADR-067 too: the org flag `knowledge_plane`
-   * is `shadow`, and the worker writes to this ClickHouse URL.
+   * is `shadow`, and the worker writes to this ClickHouse URL. The hydrate
+   * queues the knowledge projection in the namespace of the file, so set
+   * `namespaceId` to `openWorkflowNamespaceId()` for the fixture worker to
+   * run it.
    */
   knowledgePlane?: { clickhouseUrl: string }
   missingTip?: boolean
@@ -723,6 +727,8 @@ async function createNativeHydrationFixture(
   runner.implementWorkflow(workspaceHydrate.spec, workspaceHydrate.fn)
   runner.implementWorkflow(workspaceIndex.spec, workspaceIndex.fn)
   runner.implementWorkflow(repositoryIndex.spec, repositoryIndex.fn)
+  if (options.knowledgePlane)
+    runner.implementWorkflow(knowledgeProjection.spec, knowledgeProjection.fn)
   const worker = runner.newWorker({ concurrency: 2 })
   const gitTrace = join(tmpdir(), `ctxpipe-hydration-trace-${id}.jsonl`)
   // Outside the fixture worktree, so that a later commit cannot add it.

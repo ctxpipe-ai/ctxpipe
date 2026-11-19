@@ -6,8 +6,8 @@ import { workspaces } from "../db/schema/workspaces.js"
 
 /*
  * The state updates of a knowledge run (ADR-067 decisions 2, 4 and 8). The
- * hydrate lease lock lets one run of a Workspace run at a time, so these
- * updates need no compare-and-set.
+ * knowledge projection lease lets one run of a Workspace run at a time, so
+ * these updates need no compare-and-set.
  */
 
 type KnowledgeStateKey = { orgId: string; workspaceId: string }
