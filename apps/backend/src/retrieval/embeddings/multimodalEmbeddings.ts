@@ -10,7 +10,8 @@ import { dropEmptyEnvValues } from "../services/modelTierSpecs.js"
 /*
  * The embedding client of the knowledge plane (ADR-068 decisions 1, 5 and 7).
  * It sends text and image parts to the OpenRouter embeddings endpoint, and it
- * returns the two vector forms that ClickHouse stores for each chunk.
+ * returns the full vectors. ClickHouse stores each vector as `Array(BFloat16)`
+ * and calculates its binary form (`chunks.embedding_bits`) on the server.
  */
 
 /**
@@ -23,7 +24,6 @@ export const multimodalEmbeddingConfig = {
   model: "google/gemini-embedding-2",
   /** The one upstream provider (OpenRouter slug). No fallback (ADR-068 decision 7). */
   upstreamProvider: "google-vertex",
-  /** A multiple of 8, so that the binary form fills whole bytes. */
   dimensions: 1024,
   /** The maximum number of inputs in one request. */
   batchSize: 16,
@@ -55,24 +55,6 @@ export type EmbeddingInput =
       /** Sent as a text part with the image. A blank alt text sends the image only. */
       altText: string
     }
-
-/**
- * The two vector forms of ADR-068 decision 1.
- *
- * - `bfloat16`: one value for each dimension, as the BFloat16 bit pattern
- *   (the high 16 bits of the Float32, rounded to the nearest even value).
- *   For an `Array(BFloat16)` column in `RowBinary`, each value is 2 bytes
- *   little-endian, so the bytes of this array on a little-endian host are
- *   the wire form.
- * - `binary`: 1 bit for each dimension, `1` when the value is greater than 0.
- *   Dimension `i` is bit `7 - (i % 8)` of byte `floor(i / 8)` (most
- *   significant bit first). Store it in a `FixedString(dimensions / 8)`
- *   column; the Hamming distance is `bitCount(bitXor(a, b))`.
- */
-type Embedding = {
-  bfloat16: Uint16Array
-  binary: Uint8Array
-}
 
 type ContentPart =
   | { type: "text"; text: string }
@@ -110,19 +92,14 @@ class RetryableStatusError extends Error {}
 export async function embedMultimodal(
   inputs: EmbeddingInput[],
   config: MultimodalEmbeddingConfig = multimodalEmbeddingConfig,
-): Promise<Embedding[]> {
+): Promise<number[][]> {
   if (inputs.length === 0) return []
   assertNotInOrgDbContext()
-  if (config.dimensions % 8 !== 0) {
-    throw new Error(
-      `Embedding dimensions must be a multiple of 8, got ${config.dimensions}`,
-    )
-  }
   const env = envSchema.parse(process.env)
   const base = env.MODEL_PROVIDER_URL ?? "https://openrouter.ai/api/v1"
   const url = `${base.replace(/\/$/, "")}/embeddings`
 
-  const out: Embedding[] = []
+  const out: number[][] = []
   for (let start = 0; start < inputs.length; start += config.batchSize) {
     const batch = inputs.slice(start, start + config.batchSize)
     const body = JSON.stringify({
@@ -143,7 +120,7 @@ export async function embedMultimodal(
           apiKey: env.MODEL_PROVIDER_API_KEY,
           config,
         })
-        for (const vector of vectors) out.push(toEmbedding(vector))
+        out.push(...vectors)
         break
       } catch (err) {
         if (
@@ -264,19 +241,4 @@ function orderedVectors(
   }
   // The count and the unique indexes are checked, so each slot is set.
   return out.map((vector) => vector ?? [])
-}
-
-function toEmbedding(vector: number[]): Embedding {
-  const float32 = Float32Array.from(vector)
-  const bits = new Uint32Array(float32.buffer)
-  const bfloat16 = new Uint16Array(vector.length)
-  const binary = new Uint8Array(vector.length / 8)
-  for (let i = 0; i < vector.length; i++) {
-    const u = bits[i] as number
-    // Round to the nearest even BFloat16. JSON numbers are never NaN.
-    bfloat16[i] = (u + 0x7fff + ((u >>> 16) & 1)) >>> 16
-    if ((float32[i] as number) > 0)
-      binary[i >> 3] = (binary[i >> 3] as number) | (0x80 >> (i & 7))
-  }
-  return { bfloat16, binary }
 }

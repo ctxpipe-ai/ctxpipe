@@ -24,12 +24,6 @@ const config = {
   maxBackoffMs: 2,
 }
 
-/** Known values and their BFloat16 bit patterns (round to nearest even). */
-const KNOWN = [1, -2, 0.1, 0, 3.5, -0.25, 1e-3, -1e-3]
-const KNOWN_BF16 = [
-  0x3f80, 0xc000, 0x3dcd, 0x0000, 0x4060, 0xbe80, 0x3a83, 0xba83,
-]
-
 function vector(seed: number): number[] {
   return Array.from({ length: 16 }, (_, i) => (i === 0 ? seed : -1))
 }
@@ -69,12 +63,6 @@ function echoHandler(bodies: Body[]) {
       usage: { prompt_tokens: 7, total_tokens: 7, cost: 0.002 },
     })
   })
-}
-
-function firstValue(bf16: Uint16Array): number {
-  return new Float32Array(
-    new Uint32Array([(bf16[0] as number) << 16]).buffer,
-  )[0] as number
 }
 
 describe("embedMultimodal", () => {
@@ -119,9 +107,7 @@ describe("embedMultimodal", () => {
       ],
     })
     // The handler returns the rows in reverse order; `index` restores it.
-    expect(result.map((e) => firstValue(e.bfloat16))).toEqual([
-      10, 11, 20, 21, 30,
-    ])
+    expect(result.map((e) => e[0])).toEqual([10, 11, 20, 21, 30])
   })
 
   it("sends an image as a data URI part with its alt text", async () => {
@@ -153,23 +139,29 @@ describe("embedMultimodal", () => {
     ])
   })
 
-  it("returns the BFloat16 bit patterns and the packed sign bits of known values", async () => {
-    const values = [...KNOWN, 0, 0, -5, 0, 0, 0, 0, 2]
+  it("returns the full vector of each input as numbers", async () => {
+    const values = [
+      1, -2, 0.1, 0, 3.5, -0.25, 1e-3, -1e-3, 0, 0, -5, 0, 0, 0, 0, 2,
+    ]
     server.use(
       http.post(EMBEDDINGS_URL, () =>
         HttpResponse.json({ data: [{ index: 0, embedding: values }] }),
       ),
     )
 
-    const [embedding] = await embedMultimodal([text(0)], config)
+    expect(await embedMultimodal([text(0)], config)).toEqual([values])
+  })
 
-    expect(Array.from(embedding?.bfloat16 ?? []).slice(0, 8)).toEqual(
-      KNOWN_BF16,
+  it("rejects a vector with the wrong dimension", async () => {
+    server.use(
+      http.post(EMBEDDINGS_URL, () =>
+        HttpResponse.json({ data: [{ index: 0, embedding: [1, 2, 3] }] }),
+      ),
     )
-    // Positive at dimensions 0, 2, 4, 6 and 15; zero is not positive.
-    expect(Array.from(embedding?.binary ?? [])).toEqual([
-      0b10101010, 0b00000001,
-    ])
+
+    await expect(embedMultimodal([text(0)], config)).rejects.toThrow(
+      "Expected 16 dimensions at index 0, got 3",
+    )
   })
 
   it("retries 429 and 5xx, with one span for each request and the usage on the answered one", async () => {
