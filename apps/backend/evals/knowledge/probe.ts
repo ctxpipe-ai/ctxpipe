@@ -4,12 +4,12 @@ import { join } from "node:path"
 import { z } from "zod"
 
 import {
+  type EmbeddingInput,
   embedMultimodal,
   multimodalEmbeddingConfig,
 } from "../../src/retrieval/embeddings/multimodalEmbeddings.js"
 import { decideNoul, JEV_PROVIDER } from "../../src/retrieval/jev/client.js"
-import { DEFAULT_OPENROUTER_BASE } from "../../src/retrieval/services/modelProvider.js"
-import { ModelCalls } from "./model-calls.js"
+import type { ModelCalls } from "./model-calls.js"
 
 /*
  * The live provider probe (ADR-068 decision 7, ADR-063 decision 6). Before
@@ -25,7 +25,7 @@ import { ModelCalls } from "./model-calls.js"
  */
 
 /** The result of one check. The evidence comes from the real answer. */
-export type ProbeCheck = {
+type ProbeCheck = {
   name: string
   pass: boolean
   /** The HTTP status of the last call of the check, or null with no call. */
@@ -38,12 +38,33 @@ export type ProbeCheck = {
   expects: string
 }
 
-const answerSchema = z
-  .object({
-    provider: z.string().optional(),
-    error: z.object({ message: z.string() }).partial().optional(),
-  })
-  .partial()
+/**
+ * The ZDR control of the Decisions endpoint: a Decisions model whose only
+ * endpoint is not on the OpenRouter ZDR list (`GET /api/v1/endpoints/zdr`,
+ * on 2026-11-20). If the catalog changes, the control check fails and says
+ * so; then pick another such model.
+ */
+const NON_ZDR_DECISIONS = {
+  model: "openai/gpt-6-luna-decisions",
+  provider: "openai",
+}
+
+/**
+ * The name that the `provider` field of an answer gives to each pinned
+ * provider slug (the `provider_name` of its endpoints in
+ * `GET /api/v1/models/{model}/endpoints`). The `google-ai-studio` endpoint of
+ * the embedding model, which is not on the ZDR list, has another name
+ * ("Google AI Studio").
+ */
+const PROVIDER_NAMES: Record<string, string> = {
+  [JEV_PROVIDER]: "TypeSafe",
+  [multimodalEmbeddingConfig.upstreamProvider]: "Google",
+}
+
+const answerSchema = z.object({
+  provider: z.string().optional(),
+  error: z.object({ message: z.string().optional() }).optional(),
+})
 
 const jevQuestion = {
   sky: {
@@ -53,22 +74,21 @@ const jevQuestion = {
 }
 const jevOptions = { timeoutMs: 60_000, attributes: {} }
 
-/** Lowercase letters and digits only: `TypeSafe` is the slug `typesafe`. */
-const slug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, "")
+type Evidence<T> = {
+  result: T | undefined
+  status: number | null
+  provider: string | null
+  error: string | null
+}
 
 /**
  * Run `call` and return the evidence of its last model call. A failure of
  * `call` is evidence too: it does not stop the probe.
  */
-async function observe(
+async function observe<T>(
   calls: ModelCalls,
-  call: () => Promise<unknown>,
-): Promise<{
-  result: unknown
-  status: number | null
-  provider: string | null
-  error: string | null
-}> {
+  call: () => Promise<T>,
+): Promise<Evidence<T>> {
   // A stopped call can retry (the embedding client retries a 503), so a
   // check after the stop sends nothing.
   if (calls.stopped)
@@ -79,7 +99,7 @@ async function observe(
       error: "The spend cap stopped the probe before this check.",
     }
   const before = calls.records.length
-  let result: unknown
+  let result: T | undefined
   let thrown: string | null = null
   try {
     result = await call()
@@ -89,9 +109,9 @@ async function observe(
   const last = calls.records.slice(before).at(-1)
   let answer: z.infer<typeof answerSchema> = {}
   try {
-    answer = answerSchema.safeParse(JSON.parse(last?.response ?? "")).data ?? {}
+    answer = answerSchema.parse(JSON.parse(last?.response ?? ""))
   } catch {
-    answer = {}
+    // No JSON answer: the evidence is the status and the client error.
   }
   const errors = [thrown, answer.error?.message?.slice(0, 500)].filter(
     (part): part is string => Boolean(part),
@@ -104,6 +124,8 @@ async function observe(
   }
 }
 
+const jsonObject = z.record(z.string(), z.unknown())
+
 /**
  * Run `call` with one change to the JSON body of each request that it sends.
  * The real client still makes the request and reads the answer.
@@ -115,9 +137,7 @@ async function withChangedBody<T>(
   const next = globalThis.fetch
   const changed = async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = new Request(input, init)
-    const body = change(
-      z.record(z.string(), z.unknown()).parse(await request.json()),
-    )
+    const body = change(jsonObject.parse(await request.json()))
     return next(
       new Request(request.url, {
         method: request.method,
@@ -135,86 +155,95 @@ async function withChangedBody<T>(
   }
 }
 
-/** The four checks of the probe, one after the other. */
-export async function probeChecks(
+/**
+ * The Jev request of the client, sent to the non-ZDR Decisions model. Only
+ * the model, the pinned provider and `zdr` change.
+ */
+const nonZdrDecision = (zdr: boolean) =>
+  withChangedBody(
+    (body) => ({
+      ...body,
+      model: NON_ZDR_DECISIONS.model,
+      provider: {
+        ...jsonObject.parse(body.provider),
+        order: [NON_ZDR_DECISIONS.provider],
+        zdr,
+      },
+    }),
+    () => decideNoul(["The sky is green."], jevQuestion, jevOptions),
+  )
+
+/** The checks of the probe, one after the other. */
+async function probeChecks(
   calls: ModelCalls,
   image: Uint8Array,
 ): Promise<ProbeCheck[]> {
   const checks: ProbeCheck[] = []
-  const dimensions = multimodalEmbeddingConfig.dimensions
+  const check = <T>(
+    name: string,
+    evidence: Evidence<T>,
+    pass: boolean,
+    expects: string,
+  ) =>
+    checks.push({
+      name,
+      pass,
+      status: evidence.status,
+      provider: evidence.provider,
+      error: evidence.error,
+      expects,
+    })
 
   const served = await observe(calls, () =>
     decideNoul(["The sky is blue on a clear day."], jevQuestion, jevOptions),
   )
-  checks.push({
-    name: "decisions-pinned",
-    pass:
-      served.result instanceof Map &&
+  check(
+    "decisions-pinned",
+    served,
+    served.result !== undefined &&
       served.status === 200 &&
-      served.provider !== null &&
-      slug(served.provider) === JEV_PROVIDER,
-    status: served.status,
-    provider: served.provider,
-    error: served.error,
-    expects: `HTTP 200, a yes/no answer, and the provider ${JEV_PROVIDER}`,
-  })
-
-  // The refusal check. The request is the request of the client with one
-  // more provider setting: `ignore: [JEV_PROVIDER]`. TypeSafe is the only
-  // provider of the Jev model, and its endpoint is the only ZDR endpoint of
-  // it, so no ZDR endpoint can serve this request. If the Decisions endpoint
-  // ignored the provider block (and with it `zdr` and `data_collection`), it
-  // would send the request to TypeSafe and answer 200. A refusal thus shows
-  // that the endpoint filters its endpoints by the provider block, in the
-  // same routing step that applies `zdr`.
-  //
-  // A direct proof of `zdr` alone needs a Decisions model with an endpoint
-  // that is not on the ZDR list: then `zdr: true` alone would refuse it. On
-  // 2026-11-20 the OpenRouter model list had no such model.
-  const refused = await observe(calls, () =>
-    withChangedBody(
-      (body) => ({
-        ...body,
-        provider: {
-          ...z.record(z.string(), z.unknown()).parse(body.provider),
-          ignore: [JEV_PROVIDER],
-        },
-      }),
-      () => decideNoul(["The sky is green."], jevQuestion, jevOptions),
-    ),
+      served.provider === PROVIDER_NAMES[JEV_PROVIDER],
+    `HTTP 200, a yes/no answer, and the provider ${PROVIDER_NAMES[JEV_PROVIDER]}`,
   )
-  checks.push({
-    name: "decisions-refused-without-zdr-endpoint",
-    // A 4xx refusal. An auth (401), credit (402), timeout (408) or rate
-    // (429) status says nothing about the routing.
-    pass:
-      refused.status !== null &&
-      refused.status >= 400 &&
-      refused.status < 500 &&
-      ![401, 402, 408, 429].includes(refused.status),
-    status: refused.status,
-    provider: refused.provider,
-    error: refused.error,
-    expects: "a 4xx refusal (not 401, 402, 408 or 429) and no answer",
-  })
 
-  const embedded = async (
-    name: string,
-    input: Parameters<typeof embedMultimodal>[0][number],
-  ) => {
+  // The ZDR proof is a pair of requests to a Decisions model that has no ZDR
+  // endpoint. Both are the request of the client, pinned to that model's one
+  // provider with no fallback, and with `data_collection: "deny"`. They differ
+  // only in `zdr`. The control (`zdr: false`) must be served: this shows that
+  // the endpoint can serve the request. The same request with `zdr: true`
+  // must then be refused with "no endpoint". Thus the refusal comes from
+  // `zdr` alone: the Decisions endpoint enforces it. The Jev request has the
+  // same provider block, so it can only go to a ZDR endpoint.
+  const control = await observe(calls, () => nonZdrDecision(false))
+  check(
+    "decisions-control-without-zdr",
+    control,
+    control.status === 200,
+    `HTTP 200 from ${NON_ZDR_DECISIONS.model} (no ZDR endpoint) when zdr is false`,
+  )
+  const refused = await observe(calls, () => nonZdrDecision(true))
+  check(
+    "decisions-refused-without-zdr-endpoint",
+    refused,
+    control.status === 200 &&
+      refused.status === 404 &&
+      /no (endpoints|allowed providers)/i.test(refused.error ?? ""),
+    "the control passes, then HTTP 404 with a no-endpoint error when zdr is true",
+  )
+
+  const dimensions = multimodalEmbeddingConfig.dimensions
+  const pinned = PROVIDER_NAMES[multimodalEmbeddingConfig.upstreamProvider]
+  const embedded = async (name: string, input: EmbeddingInput) => {
     const evidence = await observe(calls, () => embedMultimodal([input]))
-    const vectors = z.array(z.array(z.number())).safeParse(evidence.result)
-    checks.push({
+    check(
       name,
-      pass:
-        evidence.status === 200 &&
-        vectors.data?.length === 1 &&
-        vectors.data[0]?.length === dimensions,
-      status: evidence.status,
-      provider: evidence.provider,
-      error: evidence.error,
-      expects: `HTTP 200 from the pinned provider ${multimodalEmbeddingConfig.upstreamProvider}, and one vector of ${dimensions} dimensions`,
-    })
+      evidence,
+      evidence.status === 200 &&
+        evidence.provider === pinned &&
+        evidence.result?.length === 1 &&
+        evidence.result[0]?.length === dimensions,
+      `HTTP 200, the provider ${pinned}, and one vector of ${dimensions} dimensions`,
+    )
   }
   await embedded("embedding-image", {
     kind: "image",
@@ -228,22 +257,17 @@ export async function probeChecks(
   return checks
 }
 
-const cell = (value: string | number | boolean | null) =>
-  String(value ?? "—").replace(/\|/g, "\\|")
-
 /**
- * The `probe` command. It writes `probe.json` and `probe.md` to `out`.
- * Returns the exit code: 0 all checks pass, 3 the spend cap stopped a call,
- * 4 a check failed.
+ * The `probe` command. It sends the calls through `calls`, and it writes
+ * `probe.json` and `probe.md` to `out`. Returns the exit code: 0 all checks
+ * pass, 3 the spend cap stopped a call, 4 a check failed.
  */
 export async function probe(input: {
   out: string
+  calls: ModelCalls
   capUsd: number
 }): Promise<number> {
-  const calls = new ModelCalls(
-    process.env.MODEL_PROVIDER_URL || DEFAULT_OPENROUTER_BASE,
-    input.capUsd,
-  )
+  const { calls } = input
   const image = await readFile(
     new URL("fixtures/probe-checkerboard.png", import.meta.url),
   )
@@ -266,19 +290,18 @@ export async function probe(input: {
     "",
     "| Check | Result | Status | Provider | Error | Pass needs |",
     "| --- | --- | --- | --- | --- | --- |",
-    ...checks.map((check) =>
-      [
-        check.name,
-        check.pass ? "pass" : "FAIL",
-        check.status,
-        check.provider,
-        check.error,
-        check.expects,
-      ]
-        .map(cell)
-        .join(" | ")
-        .replace(/^/, "| ")
-        .concat(" |"),
+    ...checks.map(
+      (check) =>
+        `| ${[
+          check.name,
+          check.pass ? "pass" : "FAIL",
+          check.status,
+          check.provider,
+          check.error,
+          check.expects,
+        ]
+          .map((value) => String(value ?? "—").replace(/\|/g, "\\|"))
+          .join(" | ")} |`,
     ),
     "",
     `Spent $${result.spentUsd.toFixed(4)} of the cap $${result.capUsd}.${result.stopped ? " The spend cap stopped a call." : ""}`,

@@ -4,7 +4,9 @@ import { join } from "node:path"
 
 import { HttpResponse, http } from "msw"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { z } from "zod"
 
+import { ModelCalls } from "../../evals/knowledge/model-calls.js"
 import { probe } from "../../evals/knowledge/probe.js"
 import { useMswServer } from "../../test/msw.js"
 
@@ -26,58 +28,104 @@ beforeEach(async () => {
   vi.stubEnv("MODEL_PROVIDER_URL", BASE)
   vi.stubEnv("MODEL_PROVIDER_API_KEY", "fixture-only")
   out = await mkdtemp(join(tmpdir(), "knowledge-probe-"))
-  vi.spyOn(process.stdout, "write").mockImplementation(() => true)
 })
 afterEach(async () => {
-  vi.restoreAllMocks()
   await rm(out, { recursive: true, force: true })
 })
 
-type Provider = { ignore?: string[] }
+const providerSchema = z.object({
+  data_collection: z.string(),
+  order: z.array(z.string()),
+  allow_fallbacks: z.boolean(),
+  zdr: z.boolean(),
+})
+const decisionSchema = z.object({
+  model: z.string(),
+  state: z.array(z.unknown()),
+  questions: z.record(z.string(), z.unknown()),
+  provider: providerSchema,
+})
+const embeddingSchema = z.object({
+  model: z.string(),
+  dimensions: z.number(),
+  input: z.array(z.object({ content: z.array(z.unknown()) })),
+  encoding_format: z.string(),
+  provider: providerSchema,
+})
+
+/** The Decisions endpoints of the fake catalog, as on OpenRouter. */
+const ENDPOINTS: Record<string, { slug: string; name: string; zdr: boolean }> =
+  {
+    "typesafe/jev-1.14": { slug: "typesafe", name: "TypeSafe", zdr: true },
+    "openai/gpt-6-luna-decisions": {
+      slug: "openai",
+      name: "OpenAI",
+      zdr: false,
+    },
+  }
 
 /**
- * A gateway that routes like OpenRouter: TypeSafe is the only endpoint of
- * Jev, so a request that ignores it gets no endpoint. With
- * `appliesProvider: false`, it ignores the provider block.
+ * A gateway that routes Decisions requests like OpenRouter: by the pinned
+ * provider, and with `zdr: true` only to a ZDR endpoint. With
+ * `enforcesZdr: false`, it ignores `zdr`. `refusal` replaces the answer to a
+ * request with `zdr: true` to the non-ZDR model.
  */
 function gateway(options: {
-  appliesProvider: boolean
-  jevProvider: string
-  dimensions: number
+  enforcesZdr: boolean
+  jevName?: string
+  embeddingName?: string
+  dimensions?: number
+  refusal?: { status: number; message: string }
 }) {
-  const bodies: { decisions: unknown[]; embeddings: unknown[] } = {
-    decisions: [],
-    embeddings: [],
+  const bodies = {
+    decisions: [] as z.infer<typeof decisionSchema>[],
+    embeddings: [] as z.infer<typeof embeddingSchema>[],
   }
   server.use(
     http.post(DECISIONS, async ({ request }) => {
-      const body = (await request.json()) as { provider: Provider }
+      const body = decisionSchema.parse(await request.json())
       bodies.decisions.push(body)
-      if (options.appliesProvider && body.provider.ignore?.includes("typesafe"))
+      const endpoint = ENDPOINTS[body.model]
+      if (options.refusal && body.provider.zdr && !endpoint?.zdr)
+        return HttpResponse.json(
+          { error: { message: options.refusal.message } },
+          { status: options.refusal.status },
+        )
+      if (
+        !endpoint ||
+        !body.provider.order.includes(endpoint.slug) ||
+        (options.enforcesZdr && body.provider.zdr && !endpoint.zdr)
+      )
         return HttpResponse.json(
           {
             error: {
-              message: "No endpoints found that match your data policy.",
+              message: "No endpoints found matching your data policy.",
             },
           },
           { status: 404 },
         )
       return HttpResponse.json({
         answers: { sky: { type: "noul", noul: 0.9 } },
-        provider: options.jevProvider,
+        provider:
+          body.model === "typesafe/jev-1.14"
+            ? (options.jevName ?? endpoint.name)
+            : endpoint.name,
         usage: { cost: 0.0001 },
       })
     }),
     http.post(EMBEDDINGS, async ({ request }) => {
-      bodies.embeddings.push(await request.json())
+      bodies.embeddings.push(embeddingSchema.parse(await request.json()))
       return HttpResponse.json({
         data: [
           {
-            embedding: Array.from({ length: options.dimensions }, () => 0.1),
+            embedding: Array.from(
+              { length: options.dimensions ?? 1024 },
+              () => 0.1,
+            ),
             index: 0,
           },
         ],
-        provider: "Google",
+        provider: options.embeddingName ?? "Google",
         usage: { prompt_tokens: 4, cost: 0.00001 },
       })
     }),
@@ -85,28 +133,35 @@ function gateway(options: {
   return bodies
 }
 
+const resultSchema = z.object({
+  spentUsd: z.number(),
+  stopped: z.boolean(),
+  checks: z.array(
+    z.object({
+      name: z.string(),
+      pass: z.boolean(),
+      status: z.number().nullable(),
+      provider: z.string().nullable(),
+      error: z.string().nullable(),
+    }),
+  ),
+})
 const readResult = async () =>
-  JSON.parse(await readFile(join(out, "probe.json"), "utf8")) as {
-    spentUsd: number
-    stopped: boolean
-    checks: {
-      name: string
-      pass: boolean
-      status: number | null
-      provider: string | null
-      error: string | null
-    }[]
-  }
+  resultSchema.parse(
+    JSON.parse(await readFile(join(out, "probe.json"), "utf8")),
+  )
+const run = (capUsd: number) =>
+  probe({ out, calls: new ModelCalls(BASE, capUsd), capUsd })
+const passes = async () =>
+  Object.fromEntries(
+    (await readResult()).checks.map((check) => [check.name, check.pass]),
+  )
 
 describe("the provider probe", () => {
-  it("passes each check when the gateway applies the provider settings", async () => {
-    const bodies = gateway({
-      appliesProvider: true,
-      jevProvider: "TypeSafe",
-      dimensions: 1024,
-    })
+  it("passes each check when the gateway enforces the provider settings", async () => {
+    const bodies = gateway({ enforcesZdr: true })
 
-    expect(await probe({ out, capUsd: 0.05 })).toBe(0)
+    expect(await run(0.05)).toBe(0)
 
     const result = await readResult()
     expect(result.checks).toEqual([
@@ -118,11 +173,17 @@ describe("the provider probe", () => {
         error: null,
       }),
       expect.objectContaining({
+        name: "decisions-control-without-zdr",
+        pass: true,
+        status: 200,
+        provider: "OpenAI",
+      }),
+      expect.objectContaining({
         name: "decisions-refused-without-zdr-endpoint",
         pass: true,
         status: 404,
         error:
-          "Jev answered HTTP 404. Provider: No endpoints found that match your data policy.",
+          "Jev answered HTTP 404. Provider: No endpoints found matching your data policy.",
       }),
       expect.objectContaining({
         name: "embedding-image",
@@ -130,31 +191,34 @@ describe("the provider probe", () => {
         status: 200,
         provider: "Google",
       }),
-      expect.objectContaining({
-        name: "embedding-text",
-        pass: true,
-        status: 200,
-      }),
+      expect.objectContaining({ name: "embedding-text", pass: true }),
     ])
     expect(result.stopped).toBe(false)
     expect(await readFile(join(out, "probe.md"), "utf8")).toContain(
       "| decisions-pinned | pass | 200 | TypeSafe |",
     )
 
-    // The refused request is the request of the real client, with only
-    // `ignore` added to its provider block.
-    const [pinned, refused] = bodies.decisions as {
-      provider: Record<string, unknown>
-    }[]
+    // The control and the refused request are the request of the real
+    // client: only the model, the pinned provider and `zdr` change.
+    const [pinned, control, refused] = bodies.decisions
     expect(pinned?.provider).toEqual({
       data_collection: "deny",
       order: ["typesafe"],
       allow_fallbacks: false,
       zdr: true,
     })
-    expect(refused?.provider).toEqual({
-      ...pinned?.provider,
-      ignore: ["typesafe"],
+    const nonZdr = {
+      ...pinned,
+      model: "openai/gpt-6-luna-decisions",
+      state: ["The sky is green."],
+    }
+    expect(control).toEqual({
+      ...nonZdr,
+      provider: { ...pinned?.provider, order: ["openai"], zdr: false },
+    })
+    expect(refused).toEqual({
+      ...nonZdr,
+      provider: { ...pinned?.provider, order: ["openai"] },
     })
 
     // The image goes as a PNG data URI of the checkerboard fixture, to the
@@ -165,9 +229,10 @@ describe("the provider probe", () => {
         import.meta.url,
       ),
     )
-    expect(bodies.embeddings[0]).toMatchObject({
+    expect(bodies.embeddings[0]).toEqual({
       model: "google/gemini-embedding-2",
       dimensions: 1024,
+      encoding_format: "float",
       input: [
         {
           content: [
@@ -187,71 +252,87 @@ describe("the provider probe", () => {
         zdr: true,
       },
     })
-    expect(bodies.embeddings[1]).toMatchObject({
-      input: [
-        { content: [{ type: "text", text: "A red and blue checkerboard." }] },
-      ],
-    })
+    expect(bodies.embeddings[1]?.input).toEqual([
+      { content: [{ type: "text", text: "A red and blue checkerboard." }] },
+    ])
   })
 
-  it("fails each check that the answers do not prove, with the evidence", async () => {
+  it("fails each check that the answers do not prove", async () => {
     gateway({
-      appliesProvider: false,
-      jevProvider: "Other Host",
+      enforcesZdr: false,
+      jevName: "Other Host",
+      embeddingName: "Google AI Studio",
       dimensions: 768,
     })
 
-    expect(await probe({ out, capUsd: 0.05 })).toBe(4)
+    expect(await run(0.05)).toBe(4)
 
+    expect(await passes()).toEqual({
+      "decisions-pinned": false,
+      "decisions-control-without-zdr": true,
+      "decisions-refused-without-zdr-endpoint": false,
+      "embedding-image": false,
+      "embedding-text": false,
+    })
     const result = await readResult()
-    expect(
-      result.checks.map(({ name, pass, status, provider }) => ({
-        name,
-        pass,
-        status,
-        provider,
-      })),
-    ).toEqual([
-      {
-        name: "decisions-pinned",
-        pass: false,
-        status: 200,
-        provider: "Other Host",
-      },
-      {
-        name: "decisions-refused-without-zdr-endpoint",
-        pass: false,
-        status: 200,
-        provider: "Other Host",
-      },
-      {
-        name: "embedding-image",
-        pass: false,
-        status: 200,
-        provider: "Google",
-      },
-      { name: "embedding-text", pass: false, status: 200, provider: "Google" },
-    ])
-    expect(result.checks[2]?.error).toBe(
-      "Expected 1024 dimensions at index 0, got 768",
+    expect(result.checks[0]?.provider).toBe("Other Host")
+    expect(result.checks[2]?.status).toBe(200)
+    expect(result.checks[3]).toMatchObject({
+      provider: "Google AI Studio",
+      error: "Expected 1024 dimensions at index 0, got 768",
+    })
+  })
+
+  it.each([
+    { status: 400, message: "Unknown field: zdr" },
+    { status: 403, message: "The request was flagged by moderation." },
+    { status: 404, message: "Not found." },
+  ])("does not take an unrelated $status refusal as proof", async (refusal) => {
+    gateway({ enforcesZdr: true, refusal })
+
+    expect(await run(0.05)).toBe(4)
+
+    expect(await passes()).toMatchObject({
+      "decisions-control-without-zdr": true,
+      "decisions-refused-without-zdr-endpoint": false,
+    })
+  })
+
+  it("does not take a refusal as proof when the control is refused too", async () => {
+    gateway({ enforcesZdr: true })
+    server.use(
+      http.post(DECISIONS, async ({ request }) => {
+        const body = decisionSchema.parse(await request.clone().json())
+        // The Jev model falls through to the gateway.
+        if (body.model === "typesafe/jev-1.14") return
+        return HttpResponse.json(
+          { error: { message: "No endpoints found for this model." } },
+          { status: 404 },
+        )
+      }),
     )
+
+    expect(await run(0.05)).toBe(4)
+
+    expect(await passes()).toMatchObject({
+      "decisions-pinned": true,
+      "decisions-control-without-zdr": false,
+      "decisions-refused-without-zdr-endpoint": false,
+    })
   })
 
   it("stops at the spend cap", async () => {
-    gateway({
-      appliesProvider: true,
-      jevProvider: "TypeSafe",
-      dimensions: 1024,
-    })
+    gateway({ enforcesZdr: true })
 
     // Each Jev call reserves $0.002: the first one fits, the second not.
-    expect(await probe({ out, capUsd: 0.002 })).toBe(3)
+    expect(await run(0.002)).toBe(3)
 
     const result = await readResult()
     expect(result.stopped).toBe(true)
     expect(result.spentUsd).toBeCloseTo(0.0001)
     expect(result.checks.map((check) => [check.pass, check.status])).toEqual([
       [true, 200],
+      [false, null],
       [false, null],
       [false, null],
       [false, null],

@@ -110,9 +110,10 @@ Before the first org leaves `off`, this command confirms with real calls that Op
 
 | Check | Passes when |
 | --- | --- |
-| `decisions-pinned` | The Decisions request with our provider block gets HTTP 200, a yes/no answer, and the provider `typesafe`. |
-| `decisions-refused-without-zdr-endpoint` | The same request with `ignore: ["typesafe"]` added to the provider block gets a 4xx refusal. TypeSafe is the only (ZDR) endpoint of Jev, so an endpoint that ignored the provider block would answer 200. `probe.ts` gives the full reason and its limit. |
-| `embedding-image` | An image (a PNG data URI of `fixtures/probe-checkerboard.png`) to the pinned embedding provider gets one vector of the configured dimension. |
+| `decisions-pinned` | The Decisions request with our provider block gets HTTP 200 and a yes/no answer, and the answer names the provider TypeSafe (the slug `typesafe`). |
+| `decisions-control-without-zdr` | The same request, sent to a Decisions model with no ZDR endpoint (`openai/gpt-6-luna-decisions`, pinned to `openai`) and with `zdr: false`, gets HTTP 200. This shows that the endpoint can serve the request. |
+| `decisions-refused-without-zdr-endpoint` | The control request with `zdr: true` gets HTTP 404 with a no-endpoint error. The two requests differ only in `zdr`, so the refusal proves that the Decisions endpoint enforces it. |
+| `embedding-image` | An image (a PNG data URI of `fixtures/probe-checkerboard.png`) to the pinned embedding provider gets one vector of the configured dimension, and the answer names the provider Google (the slug `google-vertex`). |
 | `embedding-text` | The same for a fixed text. |
 
 The probe sends only the fixed text and the checkerboard image, and the default spend cap is $0.05. It writes `probe.json` and `probe.md` to `--out`. It needs no store, but the backend environment check still needs `DATABASE_URL` and `AUTH_SECRET` to be set. Exit codes: 0 all checks pass, 3 the spend cap stopped a call, 4 a check failed. When a check fails, report it. Do not change the request settings to make it pass.

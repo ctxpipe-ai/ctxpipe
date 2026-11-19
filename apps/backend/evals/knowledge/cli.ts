@@ -244,7 +244,7 @@ async function main(argv: string[]): Promise<number> {
   if (command === "probe") {
     if (!process.env.MODEL_PROVIDER_API_KEY)
       throw new SetupError("probe needs MODEL_PROVIDER_API_KEY.")
-    return probe({ out, capUsd })
+    return probe({ out, calls: modelCalls(capUsd), capUsd })
   }
 
   if (command !== "run" && command !== "rescore")
