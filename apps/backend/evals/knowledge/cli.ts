@@ -187,7 +187,8 @@ async function corpus(
 ) {
   if (!plan) throw new SetupError("corpus needs --plan.")
   const parsed = planSchema.parse(await readJson(plan))
-  const token = process.env.GITHUB_TOKEN || undefined
+  const token = process.env.GITHUB_TOKEN
+  if (!token) throw new SetupError("corpus needs GITHUB_TOKEN.")
   // Wait for a rate limit to reset, then go on.
   const wait = () => true
   const access = {

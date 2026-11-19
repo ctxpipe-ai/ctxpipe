@@ -1,8 +1,8 @@
 import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 
 import { HttpResponse, http } from "msw"
 import { Octokit } from "octokit"
@@ -53,8 +53,10 @@ async function repository(
   git(bare, "config", "uploadpack.allowAnySHA1InWant", "true")
   const work = await mkdtemp(join(tmpdir(), "corpus-work-"))
   git(work, "init", "-q", "-b", "main")
-  for (const [path, content] of Object.entries(files))
+  for (const [path, content] of Object.entries(files)) {
+    await mkdir(dirname(join(work, path)), { recursive: true })
     await writeFile(join(work, path), content)
+  }
   git(work, "add", ".")
   git(work, "commit", "-q", "-m", "First")
   git(work, "push", "-q", bare, "main")
@@ -86,9 +88,22 @@ function serveOrg(): string[] {
       created.push(body.name)
       return HttpResponse.json({ private: true }, { status: 201 })
     }),
+    http.put(
+      `${API}/repos/evals/:name/actions/permissions`,
+      async ({ params, request }) => {
+        const body = (await request.json()) as { enabled: boolean }
+        if (!body.enabled) actionsOff.add(String(params.name))
+        return new HttpResponse(null, { status: 204 })
+      },
+    ),
+    http.get(`${API}/repos/evals/:name/actions/permissions`, ({ params }) =>
+      HttpResponse.json({ enabled: !actionsOff.has(String(params.name)) }),
+    ),
   )
   return created
 }
+
+const actionsOff = new Set<string>()
 
 function plan(sha: string, issues = 0): Plan {
   return {
@@ -122,7 +137,11 @@ afterEach(async () => {
 
 describe("snapshotRepositories", () => {
   it("pushes the tree at the SHA as one commit with no personal data", async () => {
-    const sha = await repository("acme/api", { "README.md": "# API\n" })
+    const sha = await repository("acme/api", {
+      "README.md": "# API\n",
+      ".github/workflows/ci.yml": "on: push\n",
+      ".github/CODEOWNERS": "* @acme\n",
+    })
     const created = serveOrg()
 
     const [snapshot] = await snapshotRepositories(plan(sha), access(), quiet)
@@ -136,9 +155,11 @@ describe("snapshotRepositories", () => {
       repository: "evals/v0-demo-api",
     })
     expect(git(target, "rev-parse", "main")).toBe(snapshot?.snapshotSha)
-    expect(git(target, "rev-parse", "main^{tree}")).toBe(
-      git(join(base, "acme/api.git"), "rev-parse", `${sha}^{tree}`),
+    // No workflow of another project may run in our org.
+    expect(git(target, "ls-tree", "-r", "--name-only", "main")).toBe(
+      ".github/CODEOWNERS\nREADME.md",
     )
+    expect(actionsOff.has("v0-demo-api")).toBe(true)
     expect(git(target, "log", "--format=%an <%ae> %aI", "main")).toBe(
       "ctxpipe evals <evals@ctxpipe.invalid> 2026-06-01T00:00:00Z",
     )
@@ -165,6 +186,18 @@ describe("snapshotRepositories", () => {
     await expect(
       snapshotRepositories(plan(second), access(), quiet),
     ).rejects.toThrow("evals/v0-demo-api holds another snapshot")
+  })
+
+  it("refuses a snapshot repository with another branch", async () => {
+    const sha = await repository("acme/api", { "README.md": "# API\n" })
+    serveOrg()
+    await snapshotRepositories(plan(sha), access(), quiet)
+    const target = join(base, "evals", "v0-demo-api.git")
+    git(target, "branch", "master", "main")
+
+    await expect(
+      snapshotRepositories(plan(sha), access(), quiet),
+    ).rejects.toThrow("holds another snapshot (refs/heads/master)")
   })
 })
 
@@ -214,7 +247,11 @@ describe("importCorpusIssues and freezeCorpora", () => {
     const dataset = join(base, "dataset.json")
     await writeFile(
       dataset,
-      JSON.stringify({ version: "0", corpora: [], questions: ["kept"] }),
+      JSON.stringify({
+        version: "0",
+        corpora: [{ id: "other" }, { id: "demo", stale: true }],
+        questions: ["kept"],
+      }),
     )
     await freezeCorpora(plan(sha), access(), dataset)
 
@@ -222,6 +259,7 @@ describe("importCorpusIssues and freezeCorpora", () => {
       version: "0",
       questions: ["kept"],
       corpora: [
+        { id: "other" },
         {
           id: "demo",
           source: `acme/api@${sha}`,
@@ -244,4 +282,31 @@ it("the committed plan of version 0 is valid", async () => {
   expect(() =>
     planSchema.parse(JSON.parse(readFileSync(file, "utf8"))),
   ).not.toThrow()
+})
+
+it("imports nothing and pushes nothing when no issue is before the cut-off date", async () => {
+  const sha = await repository("acme/api", { "README.md": "# API\n" })
+  await repository("evals/v0-demo-context", { ".ctxpipe": "format: 3\n" })
+  const context = join(base, "evals", "v0-demo-context.git")
+  const before = git(context, "rev-parse", "main")
+  server.use(
+    http.get(`${API}/repos/acme/api`, () =>
+      HttpResponse.json({ private: false, visibility: "public" }),
+    ),
+    http.get(`${API}/repos/acme/api/issues`, () => HttpResponse.json([])),
+  )
+
+  const counts = await importCorpusIssues(plan(sha, 5), access(), quiet)
+
+  expect(counts).toEqual([{ corpus: "demo", source: "acme/api", issues: 0 }])
+  expect(git(context, "rev-parse", "main")).toBe(before)
+})
+
+it("refuses a plan with two repositories of the same name", () => {
+  const sha = "a".repeat(40)
+  const clash = plan(sha)
+  clash.corpora[0]?.repositories.push({ source: "other/api", sha, issues: 0 })
+  expect(() => planSchema.parse(clash)).toThrow(
+    "Two repositories of the plan are named v0-demo-api.",
+  )
 })
