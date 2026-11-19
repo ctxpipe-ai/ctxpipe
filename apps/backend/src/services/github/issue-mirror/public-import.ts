@@ -8,28 +8,11 @@ import {
 import type { GithubIssueSnapshot } from "./client.js"
 import { renderGithubIssue } from "./converter.js"
 
-/** The fields of a REST user that the mirror reads. */
-type RestUser = { login: string; type: string } | null
-
-type RestIssue = {
-  node_id: string
-  number: number
-  html_url: string
-  title: string
-  body?: string | null
-  state: string
-  state_reason?: string | null
-  user: RestUser
-  labels: Array<string | { name?: string }>
-  assignees?: Array<{ login: string }> | null
-  comments: number
-  created_at: string
-  updated_at: string
-  closed_at: string | null
-  pull_request?: unknown
-}
-
-type RestComment = { user: RestUser; body?: string; created_at: string }
+type Rest = Octokit["rest"]["issues"]
+type RestIssue = Awaited<ReturnType<Rest["get"]>>["data"]
+type RestComment = Awaited<ReturnType<Rest["listComments"]>>["data"][number]
+type RestEvent = Awaited<ReturnType<Rest["listEvents"]>>["data"][number]
+type RestUser = RestIssue["user"]
 
 /** The production mirror keeps the 100 most recent comments of an issue. */
 const MIRRORED_COMMENTS = 100
@@ -44,11 +27,63 @@ function githubTime(time: number): string {
   return new Date(time).toISOString().replace(/\.\d{3}Z$/, "Z")
 }
 
+/** The fields that the issue events can change, as they were at `until`. */
+function stateAt(issue: RestIssue, events: RestEvent[], until: number) {
+  const labels = new Set(
+    issue.labels.flatMap((label) =>
+      typeof label === "string" ? [label] : label.name ? [label.name] : [],
+    ),
+  )
+  const assignees = new Set((issue.assignees ?? []).map((user) => user.login))
+  let title = issue.title
+  // Undo each change after `until`, newest first.
+  const later = events.filter((event) => Date.parse(event.created_at) > until)
+  for (const event of later.reverse()) {
+    const label = "label" in event ? event.label?.name : undefined
+    const assignee = "assignee" in event ? event.assignee?.login : undefined
+    if (event.event === "labeled" && label) labels.delete(label)
+    if (event.event === "unlabeled" && label) labels.add(label)
+    if (event.event === "assigned" && assignee) assignees.delete(assignee)
+    if (event.event === "unassigned" && assignee) assignees.add(assignee)
+    if (event.event === "renamed" && "rename" in event)
+      title = event.rename.from
+  }
+  if (events.length === 0)
+    return {
+      title,
+      labels: [...labels],
+      assignees: [...assignees],
+      closedAt: issue.closed_at,
+      stateReason: issue.state_reason ?? null,
+    }
+  // The last close or reopen up to `until` gives the state.
+  const lastClose = events
+    .filter(
+      (event) =>
+        (event.event === "closed" || event.event === "reopened") &&
+        Date.parse(event.created_at) <= until,
+    )
+    .at(-1)
+  const closedAt = lastClose?.event === "closed" ? lastClose.created_at : null
+  return {
+    title,
+    labels: [...labels],
+    assignees: [...assignees],
+    closedAt,
+    // GitHub gives the reason of the current close only.
+    stateReason:
+      closedAt !== null && closedAt === issue.closed_at
+        ? (issue.state_reason ?? null)
+        : null,
+  }
+}
+
 /**
- * The issue as the production mirror shows it, but as it was at `until`:
- * comments after `until` are not there, and an issue closed after `until` is
- * open. The title, the body and the labels are the current ones, because
- * the REST API does not give their history.
+ * The issue as the production mirror shows it, but as it was at `until`.
+ * The events give the state, the title, the labels and the assignees at
+ * `until`. Comments after `until` are not there. The body and the text of
+ * each comment are the current text, because the REST API does not give
+ * their edit history.
  *
  * `closedBy` is empty. Only GraphQL gives the closing pull requests, and
  * GraphQL needs a token. The eval corpora do not mirror pull requests.
@@ -56,12 +91,11 @@ function githubTime(time: number): string {
 function snapshotAt(
   repository: string,
   issue: RestIssue,
-  comments: RestComment[],
+  history: { comments: RestComment[]; events: RestEvent[] },
   until: number,
 ): GithubIssueSnapshot {
-  const closed =
-    issue.closed_at !== null && Date.parse(issue.closed_at) <= until
-  const kept = comments.filter(
+  const state = stateAt(issue, history.events, until)
+  const kept = history.comments.filter(
     (comment) => Date.parse(comment.created_at) <= until,
   )
   return {
@@ -69,21 +103,19 @@ function snapshotAt(
     number: issue.number,
     repository,
     url: issue.html_url,
-    title: issue.title,
+    title: state.title,
     body: issue.body ?? "",
-    state: closed ? "closed" : "open",
-    stateReason: closed ? (issue.state_reason ?? null) : null,
+    state: state.closedAt ? "closed" : "open",
+    stateReason: state.stateReason,
     author: actor(issue.user),
-    labels: issue.labels.flatMap((label) =>
-      typeof label === "string" ? [label] : label.name ? [label.name] : [],
-    ),
-    assignees: (issue.assignees ?? []).map((assignee) => assignee.login),
+    labels: state.labels,
+    assignees: state.assignees,
     createdAt: issue.created_at,
     updatedAt:
       Date.parse(issue.updated_at) > until
         ? githubTime(until)
         : issue.updated_at,
-    closedAt: closed ? issue.closed_at : null,
+    closedAt: state.closedAt,
     comments: kept.slice(-MIRRORED_COMMENTS).map((comment) => ({
       author: actor(comment.user),
       body: comment.body ?? "",
@@ -97,24 +129,29 @@ function snapshotAt(
 /**
  * The issue mirror files of a public repository, for an eval corpus
  * (ADR-069). It reads the public REST API, newest issue first, and renders
- * each issue with the production converter. It takes the issues created
- * from `since` to `until`, at most `limit` of them. Pull requests are not
- * issues and are skipped.
+ * each issue with the production converter. It takes at most `limit` issues
+ * created up to `until`. Pull requests are not issues and are skipped. A
+ * repository that is not public is refused, also when the token can read
+ * it, because the corpora are public.
  */
 export async function* importPublicGithubIssues(input: {
   octokit: Octokit
   repository: string
   until: Date
-  since?: Date
   limit?: number
 }): AsyncGenerator<GithubMirrorFile> {
   const { owner, repo } = splitRepository(input.repository)
+  const { data: repository } = await input.octokit.rest.repos.get({
+    owner,
+    repo,
+  })
+  if (repository.private || repository.visibility !== "public")
+    throw new Error(`${input.repository} is not a public repository`)
   const until = input.until.getTime()
-  const since = input.since?.getTime() ?? Number.NEGATIVE_INFINITY
   const limit = input.limit ?? Number.POSITIVE_INFINITY
   let count = 0
   const pages = input.octokit.paginate.iterator(
-    "GET /repos/{owner}/{repo}/issues",
+    input.octokit.rest.issues.listForRepo,
     {
       owner,
       repo,
@@ -125,20 +162,28 @@ export async function* importPublicGithubIssues(input: {
     },
   )
   for await (const page of pages) {
-    for (const issue of page.data as RestIssue[]) {
-      const created = Date.parse(issue.created_at)
-      if (created < since || count >= limit) return
-      if (issue.pull_request || created > until) continue
+    for (const issue of page.data) {
+      if (count >= limit) return
+      if (issue.pull_request || Date.parse(issue.created_at) > until) continue
+      const target = { owner, repo, issue_number: issue.number, per_page: 100 }
       const comments =
         issue.comments > 0
-          ? ((await input.octokit.paginate(
-              "GET /repos/{owner}/{repo}/issues/{issue_number}/comments",
-              { owner, repo, issue_number: issue.number, per_page: 100 },
-            )) as RestComment[])
+          ? await input.octokit.paginate(
+              input.octokit.rest.issues.listComments,
+              target,
+            )
+          : []
+      // An issue with no change after `until` needs no history.
+      const events =
+        Date.parse(issue.updated_at) > until
+          ? await input.octokit.paginate(
+              input.octokit.rest.issues.listEvents,
+              target,
+            )
           : []
       count += 1
       yield renderGithubIssue(
-        snapshotAt(input.repository, issue, comments, until),
+        snapshotAt(input.repository, issue, { comments, events }, until),
       )
     }
   }
