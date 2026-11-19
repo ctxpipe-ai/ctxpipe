@@ -1,0 +1,29 @@
+<clickhouse>
+  <!-- The storage policy of the knowledge tables in Compose, local dev and the tests (ADR-066 decision 10). The
+       migrations set TTL ... TO VOLUME 'cold', and that statement fails if the policy has no volume cold. The hosted
+       node has the same policy, with cold on S3 (factory machines/hosted/clickhouse/config.d/storage.xml). Here, cold
+       is a folder on the local disk. A self-host operator can replace the disk of cold with an S3 disk. -->
+  <storage_configuration>
+    <disks>
+      <cold>
+        <path>/var/lib/clickhouse/disks/cold/</path>
+      </cold>
+    </disks>
+    <policies>
+      <!-- Replaces the built-in default policy, so the tables, which name no policy, get the volume cold. -->
+      <default>
+        <volumes>
+          <hot>
+            <disk>default</disk>
+          </hot>
+          <cold>
+            <disk>cold</disk>
+            <perform_ttl_move_on_insert>0</perform_ttl_move_on_insert>
+          </cold>
+        </volumes>
+        <!-- Both volumes are on one disk here, so a move for free space gives no space. 0: only the TTL moves parts. -->
+        <move_factor>0</move_factor>
+      </default>
+    </policies>
+  </storage_configuration>
+</clickhouse>
