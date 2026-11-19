@@ -30,7 +30,7 @@ import type {
 
 const EMBEDDING_DIMENSIONS = 2000
 
-const DEFAULT_OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+export const DEFAULT_OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
 const modelProviderSchema = z.enum([
   "openai-like",

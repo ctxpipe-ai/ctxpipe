@@ -7,7 +7,10 @@
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import { z } from "zod"
 
+import { assertNotInOrgDbContext } from "../../db/client.js"
 import { gatewayCost } from "../../observability/gatewayCost.js"
+import { DEFAULT_OPENROUTER_BASE } from "../services/modelProvider.js"
+import { dropEmptyEnvValues } from "../services/modelTierSpecs.js"
 
 /** The Jev model of the OpenRouter Decisions API. */
 const JEV_MODEL = "typesafe/jev-1.14"
@@ -27,16 +30,19 @@ export type JevState = (
 export type JevQuestion = { type: "noul"; instructions: string }
 
 /**
- * The failure of one Jev call. `timeout`: no answer within the time limit.
- * `http`: the endpoint answered with an error status. `invalid-answer`: the
- * response, or the answer to a question, does not match the schema. The
- * message holds no request or response text, because that can be customer
- * content.
+ * The failure of one Jev call. The message holds no request or response
+ * text, because that can be customer content.
+ * - `config`: the backend model settings cannot reach OpenRouter.
+ * - `network`: the request did not get an answer (DNS, connection, TLS).
+ * - `timeout`: no full answer within the time limit.
+ * - `http`: the endpoint answered with an error status.
+ * - `invalid-answer`: the response, or the answer to a question, does not
+ *   match the schema.
  */
 export class JevError extends Error {
   override readonly name = "JevError"
   constructor(
-    readonly kind: "timeout" | "http" | "invalid-answer",
+    readonly kind: "config" | "network" | "timeout" | "http" | "invalid-answer",
     message: string,
     readonly status?: number,
   ) {
@@ -44,10 +50,14 @@ export class JevError extends Error {
   }
 }
 
-const settingsSchema = z.object({
-  MODEL_PROVIDER_API_KEY: z.string().min(1),
-  MODEL_PROVIDER_URL: z.string().url().default("https://openrouter.ai/api/v1"),
-})
+const settingsSchema = z.preprocess(
+  dropEmptyEnvValues,
+  z.object({
+    MODEL_PROVIDER: z.string().default("openai-like"),
+    MODEL_PROVIDER_API_KEY: z.string().optional(),
+    MODEL_PROVIDER_URL: z.string().url().default(DEFAULT_OPENROUTER_BASE),
+  }),
+)
 
 const responseSchema = z.object({
   answers: z.record(z.string(), z.unknown()),
@@ -60,10 +70,34 @@ const noulAnswer = z.object({
 })
 
 /**
+ * The OpenRouter base URL and key of the backend model settings. Jev is only
+ * on OpenRouter, so a deployment with `MODEL_PROVIDER` `bedrock` or `azure`
+ * gets a `config` error: its content must not go to a provider that the
+ * operator did not choose.
+ */
+function openRouterSettings(): { base: string; apiKey: string } {
+  const settings = settingsSchema.safeParse(process.env)
+  if (
+    !settings.success ||
+    !["openrouter", "openai-like"].includes(settings.data.MODEL_PROVIDER) ||
+    !settings.data.MODEL_PROVIDER_API_KEY
+  )
+    throw new JevError(
+      "config",
+      "Jev needs MODEL_PROVIDER openrouter or openai-like, an OpenRouter MODEL_PROVIDER_URL, and MODEL_PROVIDER_API_KEY.",
+    )
+  return {
+    base: settings.data.MODEL_PROVIDER_URL,
+    apiKey: settings.data.MODEL_PROVIDER_API_KEY,
+  }
+}
+
+/**
  * Ask Jev the `questions` about the `state`, in one call. Returns the
  * probability of yes for each question key. The key and the base URL come
- * from `MODEL_PROVIDER_API_KEY` and `MODEL_PROVIDER_URL` (the OpenRouter API
- * base). A failure throws a `JevError`.
+ * from the backend model settings (see `openRouterSettings`). A failure
+ * throws a `JevError`. The call must not run inside an org database
+ * transaction.
  *
  * The call has one span (`jev.decide`) with the model, the cost
  * (`gen_ai.usage.cost`), the latency and the `attributes` of the caller. The
@@ -74,10 +108,8 @@ export async function decideNoul(
   questions: Record<string, JevQuestion>,
   options: { timeoutMs: number; attributes: Record<string, number> },
 ): Promise<Map<string, number>> {
-  const settings = settingsSchema.parse({
-    MODEL_PROVIDER_API_KEY: process.env.MODEL_PROVIDER_API_KEY || undefined,
-    MODEL_PROVIDER_URL: process.env.MODEL_PROVIDER_URL || undefined,
-  })
+  assertNotInOrgDbContext()
+  const { base, apiKey } = openRouterSettings()
   return trace.getTracer("ctxpipe-llm").startActiveSpan(
     "jev.decide",
     {
@@ -86,58 +118,67 @@ export async function decideNoul(
         "gen_ai.operation.name": "decide",
         "gen_ai.request.model": JEV_MODEL,
         "gen_ai.provider.name": "openrouter",
-        "jev.upstream_provider": JEV_PROVIDER,
-        "jev.questions": Object.keys(questions).length,
         ...options.attributes,
       },
     },
     async (span) => {
       const started = performance.now()
       try {
-        const response = await fetch(
-          new URL(
-            "../alpha/decisions",
-            `${settings.MODEL_PROVIDER_URL.replace(/\/+$/, "")}/`,
-          ),
-          {
-            method: "POST",
-            headers: {
-              authorization: `Bearer ${settings.MODEL_PROVIDER_API_KEY}`,
-              "content-type": "application/json",
-              // TypeSafe requires this header for a state with an image.
-              ...(state.some((part) => typeof part !== "string")
-                ? { "typesafe-danger-zone-images": "true" }
-                : {}),
-            },
-            body: JSON.stringify({
-              model: JEV_MODEL,
-              state,
-              questions,
-              provider: {
-                data_collection: "deny",
-                order: [JEV_PROVIDER],
-                allow_fallbacks: false,
+        const signal = AbortSignal.timeout(options.timeoutMs)
+        let status: number
+        let body: string
+        try {
+          const response = await fetch(
+            new URL("../alpha/decisions", `${base.replace(/\/+$/, "")}/`),
+            {
+              method: "POST",
+              headers: {
+                authorization: `Bearer ${apiKey}`,
+                "content-type": "application/json",
+                // TypeSafe requires this header for a state with an image.
+                ...(state.some((part) => typeof part !== "string")
+                  ? { "typesafe-danger-zone-images": "true" }
+                  : {}),
               },
-            }),
-            signal: AbortSignal.timeout(options.timeoutMs),
-          },
-        ).catch((error: unknown) => {
+              body: JSON.stringify({
+                model: JEV_MODEL,
+                state,
+                questions,
+                provider: {
+                  data_collection: "deny",
+                  order: [JEV_PROVIDER],
+                  allow_fallbacks: false,
+                },
+              }),
+              signal,
+            },
+          )
+          status = response.status
+          // The time limit also covers the body.
+          signal.throwIfAborted()
+          body = await new Promise<string>((resolve, reject) => {
+            signal.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            })
+            response.text().then(resolve, reject)
+          })
+        } catch (error) {
           throw error instanceof Error && error.name === "TimeoutError"
             ? new JevError(
                 "timeout",
                 `Jev gave no answer in ${options.timeoutMs} ms.`,
               )
-            : error
-        })
-        if (!response.ok)
-          throw new JevError(
-            "http",
-            `Jev answered HTTP ${response.status}.`,
-            response.status,
-          )
-        const parsed = responseSchema.safeParse(
-          await response.json().catch(() => undefined),
-        )
+            : new JevError("network", "The Jev request got no answer.")
+        }
+        if (status < 200 || status > 299)
+          throw new JevError("http", `Jev answered HTTP ${status}.`, status)
+        let json: unknown
+        try {
+          json = JSON.parse(body)
+        } catch {
+          json = undefined
+        }
+        const parsed = responseSchema.safeParse(json)
         if (!parsed.success)
           throw new JevError(
             "invalid-answer",
