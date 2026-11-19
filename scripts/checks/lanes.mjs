@@ -1,5 +1,12 @@
 import { execFile } from "node:child_process"
-import { existsSync, readFileSync, realpathSync, rmSync } from "node:fs"
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+} from "node:fs"
+import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
@@ -371,8 +378,11 @@ export function runVitest(checks, trace) {
     if (codesearchLanes.includes(lane)) continue
     const { directory } = lanes[lane]
     const log = logFile(lane)
-    const report = join(root, ".ci-results", "checks", `${lane}.json`)
-    rmSync(report, { force: true })
+    // The report is a file of this run only. It is not in .ci-results/checks,
+    // because another process on the same checkout can move or replace that
+    // folder while Vitest runs (rerun-failed.mjs moves it aside).
+    const reportDirectory = mkdtempSync(join(tmpdir(), `ctxpipe-${lane}-`))
+    const report = join(reportDirectory, "report.json")
     const laneConfig = { name: lane, ...lanes[lane] }
     let suites = new Map()
     let message
@@ -415,6 +425,7 @@ export function runVitest(checks, trace) {
         message = `Vitest wrote no report (${run.error?.message ?? run.signal ?? `exit ${run.status}`})`
       }
     }
+    rmSync(reportDirectory, { recursive: true, force: true })
     // A trace is data only: an error here never changes a result.
     if (parts)
       try {
