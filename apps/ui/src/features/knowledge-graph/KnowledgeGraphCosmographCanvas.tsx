@@ -16,6 +16,7 @@ import {
   forwardRef,
   type ReactNode,
   useCallback,
+  useContext,
   useEffect,
   useImperativeHandle,
   useMemo,
@@ -26,6 +27,7 @@ import {
 import { Button } from "@/components/ui/Button"
 import { cn } from "@/lib/utils"
 
+import { FixedGraphLayoutContext } from "./fixedGraphLayout"
 import { GraphWaitState } from "./GraphWaitState"
 import { buildFocusFitTarget } from "./knowledgeGraphFocusFit"
 import {
@@ -152,6 +154,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
   ref,
 ) {
   const cosmographRef = useRef<CosmographRef>(undefined)
+  const fixedLayout = useContext(FixedGraphLayoutContext)
   const hostRef = useRef<HTMLDivElement>(null)
   const timelineRef = useRef<CosmographTimelineRef>(undefined)
   const [config, setConfig] = useState<CosmographConfig | null>(null)
@@ -505,6 +508,11 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
 
     async function load() {
       const hasEdges = links.length > 0
+      // A fixed layout applies only when it has a position for each point.
+      const fixed =
+        fixedLayout && points.every(({ id }) => fixedLayout[id])
+          ? fixedLayout
+          : null
 
       const prepConfig = {
         points: {
@@ -515,6 +523,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
           pointSizeBy: "degree",
           pointClusterBy: "kind",
           pointIncludeColumns: ["id", "label", "kind", "summary", "degree"],
+          ...(fixed && { pointXBy: "x", pointYBy: "y" }),
         },
         ...(hasEdges
           ? {
@@ -538,7 +547,12 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
       try {
         result = await prepareCosmographData(
           prepConfig,
-          points,
+          fixed
+            ? points.map((point) => {
+                const [x, y] = fixed[point.id]
+                return { ...point, x, y }
+              })
+            : points,
           hasEdges ? links : undefined,
         )
       } catch (err) {
@@ -603,6 +617,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
         // steps does not depend on time, so the layout is the same on each
         // device.
         ...(reduceMotion && { simulationDecay: 300 }),
+        ...(fixed && { enableSimulation: false }),
         pointDefaultColor: KIND_FALLBACK_COLOR,
         pointDefaultSize: 7,
         pointSizeRange: isLargeGraph ? [1, 22] : [4, 12],
@@ -657,6 +672,12 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
           if (reduceMotion) fitAndRevealOnce()
         },
         onGraphRebuilt: () => {
+          // A fixed layout has no simulation, so the graph shows when it is
+          // built.
+          if (fixed) {
+            fitAndRevealOnce()
+            return
+          }
           if (reduceMotion) return
           if (fitFallbackTimer) clearTimeout(fitFallbackTimer)
           fitFallbackTimer = setTimeout(
@@ -700,6 +721,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
   }, [
     points,
     links,
+    fixedLayout,
     handleCanvasPointIndex,
     emitLassoSelection,
     handlePolygonSelected,

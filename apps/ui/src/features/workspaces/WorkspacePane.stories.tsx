@@ -6,6 +6,7 @@ import { type ComponentProps, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { Button } from "@/components/ui/Button"
+import { FixedGraphLayoutContext } from "@/features/knowledge-graph/fixedGraphLayout"
 import { signedInHandlers } from "@/mocks/handlers"
 import {
   conversationFilePutHandler,
@@ -53,6 +54,7 @@ import {
   docsWorkspaceGitBlobs,
   docsWorkspaceGitTree,
   docsWorkspaceGraph,
+  docsWorkspaceGraphLayout,
   readOnlyWorkspaceDetail,
   skippedFilesWorkspaceDetail,
 } from "./workspace-fixtures"
@@ -931,10 +933,15 @@ export const TreeCollapsed: Story = {
  * with a Play layout control.
  */
 export const Graph: Story = {
-  // With reduced motion the layout runs a fixed number of steps before the
-  // graph shows. With motion, a timer stops it, so the layout differed
-  // between hosts.
-  tags: ["reduced-motion"],
+  // The graph shows at fixed positions and runs no layout. A layout in the
+  // screenshot container runs on a CPU renderer and took up to 30 s.
+  decorators: [
+    (Story) => (
+      <FixedGraphLayoutContext.Provider value={docsWorkspaceGraphLayout}>
+        <Story />
+      </FixedGraphLayoutContext.Provider>
+    ),
+  ],
   args: { pane: { kind: "graph" } },
   parameters: {
     storyRoute: {
@@ -951,12 +958,12 @@ export const Graph: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    // The graph shows when its layout has stopped. Then the control to
-    // play the layout again shows.
+    // The controls of the graph show when the graph shows.
     await canvas.findByRole(
       "button",
       { name: "Play layout" },
-      // The layout runs in WebGL, which is slow on a CPU renderer.
+      // Before the graph shows, its data loads into DuckDB (WebAssembly),
+      // which takes some seconds on a slow host.
       { timeout: 30_000 },
     )
   },

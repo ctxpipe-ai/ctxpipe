@@ -7,6 +7,7 @@ import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { responseGate } from "@/components/ui/skeletonMatchStory"
 import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
+import { FixedGraphLayoutContext } from "@/features/knowledge-graph/fixedGraphLayout"
 import { signedInHandlers } from "@/mocks/handlers"
 import {
   conversationDetailLoadingHandler,
@@ -40,6 +41,7 @@ import {
   docsWorkspace,
   docsWorkspaceDetail,
   docsWorkspaceGitTree,
+  docsWorkspaceGraphLayout,
   failedHydrateWorkspace,
   failedHydrateWorkspaceDetail,
   hydratingWorkspaceDetail,
@@ -1664,10 +1666,15 @@ export const FilesPane: Story = {
  * Graph pane is open and shows the knowledge graph.
  */
 export const GraphPane: Story = {
-  // With reduced motion the layout runs a fixed number of steps before the
-  // graph shows. The play waits for it: without the wait, the screenshot
-  // showed a loading stage of the graph that depended on the host speed.
-  tags: ["reduced-motion"],
+  // The graph shows at fixed positions and runs no layout. A layout in the
+  // screenshot container runs on a CPU renderer and took up to 30 s.
+  decorators: [
+    (Story) => (
+      <FixedGraphLayoutContext.Provider value={docsWorkspaceGraphLayout}>
+        <Story />
+      </FixedGraphLayoutContext.Provider>
+    ),
+  ],
   args: { paneParam: "graph" },
   parameters: {
     storyRoute: workspaceRoute({ pane: "graph" }),
@@ -1679,12 +1686,13 @@ export const GraphPane: Story = {
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
-    // The graph shows when its layout has stopped. Then the control to
-    // play the layout again shows.
+    // The controls of the graph show when the graph shows. Without this
+    // wait, the screenshot showed a loading stage of the graph.
     await page.findByRole(
       "button",
       { name: "Play layout" },
-      // The layout runs in WebGL, which is slow on a CPU renderer.
+      // Before the graph shows, its data loads into DuckDB (WebAssembly),
+      // which takes some seconds on a slow host.
       { timeout: 30_000 },
     )
   },
