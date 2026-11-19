@@ -87,20 +87,20 @@ export function knowledgeRows(input: {
   workspaceId: string
   unit: HydrateUnit
   /**
-   * The SHA-256 (hex) of the bytes of each image file, by its Workspace path.
-   * An image with no hash has no image document: its relation then points at
-   * a key with no row, as a link to a file that is not in Git does.
+   * For each image path that the file shows: the SHA-256 (hex) of its bytes,
+   * or null when Git has no such file. An image with null has no image
+   * document: its relation points at a key with no row, as a link to a file
+   * that is not in Git does. A path with no entry is an error of the caller.
    */
-  imageHashes: ReadonlyMap<string, string>
+  imageHashes: ReadonlyMap<string, string | null>
   observedAt: string
 }): { documents: DocumentRow[]; chunks: ChunkRow[]; relations: RelationRow[] } {
   const { workspaceId, unit, imageHashes, observedAt } = input
   const docId = unit.servingId
   const dir = unit.path.split("/").slice(0, -1).join("/")
   const keyOf = (path: string) => servingIdForKnowledgePath(workspaceId, path)
-  const node = workspaceGraphNodes([unit])[0] as ReturnType<
-    typeof workspaceGraphNodes
-  >[number]
+  const node = workspaceGraphNodes([unit])[0]
+  if (!node) throw new Error(`No graph node for ${unit.path}`)
   const title = unit.title ?? node.name
 
   // The rows hold no chunk hash, so the embedding model is not an input here.
@@ -179,7 +179,9 @@ export function knowledgeRows(input: {
       }),
     )
     const hash = imageHashes.get(target)
-    if (hash === undefined) continue
+    if (hash === undefined)
+      throw new Error(`No image hash for ${target}, shown by ${unit.path}`)
+    if (hash === null) continue
     // Only the hash makes the key, never text from the file (ADR-066 decision 6).
     if (!/^[0-9a-f]{64}$/.test(hash))
       throw new Error(`The image hash of ${target} is not a SHA-256 hex digest`)

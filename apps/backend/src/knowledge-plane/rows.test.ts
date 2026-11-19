@@ -16,7 +16,7 @@ const HASH = "a".repeat(64)
 function rowsOf(
   files: Array<{ path: string; content: string }>,
   path: string,
-  imageHashes: ReadonlyMap<string, string> = new Map(),
+  imageHashes: ReadonlyMap<string, string | null> = new Map(),
 ) {
   const { units } = hydrateKnowledgeTree({ workspaceId: WS, files })
   const unit = units.find((entry) => entry.path === path)
@@ -219,7 +219,10 @@ describe("knowledgeRows", () => {
     const rows = rowsOf(
       [{ path, content }],
       path,
-      new Map([["assets/flow.png", HASH]]),
+      new Map<string, string | null>([
+        ["assets/flow.png", HASH],
+        [`knowledge/arch/org_x/ws_y/${"b".repeat(64)}.png`, null],
+      ]),
     )
     const image = key("assets/flow.png")
     expect(rows.documents.slice(1)).toEqual([
@@ -247,7 +250,7 @@ describe("knowledgeRows", () => {
       text: "",
     })
     // The key-like path in the content gets a relation to its own document
-    // key, but no image document, because it has no hash. The Markdown file
+    // key, but no image document, because Git has no such file. The Markdown file
     // stays a link.
     expect(
       rows.relations.map(({ predicate, dst_doc, src_chunk }) => ({
@@ -309,6 +312,13 @@ describe("knowledgeRows", () => {
         new Map([["knowledge/x.png", "../../other-org/key"]]),
       ),
     ).toThrow("not a SHA-256 hex digest")
+  })
+
+  it("refuses an image that has no entry in the hashes", () => {
+    const path = "knowledge/a.md"
+    expect(() =>
+      rowsOf([{ path, content: "![x](x.png)\n" }], path, new Map()),
+    ).toThrow("No image hash for knowledge/x.png")
   })
 
   it("gives the same rows in the same order for the same input", () => {
