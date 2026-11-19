@@ -136,9 +136,10 @@ describe("the spend cap", () => {
       await delay(20)
       return HttpResponse.json({ answers: {}, usage: { cost: 0.0015 } })
     }),
-    // An embedding answer with no cost.
-    http.post(`${BASE}/embeddings`, () => {
+    // An embedding answer with no cost; a slow one when the body says so.
+    http.post(`${BASE}/embeddings`, async ({ request }) => {
       sent += 1
+      if (((await request.json()) as { slow?: boolean }).slow) await delay(50)
       return HttpResponse.json({ data: [] })
     }),
   )
@@ -163,6 +164,29 @@ describe("the spend cap", () => {
       expect((await post(JEV, { index: 10 })).status).toBe(503)
       expect(sent).toBe(2)
       expect(calls.spentUsd).toBeLessThanOrEqual(0.005)
+    } finally {
+      restore()
+    }
+  })
+
+  it("gives a slow call to the question that sent it, and waits for it", async () => {
+    const calls = new ModelCalls(BASE, 1)
+    const restore = calls.install()
+    try {
+      calls.begin("plane", "first")
+      // The reader stops waiting at its time budget; the call goes on.
+      void post(`${BASE}/embeddings`, { slow: true })
+      await calls.settle()
+      expect(calls.end()).toMatchObject({ embedding: 1, costUsd: 0.001 })
+      calls.begin("plane", "second")
+      void post(`${BASE}/embeddings`, { slow: true })
+      calls.begin("plane", "third")
+      await calls.settle()
+      expect(calls.end()).toMatchObject({ embedding: 0, costUsd: 0 })
+      expect(calls.records.map((call) => call.question)).toEqual([
+        "first",
+        "second",
+      ])
     } finally {
       restore()
     }

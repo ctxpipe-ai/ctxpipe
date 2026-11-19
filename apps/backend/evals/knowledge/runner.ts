@@ -122,9 +122,8 @@ const armAnswerSchema = z.object({
       callFailureSchema,
     ])
     .optional(),
+  /** In a replay, `calls.missing` counts the calls that the recording lacks. */
   calls: callCountsSchema,
-  /** Replay only: the recording did not hold each call of this answer. */
-  incomplete: z.literal(true).optional(),
 })
 export type ArmAnswer = z.infer<typeof armAnswerSchema>
 
@@ -152,10 +151,11 @@ function failure(error: unknown): string {
 
 const relatedInput = z.object(getRelatedInputShape)
 
-/** The org and the Workspace of a corpus, as the readers take them. */
+/** The org and the Workspace of a corpus, and the SHA that both stacks serve. */
 type EvalTarget = {
   org: { id: string; slug: string }
   workspace: { id: string; slug: string }
+  sha: string
 }
 
 /**
@@ -166,8 +166,8 @@ type EvalTarget = {
 async function resolveWorkspaces(
   dataset: Dataset,
   targets: Targets,
-): Promise<Map<string, EvalTarget & { sha: string }>> {
-  const resolved = new Map<string, EvalTarget & { sha: string }>()
+): Promise<Map<string, EvalTarget>> {
+  const resolved = new Map<string, EvalTarget>()
   for (const corpus of dataset.corpora) {
     const target = targets[corpus.workspace]
     if (!target)
@@ -220,6 +220,7 @@ export async function runEval(input: {
             })
       calls.begin(arm, question.id)
       const answer = await ask(reader, question, target, now)
+      await calls.settle()
       const counts = calls.end()
       if (calls.stopped) return answers
       answers.push({
@@ -227,7 +228,6 @@ export async function runEval(input: {
         question: question.id,
         ...answer,
         calls: counts,
-        ...(counts.missing > 0 ? { incomplete: true as const } : {}),
       })
     }
   }
@@ -238,7 +238,7 @@ export async function runEval(input: {
 async function ask(
   reader: KnowledgeReader,
   question: Question,
-  target: EvalTarget & { sha: string },
+  target: EvalTarget,
   now: Date,
 ): Promise<Pick<ArmAnswer, "search" | "related">> {
   const validAt = question.validAt ? new Date(question.validAt) : undefined

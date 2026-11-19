@@ -29,7 +29,10 @@ export const recordedCallSchema = z.object({
   /** The raw answer: the Jev probabilities or the vectors. */
   response: z.string(),
   costUsd: z.number(),
-  /** True when the answer had no cost, so `costUsd` is the reserved value. */
+  /**
+   * Audit data for a person who reads the run folder: no cost in the answer
+   * (`costUsd` is the reserved value), and the time of the call.
+   */
   estimated: z.boolean(),
   latencyMs: z.number(),
 })
@@ -61,6 +64,9 @@ const RESERVED_COST_USD: Record<CallKind, number> = {
 }
 
 const answerSchema = z.object({ usage: z.unknown() }).partial()
+
+/** The arm, the question and the counts that a call belongs to. */
+type Owner = { arm: string; question: string; counts: CallCounts }
 
 const emptyCounts = (): CallCounts => ({
   jev: 0,
@@ -96,6 +102,7 @@ export class ModelCalls {
   stopped = false
   /** The reserved cost of the calls that are in flight. */
   private reservedUsd = 0
+  private readonly inFlight = new Set<Promise<Response>>()
   private context = { arm: "", question: "" }
   private counts = emptyCounts()
   private readonly origin: string
@@ -130,11 +137,26 @@ export class ModelCalls {
     return { ...this.counts }
   }
 
+  /**
+   * Wait for the calls that are still in flight. A reader can stop to wait
+   * for a call at the end of its time budget while the call goes on, so the
+   * run waits for them before it closes the counts of a question.
+   */
+  async settle(): Promise<void> {
+    await Promise.allSettled([...this.inFlight])
+  }
+
   /** Put the recorder in front of `fetch`. Call the result to remove it. */
   install(): () => void {
     const next = globalThis.fetch
-    const wrapped = (input: RequestInfo | URL, init?: RequestInit) =>
-      this.handle(new Request(input, init), next)
+    const wrapped = (input: RequestInfo | URL, init?: RequestInit) => {
+      // The arm and the question of a call are the ones at its dispatch.
+      const owner: Owner = { ...this.context, counts: this.counts }
+      const call = this.handle(new Request(input, init), next, owner)
+      this.inFlight.add(call)
+      void call.finally(() => this.inFlight.delete(call)).catch(() => {})
+      return call
+    }
     globalThis.fetch = Object.assign(wrapped, next)
     return () => {
       globalThis.fetch = next
@@ -148,13 +170,14 @@ export class ModelCalls {
   private async handle(
     request: Request,
     next: typeof fetch,
+    owner: Owner,
   ): Promise<Response> {
     const url = new URL(request.url)
     const kind = url.origin === this.origin ? kindOf(url.pathname) : null
     if (!kind) return next(request)
     const body = await request.clone().text()
     const key = createHash("sha256").update(`${kind}\n${body}`).digest("hex")
-    if (this.replay) return this.replayed(kind, key)
+    if (this.replay) return this.replayed(kind, key, owner)
     // The hard spend cap: each call in flight holds its worst-case cost, and
     // a call that would take the spent and reserved total over the cap is
     // not sent. The check and the reservation have no `await` between them,
@@ -177,7 +200,7 @@ export class ModelCalls {
     } catch (error) {
       // The provider can charge a call that failed on the way back.
       this.spentUsd += reserved
-      this.counts.costUsd += reserved
+      owner.counts.costUsd += reserved
       throw error
     } finally {
       this.reservedUsd -= reserved
@@ -188,13 +211,13 @@ export class ModelCalls {
     )
     const costUsd = known ?? reserved
     this.spentUsd += costUsd
-    this.counts.costUsd += costUsd
+    owner.counts.costUsd += costUsd
     // A panel reply is no retrieval answer: the votes file keeps it.
     if (kind !== "panel") {
-      this.counts[kind] += 1
+      owner.counts[kind] += 1
       this.records.push({
-        arm: this.context.arm,
-        question: this.context.question,
+        arm: owner.arm,
+        question: owner.question,
         kind,
         key,
         request: parseOr(body, body),
@@ -221,17 +244,18 @@ export class ModelCalls {
    * answer that it got live. After the last one, the same request gets the
    * last answer again.
    */
-  private replayed(kind: CallKind, key: string): Response {
+  private replayed(kind: CallKind, key: string, owner: Owner): Response {
     const queue = this.replay?.get(
-      this.replayKey(this.context.arm, this.context.question, key),
+      this.replayKey(owner.arm, owner.question, key),
     )
     const recorded = queue && queue.length > 1 ? queue.shift() : queue?.[0]
+    // A replay is only of `run` and `rescore`, which make no panel call.
     if (kind === "panel" || !recorded) {
-      this.counts.missing += 1
+      owner.counts.missing += 1
       return unavailable("The recording holds no answer for this call.")
     }
-    this.counts[kind] += 1
-    this.counts.costUsd += recorded.costUsd
+    owner.counts[kind] += 1
+    owner.counts.costUsd += recorded.costUsd
     this.records.push(recorded)
     return new Response(recorded.response, {
       status: recorded.status,

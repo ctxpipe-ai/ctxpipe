@@ -108,7 +108,9 @@ export function buildReport(input: {
     ARMS.every((arm) =>
       input.answers.some(
         (answer) =>
-          answer.arm === arm && answer.question === id && !answer.incomplete,
+          answer.arm === arm &&
+          answer.question === id &&
+          answer.calls.missing === 0,
       ),
     )
   const asked = input.dataset.questions.filter((question) =>
@@ -166,10 +168,11 @@ export function buildReport(input: {
           : []
       }),
     ),
-    costUsd: input.answers.reduce(
-      (sum, answer) => sum + answer.calls.costUsd,
-      0,
-    ),
+    // A live run spends also on the answer that the cap stopped.
+    costUsd:
+      manifest.mode === "live"
+        ? manifest.spentUsd
+        : input.answers.reduce((sum, answer) => sum + answer.calls.costUsd, 0),
     questions: scores.map((score) => {
       const kept = keptScores.get(`${score.arm}\0${score.question}`) ?? null
       return { ...score, kept, change: changeOf(score.metrics, kept) }
