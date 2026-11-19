@@ -48,10 +48,15 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
    - Its target is a document key that is resolved when it is read.
    - No stored value depends on another document, for example a degree or an in-degree.
    - Thus, a change to one file changes only the rows of that file.
-6. **Images are documents** of kind `image`.
-   - The bytes stay in the S3 artifacts bucket.
-   - Each image has one chunk row. Its vector is the image embedding. Its text is the alt text, plus the OCR text if we use OCR.
-   - The projection makes each `s3_key` from the org, the Workspace and the hash of the bytes. It never takes a key from the content.
+   - A link that names its target by a key from the front matter of another file (for example a Linear identifier or an issue URL in a mirror file) targets that reference key. Each file states its own reference keys in a lookup table `doc_refs (org_id, workspace_id, ref_key, doc_key)`, and the read resolves a key target through it. A key with no row is a `missing` target ([CTX-1400](https://linear.app/ctxpipe/issue/CTX-1400)). The `CHANGED` claims of a merged pull request work the same way.
+   - The `source_type` of a document is its source authority kind (`adr`, `merged-pr`, `docs`, `issue`, `open-pr`, `chat` or `other`), which the mapper takes from the file alone: its path, its kind and its own front matter. [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md) decision 4 ranks it ([CTX-1410](https://linear.app/ctxpipe/issue/CTX-1410)).
+6. **An image is a Git file like any other**, of kind `image`.
+   - Its key is its path. A changed image file replaces its rows, and a removed image file becomes a tombstone, the same as any file.
+   - A file that shows an image states only an `EMBEDS_IMAGE` relation to the image's path, with the alt text on the relation. If the image has no row, the target is a `missing` placeholder. Thus the rows of a file do not depend on the bytes of an image (decision 5).
+   - The bytes stay in the S3 artifacts bucket (local disk in self-host).
+   - Each image has one chunk row. Its vector is the image embedding. Its text comes only from the bytes: the OCR text or a description, if the evals choose one, else empty.
+   - The projection makes each `s3_key` from the org, the Workspace and the SHA-256 of the bytes. It never takes a key from the content.
+   - An image type that the embedding model does not take (for example SVG) gets an `error` on its document. It is not a failed run.
    - Before the backend reads image bytes (for example to send them to Jev), it checks that the key starts with the org and Workspace prefix of the request. Thus a row cannot point the backend at the image of another org.
 7. **Document status.** Each document is one of four:
    - `active`;
