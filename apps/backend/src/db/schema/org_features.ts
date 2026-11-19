@@ -4,7 +4,7 @@ import { organizations } from "./auth.js"
 import { orgIsolationPolicy } from "./org-rls.js"
 
 /**
- * One value for each feature of an org (ADR-069, CTX-1394). An operator sets a value with SQL for now, with `updated_at = now()`.
+ * One value for each feature of an org (ADR-069, CTX-1394). An operator sets a value with `src/db/set-org-feature.ts` (CTX-1424).
  */
 export const orgFeatures = pgTable.withRLS(
   "org_features",
