@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -8,7 +9,7 @@ import {
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { gunzipSync } from "node:zlib"
@@ -411,6 +412,27 @@ test("a merge of no trace writes the empty trace of HEAD", () => {
       commit: head.stdout.trim(),
       checks: [],
     })
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test("with --logs, the runner writes the logs to that folder, and a record gives the absolute path of a log outside the checkout", () => {
+  // The rerun of failed checks gives its own folder, so it does not move
+  // .ci-results/checks while another runner writes there.
+  const directory = mkdtempSync(join(tmpdir(), "ctxpipe-logs-"))
+  try {
+    const id = "policy:ui-motion:scripts/ci/check-ui-motion.mjs"
+    const result = spawnSync(
+      process.execPath,
+      [script("run.mjs"), "--logs", directory],
+      { cwd: root, encoding: "utf8", input: `${id}\n` },
+    )
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+    const record = JSON.parse(result.stdout)
+    assert.equal(record.status, "passed")
+    assert.equal(dirname(record.log), directory)
+    assert.ok(existsSync(record.log))
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
