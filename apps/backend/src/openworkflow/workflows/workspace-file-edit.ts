@@ -43,9 +43,8 @@ export const workspaceFileEditInputSchema = z
     workspaceId: z.string().min(1),
     jobId: z.string().min(1),
     /**
-     * The kind of the job. The Files pane sends none (`ui_file_edit`). The
-     * knowledge maintenance job (ADR-067 decision 9) sends its own, so its
-     * job rows and commits name it.
+     * The kind of the job, so that the job row and the commit name it. A run
+     * that was queued before the field existed has none: `ui_file_edit`.
      */
     kind: z.enum(["ui_file_edit", "knowledge_maintenance"]).optional(),
     revision: workspaceRevisionSchema,

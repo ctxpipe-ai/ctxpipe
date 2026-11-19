@@ -36,7 +36,7 @@ afterAll(async () => {
 })
 
 const source =
-  "# Alpha\n\nSee [the guide](old/guide.md#setup) and [the copy](gone/copy.md).\n"
+  '# Alpha\n\nSee [the guide](old/guide.md#setup "Guide"), [the copy](gone/copy.md) and [the rate](old/rate%.md).\n'
 const files = [
   { path: "notes/alpha.md", body: source },
   // The one file named `guide.md`: the link to `old/guide.md` points to it.
@@ -44,6 +44,9 @@ const files = [
   // Two files named `copy.md`: the job does not choose one.
   { path: "one/copy.md", body: "# One\n" },
   { path: "two/copy.md", body: "# Two\n" },
+  // One file named `rate%.md`, but its path needs an escape that the
+  // hydrate does not decode.
+  { path: "team/rate%.md", body: "# Rate\n" },
   // The front matter does not close, so the file does not parse.
   { path: "broken.md", body: "---\ntitle: Broken\n# Broken\n" },
 ]
@@ -105,14 +108,15 @@ it(
         )
         const [first] = await runs("knowledge-maintenance", f.workspaceId)
         expect(first?.input).toMatchObject({ sha: f.sha })
-        const report = first?.output as {
-          findings: unknown[]
-          writeJob: { id: string; started: boolean }
-        }
+        // The output of the run is the result of the workflow.
+        const report = first?.output as Extract<
+          Awaited<ReturnType<typeof knowledgeMaintenance.fn>>,
+          { outcome: "checked" }
+        >
         expect(report).toMatchObject({
           outcome: "checked",
-          counts: { failed: 1, missing: 2, deleted: 0 },
-          findingCount: 3,
+          counts: { failed: 1, missing: 3, deleted: 0 },
+          findingCount: 4,
           rewrittenFiles: 1,
           writeJob: { started: true },
         })
@@ -124,12 +128,21 @@ it(
               path: "notes/alpha.md",
               target: "notes/old/guide.md",
               matches: 1,
+              fixed: true,
             }),
             expect.objectContaining({
               status: "missing",
               path: "notes/alpha.md",
               target: "notes/gone/copy.md",
               matches: 2,
+              fixed: false,
+            }),
+            expect.objectContaining({
+              status: "missing",
+              path: "notes/alpha.md",
+              target: "notes/old/rate%.md",
+              matches: 1,
+              fixed: false,
             }),
           ]),
         )
@@ -147,7 +160,7 @@ it(
           (await runs("workspace-write-ui-file-edit", f.workspaceId)).map(
             (run) => run.input.jobId,
           ),
-        ).toEqual([report.writeJob.id])
+        ).toEqual([report.writeJob?.id])
 
         // The write path commits the fix.
         await hydrateWorker.stop()
@@ -168,7 +181,7 @@ it(
           await worker.stop()
         }
         const job = await withOrgIdContext(f.org, () =>
-          reconcileWorkspaceWriteJob(report.writeJob.id),
+          reconcileWorkspaceWriteJob(report.writeJob?.id ?? ""),
         )
         expect(job).toMatchObject({
           kind: "knowledge_maintenance",
@@ -188,7 +201,7 @@ it(
         expect(
           f.git("--git-dir", f.remote, "show", `${tip}:notes/alpha.md`),
         ).toBe(
-          "# Alpha\n\nSee [the guide](../guides/guide.md#setup) and [the copy](gone/copy.md).",
+          '# Alpha\n\nSee [the guide](../guides/guide.md#setup "Guide"), [the copy](gone/copy.md) and [the rate](old/rate%.md).',
         )
         // The job deletes no file.
         expect(

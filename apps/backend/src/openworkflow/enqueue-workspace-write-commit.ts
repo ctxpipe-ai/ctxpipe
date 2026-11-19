@@ -515,9 +515,7 @@ export async function enqueueWriteJob(
           orgId: input.orgId,
           workspaceId: input.workspaceId,
           jobId,
-          ...(input.kind === "knowledge_maintenance"
-            ? { kind: input.kind }
-            : {}),
+          kind: input.kind,
           revision,
           files: input.mergeFiles ?? [],
           deletePaths: input.mergeDeletePaths ?? [],

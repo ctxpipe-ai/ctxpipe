@@ -381,7 +381,7 @@ async function sourceRepositoriesAt(
 }
 
 /** Call `call` for each batch of at most `size` items, in order. */
-async function inBatches<T>(
+export async function inBatches<T>(
   items: readonly T[],
   size: number,
   call: (batch: T[]) => Promise<void>,

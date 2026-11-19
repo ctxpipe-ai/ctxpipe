@@ -58,6 +58,8 @@ export const knowledgeMaintenance = defineWorkflow(
           where: { id: { eq: input.orgId } },
         }),
       ])
+      // A later tip, or a Workspace or org that is gone: the run has
+      // nothing to check.
       if (state?.lastSha !== input.sha || !workspace || !org) {
         getLogger().set({
           knowledgeMaintenance: { sha: input.sha, outcome: "superseded" },
@@ -99,7 +101,6 @@ export const knowledgeMaintenance = defineWorkflow(
               kind: "knowledge_maintenance",
               jobDesiredSha: input.sha,
               mergeFiles: found.files,
-              mergeDeletePaths: [],
             },
             { error: (error) => getLogger().error(error) },
           ),

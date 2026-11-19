@@ -6,10 +6,10 @@ import {
   servingIdForKnowledgePath,
 } from "../domain/workspaces/hydrate.js"
 import {
+  applyBodyEdits,
   markdownBodyOf,
   markdownDestinations,
-  relativeLinkUrl,
-} from "../domain/workspaces/native-rename-rewrite.js"
+} from "../domain/workspaces/markdown-links.js"
 import type {
   DocumentStatus,
   KnowledgeStore,
@@ -20,7 +20,7 @@ import {
   withGitDirectory,
 } from "../services/git/pack.js"
 import { isKnowledgePath } from "./parse-file.js"
-import { type KnowledgeRemote, regularFiles } from "./writer.js"
+import { inBatches, type KnowledgeRemote, regularFiles } from "./writer.js"
 
 /** One document that the maintenance job found. */
 type KnowledgeFinding = {
@@ -29,13 +29,15 @@ type KnowledgeFinding = {
   doc: string
   /**
    * The file of a `failed` document, or the file that refers to a `missing`
-   * or `deleted` document. Empty when no file of the tree has the key.
+   * or `deleted` document. Absent when no file of the tree has the key.
    */
-  path: string
-  /** The resolved path of a body link to the document. Empty for a reference that is not a body link. */
-  target: string
+  path?: string
+  /** The resolved path of a body link to the document. Absent for a reference that is not a body link. */
+  target?: string
   /** For a body link to a `missing` document: the count of files with the same file name. */
   matches?: number
+  /** For a body link to a `missing` document: true when the job rewrote it. */
+  fixed?: boolean
 }
 
 /**
@@ -45,8 +47,10 @@ type KnowledgeFinding = {
  * findings and the changed files.
  *
  * The one safe fix: a body link to a `missing` document, when exactly one
- * file of the tree has the same file name, points to that file. Each other
- * finding is a report only:
+ * file of the tree has the same file name, points to that file. The new
+ * destination is a plain relative path, because the hydrate does not decode
+ * URL escapes: a path that needs an escape (a space, a parenthesis, `%`)
+ * gets no fix. Each other finding is a report only:
  * - a `failed` document (a file that does not parse);
  * - a reference to a `deleted` document;
  * - a reference to a `missing` document with no file or more than one file
@@ -85,10 +89,10 @@ export async function findKnowledgeRepairs(input: {
   // The `missing` and `deleted` documents that each active file refers to.
   const referred = new Map<string, Set<string>>()
   const targets = [...keysWith("missing"), ...keysWith("deleted")]
-  for (let at = 0; at < targets.length; at += 500) {
+  await inBatches(targets, 500, async (batch) => {
     const relations = await store.readFrontier(
       { orgId, workspaceIds: [workspaceId] },
-      targets.slice(at, at + 500).map((docKey) => ({ workspaceId, docKey })),
+      batch.map((docKey) => ({ workspaceId, docKey })),
     )
     for (const { direction, relation, neighbor } of relations) {
       if (direction !== "in" || neighbor?.status !== "active") continue
@@ -96,7 +100,10 @@ export async function findKnowledgeRepairs(input: {
       keys.add(relation.dstDoc)
       referred.set(neighbor.path, keys)
     }
-  }
+  })
+  // No reference to fix and no failed file: the job reads no Git.
+  if (referred.size === 0 && counts.failed === 0)
+    return { counts, findings: [], files: [] }
 
   return withGitDirectory(
     sha,
@@ -121,8 +128,7 @@ export async function findKnowledgeRepairs(input: {
       const findings: KnowledgeFinding[] = keysWith("failed").map((docKey) => ({
         status: "failed",
         doc: hashKey(docKey),
-        path: pathOf.get(docKey) ?? "",
-        target: "",
+        ...(pathOf.has(docKey) ? { path: pathOf.get(docKey) } : {}),
       }))
       const files: { path: string; content: string }[] = []
       const sources = [...referred.keys()]
@@ -149,14 +155,22 @@ export async function findKnowledgeRepairs(input: {
           const status = statuses.get(docKey)
           const matches = named.get(posix.basename(target)) ?? []
           const [match] = matches
-          if (status === "missing" && matches.length === 1 && match) {
-            const anchor = raw.indexOf("#")
+          // The path that the hydrate resolves, with the anchor or query of
+          // the old destination. A `workspace:` or other scheme link keeps
+          // its form, so it gets no fix.
+          const destination = match && posix.relative(folder || ".", match)
+          const fixed =
+            status === "missing" &&
+            matches.length === 1 &&
+            !!destination &&
+            !/^[a-z][a-z0-9+.-]*:/i.test(raw) &&
+            !/[\s()<>%\\]/.test(destination)
+          if (fixed) {
+            const suffix = raw.search(/[?#]/)
             edits.push({
               start: link.start,
               end: link.end,
-              value:
-                relativeLinkUrl(path, match) +
-                (anchor < 0 ? "" : raw.slice(anchor)),
+              value: destination + (suffix < 0 ? "" : raw.slice(suffix)),
             })
           }
           if (linked.has(docKey)) continue
@@ -166,7 +180,7 @@ export async function findKnowledgeRepairs(input: {
             doc: hashKey(docKey),
             path,
             target,
-            ...(status === "missing" ? { matches: matches.length } : {}),
+            ...(status === "missing" ? { matches: matches.length, fixed } : {}),
           })
         }
         for (const docKey of keys)
@@ -176,16 +190,9 @@ export async function findKnowledgeRepairs(input: {
                 statuses.get(docKey) === "missing" ? "missing" : "deleted",
               doc: hashKey(docKey),
               path,
-              target: "",
             })
-        if (!edits.length) continue
-        let next = body
-        for (const edit of edits.sort((a, b) => b.start - a.start))
-          next = next.slice(0, edit.start) + edit.value + next.slice(edit.end)
-        files.push({
-          path,
-          content: content.slice(0, content.length - body.length) + next,
-        })
+        if (edits.length)
+          files.push({ path, content: applyBodyEdits(content, edits) })
       }
       return { counts, findings, files }
     },
