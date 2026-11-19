@@ -7,7 +7,12 @@ import {
   ClickHouseLogLevel,
   createClient,
 } from "@clickhouse/client"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe, expect, it } from "vitest"
 
 import { contractImage } from "../test/contract-images.js"
 import {
@@ -32,7 +37,7 @@ const exec = promisify(execFile)
 const docker = async (...args: string[]) =>
   (await exec("docker", args, { timeout: 180_000 })).stdout.trim()
 
-const tables = ["documents", "chunks", "relations"] as const
+const tables = ["documents", "chunks", "relations", "relations_in"] as const
 const orgA: KnowledgeScope = { orgId: "org_wall_a", workspaceId: "ws_same" }
 // The same Workspace id in both orgs: only the org can separate the rows.
 const orgB: KnowledgeScope = { orgId: "org_wall_b", workspaceId: "ws_same" }
@@ -87,9 +92,6 @@ function rowsOf(
     document: {
       docKey,
       kind: "note",
-      status: "active",
-      deletedAt: null,
-      error: "",
       title,
       path: `notes/${docKey}`,
       sourceType: "git",
@@ -119,6 +121,14 @@ function rowsOf(
     ],
   }
 }
+
+/** The document as the store keeps it after a replace. */
+const active = (rows: DocumentRows) => ({
+  ...rows.document,
+  status: "active",
+  deletedAt: null,
+  error: "",
+})
 
 beforeAll(async () => {
   container = `ctxpipe-knowledge-${randomUUID().slice(0, 8)}`
@@ -173,9 +183,16 @@ describe("KnowledgeStore", () => {
       await expect(
         store.readDocument({ orgId: "", workspaceId: "ws" }, "a.md"),
       ).rejects.toThrow(/org and a Workspace/)
-      await expect(
-        store.insertDocument({ orgId: "org", workspaceId: "" }, rowsOf("x")),
-      ).rejects.toThrow(/org and a Workspace/)
+      const noWorkspace = { orgId: "org", workspaceId: "" }
+      for (const mutation of [
+        store.replaceDocuments(noWorkspace, [rowsOf("x")]),
+        store.markDeleted(noWorkspace, ["x.md"], observedAt),
+        store.insertPlaceholders(noWorkspace, [
+          { docKey: "x.md", status: "missing", observedAt },
+        ]),
+        store.listDocumentKeys({ orgId: "", workspaceId: "ws" }),
+      ])
+        await expect(mutation).rejects.toThrow(/org and a Workspace/)
     } finally {
       await store.close()
     }
@@ -188,7 +205,10 @@ describe("KnowledgeStore", () => {
       rawClient(url),
       "SELECT name FROM knowledge_schema_migrations",
     )
-    expect(applied).toEqual([{ name: "0001_knowledge_tables.sql" }])
+    expect(applied.map((row) => row.name).sort()).toEqual([
+      "0001_knowledge_tables.sql",
+      "0002_relations_in.sql",
+    ])
   })
 
   it("reads back the document, its chunks and its relations in both directions", async () => {
@@ -196,17 +216,16 @@ describe("KnowledgeStore", () => {
     try {
       const source = rowsOf("Source", "source.md", "target.md")
       const target = rowsOf("Target", "target.md", "other.md")
-      await store.insertDocument(orgA, source)
-      await store.insertDocument(orgA, target)
+      await store.replaceDocuments(orgA, [source, target])
 
       expect(await store.readDocument(orgA, "missing.md")).toBeNull()
       const stored = await store.readDocument(orgA, "target.md")
-      expect(stored?.document).toEqual(target.document)
+      expect(stored?.document).toEqual(active(target))
       expect(stored?.chunks).toEqual(target.chunks)
       expect(stored?.outgoing).toEqual([
         { ...target.relations[0], srcDoc: "target.md" },
       ])
-      // The projection sorted by dst_doc gives the incoming relations.
+      // relations_in, sorted by dst_doc, gives the incoming relations.
       expect(stored?.incoming).toEqual([
         { ...source.relations[0], srcDoc: "source.md" },
       ])
@@ -227,7 +246,7 @@ describe("KnowledgeStore", () => {
           embedding: [1, -1, 1, -1, 0, 0, 0, 0.5, -2, 2, 2, 2, 2, 2, 2, 2, 3],
         },
       ]
-      await store.insertDocument(orgA, rows)
+      await store.replaceDocuments(orgA, [rows])
     } finally {
       await store.close()
     }
@@ -249,8 +268,8 @@ describe("org isolation of reads", () => {
     url = await freshDatabase()
     const store = createKnowledgeStore(url)
     try {
-      await store.insertDocument(orgA, rowsOf("Org A"))
-      await store.insertDocument(orgB, rowsOf("Org B"))
+      await store.replaceDocuments(orgA, [rowsOf("Org A")])
+      await store.replaceDocuments(orgB, [rowsOf("Org B")])
     } finally {
       await store.close()
     }
@@ -286,10 +305,10 @@ describe("org isolation of reads", () => {
         new Set([orgB.orgId]),
       )
     }
-    // The read of the incoming relations, through the projection by_dst.
+    // The read of the incoming relations.
     const incoming = await rawRows<{ org_id: string }>(
       client,
-      "SELECT org_id FROM relations WHERE dst_doc = 'target.md'",
+      "SELECT org_id FROM relations_in WHERE dst_doc = 'target.md'",
       orgB.orgId,
     )
     expect(incoming).toEqual([{ org_id: orgB.orgId }])
@@ -311,13 +330,10 @@ describe("org isolation of reads", () => {
       })
     const store = createKnowledgeStore(policyFree)
     try {
-      await store.insertDocument(orgA, rowsOf("Org A", "shared.md"))
-      await store.insertDocument(orgA, rowsOf("Org A source", "a.md"))
-      await store.insertDocument(orgB, rowsOf("Org B", "shared.md"))
-      await store.insertDocument(
-        orgB,
-        rowsOf("Org B target", "target.md", "other.md"),
-      )
+      await store.replaceDocuments(orgA, [rowsOf("Org A", "shared.md")])
+      await store.replaceDocuments(orgA, [rowsOf("Org A source", "a.md")])
+      await store.replaceDocuments(orgB, [rowsOf("Org B", "shared.md")])
+      await store.replaceDocuments(orgB, [rowsOf("Org B target", "target.md", "other.md")])
       // Without the policy, a statement for org B sees both orgs.
       const all = await rawRows<{ org_id: string }>(
         client,
@@ -352,6 +368,14 @@ describe("org isolation of inserts", () => {
   it("CHECK constraint alone: a raw insert of org B rows in a session for org A fails", async () => {
     const url = await freshDatabase()
     const client = rawClient(url)
+    const relationRow = {
+      src_doc: "x.md",
+      src_chunk: 0,
+      predicate: "REFERENCES",
+      dst_doc: "y.md",
+      confidence: 1,
+      observed_at: "2026-11-19 10:11:12.345",
+    }
     const rows = {
       documents: {
         doc_key: "x.md",
@@ -360,14 +384,8 @@ describe("org isolation of inserts", () => {
         observed_at: "2026-11-19 10:11:12.345",
       },
       chunks: { doc_key: "x.md", ordinal: 0, text: "x", embedding: [1] },
-      relations: {
-        src_doc: "x.md",
-        src_chunk: 0,
-        predicate: "REFERENCES",
-        dst_doc: "y.md",
-        confidence: 1,
-        observed_at: "2026-11-19 10:11:12.345",
-      },
+      relations: relationRow,
+      relations_in: relationRow,
     }
     for (const table of tables) {
       await expect(
@@ -416,7 +434,7 @@ describe("org isolation of inserts", () => {
     for (const relation of rows.relations) Object.assign(relation, smuggle)
     const store = createKnowledgeStore(url)
     try {
-      await store.insertDocument(orgA, rows)
+      await store.replaceDocuments(orgA, [rows])
       expect(await store.readDocument(orgB, "shared.md")).toBeNull()
       expect(
         (await store.readDocument(orgA, "shared.md"))?.chunks,
@@ -443,6 +461,66 @@ describe("org isolation of inserts", () => {
   })
 })
 
+describe("known gap: a change in a patch part can stay hidden from reads", () => {
+  // ADR-066 decision 8 and CTX-1401: on the pinned image, a DELETE with
+  // lightweight_delete_mode = 'lightweight_update' and a lightweight UPDATE
+  // write patch parts. When the changed rows are in a part that a merge made,
+  // a read that moves a filter to PREWHERE (the default) still returns the old
+  // rows, until a later merge. ClickHouse PR #112947 describes this. Thus
+  // KnowledgeStore uses only the classic lightweight DELETE and INSERT; the
+  // tests above read after each such DELETE. This test fails when a ClickHouse version fixes the gap, so that the ADR can
+  // change back to patch parts.
+  it.each([
+    [
+      "DELETE in lightweight_update mode",
+      "DELETE FROM patched WHERE ws = 'w3' AND src = 'doc'",
+    ],
+    [
+      "lightweight UPDATE",
+      "UPDATE patched SET status = 'deleted' WHERE ws = 'w3' AND src = 'doc'",
+    ],
+  ])("%s", async (name, change) => {
+    const client = rawClient(await freshDatabase())
+    const run = (query: string) =>
+      client.command({
+        query,
+        clickhouse_settings: { lightweight_delete_mode: "lightweight_update" },
+      })
+    await run(`CREATE TABLE patched
+      (ws String, src String, status String DEFAULT 'active')
+      ENGINE = MergeTree ORDER BY (ws, src)
+      SETTINGS enable_block_number_column = 1, enable_block_offset_column = 1`)
+    // Merges only where this test starts them, so that the parts are the
+    // same in each run.
+    await run("SYSTEM STOP MERGES patched")
+    for (const round of [1, 2, 3]) {
+      await run(
+        `INSERT INTO patched (ws, src) VALUES ('w${round}', 'doc'), ('w${round}', 't')`,
+      )
+      await run(`INSERT INTO patched (ws, src) VALUES ('x${round}', 'doc')`)
+      if (round === 3) {
+        await run("SYSTEM START MERGES patched")
+        await run("OPTIMIZE TABLE patched")
+        await run("SYSTEM STOP MERGES patched")
+      }
+      await run(change.replaceAll("w3", `w${round}`))
+    }
+    const visible = async (prewhere: 0 | 1) =>
+      (
+        await rawRows<{ rows: number }>(
+          client,
+          `SELECT count() AS rows FROM patched
+           WHERE ws = 'w3' AND src = 'doc' AND status = 'active'
+           SETTINGS optimize_move_to_prewhere = ${prewhere}`,
+        )
+      )[0]?.rows
+    // Without PREWHERE, each change is visible.
+    expect(await visible(0), name).toBe(0)
+    // With PREWHERE, the read still returns the old row.
+    expect(await visible(1), name).toBe(1)
+  })
+})
+
 describe("known gap: the row policy does not filter changes", () => {
   // ADR-066 decision 9 and the review of CTX-1392: a ClickHouse row policy
   // filters reads only. A lightweight DELETE or UPDATE has one wall, the org
@@ -452,8 +530,8 @@ describe("known gap: the row policy does not filter changes", () => {
     const url = await freshDatabase()
     const store = createKnowledgeStore(url)
     try {
-      await store.insertDocument(orgA, rowsOf("Org A"))
-      await store.insertDocument(orgB, rowsOf("Org B"))
+      await store.replaceDocuments(orgA, [rowsOf("Org A")])
+      await store.replaceDocuments(orgB, [rowsOf("Org B")])
       await rawClient(url).command({
         query: "DELETE FROM documents WHERE doc_key = 'shared.md'",
         clickhouse_settings: { [ORG_SETTING]: orgA.orgId },
@@ -462,5 +540,338 @@ describe("known gap: the row policy does not filter changes", () => {
     } finally {
       await store.close()
     }
+  })
+})
+
+/*
+ * The users that the migration makes (ADR-066 decision 9), and the mutation
+ * API. The mutations run as the writer user of the worker, and the reads as
+ * the reader user of the backend. The users are global to the server, so
+ * these tests share one database.
+ */
+describe("users and mutations", () => {
+  const passwords = { reader: "reader-test", writer: "writer-test" }
+  let adminUrl: string
+  let readerUrl: string
+  let writerUrl: string
+  let reader: ReturnType<typeof createKnowledgeStore>
+  let writer: ReturnType<typeof createKnowledgeStore>
+
+  const userUrl = (user: string, password: string) => {
+    const url = new URL(adminUrl)
+    url.username = user
+    url.password = password
+    return url.toString()
+  }
+
+  /** All rows of a scope in each table, as the admin user reads them. */
+  async function snapshot(scope: KnowledgeScope) {
+    const client = rawClient(adminUrl)
+    const result: Record<string, unknown[]> = {}
+    for (const table of tables)
+      result[table] = await rawRows(
+        client,
+        `SELECT * EXCEPT (org_id, workspace_id) FROM ${table}
+         WHERE org_id = '${scope.orgId}' AND workspace_id = '${scope.workspaceId}'
+         ORDER BY ALL`,
+        scope.orgId,
+      )
+    return result
+  }
+
+  /** relations and relations_in hold the same rows for the scope. */
+  async function expectSameRelations(scope: KnowledgeScope) {
+    const rows = await snapshot(scope)
+    expect(rows.relations_in).toEqual(rows.relations)
+  }
+
+  beforeAll(async () => {
+    adminUrl = await freshDatabase()
+    await migrateKnowledgeStore(adminUrl, passwords)
+    readerUrl = userUrl("ctxpipe_reader", passwords.reader)
+    writerUrl = userUrl("ctxpipe_writer", passwords.writer)
+    reader = createKnowledgeStore(readerUrl)
+    writer = createKnowledgeStore(writerUrl)
+  })
+
+  afterAll(async () => {
+    await reader?.close()
+    await writer?.close()
+  })
+
+  it("the reader user can read, and cannot insert, update or delete", async () => {
+    const scope = { orgId: "org_users", workspaceId: "ws_reader" }
+    await writer.replaceDocuments(scope, [rowsOf("Reader", "r.md")])
+    expect((await reader.readDocument(scope, "r.md"))?.document.title).toBe(
+      "Reader",
+    )
+    expect(await reader.listDocumentKeys(scope)).toEqual([
+      { docKey: "r.md", status: "active" },
+    ])
+
+    const denied = /ACCESS_DENIED|Not enough privileges/
+    await expect(
+      reader.replaceDocuments(scope, [rowsOf("Changed", "r.md")]),
+    ).rejects.toThrow(denied)
+    await expect(
+      reader.markDeleted(scope, ["r.md"], observedAt),
+    ).rejects.toThrow(denied)
+    await expect(
+      reader.insertPlaceholders(scope, [
+        { docKey: "p.md", status: "missing", observedAt },
+      ]),
+    ).rejects.toThrow(denied)
+    const client = rawClient(readerUrl)
+    const settings = { [ORG_SETTING]: scope.orgId }
+    for (const table of tables) {
+      await expect(
+        client.insert({
+          table,
+          values: [{ org_id: scope.orgId, workspace_id: scope.workspaceId }],
+          format: "JSONEachRow",
+          clickhouse_settings: { ...settings, wait_for_async_insert: 1 },
+        }),
+        table,
+      ).rejects.toThrow(denied)
+      await expect(
+        client.command({
+          query: `DELETE FROM ${table} WHERE org_id = '${scope.orgId}'`,
+          clickhouse_settings: settings,
+        }),
+        table,
+      ).rejects.toThrow(denied)
+    }
+    await expect(
+      client.command({
+        query: `UPDATE documents SET title = 'x' WHERE org_id = '${scope.orgId}'`,
+        clickhouse_settings: settings,
+      }),
+    ).rejects.toThrow(denied)
+    expect(await reader.readDocument(scope, "r.md")).toMatchObject({
+      document: { title: "Reader", status: "active" },
+    })
+  })
+
+  it("the writer user cannot manage access, drop a wall or change the migrations", async () => {
+    const client = rawClient(writerUrl)
+    const denied = /ACCESS_DENIED|Not enough privileges/
+    for (const table of tables) {
+      await expect(
+        client.command({
+          query: `DROP ROW POLICY knowledge_org_wall ON ${table}`,
+        }),
+        table,
+      ).rejects.toThrow(denied)
+      await expect(
+        client.command({
+          query: `ALTER TABLE ${table} DROP CONSTRAINT org_wall`,
+        }),
+        table,
+      ).rejects.toThrow(denied)
+      await expect(
+        client.command({ query: `DROP TABLE ${table}` }),
+        table,
+      ).rejects.toThrow(denied)
+    }
+    for (const query of [
+      "CREATE USER knowledge_intruder IDENTIFIED BY 'intruder-password'",
+      "CREATE ROW POLICY open_wall ON documents AS PERMISSIVE USING 1 TO ALL",
+      "GRANT SELECT ON documents TO ctxpipe_reader",
+      "GRANT INSERT ON documents TO ctxpipe_reader",
+      "ALTER USER ctxpipe_writer SETTINGS readonly = 0",
+      // KnowledgeStore never runs an UPDATE (ADR-066 decision 8).
+      "UPDATE documents SET title = 'x' WHERE org_id = 'org_m_a'",
+      "INSERT INTO knowledge_schema_migrations (name) VALUES ('9999_x.sql')",
+    ])
+      await expect(client.command({ query }), query).rejects.toThrow(denied)
+  })
+
+  it("a second migration sets a new password and keeps the grants", async () => {
+    await migrateKnowledgeStore(adminUrl, {
+      reader: "reader-rotated",
+      writer: passwords.writer,
+    })
+    try {
+      await expect(
+        rawRows(rawClient(readerUrl), "SELECT 1 AS one"),
+      ).rejects.toThrow(/password is incorrect/)
+      const rotated = rawClient(userUrl("ctxpipe_reader", "reader-rotated"))
+      await expect(
+        rawRows(rotated, "SELECT count() AS rows FROM documents", "org_none"),
+      ).resolves.toEqual([{ rows: 0 }])
+      await expect(
+        rotated.command({ query: "DELETE FROM documents WHERE 1" }),
+      ).rejects.toThrow(/ACCESS_DENIED|Not enough privileges/)
+    } finally {
+      // Back to the first password for the other tests.
+      await migrateKnowledgeStore(adminUrl, passwords)
+    }
+  })
+
+  describe("each mutation keeps the org and Workspace scope", () => {
+    let run = 0
+    let target: KnowledgeScope
+    // The same document keys in another Workspace of the same org, and in the
+    // same Workspace id of another org.
+    let others: KnowledgeScope[]
+    let before: Awaited<ReturnType<typeof snapshot>>[]
+    const seed = () => [
+      rowsOf("Doc", "doc.md", "target.md"),
+      rowsOf("Target", "target.md", "doc.md"),
+    ]
+
+    beforeEach(async () => {
+      run += 1
+      target = { orgId: "org_m_a", workspaceId: `ws_m_${run}` }
+      others = [
+        { orgId: "org_m_a", workspaceId: `ws_m_${run}_other` },
+        { orgId: "org_m_b", workspaceId: `ws_m_${run}` },
+      ]
+      for (const scope of [target, ...others])
+        await writer.replaceDocuments(scope, seed())
+      before = await Promise.all(others.map(snapshot))
+    })
+
+    // Each test changes the target scope only.
+    afterEach(async () => {
+      expect(await Promise.all(others.map(snapshot))).toEqual(before)
+      await expectSameRelations(target)
+    })
+
+    it("replaceDocuments replaces the document, its chunks and its outgoing relations", async () => {
+      const next = rowsOf("Doc v2", "doc.md", "new-target.md")
+      next.chunks = [{ ordinal: 0, text: "only section", embedding: [1] }]
+      await writer.replaceDocuments(target, [next])
+
+      const stored = await reader.readDocument(target, "doc.md")
+      expect(stored?.document).toEqual(active(next))
+      expect(stored?.chunks).toEqual(next.chunks)
+      expect(stored?.outgoing).toEqual([
+        { ...next.relations[0], srcDoc: "doc.md" },
+      ])
+      expect(
+        (await reader.readDocument(target, "target.md"))?.incoming,
+      ).toEqual([])
+      // A second run of the same replace (a retry) gives the same rows.
+      const once = await snapshot(target)
+      await writer.replaceDocuments(target, [next])
+      expect(await snapshot(target)).toEqual(once)
+    })
+
+    it("markDeleted makes a tombstone and keeps the relations that point at it", async () => {
+      const deletedAt = new Date("2026-11-20T08:00:00.123Z")
+      await writer.markDeleted(target, ["target.md"], deletedAt)
+
+      const stored = await reader.readDocument(target, "target.md")
+      expect(stored?.document).toMatchObject({
+        title: "Target",
+        status: "deleted",
+        deletedAt,
+        error: "",
+      })
+      expect(stored?.chunks).toEqual([])
+      expect(stored?.outgoing).toEqual([])
+      // doc.md still points at the tombstone.
+      expect(stored?.incoming.map((relation) => relation.srcDoc)).toEqual([
+        "doc.md",
+      ])
+      expect(
+        (await reader.readDocument(target, "doc.md"))?.incoming,
+      ).toEqual([])
+      expect(await reader.listDocumentKeys(target)).toEqual([
+        { docKey: "doc.md", status: "active" },
+        { docKey: "target.md", status: "deleted" },
+      ])
+      // A key with no row: a retry after a failure between the DELETE and
+      // the INSERT of a tombstone still makes the tombstone.
+      await writer.markDeleted(target, ["gone.md"], deletedAt)
+      expect(
+        (await reader.readDocument(target, "gone.md"))?.document,
+      ).toMatchObject({ status: "deleted", deletedAt, title: "", kind: "" })
+      // The file comes back: a replace makes the row active again.
+      await writer.replaceDocuments(target, seed())
+      expect(
+        (await reader.readDocument(target, "target.md"))?.document.status,
+      ).toBe("active")
+    })
+
+    it("insertPlaceholders replaces each document with a missing or failed row", async () => {
+      await writer.insertPlaceholders(target, [
+        { docKey: "nowhere.md", status: "missing", observedAt },
+        {
+          docKey: "doc.md",
+          status: "failed",
+          error: "parse error",
+          observedAt,
+        },
+      ])
+      expect(await reader.listDocumentKeys(target)).toEqual([
+        { docKey: "doc.md", status: "failed" },
+        { docKey: "nowhere.md", status: "missing" },
+        { docKey: "target.md", status: "active" },
+      ])
+      const failed = await reader.readDocument(target, "doc.md")
+      expect(failed?.document).toMatchObject({
+        status: "failed",
+        error: "parse error",
+        title: "",
+      })
+      expect(failed?.chunks).toEqual([])
+      expect(failed?.outgoing).toEqual([])
+      expect(
+        (await reader.readDocument(target, "nowhere.md"))?.document,
+      ).toMatchObject({ status: "missing", error: "", deletedAt: null })
+    })
+
+    it("a document key cannot change the predicates of a statement", async () => {
+      const injected = "x') OR (1 = 1"
+      await writer.markDeleted(target, [injected], observedAt)
+      await writer.insertPlaceholders(target, [
+        { docKey: injected, status: "missing", observedAt },
+      ])
+      await writer.replaceDocuments(target, [rowsOf("Injected", injected)])
+      expect(await reader.listDocumentKeys(target)).toEqual([
+        { docKey: "doc.md", status: "active" },
+        { docKey: "target.md", status: "active" },
+        { docKey: injected, status: "active" },
+      ])
+    })
+
+    it("refuses a batch with the same document key two times", async () => {
+      const unchanged = await snapshot(target)
+      await expect(
+        writer.replaceDocuments(target, [rowsOf("A", "doc.md"), rowsOf("B", "doc.md")]),
+      ).rejects.toThrow(/two times/)
+      await expect(
+        writer.insertPlaceholders(target, [
+          { docKey: "doc.md", status: "missing", observedAt },
+          { docKey: "doc.md", status: "missing", observedAt },
+        ]),
+      ).rejects.toThrow(/two times/)
+      expect(await snapshot(target)).toEqual(unchanged)
+    })
+  })
+
+  // The proof that the API cannot make a DELETE without both predicates: the
+  // server logs the text of each statement that the tests above sent as the
+  // writer user.
+  it("each DELETE of the writer has the org and Workspace predicates first, and the writer sends no other change", async () => {
+    const admin = rawClient(adminUrl)
+    await admin.command({ query: "SYSTEM FLUSH LOGS" })
+    const statements = await rawRows<{ kind: string; query: string }>(
+      admin,
+      `SELECT query_kind AS kind, query FROM system.query_log
+       WHERE type = 'QueryFinish' AND user = 'ctxpipe_writer'
+         AND has(databases, currentDatabase())
+         AND query_kind NOT IN ('Select', 'Insert', 'AsyncInsertFlush')
+       ORDER BY event_time_microseconds`,
+    )
+    expect(new Set(statements.map((statement) => statement.kind))).toEqual(
+      new Set(["Delete"]),
+    )
+    for (const { query } of statements)
+      expect(query).toMatch(
+        /^DELETE FROM \w+ WHERE \(org_id = '\w+'\) AND \(workspace_id = '\w+'\) AND \(/,
+      )
   })
 })

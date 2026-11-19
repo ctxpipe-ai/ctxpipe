@@ -57,7 +57,7 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
     - the lag from the tip SHA to `last_sha`, for each Workspace (the main alert);
     - the failed count;
     - the time of each apply;
-    - the count of open ClickHouse patch parts.
+    - the count of pending ClickHouse mutations (`system.mutations`), because each `DELETE` is a mutation (ADR-066 decision 8).
 12. **Public docs** state that a missing old commit, for example after a force-push and a Git GC, starts a full rebuild.
 
 ## Consequences

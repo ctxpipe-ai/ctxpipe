@@ -101,11 +101,24 @@ the relations between them.
 
 | Variable | Description |
 |---|---|
-| `CLICKHOUSE_URL` | Required. The ClickHouse HTTP URL with the user, the password, and the database: `http://user:password@host:8123/database`. URL-encode special characters in the password. The backend, the worker, and the migrations use it. |
+| `CLICKHOUSE_URL` | Required. The ClickHouse HTTP URL with the user, the password, and the database: `http://user:password@host:8123/database`. URL-encode special characters in the password. Each process gets a different user (see below). |
+| `CLICKHOUSE_READER_PASSWORD` | Migrations only. The password of the user `ctxpipe_reader`. |
+| `CLICKHOUSE_WRITER_PASSWORD` | Migrations only. The password of the user `ctxpipe_writer`. |
 
-The migrations create the tables and a row policy for each table. Thus, the
-ClickHouse user needs SQL access management (`access_management`). If
-`CLICKHOUSE_URL` is not set, the migrations skip ClickHouse.
+Give each process its own ClickHouse user in `CLICKHOUSE_URL`:
+
+- **Migrations:** an admin user with SQL access management
+  (`access_management`). The migrations create the tables, a row policy for
+  each table, and the two users below. Give the admin user to the migrations
+  only.
+- **Backend:** `ctxpipe_reader`. It can only read the knowledge tables.
+- **Worker:** `ctxpipe_writer`. It can read, insert, and delete rows in the
+  knowledge tables. It cannot manage users, grants, or row policies.
+
+The migrations create or update a user only when its password is set. They
+store a salted SHA-256 hash of the password. To change a password, set the new
+value and run the migrations again. If `CLICKHOUSE_URL` is not set, the
+migrations skip ClickHouse.
 
 ## Chat sandboxes
 

@@ -1,7 +1,26 @@
+import { createHash, randomBytes } from "node:crypto"
 import { readdir, readFile } from "node:fs/promises"
+
+import type { ClickHouseClient } from "@clickhouse/client"
 
 import { log } from "../observability/logger.js"
 import { createClickHouseClient } from "./knowledge-store.js"
+
+/**
+ * The passwords of the two ClickHouse users that the migration makes. If a
+ * password is not set, the migration does not change that user.
+ */
+type KnowledgeUserPasswords = {
+  /** The user of the backend (`ctxpipe_reader`): SELECT only. */
+  reader?: string
+  /**
+   * The user of the worker (`ctxpipe_writer`): SELECT, INSERT and ALTER
+   * DELETE. KnowledgeStore never runs an UPDATE (ADR-066 decision 8).
+   */
+  writer?: string
+}
+
+const knowledgeTables = ["documents", "chunks", "relations", "relations_in"]
 
 /**
  * Applies the ClickHouse SQL files of `migrations/` in name order, each one
@@ -10,7 +29,10 @@ import { createClickHouseClient } from "./knowledge-store.js"
  * Write each statement so that a second run changes nothing (`IF NOT EXISTS`,
  * `OR REPLACE`): a run that fails part way applies the whole file again.
  */
-export async function migrateKnowledgeStore(url: string): Promise<void> {
+export async function migrateKnowledgeStore(
+  url: string,
+  passwords: KnowledgeUserPasswords = {},
+): Promise<void> {
   const migrationsFolder = new URL("./migrations/", import.meta.url)
   const client = createClickHouseClient(url)
   try {
@@ -56,7 +78,49 @@ export async function migrateKnowledgeStore(url: string): Promise<void> {
         migration: name,
       })
     }
+    await setUser(client, "ctxpipe_reader", passwords.reader, "SELECT")
+    await setUser(
+      client,
+      "ctxpipe_writer",
+      passwords.writer,
+      "SELECT, INSERT, ALTER DELETE",
+    )
   } finally {
     await client.close()
   }
+}
+
+/**
+ * Makes the user `name`, or sets its password, and gives it `privileges` on
+ * the knowledge tables of the current database, and nothing more (ADR-066
+ * decision 9). The user gets no access management, so it cannot drop a row
+ * policy or a constraint. The row policies are `TO ALL`, so they also apply
+ * to this user.
+ */
+async function setUser(
+  client: ClickHouseClient,
+  name: string,
+  password: string | undefined,
+  privileges: string,
+): Promise<void> {
+  if (!password) return
+  // The statement holds a SHA-256 hash in hex, not the password: nothing
+  // from the setting gets into the SQL text or the query log.
+  const salt = randomBytes(16).toString("hex")
+  const hash = createHash("sha256")
+    .update(password + salt)
+    .digest("hex")
+  const identified = `IDENTIFIED WITH sha256_hash BY '${hash}' SALT '${salt}'`
+  await client.command({ query: `CREATE USER IF NOT EXISTS ${name} ${identified}` })
+  await client.command({ query: `ALTER USER ${name} ${identified}` })
+  // WITH REPLACE OPTION removes each grant that is not in this statement.
+  await client.command({
+    query: `GRANT ${knowledgeTables.map((table) => `${privileges} ON ${table}`).join(", ")}
+      TO ${name} WITH REPLACE OPTION`,
+  })
+  log.info({
+    step: "migrate",
+    message: "[migrate] set a ClickHouse user and its grants",
+    user: name,
+  })
 }

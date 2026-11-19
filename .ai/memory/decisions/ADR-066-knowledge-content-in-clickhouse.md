@@ -62,7 +62,14 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
    Search returns only `active` documents. The traversal sees all four. Thus, a relation always has a target ([ADR-067](ADR-067-knowledge-projection-applies-git-diff.md)).
 
    The CTO chose stored placeholder rows (2026-11-19), not only a target key that is missing at read time. Reasons: the maintenance job finds them with one status query, Jev sees "does not exist" as a fact of the candidate, and a stored row keeps the difference between "deleted on a date" and "never existed".
-8. **Changes use the lightweight SQL `UPDATE` and `DELETE`** (patch parts). They came as a beta in ClickHouse 25.7. In 26.10.6.18, the version that we pin, they are tier "Production", and the text index became generally available (GA) in 26.2 ([CTX-1391](https://linear.app/ctxpipe/issue/CTX-1391)). A `DELETE` runs with `lightweight_delete_mode = 'lightweight_update'`, so it writes a patch part (about 90 ms) and does not rewrite parts. Each table sets `enable_block_number_column = 1` and `enable_block_offset_column = 1`. We do not depend on the experimental transactions, which also are not in the cloud product.
+8. **Each change is a `DELETE`, then an `INSERT`.** The `DELETE` is the classic lightweight `DELETE` (the `_row_exists` mask), and it is synchronous. There is no `UPDATE`: a tombstone reads the document row, deletes it, and inserts it again with `status = deleted` and `deleted_at`. We pin ClickHouse 26.10.6.18. The text index became generally available (GA) in 26.2 ([CTX-1391](https://linear.app/ctxpipe/issue/CTX-1391)). We do not depend on the experimental transactions, which also are not in the cloud product.
+   - **Why not patch parts** ([CTX-1401](https://linear.app/ctxpipe/issue/CTX-1401)). A `DELETE` with `lightweight_delete_mode = 'lightweight_update'` and the lightweight `UPDATE` write patch parts. On 26.10.6.18, reads can miss them. We ran 100 rounds of insert, change and read, with background merges only:
+     - a `DELETE` in a patch part: 35 reads still returned the deleted row;
+     - a lightweight `UPDATE`: 39 reads still returned the old value;
+     - the classic `DELETE`: 0 stale reads, in the same time (about 140 ms for the change and the read).
+   - **The trigger:** the changed rows are in a part that a merge made, and the read moves a filter to `PREWHERE` (the default). The stale row stays until a later merge. In one test, it stayed for more than 45 s with no writes. A review comment on ClickHouse PR [#112947](https://github.com/ClickHouse/ClickHouse/pull/112947) describes this gap. A contract test reproduces it, and it fails when a ClickHouse version fixes the gap.
+   - **The cost:** each `DELETE` is a mutation. It rewrites the `_row_exists` mask of each part that it touches, also of parts on S3. The mutations of one table run in order, so many small `DELETE`s form a queue. Thus `KnowledgeStore` deletes in batches.
+   - Only patch parts need the block number and block offset columns, so the tables do not make them.
 9. **Org isolation.** `KnowledgeStore` is the only ClickHouse client. Each query session sets its org. Reads and writes need different walls, because a ClickHouse row policy filters reads only: unlike Postgres RLS `WITH CHECK`, it does not check the rows that a session inserts.
    - **Reads have two walls:**
      - every statement has `org_id` and `workspace_id` in its `WHERE` clause;
@@ -70,11 +77,10 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
    - **Inserts have two walls:**
      - the `KnowledgeStore` write API takes the org and the Workspace, and sets the `org_id` and `workspace_id` columns itself, so a caller cannot put them in a row;
      - each table has `CONSTRAINT … CHECK org_id = getSetting('SQL_ctxpipe_org_id')`, so ClickHouse refuses an insert for another org (`VIOLATED_CONSTRAINT`). An async insert must wait (`wait_for_async_insert=1`): without the wait, a refused row is dropped with no error to the client.
-   - **`UPDATE` and `DELETE` have one wall.** ClickHouse applies neither the row policy nor the `CHECK` constraint to them. Its docs say that a row policy is useful only for read-only users. Thus:
-     - `KnowledgeStore` builds the org and Workspace predicates of each `UPDATE` and `DELETE` itself. A caller gives only the extra predicate.
-     - A test proves that the API cannot build such a statement without the two predicates.
-     - The backend connects as a read-only ClickHouse user, with no `INSERT`, `UPDATE` or `DELETE` grant. Only the worker, which runs the projection, has write grants.
-     - `org_id` is a sort key column, so an `UPDATE` cannot move a row to another org.
+   - **A `DELETE` has one wall.** ClickHouse applies neither the row policy nor the `CHECK` constraint to a `DELETE` or an `UPDATE`. Its docs say that a row policy is useful only for read-only users. Thus:
+     - `KnowledgeStore` builds the org and Workspace predicates of each `DELETE` itself. A caller gives only document keys.
+     - A test proves that the API cannot build a `DELETE` without the two predicates.
+     - The migrations make two users. The backend connects as `ctxpipe_reader`, with `SELECT` only. The worker, which runs the projection, connects as `ctxpipe_writer`, with `SELECT`, `INSERT` and `ALTER DELETE` on the knowledge tables. It has no `ALTER UPDATE` grant. Neither user can manage access, so neither can drop a row policy or a constraint. Only the migrations have the admin user.
    - **Tests:**
      - each read wall works with the other removed;
      - each insert wall works with the other removed;
@@ -94,8 +100,8 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
 - **One engine** serves search and the graph, and it has S3 storage economics. No app code tracks which Workspaces are hot.
 - **Availability:** a single node is a point of failure. S3 tiering is durability, not high availability.
 - **Cold reads:** the first read of a cold Workspace pays S3 round trips, and each layer of a traversal can pay them again. The cache size decides how many active Workspaces stay fast. A 256 MiB cache thrashed on the observability node ([CTX-1067](https://linear.app/ctxpipe/issue/CTX-1067)).
-- **Patch parts:** many open patch parts make reads slower until a merge, so we monitor their count.
-- **One wall for `UPDATE` and `DELETE`** (decision 9): a bug in the mutation API of the worker can change rows of another org. The read-only user of the backend and the tests of the mutation API limit this risk.
+- **Mutation queue:** we monitor the count of pending mutations (`system.mutations`).
+- **One wall for `DELETE`** (decision 9): a bug in the mutation API of the worker can delete rows of another org. The read-only user of the backend and the tests of the mutation API limit this risk.
 - **Two tables for one relation:** `KnowledgeStore` must write and delete `relations` and `relations_in` together. A failed run can leave them different until the retry of [ADR-067](ADR-067-knowledge-projection-applies-git-diff.md) repairs them.
 - **Self-host:** self-hosters lose the choice of graph database. The CDK construct, Compose and the self-host docs change.
 - **Supersedes and amends:**
