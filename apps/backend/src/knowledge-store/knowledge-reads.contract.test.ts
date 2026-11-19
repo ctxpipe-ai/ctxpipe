@@ -72,7 +72,13 @@ function document(
       observedAt,
       ...fields,
     },
-    chunks: chunks.map((chunk, ordinal) => ({ ordinal, ...chunk })),
+    // Each chunk has its own file lines, so a read shows which chunk it gave.
+    chunks: chunks.map((chunk, ordinal) => ({
+      ordinal,
+      startLine: ordinal * 4 + 1,
+      endLine: ordinal * 4 + 3,
+      ...chunk,
+    })),
     relations: relations.map((relation) => ({
       srcChunk: 0,
       predicate: "REFERENCES",
@@ -119,6 +125,8 @@ const orgADocuments: DocumentRows[] = [
   ]),
   // Close vector and the query term, valid in 2020 only.
   document("old.md", [{ text: "zebracorn of 2020", embedding: nearQuery(7) }], {
+    // A file of the Linear mirror.
+    path: "linear/old.md",
     validFrom: new Date("2020-01-01T00:00:00.000Z"),
     validTo: new Date("2021-01-01T00:00:00.000Z"),
     relations: [{ dstDoc: "vector.md" }],
@@ -126,7 +134,11 @@ const orgADocuments: DocumentRows[] = [
   document(
     "guides/setup.md",
     [{ text: "setup guide", embedding: nearQuery(3) }],
-    { kind: "guide", path: "guides/setup.md" },
+    {
+      kind: "guide",
+      path: "guides/setup.md",
+      observedAt: new Date("2026-11-20T00:00:00.000Z"),
+    },
   ),
   // More than 50 chunks near the query, so that the top 50 is a choice.
   ...Array.from({ length: 80 }, (_, i) =>
@@ -258,7 +270,13 @@ describe("search", () => {
     const hits = await search({})
     expect(hits[0]?.document.docKey).toBe("vector.md")
     expect(hits[0]?.chunks).toEqual([
-      { ordinal: 0, text: "plain words only", score: expect.any(Number) },
+      {
+        ordinal: 0,
+        text: "plain words only",
+        startLine: 1,
+        endLine: 3,
+        score: expect.any(Number),
+      },
     ])
     expect(hits.flatMap((hit) => hit.chunks)).toHaveLength(50)
     expect(hitKeys(hits)).not.toContain("lexical.md")
@@ -279,6 +297,8 @@ describe("search", () => {
       {
         ordinal: 0,
         text: "the zebracorn term appears",
+        startLine: 1,
+        endLine: 3,
         score: expect.any(Number),
       },
     ])
@@ -395,6 +415,26 @@ describe("search", () => {
     ])
   })
 
+  it("filters by source and by the time a document was observed", async () => {
+    // The source is the mirror root of the path, else authored.
+    expect(
+      hitKeys(await search({ terms: ["zebracorn"], sources: ["linear"] })),
+    ).toEqual(["old.md"])
+    expect(
+      hitKeys(await search({ terms: ["zebracorn"], sources: ["authored"] })),
+    ).not.toContain("old.md")
+    expect(
+      hitKeys(
+        await search({ observedAfter: new Date("2026-11-19T12:00:00.000Z") }),
+      ),
+    ).toEqual(["guides/setup.md"])
+    expect(
+      hitKeys(
+        await search({ terms: ["zebracorn"], sources: ["linear", "authored"] }),
+      ),
+    ).toEqual(expect.arrayContaining(["old.md", "lexical.md"]))
+  })
+
   it("searches several Workspaces of the org in one call", async () => {
     expect(hitKeys(await search({ terms: ["elsewhere"] }))).not.toContain(
       "other.md",
@@ -474,6 +514,23 @@ describe("frontier relations", () => {
   })
 })
 
+describe("document read", () => {
+  it("returns the row of each document that has one, with no chunks", async () => {
+    const documents = await store.readDocuments(orgA, [
+      { workspaceId: workspace, docKey: "vector.md" },
+      { workspaceId: workspace, docKey: "ghost.md" },
+      { workspaceId: otherWorkspace, docKey: "vector.md" },
+    ])
+    expect(
+      documents.map(({ workspaceId, document }) => [
+        workspaceId,
+        document.docKey,
+        document.status,
+      ]),
+    ).toEqual([[workspace, "vector.md", "active"]])
+  })
+})
+
 describe("evidence read", () => {
   it("returns each document with its chunks closest to the query vector", async () => {
     const evidence = await store.readEvidence(
@@ -490,7 +547,13 @@ describe("evidence read", () => {
     )
     expect(Object.keys(byKey).sort()).toEqual(["deleted.md", "vector.md"])
     expect(byKey["vector.md"]?.chunks).toEqual([
-      { ordinal: 0, text: "plain words only", distance: expect.any(Number) },
+      {
+        ordinal: 0,
+        text: "plain words only",
+        startLine: 1,
+        endLine: 3,
+        distance: expect.any(Number),
+      },
     ])
     expect(byKey["vector.md"]?.chunks[0]?.distance).toBeLessThan(0.01)
     // The evidence read gives each status; only the search is active-only.
@@ -530,6 +593,7 @@ async function readAllForOrgA(
       terms: ["zebracorn", "Org", "B"],
     }),
     await reader.readFrontier(orgA, refs),
+    await reader.readDocuments(orgA, refs),
     await reader.readEvidence(orgA, refs, queryVector, 3),
     await reader.readGraph({ orgId: orgA.orgId, workspaceId: workspace }, 1000),
   ])

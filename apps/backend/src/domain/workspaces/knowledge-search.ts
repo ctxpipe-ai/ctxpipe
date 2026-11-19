@@ -9,7 +9,7 @@ import { activeProjectionSha } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { generateEmbedding } from "../../retrieval/services/modelProvider.js"
 
-type KnowledgeSearchInput = {
+export type KnowledgeSearchInput = {
   orgId: string
   /** Workspaces of `orgId` to search. Row-level security hides other orgs. */
   workspaceIds: readonly string[]
@@ -42,7 +42,7 @@ type KnowledgeSearchInput = {
 }
 
 /** The best chunk of one unit. */
-type KnowledgeHit = {
+export type KnowledgeHit = {
   workspaceId: string
   unitId: string
   path: string

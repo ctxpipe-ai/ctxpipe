@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { searchKnowledge } from "../../domain/workspaces/knowledge-search.js"
+import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
 import { fitPage, truncateText } from "../framework/budget.js"
 import {
   listOrgWorkspaceSlugs,
@@ -113,6 +113,11 @@ export const searchKnowledgeTool = defineMcpReadTool({
     skipped: z.array(skippedSchema),
     cursor: z.string().optional(),
     truncated: z.boolean().optional(),
+    partial: z
+      .boolean()
+      .optional()
+      .describe("True when the hits are in the search order only."),
+    partialReason: z.string().optional(),
   }),
   async run(input, { org }) {
     const named = input.workspaces !== undefined
@@ -129,16 +134,27 @@ export const searchKnowledgeTool = defineMcpReadTool({
       slugs.map((slug) => resolveCallWorkspace(org, slug)),
     )
     const skipped: Skipped[] = []
-    const workspaces = resolved.flatMap((workspace) => {
+    const servedWorkspaces = resolved.flatMap((workspace) => {
       if (workspace.served) return [{ ...workspace, served: workspace.served }]
       if (named) requireServed(workspace)
       skipped.push({ workspace: workspace.slug, reason: "not_ready" })
       return []
     })
-    const hits =
+    const { reader, planeShas } = await selectKnowledgeReader(
+      org.id,
+      servedWorkspaces.map((workspace) => workspace.id),
+    )
+    // The plane serves the SHA of its last full run.
+    const workspaces = servedWorkspaces.map((workspace) => {
+      const sha = planeShas.get(workspace.id)
+      return sha
+        ? { ...workspace, served: { ...workspace.served, sha } }
+        : workspace
+    })
+    const { hits, partialReason } =
       workspaces.length === 0
-        ? []
-        : await searchKnowledge({
+        ? { hits: [], partialReason: undefined }
+        : await reader.search({
             orgId: org.id,
             workspaceIds: workspaces.map((w) => w.id),
             query: input.query,
@@ -155,6 +171,7 @@ export const searchKnowledgeTool = defineMcpReadTool({
     const binding = {
       orgId: org.id,
       workspaceId: null,
+      stack: reader.stack,
       scope: JSON.stringify(["search_knowledge", parameters]),
       sha: JSON.stringify([
         workspaces.map((workspace) => [workspace.id, workspace.served.sha]),
@@ -185,15 +202,17 @@ export const searchKnowledgeTool = defineMcpReadTool({
         served: { ...workspace.served, sha: hit.projectionSha },
       }
     })
+    const partial = partialReason ? { partial: true, partialReason } : {}
     const { page, nextOffset, truncated } = fitPage(items, {
       offset,
       limit: input.limit,
       maxTokens: 4_000,
-      result: (fitted) => ({ hits: fitted, skipped }),
+      result: (fitted) => ({ hits: fitted, skipped, ...partial }),
     })
     return {
       hits: page,
       skipped,
+      ...partial,
       ...(nextOffset === null
         ? {}
         : { cursor: encodeCursor({ ...binding, offset: nextOffset }) }),

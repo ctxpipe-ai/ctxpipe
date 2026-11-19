@@ -76,7 +76,14 @@ describe("knowledgeRows", () => {
           validTo: null,
           observedAt: OBSERVED,
         },
-        chunks: [{ ordinal: 0, text: "See [ledger](../billing/ledger.md)." }],
+        chunks: [
+          {
+            ordinal: 0,
+            text: "See [ledger](../billing/ledger.md).",
+            startLine: 6,
+            endLine: 6,
+          },
+        ],
         relations: [
           {
             srcChunk: 0,
@@ -121,7 +128,9 @@ describe("knowledgeRows", () => {
       "knowledge/services/api.md",
     )
     expect(rows?.document).toMatchObject({ kind: "Service", title: "API" })
-    expect(rows?.chunks).toEqual([{ ordinal: 0, text: "API\n\n# API" }])
+    expect(rows?.chunks).toEqual([
+      { ordinal: 0, text: "API\n\n# API", startLine: 6, endLine: 6 },
+    ])
     expect(edges(rows?.relations ?? [])).toEqual([
       {
         predicate: "FROM_SOURCE",
@@ -163,10 +172,17 @@ describe("knowledgeRows", () => {
       observedAt: OBSERVED,
     })
     expect(rows?.chunks).toEqual([
-      { ordinal: 0, text: "Limits\n\n# Limits\n\nDaily caps." },
+      {
+        ordinal: 0,
+        text: "Limits\n\n# Limits\n\nDaily caps.",
+        startLine: 13,
+        endLine: 15,
+      },
       {
         ordinal: 1,
         text: "Limits > History\n\n## History\n\nThe [old ledger](../billing/ledger.md) set them.",
+        startLine: 17,
+        endLine: 19,
       },
     ])
     expect(rows?.relations).toEqual([
@@ -242,7 +258,7 @@ describe("knowledgeRows", () => {
           validTo: null,
           observedAt: OBSERVED,
         },
-        chunks: [{ ordinal: 0, text: "" }],
+        chunks: [{ ordinal: 0, text: "", startLine: 0, endLine: 0 }],
         relations: [],
       },
     ])
@@ -295,7 +311,9 @@ describe("knowledgeRows", () => {
       ],
       path,
     )
-    expect(rows?.chunks).toEqual([{ ordinal: 0, text: "Payments API" }])
+    expect(rows?.chunks).toEqual([
+      { ordinal: 0, text: "Payments API", startLine: 1, endLine: 1 },
+    ])
     expect(edges(rows?.relations ?? [])).toEqual([
       {
         predicate: "DEPENDS_ON",

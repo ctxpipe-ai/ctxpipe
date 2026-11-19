@@ -79,8 +79,20 @@ function rowsOf(
       observedAt,
     },
     chunks: [
-      { ordinal: 0, text: `${title} first section`, embedding: [1, -1, 0.5] },
-      { ordinal: 1, text: `${title} second section`, embedding: [-2, 2, 0] },
+      {
+        ordinal: 0,
+        text: `${title} first section`,
+        startLine: 3,
+        endLine: 5,
+        embedding: [1, -1, 0.5],
+      },
+      {
+        ordinal: 1,
+        text: `${title} second section`,
+        startLine: 7,
+        endLine: 9,
+        embedding: [-2, 2, 0],
+      },
     ],
     relations: [
       {
@@ -152,6 +164,7 @@ describe("KnowledgeStore", () => {
       "0001_knowledge_tables.sql",
       "0002_relations_in.sql",
       "0003_chunks_index_granularity.sql",
+      "0004_chunk_lines.sql",
     ])
   })
 
@@ -187,6 +200,8 @@ describe("KnowledgeStore", () => {
         {
           ordinal: 0,
           text: "bits",
+          startLine: 1,
+          endLine: 1,
           embedding: [1, -1, 1, -1, 0, 0, 0, 0.5, -2, 2, 2, 2, 2, 2, 2, 2, 3],
         },
       ]
@@ -697,7 +712,15 @@ describe("users and mutations", () => {
 
     it("replaceDocuments replaces the document, its chunks and its outgoing relations", async () => {
       const next = rowsOf("Doc v2", "doc.md", "new-target.md")
-      next.chunks = [{ ordinal: 0, text: "only section", embedding: [1] }]
+      next.chunks = [
+        {
+          ordinal: 0,
+          text: "only section",
+          startLine: 1,
+          endLine: 2,
+          embedding: [1],
+        },
+      ]
       await writer.replaceDocuments(target, [next])
 
       const stored = await reader.readDocument(target, "doc.md")

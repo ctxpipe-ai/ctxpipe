@@ -35,6 +35,8 @@ type KnowledgeDocument = {
 type KnowledgeChunk = {
   ordinal: number
   text: string
+  startLine: number
+  endLine: number
   embedding: number[]
 }
 
@@ -115,13 +117,19 @@ export function knowledgeRows(input: {
   const title = unit.title ?? node.name ?? ""
 
   // The rows hold no chunk hash, so the embedding model is not an input here.
-  const chunks = knowledgeChunkRows([unit], "").map(({ ordinal, text }) => ({
-    ordinal,
-    text,
-  }))
+  const chunks = knowledgeChunkRows([unit], "").map(
+    ({ ordinal, text, startLine, endLine }) => ({
+      ordinal,
+      text,
+      startLine,
+      endLine,
+    }),
+  )
   // A file with no body text (only front matter) gets one chunk with its
-  // title, so that each relation has a chunk that states it.
-  if (!chunks.length) chunks.push({ ordinal: 0, text: title })
+  // title, so that each relation has a chunk that states it. Its lines are
+  // the first line of the file, where the front matter starts.
+  if (!chunks.length)
+    chunks.push({ ordinal: 0, text: title, startLine: 1, endLine: 1 })
   // The link definitions of the body (`[label]: path "title"`), for a
   // reference-style image (`![alt][label]`, `![label][]` or `![label]`).
   const definitions = new Map(
@@ -230,7 +238,7 @@ export function knowledgeRows(input: {
       // The image embedding is the vector of this chunk. Its text stays empty:
       // the alt text belongs to the file that shows the image, and two files
       // can give one image different alt texts (ADR-066 decision 5).
-      chunks: [{ ordinal: 0, text: "" }],
+      chunks: [{ ordinal: 0, text: "", startLine: 0, endLine: 0 }],
       relations: [],
     })
   }

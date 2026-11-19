@@ -2,6 +2,7 @@ import type { ToolExecutionContext } from "@tanstack/ai"
 import { z } from "zod"
 
 import { withOrgDbContext } from "../../db/client.js"
+import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
 import { toToon } from "../../lib/agentToolRuntime.js"
 import { runBridgeToolCall } from "../../mcp/correlation.js"
 import {
@@ -20,13 +21,8 @@ import {
   runCodeTool,
   stringArg,
 } from "./code-tools.js"
-import {
-  expandWorkspaceGraph,
-  type GraphExpandParams,
-  type GraphExpansion,
-} from "./graph-expand.js"
+import type { GraphExpandParams, GraphExpansion } from "./graph-expand.js"
 import { WorkspaceGraphBuildingError } from "./graph-rebuild.js"
-import { searchKnowledge } from "./knowledge-search.js"
 import { type PublishedProjection, publishedProjection } from "./revision.js"
 
 export type WorkspaceChatTanstackTool = {
@@ -72,13 +68,22 @@ export async function workspaceChatTools(input: {
     projection.kind === "active" ? projection.revision.sha : projection.sha
   const boundRepositories = input.snapshot.repositories
   const allowed = new Set(boundRepositories.map((repo) => repo.id))
-  const expand = (params: GraphExpandParams) =>
-    expandWorkspaceGraph({
-      orgId: input.orgId,
-      orgSlug: input.orgSlug,
-      projection,
-      ...params,
-    })
+  // Each call picks the knowledge reader, as an MCP tool call does.
+  const expand = async (params: GraphExpandParams) => {
+    const { reader, planeShas } = await selectKnowledgeReader(input.orgId, [
+      input.workspaceId,
+    ])
+    return {
+      graph: await reader.expand({
+        orgId: input.orgId,
+        orgSlug: input.orgSlug,
+        workspaceId: input.workspaceId,
+        projection,
+        params,
+      }),
+      sha: planeShas.get(input.workspaceId) ?? sha,
+    }
+  }
   const explorer = [
     listRepositoriesTool as unknown as ExplorerTool,
     ...CODE_TOOLS,
@@ -100,10 +105,7 @@ export async function workspaceChatTools(input: {
       activeProjectionSha: sha,
     }),
   )
-  tools.push(
-    graphLookupTool({ expand, sha }),
-    graphNeighborsTool({ expand, sha }),
-  )
+  tools.push(graphLookupTool({ expand }), graphNeighborsTool({ expand }))
   return tools
 }
 
@@ -137,7 +139,10 @@ function hybridSearchTool(input: {
           ? (args as { query: string }).query
           : ""
       if (!query.trim()) return "No search query."
-      const hits = await searchKnowledge({
+      const { reader, planeShas } = await selectKnowledgeReader(input.orgId, [
+        input.workspaceId,
+      ])
+      const { hits } = await reader.search({
         orgId: input.orgId,
         workspaceIds: [input.workspaceId],
         query,
@@ -145,8 +150,9 @@ function hybridSearchTool(input: {
       })
       if (hits.length === 0)
         return "No matching knowledge in the active projection."
+      const sha = planeShas.get(input.workspaceId) ?? input.activeProjectionSha
       return [
-        `Workspace projection context (${input.activeProjectionSha}):`,
+        `Workspace projection context (${sha}):`,
         ...hits.map((hit) => {
           const claims = hit.claims
             .map((claim) => `- ${claim.predicate ?? "related"} ${claim.to}`)
@@ -221,8 +227,10 @@ function wrapExplorerTool(input: {
 }
 
 type ChatGraphTool = {
-  expand: (params: GraphExpandParams) => Promise<GraphExpansion>
-  sha: string
+  /** The walk, and the SHA that the stack of the walk serves. */
+  expand: (
+    params: GraphExpandParams,
+  ) => Promise<{ graph: GraphExpansion; sha: string }>
 }
 
 function graphLookupTool(input: ChatGraphTool): WorkspaceChatTanstackTool {
@@ -231,13 +239,13 @@ function graphLookupTool(input: ChatGraphTool): WorkspaceChatTanstackTool {
     execute: async (args) => {
       const nodeId = stringArg(args, "nodeId")
       if (!nodeId) return toToon({ error: "nodeId_required" })
-      const graph = await expandOrRetry(() =>
+      const walked = await expandOrRetry(() =>
         input.expand({ seeds: [nodeId], maxDepth: 0 }),
       )
-      if (!("nodes" in graph)) return toToon(graph)
-      const node = graph.nodes[0]
+      if (!("graph" in walked)) return toToon(walked)
+      const node = walked.graph.nodes[0]
       return toToon({
-        projectionSha: input.sha,
+        projectionSha: walked.sha,
         node: node
           ? {
               id: node.id,
@@ -267,10 +275,11 @@ function graphNeighborsTool(input: ChatGraphTool): WorkspaceChatTanstackTool {
           : 20
       // The expansion keeps at most `limit` valid edges of the node: the
       // strongest edge of each predicate first, then the next of each.
-      const graph = await expandOrRetry(() =>
+      const walked = await expandOrRetry(() =>
         input.expand({ seeds: [nodeId], maxDepth: 1, maxFanOut: limit }),
       )
-      if (!("nodes" in graph)) return toToon(graph)
+      if (!("graph" in walked)) return toToon(walked)
+      const { graph } = walked
       const neighbors = graph.edges
         .map((edge) => ({
           edge,
@@ -294,15 +303,15 @@ function graphNeighborsTool(input: ChatGraphTool): WorkspaceChatTanstackTool {
             confidence,
           }
         })
-      return toToon({ projectionSha: input.sha, neighbors })
+      return toToon({ projectionSha: walked.sha, neighbors })
     },
   }
 }
 
 /** A graph that is being built gives the model a retry message, not an error. */
-async function expandOrRetry(
-  expand: () => Promise<GraphExpansion>,
-): Promise<GraphExpansion | { error: string; message: string }> {
+async function expandOrRetry<T>(
+  expand: () => Promise<T>,
+): Promise<T | { error: string; message: string }> {
   try {
     return await expand()
   } catch (error) {

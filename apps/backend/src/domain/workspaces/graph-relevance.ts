@@ -329,7 +329,7 @@ const PPR_TOLERANCE = 1e-12
 const PPR_MAX_ITERATIONS = 500
 
 /** `PullRequest`, `pull-request` and `pull_request` are one kind. */
-function kindKey(kind: string | null | undefined): string {
+export function kindKey(kind: string | null | undefined): string {
   return (kind ?? "").toLowerCase().replace(/[^a-z]/g, "")
 }
 

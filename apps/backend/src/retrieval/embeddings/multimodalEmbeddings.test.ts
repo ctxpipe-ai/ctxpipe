@@ -111,6 +111,17 @@ describe("embedMultimodal", () => {
     expect(result.map((e) => e[0])).toEqual([10, 11, 20, 21, 30])
   })
 
+  it("sends a search query as its text only, with no context line", async () => {
+    const bodies: Body[] = []
+    server.use(echoHandler(bodies))
+
+    await embedMultimodal([{ kind: "query", text: "why did it fail" }], config)
+
+    expect(bodies[0]?.input).toEqual([
+      { content: [{ type: "text", text: "why did it fail" }] },
+    ])
+  })
+
   it("sends an image as a data URI part with its alt text", async () => {
     const bodies: Body[] = []
     server.use(echoHandler(bodies))

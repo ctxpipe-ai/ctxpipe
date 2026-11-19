@@ -5,6 +5,8 @@ import {
   TupleParam,
 } from "@clickhouse/client"
 
+import { CONNECTOR_MIRROR_ROOTS } from "../domain/codeIngestion/connectorMirrorPaths.js"
+
 /**
  * The per-query custom setting that holds the org of a statement. The row
  * policy and the CHECK constraint of each knowledge table compare `org_id`
@@ -17,7 +19,7 @@ export type KnowledgeScope = { orgId: string; workspaceId: string }
 
 type DocumentStatus = "active" | "deleted" | "missing" | "failed"
 
-type KnowledgeDocument = {
+export type KnowledgeDocument = {
   docKey: string
   kind: string
   status: DocumentStatus
@@ -38,6 +40,9 @@ type KnowledgeDocument = {
 export type KnowledgeChunk = {
   ordinal: number
   text: string
+  /** The 1-based file lines of the chunk, inclusive. 0 when it has none. */
+  startLine: number
+  endLine: number
   /** The full vector. The server stores it as BFloat16. */
   embedding: number[]
 }
@@ -93,7 +98,7 @@ type StoredDocument = {
 export type KnowledgeReadScope = { orgId: string; workspaceIds: string[] }
 
 /** One document of a Workspace. */
-type DocumentRef = { workspaceId: string; docKey: string }
+export type DocumentRef = { workspaceId: string; docKey: string }
 
 export type SearchQuery = {
   /** The query vector, in the vector space of the chunks. */
@@ -107,20 +112,31 @@ export type SearchQuery = {
   kinds?: string[]
   /** Only documents with a path that starts with this text. */
   pathPrefix?: string
+  /**
+   * Only documents from these sources: a connector mirror root (the first
+   * folder of the path, for example `linear`), or `authored` for a path
+   * outside the mirror roots. Empty or absent: all.
+   */
+  sources?: string[]
+  /** Only documents observed after this time. */
+  observedAfter?: Date | null
   /** Only documents that are valid at this time. */
   validAt?: Date | null
 }
+
+/** A chunk of a read, with its text and its file lines. */
+type ChunkLines = Omit<KnowledgeChunk, "embedding">
 
 /** A document that the search found, with its found chunks, best first. */
 type SearchHit = {
   workspaceId: string
   document: KnowledgeDocument
   /** The found chunks with their RRF scores, best first. */
-  chunks: { ordinal: number; text: string; score: number }[]
+  chunks: (ChunkLines & { score: number })[]
 }
 
 /** A relation of a frontier document, and the document at its other end. */
-type FrontierRelation = {
+export type FrontierRelation = {
   /** `out`: the frontier document is `srcDoc`. `in`: it is `dstDoc`. */
   direction: "out" | "in"
   workspaceId: string
@@ -133,7 +149,7 @@ type FrontierRelation = {
 type Evidence = {
   workspaceId: string
   document: KnowledgeDocument
-  chunks: { ordinal: number; text: string; distance: number }[]
+  chunks: (ChunkLines & { distance: number })[]
 }
 
 type KnowledgeGraph = {
@@ -161,7 +177,7 @@ type KnowledgeGraph = {
  * mutation of the table. A retry after a failure is safe (ADR-067
  * decision 5).
  */
-type KnowledgeStore = {
+export type KnowledgeStore = {
   /**
    * Replaces the state of each document: deletes its document, chunk and
    * outgoing relation rows, then inserts the new rows with status `active`.
@@ -207,6 +223,11 @@ type KnowledgeStore = {
     refs: DocumentRef[],
     validAt?: Date | null,
   ): Promise<FrontierRelation[]>
+  /** The document rows of `refs`, with no chunks. */
+  readDocuments(
+    scope: KnowledgeReadScope,
+    refs: DocumentRef[],
+  ): Promise<{ workspaceId: string; document: KnowledgeDocument }[]>
   /** The documents `refs` with their chunks closest to `vector`. */
   readEvidence(
     scope: KnowledgeReadScope,
@@ -253,6 +274,7 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     search: (scope, query) => search(client, scope, query),
     readFrontier: (scope, refs, validAt) =>
       readFrontier(client, scope, refs, validAt),
+    readDocuments: (scope, refs) => readDocuments(client, scope, refs),
     readEvidence: (scope, refs, vector, chunksPerDocument) =>
       readEvidence(client, scope, refs, vector, chunksPerDocument),
     readGraph: (scope, limit) => readGraph(client, scope, limit),
@@ -562,6 +584,8 @@ type TableRows = {
     doc_key: string
     ordinal: number
     text: string
+    start_line: number
+    end_line: number
     embedding: number[]
   }
   relations: RelationColumns
@@ -626,6 +650,8 @@ async function insertRows(
         doc_key: document.docKey,
         ordinal: chunk.ordinal,
         text: chunk.text,
+        start_line: chunk.startLine,
+        end_line: chunk.endLine,
         embedding: chunk.embedding,
       })),
     ),
@@ -677,7 +703,8 @@ async function readDocument(
     select<KnowledgeChunk>(
       client,
       scope,
-      `SELECT ordinal, text, embedding FROM chunks
+      `SELECT ordinal, text, start_line AS startLine, end_line AS endLine,
+         embedding FROM chunks
        WHERE ${scoped} AND doc_key = {docKey:String} ORDER BY ordinal`,
       params,
     ),
@@ -779,7 +806,8 @@ function vectorBits(vector: number[]): string {
 type ChunkKey = { workspaceId: string; docKey: string; ordinal: number }
 const chunkId = (key: ChunkKey) =>
   JSON.stringify([key.workspaceId, key.docKey, key.ordinal])
-const documentId = (ref: DocumentRef) =>
+/** The key of a document of a read: its Workspace and its document key. */
+export const documentId = (ref: DocumentRef) =>
   JSON.stringify([ref.workspaceId, ref.docKey])
 /** The value of a `{refs:Array(Tuple(String, String))}` parameter. */
 const refTuples = (refs: DocumentRef[]) =>
@@ -802,7 +830,15 @@ const refTuples = (refs: DocumentRef[]) =>
 async function search(
   client: ClickHouseClient,
   scope: KnowledgeReadScope,
-  { vector, terms, kinds = [], pathPrefix = "", validAt = null }: SearchQuery,
+  {
+    vector,
+    terms,
+    kinds = [],
+    pathPrefix = "",
+    sources = [],
+    observedAfter = null,
+    validAt = null,
+  }: SearchQuery,
 ): Promise<SearchHit[]> {
   // hasToken refuses a term with a separator in it. Split each term as the
   // splitByNonAlpha tokenizer of the text index does: at each ASCII character
@@ -820,6 +856,9 @@ async function search(
     terms: uniqueTerms,
     kinds,
     pathPrefix,
+    sources,
+    mirrorRoots: CONNECTOR_MIRROR_ROOTS,
+    observedAfter: observedAfter && clickHouseTime(observedAfter),
     validAt: validAt && clickHouseTime(validAt),
     ...Object.fromEntries(uniqueTerms.map((term, i) => [`term${i}`, term])),
   }
@@ -827,6 +866,11 @@ async function search(
   const searchable = `${inWorkspaces} AND status = 'active'
     AND (empty({kinds:Array(String)}) OR has({kinds:Array(String)}, kind))
     AND startsWith(path, {pathPrefix:String})
+    AND (empty({sources:Array(String)}) OR has({sources:Array(String)},
+      ifNull(arrayFirst(root -> path = root OR startsWith(path, concat(root, '/')),
+        {mirrorRoots:Array(Nullable(String))}), 'authored')))
+    AND ({observedAfter:Nullable(DateTime64(3, 'UTC'))} IS NULL
+      OR observed_at > {observedAfter:Nullable(DateTime64(3, 'UTC'))})
     AND ${validDuring()}`
   const inSearchable = `(workspace_id, doc_key) IN (
     SELECT workspace_id, doc_key FROM documents WHERE ${searchable})`
@@ -911,10 +955,11 @@ async function search(
         refs: refTuples(top),
       },
     ),
-    selectIn<ChunkKey & { text: string }>(
+    selectIn<ChunkKey & ChunkLines>(
       client,
       scope,
-      `SELECT workspace_id AS workspaceId, doc_key AS docKey, ordinal, text
+      `SELECT workspace_id AS workspaceId, doc_key AS docKey, ordinal, text,
+         start_line AS startLine, end_line AS endLine
        FROM chunks WHERE ${inWorkspaces}
          AND (workspace_id, doc_key, ordinal) IN {keys:Array(Tuple(String, String, UInt32))}`,
       {
@@ -930,7 +975,7 @@ async function search(
       record,
     ]),
   )
-  const textById = new Map(texts.map((row) => [chunkId(row), row.text]))
+  const textById = new Map(texts.map((row) => [chunkId(row), row]))
   const hits = new Map<string, SearchHit>()
   for (const chunk of top) {
     const id = documentId(chunk)
@@ -942,9 +987,12 @@ async function search(
       document: toDocument(record),
       chunks: [],
     }
+    const found = textById.get(chunkId(chunk))
     hit.chunks.push({
       ordinal: chunk.ordinal,
-      text: textById.get(chunkId(chunk)) ?? "",
+      text: found?.text ?? "",
+      startLine: found?.startLine ?? 0,
+      endLine: found?.endLine ?? 0,
       score: chunk.score,
     })
     hits.set(id, hit)
@@ -1024,6 +1072,29 @@ async function readFrontier(
   }))
 }
 
+/** The document row of each of `refs` that has one, in one query. */
+async function readDocuments(
+  client: ClickHouseClient,
+  scope: KnowledgeReadScope,
+  refs: DocumentRef[],
+): Promise<{ workspaceId: string; document: KnowledgeDocument }[]> {
+  assertReadScope(scope)
+  if (refs.length === 0) return []
+  const rows = await selectIn<DocumentRecord & { workspaceId: string }>(
+    client,
+    scope,
+    `SELECT workspace_id AS workspaceId, ${documentColumns} FROM documents
+     WHERE ${inWorkspaces}
+       AND (workspace_id, doc_key) IN {refs:Array(Tuple(String, String))}
+     ORDER BY workspaceId, docKey`,
+    { refs: refTuples(refs) },
+  )
+  return rows.map(({ workspaceId, ...record }) => ({
+    workspaceId,
+    document: toDocument(record),
+  }))
+}
+
 /**
  * The evidence of the documents `refs`: each document row with its
  * `chunksPerDocument` chunks closest to `vector` (cosine distance).
@@ -1052,10 +1123,11 @@ async function readEvidence(
        WHERE ${inWorkspaces} AND ${inRefs}`,
       params,
     ),
-    selectIn<ChunkKey & { text: string; distance: number }>(
+    selectIn<ChunkKey & ChunkLines & { distance: number }>(
       client,
       scope,
       `SELECT workspace_id AS workspaceId, doc_key AS docKey, ordinal, text,
+         start_line AS startLine, end_line AS endLine,
          cosineDistance(embedding, {queryVector:Array(Float32)}) AS distance
        FROM chunks WHERE ${inWorkspaces} AND ${inRefs}
        ORDER BY distance, ordinal
@@ -1069,10 +1141,8 @@ async function readEvidence(
       { workspaceId, document: toDocument(record), chunks: [] },
     ]),
   )
-  for (const { workspaceId, docKey, ordinal, text, distance } of chunks)
-    evidence
-      .get(documentId({ workspaceId, docKey }))
-      ?.chunks.push({ ordinal, text, distance })
+  for (const { workspaceId, docKey, ...chunk } of chunks)
+    evidence.get(documentId({ workspaceId, docKey }))?.chunks.push(chunk)
   return [...evidence.values()]
 }
 
