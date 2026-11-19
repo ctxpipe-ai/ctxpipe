@@ -72,7 +72,13 @@ function document(
       observedAt,
       ...fields,
     },
-    chunks: chunks.map((chunk, ordinal) => ({ ordinal, ...chunk })),
+    // Each chunk has its own file lines, so a read shows which chunk it gave.
+    chunks: chunks.map((chunk, ordinal) => ({
+      ordinal,
+      startLine: ordinal * 4 + 1,
+      endLine: ordinal * 4 + 3,
+      ...chunk,
+    })),
     relations: relations.map((relation) => ({
       srcChunk: 0,
       predicate: "REFERENCES",
@@ -258,7 +264,13 @@ describe("search", () => {
     const hits = await search({})
     expect(hits[0]?.document.docKey).toBe("vector.md")
     expect(hits[0]?.chunks).toEqual([
-      { ordinal: 0, text: "plain words only", score: expect.any(Number) },
+      {
+        ordinal: 0,
+        text: "plain words only",
+        startLine: 1,
+        endLine: 3,
+        score: expect.any(Number),
+      },
     ])
     expect(hits.flatMap((hit) => hit.chunks)).toHaveLength(50)
     expect(hitKeys(hits)).not.toContain("lexical.md")
@@ -279,6 +291,8 @@ describe("search", () => {
       {
         ordinal: 0,
         text: "the zebracorn term appears",
+        startLine: 1,
+        endLine: 3,
         score: expect.any(Number),
       },
     ])
@@ -490,7 +504,13 @@ describe("evidence read", () => {
     )
     expect(Object.keys(byKey).sort()).toEqual(["deleted.md", "vector.md"])
     expect(byKey["vector.md"]?.chunks).toEqual([
-      { ordinal: 0, text: "plain words only", distance: expect.any(Number) },
+      {
+        ordinal: 0,
+        text: "plain words only",
+        startLine: 1,
+        endLine: 3,
+        distance: expect.any(Number),
+      },
     ])
     expect(byKey["vector.md"]?.chunks[0]?.distance).toBeLessThan(0.01)
     // The evidence read gives each status; only the search is active-only.

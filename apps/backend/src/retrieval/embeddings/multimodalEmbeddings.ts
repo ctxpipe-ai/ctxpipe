@@ -42,6 +42,8 @@ type MultimodalEmbeddingConfig = typeof multimodalEmbeddingConfig
 
 /** One input to embed. */
 export type EmbeddingInput =
+  /** A search query. It gets no context line: it is not part of a document. */
+  | { kind: "query"; text: string }
   | {
       kind: "text"
       text: string
@@ -157,7 +159,7 @@ function embedRequest(
       model: config.model,
       provider: config.upstreamProvider,
       attributes: {
-        "ctxpipe.embeddings.text_count": batch.filter((i) => i.kind === "text")
+        "ctxpipe.embeddings.text_count": batch.filter((i) => i.kind !== "image")
           .length,
         "ctxpipe.embeddings.image_count": batch.filter(
           (i) => i.kind === "image",
@@ -210,6 +212,7 @@ function embedRequest(
 
 /** The content parts of one input (ADR-068 decision 5). */
 function contentParts(input: EmbeddingInput): ContentPart[] {
+  if (input.kind === "query") return [{ type: "text", text: input.text }]
   if (input.kind === "text") {
     // The one line of context: the document title and the chunk position.
     const title = input.documentTitle.replace(/\s+/g, " ").trim()

@@ -18,6 +18,7 @@ export const MCP_TOOL_ERROR_CODES = [
   "invalid_argument",
   "response_too_large",
   "too_many_requests",
+  "judge_unavailable",
   "internal",
 ] as const
 
@@ -26,6 +27,7 @@ export type McpToolErrorCode = (typeof MCP_TOOL_ERROR_CODES)[number]
 const RETRYABLE: ReadonlySet<McpToolErrorCode> = new Set([
   "workspace_not_ready",
   "too_many_requests",
+  "judge_unavailable",
   "internal",
 ])
 

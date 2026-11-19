@@ -17,7 +17,7 @@ export class WorkspaceGraphBuildingError extends Error {
   override readonly name = "WorkspaceGraphBuildingError"
 }
 
-type GraphOrg = { orgId: string; orgSlug: string }
+export type GraphOrg = { orgId: string; orgSlug: string }
 
 /**
  * Start one hydrate run that writes the lost graph of a ready revision again

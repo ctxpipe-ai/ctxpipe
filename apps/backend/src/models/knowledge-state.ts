@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 
 import { withOrgDbContext } from "../db/client.js"
 import { knowledgeState } from "../db/schema/knowledge_state.js"
@@ -25,6 +25,38 @@ export async function getKnowledgeState(key: KnowledgeStateKey) {
     db.select().from(knowledgeState).where(stateRow(key)),
   )
   return row ?? null
+}
+
+/**
+ * The served SHA of each Workspace whose knowledge projection is ready: a run
+ * applied it in full (`last_sha` is set). A later run that is `running` or
+ * `failed` does not change this: the store still holds the rows of
+ * `last_sha`. A Workspace before its first full run is not in the map.
+ */
+export async function readyKnowledgeShas(
+  orgId: string,
+  workspaceIds: readonly string[],
+): Promise<Map<string, string>> {
+  if (workspaceIds.length === 0) return new Map()
+  const rows = await withOrgDbContext(orgId, (db) =>
+    db
+      .select({
+        workspaceId: knowledgeState.workspaceId,
+        lastSha: knowledgeState.lastSha,
+      })
+      .from(knowledgeState)
+      .where(
+        and(
+          eq(knowledgeState.organizationId, orgId),
+          inArray(knowledgeState.workspaceId, [...workspaceIds]),
+        ),
+      ),
+  )
+  return new Map(
+    rows.flatMap(({ workspaceId, lastSha }) =>
+      lastSha ? [[workspaceId, lastSha] as const] : [],
+    ),
+  )
 }
 
 /**

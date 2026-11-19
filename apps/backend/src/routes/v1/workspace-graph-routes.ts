@@ -3,13 +3,11 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { requireCurrentOrgSlug } from "../../auth/context.js"
 import { WorkspaceGraphUnavailableError } from "../../domain/workspaces/graph-projection.js"
-import {
-  readOrRebuildWorkspaceGraph,
-  WorkspaceGraphBuildingError,
-} from "../../domain/workspaces/graph-rebuild.js"
+import { WorkspaceGraphBuildingError } from "../../domain/workspaces/graph-rebuild.js"
 import { hydrateUnitsToProjectionClaims } from "../../domain/workspaces/hydrate.js"
 import { publishedProjection } from "../../domain/workspaces/revision.js"
 import { computeWorkspaceGraphQuality } from "../../domain/workspaces/workspace-graph.js"
+import { selectKnowledgeReader } from "../../knowledge-reader/knowledge-reader.js"
 import {
   getWorkspaceBySlug,
   getWorkspaceProjection,
@@ -137,11 +135,15 @@ export const workspaceGraphRoutes = new OpenAPIHono<AppEnv>()
       const projection = publishedProjection(
         await getWorkspaceProjection(workspace.id),
       )
+      const { reader } = await selectKnowledgeReader(workspace.orgId, [
+        workspace.id,
+      ])
       try {
         return c.json(
-          await readOrRebuildWorkspaceGraph({
+          await reader.graph({
             orgId: workspace.orgId,
             orgSlug: requireCurrentOrgSlug(),
+            workspaceId: workspace.id,
             projection,
           }),
           200,

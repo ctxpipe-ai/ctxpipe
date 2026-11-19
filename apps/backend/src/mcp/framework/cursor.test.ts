@@ -30,6 +30,23 @@ describe("cursor", () => {
     ).toEqual({ offset: 5, anchor: undefined })
   })
 
+  it("keeps the bytes of an old-stack cursor, and refuses a cursor of the other stack", () => {
+    const legacy = encodeCursor({ ...bound, offset: 3 })
+    expect(encodeCursor({ ...bound, stack: "legacy", offset: 3 })).toBe(legacy)
+    const plane = encodeCursor({ ...bound, stack: "plane", offset: 3 })
+    expect(decodeCursor(plane, { ...bound, stack: "plane" })).toBe(3)
+    for (const [cursor, expected] of [
+      [plane, bound],
+      [legacy, { ...bound, stack: "plane" as const }],
+    ] as const)
+      expect(() => decodeCursor(cursor, expected)).toThrowError(
+        expect.objectContaining({
+          code: "stale_cursor",
+          message: expect.stringContaining("other knowledge stack"),
+        }),
+      )
+  })
+
   it("gives invalid_cursor for an anchor that is not a number", () => {
     const forged = Buffer.from(
       JSON.stringify({ v: 1, s: "x", q: "y", o: 1, t: "now" }),

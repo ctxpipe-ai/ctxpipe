@@ -1,0 +1,61 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the knowledge reader seam > on: the output of both tools has the shape of the old stack 1`] = `
+{
+  "hits": [
+    {
+      "claims": "string",
+      "endLine": "number",
+      "kind": "string",
+      "ref": "string",
+      "score": "number",
+      "served": {
+        "branch": "string",
+        "sha": "string",
+      },
+      "snippet": "string",
+      "source": "string",
+      "startLine": "number",
+      "title": "string",
+      "updatedAt": "string",
+      "workspace": "string",
+    },
+  ],
+  "skipped": [],
+}
+`;
+
+exports[`the knowledge reader seam > on: the output of both tools has the shape of the old stack 2`] = `
+{
+  "explored": {
+    "edges": "number",
+    "nodes": "number",
+  },
+  "partial": "boolean",
+  "results": [
+    {
+      "depth": "number",
+      "kind": "string",
+      "path": [
+        {
+          "from": "string",
+          "predicate": "string",
+          "to": "string",
+          "weight": "number",
+        },
+      ],
+      "ref": "string",
+      "score": "number",
+      "source": "string",
+      "summary": "string",
+      "title": "string",
+      "updatedAt": "string",
+    },
+  ],
+  "served": {
+    "branch": "string",
+    "sha": "string",
+  },
+  "workspace": "string",
+}
+`;
