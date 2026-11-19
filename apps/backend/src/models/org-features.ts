@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 
 import { withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
@@ -79,6 +79,11 @@ export async function setOrgFeature(
       .from(organizations)
       .where(eq(organizations.id, orgId))
     if (!org) throw new Error(`There is no organization with id ${orgId}`)
+    // FOR UPDATE locks nothing when there is no row yet, so a transaction lock
+    // on the key puts two setters of the same feature in sequence.
+    await db.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`org_features:${orgId}:${feature}`}, 0))`,
+    )
     const [row] = await db
       .select({ value: orgFeatures.value })
       .from(orgFeatures)
@@ -88,9 +93,8 @@ export async function setOrgFeature(
           eq(orgFeatures.feature, feature),
         ),
       )
-      .for("update")
     const previous = row?.value ?? FEATURE_VALUES[feature][0]
-    if (row?.value === value) return { previous, value, changed: false }
+    if (previous === value) return { previous, value, changed: false }
     await db
       .insert(orgFeatures)
       .values({ organizationId: orgId, feature, value })

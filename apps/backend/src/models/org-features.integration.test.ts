@@ -1,4 +1,4 @@
-import { inArray } from "drizzle-orm"
+import { inArray, sql } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
@@ -12,6 +12,7 @@ const orgA = generateObjectId("org")
 const orgB = generateObjectId("org")
 const orgC = generateObjectId("org")
 const orgD = generateObjectId("org")
+const orgE = generateObjectId("org")
 
 function setFeature(orgId: string, value: string) {
   return withOrgDbContext(orgId, (db) =>
@@ -30,7 +31,7 @@ describe("org features (Postgres)", () => {
     await getSystemDb()
       .insert(organizations)
       .values(
-        [orgA, orgB, orgC, orgD].map((id, i) => ({
+        [orgA, orgB, orgC, orgD, orgE].map((id, i) => ({
           id,
           name: `Features ${i} ${suffix}`,
           slug: `features-${i}-${suffix}`,
@@ -42,7 +43,7 @@ describe("org features (Postgres)", () => {
   afterAll(async () => {
     await getSystemDb()
       .delete(organizations)
-      .where(inArray(organizations.id, [orgA, orgB, orgC, orgD]))
+      .where(inArray(organizations.id, [orgA, orgB, orgC, orgD, orgE]))
     await closeDb()
   })
 
@@ -116,5 +117,36 @@ describe("org features (Postgres)", () => {
       setOrgFeature(generateObjectId("org"), "knowledge_plane", "shadow"),
     ).rejects.toThrow(/no organization/)
     expect(await getOrgFeature(orgD, "knowledge_plane")).toBe("off")
+  })
+
+  it("setting the default on an org with no row writes nothing, and concurrent first sets give one change", async () => {
+    const read = () =>
+      withOrgDbContext(orgE, (db) => db.select().from(orgFeatures))
+    expect(await setOrgFeature(orgE, "knowledge_plane", "off")).toEqual({
+      previous: "off",
+      value: "off",
+      changed: false,
+    })
+    expect(await read()).toEqual([])
+
+    // Open the pool connections first, so that the setters start together.
+    await Promise.all(
+      Array.from({ length: 8 }, () =>
+        withOrgDbContext(orgE, (db) => db.execute(sql`select pg_sleep(0.05)`)),
+      ),
+    )
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        setOrgFeature(orgE, "knowledge_plane", "shadow"),
+      ),
+    )
+    const changed = results.filter((r) => r.changed)
+    expect(changed).toEqual([
+      { previous: "off", value: "shadow", changed: true },
+    ])
+    expect(
+      results.filter((r) => !r.changed).every((r) => r.previous === "shadow"),
+    ).toBe(true)
+    expect(await read()).toHaveLength(1)
   })
 })
