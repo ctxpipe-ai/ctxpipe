@@ -8,6 +8,7 @@ import { repositoryRevisionCheckoutKey } from "../../../../../shared/workspace-c
 import { type Env, parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { listWorkspaceUnitsAtRevision } from "../../models/workspaces.js"
+import type { ModelTier } from "../../retrieval/services/providers/providerTypes.js"
 import { gitRemoteEnvironment } from "../../services/git/clone-tree.js"
 import { resolvePlainGitRemote } from "../../services/git/plain-git-remote.js"
 import { agentCoreRuntime } from "../workspaces/agentcore-sandbox-provider.js"
@@ -30,7 +31,6 @@ import {
   lockedSandboxProvider,
 } from "../workspaces/sandbox-provider.js"
 import { workspaceChatCompletionsPath } from "../workspaces/workspace-chat-model-proxy.js"
-import { workspaceChatOpenCodeContract } from "../workspaces/workspace-chat-opencode-contract.js"
 import {
   mintWorkspaceIngestRunCapability,
   mintWorkspaceIngestToolsCapability,
@@ -82,15 +82,6 @@ import { runGit } from "./run-git.js"
  * Docker and AgentCore: the shard's Agent Vault adds each credential, and
  * the provider refuses a host where traffic is not forced through the vault.
  */
-
-/** Model names for the tiers that the skill plan uses. */
-function ingestModels() {
-  const medium = workspaceChatOpenCodeContract(process.env, "medium")
-  const fast = workspaceChatOpenCodeContract(process.env, "fast")
-  if (!medium.ok) throw new Error(medium.error)
-  if (!fast.ok) throw new Error(fast.error)
-  return { medium: medium.modelBase, fast: fast.modelBase }
-}
 
 /**
  * The projection read of a step index. A workflow step has no request org, so
@@ -437,12 +428,13 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
             return { handle, root, agentEnv }
           },
           prepare: async ({ handle, root, agentEnv }) => {
-            const models = ingestModels()
             await prepareIngestShard(handle, root, {
               bundle: spec.bundle,
               opencodeConfig: ingestOpenCodeConfig({
-                modelBase: models.medium,
-                models: [models.fast],
+                // The model proxy maps each tier name to the configured
+                // model of that tier.
+                modelBase: "medium" satisfies ModelTier,
+                models: ["fast" satisfies ModelTier],
                 skills: spec.bundle.skills,
                 proxyAddsCredentials: true,
                 toolBridgeUrl: egress.bridge.url,
@@ -488,7 +480,6 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
       withShard(
         step.name,
         async ({ handle, root, agentEnv, signal }) => {
-          const models = step.run === "model" ? ingestModels() : undefined
           const destination = spec.destinations.find(
             (d) => d.workspaceId === step.workspaceId,
           )
@@ -506,10 +497,8 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
             sourceUrl: spec.source.url,
             sourcePath: destination.sourcePath,
             index: json,
-            ...(models
-              ? {
-                  model: `ctxpipe/${step.tier === "fast" ? models.fast : models.medium}`,
-                }
+            ...(step.run === "model"
+              ? { model: `ctxpipe/${step.tier ?? "medium"}` }
               : {}),
           })
           return {

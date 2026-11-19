@@ -7,6 +7,7 @@ import {
 
 import { log } from "../../observability/logger.js"
 import { isWorkflowControlSignal } from "../../openworkflow/isSleepSignal.js"
+import type { ModelTier } from "../../retrieval/services/providers/providerTypes.js"
 import type { WorkspaceChatCompletionUsage } from "../workspaces/workspace-chat-model-proxy.js"
 
 /*
@@ -107,7 +108,7 @@ export function logIngestEvent(
  */
 export function startIngestModelCall(
   ingest: { runId: string; shard: number; step: string },
-  model: string,
+  call: { tier: ModelTier; model: string },
 ): {
   finish: (result: {
     status: number
@@ -120,7 +121,8 @@ export function startIngestModelCall(
   const span = tracer().startSpan("ingestion.model_call", {
     attributes: {
       "gen_ai.operation.name": "chat",
-      "gen_ai.request.model": model,
+      "gen_ai.request.model": call.model,
+      "ctxpipe.ingest.model_tier": call.tier,
       "ctxpipe.ingest.run.id": ingest.runId,
       "ctxpipe.ingest.shard": String(ingest.shard),
       "ctxpipe.ingest.step": ingest.step,
