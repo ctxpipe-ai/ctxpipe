@@ -47,12 +47,12 @@ files at the newest commit again:
   old commits (a garbage collection). Without that commit, ctxpipe cannot find
   which files changed.
 - The first index run of a Workspace.
-- A new ctxpipe version changes how ctxpipe reads files, or a new embedding
-  model.
+- A new ctxpipe version changes how ctxpipe reads files, a new embedding
+  model, or a new root folder of the Workspace.
 - A change to the sources of the Workspace (`.ctxpipe/sources.yaml` or
   `sources/`).
-- The runs of more than 10 different commits after the last indexed commit
-  did not complete.
+- Runs started for more than 10 different commits after the last indexed
+  commit, the current commit included, and none of them completed.
 
 During a full rebuild:
 

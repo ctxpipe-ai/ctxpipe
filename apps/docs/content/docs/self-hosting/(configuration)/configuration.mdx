@@ -234,16 +234,16 @@ Workspace, for example after the next push to the Workspace repository. See
 ClickHouse holds only content that ctxpipe makes from the Workspace
 repositories. If you lose the ClickHouse data:
 
-1. Restore a ClickHouse backup, if you have one. If you have no backup, run
-   the migrations again. They make the tables and the users `ctxpipe_reader`
-   and `ctxpipe_writer` again. On Compose, set the reader and writer passwords
-   in `.env`, then run:
+1. Restore a ClickHouse backup, if you have one.
+2. Run the migrations again, also after a restore. They make each missing
+   table and the users `ctxpipe_reader` and `ctxpipe_writer`. On Compose, set
+   the reader and writer passwords in `.env`, then run:
 
    ```bash
    docker compose --profile deploy run --rm migrate
    ```
 
-2. Delete the index state of the knowledge store in Postgres. Do this also
+3. Delete the index state of the knowledge store in Postgres. Do this also
    after a restore: the backup can be older than the index state, and the
    next run then does not apply the commits between them.
 

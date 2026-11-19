@@ -267,7 +267,7 @@ reason in `ctxpipe.knowledge.full_reason`. The reasons are:
 | `missing_commit` | The last indexed commit, or the commit of a failed run, is not in the repository any more |
 | `projection_version` | A new ctxpipe version, a new embedding model, or a new Workspace root folder |
 | `sources_config` | A change to `.ctxpipe/sources.yaml` or `sources/` |
-| `attempts` | The runs of more than 10 different commits after the last indexed commit did not complete. The current run counts too. |
+| `attempts` | Runs started for more than 10 different commits after the last indexed commit, the current commit included, and none of them completed |
 
 ### Confluence setup stalls
 
