@@ -14,6 +14,13 @@ import { CONNECTOR_MIRROR_ROOTS } from "../domain/codeIngestion/connectorMirrorP
  */
 export const ORG_SETTING = "SQL_ctxpipe_org_id"
 
+/**
+ * The prefix of a relation target that is a reference key, not a document
+ * key (ADR-066 decision 5). The read finds the documents of the key in
+ * `doc_refs`. A document key is a hash, so it never has this prefix.
+ */
+export const REFERENCE_TARGET_PREFIX = "ref:"
+
 /** The org and the Workspace of each statement. */
 export type KnowledgeScope = { orgId: string; workspaceId: string }
 
@@ -73,6 +80,8 @@ export type DocumentRows = {
   document: ActiveDocument
   chunks: KnowledgeChunk[]
   relations: Omit<KnowledgeRelation, "srcDoc">[]
+  /** The reference keys that the document states for itself. Absent: none. */
+  refKeys?: string[]
 }
 
 /**
@@ -94,6 +103,8 @@ type StoredDocument = {
   outgoing: KnowledgeRelation[]
   /** The relations of other documents (and this one) that point at it. */
   incoming: KnowledgeRelation[]
+  /** The reference keys that the document states for itself. */
+  refKeys: string[]
 }
 
 /** The org and the Workspaces of a read. A read can span Workspaces. */
@@ -137,7 +148,12 @@ type SearchHit = {
   chunks: (ChunkLines & { score: number })[]
 }
 
-/** A relation of a frontier document, and the document at its other end. */
+/**
+ * A relation of a frontier document, and the document at its other end. A
+ * relation to a reference key comes one time for each document of the key,
+ * with that document as `dstDoc`. A key with no document comes one time,
+ * with the key as `dstDoc` and a `missing` neighbor.
+ */
 export type FrontierRelation = {
   /** `out`: the frontier document is `srcDoc`. `in`: it is `dstDoc`. */
   direction: "out" | "in"
@@ -181,8 +197,9 @@ type KnowledgeGraph = {
  */
 export type KnowledgeStore = {
   /**
-   * Replaces the state of each document: deletes its document, chunk and
-   * outgoing relation rows, then inserts the new rows with status `active`.
+   * Replaces the state of each document: deletes its document, chunk,
+   * outgoing relation and reference key rows, then inserts the new rows with
+   * status `active`.
    */
   replaceDocuments(
     scope: KnowledgeScope,
@@ -191,8 +208,9 @@ export type KnowledgeStore = {
   /**
    * Makes a tombstone of each document (ADR-067 decision 6): status
    * `deleted` and `deletedAt`, with the other fields of its row. Deletes its
-   * chunks and outgoing relations. The relations of other documents that
-   * point at it stay. A key with no row gets a tombstone with empty fields.
+   * chunks, outgoing relations and reference keys. The relations of other
+   * documents that point at it stay. A key with no row gets a tombstone with
+   * empty fields.
    * The tombstone goes in before the DELETE of the old row, so a failure
    * between the two leaves both rows, never no row: a retry keeps the
    * tombstone and deletes the old row. Until the retry, the key has two
@@ -237,7 +255,12 @@ export type KnowledgeStore = {
     vector: number[],
     chunksPerDocument: number,
   ): Promise<Evidence[]>
-  /** The documents and relations of a Workspace, at most `limit` of each. */
+  /**
+   * The documents and relations of a Workspace, at most `limit` of each. A
+   * relation to a reference key comes one time for each document of the
+   * key, with that document as `dstDoc`. A key with no document keeps the
+   * key as `dstDoc`.
+   */
   readGraph(scope: KnowledgeScope, limit: number): Promise<KnowledgeGraph>
   close(): Promise<void>
 }
@@ -349,8 +372,8 @@ async function deleteWhere(
 }
 
 /**
- * Deletes the chunks and the outgoing relations of each document, from
- * `relations` and from `relations_in`.
+ * Deletes the chunks, the outgoing relations (from `relations` and from
+ * `relations_in`) and the reference keys of each document.
  */
 async function deleteContent(
   client: ClickHouseClient,
@@ -391,6 +414,23 @@ async function deleteContent(
     "src_doc IN {docKeys:Array(String)}",
     { docKeys },
   )
+  // doc_refs sorts by ref_key, so its DELETE filters by the keys too. Most
+  // documents state no key, and then no DELETE runs.
+  const refKeys = await select<{ refKey: string }>(
+    client,
+    scope,
+    `SELECT DISTINCT ref_key AS refKey FROM doc_refs
+     WHERE ${scoped} AND doc_key IN {docKeys:Array(String)}`,
+    { docKeys },
+  )
+  if (refKeys.length > 0)
+    await deleteWhere(
+      client,
+      scope,
+      "doc_refs",
+      "ref_key IN {refKeys:Array(String)} AND doc_key IN {docKeys:Array(String)}",
+      { docKeys, refKeys: refKeys.map((row) => row.refKey) },
+    )
 }
 
 type StoredRows = Omit<DocumentRows, "document"> & {
@@ -427,10 +467,11 @@ const replaceDocuments = (
   replaceRows(
     client,
     scope,
-    documents.map(({ document, chunks, relations }) => ({
+    documents.map(({ document, chunks, relations, refKeys }) => ({
       document: { ...document, status: "active", deletedAt: null, error: "" },
       chunks,
       relations,
+      refKeys,
     })),
   )
 
@@ -607,6 +648,7 @@ type TableRows = {
   }
   relations: RelationColumns
   relations_in: RelationColumns
+  doc_refs: ScopeColumns & { ref_key: string; doc_key: string }
 }
 
 async function insertRows(
@@ -692,6 +734,16 @@ async function insertRows(
   // retry cannot find.
   await insert("relations", relations)
   await insert("relations_in", relations)
+  await insert(
+    "doc_refs",
+    rows.flatMap(({ document, refKeys = [] }) =>
+      [...new Set(refKeys)].map((refKey) => ({
+        ...owner,
+        ref_key: refKey,
+        doc_key: document.docKey,
+      })),
+    ),
+  )
 }
 
 const documentColumns = `doc_key AS docKey, kind, status,
@@ -709,7 +761,7 @@ async function readDocument(
   docKey: string,
 ): Promise<StoredDocument | null> {
   const params = { docKey }
-  const [documents, chunks, outgoing, incoming] = await Promise.all([
+  const [documents, chunks, outgoing, incoming, refKeys] = await Promise.all([
     select<DocumentRecord>(
       client,
       scope,
@@ -741,6 +793,13 @@ async function readDocument(
        ORDER BY src_doc, src_chunk, predicate`,
       params,
     ),
+    select<{ refKey: string }>(
+      client,
+      scope,
+      `SELECT ref_key AS refKey FROM doc_refs
+       WHERE ${scoped} AND doc_key = {docKey:String} ORDER BY ref_key`,
+      params,
+    ),
   ])
   const [document] = documents
   if (!document) return null
@@ -749,6 +808,7 @@ async function readDocument(
     chunks,
     outgoing: outgoing.map(toRelation),
     incoming: incoming.map(toRelation),
+    refKeys: refKeys.map((row) => row.refKey),
   }
 }
 
@@ -1018,11 +1078,34 @@ async function search(
 }
 
 /**
+ * The reference keys of `doc_refs` that pass `where`, each as the relation
+ * target that names it (`ref:<key>`), with its document. The frontier read
+ * and the graph read find the documents of a key target with it.
+ */
+const keyTargets = (where: string) =>
+  `SELECT workspace_id, concat({prefix:String}, ref_key) AS target, doc_key
+   FROM doc_refs WHERE ${where}`
+
+/**
+ * The target of the relation `alias` after the join with `keyTargets AS
+ * keys`: the document of its key, else `dst_doc` (a document key, or a key
+ * with no document).
+ */
+const resolvedTarget = (alias: string) =>
+  `if(empty(keys.doc_key), ${alias}.dst_doc, keys.doc_key)`
+
+/**
  * The relations of the frontier `refs` in both directions, in one query: the
  * out-relations from `relations` and the in-relations from `relations_in`
  * (sorted by `dst_doc`). Each relation has the document row of its neighbor,
  * or `null` when the neighbor has no row. With `validAt`, a relation or a
  * neighbor that is not valid at that time is not returned.
+ *
+ * A relation to a reference key resolves through `doc_refs` (ADR-066
+ * decision 5): an out-relation comes one time for each document of the key,
+ * else one time with a `missing` neighbor; an in-relation to a key of a
+ * frontier document has that document as `dstDoc`. Two keys of one target
+ * give one relation when all its fields are the same.
  */
 async function readFrontier(
   client: ClickHouseClient,
@@ -1032,9 +1115,11 @@ async function readFrontier(
 ): Promise<FrontierRelation[]> {
   assertReadScope(scope)
   if (refs.length === 0) return []
-  // relations_in has the columns of relations, sorted by dst_doc.
+  // relations_in has the columns of relations, sorted by dst_doc. A UNION
+  // ALL takes the columns of each branch in this order.
   const edgeColumns = `workspace_id, src_doc, src_chunk, predicate, dst_doc,
     confidence, valid_from, valid_to, source, observed_at`
+  const isKey = (column: string) => `startsWith(${column}, {prefix:String})`
   const rows = await selectIn<
     RelationRecord & {
       direction: "out" | "in"
@@ -1044,20 +1129,53 @@ async function readFrontier(
   >(
     client,
     scope,
-    `WITH edges AS (
-       SELECT 'out' AS direction, dst_doc AS neighbor_doc, ${edgeColumns}
-       FROM relations
+    `WITH out_edges AS (
+       SELECT ${edgeColumns} FROM relations
        WHERE ${inWorkspaces}
          AND (workspace_id, src_doc) IN {refs:Array(Tuple(String, String))}
          AND ${validDuring()}
+     ),
+     own_keys AS (
+       ${keyTargets(`${inWorkspaces}
+         AND (workspace_id, doc_key) IN {refs:Array(Tuple(String, String))}`)}
+     ),
+     edges AS (
+       SELECT 'out' AS direction, dst_doc AS neighbor_doc, ${edgeColumns}
+       FROM out_edges WHERE NOT ${isKey("dst_doc")}
        UNION ALL
-       SELECT 'in' AS direction, src_doc AS neighbor_doc, ${edgeColumns}
+       SELECT 'out', ${resolvedTarget("o")},
+         o.workspace_id, o.src_doc, o.src_chunk, o.predicate,
+         ${resolvedTarget("o")}, o.confidence,
+         o.valid_from, o.valid_to, o.source, o.observed_at
+       FROM out_edges AS o
+       LEFT JOIN (
+         ${keyTargets(`${inWorkspaces} AND ref_key IN (
+           SELECT substring(dst_doc, length({prefix:String}) + 1)
+           FROM out_edges WHERE ${isKey("dst_doc")})`)}
+       ) AS keys
+         ON keys.workspace_id = o.workspace_id AND keys.target = o.dst_doc
+       WHERE ${isKey("o.dst_doc")}
+       UNION ALL
+       SELECT 'in', src_doc, ${edgeColumns}
        FROM relations_in
        WHERE ${inWorkspaces}
          AND (workspace_id, dst_doc) IN {refs:Array(Tuple(String, String))}
          AND ${validDuring()}
+       UNION ALL
+       SELECT 'in', i.src_doc, i.workspace_id, i.src_doc, i.src_chunk,
+         i.predicate, k.doc_key, i.confidence, i.valid_from, i.valid_to,
+         i.source, i.observed_at
+       FROM relations_in AS i
+       INNER JOIN own_keys AS k
+         ON k.workspace_id = i.workspace_id AND k.target = i.dst_doc
+       WHERE i.org_id = {orgId:String}
+         AND i.workspace_id IN {workspaceIds:Array(String)}
+         AND (i.workspace_id, i.dst_doc) IN (
+           SELECT workspace_id, target FROM own_keys)
+         AND ${validDuring("i.")}
      )
-     SELECT edges.direction AS direction, edges.workspace_id AS workspaceId,
+     SELECT DISTINCT edges.direction AS direction,
+       edges.workspace_id AS workspaceId,
        edges.src_doc AS srcDoc, edges.src_chunk AS srcChunk,
        edges.predicate AS predicate, edges.dst_doc AS dstDoc,
        edges.confidence AS confidence, edges.valid_from AS validFrom,
@@ -1078,14 +1196,24 @@ async function readFrontier(
     {
       refs: refTuples(refs),
       validAt: validAtTime && clickHouseTime(validAtTime),
+      prefix: REFERENCE_TARGET_PREFIX,
     },
   )
   return rows.map(({ direction, workspaceId, neighbor, ...relation }) => ({
     direction,
     workspaceId,
     relation: toRelation(relation),
-    // Without a match, the LEFT JOIN gives a tuple of default values.
-    neighbor: neighbor.docKey ? toDocument(neighbor) : null,
+    // Without a match, the LEFT JOIN gives a tuple of default values. A
+    // reference key with no document is a `missing` target.
+    neighbor: neighbor.docKey
+      ? toDocument(neighbor)
+      : relation.dstDoc.startsWith(REFERENCE_TARGET_PREFIX)
+        ? emptyDocument(
+            relation.dstDoc,
+            "missing",
+            new Date(relation.observedAt),
+          )
+        : null,
   }))
 }
 
@@ -1181,12 +1309,27 @@ async function readGraph(
        ORDER BY doc_key LIMIT {limit:UInt32}`,
       params,
     ),
+    // A relation to a reference key gets the documents of the key
+    // (ADR-066 decision 5). Two keys of one target give one relation when
+    // all its fields are the same.
     select<RelationRecord>(
       client,
       scope,
-      `SELECT ${relationColumns} FROM relations WHERE ${scoped}
-       ORDER BY src_doc, src_chunk, predicate, dst_doc LIMIT {limit:UInt32}`,
-      params,
+      `SELECT DISTINCT rel.src_doc AS srcDoc, rel.src_chunk AS srcChunk,
+         rel.predicate AS predicate, ${resolvedTarget("rel")} AS dstDoc,
+         rel.confidence AS confidence, rel.valid_from AS validFrom,
+         rel.valid_to AS validTo, rel.source AS source,
+         rel.observed_at AS observedAt
+       FROM (
+         SELECT src_doc, src_chunk, predicate, dst_doc, confidence,
+           valid_from, valid_to, source, observed_at
+         FROM relations WHERE ${scoped}
+       ) AS rel
+       LEFT JOIN (${keyTargets(scoped)}) AS keys
+         ON keys.target = rel.dst_doc
+       ORDER BY srcDoc, srcChunk, predicate, dstDoc
+       LIMIT {limit:UInt32}`,
+      { ...params, prefix: REFERENCE_TARGET_PREFIX },
     ),
   ])
   return {

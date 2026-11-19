@@ -141,7 +141,13 @@ async function setUser(
   await client.command({ query: `ALTER USER ${name} ${identified}` })
   // WITH REPLACE OPTION removes each grant that is not in this statement.
   await client.command({
-    query: `GRANT ${["documents", "chunks", "relations", "relations_in"]
+    query: `GRANT ${[
+      "documents",
+      "chunks",
+      "relations",
+      "relations_in",
+      "doc_refs",
+    ]
       .map((table) => `${privileges} ON ${table}`)
       .join(", ")} TO ${name} WITH REPLACE OPTION`,
   })

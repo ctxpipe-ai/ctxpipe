@@ -39,28 +39,12 @@ export function pullRequestChangedClaims(
   let invalidRoots = 0
   const targets = new Map<string, Target[]>()
   for (const unit of units) {
-    const isPackage = PACKAGE_KINDS.has(unit.kind ?? "")
-    if (!isPackage && unit.kind !== "Repository") continue
-    if (isPackage && unit.attributes.generated_by !== "ctxpipe-extract")
-      continue
-    if (
-      isPackage &&
-      (!Array.isArray(unit.attributes.sources) ||
-        unit.attributes.sources.length !== 1)
-    )
-      continue
-    const root = isPackage ? sourceRoot(unit.attributes.root) : null
-    if (isPackage && root === null) {
-      if (unit.attributes.root !== undefined) invalidRoots++
-      continue
-    }
-    for (const source of stringList(unit.attributes.sources)) {
-      const path = sourcePathOf(source)
-      const key =
-        (path && sourceRepositories.get(path)) ??
-        normalizeWorkspaceRepositoryUrl(source)
+    const target = changeTargetOf(unit, sourceRepositories)
+    if (target === "invalid_root") invalidRoots++
+    if (!target || target === "invalid_root") continue
+    for (const key of target.repositories) {
       const list = targets.get(key) ?? []
-      list.push({ path: unit.path, root })
+      list.push({ path: unit.path, root: target.root })
       targets.set(key, list)
     }
   }
@@ -111,6 +95,43 @@ export function pullRequestChangedClaims(
   return claims
 }
 
+/**
+ * How a `CHANGED` claim can name `unit`: the repository URLs of its sources
+ * and its root (null for a Repository unit). Only a package unit (Service,
+ * App, Library) that `ctxpipe-extract` wrote, with one source and a valid
+ * root, and a Repository unit can be named. `invalid_root` is a package with
+ * a `root` value that is not a root. Null for any other unit.
+ */
+export function changeTargetOf(
+  unit: Unit,
+  /** Path of each GitHub source file → its repository URL. */
+  sourceRepositories: ReadonlyMap<string, string>,
+): { repositories: string[]; root: string | null } | "invalid_root" | null {
+  const isPackage = PACKAGE_KINDS.has(unit.kind ?? "")
+  if (!isPackage && unit.kind !== "Repository") return null
+  if (isPackage && unit.attributes.generated_by !== "ctxpipe-extract")
+    return null
+  if (
+    isPackage &&
+    (!Array.isArray(unit.attributes.sources) ||
+      unit.attributes.sources.length !== 1)
+  )
+    return null
+  const root = isPackage ? sourceRoot(unit.attributes.root) : null
+  if (isPackage && root === null)
+    return unit.attributes.root === undefined ? null : "invalid_root"
+  return {
+    root,
+    repositories: stringList(unit.attributes.sources).map((source) => {
+      const path = sourcePathOf(source)
+      return (
+        (path && sourceRepositories.get(path)) ??
+        normalizeWorkspaceRepositoryUrl(source)
+      )
+    }),
+  }
+}
+
 /** `.` names the repository top; null when the value is not a root. */
 function sourceRoot(raw: unknown): string | null {
   if (typeof raw !== "string") return null
@@ -139,7 +160,7 @@ function stringList(raw: unknown): string[] {
 }
 
 /** The fields of a merged pull request mirror file, else null. */
-function mergedPullRequest(attributes: Record<string, unknown>): {
+export function mergedPullRequest(attributes: Record<string, unknown>): {
   repositoryUrl: string
   mergedAt: string
   paths: string[]

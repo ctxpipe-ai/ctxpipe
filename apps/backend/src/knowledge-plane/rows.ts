@@ -10,11 +10,13 @@ import {
 import { knowledgeChunkRows } from "../domain/workspaces/knowledge-chunks.js"
 import { imageContentType } from "../domain/workspaces/raw-file.js"
 import { workspaceGraphNodes } from "../domain/workspaces/workspace-graph.js"
-import type {
-  DocumentRows,
-  KnowledgeChunk,
-  KnowledgeRelation,
+import {
+  type DocumentRows,
+  type KnowledgeChunk,
+  type KnowledgeRelation,
+  REFERENCE_TARGET_PREFIX,
 } from "../knowledge-store/knowledge-store.js"
+import type { FileReferences } from "./reference-keys.js"
 
 /** The rows of one document before the embedding step adds the vectors. */
 export type UnembeddedDocumentRows = Omit<DocumentRows, "chunks"> & {
@@ -31,10 +33,13 @@ export type UnembeddedDocumentRows = Omit<DocumentRows, "chunks"> & {
  * A relation does not need a target row. Its target is the document key of
  * the resolved path, and the read resolves it (ADR-066 decision 5). Each
  * shown image has an `EMBEDS_IMAGE` relation to the key of its path. The
- * image document comes from the image file (`imageRows`).
+ * image document comes from the image file (`imageRows`). A link or a claim
+ * that names a reference key targets the key (`ref:<key>`), and the
+ * document states its own keys (`refKeys`).
  *
- * The rows depend only on the unit. Give a unit from `parseKnowledgeFile`,
- * which parses one file alone (CTX-1400), and after
+ * The rows depend only on the unit and its references. Give a unit and its
+ * references from `parseKnowledgeFile`, which parses one file alone
+ * (CTX-1400), and the unit after
  * `applyEffectiveValidFromToUnits`. A validity bound that is not a time (for
  * example a Git SHA) becomes null.
  */
@@ -47,6 +52,8 @@ export function knowledgeRows(input: {
    * target. Without it, a URL has no target.
    */
   blobPath?: (url: string) => string | null
+  /** The reference keys of the file (`parseKnowledgeFile`). */
+  references: FileReferences
   observedAt: Date
 }): UnembeddedDocumentRows {
   const { workspaceId, unit, observedAt } = input
@@ -130,8 +137,7 @@ export function knowledgeRows(input: {
 
   const images = new Set(imagesOf(unit.body))
 
-  // The target is a Workspace path now. CTX-1400 adds a reference key (for
-  // example a Linear identifier) that the read resolves.
+  // The target is a Workspace path. A reference key target comes below.
   const relation = (
     target: string,
     row: Pick<KnowledgeRelation, "predicate" | "confidence" | "source"> &
@@ -175,7 +181,26 @@ export function knowledgeRows(input: {
       }),
     )
 
+  for (const link of input.references.links)
+    relations.push({
+      srcChunk: Math.max(
+        0,
+        link.text
+          ? chunks.findIndex((chunk) => chunk.text.includes(link.text))
+          : 0,
+      ),
+      predicate: link.predicate,
+      dstDoc: `${REFERENCE_TARGET_PREFIX}${link.key}`,
+      confidence: 1,
+      validFrom: dateOrNull(normalizeValidityBound(link.validFrom)),
+      validTo: null,
+      observedAt,
+      // A `CHANGED` claim comes from the GitHub pull request mirror.
+      source: link.predicate === "CHANGED" ? "github" : "git",
+    })
+
   return {
+    refKeys: input.references.keys,
     document: {
       ...documentDefaults(observedAt),
       docKey: unit.servingId,

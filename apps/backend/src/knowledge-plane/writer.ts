@@ -2,13 +2,20 @@ import { createHash } from "node:crypto"
 
 import { metrics, type Span, SpanStatusCode, trace } from "@opentelemetry/api"
 
+import { githubSourceRepositories } from "../domain/workspace-sources/github-sources.js"
+import {
+  isSourcesTreePath,
+  SOURCES_FOLDER_PREFIX,
+} from "../domain/workspace-sources/source-tree.js"
+import { SOURCES_FILE_PATH } from "../domain/workspace-sources/sources-file.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
 import { imageContentType } from "../domain/workspaces/raw-file.js"
-import type {
-  DocumentRows,
-  DocumentStatus,
-  KnowledgeScope,
-  KnowledgeStore,
+import {
+  type DocumentRows,
+  type DocumentStatus,
+  type KnowledgeScope,
+  type KnowledgeStore,
+  REFERENCE_TARGET_PREFIX,
 } from "../knowledge-store/knowledge-store.js"
 import {
   beginKnowledgeRun,
@@ -74,7 +81,9 @@ type KnowledgeRunSummary =
  *    knowledge file (Markdown) or an image file (its key is its path, and
  *    its `s3_key` has the hash of its bytes). A knowledge file that does not
  *    parse gets a `failed` document.
- * 4. Each relation target with no row gets a `missing` placeholder.
+ * 4. Each relation target with no row gets a `missing` placeholder. A
+ *    reference key target gets none: the read resolves it (ADR-066
+ *    decision 5).
  * 5. Each document whose file is gone gets a tombstone. A full rebuild does
  *    this for each document that the tree does not give (the reconcile).
  * 6. `completeKnowledgeRun` moves `last_sha` to the tip.
@@ -217,6 +226,11 @@ async function applyChangeSet(input: {
     isKnowledgePath(path) || imageContentType(path) !== null
   const tree = await regularFiles(directory, input.tip, root)
   const blobPath = workspaceBlobPath(input.remote.url, root)
+  const sourceRepositories = await sourceRepositoriesAt(
+    directory,
+    tree,
+    input.remote.url,
+  )
   // The status of each key. A key with a tombstone and an old row (a
   // `markDeleted` that stopped between its two statements) gives the old
   // row, so that the run makes the tombstone again.
@@ -262,6 +276,7 @@ async function applyChangeSet(input: {
           blobPath,
           path,
           content: bytes.toString("utf8"),
+          sourceRepositories,
         })
         if (parsed.kind === "failed")
           failed.push({ docKey: keyOf(path), error: parsed.error })
@@ -270,6 +285,7 @@ async function applyChangeSet(input: {
             knowledgeRows({
               workspaceId,
               unit: parsed.unit,
+              references: parsed.references,
               blobPath,
               observedAt,
             }),
@@ -295,7 +311,9 @@ async function applyChangeSet(input: {
     )
     for (const { document, relations } of [...documents, ...images]) {
       written.add(document.docKey)
-      for (const relation of relations) targets.add(relation.dstDoc)
+      for (const relation of relations)
+        if (!relation.dstDoc.startsWith(REFERENCE_TARGET_PREFIX))
+          targets.add(relation.dstDoc)
     }
     for (const { docKey } of failed) written.add(docKey)
     changed += documents.length + images.length + failed.length
@@ -327,6 +345,39 @@ async function applyChangeSet(input: {
     store.markDeleted(scope, batch, observedAt),
   )
   return changed + stale.length
+}
+
+/**
+ * The repository URL of each GitHub source file of the tree, for the
+ * `CHANGED` keys of a package file. A change of the sources starts a full
+ * rebuild (ADR-067 decision 4), so each package file gets the new URLs.
+ */
+async function sourceRepositoriesAt(
+  directory: string,
+  tree: ReadonlyMap<string, string>,
+  workspaceUrl: string,
+): Promise<Map<string, string>> {
+  const paths = [...tree.keys()].filter(isSourcesTreePath)
+  if (paths.length === 0) return new Map()
+  const blobs = await readGitBlobs(
+    directory,
+    paths.map((path) => tree.get(path) ?? ""),
+  )
+  const text = new Map(
+    paths.map((path, index) => [path, blobs[index]?.toString("utf8") ?? ""]),
+  )
+  return new Map(
+    githubSourceRepositories(
+      text.get(SOURCES_FILE_PATH) ?? null,
+      null,
+      paths
+        .filter((path) => path.startsWith(SOURCES_FOLDER_PREFIX))
+        .map((path) => ({ path, text: text.get(path) ?? "" })),
+      { workspaceUrl },
+    )
+      .filter((source) => source.path.startsWith(SOURCES_FOLDER_PREFIX))
+      .map((source) => [source.path, source.gitUrl]),
+  )
 }
 
 /** Call `call` for each batch of at most `size` items, in order. */
