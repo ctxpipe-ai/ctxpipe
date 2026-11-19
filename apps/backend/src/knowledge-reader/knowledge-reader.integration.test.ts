@@ -64,6 +64,8 @@ let jevFails: false | "all" | "disagreement" = false
 /** Answer this Jev call (from 1) after the 3-second budget, or none. */
 let slowJevCall: number | null = null
 let jevCalls = 0
+/** Answer the embedding of the plane after the 3-second budget. */
+let slowEmbedding = false
 const embeddingRequests: string[] = []
 
 /** The vector of a text on both stacks: the old stack has 2000 dimensions. */
@@ -78,6 +80,7 @@ const models = setupServer(
       typeof input === "string" ? input : (input.content[0]?.text ?? ""),
     )
     embeddingRequests.push(...texts)
+    if (slowEmbedding && typeof body.input[0] !== "string") await delay(5_000)
     return HttpResponse.json({
       data: body.input.map((input, index) => ({
         index,
@@ -440,6 +443,7 @@ describe("the knowledge reader seam", () => {
   beforeEach(() => {
     jevFails = false
     slowJevCall = null
+    slowEmbedding = false
     jevCalls = 0
     jevRequests.length = 0
     disagreementRequests.length = 0
@@ -652,9 +656,11 @@ describe("the knowledge reader seam", () => {
   it("on: includeSeeds adds a seed that answers; layer 0 judges the seeds either way", async () => {
     await setFlag("on")
     const refs = async (args: Record<string, unknown>) =>
-      (structured(await relatedCall({ maxDepth: 1, ...args })).results as {
-        ref: string
-      }[]).map((result) => result.ref)
+      (
+        structured(await relatedCall({ maxDepth: 1, ...args })).results as {
+          ref: string
+        }[]
+      ).map((result) => result.ref)
     // The checkout seed does not answer ("hub" only), so it is no result.
     expect(await refs({ includeSeeds: true })).toEqual([
       "knowledge/teams/payments.md",
@@ -672,9 +678,12 @@ describe("the knowledge reader seam", () => {
   it("on: validBetween follows only relations valid in the window", async () => {
     await setFlag("on")
     const refs = async (validBetween: { from: string; to: string }) =>
-      (structured(await relatedCall({ maxDepth: 3, validBetween })).results as {
-        ref: string
-      }[]).map((result) => result.ref)
+      (
+        structured(await relatedCall({ maxDepth: 3, validBetween }))
+          .results as {
+          ref: string
+        }[]
+      ).map((result) => result.ref)
     // GOVERNED_BY is valid from 2026-01-01.
     expect(
       await refs({ from: "2025-01-01T00:00:00Z", to: "2025-06-01T00:00:00Z" }),
@@ -695,6 +704,19 @@ describe("the knowledge reader seam", () => {
     )
     expect((authored.hits as unknown[]).length).toBe(units.length)
   })
+
+  it("on: when the time budget ends before the search ends, search_knowledge has no hits and says total_timeout", async () => {
+    await setFlag("on")
+    slowEmbedding = true
+    const result = await searchCall({ workspaces: ["ready"] })
+    expect(result.isError).toBeFalsy()
+    expect(structured(result)).toMatchObject({
+      hits: [],
+      partial: true,
+      partialReason: "total_timeout",
+    })
+    expect(jevRequests).toEqual([])
+  }, 15_000)
 
   it("on: when the time budget ends in a layer, get_related returns the judged layers as partial", async () => {
     await setFlag("on")

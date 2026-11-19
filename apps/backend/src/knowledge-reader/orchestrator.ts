@@ -239,15 +239,13 @@ export async function traverse(input: {
       deadline,
       input.meter,
     )
-    const seeds = input.seeds.map(
-      (seed, index): TraversalNode => ({
-        ...seed,
-        pAnswers: judged[index]?.pAnswers ?? 0,
-        pExplore: judged[index]?.pExplore ?? 0,
-        depth: 0,
-        parent: null,
-      }),
-    )
+    const seeds = input.seeds.map((seed, index): TraversalNode => ({
+      ...seed,
+      pAnswers: judged[index]?.pAnswers ?? 0,
+      pExplore: judged[index]?.pExplore ?? 0,
+      depth: 0,
+      parent: null,
+    }))
     nodes.push(...seeds)
     let frontier = seeds.filter((node) => node.pExplore >= settings.exploreAt)
     for (
@@ -255,7 +253,9 @@ export async function traverse(input: {
       depth <= Math.min(input.maxDepth, settings.maxDepth) && frontier.length;
       depth++
     ) {
-      const byKey = new Map(frontier.map((node) => [documentId(node.ref), node]))
+      const byKey = new Map(
+        frontier.map((node) => [documentId(node.ref), node]),
+      )
       const refs = frontier.map((node) => node.ref)
       const relations = await beforeDeadline(deadline, () =>
         input.store.readFrontier(input.scope, refs, input.walk.validAt),
@@ -297,17 +297,15 @@ export async function traverse(input: {
         deadline,
         input.meter,
       )
-      const layerNodes = inputs.map(
-        (candidate, index): TraversalNode => ({
-          ref: candidate.ref,
-          document: candidate.document,
-          text: candidate.text,
-          pAnswers: scores[index]?.pAnswers ?? 0,
-          pExplore: scores[index]?.pExplore ?? 0,
-          depth,
-          parent: candidate.parent,
-        }),
-      )
+      const layerNodes = inputs.map((candidate, index): TraversalNode => ({
+        ref: candidate.ref,
+        document: candidate.document,
+        text: candidate.text,
+        pAnswers: scores[index]?.pAnswers ?? 0,
+        pExplore: scores[index]?.pExplore ?? 0,
+        depth,
+        parent: candidate.parent,
+      }))
       nodes.push(...layerNodes)
       frontier = layerNodes.filter(
         (node) => node.pExplore >= settings.exploreAt,

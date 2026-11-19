@@ -150,8 +150,10 @@ function queryTerms(query: string): string[] {
 
 /**
  * `search_knowledge` and the chat search: the hybrid search, then layer 0
- * (Jev orders the hits by p(answers)). When Jev fails, the hits keep the
- * search order and the result says `judge_unavailable`.
+ * (Jev orders the hits by p(answers)). When Jev fails or the time budget
+ * ends during the judge, the hits keep the search order and the result says
+ * `judge_unavailable`. When the budget ends before the search ends, there
+ * are no hits and the result says `total_timeout`.
  */
 async function search(
   request: SearchRequest,
@@ -167,16 +169,26 @@ async function search(
     orgId: request.orgId,
     workspaceIds: [...request.workspaceIds],
   }
-  // The store applies each filter before it cuts the candidates.
-  const found = await store.search(scope, {
-    vector: await embed(query),
-    terms: queryTerms(query),
-    kinds: request.kinds ? [...request.kinds] : undefined,
-    pathPrefix: request.pathPrefix,
-    sourceTypes: request.sources ? [...request.sources] : undefined,
-    observedAfter: request.updatedAfter ?? null,
-    validAt: request.validAt ?? null,
-  })
+  // The store applies each filter before it cuts the candidates. With no
+  // time left for the search itself, there is no hit to give.
+  let found: Awaited<ReturnType<KnowledgeStore["search"]>>
+  try {
+    const vector = await beforeDeadline(deadline, () => embed(query))
+    found = await beforeDeadline(deadline, () =>
+      store.search(scope, {
+        vector,
+        terms: queryTerms(query),
+        kinds: request.kinds ? [...request.kinds] : undefined,
+        pathPrefix: request.pathPrefix,
+        sourceTypes: request.sources ? [...request.sources] : undefined,
+        observedAfter: request.updatedAfter ?? null,
+        validAt: request.validAt ?? null,
+      }),
+    )
+  } catch (error) {
+    if (!isBudgetSpent(error)) throw error
+    return { hits: [], partialReason: "total_timeout" }
+  }
   const limit = Math.min(Math.max(Math.trunc(request.limit ?? 10), 1), 50)
   const inputs = found.map((hit) => ({
     ref: { workspaceId: hit.workspaceId, docKey: hit.document.docKey },

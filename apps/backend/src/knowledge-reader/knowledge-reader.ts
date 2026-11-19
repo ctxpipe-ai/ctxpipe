@@ -40,10 +40,11 @@ export type SearchResult = {
   /** Best first. `projectionSha` is the SHA that the stack serves. */
   hits: KnowledgeHit[]
   /**
-   * Set when Jev did not judge the hits: they are in the search order
-   * (ADR-068 "Open", the PoC choice of CTX-1406).
+   * `judge_unavailable`: Jev did not judge the hits, so they are in the
+   * search order (ADR-068 "Open", the PoC choice of CTX-1406).
+   * `total_timeout`: the time budget ended before the search ended.
    */
-  partialReason?: "judge_unavailable"
+  partialReason?: "judge_unavailable" | "total_timeout"
 }
 
 /** One `get_related` call on one Workspace, as of `now`. */
