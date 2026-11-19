@@ -40,7 +40,9 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
      - `s3_key` and `mime` for an image;
      - `valid_from`, `valid_to` and `observed_at`.
    - `chunks`: the sections of a document. It holds `ordinal`, `text`, the full vector and its binary form (the search is in [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md)), and a text index on `text`.
-   - `relations`: `(src_doc, src_chunk, predicate, dst_doc)`, with confidence, validity, source and `observed_at`. A projection sorted by `dst_doc` gives the incoming relations.
+   - `relations`: `(src_doc, src_chunk, predicate, dst_doc)`, with confidence, validity, source and `observed_at`. It sorts by `src_doc`, for the outgoing relations.
+   - `relations_in`: the same rows, sorted by `(org_id, workspace_id, dst_doc, predicate, src_doc)`, for the incoming relations. `KnowledgeStore` writes and deletes both tables.
+   - Revised 2026-11-19 ([CTX-1391](https://linear.app/ctxpipe/issue/CTX-1391)): this ADR first used a projection of `relations` sorted by `dst_doc`. In ClickHouse, one patch part anywhere in a table stops every read from using any projection of that table, until a merge removes the patch. The docs say the same. A `DELETE` on a table with a projection also rewrites whole parts. A second table does not have these limits: with a patch part present, it read the same 29 granules as the clean projection (12 ms warm).
 4. **The grain.** Search finds chunks. The traversal moves between documents. A relation records the chunk that states it (`src_chunk`), so the provenance points to a section.
 5. **A relation belongs to the document that states it.**
    - Its target is a document key that is resolved when it is read.
@@ -60,7 +62,7 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
    Search returns only `active` documents. The traversal sees all four. Thus, a relation always has a target ([ADR-067](ADR-067-knowledge-projection-applies-git-diff.md)).
 
    The CTO chose stored placeholder rows (2026-11-19), not only a target key that is missing at read time. Reasons: the maintenance job finds them with one status query, Jev sees "does not exist" as a fact of the candidate, and a stored row keeps the difference between "deleted on a date" and "never existed".
-8. **Changes use the lightweight SQL `UPDATE` and `DELETE`** (patch parts). They came as a beta in ClickHouse 25.7. In 26.10.6.18, the version that we pin, `system.settings` gives them the tier "Production", and the same for the text index ([CTX-1391](https://linear.app/ctxpipe/issue/CTX-1391)). We do not depend on the experimental transactions, which also are not in the cloud product.
+8. **Changes use the lightweight SQL `UPDATE` and `DELETE`** (patch parts). They came as a beta in ClickHouse 25.7. In 26.10.6.18, the version that we pin, they are tier "Production", and the text index is GA since 26.2 ([CTX-1391](https://linear.app/ctxpipe/issue/CTX-1391)). A `DELETE` runs with `lightweight_delete_mode = 'lightweight_update'`, so it writes a patch part (about 90 ms) and does not rewrite parts. Each table sets `enable_block_number_column = 1` and `enable_block_offset_column = 1`. We do not depend on the experimental transactions, which also are not in the cloud product.
 9. **Org isolation.** `KnowledgeStore` is the only ClickHouse client. Each query session sets its org. Reads and writes need different walls, because a ClickHouse row policy filters reads only: unlike Postgres RLS `WITH CHECK`, it does not check the rows that a session inserts.
    - **Reads have two walls:**
      - every statement has `org_id` and `workspace_id` in its `WHERE` clause;
