@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url"
 
 import { config } from "dotenv"
 import { inArray, sql } from "drizzle-orm"
+import pg from "pg"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { closeDb, initDb, withOrgDbContext } from "../../db/client.js"
@@ -10,7 +11,12 @@ import {
   searchIndexConditions,
   servesOrgAndMatch,
 } from "../../db/knowledge-search-plan.js"
-import { workspaces } from "../../db/schema/workspaces.js"
+import { buildKnowledgeVectorIndex } from "../../db/knowledge-vector-index.js"
+import { ownerUrlForMigrate } from "../../db/owner-migrate-url.js"
+import {
+  KNOWLEDGE_VECTOR_INDEX,
+  workspaces,
+} from "../../db/schema/workspaces.js"
 import { analyzeAsOwner } from "../../test/analyze-as-owner.js"
 import {
   embeddingModelServer,
@@ -149,6 +155,32 @@ describe("searchKnowledge on a large shared index (Postgres)", () => {
     expect(hits.some((hit) => hit.workspaceId === bulk)).toBe(true)
   }, 120_000)
 
+  it("scans a large scope exactly, in full precision, until the half-precision index is valid", async () => {
+    const owner = new pg.Client({
+      connectionString: ownerUrlForMigrate(process.env.DATABASE_URL ?? ""),
+    })
+    await owner.connect()
+    try {
+      // As after a build that timed out: the index is not there.
+      await owner.query(
+        `DROP INDEX CONCURRENTLY IF EXISTS "${KNOWLEDGE_VECTOR_INDEX}"`,
+      )
+      const hits = await searchKnowledge({
+        orgId,
+        workspaceIds: [small, bulk],
+        query: `ERR_LEDGER_7731 ${paraphrase}`,
+        limit: 10,
+      })
+      expect(hits.map((hit) => hit.unitId)).toContain(ledger)
+      expect(hits.some((hit) => hit.workspaceId === bulk)).toBe(true)
+    } finally {
+      await owner.end()
+      await buildKnowledgeVectorIndex(
+        ownerUrlForMigrate(process.env.DATABASE_URL ?? ""),
+      )
+    }
+  }, 300_000)
+
   it("reads the nearest chunks through the HNSW index, not a scan of every chunk", async () => {
     // A wall-clock bound is not deterministic on a shared runner. The plan is.
     // With sequential scans off, the planner must use the HNSW index for this
@@ -172,7 +204,7 @@ describe("searchKnowledge on a large shared index (Postgres)", () => {
         "<vector>",
       )
     })
-    expect(plan).toContain("workspace_knowledge_chunks_embedding_idx")
+    expect(plan).toContain(KNOWLEDGE_VECTOR_INDEX)
     expect(plan).not.toMatch(
       /"Node Type":"Seq Scan","[^}]*"Relation Name":"workspace_knowledge_chunks"/,
     )

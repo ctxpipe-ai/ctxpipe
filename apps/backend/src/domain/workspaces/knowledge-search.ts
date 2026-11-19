@@ -1,6 +1,10 @@
 import { type SQL, sql } from "drizzle-orm"
 
 import { withOrgDbContext } from "../../db/client.js"
+import {
+  HALF_EMBEDDING,
+  KNOWLEDGE_VECTOR_INDEX,
+} from "../../db/schema/workspaces.js"
 import { activeProjectionSha } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { generateEmbedding } from "../../retrieval/services/modelProvider.js"
@@ -204,16 +208,39 @@ async function runSearch(
     let semantic = sql`SELECT NULL::text, NULL::text, NULL::text, NULL::int, NULL::bigint WHERE false`
     if (embedding) {
       const vector = sql`${JSON.stringify(embedding)}::vector`
-      // The HNSW index is shared by all orgs. A scan stops after
-      // `hnsw.max_scan_tuples` (20,000 by default) tuples, so a selective
-      // filter can lose every hit. A small scope is cheaper to scan exactly.
-      // 10,000 chunks of 2,000 dimensions take about 100 milliseconds.
-      const counted = await db.execute<{ count: number | string }>(
-        sql`SELECT count(*) AS count FROM (
-          SELECT 1 FROM ${scope} WHERE ${where} AND c.embedding IS NOT NULL LIMIT 10001
+      // The HNSW index is shared by all orgs, so a filtered walk reads the
+      // vectors of other orgs until it has the scope's nearest: the smaller
+      // the scope's share of the table, the more. An exact scan reads every
+      // vector of the scope. Measured cold (evicted buffers, CTX-1380), they
+      // cost the same at about 3% of the table; below that, and below 2,000
+      // chunks, the exact scan reads less. At 3% a walk finds its 100 well
+      // before `hnsw.max_scan_tuples` (20,000).
+      // The exact scan: up to 2,000 chunks, or up to 3% of the table's
+      // estimated rows, whichever is more; the count stops one above that.
+      // Until the half-precision index is valid (migrate builds it
+      // concurrently), every scope is scanned exactly, in full precision.
+      const counted = await db.execute<{
+        count: number | string
+        exact_max: number | string
+        hnsw_ready: boolean | null
+      }>(
+        sql`WITH cap AS (
+          SELECT greatest(2000, ceil(0.03 * greatest(reltuples, 0)))::int AS exact_max
+          FROM pg_class WHERE oid = 'workspace_knowledge_chunks'::regclass
+        )
+        SELECT (SELECT exact_max FROM cap) AS exact_max,
+          (SELECT bool_and(i.indisvalid) FROM pg_index AS i JOIN pg_class AS ic ON ic.oid = i.indexrelid
+            WHERE ic.relname = ${KNOWLEDGE_VECTOR_INDEX}) AS hnsw_ready,
+          count(*) AS count FROM (
+          SELECT 1 FROM ${scope} WHERE ${where} AND c.embedding IS NOT NULL
+          LIMIT (SELECT exact_max + 1 FROM cap)
         ) AS capped`,
       )
-      if (Number(counted.rows[0]?.count) <= 10_000) {
+      const first = counted.rows[0]
+      if (
+        first?.hnsw_ready !== true ||
+        Number(first.count) <= Number(first.exact_max)
+      ) {
         // MATERIALIZED keeps the planner from walking the HNSW index.
         semantic = sql`WITH scoped AS MATERIALIZED (
             SELECT c.workspace_id, c.unit_id, c.chunk_hash, c.occurrence,
@@ -241,7 +268,28 @@ async function runSearch(
           await db.execute(
             sql`SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true)`,
           )
-        semantic = hnswCandidates(vector, where)
+        // Postgres does not count the reads of a TOASTed vector, so it
+        // would compute the exact distance of every chunk in scope: about 15
+        // times the cold reads of the walk. With sequential scans and sorts
+        // off, only the HNSW index gives the order. They hold for this one
+        // statement: the next ones of the transaction get the defaults back.
+        await setTimeBudget()
+        await db.execute(
+          sql`SELECT set_config('enable_seqscan', 'off', true), set_config('enable_sort', 'off', true), set_config('enable_incremental_sort', 'off', true)`,
+        )
+        const nearest = await db.execute<{
+          workspace_id: string
+          unit_id: string
+          chunk_hash: string
+          occurrence: number
+          rank: number | string
+        }>(hnswCandidates(vector, where))
+        await db.execute(
+          sql`SELECT set_config('enable_seqscan', 'on', true), set_config('enable_sort', 'on', true), set_config('enable_incremental_sort', 'on', true)`,
+        )
+        semantic = sql`SELECT workspace_id, unit_id, chunk_hash, occurrence, rank
+          FROM jsonb_to_recordset(${JSON.stringify(nearest.rows)}::jsonb)
+            AS nearest(workspace_id text, unit_id text, chunk_hash text, occurrence int, rank bigint)`
       }
     }
     await setTimeBudget()
@@ -358,12 +406,14 @@ export function hnswCandidates(vector: SQL, where: SQL): SQL {
   // `relaxed_order` can return rows a little out of order. The outer
   // `row_number()` sorts them again by distance and then by the key.
   // Only a bare `ORDER BY distance` lets the planner use the HNSW
-  // index, so the key breaks ties in the rank window, not here.
+  // index, so the key breaks ties in the rank window, not here. The
+  // distance is the index's expression: the embedding in half precision.
+  const half = sql.raw(HALF_EMBEDDING)
   return sql`SELECT ${tieBreakOuter},
       row_number() OVER (ORDER BY distance, ${tieBreakOuter}) AS rank
     FROM (
       SELECT c.workspace_id, c.unit_id, c.chunk_hash, c.occurrence,
-        c.embedding <=> ${vector} AS distance
+        c.embedding::${half} <=> ${vector}::${half} AS distance
       FROM ${scope}
       WHERE ${where} AND c.embedding IS NOT NULL
       ORDER BY distance
