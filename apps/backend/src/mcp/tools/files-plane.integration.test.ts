@@ -452,9 +452,10 @@ describe("read_file and list_files on the knowledge plane", () => {
       const next = structured(
         await listFiles({ limit: 3, cursor: first.cursor }),
       )
-      expect(next.entries.map((entry: { path: string }) => entry.path)).toEqual(
-        ["sources", "sources/notes.md"],
-      )
+      expect(next.entries).toMatchObject([
+        { path: "sources" },
+        { path: "sources/notes.md" },
+      ])
       expect(next.cursor).toBeUndefined()
     })
 
