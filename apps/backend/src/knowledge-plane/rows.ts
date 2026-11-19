@@ -217,6 +217,7 @@ export function knowledgeRows(input: {
       confidence: 1,
       validFrom: dateOrNull(normalizeValidityBound(link.validFrom)),
       validTo: null,
+      altText: "",
       observedAt,
       // A `CHANGED` claim comes from the GitHub pull request mirror.
       source: link.predicate === "CHANGED" ? "github" : "git",

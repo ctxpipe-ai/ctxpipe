@@ -10,7 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join, relative } from "node:path"
+import { dirname, join, relative } from "node:path"
 
 import { OpenAPIHono } from "@hono/zod-openapi"
 import {
@@ -1203,5 +1203,183 @@ describe("Workspace token reads", () => {
     )
     expect(res.status).toBe(403)
     expect(getIndexableRepositoryMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("POST /{repoId}/blobs-query", () => {
+  const sharedClone = join(
+    repoCacheDir,
+    "org_mock123",
+    "repo_abcdef27",
+    "shared.git",
+  )
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1])
+  let work: string
+  let sha: string
+
+  /** The route with the token `auth`; the default is a user of the org. */
+  function blobsApp(auth: Partial<AppEnv["Variables"]["auth"]> = {}) {
+    const app = new OpenAPIHono<AppEnv>()
+    app.use("*", async (c, next) => {
+      c.set("db", {} as AppEnv["Variables"]["db"])
+      c.set("auth", {
+        sub: "user_test",
+        orgId: "org_mock123",
+        principal: "user",
+        ...auth,
+      } as AppEnv["Variables"]["auth"])
+      await next()
+    })
+    registerRepoRoutes(app)
+    return app
+  }
+
+  const query = async (
+    body: Record<string, unknown>,
+    auth?: Partial<AppEnv["Variables"]["auth"]>,
+  ) => {
+    const res = await blobsApp(auth).request("/repo_abcdef27/blobs-query", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sha, maxBytes: 1024, ...body }),
+    })
+    return {
+      status: res.status,
+      body: res.ok ? await res.json() : await res.text(),
+    }
+  }
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    getAccessibleRepositoryMock.mockResolvedValue(MOCK_REPO)
+    // A real repository: a regular PNG, a symlink at an image path, a
+    // submodule, a folder and a large file. The shared clone is bare, as
+    // the index makes it.
+    work = await mkdtemp(join(tmpdir(), "blobs-query-"))
+    const git = (...args: string[]) =>
+      execFileSync(
+        "git",
+        [
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.com",
+          "-c",
+          "commit.gpgsign=false",
+          "-C",
+          work,
+          ...args,
+        ],
+        { encoding: "utf8" },
+      ).trim()
+    git("init", "-q", "-b", "main")
+    await mkdir(join(work, "docs", "img"), { recursive: true })
+    await writeFile(join(work, "docs", "img", "flow.png"), png)
+    await writeFile(join(work, "docs", "img", "big.png"), Buffer.alloc(2048))
+    await writeFile(join(work, "secret.txt"), "outside the root\n")
+    await symlink("flow.png", join(work, "docs", "img", "link.png"))
+    await symlink("../../secret.txt", join(work, "docs", "img", "up.png"))
+    git("add", "-A")
+    git(
+      "update-index",
+      "--add",
+      "--cacheinfo",
+      `160000,${"1".repeat(40)},docs/img/module.png`,
+    )
+    git("commit", "-q", "-m", "images")
+    sha = git("rev-parse", "HEAD")
+    await mkdir(dirname(sharedClone), { recursive: true })
+    execFileSync("git", ["clone", "-q", "--bare", work, sharedClone])
+  })
+
+  afterEach(async () => {
+    await rm(work, { recursive: true, force: true })
+  })
+
+  it("gives the bytes of a regular file, and null for a symlink, a submodule, a folder, a missing path and a large blob", async () => {
+    const result = await query({
+      root: "docs",
+      paths: [
+        "img/flow.png",
+        "img/link.png",
+        "img/up.png",
+        "img/module.png",
+        "img",
+        "img/missing.png",
+        "img/big.png",
+      ],
+    })
+
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        "img/flow.png": png.toString("base64"),
+        "img/link.png": null,
+        "img/up.png": null,
+        "img/module.png": null,
+        img: null,
+        "img/missing.png": null,
+        "img/big.png": null,
+      },
+    })
+  })
+
+  it("gives null for each path of a commit that the clone does not have", async () => {
+    const result = await query({
+      sha: "f".repeat(40),
+      paths: ["docs/img/flow.png"],
+    })
+
+    expect(result).toEqual({
+      status: 200,
+      body: { "docs/img/flow.png": null },
+    })
+  })
+
+  it("reads a path as a literal path, never as a pathspec pattern", async () => {
+    const result = await query({
+      paths: ["docs/img/*.png", ":(glob)docs/**/flow.png"],
+    })
+
+    expect(result).toEqual({
+      status: 200,
+      body: {
+        "docs/img/*.png": null,
+        ":(glob)docs/**/flow.png": null,
+      },
+    })
+  })
+
+  it("refuses a path that leaves the root, and a token that does not name the repository or the commit", async () => {
+    expect((await query({ paths: ["../secret.txt"] })).status).toBe(400)
+    expect(
+      (
+        await query(
+          { paths: ["docs/img/flow.png"] },
+          { workspaceId: "ws_1", workspaceRepositoryIds: ["repo_other"] },
+        )
+      ).status,
+    ).toBe(403)
+    expect(
+      (
+        await query(
+          { paths: ["docs/img/flow.png"] },
+          {
+            repositoryRevisions: [
+              { repositoryId: "repo_abcdef27", sha: "e".repeat(40) },
+            ],
+          },
+        )
+      ).status,
+    ).toBe(403)
+    expect(
+      await query(
+        { paths: ["docs/img/flow.png"] },
+        { workspaceId: "ws_1", workspaceRepositoryIds: ["repo_abcdef27"] },
+      ),
+    ).toEqual({
+      status: 200,
+      body: { "docs/img/flow.png": png.toString("base64") },
+    })
   })
 })

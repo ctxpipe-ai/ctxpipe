@@ -63,6 +63,8 @@ const planeSha = "b".repeat(40)
 const jevRequests: { candidates: number }[] = []
 /** The data URL of each image part that Jev got. */
 const jevImages: string[] = []
+/** The text of each candidate that Jev got. */
+const jevTexts: string[] = []
 const disagreementRequests: string[][] = []
 /** Fail every Jev call, or only the calls of the disagreement step. */
 let jevFails: false | "all" | "disagreement" = false
@@ -151,6 +153,7 @@ const models = setupServer(
           | { type: "image_url"; image_url: { url: string } }
         // The stub scores each image part as an answer.
         if (typeof content !== "string") jevImages.push(content.image_url.url)
+        else jevTexts.push(content)
         const text = typeof content === "string" ? content : "answer"
         answers[`answers.${n}`] = {
           type: "noul",
@@ -458,6 +461,7 @@ describe("the knowledge reader seam", () => {
     jevCalls = 0
     jevRequests.length = 0
     jevImages.length = 0
+    jevTexts.length = 0
     disagreementRequests.length = 0
     events.length = 0
   })
@@ -947,7 +951,7 @@ describe("the knowledge reader seam", () => {
     ])
   })
 
-  it("on: Jev gets the bytes of an image from the published checkout at the served SHA", async () => {
+  it("on: Jev gets the bytes of an image from the Workspace Git at the served SHA", async () => {
     await setFlag("on")
     const doc = "knowledge/flows.md"
     const flow = "knowledge/img/flow.png"
@@ -1058,20 +1062,26 @@ describe("the knowledge reader seam", () => {
       // Smaller than Jev takes: it goes as its text.
       [tiny]: png(100, 100),
     }
-    const reads: { repositoryId: string; paths: string[] }[] = []
+    const reads: { repositoryId: string; sha: string; paths: string[] }[] = []
+    let codesearchDown = false
     vi.stubEnv("CODESEARCH_URL", "http://codesearch.test")
     models.use(
       http.post(
-        "http://codesearch.test/:repoId/files-query",
+        "http://codesearch.test/:repoId/blobs-query",
         async ({ request, params }) => {
-          const { paths } = (await request.json()) as { paths: string[] }
-          reads.push({ repositoryId: String(params.repoId), paths })
+          const { sha, paths } = (await request.json()) as {
+            sha: string
+            paths: string[]
+          }
+          reads.push({ repositoryId: String(params.repoId), sha, paths })
+          if (codesearchDown)
+            return HttpResponse.json({ error: "down" }, { status: 503 })
           return HttpResponse.json(
             Object.fromEntries(
-              paths.flatMap((path) => {
-                const bytes = files[path]
-                return bytes ? [[path, bytes.toString("base64")]] : []
-              }),
+              paths.map((path) => [
+                path,
+                files[path]?.toString("base64") ?? null,
+              ]),
             ),
           )
         },
@@ -1087,37 +1097,34 @@ describe("the knowledge reader seam", () => {
       expect(jevImages).toEqual([
         `data:image/png;base64,${files[flow]?.toString("base64")}`,
       ])
-      expect(reads.map((read) => read.repositoryId)).toEqual([
-        repositoryId,
-        repositoryId,
+      // One read of each image, in the Workspace repository at the served
+      // SHA of the plane.
+      expect(
+        reads
+          .map(({ repositoryId, sha, paths }) => [repositoryId, sha, ...paths])
+          .sort(),
+      ).toEqual([
+        [repositoryId, planeSha, flow],
+        [repositoryId, planeSha, tiny],
       ])
-      expect(reads.flatMap((read) => read.paths).sort()).toEqual([flow, tiny])
 
-      // A published checkout at another SHA than the plane: no read, and
-      // each image goes to Jev as its text.
-      await markNotReady(workspaceId)
-      await beginKnowledgeRun({
-        orgId: seed.orgId,
-        workspaceId,
-        tip: legacySha,
-      })
-      await completeKnowledgeRun({
-        orgId: seed.orgId,
-        workspaceId,
-        tip: legacySha,
-        projectionVersion: "test",
-        failedCount: 0,
-      })
-      reads.length = 0
+      // When codesearch fails, each image goes to Jev as its text, and the
+      // call does not fail.
+      codesearchDown = true
       jevImages.length = 0
-      const stale = await relatedCall({
+      jevTexts.length = 0
+      // Another question, so that no cached result answers.
+      const fallback = await relatedCall({
         workspace: "pictures",
         seeds: [doc],
         maxDepth: 1,
+        query: "Which diagram shows the flow?",
       })
-      expect(stale.isError).toBeFalsy()
-      expect(reads).toEqual([])
+      expect(fallback.isError).toBeFalsy()
       expect(jevImages).toEqual([])
+      expect(jevTexts.some((text) => text.includes(`[image] ${flow}`))).toBe(
+        true,
+      )
     } finally {
       models.resetHandlers()
     }

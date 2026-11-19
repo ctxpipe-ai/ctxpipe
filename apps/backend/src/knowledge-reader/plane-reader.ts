@@ -1,9 +1,8 @@
+import { requireCurrentOrgId } from "../auth/context.js"
 import { parseEnv } from "../config/env.js"
+import { fetchCommitBlob } from "../domain/codeIngestion/codesearchClient.js"
 import { connectorMirrorRoot } from "../domain/codeIngestion/connectorMirrorPaths.js"
-import {
-  publishedWorkspaceCheckout,
-  readWorkspaceCheckoutFile,
-} from "../domain/workspaces/checkout-read.js"
+import { publishedWorkspaceCheckout } from "../domain/workspaces/checkout-read.js"
 import type {
   ExpandedEdge,
   ExpandedNode,
@@ -145,13 +144,12 @@ export function planeKnowledgeReader(input: {
 }
 
 /**
- * The image reader of one request (ADR-068 decision 6): the published
- * checkout of the Workspace repository, as the Files pane reads it. It reads
- * only when that checkout is the served SHA of the plane, so that Jev sees
- * the bytes that the writer embedded. Else, and for a file that is not
- * there or too large, it gives null. The read goes only to the repository
- * of the Workspace of the document, so a row cannot point it at the content
- * of another Workspace or org.
+ * The image reader of one request (ADR-068 decision 6). It reads the blob of
+ * the image path at the served SHA of the plane from the Git object store of
+ * codesearch: only a regular file, never a symlink or a working tree. It
+ * reads only the repository of the Workspace of the document, so a row
+ * cannot point it at the content of another Workspace or org. It gives null
+ * before the first index of the Workspace.
  */
 function gitImageBytes(shas: ReadonlyMap<string, string>): ImageBytes {
   const checkouts = new Map<
@@ -159,19 +157,24 @@ function gitImageBytes(shas: ReadonlyMap<string, string>): ImageBytes {
     ReturnType<typeof publishedWorkspaceCheckout>
   >()
   return async ({ workspaceId }, path) => {
+    const sha = shas.get(workspaceId)
+    if (!sha) return null
     let checkout = checkouts.get(workspaceId)
     if (!checkout) {
       checkout = publishedWorkspaceCheckout(workspaceId)
       checkouts.set(workspaceId, checkout)
     }
-    const published = await checkout
-    if (!published || published.sha !== shas.get(workspaceId)) return null
-    const file = await readWorkspaceCheckoutFile({
-      ...published,
+    const repository = await checkout
+    if (!repository) return null
+    return fetchCommitBlob({
+      repositoryId: repository.repositoryId,
+      orgId: requireCurrentOrgId(),
+      workspaceId,
+      sha,
       path,
+      ...(repository.rootPath ? { root: repository.rootPath } : {}),
       maxBytes: multimodalEmbeddingConfig.maxImageBytes,
     })
-    return file.kind === "bytes" ? file.bytes : null
   }
 }
 

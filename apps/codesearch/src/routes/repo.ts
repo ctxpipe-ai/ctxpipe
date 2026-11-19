@@ -2,9 +2,14 @@ import { realpath } from "node:fs/promises"
 
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
+import { HTTPException } from "hono/http-exception"
 
 import type { AppEnv } from "../app/env.js"
-import { checkoutKeyFromAuth, indexCheckoutFromAuth } from "../auth/jwt.js"
+import {
+  checkoutKeyFromAuth,
+  indexCheckoutFromAuth,
+  workspaceLinksRepository,
+} from "../auth/jwt.js"
 import {
   tryWithRepositoryPurgeOperation,
   withRepositoryPurgeOperation,
@@ -15,6 +20,7 @@ import {
   deleteCheckoutFromDisk,
   sweepRepositoryDisk,
 } from "../domain/repositories/checkoutGc.js"
+import { readCommitBlobs } from "../domain/repositories/commitBlobs.js"
 import {
   GlobInvalidRequestError,
   GlobPathNotFoundError,
@@ -26,6 +32,7 @@ import {
   readContainedDirectory,
   readContainedFile,
   repoCheckoutPath,
+  repoSharedClonePath,
   resolveContainedRealPath,
   scipIndexPath,
 } from "../domain/repositories/paths.js"
@@ -462,6 +469,21 @@ const getFileRoute = createRoute({
   },
 })
 
+/** A relative path with no `.` or `..` segment. */
+const relativePath = (max: number) =>
+  z
+    .string()
+    .max(max)
+    .refine(
+      (path) =>
+        !path.startsWith("/") &&
+        !path.includes("\\") &&
+        path
+          .split("/")
+          .every((segment) => segment && segment !== "." && segment !== ".."),
+      "The path must be a relative path",
+    )
+
 const filesQueryRequestSchema = z
   .object({
     paths: z.array(z.string()).min(1),
@@ -469,19 +491,7 @@ const filesQueryRequestSchema = z
      * A folder of the checkout. When set, `paths` are relative to it and a
      * read never leaves it, also through a symlink.
      */
-    root: z
-      .string()
-      .max(300)
-      .refine(
-        (root) =>
-          !root.startsWith("/") &&
-          !root.includes("\\") &&
-          root
-            .split("/")
-            .every((segment) => segment && segment !== "." && segment !== ".."),
-        "The root must be a relative folder path",
-      )
-      .optional(),
+    root: relativePath(300).optional(),
     /**
      * A size limit in bytes. A file larger than the limit is not read: its
      * entry has only its size.
@@ -521,6 +531,48 @@ const filesQueryRoute = createRoute({
         },
       },
       description: "Files by path",
+    },
+    404: repositoryNotFoundResponse,
+    403: { description: "Access denied" },
+  },
+})
+
+const blobsQueryRequestSchema = z
+  .object({
+    /** The full commit SHA. */
+    sha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
+    paths: z.array(relativePath(1000)).min(1).max(50),
+    /** A folder of the repository. When set, `paths` are relative to it. */
+    root: relativePath(300).optional(),
+    /** The size limit of one blob in bytes. A larger blob gives null. */
+    maxBytes: z
+      .number()
+      .int()
+      .positive()
+      .max(16 * 1024 * 1024),
+  })
+  .openapi("BlobsQueryRequest")
+
+const blobsQueryRoute = createRoute({
+  method: "post",
+  path: "/{repoId}/blobs-query",
+  description:
+    "The bytes of regular files at a commit, from the Git object store of the repository. A symlink, a submodule, a folder, a missing path, a missing commit or a blob over the limit gives null.",
+  request: {
+    params: z.object({ repoId: repoIdParam }),
+    body: {
+      content: { "application/json": { schema: blobsQueryRequestSchema } },
+    },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.record(z.string(), z.string().nullable()),
+          description: "Map of path to base64-encoded content, or to null",
+        },
+      },
+      description: "Blobs by path",
     },
     404: repositoryNotFoundResponse,
     403: { description: "Access denied" },
@@ -964,5 +1016,40 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       }
     }
     return c.json(result, 200)
+  })
+
+  app.openapi(blobsQueryRoute, async (c) => {
+    const db = c.get("db")
+    if (!db) return c.json({ error: "Database not configured" }, 503)
+    const auth = c.get("auth")
+    if (!auth) throw new Error("Missing auth context")
+    const { repoId } = c.req.valid("param")
+    const { sha, paths, root, maxBytes } = c.req.valid("json")
+    const repo = await getAccessibleRepository(db, repoId, auth.orgId)
+    if (!repo) return c.json(repositoryNotFoundBody, 404)
+    // A token with revisions must name this commit, and a Workspace token
+    // must link this repository.
+    const allowed = auth.repositoryRevisions
+      ? auth.repositoryRevisions.some(
+          (item) => item.repositoryId === repoId && item.sha === sha,
+        )
+      : !auth.workspaceId || workspaceLinksRepository(auth, repoId)
+    if (!allowed) throw new HTTPException(403, { message: "Access denied" })
+    const blobs = await readCommitBlobs({
+      clonePath: repoSharedClonePath(repo.orgId, repo.id),
+      sha,
+      paths,
+      ...(root ? { root } : {}),
+      maxBytes,
+    })
+    return c.json(
+      Object.fromEntries(
+        Object.entries(blobs).map(([path, bytes]) => [
+          path,
+          bytes?.toString("base64") ?? null,
+        ]),
+      ),
+      200,
+    )
   })
 }

@@ -1149,7 +1149,7 @@ async function readFrontier(
        SELECT 'out', ${resolvedTarget("o")},
          o.workspace_id, o.src_doc, o.src_chunk, o.predicate,
          ${resolvedTarget("o")}, o.confidence,
-         o.valid_from, o.valid_to, o.source, o.observed_at
+         o.valid_from, o.valid_to, o.source, o.alt_text, o.observed_at
        FROM out_edges AS o
        LEFT JOIN (
          ${keyTargets(`${inWorkspaces} AND ref_key IN (
@@ -1167,7 +1167,7 @@ async function readFrontier(
        UNION ALL
        SELECT 'in', i.src_doc, i.workspace_id, i.src_doc, i.src_chunk,
          i.predicate, k.doc_key, i.confidence, i.valid_from, i.valid_to,
-         i.source, i.observed_at
+         i.source, i.alt_text, i.observed_at
        FROM relations_in AS i
        INNER JOIN own_keys AS k
          ON k.workspace_id = i.workspace_id AND k.target = i.dst_doc
@@ -1323,10 +1323,10 @@ async function readGraph(
          rel.predicate AS predicate, ${resolvedTarget("rel")} AS dstDoc,
          rel.confidence AS confidence, rel.valid_from AS validFrom,
          rel.valid_to AS validTo, rel.source AS source,
-         rel.observed_at AS observedAt
+         rel.alt_text AS altText, rel.observed_at AS observedAt
        FROM (
          SELECT src_doc, src_chunk, predicate, dst_doc, confidence,
-           valid_from, valid_to, source, observed_at
+           valid_from, valid_to, source, alt_text, observed_at
          FROM relations WHERE ${scoped}
        ) AS rel
        LEFT JOIN (${keyTargets(scoped)}) AS keys
