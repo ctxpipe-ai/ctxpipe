@@ -29,8 +29,13 @@ import type { Corpus } from "./dataset.js"
 const id = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/)
 
 /** The name of the private snapshot repository of a source. */
-function repositoryName(prefix: string, corpus: string, source: string) {
+function snapshotName(prefix: string, corpus: string, source: string) {
   return `${prefix}${corpus}-${source.split("/")[1]?.toLowerCase()}`
+}
+
+/** The name of the private context repo of a corpus. */
+function contextName(prefix: string, corpus: string) {
+  return `${prefix}${corpus}-context`
 }
 
 export const planSchema = z
@@ -66,9 +71,9 @@ export const planSchema = z
   .superRefine((plan, context) => {
     // Each repository that the plan makes has its own name.
     const names = plan.corpora.flatMap((corpus) => [
-      `${plan.prefix}${corpus.id}-context`,
+      contextName(plan.prefix, corpus.id),
       ...corpus.repositories.map((repository) =>
-        repositoryName(plan.prefix, corpus.id, repository.source),
+        snapshotName(plan.prefix, corpus.id, repository.source),
       ),
     ])
     for (const name of new Set(names))
@@ -80,8 +85,6 @@ export const planSchema = z
   })
 
 export type Plan = z.infer<typeof planSchema>
-type PlanCorpus = Plan["corpora"][number]
-type PlanRepository = PlanCorpus["repositories"][number]
 
 /** Where the repositories are. Tests give a `file://` base. */
 export type GithubAccess = {
@@ -89,18 +92,6 @@ export type GithubAccess = {
   /** Pushes to the snapshot and context repos. Never printed. */
   token?: string
   gitBase: string
-}
-
-function snapshotName(
-  plan: Plan,
-  corpus: PlanCorpus,
-  repository: PlanRepository,
-): string {
-  return repositoryName(plan.prefix, corpus.id, repository.source)
-}
-
-function contextName(plan: Plan, corpus: PlanCorpus): string {
-  return `${plan.prefix}${corpus.id}-context`
 }
 
 function remote(access: GithubAccess, fullName: string) {
@@ -210,7 +201,14 @@ export async function snapshotRepositories(
   const snapshots: Snapshot[] = []
   for (const corpus of plan.corpora)
     for (const repository of corpus.repositories) {
-      const name = snapshotName(plan, corpus, repository)
+      const name = snapshotName(plan.prefix, corpus.id, repository.source)
+      const [owner = "", repo = ""] = repository.source.split("/")
+      const { data: upstream } = await access.octokit.rest.repos.get({
+        owner,
+        repo,
+      })
+      if (upstream.private || upstream.visibility !== "public")
+        throw new Error(`${repository.source} is not a public repository`)
       await ensureSnapshotRepository(access, plan.owner, name)
       const work = await mkdtemp(join(tmpdir(), "eval-snapshot-"))
       try {
@@ -318,7 +316,10 @@ export async function importCorpusIssues(
   for (const corpus of plan.corpora) {
     const repositories = corpus.repositories.filter((r) => r.issues > 0)
     if (repositories.length === 0) continue
-    const target = remote(access, `${plan.owner}/${contextName(plan, corpus)}`)
+    const target = remote(
+      access,
+      `${plan.owner}/${contextName(plan.prefix, corpus.id)}`,
+    )
     const work = await mkdtemp(join(tmpdir(), "eval-issues-"))
     try {
       const env = { ...target.env, GIT_INDEX_FILE: join(work, "index") }
@@ -334,7 +335,7 @@ export async function importCorpusIssues(
       for (const repository of repositories) {
         const sourcePath = githubSourcePath(
           plan.owner,
-          snapshotName(plan, corpus, repository),
+          snapshotName(plan.prefix, corpus.id, repository.source),
         )
         let count = 0
         for await (const file of importPublicGithubIssues({
@@ -412,7 +413,7 @@ export async function freezeCorpora(
 ): Promise<void> {
   const frozen: Corpus[] = []
   for (const corpus of plan.corpora) {
-    const fullName = `${plan.owner}/${contextName(plan, corpus)}`
+    const fullName = `${plan.owner}/${contextName(plan.prefix, corpus.id)}`
     const sha = (await remoteRefs(tmpdir(), remote(access, fullName))).get(
       "refs/heads/main",
     )

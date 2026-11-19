@@ -69,6 +69,9 @@ async function repository(
 function serveOrg(): string[] {
   const created: string[] = []
   server.use(
+    http.get(`${API}/repos/acme/api`, () =>
+      HttpResponse.json({ private: false, visibility: "public" }),
+    ),
     http.get(`${API}/repos/evals/:name`, ({ params }) =>
       created.includes(String(params.name))
         ? HttpResponse.json({ private: true })
@@ -312,4 +315,19 @@ it("refuses a plan with two repositories of the same name", () => {
   expect(() => planSchema.parse(clash)).toThrow(
     "Two repositories of the plan are named v0-demo-api.",
   )
+})
+
+it("refuses to snapshot a repository that is not public", async () => {
+  const sha = await repository("acme/api", { "README.md": "# API\n" })
+  const created = serveOrg()
+  server.use(
+    http.get(`${API}/repos/acme/api`, () =>
+      HttpResponse.json({ private: true, visibility: "private" }),
+    ),
+  )
+
+  await expect(
+    snapshotRepositories(plan(sha), access(), quiet),
+  ).rejects.toThrow("acme/api is not a public repository")
+  expect(created).toEqual([])
 })
