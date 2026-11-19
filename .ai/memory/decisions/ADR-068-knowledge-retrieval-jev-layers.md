@@ -27,7 +27,7 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
    - **Stage 1:** scan the binary vectors of the Workspace's chunks (Hamming distance) and keep the top 500.
    - **Stage 2:** score those 500 again with the full vectors (cosine distance).
    - **One query for both stages.** The chunks table uses `index_granularity = 64`, and the query lets ClickHouse read the full vectors of the 500 rows only (lazy materialization). The file cache uses `boundary_alignment` of 128 KiB. Without these settings, stage 2 read almost all full vectors of the Workspace. Measured on 1 million chunks in one Workspace ([CTX-1391](https://linear.app/ctxpipe/issue/CTX-1391), S3 on the same host): p50 34 ms and p95 45 ms warm, p50 126 ms and p95 209 ms cold. The PoC measures the cold path again on real S3.
-   - **Lexical:** the text index selects the chunks that have a query term (`hasAnyTokens`). The score counts the matched terms with one `hasToken` filter for each term (`UNION ALL`, then a count for each chunk), and adds a boost for a title match. A text function in the `SELECT` list reads the full text column, so the score does not use one. A cap applies before the score.
+   - **Lexical:** the text index selects the chunks that have a query term (`hasAnyTokens`). The score counts the matched terms with one `hasToken` filter for each term (`UNION ALL`, then a count for each chunk), and adds a boost for a title match. A text function in the `SELECT` list reads the full text column (128 MiB on the test corpus), so the score does not use one. The count query read 12 MiB ([CTX-1391](https://linear.app/ctxpipe/issue/CTX-1391)). A cap applies before the score.
    - **Fusion:** RRF (k = 60) gives the top 50 chunks. They are grouped by `active` document.
    - **No ANN vector index.** It filters badly for small Workspaces, and its index must load from S3 for cold parts. If very large Workspaces become too slow, we measure first and then decide.
 2. **Jev judges each layer.** One Jev call for each layer asks two yes/no questions for each candidate:
@@ -71,5 +71,5 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
 - **Facts to verify:**
   - how many Jev questions fit in one call (50 candidates × 2, or 45 pairs);
   - Jev latency with images;
-  - the speed of the binary scan from the cache and from S3.
+  - the speed of the binary scan from real S3 (the measurements of decision 1 used S3 on the same host).
 - **Amends** ADR-051 decision 6 (graph relevance) and section 8 (data layer) for orgs on the new plane. Until the rollout ends, the old ranking serves the other orgs.
