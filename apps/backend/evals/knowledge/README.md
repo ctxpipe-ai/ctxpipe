@@ -98,6 +98,26 @@ The plan (`fixtures/corpora-v0.plan.json`) gives the slice of each source of ADR
 3. `issues` writes the newest issues before the cut-off date of each repository into the context repo, as the production issue mirror writes them (`github/issues/<owner>/<repo>/<n>.md`, with the source file of the snapshot repository in `sources`).
 4. `freeze` writes the SHA of the main branch of each context repo into the `corpora` of the dataset file. The questions of the file stay.
 
+### Probe the provider settings
+
+```sh
+factory eval knowledge:probe --repo CTXPIPE-CHECKOUT --out "$TMPDIR/knowledge-probe" [--max-cost 0.05]
+# or, with the model key in the environment:
+bun --env-file=.env.local evals/knowledge/cli.ts probe --out "$TMPDIR/knowledge-probe" [--cap-usd 0.05]
+```
+
+Before the first org leaves `off`, this command confirms with real calls that OpenRouter applies the request settings of the knowledge plane (ADR-068 decision 7). Each check sends its request through the real client (`decideNoul`, `embedMultimodal`), and it records the status, the `provider` field of the answer, and the error text:
+
+| Check | Passes when |
+| --- | --- |
+| `decisions-pinned` | The Decisions request with our provider block gets HTTP 200 and a yes/no answer, and the answer names the provider TypeSafe (the slug `typesafe`). |
+| `decisions-control-without-zdr` | The same request, sent to a Decisions model with no ZDR endpoint (`openai/gpt-6-luna-decisions`, pinned to `openai`) and with `zdr: false`, gets HTTP 200. This shows that the endpoint can serve the request. |
+| `decisions-refused-without-zdr-endpoint` | The control request with `zdr: true` gets HTTP 404 with a no-endpoint error. The two requests differ only in `zdr`, so the refusal proves that the Decisions endpoint enforces it. |
+| `embedding-image` | An image (a PNG data URI of `fixtures/probe-checkerboard.png`) to the pinned embedding provider gets one vector of the configured dimension, and the answer names the provider Google (the slug `google-vertex`). |
+| `embedding-text` | The same for a fixed text. |
+
+The probe sends only the fixed text and the checkerboard image, and the default spend cap is $0.05. It writes `probe.json` and `probe.md` to `--out`. It needs no store, but the backend environment check still needs `DATABASE_URL` and `AUTH_SECRET` to be set. Exit codes: 0 all checks pass, 3 the spend cap stopped a call, 4 a check failed. When a check fails, report it. Do not change the request settings to make it pass.
+
 ## The run folder
 
 | File | Holds |
