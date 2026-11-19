@@ -85,6 +85,7 @@ describe("parseKnowledgeFile", () => {
     const rows = knowledgeRows({
       workspaceId: "ws_parse",
       unit,
+      references: { keys: [], links: [] },
       blobPath: workspaceBlobPath(workspaceUrl, "docs"),
       observedAt: new Date("2026-11-19T00:00:00.000Z"),
     })
@@ -152,7 +153,7 @@ describe("parseKnowledgeFile", () => {
       references: note.references,
       observedAt: new Date("2026-11-19T00:00:00.000Z"),
     })
-    expect(rows.refKeys).toBeUndefined()
+    expect(rows.refKeys).toEqual([])
     expect(
       rows.relations.find(
         (relation) => relation.dstDoc === "ref:iss:linear:ENG-1",

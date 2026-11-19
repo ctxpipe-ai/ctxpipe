@@ -13,6 +13,9 @@ const OBSERVED = new Date("2026-11-19T10:00:00.000Z")
 const key = (path: string) => servingIdForKnowledgePath(WS, path)
 const HASH = "a".repeat(64)
 
+/** A file that states no reference key and names none. */
+const NO_REFERENCES = { keys: [], links: [] }
+
 function rowsOf(
   files: Array<{ path: string; content: string }>,
   path: string,
@@ -21,7 +24,12 @@ function rowsOf(
   const { units } = hydrateKnowledgeTree({ workspaceId: WS, files })
   const unit = units.find((entry) => entry.path === path)
   if (!unit) throw new Error(`no unit for ${path}`)
-  const rows = knowledgeRows({ workspaceId: WS, unit, observedAt: OBSERVED })
+  const rows = knowledgeRows({
+    workspaceId: WS,
+    unit,
+    references: NO_REFERENCES,
+    observedAt: OBSERVED,
+  })
   // The writer makes an image document from each image file that Git has.
   const pathOf = new Map(
     [...imageHashes.keys()].map((image) => [key(image), image]),
@@ -76,6 +84,7 @@ describe("knowledgeRows", () => {
     const ledger = key("knowledge/billing/ledger.md")
     expect(rows).toEqual([
       {
+        refKeys: [],
         document: {
           docKey: key("knowledge/payments/api.md"),
           kind: "KnowledgeUnit",
@@ -182,6 +191,7 @@ describe("knowledgeRows", () => {
     const rows = knowledgeRows({
       workspaceId: WS,
       unit,
+      references: NO_REFERENCES,
       observedAt: OBSERVED,
     })
     expect(rows?.chunks).toEqual([

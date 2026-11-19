@@ -52,8 +52,8 @@ export function knowledgeRows(input: {
    * target. Without it, a URL has no target.
    */
   blobPath?: (url: string) => string | null
-  /** The reference keys of the file (`parseKnowledgeFile`). Absent: none. */
-  references?: FileReferences
+  /** The reference keys of the file (`parseKnowledgeFile`). */
+  references: FileReferences
   observedAt: Date
 }): UnembeddedDocumentRows {
   const { workspaceId, unit, observedAt } = input
@@ -181,8 +181,7 @@ export function knowledgeRows(input: {
       }),
     )
 
-  const { keys = [], links = [] } = input.references ?? {}
-  for (const link of links)
+  for (const link of input.references.links)
     relations.push({
       srcChunk: Math.max(
         0,
@@ -196,11 +195,12 @@ export function knowledgeRows(input: {
       validFrom: dateOrNull(normalizeValidityBound(link.validFrom)),
       validTo: null,
       observedAt,
-      source: link.source,
+      // A `CHANGED` claim comes from the GitHub pull request mirror.
+      source: link.predicate === "CHANGED" ? "github" : "git",
     })
 
   return {
-    ...(keys.length > 0 ? { refKeys: keys } : {}),
+    refKeys: input.references.keys,
     document: {
       ...documentDefaults(observedAt),
       docKey: unit.servingId,

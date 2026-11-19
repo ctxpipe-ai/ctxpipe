@@ -102,7 +102,7 @@ type ProviderSites = {
   linearWorkspaces: ReadonlySet<string>
 }
 
-export function notionIdKey(id: string): string {
+function notionIdKey(id: string): string {
   return id.replaceAll("-", "").toLowerCase()
 }
 
@@ -167,11 +167,16 @@ function linearIdentifierOf(
     : null
 }
 
-/** The keys under which other files can name one mirror unit. */
-function unitKeys(
+/**
+ * The keys under which other files can name one mirror unit: from its
+ * `notion_id`, its `url` (the keys that `keysOfUrl` gives), its Linear
+ * `identifier`, and the path of a Confluence page or a Slack thread. The
+ * knowledge plane gives its own `keysOfUrl` (CTX-1400).
+ */
+export function mirrorUnitKeys(
   path: string,
   attributes: Record<string, unknown>,
-  sites: ProviderSites,
+  keysOfUrl: (url: string) => string[],
 ): string[] {
   const keys: string[] = []
   if (typeof attributes.notion_id === "string") {
@@ -185,24 +190,18 @@ function unitKeys(
     }
   }
   if (typeof attributes.url === "string") {
-    keys.push(...urlKeys(attributes.url, sites))
+    keys.push(...keysOfUrl(attributes.url))
   }
   const identifier = linearIdentifierOf(attributes)
   if (identifier) keys.push(issueDedupKey(identifier))
   const page = confluencePageIdOfPath(path)
   if (page) keys.push(confluencePageDedupKey(page))
-  const thread = slackThreadKeyOfPath(path)
-  if (thread) keys.push(thread)
-  return keys
-}
-
-/** The thread key of a Slack mirror thread file, from its path, or null. */
-export function slackThreadKeyOfPath(path: string): string | null {
   const thread =
     /^slack\/channels\/[^/]+--([A-Z0-9]+)\/threads\/\d{4}\/\d{2}\/(\d+\.\d+)\/thread\.md$/.exec(
       path,
     )
-  return thread?.[1] && thread[2] ? threadDedupKey(thread[1], thread[2]) : null
+  if (thread?.[1] && thread[2]) keys.push(threadDedupKey(thread[1], thread[2]))
+  return keys
 }
 
 /**
@@ -289,7 +288,9 @@ export function referenceLinks(input: {
   const byKey = new Map<string, string[]>()
   const teamKeys = new Set<string>()
   for (const unit of input.units) {
-    for (const key of unitKeys(unit.path, unit.attributes, sites)) {
+    for (const key of mirrorUnitKeys(unit.path, unit.attributes, (url) =>
+      urlKeys(url, sites),
+    )) {
       const list = byKey.get(key) ?? []
       if (!list.includes(unit.path)) list.push(unit.path)
       byKey.set(key, list)

@@ -31,6 +31,7 @@ import {
   createKnowledgeStore,
   type KnowledgeStore,
   ORG_SETTING,
+  REFERENCE_TARGET_PREFIX,
 } from "../knowledge-store/knowledge-store.js"
 import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
 import { getKnowledgeState } from "../models/knowledge-state.js"
@@ -267,7 +268,7 @@ async function content(workspaceId: string, paths: string[]) {
   )
   const named = (key: unknown) => {
     // A reference key target stays as it is.
-    if (String(key).startsWith("ref:")) return String(key)
+    if (String(key).startsWith(REFERENCE_TARGET_PREFIX)) return String(key)
     const path = pathOf.get(String(key))
     if (path === undefined) throw new Error(`No path for the key ${key}`)
     return path

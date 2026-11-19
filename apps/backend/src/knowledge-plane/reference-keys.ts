@@ -14,9 +14,8 @@ import {
 import { resolveHydrateLink } from "../domain/workspaces/hydrate.js"
 import {
   confluencePageIdOfPath,
-  notionIdKey,
+  mirrorUnitKeys,
   parseNotionPageUrl,
-  slackThreadKeyOfPath,
 } from "../domain/workspaces/mirror-units.js"
 import {
   changeTargetOf,
@@ -48,7 +47,6 @@ export type ReferenceLink = {
   predicate: "LINKS_TO" | "CHANGED"
   /** An ISO time, or null. */
   validFrom: string | null
-  source: string
   /**
    * The text of the body that names the key, so that the relation records
    * the chunk that states it. Empty for a key from the front matter.
@@ -67,7 +65,7 @@ function linearIssueKey(identifier: string): string | null {
  * the URL, so that a URL of another Linear workspace names nothing of this
  * Workspace. An unknown URL gives no key.
  */
-function urlKeys(url: string): string[] {
+function referenceKeysOfUrl(url: string): string[] {
   const keys: string[] = []
   const linearWorkspace = linearWorkspaceOfUrl(url)
   if (linearWorkspace) {
@@ -122,26 +120,7 @@ export function fileReferences(input: {
   sourceRepositories: ReadonlyMap<string, string>
 }): FileReferences {
   const { path, attributes } = input
-  const keys = new Set<string>()
-  if (typeof attributes.notion_id === "string") {
-    const id = attributes.notion_id.trim()
-    if (
-      /^(?:[a-f\d]{32}|[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12})$/i.test(
-        id,
-      )
-    )
-      keys.add(`notion:${notionIdKey(id)}`)
-  }
-  if (typeof attributes.url === "string")
-    for (const key of urlKeys(attributes.url)) keys.add(key)
-  if (typeof attributes.identifier === "string") {
-    const key = linearIssueKey(attributes.identifier)
-    if (key) keys.add(key)
-  }
-  const page = confluencePageIdOfPath(path)
-  if (page) keys.add(confluencePageDedupKey(page))
-  const thread = slackThreadKeyOfPath(path)
-  if (thread) keys.add(thread)
+  const keys = new Set(mirrorUnitKeys(path, attributes, referenceKeysOfUrl))
   const target = changeTargetOf(
     { path, kind: input.kind, attributes },
     input.sourceRepositories,
@@ -156,14 +135,14 @@ export function fileReferences(input: {
     if (!keys.has(link.key) && !links.has(id)) links.set(id, link)
   }
   const linkTo = (key: string, text: string) =>
-    add({ key, predicate: "LINKS_TO", validFrom: null, source: "git", text })
+    add({ key, predicate: "LINKS_TO", validFrom: null, text })
 
   const urls = extractUrls(input.body)
   for (const url of urls) {
     // Text that only looks like a URL (a template or a placeholder host)
     // names nothing (CTX-1088).
     if (!URL.canParse(url)) continue
-    for (const key of urlKeys(url)) linkTo(key, url)
+    for (const key of referenceKeysOfUrl(url)) linkTo(key, url)
   }
   // An identifier in a URL or in a Linear link is part of that link.
   const text = urls.reduce(
@@ -207,7 +186,6 @@ export function fileReferences(input: {
         key,
         predicate: "CHANGED",
         validFrom: pull.mergedAt,
-        source: "github",
         text: "",
       })
   }

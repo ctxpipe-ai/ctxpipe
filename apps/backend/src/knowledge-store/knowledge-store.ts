@@ -1078,6 +1078,23 @@ async function search(
 }
 
 /**
+ * The reference keys of `doc_refs` that pass `where`, each as the relation
+ * target that names it (`ref:<key>`), with its document. The frontier read
+ * and the graph read find the documents of a key target with it.
+ */
+const keyTargets = (where: string) =>
+  `SELECT workspace_id, concat({prefix:String}, ref_key) AS target, doc_key
+   FROM doc_refs WHERE ${where}`
+
+/**
+ * The target of the relation `alias` after the join with `keyTargets AS
+ * keys`: the document of its key, else `dst_doc` (a document key, or a key
+ * with no document).
+ */
+const resolvedTarget = (alias: string) =>
+  `if(empty(keys.doc_key), ${alias}.dst_doc, keys.doc_key)`
+
+/**
  * The relations of the frontier `refs` in both directions, in one query: the
  * out-relations from `relations` and the in-relations from `relations_in`
  * (sorted by `dst_doc`). Each relation has the document row of its neighbor,
@@ -1088,7 +1105,7 @@ async function search(
  * decision 5): an out-relation comes one time for each document of the key,
  * else one time with a `missing` neighbor; an in-relation to a key of a
  * frontier document has that document as `dstDoc`. Two keys of one target
- * give one relation.
+ * give one relation when all its fields are the same.
  */
 async function readFrontier(
   client: ClickHouseClient,
@@ -1119,27 +1136,22 @@ async function readFrontier(
          AND ${validDuring()}
      ),
      own_keys AS (
-       SELECT workspace_id, concat({prefix:String}, ref_key) AS target, doc_key
-       FROM doc_refs
-       WHERE ${inWorkspaces}
-         AND (workspace_id, doc_key) IN {refs:Array(Tuple(String, String))}
+       ${keyTargets(`${inWorkspaces}
+         AND (workspace_id, doc_key) IN {refs:Array(Tuple(String, String))}`)}
      ),
      edges AS (
        SELECT 'out' AS direction, dst_doc AS neighbor_doc, ${edgeColumns}
        FROM out_edges WHERE NOT ${isKey("dst_doc")}
        UNION ALL
-       SELECT 'out', if(empty(keys.doc_key), o.dst_doc, keys.doc_key),
+       SELECT 'out', ${resolvedTarget("o")},
          o.workspace_id, o.src_doc, o.src_chunk, o.predicate,
-         if(empty(keys.doc_key), o.dst_doc, keys.doc_key), o.confidence,
+         ${resolvedTarget("o")}, o.confidence,
          o.valid_from, o.valid_to, o.source, o.observed_at
        FROM out_edges AS o
        LEFT JOIN (
-         SELECT workspace_id, concat({prefix:String}, ref_key) AS target,
-           doc_key
-         FROM doc_refs
-         WHERE ${inWorkspaces} AND ref_key IN (
+         ${keyTargets(`${inWorkspaces} AND ref_key IN (
            SELECT substring(dst_doc, length({prefix:String}) + 1)
-           FROM out_edges WHERE ${isKey("dst_doc")})
+           FROM out_edges WHERE ${isKey("dst_doc")})`)}
        ) AS keys
          ON keys.workspace_id = o.workspace_id AND keys.target = o.dst_doc
        WHERE ${isKey("o.dst_doc")}
@@ -1162,7 +1174,8 @@ async function readFrontier(
            SELECT workspace_id, target FROM own_keys)
          AND ${validDuring("i.")}
      )
-     SELECT edges.direction AS direction, edges.workspace_id AS workspaceId,
+     SELECT DISTINCT edges.direction AS direction,
+       edges.workspace_id AS workspaceId,
        edges.src_doc AS srcDoc, edges.src_chunk AS srcChunk,
        edges.predicate AS predicate, edges.dst_doc AS dstDoc,
        edges.confidence AS confidence, edges.valid_from AS validFrom,
@@ -1179,8 +1192,7 @@ async function readFrontier(
        ON neighbors.workspace_id = edges.workspace_id
        AND neighbors.doc_key = edges.neighbor_doc
      WHERE ${validDuring("neighbors.")}
-     ORDER BY direction DESC, workspaceId, srcDoc, srcChunk, predicate, dstDoc
-     LIMIT 1 BY direction, workspaceId, srcDoc, srcChunk, predicate, dstDoc`,
+     ORDER BY direction DESC, workspaceId, srcDoc, srcChunk, predicate, dstDoc`,
     {
       refs: refTuples(refs),
       validAt: validAtTime && clickHouseTime(validAtTime),
@@ -1298,13 +1310,13 @@ async function readGraph(
       params,
     ),
     // A relation to a reference key gets the documents of the key
-    // (ADR-066 decision 5). Two keys of one target give one relation.
+    // (ADR-066 decision 5). Two keys of one target give one relation when
+    // all its fields are the same.
     select<RelationRecord>(
       client,
       scope,
-      `SELECT rel.src_doc AS srcDoc, rel.src_chunk AS srcChunk,
-         rel.predicate AS predicate,
-         if(empty(keys.doc_key), rel.dst_doc, keys.doc_key) AS dstDoc,
+      `SELECT DISTINCT rel.src_doc AS srcDoc, rel.src_chunk AS srcChunk,
+         rel.predicate AS predicate, ${resolvedTarget("rel")} AS dstDoc,
          rel.confidence AS confidence, rel.valid_from AS validFrom,
          rel.valid_to AS validTo, rel.source AS source,
          rel.observed_at AS observedAt
@@ -1313,12 +1325,9 @@ async function readGraph(
            valid_from, valid_to, source, observed_at
          FROM relations WHERE ${scoped}
        ) AS rel
-       LEFT JOIN (
-         SELECT concat({prefix:String}, ref_key) AS target, doc_key
-         FROM doc_refs WHERE ${scoped}
-       ) AS keys ON keys.target = rel.dst_doc
+       LEFT JOIN (${keyTargets(scoped)}) AS keys
+         ON keys.target = rel.dst_doc
        ORDER BY srcDoc, srcChunk, predicate, dstDoc
-       LIMIT 1 BY srcDoc, srcChunk, predicate, dstDoc
        LIMIT {limit:UInt32}`,
       { ...params, prefix: REFERENCE_TARGET_PREFIX },
     ),

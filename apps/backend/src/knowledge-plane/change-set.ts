@@ -16,7 +16,8 @@ export function knowledgeProjectionVersion(input: {
   root: string
 }): string {
   // Increase the code version when the parser or the chunking changes.
-  return JSON.stringify([1, input.embeddingModel, input.dimensions, input.root])
+  // 2: the reference keys of CTX-1400.
+  return JSON.stringify([2, input.embeddingModel, input.dimensions, input.root])
 }
 
 /** The reasons for a full rebuild instead of a delta. */
