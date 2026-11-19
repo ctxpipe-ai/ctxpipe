@@ -10,7 +10,10 @@ import {
   searchIndexConditions,
   servesOrgAndMatch,
 } from "../../db/knowledge-search-plan.js"
-import { workspaces } from "../../db/schema/workspaces.js"
+import {
+  KNOWLEDGE_VECTOR_INDEX,
+  workspaces,
+} from "../../db/schema/workspaces.js"
 import { analyzeAsOwner } from "../../test/analyze-as-owner.js"
 import {
   embeddingModelServer,
@@ -172,7 +175,7 @@ describe("searchKnowledge on a large shared index (Postgres)", () => {
         "<vector>",
       )
     })
-    expect(plan).toContain("workspace_knowledge_chunks_embedding_idx")
+    expect(plan).toContain(KNOWLEDGE_VECTOR_INDEX)
     expect(plan).not.toMatch(
       /"Node Type":"Seq Scan","[^}]*"Relation Name":"workspace_knowledge_chunks"/,
     )

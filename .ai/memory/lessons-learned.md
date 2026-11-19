@@ -609,3 +609,9 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Category:** database
 - **Date:** 2026-11-18
 - **Source:** CTX-1380: the knowledge search read every chunk of its scope as `ctxpipe_app` and took 59.7 s in production; then the plan test failed in CI when other orgs held the terms; team lead request
+
+### Vector search plans: force the HNSW index for a large scope, and measure cold
+- **Rule:** Postgres does not count the reads of a TOASTed value in a plan's cost. A `vector(2000)` is about 8 KB, stored out of line, so for a large filtered scope the planner prefers an exact scan: the distance of every vector in scope, each read from storage when the cache is cold. With 12,000 chunks in scope that was about 15 times the cold reads of the HNSW walk. For a scope above the crossover, run the HNSW candidates as their own statement with `SET LOCAL enable_seqscan = off`, `enable_sort = off` and `enable_incremental_sort = off`, and set them back to their defaults after it, so only that statement is forced. The crossover depends on the scope's share of the index (a filtered walk reads other orgs' vectors): measure it. Measure plans cold, with evicted buffers (`pg_buffercache_evict`, Postgres 17), as `ctxpipe_app`: a warm plan hides the reads, and the owner or a superuser skips the policies. Example: `searchKnowledge` in `apps/backend/src/domain/workspaces/knowledge-search.ts`.
+- **Category:** database
+- **Date:** 2026-11-19
+- **Source:** CTX-1380: a cold knowledge search took 43 s in production after the full-text fix; team lead request

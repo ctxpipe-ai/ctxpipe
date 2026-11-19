@@ -157,6 +157,14 @@ const tsvector = customType<{ data: string }>({
   dataType: () => "tsvector",
 })
 
+/** The name of the HNSW index of the chunk embeddings, in half precision. */
+export const KNOWLEDGE_VECTOR_INDEX =
+  "workspace_knowledge_chunks_embedding_half_idx"
+/** The indexed expression and its operator class; the search orders by the same expression. */
+const chunkHalfEmbedding = sql.raw(
+  `("embedding"::halfvec(${EMBEDDING_DIMENSIONS})) halfvec_cosine_ops`,
+)
+
 /** The org of a chunk for its full-text match; equal to `org_id` (byte equality). */
 const chunkSearchOrg = sql`("org_id" COLLATE "C")`
 
@@ -209,10 +217,10 @@ export const workspaceKnowledgeChunks = pgTable.withRLS(
       chunkSearchOrg,
       t.search,
     ),
-    index("workspace_knowledge_chunks_embedding_idx").using(
-      "hnsw",
-      t.embedding.op("vector_cosine_ops"),
-    ),
+    // The embeddings in half precision: half the pages of a cold walk, no loss
+    // of recall measured (CTX-1380). runMigrations builds it concurrently
+    // (knowledge-vector-index.ts), as no migration can.
+    index(KNOWLEDGE_VECTOR_INDEX).using("hnsw", chunkHalfEmbedding),
     orgIsolationPolicy(t.orgId),
   ],
 )
