@@ -75,6 +75,6 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-066](ADR-066-knowledge-content-in-clickhouse.md) | Knowledge content lives in ClickHouse (documents, chunks, relations; hosted and self-host); Postgres keeps the operational data; org isolation by `WHERE` and a row policy | Accepted (not built yet) |
 | [ADR-067](ADR-067-knowledge-projection-applies-git-diff.md) | The knowledge projection applies the Git diff from `last_sha`: current state only, replace each changed document, tombstones and placeholders, a maintenance job, eventual consistency | Accepted (not built yet) |
 | [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md) | Knowledge retrieval: one hybrid search for every size, Jev judges each layer, disagreements reasoned at query time, one multimodal vector space | Accepted (not built yet) |
-| [ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md) | The knowledge plane is proven with public-corpus evals (frozen ingest, hold-out set, one change at a time) and turned on for one org at a time (`off`, `shadow`, `on`) | Accepted (not built yet) |
+| [ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md) | The knowledge plane is proven with public-corpus evals (frozen ingest, hold-out set, one change at a time) and turned on for one org at a time (`org_features`: `off`, `shadow`, `on`) | Accepted (not built yet) |
 
 Numbers 035 and 036 are unused. ADR-058 is reserved for the Zendesk connector. The next new ADR is 070.

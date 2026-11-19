@@ -64,7 +64,7 @@ The dataset must cover three shapes of customer: one large monorepo, an org with
      - no answer, where the correct result is "nothing found".
    - The gold labels are the relevant document ids, the expected positions and their status, and the key facts of the answer.
    - A model drafts the questions and labels. A judge panel of three model families labels them by majority, as in ADR-063. The CTO checks a sample.
-   - There is a dev set for tuning and a hold-out set for the keep-or-revert decision only. Jev is never a judge.
+   - There is a dev set to tune with, and a hold-out set for the keep-or-revert decision only. Jev is never a judge.
 6. **Metrics, at four levels.**
    - **Component** (the main loop):
      - search recall@50;
@@ -89,20 +89,19 @@ The dataset must cover three shapes of customer: one large monorepo, an org with
    - a crash and retry gives the same result;
    - the status lifecycle works;
    - each org isolation wall works on its own;
-   - load, with hydrate running at the same time.
+   - load, while a hydrate runs at the same time.
 9. **Rollout for one org at a time.**
    - **The flag.** A flag for each org has three values:
      - `off`: the old stack;
      - `shadow`: the old stack answers, and the new path runs and logs only its metrics;
      - `on`: ClickHouse answers.
 
-     The flag uses the `better-auth-feature-flags` plugin, so that later features use the same mechanism. Before we adopt it, we check that:
-     - the worker can evaluate a flag by org id with no session;
-     - it works with `better-auth` 1.6 and its `better-call` peer;
-     - its tables come into our Drizzle schema through `db:generate`;
-     - its license and maintenance are acceptable.
+     The CTO asked for a flag mechanism that later features can also use. The first choice was the `better-auth-feature-flags` plugin, with four conditions. It failed three of them ([CTX-1394](https://linear.app/ctxpipe/issue/CTX-1394)):
+     - it does not load with `better-auth` 1.6;
+     - its storage does not reach a table, and its evaluate endpoint takes the org id from the request body with no session;
+     - its last release was 14 months ago, with one maintainer.
 
-     If a check fails, we use one `org_features` table of our own.
+     Thus the flag is one Postgres table of our own: `org_features (organization_id, feature, value, updated_at)`. Its primary key is `(organization_id, feature)`, and it is under the org RLS policy. `knowledge_plane` is its only feature now, with the closed values `off`, `shadow` and `on`, and no row means `off`. One reader serves the backend and the worker, and there is no HTTP route. A later feature adds a value to the closed set of features.
    - **One seam.** The tools call one knowledge reader interface with two implementations. The backend picks one for each request, and the worker picks the writers.
    - **Both stacks stay current.** While the flag is not `off`, the worker writes both stacks, so `on → off` needs no rebuild. ClickHouse serves a Workspace only when `knowledge_state` says that it is ready.
    - **Cursors.** A cursor records the stack that made it. A cursor from the other stack fails with a clear error.
@@ -114,6 +113,5 @@ The dataset must cover three shapes of customer: one large monorepo, an org with
 
 - **Proof before switch:** each change has a measured effect before it reaches a customer, and the switch for each org is reversible.
 - **Cost:** a one-time ingest for each dataset version, and double hydrate work for orgs in `shadow` or `on` during the trial.
-- **Overfitting:** hill-climbing can overfit the dataset. The hold-out set and new questions over time limit this.
+- **Fit to the dataset:** many small improvements can fit the dataset too closely. The hold-out set and new questions over time limit this.
 - **The first run of the loop** is a small test of multimodal embeddings, OCR and Jev on diagrams.
-- **Plugin risk:** `better-auth-feature-flags` is a young package (a preview release, version 0.2.x). The checks in decision 9 decide whether we keep it.

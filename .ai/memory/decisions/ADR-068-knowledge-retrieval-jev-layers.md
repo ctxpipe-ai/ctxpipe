@@ -31,7 +31,7 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
    - **No ANN vector index.** It filters badly for small Workspaces, and its index must load from S3 for cold parts. If very large Workspaces become too slow, we measure first and then decide.
 2. **Jev judges each layer.** One Jev call for each layer asks two yes/no questions for each candidate:
    - **p(answers):** "does this help answer the question?" It gives the final order.
-   - **p(explore):** "is it worth exploring from here?" It picks the next frontier.
+   - **p(explore):** "must the traversal explore from here?" It picks the next frontier.
 
    Each candidate goes to Jev with its text or image and its metadata: status, source type, dates, validity and confidence.
    - The "why" path is the parent chain that the traversal records.
@@ -60,7 +60,7 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
 
 ## Consequences
 
-- **Better ranking signal:** the ranking comes from the question, not from the graph shape. The intent presets and the predicate weights stop being tuning knobs.
+- **Better ranking signal:** the ranking comes from the question, not from the graph shape. We no longer tune the intent presets and the predicate weights.
 - **Latency:** about 500 ms of Jev time for `get_related` at D = 3, plus the ClickHouse queries. The scan cost grows with the size of the Workspace: 1 million chunks is about 128 MB of binary vectors for each query.
 - **Cost:** each retrieval has a model cost (Jev and the query embedding).
 - **Open: what happens when Jev fails or is slow** (return the search order, or fail the call). The PoC decides it.

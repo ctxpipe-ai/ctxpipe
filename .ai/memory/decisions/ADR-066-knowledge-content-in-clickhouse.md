@@ -49,6 +49,8 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
 6. **Images are documents** of kind `image`.
    - The bytes stay in the S3 artifacts bucket.
    - Each image has one chunk row. Its vector is the image embedding. Its text is the alt text, plus the OCR text if we use OCR.
+   - The projection makes each `s3_key` from the org, the Workspace and the hash of the bytes. It never takes a key from the content.
+   - Before the backend reads image bytes (for example to send them to Jev), it checks that the key starts with the org and Workspace prefix of the request. Thus a row cannot point the backend at the image of another org.
 7. **Document status.** Each document is one of four:
    - `active`;
    - `deleted`, a tombstone with `deleted_at`;
@@ -56,11 +58,28 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
    - `failed`, a placeholder with the error.
 
    Search returns only `active` documents. The traversal sees all four. Thus, a relation always has a target ([ADR-067](ADR-067-knowledge-projection-applies-git-diff.md)).
-8. **Changes use the lightweight SQL `UPDATE` and `DELETE`** (patch parts; beta since ClickHouse 25.7). We do not depend on the experimental transactions, which also are not in the cloud product.
-9. **Org isolation has two walls.**
-   - `KnowledgeStore` is the only ClickHouse client. Every statement has `org_id` and `workspace_id` in its `WHERE` clause.
-   - A ClickHouse row policy limits each query to the org that the query sets.
-   - A test proves each wall on its own. This replaces Postgres RLS ([ADR-042](ADR-042-postgres-rls-app-role.md)) for the knowledge content.
+
+   The CTO chose stored placeholder rows (2026-11-19), not only a target key that is missing at read time. Reasons: the maintenance job finds them with one status query, Jev sees "does not exist" as a fact of the candidate, and a stored row keeps the difference between "deleted on a date" and "never existed".
+8. **Changes use the lightweight SQL `UPDATE` and `DELETE`** (patch parts). They came as a beta in ClickHouse 25.7. In 26.10.6.18, the version that we pin, `system.settings` gives them the tier "Production", and the same for the text index ([CTX-1391](https://linear.app/ctxpipe/issue/CTX-1391)). We do not depend on the experimental transactions, which also are not in the cloud product.
+9. **Org isolation.** `KnowledgeStore` is the only ClickHouse client. Each query session sets its org. Reads and writes need different walls, because a ClickHouse row policy filters reads only: unlike Postgres RLS `WITH CHECK`, it does not check the rows that a session inserts.
+   - **Reads have two walls:**
+     - every statement has `org_id` and `workspace_id` in its `WHERE` clause;
+     - a row policy limits each query to the org of its session.
+   - **Inserts have two walls:**
+     - the `KnowledgeStore` write API takes the org and the Workspace, and sets the `org_id` and `workspace_id` columns itself, so a caller cannot put them in a row;
+     - each table has `CONSTRAINT … CHECK org_id = getSetting('SQL_ctxpipe_org_id')`, so ClickHouse refuses an insert for another org (`VIOLATED_CONSTRAINT`). An async insert must wait (`wait_for_async_insert=1`): without the wait, a refused row is dropped with no error to the client.
+   - **`UPDATE` and `DELETE` have one wall.** ClickHouse applies neither the row policy nor the `CHECK` constraint to them. Its docs say that a row policy is useful only for read-only users. Thus:
+     - `KnowledgeStore` builds the org and Workspace predicates of each `UPDATE` and `DELETE` itself. A caller gives only the extra predicate.
+     - A test proves that the API cannot build such a statement without the two predicates.
+     - The backend connects as a read-only ClickHouse user, with no `INSERT`, `UPDATE` or `DELETE` grant. Only the worker, which runs the projection, has write grants.
+     - `org_id` is a sort key column, so an `UPDATE` cannot move a row to another org.
+   - **Tests:**
+     - each read wall works with the other removed;
+     - each insert wall works with the other removed;
+     - one test documents the gap: a `DELETE` with no org in its `WHERE` clause changes rows of another org;
+     - the mutation API always adds both predicates.
+   - **Evidence:** both facts were tested on 26.10.6.18 ([CTX-1391](https://linear.app/ctxpipe/issue/CTX-1391), [CTX-1392](https://linear.app/ctxpipe/issue/CTX-1392)). The setting `SQL_ctxpipe_org_id` uses the stock prefix `SQL_`, so no server config is needed. A session with no org fails closed (`UNKNOWN_SETTING`).
+   - This replaces Postgres RLS ([ADR-042](ADR-042-postgres-rls-app-role.md)) for the knowledge content.
 10. **Deployment.**
     - Hosted: one private EC2 node in us-west-2. It is separate from the observability ClickHouse and has no public listener.
     - Storage: hot parts and a file cache on EBS, and cold parts on S3. Parts move to S3 by age.
@@ -73,13 +92,11 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
 - **One engine** serves search and the graph, and it has S3 storage economics. No app code tracks which Workspaces are hot.
 - **Availability:** a single node is a point of failure. S3 tiering is durability, not high availability.
 - **Cold reads:** the first read of a cold Workspace pays S3 round trips, and each layer of a traversal can pay them again. The cache size decides how many active Workspaces stay fast. A 256 MiB cache thrashed on the observability node ([CTX-1067](https://linear.app/ctxpipe/issue/CTX-1067)).
-- **Beta feature:** the lightweight `UPDATE` is beta. Many open patch parts make reads slower until a merge, so we monitor their count.
-- **Facts to verify** before the build depends on them:
-  - the row policy can read a per-query org setting;
-  - the lightweight changes work with the projection on `relations`;
-  - the status of the text index in our version.
+- **Patch parts:** many open patch parts make reads slower until a merge, so we monitor their count.
+- **One wall for `UPDATE` and `DELETE`** (decision 9): a bug in the mutation API of the worker can change rows of another org. The read-only user of the backend and the tests of the mutation API limit this risk.
+- **Fact to verify** before the build depends on it: the lightweight changes work with the projection on `relations`.
 - **Self-host:** self-hosters lose the choice of graph database. The CDK construct, Compose and the self-host docs change.
 - **Supersedes and amends:**
   - When all orgs use ClickHouse, this ADR supersedes ADR-010.
   - It amends ADR-061 decision 9.
-  - Until then, the old stack keeps running for orgs whose flag is `off` (ADR-069).
+  - Until then, the old stack stays in use for orgs whose flag is `off` (ADR-069).
