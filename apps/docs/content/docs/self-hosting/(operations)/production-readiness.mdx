@@ -33,6 +33,7 @@ reason to expose other services.
 | `codesearch` | Private |
 | `postgres` | Private |
 | `falkordb` or graph database | Private |
+| `clickhouse` | Private |
 | `dind` (Docker Compose) or the AWS sandbox host | Private. Do not publish the Docker API or other unauthenticated services on a host that runs chat sandboxes. |
 
 The Compose deploy profile binds `ui` (`3002`) and `codesearch` (`3001`) to
@@ -80,6 +81,7 @@ See [Docker: Persistent state](/docs/self-hosting/deployment/docker#persistent-s
 |---|---|
 | Postgres | Managed backups, restore test, monitoring, and storage alerts |
 | Graph database | Backup or snapshot according to provider guidance |
+| ClickHouse (`clickhouse_data` on Compose) | Backup for fast recovery, or a full rebuild from the Workspace repositories (see [Recover the knowledge store](/docs/self-hosting/configuration#recover-the-knowledge-store)). Disk alerts. |
 | `repo_cache` | Persistent volume if recloning large repositories is expensive |
 | `zoekt_index_deploy` | Persistent volume if rebuilding indexes is expensive |
 | Secrets | Stored in a secret manager or platform secret store, not committed files |
