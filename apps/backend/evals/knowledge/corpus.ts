@@ -197,8 +197,8 @@ export type Snapshot = {
 
 /**
  * Push the tree of each repository at its SHA to its private snapshot
- * repository, as one commit with no history. The tree leaves out
- * `.github/workflows`. The commit is the same for the same plan, so a second
+ * repository, as one commit with no history. The tree leaves out the
+ * workflows and the Dependabot and Renovate configs. The commit is the same for the same plan, so a second
  * run pushes nothing. A snapshot repository with any other branch, tag or
  * commit is refused.
  */
@@ -241,7 +241,18 @@ export async function snapshotRepositories(
             "-q",
             "--cached",
             "--ignore-unmatch",
+            "--",
+            // The files that make GitHub or a bot act on a repository.
             ".github/workflows",
+            ".github/dependabot.yml",
+            ".github/dependabot.yaml",
+            ".github/renovate.json",
+            ".github/renovate.json5",
+            "renovate.json",
+            "renovate.json5",
+            ".renovaterc",
+            ".renovaterc.json",
+            ".renovaterc.json5",
           ],
           env,
         )
@@ -415,10 +426,12 @@ export async function freezeCorpora(
       workspace: corpus.workspace,
     })
   }
-  const existing = await readFile(datasetFile, "utf8").then(
-    (text) => datasetDraftSchema.parse(JSON.parse(text)),
-    () => datasetDraftSchema.parse({ version: plan.version, questions: [] }),
-  )
+  // Only a missing file gives a new draft; any other error stops.
+  const text = await readFile(datasetFile, "utf8").catch((error: unknown) => {
+    if ((error as { code?: string }).code !== "ENOENT") throw error
+    return JSON.stringify({ version: plan.version, questions: [] })
+  })
+  const existing = datasetDraftSchema.parse(JSON.parse(text))
   const ids = new Set(frozen.map((corpus) => corpus.id))
   const corpora = [
     ...(existing.corpora ?? []).filter((corpus) => !ids.has(corpus.id)),

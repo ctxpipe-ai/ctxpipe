@@ -128,6 +128,7 @@ function access(): GithubAccess {
 const quiet = () => {}
 
 beforeEach(async () => {
+  actionsOff.clear()
   base = await mkdtemp(join(tmpdir(), "corpus-"))
 })
 
@@ -140,6 +141,8 @@ describe("snapshotRepositories", () => {
     const sha = await repository("acme/api", {
       "README.md": "# API\n",
       ".github/workflows/ci.yml": "on: push\n",
+      ".github/dependabot.yml": "version: 2\n",
+      "renovate.json": "{}\n",
       ".github/CODEOWNERS": "* @acme\n",
     })
     const created = serveOrg()
