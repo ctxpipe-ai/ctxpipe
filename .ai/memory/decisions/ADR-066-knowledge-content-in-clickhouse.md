@@ -101,7 +101,8 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
 10. **Deployment.**
     - Hosted: one private EC2 node in us-west-2. It is separate from the observability ClickHouse and has no public listener.
     - Storage: hot parts and a file cache on EBS, and cold parts on S3. Parts move to S3 by age.
-    - Self-host: one ClickHouse service in Compose, on local disk. S3 tiering is optional.
+    - Age: each table has the column `written_at` (the server sets it on INSERT), a partition for each month of it, and `TTL written_at + INTERVAL 30 DAY TO VOLUME 'cold'` ([CTX-1417](https://linear.app/ctxpipe/issue/CTX-1417)). Without the partitions, a merge puts old and new rows into one part, and that part never moves. The 30 days come from the hot volume: about 60 GB of hot parts on the 100 GB EBS volume, which is about 20 million chunks. Migration `0007_cold_parts_by_age.sql` gives the calculation.
+    - Self-host: one ClickHouse service in Compose, on local disk. The same storage policy has a `cold` volume on the local disk (`clickhouse-storage.xml`), so the TTL statement works. S3 tiering is optional.
     - This replaces the FalkorDB part of the stateful host of [ADR-061](ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md) decision 9.
 11. **Recovery.** ClickHouse holds only derived data. If the node is lost, we restore a ClickHouse backup or rebuild each Workspace from Git with a full hydrate. The recovery time target decides which one we use.
 

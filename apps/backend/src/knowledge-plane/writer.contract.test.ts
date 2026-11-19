@@ -325,7 +325,7 @@ async function snapshot(workspaceId: string): Promise<Record<Table, Row[]>> {
   for (const table of tables)
     result[table] = await (
       await admin.query({
-        query: `SELECT * EXCEPT (org_id, workspace_id) FROM ${table}
+        query: `SELECT * EXCEPT (org_id, workspace_id, written_at) FROM ${table}
                 WHERE org_id = {orgId:String} AND workspace_id = {workspaceId:String}
                 ORDER BY ALL`,
         query_params: { orgId, workspaceId },
