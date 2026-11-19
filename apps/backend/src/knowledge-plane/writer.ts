@@ -474,7 +474,7 @@ async function commitLag(
 }
 
 /** Each regular file of the root folder at `sha` → its blob id. */
-async function regularFiles(
+export async function regularFiles(
   directory: string,
   sha: string,
   root: string,

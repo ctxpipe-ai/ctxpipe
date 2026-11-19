@@ -172,25 +172,9 @@ function rewriteDocument(
     if (!moved && path === oldPath) return url
     const destination = moved ?? resolved
     if (!current.has(destination)) return url
-    const relative = posix.relative(posix.dirname(path), destination)
-    return (
-      relative
-        .split("/")
-        .map((part) =>
-          encodeURIComponent(part).replace(
-            /[!'()*]/g,
-            (character) =>
-              `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
-          ),
-        )
-        .join("/") + suffix
-    )
+    return relativeLinkUrl(path, destination) + suffix
   }
-  const frontMatter =
-    /^(\uFEFF?---[ \t]*\r?\n)((?:[\s\S]*?\r?\n)?)(---[ \t]*(?=\r?\n|$))([\s\S]*)$/.exec(
-      content,
-    )
-  const body = frontMatter?.[4] ?? content
+  const body = markdownBodyOf(content)
   const edits: Array<{ start: number; end: number; value: string }> = []
   const original =
     oldPath !== path
@@ -212,9 +196,7 @@ function rewriteDocument(
   for (const edit of edits.sort((a, b) => b.start - a.start))
     nextBody =
       nextBody.slice(0, edit.start) + edit.value + nextBody.slice(edit.end)
-  let next = frontMatter
-    ? content.slice(0, content.length - body.length) + nextBody
-    : nextBody
+  let next = content.slice(0, content.length - body.length) + nextBody
   const originalClaims = original?.attributes.claims
   const claimTarget = (url: string, index: number) =>
     oldPath !== path &&
@@ -271,7 +253,34 @@ function rewriteDocument(
   return next
 }
 
-function markdownDestinations(body: string) {
+/** The text of a Markdown file after its front matter. */
+export function markdownBodyOf(content: string): string {
+  return (
+    /^\uFEFF?---[ \t]*\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*(?=\r?\n|$)([\s\S]*)$/.exec(
+      content,
+    )?.[1] ?? content
+  )
+}
+
+/** The encoded relative link from the file `from` to the file `to`. */
+export function relativeLinkUrl(from: string, to: string): string {
+  return posix
+    .relative(posix.dirname(from), to)
+    .split("/")
+    .map((part) =>
+      encodeURIComponent(part).replace(
+        /[!'()*]/g,
+        (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+      ),
+    )
+    .join("/")
+}
+
+/**
+ * The destination of each link, image and link definition of a Markdown
+ * body, with its position. Code spans and fenced code give none.
+ */
+export function markdownDestinations(body: string) {
   const links: Array<{
     url: string
     start: number

@@ -280,6 +280,7 @@ export async function enqueueWriteJob(
     input.kind === "bootstrap" ||
     snapshotWorkflow ||
     input.kind === "ui_file_edit" ||
+    input.kind === "knowledge_maintenance" ||
     input.kind === "rename_rewrite" ||
     input.kind === "connector_mirror" ||
     input.kind === "semantic_merge" ||
@@ -506,11 +507,17 @@ export async function enqueueWriteJob(
         })
         return { started: true }
       }
-      if (input.kind === "ui_file_edit") {
+      if (
+        input.kind === "ui_file_edit" ||
+        input.kind === "knowledge_maintenance"
+      ) {
         const command = workspaceFileEditInputSchema.parse({
           orgId: input.orgId,
           workspaceId: input.workspaceId,
           jobId,
+          ...(input.kind === "knowledge_maintenance"
+            ? { kind: input.kind }
+            : {}),
           revision,
           files: input.mergeFiles ?? [],
           deletePaths: input.mergeDeletePaths ?? [],
