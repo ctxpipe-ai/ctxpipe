@@ -2,6 +2,7 @@ import {
   type ClickHouseClient,
   ClickHouseLogLevel,
   createClient,
+  TupleParam,
 } from "@clickhouse/client"
 
 /**
@@ -88,9 +89,63 @@ type StoredDocument = {
   incoming: KnowledgeRelation[]
 }
 
+/** The org and the Workspaces of a read. A read can span Workspaces. */
+export type KnowledgeReadScope = { orgId: string; workspaceIds: string[] }
+
+/** One document of a Workspace. */
+type DocumentRef = { workspaceId: string; docKey: string }
+
+export type SearchQuery = {
+  /** The query vector, in the vector space of the chunks. */
+  vector: number[]
+  /**
+   * The query terms for the text index. A term with separators counts as its
+   * tokens. The match is case-sensitive.
+   */
+  terms: string[]
+  /** Only documents of these kinds. Empty or absent: all kinds. */
+  kinds?: string[]
+  /** Only documents with a path that starts with this text. */
+  pathPrefix?: string
+  /** Only documents that are valid at this time. */
+  validAt?: Date | null
+}
+
+/** A document that the search found, with its found chunks, best first. */
+type SearchHit = {
+  workspaceId: string
+  document: KnowledgeDocument
+  /** The found chunks with their RRF scores, best first. */
+  chunks: { ordinal: number; text: string; score: number }[]
+}
+
+/** A relation of a frontier document, and the document at its other end. */
+type FrontierRelation = {
+  /** `out`: the frontier document is `srcDoc`. `in`: it is `dstDoc`. */
+  direction: "out" | "in"
+  workspaceId: string
+  relation: KnowledgeRelation
+  /** `null` when the neighbor has no document row. */
+  neighbor: KnowledgeDocument | null
+}
+
+/** A document with its chunks closest to the query vector, closest first. */
+type Evidence = {
+  workspaceId: string
+  document: KnowledgeDocument
+  chunks: { ordinal: number; text: string; distance: number }[]
+}
+
+type KnowledgeGraph = {
+  documents: KnowledgeDocument[]
+  relations: KnowledgeRelation[]
+  truncated: boolean
+}
+
 /**
  * The only ClickHouse client of the knowledge content (ADR-066). Each
- * function takes the org and the Workspace, and each statement has org walls:
+ * function takes the org and one or more Workspaces of it, and each statement
+ * has org walls:
  * - Reads: `org_id` and `workspace_id` are in the WHERE clause, and the row
  *   policy filters to the org of {@link ORG_SETTING}.
  * - Inserts: this module sets `org_id` and `workspace_id` of each row from
@@ -144,6 +199,23 @@ type KnowledgeStore = {
     scope: KnowledgeScope,
     docKey: string,
   ): Promise<StoredDocument | null>
+  /** The hybrid search of ADR-068 decision 1. */
+  search(scope: KnowledgeReadScope, query: SearchQuery): Promise<SearchHit[]>
+  /** The out-relations and in-relations of the documents `refs`. */
+  readFrontier(
+    scope: KnowledgeReadScope,
+    refs: DocumentRef[],
+    validAt?: Date | null,
+  ): Promise<FrontierRelation[]>
+  /** The documents `refs` with their chunks closest to `vector`. */
+  readEvidence(
+    scope: KnowledgeReadScope,
+    refs: DocumentRef[],
+    vector: number[],
+    chunksPerDocument: number,
+  ): Promise<Evidence[]>
+  /** The documents and relations of a Workspace, at most `limit` of each. */
+  readGraph(scope: KnowledgeScope, limit: number): Promise<KnowledgeGraph>
   close(): Promise<void>
 }
 
@@ -178,6 +250,12 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
       insertPlaceholders(client, scope, placeholders),
     listDocumentKeys: (scope) => listDocumentKeys(client, scope),
     readDocument: (scope, docKey) => readDocument(client, scope, docKey),
+    search: (scope, query) => search(client, scope, query),
+    readFrontier: (scope, refs, validAt) =>
+      readFrontier(client, scope, refs, validAt),
+    readEvidence: (scope, refs, vector, chunksPerDocument) =>
+      readEvidence(client, scope, refs, vector, chunksPerDocument),
+    readGraph: (scope, limit) => readGraph(client, scope, limit),
     close: () => client.close(),
   }
 }
@@ -200,6 +278,7 @@ const scopeParams = (
   workspaceId: scope.workspaceId,
 })
 
+/** Runs one read for the Workspace of `scope` (`scoped`). */
 async function select<T>(
   client: ClickHouseClient,
   scope: KnowledgeScope,
@@ -207,16 +286,12 @@ async function select<T>(
   params: Record<string, unknown> = {},
 ): Promise<T[]> {
   assertScope(scope)
-  const result = await client.query({
+  return selectIn<T>(
+    client,
+    { orgId: scope.orgId, workspaceIds: [scope.workspaceId] },
     query,
-    query_params: scopeParams(scope, params),
-    format: "JSONEachRow",
-    clickhouse_settings: {
-      [ORG_SETTING]: scope.orgId,
-      date_time_output_format: "iso",
-    },
-  })
-  return result.json<T>()
+    scopeParams(scope, params),
+  )
 }
 
 /**
@@ -630,6 +705,407 @@ async function readDocument(
     chunks,
     outgoing: outgoing.map(toRelation),
     incoming: incoming.map(toRelation),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reads for the retrieval (ADR-068). A read can span several Workspaces of one
+// org. Each one goes through `selectIn`, which sets the org of the row policy,
+// and each WHERE clause has `org_id` and `workspace_id`. Values go in
+// `query_params` only, never into the SQL text.
+
+/**
+ * Runs one read for the Workspaces of `scope`. The org and the Workspaces
+ * come last in the parameters, so that the WHERE clause and the row policy
+ * use the same org.
+ */
+async function selectIn<T>(
+  client: ClickHouseClient,
+  scope: KnowledgeReadScope,
+  query: string,
+  params: Record<string, unknown>,
+): Promise<T[]> {
+  assertReadScope(scope)
+  const result = await client.query({
+    query,
+    query_params: {
+      ...params,
+      orgId: scope.orgId,
+      workspaceIds: scope.workspaceIds,
+    },
+    format: "JSONEachRow",
+    clickhouse_settings: {
+      [ORG_SETTING]: scope.orgId,
+      date_time_output_format: "iso",
+      // tuple(x AS name, …) gives a JSON object with these names.
+      enable_named_columns_in_function_tuple: 1,
+    },
+  })
+  return result.json<T>()
+}
+
+const inWorkspaces =
+  "org_id = {orgId:String} AND workspace_id IN {workspaceIds:Array(String)}"
+
+/** A time in the text form of a `DateTime64(3, 'UTC')` parameter. */
+const clickHouseTime = (time: Date) =>
+  time.toISOString().slice(0, 23).replace("T", " ")
+
+/** True for a row with no `validAt`, or with `validAt` in its validity. */
+const validDuring = (alias = "") =>
+  `({validAt:Nullable(DateTime64(3, 'UTC'))} IS NULL OR (
+    (${alias}valid_from IS NULL OR ${alias}valid_from <= {validAt:Nullable(DateTime64(3, 'UTC'))})
+    AND (${alias}valid_to IS NULL OR ${alias}valid_to > {validAt:Nullable(DateTime64(3, 'UTC'))})))`
+
+function assertReadScope(scope: KnowledgeReadScope): void {
+  if (
+    !scope.orgId ||
+    scope.workspaceIds.length === 0 ||
+    scope.workspaceIds.some((workspaceId) => !workspaceId)
+  )
+    throw new Error("A knowledge read needs an org and its Workspaces")
+}
+
+/** The binary form of a vector, as hex: the same bits as `embedding_bits`. */
+function vectorBits(vector: number[]): string {
+  const bytes = new Uint8Array(Math.ceil(vector.length / 8))
+  vector.forEach((value, index) => {
+    if (value > 0)
+      bytes[index >> 3] = (bytes[index >> 3] ?? 0) | (0x80 >> (index & 7))
+  })
+  return Buffer.from(bytes).toString("hex")
+}
+
+type ChunkKey = { workspaceId: string; docKey: string; ordinal: number }
+const chunkId = (key: ChunkKey) =>
+  JSON.stringify([key.workspaceId, key.docKey, key.ordinal])
+const documentId = (ref: DocumentRef) =>
+  JSON.stringify([ref.workspaceId, ref.docKey])
+/** The value of a `{refs:Array(Tuple(String, String))}` parameter. */
+const refTuples = (refs: DocumentRef[]) =>
+  refs.map((ref) => new TupleParam([ref.workspaceId, ref.docKey]))
+
+/**
+ * The hybrid search of ADR-068 decision 1:
+ * 1. Vector: a Hamming scan of `embedding_bits` keeps the top 500, then the
+ *    cosine distance on `embedding` orders them. Both stages are one query,
+ *    so ClickHouse reads `embedding` for the 500 rows only (lazy
+ *    materialization; `chunks` has `index_granularity = 64`).
+ * 2. Lexical: one `hasToken` filter for each term selects at most 1000
+ *    chunks through the text index. The score counts the matched terms of a
+ *    chunk, plus the terms in the title of its document. A function on `text`
+ *    in the SELECT list would read the full text column.
+ * 3. RRF (k = 60) fuses the two orders. The top 50 chunks are grouped by
+ *    document.
+ * Only `active` documents that pass the filters are found.
+ */
+async function search(
+  client: ClickHouseClient,
+  scope: KnowledgeReadScope,
+  { vector, terms, kinds = [], pathPrefix = "", validAt = null }: SearchQuery,
+): Promise<SearchHit[]> {
+  // hasToken refuses a term with a separator in it. Split each term as the
+  // splitByNonAlpha tokenizer of the text index does: at each ASCII character
+  // that is not a letter or a digit.
+  const uniqueTerms = [
+    ...new Set(
+      terms
+        .flatMap((term) => term.split(/[^A-Za-z0-9\P{ASCII}]+/u))
+        .filter(Boolean),
+    ),
+  ]
+  const params = {
+    queryVector: vector,
+    queryBits: vectorBits(vector),
+    terms: uniqueTerms,
+    kinds,
+    pathPrefix,
+    validAt: validAt && clickHouseTime(validAt),
+    ...Object.fromEntries(uniqueTerms.map((term, i) => [`term${i}`, term])),
+  }
+  // The documents that the search can find: active, and in the filters.
+  const searchable = `${inWorkspaces} AND status = 'active'
+    AND (empty({kinds:Array(String)}) OR has({kinds:Array(String)}, kind))
+    AND startsWith(path, {pathPrefix:String})
+    AND ${validDuring()}`
+  const inSearchable = `(workspace_id, doc_key) IN (
+    SELECT workspace_id, doc_key FROM documents WHERE ${searchable})`
+  // One branch for each term, each with at most 1000 chunks of searchable
+  // documents: the cap before the score. Only the parameter names go into the
+  // SQL text.
+  const termMatches = uniqueTerms
+    .map(
+      (_, i) => `SELECT workspace_id, doc_key, ordinal FROM chunks
+        WHERE ${inWorkspaces} AND hasToken(text, {term${i}:String})
+          AND ${inSearchable}
+        LIMIT 1000`,
+    )
+    .join(" UNION ALL ")
+  const [vectorOrder, lexicalOrder] = await Promise.all([
+    selectIn<ChunkKey>(
+      client,
+      scope,
+      // The filter on the documents applies before the top 500 (and before the
+      // cap of each term), so that a narrow filter still finds chunks. Index
+      // analysis of the large set cost more than it saved: 60 ms against
+      // 34 ms on 1 million chunks.
+      `SELECT workspace_id AS workspaceId, doc_key AS docKey, ordinal
+       FROM (
+         SELECT workspace_id, doc_key, ordinal, embedding FROM chunks
+         WHERE ${inWorkspaces} AND ${inSearchable}
+         ORDER BY bitHammingDistance(embedding_bits, unhex({queryBits:String}))
+         LIMIT 500
+       )
+       ORDER BY cosineDistance(embedding, {queryVector:Array(Float32)}),
+         workspaceId, docKey, ordinal
+       SETTINGS use_index_for_in_with_subqueries = 0`,
+      params,
+    ),
+    uniqueTerms.length === 0
+      ? []
+      : selectIn<ChunkKey>(
+          client,
+          scope,
+          // The score: the matched terms of the chunk, plus the query terms in
+          // the title of its document (the title boost).
+          `SELECT matches.workspace_id AS workspaceId,
+             matches.doc_key AS docKey, matches.ordinal AS ordinal
+           FROM (
+             SELECT workspace_id, doc_key, ordinal, count() AS matched
+             FROM (${termMatches})
+             GROUP BY workspace_id, doc_key, ordinal
+           ) AS matches
+           INNER JOIN (
+             SELECT workspace_id, doc_key, title FROM documents
+             WHERE ${inWorkspaces}
+           ) AS documents
+             ON documents.workspace_id = matches.workspace_id
+             AND documents.doc_key = matches.doc_key
+           ORDER BY matches.matched + length(arrayIntersect(
+               splitByNonAlpha(documents.title), {terms:Array(String)})) DESC,
+             workspaceId, docKey, ordinal
+           SETTINGS use_index_for_in_with_subqueries = 0`,
+          params,
+        ),
+  ])
+
+  const fused = new Map<string, ChunkKey & { score: number }>()
+  for (const order of [vectorOrder, lexicalOrder])
+    order.forEach((key, index) => {
+      const id = chunkId(key)
+      const hit = fused.get(id) ?? { ...key, score: 0 }
+      hit.score += 1 / (60 + index + 1)
+      fused.set(id, hit)
+    })
+  const top = [...fused.values()].sort((a, b) => b.score - a.score).slice(0, 50)
+  if (top.length === 0) return []
+
+  const [documents, texts] = await Promise.all([
+    selectIn<DocumentRecord & { workspaceId: string }>(
+      client,
+      scope,
+      `SELECT workspace_id AS workspaceId, ${documentColumns} FROM documents
+       WHERE ${inWorkspaces} AND status = 'active'
+         AND (workspace_id, doc_key) IN {refs:Array(Tuple(String, String))}`,
+      {
+        refs: refTuples(top),
+      },
+    ),
+    selectIn<ChunkKey & { text: string }>(
+      client,
+      scope,
+      `SELECT workspace_id AS workspaceId, doc_key AS docKey, ordinal, text
+       FROM chunks WHERE ${inWorkspaces}
+         AND (workspace_id, doc_key, ordinal) IN {keys:Array(Tuple(String, String, UInt32))}`,
+      {
+        keys: top.map(
+          (hit) => new TupleParam([hit.workspaceId, hit.docKey, hit.ordinal]),
+        ),
+      },
+    ),
+  ])
+  const documentById = new Map(
+    documents.map(({ workspaceId, ...record }) => [
+      documentId({ workspaceId, docKey: record.docKey }),
+      record,
+    ]),
+  )
+  const textById = new Map(texts.map((row) => [chunkId(row), row.text]))
+  const hits = new Map<string, SearchHit>()
+  for (const chunk of top) {
+    const id = documentId(chunk)
+    const record = documentById.get(id)
+    // A document that changed after the first query is not a hit.
+    if (!record) continue
+    const hit = hits.get(id) ?? {
+      workspaceId: chunk.workspaceId,
+      document: toDocument(record),
+      chunks: [],
+    }
+    hit.chunks.push({
+      ordinal: chunk.ordinal,
+      text: textById.get(chunkId(chunk)) ?? "",
+      score: chunk.score,
+    })
+    hits.set(id, hit)
+  }
+  return [...hits.values()]
+}
+
+/**
+ * The relations of the frontier `refs` in both directions, in one query: the
+ * out-relations from `relations` and the in-relations from `relations_in`
+ * (sorted by `dst_doc`). Each relation has the document row of its neighbor,
+ * or `null` when the neighbor has no row. With `validAt`, a relation or a
+ * neighbor that is not valid at that time is not returned.
+ */
+async function readFrontier(
+  client: ClickHouseClient,
+  scope: KnowledgeReadScope,
+  refs: DocumentRef[],
+  validAtTime: Date | null = null,
+): Promise<FrontierRelation[]> {
+  assertReadScope(scope)
+  if (refs.length === 0) return []
+  // relations_in has the columns of relations, sorted by dst_doc.
+  const edgeColumns = `workspace_id, src_doc, src_chunk, predicate, dst_doc,
+    confidence, valid_from, valid_to, source, observed_at`
+  const rows = await selectIn<
+    RelationRecord & {
+      direction: "out" | "in"
+      workspaceId: string
+      neighbor: DocumentRecord
+    }
+  >(
+    client,
+    scope,
+    `WITH edges AS (
+       SELECT 'out' AS direction, dst_doc AS neighbor_doc, ${edgeColumns}
+       FROM relations
+       WHERE ${inWorkspaces}
+         AND (workspace_id, src_doc) IN {refs:Array(Tuple(String, String))}
+         AND ${validDuring()}
+       UNION ALL
+       SELECT 'in' AS direction, src_doc AS neighbor_doc, ${edgeColumns}
+       FROM relations_in
+       WHERE ${inWorkspaces}
+         AND (workspace_id, dst_doc) IN {refs:Array(Tuple(String, String))}
+         AND ${validDuring()}
+     )
+     SELECT edges.direction AS direction, edges.workspace_id AS workspaceId,
+       edges.src_doc AS srcDoc, edges.src_chunk AS srcChunk,
+       edges.predicate AS predicate, edges.dst_doc AS dstDoc,
+       edges.confidence AS confidence, edges.valid_from AS validFrom,
+       edges.valid_to AS validTo, edges.source AS source,
+       edges.observed_at AS observedAt, neighbors.document AS neighbor
+     FROM edges
+     LEFT JOIN (
+       SELECT workspace_id, doc_key, valid_from, valid_to,
+         tuple(${documentColumns}) AS document
+       FROM documents
+       WHERE ${inWorkspaces} AND (workspace_id, doc_key) IN (
+         SELECT workspace_id, neighbor_doc FROM edges)
+     ) AS neighbors
+       ON neighbors.workspace_id = edges.workspace_id
+       AND neighbors.doc_key = edges.neighbor_doc
+     WHERE ${validDuring("neighbors.")}
+     ORDER BY direction DESC, workspaceId, srcDoc, srcChunk, predicate, dstDoc`,
+    {
+      refs: refTuples(refs),
+      validAt: validAtTime && clickHouseTime(validAtTime),
+    },
+  )
+  return rows.map(({ direction, workspaceId, neighbor, ...relation }) => ({
+    direction,
+    workspaceId,
+    relation: toRelation(relation),
+    // Without a match, the LEFT JOIN gives a tuple of default values.
+    neighbor: neighbor.docKey ? toDocument(neighbor) : null,
+  }))
+}
+
+/**
+ * The evidence of the documents `refs`: each document row with its
+ * `chunksPerDocument` chunks closest to `vector` (cosine distance).
+ */
+async function readEvidence(
+  client: ClickHouseClient,
+  scope: KnowledgeReadScope,
+  refs: DocumentRef[],
+  vector: number[],
+  chunksPerDocument: number,
+): Promise<Evidence[]> {
+  assertReadScope(scope)
+  if (refs.length === 0) return []
+  const params = {
+    refs: refTuples(refs),
+    queryVector: vector,
+    chunksPerDocument,
+  }
+  const inRefs =
+    "(workspace_id, doc_key) IN {refs:Array(Tuple(String, String))}"
+  const [documents, chunks] = await Promise.all([
+    selectIn<DocumentRecord & { workspaceId: string }>(
+      client,
+      scope,
+      `SELECT workspace_id AS workspaceId, ${documentColumns} FROM documents
+       WHERE ${inWorkspaces} AND ${inRefs}`,
+      params,
+    ),
+    selectIn<ChunkKey & { text: string; distance: number }>(
+      client,
+      scope,
+      `SELECT workspace_id AS workspaceId, doc_key AS docKey, ordinal, text,
+         cosineDistance(embedding, {queryVector:Array(Float32)}) AS distance
+       FROM chunks WHERE ${inWorkspaces} AND ${inRefs}
+       ORDER BY distance, ordinal
+       LIMIT {chunksPerDocument:UInt32} BY workspace_id, doc_key`,
+      params,
+    ),
+  ])
+  const evidence = new Map<string, Evidence>(
+    documents.map(({ workspaceId, ...record }) => [
+      documentId({ workspaceId, docKey: record.docKey }),
+      { workspaceId, document: toDocument(record), chunks: [] },
+    ]),
+  )
+  for (const { workspaceId, docKey, ordinal, text, distance } of chunks)
+    evidence
+      .get(documentId({ workspaceId, docKey }))
+      ?.chunks.push({ ordinal, text, distance })
+  return [...evidence.values()]
+}
+
+/**
+ * The documents and the relations of one Workspace for the graph view, each
+ * list cut at `limit` rows. `truncated` is true when a list was cut.
+ */
+async function readGraph(
+  client: ClickHouseClient,
+  scope: KnowledgeScope,
+  limit: number,
+): Promise<KnowledgeGraph> {
+  const params = { limit: limit + 1 }
+  const [documents, relations] = await Promise.all([
+    select<DocumentRecord>(
+      client,
+      scope,
+      `SELECT ${documentColumns} FROM documents WHERE ${scoped}
+       ORDER BY doc_key LIMIT {limit:UInt32}`,
+      params,
+    ),
+    select<RelationRecord>(
+      client,
+      scope,
+      `SELECT ${relationColumns} FROM relations WHERE ${scoped}
+       ORDER BY src_doc, src_chunk, predicate, dst_doc LIMIT {limit:UInt32}`,
+      params,
+    ),
+  ])
+  return {
+    documents: documents.slice(0, limit).map(toDocument),
+    relations: relations.slice(0, limit).map(toRelation),
+    truncated: documents.length > limit || relations.length > limit,
   }
 }
 
