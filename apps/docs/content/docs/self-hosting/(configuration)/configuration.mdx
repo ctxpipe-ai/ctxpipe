@@ -131,12 +131,7 @@ volumes `hot` and `cold`, or the migrations fail. Compose loads
 into `/etc/clickhouse-server/config.d/`. On another ClickHouse server, add that
 file in the same folder.
 
-The Compose service keeps both volumes on its local disk. To keep the old
-parts on S3, put an S3 disk under the volume `cold`. If you move the
-ClickHouse data to S3 behind a cache disk, set `boundary_alignment` of the
-cache disk to `131072` (128 KiB). The search reads small ranges of the vector
-column. With the default alignment of 4 MiB, a search that is not in the cache
-downloads about 1 GiB from S3 for 46 MiB of data on 1 million sections.
+The Compose service keeps both volumes on its local disk.
 
 ### Keep old parts on S3
 
@@ -191,6 +186,11 @@ services:
       AWS_SECRET_ACCESS_KEY: ${CLICKHOUSE_S3_SECRET_ACCESS_KEY}
 ```
 
+The search reads small ranges of the vector column, so the example sets
+`boundary_alignment` of the cache disk to `131072` (128 KiB). With the default
+alignment of 4 MiB, a search that is not in the cache downloads about 1 GiB
+from S3 for 46 MiB of data on 1 million sections.
+
 The cache files go to `/var/lib/clickhouse/caches/cold/`. Do not put the cache
 path under `/var/lib/clickhouse/disks/`: the image then makes that folder as
 `root`, and ClickHouse cannot start.
@@ -209,7 +209,7 @@ organization has the feature `knowledge_plane` with one of three values:
 |---|---|
 | `off` | The default. The graph database answers. The worker writes nothing to ClickHouse. |
 | `shadow` | The graph database answers. The worker also writes to ClickHouse, and the backend compares the two results in the logs. |
-| `on` | ClickHouse answers for a Workspace after its first index run on ClickHouse completes. Until then, the graph database answers. |
+| `on` | ClickHouse answers after the first index run on ClickHouse of each Workspace in the request completes. If one Workspace of a request is not ready, the graph database answers the full request. |
 
 Set the value with SQL in Postgres. Get the id of the organization, then set
 the value. Use `shadow` first:
@@ -234,16 +234,25 @@ Workspace, for example after the next push to the Workspace repository. See
 ClickHouse holds only content that ctxpipe makes from the Workspace
 repositories. If you lose the ClickHouse data:
 
-1. Restore a ClickHouse backup, if you have one.
-2. If you have no backup, delete the index state of the knowledge store in
-   Postgres. Then the next hydrate of each Workspace is a full rebuild:
+1. Restore a ClickHouse backup, if you have one. If you have no backup, run
+   the migrations again. They make the tables and the users `ctxpipe_reader`
+   and `ctxpipe_writer` again. On Compose, set the reader and writer passwords
+   in `.env`, then run:
+
+   ```bash
+   docker compose --profile deploy run --rm migrate
+   ```
+
+2. Delete the index state of the knowledge store in Postgres. Do this also
+   after a restore: the backup can be older than the index state, and the
+   next run then does not apply the commits between them.
 
    ```bash
    docker compose exec postgres psql -U ctxpipe -c "DELETE FROM knowledge_state"
    ```
 
-Until a Workspace completes its full rebuild, the graph database answers for
-it.
+The next hydrate of each Workspace is a full rebuild. Until a Workspace
+completes its full rebuild, the graph database answers for it.
 
 ## Chat sandboxes
 

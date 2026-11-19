@@ -43,14 +43,16 @@ Some events start a **full rebuild**. A full rebuild reads all the knowledge
 files at the newest commit again:
 
 - The last indexed commit is not in the Workspace repository any more. For
-  example, somebody force-pushed the default branch, and Git then deleted the
+  example, a user force-pushed the default branch, and Git then deleted the
   old commits (a garbage collection). Without that commit, ctxpipe cannot find
   which files changed.
 - The first index run of a Workspace.
-- A new ctxpipe version changes how ctxpipe reads files or makes embeddings.
+- A new ctxpipe version changes how ctxpipe reads files, or a new embedding
+  model.
 - A change to the sources of the Workspace (`.ctxpipe/sources.yaml` or
   `sources/`).
-- Many index runs after the last indexed commit did not complete.
+- The runs of more than 10 different commits after the last indexed commit
+  did not complete.
 
 During a full rebuild:
 
