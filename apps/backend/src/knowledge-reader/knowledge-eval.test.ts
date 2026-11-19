@@ -301,6 +301,20 @@ describe("the judge panel", () => {
     }
   })
 
+  it("sends nothing when the model provider is not OpenRouter", async () => {
+    asked.length = 0
+    await expect(
+      labelWithPanel({
+        draft,
+        models: Object.keys(replies),
+        read: async (_corpus, ref) => `The text of ${ref}.`,
+        env: { ...env, MODEL_PROVIDER: "bedrock" },
+        stopped: () => false,
+      }),
+    ).rejects.toThrow(/MODEL_PROVIDER openrouter or openai-like/)
+    expect(asked).toEqual([])
+  })
+
   it("needs an odd number of model families, and never Jev", () => {
     expect(() => checkPanel(["anthropic/a", "openai/b"])).toThrow(/odd number/)
     expect(() =>

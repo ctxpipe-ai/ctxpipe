@@ -84,9 +84,14 @@ async function ask(
   content: string,
   env: Record<string, string | undefined>,
 ): Promise<Verdict> {
+  // As the Jev client does: the text goes only to the OpenRouter endpoint
+  // that the operator chose.
+  const provider = env.MODEL_PROVIDER || "openai-like"
   const apiKey = env.MODEL_PROVIDER_API_KEY
-  if (!apiKey)
-    throw new Error("Set MODEL_PROVIDER_API_KEY (the OpenRouter key).")
+  if (!["openrouter", "openai-like"].includes(provider) || !apiKey)
+    throw new Error(
+      "The panel needs MODEL_PROVIDER openrouter or openai-like, and MODEL_PROVIDER_API_KEY (the OpenRouter key).",
+    )
   const base = (env.MODEL_PROVIDER_URL || DEFAULT_OPENROUTER_BASE).replace(
     /\/+$/,
     "",
