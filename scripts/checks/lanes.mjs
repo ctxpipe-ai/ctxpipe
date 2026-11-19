@@ -1,11 +1,18 @@
 import { execFile } from "node:child_process"
-import { existsSync, readFileSync, realpathSync, rmSync } from "node:fs"
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+} from "node:fs"
+import { tmpdir } from "node:os"
 import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import { setupSteps, vitestCommand } from "../ci/vitest-launch.mjs"
-import { logFile, logged } from "./log.mjs"
+import { logDirectory, logFile, logged } from "./log.mjs"
 import { freshParts, laneChecks as readParts } from "./trace.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -371,8 +378,12 @@ export function runVitest(checks, trace) {
     if (codesearchLanes.includes(lane)) continue
     const { directory } = lanes[lane]
     const log = logFile(lane)
-    const report = join(root, ".ci-results", "checks", `${lane}.json`)
-    rmSync(report, { force: true })
+    // The report is a file of this run only. Two runs on the same checkout
+    // (parallel runners, or factory check next to checks:run) can run the
+    // same lane at the same time. With one shared path, one run could read or
+    // delete the report of the other.
+    const reportDirectory = mkdtempSync(join(tmpdir(), `ctxpipe-${lane}-`))
+    const report = join(reportDirectory, "report.json")
     const laneConfig = { name: lane, ...lanes[lane] }
     let suites = new Map()
     let message
@@ -415,6 +426,7 @@ export function runVitest(checks, trace) {
         message = `Vitest wrote no report (${run.error?.message ?? run.signal ?? `exit ${run.status}`})`
       }
     }
+    rmSync(reportDirectory, { recursive: true, force: true })
     // A trace is data only: an error here never changes a result.
     if (parts)
       try {
@@ -440,7 +452,7 @@ const codesearchLanes = ["codesearch", "codesearch-bun"]
 // The lanes have no trace here.
 export function runCodesearchImage(checks) {
   const log = logFile("codesearch")
-  const directory = join(root, ".ci-results", "checks", "codesearch-records")
+  const directory = join(logDirectory(), "codesearch-records")
   rmSync(directory, { recursive: true, force: true })
   const run = logged(
     log.path,
