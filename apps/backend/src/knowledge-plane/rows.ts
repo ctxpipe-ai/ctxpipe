@@ -97,9 +97,18 @@ export function knowledgeRows(input: {
   const { workspaceId, unit, imageHash, observedAt } = input
   const dir = unit.path.split("/").slice(0, -1).join("/")
   const keyOf = (path: string) => servingIdForKnowledgePath(workspaceId, path)
-  /** A Markdown link destination without its optional title. */
-  const withoutTitle = (href: string) =>
-    href.trim().split(/\s+/)[0]?.replace(/^<|>$/g, "") ?? ""
+  /**
+   * A Markdown link destination without its optional title. A destination in
+   * angle brackets can hold spaces.
+   */
+  const withoutTitle = (href: string) => {
+    const trimmed = href.trim()
+    return (
+      (trimmed.startsWith("<")
+        ? /^<([^>]*)>/.exec(trimmed)?.[1]
+        : trimmed.split(/\s+/)[0]) ?? ""
+    )
+  }
   const targetOf = (href: string) => resolveHydrateLink(dir, withoutTitle(href))
   const node = workspaceGraphNodes([unit])[0]
   if (!node) throw new Error(`No graph node for ${unit.path}`)
@@ -117,7 +126,9 @@ export function knowledgeRows(input: {
   // reference-style image (`![alt][label]`, `![label][]` or `![label]`).
   const definitions = new Map(
     Array.from(
-      unit.body.matchAll(/^ {0,3}\[([^\]]+)\]:[ \t]*(\S+)/gm),
+      withoutFencedCode(unit.body).matchAll(
+        /^ {0,3}\[([^\]]+)\]:[ \t]*(<[^>]*>|\S+)/gm,
+      ),
       (match) => [match[1]?.toLowerCase() ?? "", match[2] ?? ""] as const,
     ),
   )

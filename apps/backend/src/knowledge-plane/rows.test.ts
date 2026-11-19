@@ -377,6 +377,25 @@ describe("knowledgeRows", () => {
     ).toThrow("not a SHA-256 hex digest")
   })
 
+  it("keeps the spaces of an image path in angle brackets", () => {
+    const path = "knowledge/a.md"
+    const content =
+      '![Flow](<./request flow.png> "Flow") ![Map][map]\n\n[map]: <./site map.png>\n'
+    const rows = rowsOf(
+      [{ path, content }],
+      path,
+      new Map([
+        ["knowledge/request flow.png", HASH],
+        ["knowledge/site map.png", HASH],
+      ]),
+    )
+    expect(rows.map((entry) => entry.document.path)).toEqual([
+      path,
+      "knowledge/request flow.png",
+      "knowledge/site map.png",
+    ])
+  })
+
   it("ignores image syntax in fenced code", () => {
     const path = "knowledge/a.md"
     const content = [
@@ -386,8 +405,10 @@ describe("knowledgeRows", () => {
       "![x](x.png) ![y][y]",
       "```",
       "![z](z.png)",
+      "[w]: ./w.png",
       "````",
       "",
+      "![w]",
       "[y]: ./y.png",
       "",
     ].join("\n")
@@ -395,7 +416,7 @@ describe("knowledgeRows", () => {
       [{ path, content }],
       path,
       new Map(
-        ["x.png", "y.png", "z.png"].map((name): [string, string] => [
+        ["w.png", "x.png", "y.png", "z.png"].map((name): [string, string] => [
           `knowledge/${name}`,
           HASH,
         ]),
