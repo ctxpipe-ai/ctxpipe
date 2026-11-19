@@ -320,6 +320,52 @@ describe("knowledgeRows", () => {
     })
   })
 
+  it("maps a reference-style image to its image document", () => {
+    const path = "knowledge/arch/a.md"
+    const content = [
+      "# A",
+      "",
+      "Intro.",
+      "",
+      "## Pictures",
+      "",
+      "![Flow][flow] ![map][] ![MAP]",
+      "",
+      '[flow]: ./flow.png "The flow"',
+      "[map]: <./map.webp>",
+      "",
+    ].join("\n")
+    const rows = rowsOf(
+      [{ path, content }],
+      path,
+      new Map([
+        ["knowledge/arch/flow.png", HASH],
+        ["knowledge/arch/map.webp", HASH],
+      ]),
+    )
+    expect(rows.map((entry) => entry.document.path)).toEqual([
+      path,
+      "knowledge/arch/flow.png",
+      "knowledge/arch/map.webp",
+    ])
+    expect(
+      edges(rows[0]?.relations ?? []).filter(
+        (edge) => edge.predicate === "EMBEDS_IMAGE",
+      ),
+    ).toEqual([
+      {
+        predicate: "EMBEDS_IMAGE",
+        dstDoc: key("knowledge/arch/flow.png"),
+        srcChunk: 1,
+      },
+      {
+        predicate: "EMBEDS_IMAGE",
+        dstDoc: key("knowledge/arch/map.webp"),
+        srcChunk: 1,
+      },
+    ])
+  })
+
   it("refuses an image hash that is not a SHA-256 hex digest", () => {
     const path = "knowledge/a.md"
     expect(() =>

@@ -113,9 +113,30 @@ export function knowledgeRows(input: {
   // A file with no body text (only front matter) gets one chunk with its
   // title, so that each relation has a chunk that states it.
   if (!chunks.length) chunks.push({ ordinal: 0, text: title })
-  const chunkLinks = chunks.map((chunk) =>
-    markdownLinks(chunk.text).map(targetOf),
+  // The link definitions of the body (`[label]: path "title"`), for a
+  // reference-style image (`![alt][label]`, `![label][]` or `![label]`).
+  const definitions = new Map(
+    Array.from(
+      unit.body.matchAll(/^ {0,3}\[([^\]]+)\]:[ \t]*(\S+)/gm),
+      (match) => [match[1]?.toLowerCase() ?? "", match[2] ?? ""] as const,
+    ),
   )
+  /** The image targets of a text: inline and reference-style images. */
+  const imagesOf = (text: string) =>
+    [
+      ...Array.from(text.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g), (m) => m[1]),
+      ...Array.from(
+        text.matchAll(/!\[([^\]]*)\](?:\[([^\]]*)\]|(?![(\[]))/g),
+        (m) => definitions.get((m[2] || m[1] || "").toLowerCase()),
+      ),
+    ].flatMap((href) => {
+      const target = href ? targetOf(href) : ""
+      return target && imageContentType(target) ? [target] : []
+    })
+  const chunkLinks = chunks.map((chunk) => [
+    ...markdownLinks(chunk.text).map(targetOf),
+    ...imagesOf(chunk.text),
+  ])
   // A claim is in the front matter, so no chunk states it, and a mirror
   // reference link is in no Markdown link of the body. Such a relation takes
   // the first chunk that links to its target, else the first chunk.
@@ -125,11 +146,7 @@ export function knowledgeRows(input: {
       chunkLinks.findIndex((targets) => targets.includes(target)),
     )
 
-  const images = new Set(
-    Array.from(unit.body.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g), (match) =>
-      targetOf(match[1] ?? ""),
-    ).filter((target) => imageContentType(target)),
-  )
+  const images = new Set(imagesOf(unit.body))
 
   const relation = (
     target: string,
