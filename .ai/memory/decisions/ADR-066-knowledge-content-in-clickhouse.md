@@ -32,7 +32,7 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
    - ClickHouse holds the content: documents, chunks and relations.
    - Postgres holds the operational data about the content. For each Workspace, that is the `knowledge_state` row of [ADR-067](ADR-067-knowledge-projection-applies-git-diff.md) decision 2: `last_sha`, the SHAs of runs that did not complete, the projection version (which includes the embedding model name), the run status and the failed count. Postgres also holds the job queue and the rollout flag.
    - Postgres holds no pointers to single documents or chunks. A tool that needs content calls ClickHouse.
-3. **Four shared tables.** All Workspaces share the same tables. There is no table or partition for each Workspace. Each table sorts by `(org_id, workspace_id, …)` first.
+3. **Five shared tables.** All Workspaces share the same tables. There is no table or partition for each Workspace. Each table sorts by `(org_id, workspace_id, …)` first.
    - `documents`: one row for each document. It holds:
      - `status`;
      - `deleted_at` and `error`;
@@ -42,20 +42,21 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
    - `chunks`: the sections of a document. It holds `ordinal`, `text`, the full vector and its binary form (the search is in [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md)), and a text index on `text`.
    - `relations`: `(src_doc, src_chunk, predicate, dst_doc)`, with confidence, validity, source and `observed_at`. It sorts by `src_doc`, for the outgoing relations.
    - `relations_in`: the same rows, sorted by `(org_id, workspace_id, dst_doc, predicate, src_doc)`, for the incoming relations. `KnowledgeStore` writes and deletes both tables.
+   - `doc_refs`: `(org_id, workspace_id, ref_key, doc_key)`, sorted by `ref_key`. Each row is a reference key that a file states for itself (decision 5). `KnowledgeStore` writes and deletes it together with the other rows of the file. It has the same `CHECK` constraint and row policy as the other tables (decision 9). It comes with [CTX-1400](https://linear.app/ctxpipe/issue/CTX-1400).
    - Why a second table and not a projection ([CTX-1391](https://linear.app/ctxpipe/issue/CTX-1391)): one patch part anywhere in a table stops every read from using any projection of that table, until a merge removes the patch. A `DELETE` on a table with a projection also rewrites whole parts. A second table does not have these limits: with a patch part present, it read the same 29 granules as a clean projection (12 ms warm).
 4. **The grain.** Search finds chunks. The traversal moves between documents. A relation records the chunk that states it (`src_chunk`), so the provenance points to a section.
 5. **A relation belongs to the document that states it.**
    - Its target is a document key that is resolved when it is read.
    - No stored value depends on another document, for example a degree or an in-degree.
    - Thus, a change to one file changes only the rows of that file.
-   - A link that names its target by a key from the front matter of another file (for example a Linear identifier or an issue URL in a mirror file) targets that reference key. Each file states its own reference keys in a lookup table `doc_refs (org_id, workspace_id, ref_key, doc_key)`, and the read resolves a key target through it. A key with no row is a `missing` target ([CTX-1400](https://linear.app/ctxpipe/issue/CTX-1400)). The `CHANGED` claims of a merged pull request work the same way.
+   - Some links name their target by a key from the front matter of another file, for example a Linear identifier or an issue URL in a mirror file. Such a link targets that reference key. Each file states its own reference keys in `doc_refs` (decision 3), and the read resolves a key target through it. A key with no row is a `missing` target ([CTX-1400](https://linear.app/ctxpipe/issue/CTX-1400)). The `CHANGED` claims of a merged pull request work the same way.
    - The `source_type` of a document is its source authority kind (`adr`, `merged-pr`, `docs`, `issue`, `open-pr`, `chat` or `other`), which the mapper takes from the file alone: its path, its kind and its own front matter. [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md) decision 4 ranks it ([CTX-1410](https://linear.app/ctxpipe/issue/CTX-1410)).
 6. **An image is a Git file like any other**, of kind `image`.
    - Its key is its path. A changed image file replaces its rows, and a removed image file becomes a tombstone, the same as any file.
    - A file that shows an image states only an `EMBEDS_IMAGE` relation to the image's path, with the alt text on the relation. If the image has no row, the target is a `missing` placeholder. Thus the rows of a file do not depend on the bytes of an image (decision 5).
    - The bytes stay in the S3 artifacts bucket (local disk in self-host).
    - Each image has one chunk row. Its vector is the image embedding. Its text comes only from the bytes: the OCR text or a description, if the evals choose one, else empty.
-   - The projection makes each `s3_key` from the org, the Workspace and the SHA-256 of the bytes. It never takes a key from the content.
+   - The projection makes each `s3_key` from the org, the Workspace and the SHA-256 of the bytes. It never takes a key from the content. The SHA-256 is used only in `s3_key`, because the key of an image is its path.
    - An image type that the embedding model does not take (for example SVG) gets an `error` on its document. It is not a failed run.
    - Before the backend reads image bytes (for example to send them to Jev), it checks that the key starts with the org and Workspace prefix of the request. Thus a row cannot point the backend at the image of another org.
 7. **Document status.** Each document is one of four:
