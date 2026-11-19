@@ -39,7 +39,11 @@ import {
   multimodalEmbeddingConfig,
 } from "../retrieval/embeddings/multimodalEmbeddings.js"
 import { JevError } from "../retrieval/jev/client.js"
-import { resolveDisagreements } from "../retrieval/jev/disagreement.js"
+import {
+  disagreementCalls,
+  isValidAt,
+  resolveDisagreements,
+} from "../retrieval/jev/disagreement.js"
 import type {
   KnowledgeReader,
   RelatedRequest,
@@ -284,13 +288,10 @@ async function search(
       const chunk = hit.chunks[0]
       const sha = shas.get(hit.workspaceId)
       if (!chunk || !sha) return []
-      const { validFrom, validTo } = hit.document
       return [
         {
           order: index,
-          valid:
-            (!validFrom || validFrom <= queryTime) &&
-            (!validTo || queryTime < validTo),
+          valid: isValidAt(hit.document, queryTime),
           workspaceId: hit.workspaceId,
           unitId: hit.document.docKey,
           path: hit.document.path,
@@ -529,18 +530,13 @@ async function disagreementPositions(
   deadline: number,
   meter: ModelMeter,
 ): Promise<RelatedPosition[]> {
-  // The pairs go to Jev in parallel batches of `batchSize` (four questions
-  // for each pair, and one for each item). A single item gets one call.
-  const batchSize = 12
-  const pairs = (top.length * (top.length - 1)) / 2
-  meter.jevCalls += Math.max(1, Math.ceil(pairs / batchSize))
+  meter.jevCalls += disagreementCalls(top.length)
   meter.jevCandidates += top.length
   const { sameAt, disagreeAt, replacesAt, scopedAt } = ORCHESTRATOR_DEFAULTS
   const resolution = await beforeDeadline(deadline, () =>
     resolveDisagreements({
       question,
       queryTime,
-      batchSize,
       thresholds: { sameAt, disagreeAt, replacesAt, scopedAt },
       timeoutMs: Math.max(1, Math.floor(deadline - performance.now())),
       items: top.map(({ document, text }, index) => ({

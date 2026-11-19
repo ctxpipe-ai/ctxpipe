@@ -107,10 +107,39 @@ type Resolution = {
 /** An item, its number in the state (from 1), and the index of its position. */
 type Entry = { item: EvidenceItem; n: number; position: number }
 
-/** The time of an ISO 8601 string, or `ifUnknown` for null or a bad date. */
-function timeOr(iso: string | null, ifUnknown: number): number {
-  const time = iso === null ? Number.NaN : Date.parse(iso)
+/** The time of a Date or an ISO 8601 string, or `ifUnknown` for null or a bad date. */
+function timeOr(value: Date | string | null, ifUnknown: number): number {
+  const time =
+    value === null
+      ? Number.NaN
+      : value instanceof Date
+        ? value.getTime()
+        : Date.parse(value)
   return Number.isNaN(time) ? ifUnknown : time
+}
+
+/** The default number of pairs in one Jev call. */
+const BATCH_SIZE = 12
+
+/** True when the span is valid at `at`. An unknown bound is open. */
+export function isValidAt(
+  span: { validFrom: Date | string | null; validTo: Date | string | null },
+  at: Date,
+): boolean {
+  const now = at.getTime()
+  return (
+    timeOr(span.validFrom, -Infinity) <= now &&
+    now < timeOr(span.validTo, Infinity)
+  )
+}
+
+/**
+ * The number of Jev calls that `resolveDisagreements` makes for `items`
+ * items with the default batch size: one call for each batch of
+ * `BATCH_SIZE` pairs, and at least one.
+ */
+export function disagreementCalls(items: number): number {
+  return Math.max(1, Math.ceil((items * (items - 1)) / 2 / BATCH_SIZE))
 }
 
 /**
@@ -133,7 +162,7 @@ export async function resolveDisagreements({
   queryTime = new Date(),
   thresholds,
   maxItems = 10,
-  batchSize = 12,
+  batchSize = BATCH_SIZE,
   timeoutMs = 30_000,
 }: {
   question: string
@@ -348,9 +377,7 @@ export function decideDisagreements({
     ]),
   ]
   const now = queryTime.getTime()
-  const isValid = ({ meta }: EvidenceItem) =>
-    timeOr(meta.validFrom, -Infinity) <= now &&
-    now < timeOr(meta.validTo, Infinity)
+  const isValid = ({ meta }: EvidenceItem) => isValidAt(meta, queryTime)
   /** The items of a position that count: the valid ones, if it has any. */
   const counted = (position: number) => {
     const all = members[position] ?? []
