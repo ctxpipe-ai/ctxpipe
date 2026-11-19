@@ -123,6 +123,12 @@ default `ctxpipe`. They store a salted SHA-256 hash of the password. To change
 a password, set the new value and run the migrations again. If
 `CLICKHOUSE_URL` is not set, the migrations skip ClickHouse.
 
+The Compose service keeps all data on its local disk. If you move the
+ClickHouse data to S3 behind a cache disk, set `boundary_alignment` of the
+cache disk to `131072` (128 KiB). The search reads small ranges of the vector
+column. With the default alignment of 4 MiB, a search that is not in the cache
+downloads about 1 GiB from S3 for 46 MiB of data on 1 million sections.
+
 ## Chat sandboxes
 
 Workspace chat runs each conversation's agent in a sandbox. Docker Compose and

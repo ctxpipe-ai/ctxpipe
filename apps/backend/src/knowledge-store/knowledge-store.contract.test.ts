@@ -1,12 +1,4 @@
-import { execFile } from "node:child_process"
-import { randomUUID } from "node:crypto"
-import { promisify } from "node:util"
-
-import {
-  type ClickHouseClient,
-  ClickHouseLogLevel,
-  createClient,
-} from "@clickhouse/client"
+import type { ClickHouseClient } from "@clickhouse/client"
 import {
   afterAll,
   afterEach,
@@ -17,7 +9,7 @@ import {
   it,
 } from "vitest"
 
-import { contractImage } from "../test/contract-images.js"
+import { startClickHouse } from "../test/clickhouse.js"
 import {
   createKnowledgeStore,
   type DocumentRows,
@@ -36,40 +28,16 @@ import { migrateKnowledgeStore } from "./migrate.js"
  * constraint. Each wall is proved alone.
  */
 
-const exec = promisify(execFile)
-const docker = async (...args: string[]) =>
-  (await exec("docker", args, { timeout: 180_000 })).stdout.trim()
-
 const tables = ["documents", "chunks", "relations", "relations_in"] as const
 const orgA: KnowledgeScope = { orgId: "org_wall_a", workspaceId: "ws_same" }
 // The same Workspace id in both orgs: only the org can separate the rows.
 const orgB: KnowledgeScope = { orgId: "org_wall_b", workspaceId: "ws_same" }
 
-let container: string
+let clickHouse: Awaited<ReturnType<typeof startClickHouse>>
 let serverUrl: string
-const clients: ClickHouseClient[] = []
-
-/** A new database with the migrated tables. Returns its URL. */
-async function freshDatabase(): Promise<string> {
-  const name = `knowledge_${randomUUID().replaceAll("-", "")}`
-  const admin = createClient({ url: serverUrl })
-  try {
-    await admin.command({ query: `CREATE DATABASE ${name}` })
-  } finally {
-    await admin.close()
-  }
-  const url = `${serverUrl}/${name}`
-  await migrateKnowledgeStore(url)
-  return url
-}
-
-/** A plain client, for statements that do not go through KnowledgeStore. */
-function rawClient(url: string): ClickHouseClient {
-  // Quiet: several statements here fail on purpose.
-  const client = createClient({ url, log: { level: ClickHouseLogLevel.OFF } })
-  clients.push(client)
-  return client
-}
+const freshDatabase = () => clickHouse.freshDatabase()
+/** A quiet client: several statements here fail on purpose. */
+const rawClient = (url: string) => clickHouse.client(url)
 
 async function rawRows<T>(
   client: ClickHouseClient,
@@ -135,44 +103,12 @@ const active = (rows: DocumentRows) => ({
 })
 
 beforeAll(async () => {
-  container = `ctxpipe-knowledge-${randomUUID().slice(0, 8)}`
-  await docker(
-    "run",
-    "-d",
-    "--name",
-    container,
-    "-p",
-    "127.0.0.1::8123",
-    "-e",
-    "CLICKHOUSE_USER=knowledge",
-    "-e",
-    "CLICKHOUSE_PASSWORD=knowledge-test",
-    // The migrations create row policies (SQL access management).
-    "-e",
-    "CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1",
-    contractImage("clickhouse"),
-  )
-  const address = (await docker("port", container, "8123/tcp")).split("\n")[0]
-  serverUrl = `http://knowledge:knowledge-test@${address}`
-  const client = createClient({ url: serverUrl })
-  try {
-    for (let attempt = 0; ; attempt++) {
-      try {
-        await client.query({ query: "SELECT 1" })
-        break
-      } catch (error) {
-        if (attempt >= 120) throw error
-        await new Promise((resolve) => setTimeout(resolve, 500))
-      }
-    }
-  } finally {
-    await client.close()
-  }
+  clickHouse = await startClickHouse()
+  serverUrl = clickHouse.serverUrl
 }, 240_000)
 
 afterAll(async () => {
-  await Promise.all(clients.map((client) => client.close()))
-  if (container) await docker("rm", "-f", "-v", container).catch(() => "")
+  await clickHouse?.stop()
 })
 
 describe("KnowledgeStore", () => {
@@ -212,6 +148,7 @@ describe("KnowledgeStore", () => {
     expect(applied.map((row) => row.name).sort()).toEqual([
       "0001_knowledge_tables.sql",
       "0002_relations_in.sql",
+      "0003_chunks_index_granularity.sql",
     ])
   })
 
