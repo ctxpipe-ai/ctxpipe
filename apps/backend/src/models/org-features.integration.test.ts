@@ -59,6 +59,15 @@ describe("org features (Postgres)", () => {
   })
 
   it("an org transaction does not see the row of another org", async () => {
+    await withOrgDbContext(orgB, (db) =>
+      db
+        .insert(orgFeatures)
+        .values({
+          organizationId: orgB,
+          feature: "isolation_probe",
+          value: "on",
+        }),
+    )
     const rows = await withOrgDbContext(orgC, (db) =>
       db.select().from(orgFeatures),
     )
