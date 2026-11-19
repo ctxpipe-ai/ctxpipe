@@ -7,11 +7,11 @@ import pg from "pg"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { closeDb, initDb, withOrgDbContext } from "../../db/client.js"
+import { buildKnowledgeIndexes } from "../../db/knowledge-indexes.js"
 import {
   searchIndexConditions,
-  servesOrgAndMatch,
+  servesScopeAndMatch,
 } from "../../db/knowledge-search-plan.js"
-import { buildKnowledgeVectorIndex } from "../../db/knowledge-vector-index.js"
 import { ownerUrlForMigrate } from "../../db/owner-migrate-url.js"
 import {
   KNOWLEDGE_VECTOR_INDEX,
@@ -175,7 +175,7 @@ describe("searchKnowledge on a large shared index (Postgres)", () => {
       expect(hits.some((hit) => hit.workspaceId === bulk)).toBe(true)
     } finally {
       await owner.end()
-      await buildKnowledgeVectorIndex(
+      await buildKnowledgeIndexes(
         ownerUrlForMigrate(process.env.DATABASE_URL ?? ""),
       )
     }
@@ -226,7 +226,7 @@ describe("searchKnowledge on a large shared index (Postgres)", () => {
         await db.execute(sql`SET LOCAL ROLE ctxpipe_app`)
         await db.execute(sql`SET LOCAL enable_seqscan = off`)
         const explained = await db.execute<{ "QUERY PLAN": unknown }>(
-          sql`EXPLAIN (FORMAT JSON) ${lexicalCandidates("ERR_LEDGER_7731", planScope)}`,
+          sql`EXPLAIN (FORMAT JSON) ${lexicalCandidates("ERR_LEDGER_7731", [small, bulk], planScope)}`,
         )
         return searchIndexConditions(explained.rows[0]?.["QUERY PLAN"])
       })
@@ -237,8 +237,12 @@ describe("searchKnowledge on a large shared index (Postgres)", () => {
         ])
       }
       const conditions = await indexConditions()
-      expect(conditions, `analyze: ${analyze}`).toHaveLength(1)
-      expect(conditions[0], `analyze: ${analyze}`).toSatisfy(servesOrgAndMatch)
+      // One scan for each Workspace of the scope, each with the org, the
+      // Workspace and the match as its conditions.
+      expect(conditions, `analyze: ${analyze}`).toHaveLength(2)
+      for (const condition of conditions) {
+        expect(condition, `analyze: ${analyze}`).toSatisfy(servesScopeAndMatch)
+      }
     }
   }, 120_000)
 })

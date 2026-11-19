@@ -6,8 +6,7 @@ import { z } from "zod"
 import { lexicalCandidates } from "../domain/workspaces/knowledge-search.js"
 import { log } from "../observability/logger.js"
 import { quoteIdent } from "./provision-app-role.js"
-
-const SEARCH_INDEX = "workspace_knowledge_chunks_search_idx"
+import { KNOWLEDGE_SEARCH_INDEX } from "./schema/workspaces.js"
 
 type PlanNode = {
   "Node Type": string
@@ -42,14 +41,15 @@ function planNodes(plan: unknown): PlanNode[] {
 /** The index conditions of the full-text index in a plan of the lexical candidates. */
 export function searchIndexConditions(plan: unknown): string[] {
   return planNodes(plan)
-    .filter((node) => node["Index Name"] === SEARCH_INDEX)
+    .filter((node) => node["Index Name"] === KNOWLEDGE_SEARCH_INDEX)
     .map((node) => node["Index Cond"] ?? "")
 }
 
-/** An index condition that holds both the org of the transaction and the full-text match. */
-export function servesOrgAndMatch(condition: string): boolean {
+/** An index condition that holds the org of the transaction, the Workspace and the full-text match. */
+export function servesScopeAndMatch(condition: string): boolean {
   return (
     condition.includes("current_setting('app.organization_id'") &&
+    condition.includes("workspace_id") &&
     condition.includes("@@")
   )
 }
@@ -78,7 +78,7 @@ export async function checkKnowledgeSearchPlan(
   roleName: string,
 ): Promise<SearchPlan | undefined> {
   const query = new PgDialect().sqlToQuery(
-    sql`EXPLAIN (FORMAT JSON) ${lexicalCandidates("migrate plan check", sql`true`)}`,
+    sql`EXPLAIN (FORMAT JSON) ${lexicalCandidates("migrate plan check", ["ws_migrate_plan_check"], sql`true`)}`,
   )
   let client: PoolClient | undefined
   try {
@@ -102,15 +102,15 @@ export async function checkKnowledgeSearchPlan(
     )
     await client.query("SET LOCAL enable_seqscan = off")
     const served = searchIndexConditions(await explain(client)).some(
-      servesOrgAndMatch,
+      servesScopeAndMatch,
     )
     const line = {
       step: "migrate",
       message: served
-        ? "[migrate] knowledge search plan: the GIN index serves the org and the full-text match"
-        : "[migrate] knowledge search plan: the GIN index does not serve the org and the full-text match",
+        ? "[migrate] knowledge search plan: the GIN index serves the org, the Workspace and the full-text match"
+        : "[migrate] knowledge search plan: the GIN index does not serve the org, the Workspace and the full-text match",
       role: roleName,
-      index: SEARCH_INDEX,
+      index: KNOWLEDGE_SEARCH_INDEX,
       fullRead,
     }
     if (served) log.info(line)
