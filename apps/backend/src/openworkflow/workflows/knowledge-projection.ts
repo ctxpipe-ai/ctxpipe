@@ -93,18 +93,16 @@ export const knowledgeProjection = defineWorkflow(
     // holds no worker slot, so the runs that queue during a ClickHouse outage
     // do not take the slots of the hydrate. The run that gets the lease
     // reads the newest tip, so a later run often only finds `current`.
-    let locked = await withSandboxLockIfFree(
-      input.orgId,
-      `knowledge-projection:${input.workspaceId}`,
-      project,
-    )
-    for (let wait = 0; locked.busy; wait++) {
-      await step.sleep(`await-knowledge-lease-${wait}`, "1 minute")
-      locked = await withSandboxLockIfFree(
+    const projectIfFree = () =>
+      withSandboxLockIfFree(
         input.orgId,
         `knowledge-projection:${input.workspaceId}`,
         project,
       )
+    let locked = await projectIfFree()
+    for (let wait = 0; locked.busy; wait++) {
+      await step.sleep(`await-knowledge-lease-${wait}`, "1 minute")
+      locked = await projectIfFree()
     }
     const applied = locked.value
     if (!applied) return null
