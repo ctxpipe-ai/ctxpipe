@@ -821,6 +821,7 @@ describe("clone-tree", { timeout: 30_000 }, () => {
     await writeFile(join(dir, "real.md"), "# Real\n")
     await execFileAsync("ln", ["-s", "real.md", join(dir, "link.md")])
     await execFileAsync("ln", ["-s", "/etc/passwd", join(dir, "leak.md")])
+    await execFileAsync("ln", ["-s", "real.md", join(dir, "link")])
     await git("add", ".")
     await git(
       "-c",
