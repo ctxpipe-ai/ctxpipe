@@ -204,20 +204,14 @@ async function seededDatabase(
   const store = createKnowledgeStore(url)
   try {
     const inMain = { orgId: orgA.orgId, workspaceId: workspace }
-    await store.replaceDocuments(inMain, orgADocuments)
-    await store.markDeleted(inMain, ["deleted.md"], observedAt)
-    await store.replaceDocuments(
-      { orgId: orgA.orgId, workspaceId: otherWorkspace },
-      [
+    await store.applyDocuments(inMain, { documents: orgADocuments })
+    await store.applyDocuments(inMain, { deleted: { docKeys: ["deleted.md"], deletedAt: observedAt } })
+    await store.applyDocuments({ orgId: orgA.orgId, workspaceId: otherWorkspace }, { documents: [
         document("other.md", [
           { text: "zebracorn elsewhere", embedding: queryVector },
         ]),
-      ],
-    )
-    await store.replaceDocuments(
-      { orgId: orgB.orgId, workspaceId: workspace },
-      orgBDocuments,
-    )
+      ] })
+    await store.applyDocuments({ orgId: orgB.orgId, workspaceId: workspace }, { documents: orgBDocuments })
   } finally {
     await store.close()
   }

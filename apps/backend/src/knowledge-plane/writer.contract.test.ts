@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { createServer, request } from "node:http"
+import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -107,6 +109,72 @@ const msw = setupServer(
 let stopClickHouse: (() => Promise<void>) | undefined
 let admin: ClickHouseClient
 let store: KnowledgeStore
+/** The writer store through the fault proxy. */
+let faultyStore: KnowledgeStore
+let stopProxy: (() => Promise<void>) | undefined
+
+/**
+ * The statements that go through the fault proxy. The statement `failAt`
+ * (1-based) of those whose text matches `match` fails, as a worker that
+ * dies there: before it gets to ClickHouse, or with `after`, when
+ * ClickHouse applied it. With `failAt` 0, no statement fails.
+ */
+const fault = { match: /./, failAt: 0, after: false, statements: 0 }
+
+/** An HTTP proxy to the ClickHouse server at `target` that applies `fault`. */
+async function startFaultProxy(
+  target: string,
+): Promise<{ url: string; stop: () => Promise<void> }> {
+  const upstream = new URL(target)
+  const server = createServer(async (incoming, outgoing) => {
+    const chunks: Buffer[] = []
+    for await (const chunk of incoming) chunks.push(chunk as Buffer)
+    const body = Buffer.concat(chunks)
+    // An INSERT sends its statement in the URL, and the others in the body.
+    const statement =
+      new URL(incoming.url ?? "/", target).searchParams.get("query") ??
+      body.toString()
+    const fail =
+      fault.match.test(statement.trim()) &&
+      ++fault.statements === fault.failAt
+    const crash = () => {
+      outgoing.writeHead(500, { "content-type": "text/plain" })
+      outgoing.end("Code: 1000. DB::Exception: the worker crashed")
+    }
+    if (fail && !fault.after) return crash()
+    const forward = request(
+      {
+        host: upstream.hostname,
+        port: upstream.port,
+        path: incoming.url,
+        method: incoming.method,
+        headers: incoming.headers,
+      },
+      (answer) => {
+        if (fail) {
+          answer.resume()
+          answer.on("end", crash)
+          return
+        }
+        outgoing.writeHead(answer.statusCode ?? 500, answer.headers)
+        answer.pipe(outgoing)
+      },
+    )
+    forward.on("error", () => outgoing.destroy())
+    forward.end(body)
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  const proxy = new URL(target)
+  proxy.host = `127.0.0.1:${(server.address() as AddressInfo).port}`
+  return {
+    url: proxy.toString(),
+    stop: () =>
+      new Promise((resolve) => {
+        server.closeAllConnections()
+        server.close(() => resolve())
+      }),
+  }
+}
 const workspaceIds: string[] = []
 
 beforeAll(async () => {
@@ -128,14 +196,18 @@ beforeAll(async () => {
     writer: "writer-test",
   })
   admin = createClient({ url: adminUrl })
-  store = createKnowledgeStore(
-    userUrl(adminUrl, "ctxpipe_writer", "writer-test"),
-  )
+  const writerUrl = userUrl(adminUrl, "ctxpipe_writer", "writer-test")
+  store = createKnowledgeStore(writerUrl)
+  const proxy = await startFaultProxy(writerUrl)
+  stopProxy = proxy.stop
+  faultyStore = createKnowledgeStore(proxy.url)
 }, 240_000)
 
 afterAll(async () => {
   msw.close()
   await store?.close()
+  await faultyStore?.close()
+  await stopProxy?.()
   await admin?.close()
   await stopClickHouse?.()
   for (const workspaceId of workspaceIds)
@@ -153,6 +225,7 @@ beforeEach(() => {
   embeddings.failAt = 0
   embeddings.inputs = []
   embeddings.refuse = null
+  Object.assign(fault, { match: /./, failAt: 0, after: false, statements: 0 })
 })
 
 afterEach(() => {
@@ -329,31 +402,12 @@ async function keysOf(workspaceId: string) {
 }
 
 /**
- * A store whose `markDeleted` stops after the INSERT of the tombstones, as a
- * worker that dies there: the tombstone and the old row both stay.
+ * The writer store, with a crash before the first DELETE of a run: after
+ * the INSERT of the tombstones, the tombstone and the old row both stay.
  */
-function halfTombstones(workspaceId: string): KnowledgeStore {
-  return {
-    ...store,
-    markDeleted: async (_scope, docKeys, deletedAt) => {
-      await admin.command({
-        query: `INSERT INTO documents
-                SELECT * REPLACE ('deleted' AS status,
-                  parseDateTime64BestEffort({deletedAt:String}, 3, 'UTC') AS deleted_at)
-                FROM documents
-                WHERE org_id = {orgId:String} AND workspace_id = {workspaceId:String}
-                  AND doc_key IN {docKeys:Array(String)}`,
-        query_params: {
-          orgId,
-          workspaceId,
-          docKeys,
-          deletedAt: deletedAt.toISOString(),
-        },
-        clickhouse_settings: { [ORG_SETTING]: orgId },
-      })
-      throw new Error("crash after the tombstone INSERT")
-    },
-  }
+function halfTombstones(): KnowledgeStore {
+  Object.assign(fault, { match: /^DELETE/, failAt: 1, after: false })
+  return faultyStore
 }
 
 const key = (workspaceId: string, path: string) =>
@@ -620,63 +674,77 @@ describe("projectKnowledgePlane", () => {
     }
   })
 
-  it("after a crash at a random point, a retry gives the same tables, also when a later commit changes a file back", async () => {
-    for (let round = 0; round < 6; round++) {
+  it("after a crash at each write statement, a retry gives the same tables, also when a later commit changes a file back", async () => {
+    /** A Workspace at the base commit, and the commits after it. */
+    const issue = linearIssue("ENG-7")
+    const scenario = async (remote: Remote) => {
+      const aOne = "# Alpha\n\nSee [b](b.md).\n"
+      const base = await remote.commit({
+        "a.md": aOne,
+        "b.md": "# Beta\n",
+        "img/d.png": png("one"),
+        "c.md": "# Gamma\n\n![d](img/d.png)\n",
+        [issue.path]: issue.content,
+      })
+      // The failed run changes each kind of row.
+      const failedTip = await remote.commit({
+        "a.md": "# Alpha two\n\nSee [x](x.md).\n",
+        "b.md": null,
+        "img/d.png": png("two"),
+        "n.md": "# New\n\nSee [a](a.md).\n",
+        [issue.path]: linearIssue("ENG-7", "Changed").content,
+      })
+      // The next commit changes a.md and the image back.
+      const tip = await remote.commit({
+        "a.md": aOne,
+        "img/d.png": png("one"),
+      })
+      const workspaceId = await newWorkspace()
+      await run(remote, workspaceId, base)
+      return { base, failedTip, tip, workspaceId }
+    }
+    const writes = /^(INSERT|DELETE)/
+
+    // Count the INSERTs and DELETEs of the failed run.
+    const counted = await Remote.create()
+    try {
+      const { failedTip, workspaceId } = await scenario(counted)
+      Object.assign(fault, { match: writes, failAt: 0, statements: 0 })
+      await run(counted, workspaceId, failedTip, { store: faultyStore })
+    } finally {
+      await counted.remove()
+    }
+    const statements = fault.statements
+    expect(statements).toBeGreaterThan(5)
+
+    // The embedding request, then each write statement: before ClickHouse
+    // gets it, and after ClickHouse applied it.
+    const points = [
+      { at: 0, after: false },
+      ...Array.from({ length: statements }, (_, index) => [
+        { at: index + 1, after: false },
+        { at: index + 1, after: true },
+      ]).flat(),
+    ]
+    for (const { at, after } of points) {
       const remote = await Remote.create()
       try {
-        const aOne = "# Alpha\n\nSee [b](b.md).\n"
-        const base = await remote.commit({
-          "a.md": aOne,
-          "b.md": "# Beta\n",
-          "img/d.png": png("one"),
-          "c.md": "# Gamma\n\n![d](img/d.png)\n",
-        })
-        // The failed run changes each kind of row.
-        const failedTip = await remote.commit({
-          "a.md": "# Alpha two\n\nSee [x](x.md).\n",
-          "b.md": null,
-          "img/d.png": png("two"),
-          "n.md": "# New\n\nSee [a](a.md).\n",
-        })
-        // The next commit changes a.md and the image back.
-        const tip = await remote.commit({
-          "a.md": aOne,
-          "img/d.png": png("one"),
-        })
-
-        const workspaceId = await newWorkspace()
-        await run(remote, workspaceId, base)
-        // Crash at a random store call (before or after its write lands), or
-        // at the embedding request. The run makes four store calls.
-        const crash = round % 3 === 2 ? "embeddings" : "store"
-        const after = round % 3 === 1
-        let calls = 0
-        const failAt = 1 + Math.floor(Math.random() * 4)
-        const crashing: KnowledgeStore = {
-          ...store,
-          ...Object.fromEntries(
-            (
-              ["replaceDocuments", "markDeleted", "insertPlaceholders"] as const
-            ).map((name) => [
-              name,
-              async (...args: never[]) => {
-                const fail = crash === "store" && ++calls === failAt
-                if (fail && !after) throw new Error("crash before the write")
-                await (store[name] as (...a: never[]) => Promise<void>)(...args)
-                if (fail) throw new Error("crash after the write")
-              },
-            ]),
-          ),
-        }
-        if (crash === "embeddings") embeddings.failAt = embeddings.requests + 1
+        const { base, failedTip, tip, workspaceId } = await scenario(remote)
+        if (at === 0) embeddings.failAt = embeddings.requests + 1
+        else Object.assign(fault, { match: writes, failAt: at, after })
+        fault.statements = 0
         const crashed = await run(remote, workspaceId, failedTip, {
-          store: crashing,
+          store: faultyStore,
         }).then(
           () => false,
           () => true,
         )
         embeddings.failAt = 0
-        const point = `round ${round}: ${crash} call ${failAt}`
+        fault.failAt = 0
+        const point =
+          at === 0
+            ? "the embedding request"
+            : `write ${at} of ${statements}, ${after ? "after" : "before"} it`
         expect(crashed, point).toBe(true)
         expect(await getKnowledgeState({ orgId, workspaceId })).toMatchObject({
           lastSha: base,
@@ -694,14 +762,75 @@ describe("projectKnowledgePlane", () => {
         })
         const rebuilt = await newWorkspace()
         await run(remote, rebuilt, tip)
-        const paths = ["a.md", "b.md", "c.md", "n.md", "x.md", "img/d.png"]
+        const paths = [
+          "a.md",
+          "b.md",
+          "c.md",
+          issue.path,
+          "n.md",
+          "x.md",
+          "img/d.png",
+        ]
         const left = await content(workspaceId, paths)
         const right = await content(rebuilt, paths)
         for (const table of [...tables])
           expect(left[table], `${point}, ${table}`).toEqual(right[table])
+        // The file of b.md is gone: its key keeps one row, a tombstone.
+        expect(
+          (await keysOf(workspaceId)).filter(
+            ([docKey]) => docKey === key(workspaceId, "b.md"),
+          ),
+          point,
+        ).toEqual([[key(workspaceId, "b.md"), "deleted"]])
       } finally {
         await remote.remove()
       }
+    }
+  }, 600_000)
+
+  it("deletes the rows of a run of 200 changed documents with at most one DELETE for each table", async () => {
+    const remote = await Remote.create()
+    try {
+      const files = (version: string) =>
+        Object.fromEntries(
+          Array.from({ length: 200 }, (_, index) =>
+            index < 10
+              ? (({ path, content }) => [path, content])(
+                  linearIssue(`ENG-${index}`, version),
+                )
+              : [
+                  `doc-${index}.md`,
+                  `# Doc ${index} ${version}\n\nSee [next](doc-${index + 1}.md).\n`,
+                ],
+          ),
+        )
+      const workspaceId = await newWorkspace()
+      await run(remote, workspaceId, await remote.commit(files("one")))
+      const tip = await remote.commit(files("two"))
+
+      const since = await (
+        await admin.query({ query: "SELECT now64(6) AS at", format: "JSONEachRow" })
+      ).json<{ at: string }>()
+      const summary = await run(remote, workspaceId, tip)
+      expect(summary).toMatchObject({ mode: "delta", documentsChanged: 200 })
+      // ClickHouse lists each mutation, with the Workspace in its command.
+      const mutations = await (
+        await admin.query({
+          query: `SELECT table, count() AS count FROM system.mutations
+                  WHERE database = currentDatabase()
+                    AND create_time >= toDateTime({since:String})
+                    AND position(command, {workspaceId:String}) > 0
+                  GROUP BY table ORDER BY table`,
+          query_params: { since: since[0]?.at ?? "", workspaceId },
+          format: "JSONEachRow",
+        })
+      ).json<{ table: string; count: number }>()
+      expect(mutations).toEqual(
+        [...tables].sort().map((table) => ({ table, count: 1 })),
+      )
+      expect(summary).toMatchObject({ mutations: 5 })
+    } finally {
+      await remote.remove()
     }
   })
 
@@ -718,8 +847,8 @@ describe("projectKnowledgePlane", () => {
       await run(remote, workspaceId, base)
       const tip = await remote.commit({ "b.md": null, "img/e.png": null })
       await expect(
-        run(remote, workspaceId, tip, { store: halfTombstones(workspaceId) }),
-      ).rejects.toThrow("crash after the tombstone INSERT")
+        run(remote, workspaceId, tip, { store: halfTombstones() }),
+      ).rejects.toThrow("the worker crashed")
       expect(await keysOf(workspaceId)).toEqual(
         [
           [key(workspaceId, "a.md"), "active"],
@@ -780,8 +909,8 @@ describe("projectKnowledgePlane", () => {
       // The first attempt stops in the reconcile, between the INSERT of the
       // tombstone and the DELETE of the old row.
       await expect(
-        run(remote, workspaceId, tip, { store: halfTombstones(workspaceId) }),
-      ).rejects.toThrow("crash after the tombstone INSERT")
+        run(remote, workspaceId, tip, { store: halfTombstones() }),
+      ).rejects.toThrow("the worker crashed")
       expect(await run(remote, workspaceId, tip)).toMatchObject({
         mode: "full",
         fullReason: "missing_commit",

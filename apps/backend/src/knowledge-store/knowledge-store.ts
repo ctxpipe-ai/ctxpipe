@@ -98,6 +98,23 @@ type Placeholder = { docKey: string; observedAt: Date } & (
   | { status: "failed"; error: string }
 )
 
+/**
+ * The changes of one write. A key is in one list only. Each list can be
+ * empty or absent.
+ */
+export type DocumentChanges = {
+  /** Each document replaces the state of its key, with status `active`. */
+  documents?: DocumentRows[]
+  /**
+   * A `failed` placeholder replaces the state of its key. A `missing`
+   * placeholder is only for a key with no row (ADR-067 decision 7): it never
+   * replaces a document or a tombstone.
+   */
+  placeholders?: Placeholder[]
+  /** Each key becomes a tombstone (ADR-067 decision 6). */
+  deleted?: { docKeys: string[]; deletedAt: Date }
+}
+
 type DocumentKey = { docKey: string; status: DocumentStatus }
 
 type StoredDocument = {
@@ -195,44 +212,34 @@ type KnowledgeGraph = {
  *   decision 9).
  *
  * Each change is a DELETE, then an INSERT. There is no UPDATE (ADR-066
- * decision 8). Each mutation takes a batch, because each DELETE is a
- * mutation of the table. A retry after a failure is safe (ADR-067
- * decision 5).
+ * decision 8). Each DELETE is a mutation of its table, so one write deletes
+ * the rows of all its keys with one DELETE for each table. A retry after a
+ * failure is safe (ADR-067 decision 5).
  */
 export type KnowledgeStore = {
   /**
-   * Replaces the state of each document: deletes its document, chunk,
-   * outgoing relation and reference key rows, then inserts the new rows with
-   * status `active`.
+   * Applies `changes` with one DELETE for each table, for each slice of at
+   * most {@link IN_LIST_CAP} keys (ADR-066 decision 8). Each DELETE is a
+   * mutation, and the mutations of one table run in order, so a caller
+   * gives all changes of a run in as few calls as it can. Returns the count
+   * of mutations.
+   *
+   * - A document or a `failed` placeholder: deletes all rows of its key,
+   *   then inserts the new rows.
+   * - A tombstone gets status `deleted` and `deletedAt`, with the other
+   *   fields of its row. Its chunks, outgoing relations and reference keys
+   *   are deleted. The relations of other documents that point at it stay.
+   *   A key with no row gets a tombstone with empty fields. A key that has
+   *   a tombstone keeps it, with the date of the first deletion.
+   *
+   * The tombstones go in before the DELETEs, so a failure between the two
+   * leaves both rows, never no row: a retry keeps the tombstone and deletes
+   * the old row. Until the retry, the key has two rows.
    */
-  replaceDocuments(
+  applyDocuments(
     scope: KnowledgeScope,
-    documents: DocumentRows[],
-  ): Promise<void>
-  /**
-   * Makes a tombstone of each document (ADR-067 decision 6): status
-   * `deleted` and `deletedAt`, with the other fields of its row. Deletes its
-   * chunks, outgoing relations and reference keys. The relations of other
-   * documents that point at it stay. A key with no row gets a tombstone with
-   * empty fields.
-   * The tombstone goes in before the DELETE of the old row, so a failure
-   * between the two leaves both rows, never no row: a retry keeps the
-   * tombstone and deletes the old row. Until the retry, the key has two
-   * rows.
-   */
-  markDeleted(
-    scope: KnowledgeScope,
-    docKeys: string[],
-    deletedAt: Date,
-  ): Promise<void>
-  /**
-   * Replaces the state of each document with a placeholder row, with no
-   * chunks and no outgoing relations.
-   */
-  insertPlaceholders(
-    scope: KnowledgeScope,
-    placeholders: Placeholder[],
-  ): Promise<void>
+    changes: DocumentChanges,
+  ): Promise<{ mutations: number }>
   /** The key and the status of each document of the Workspace. */
   listDocumentKeys(scope: KnowledgeScope): Promise<DocumentKey[]>
   /**
@@ -300,12 +307,7 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     )
   const client = createClickHouseClient(url)
   return {
-    replaceDocuments: (scope, documents) =>
-      replaceDocuments(client, scope, documents),
-    markDeleted: (scope, docKeys, deletedAt) =>
-      markDeleted(client, scope, docKeys, deletedAt),
-    insertPlaceholders: (scope, placeholders) =>
-      insertPlaceholders(client, scope, placeholders),
+    applyDocuments: (scope, changes) => applyDocuments(client, scope, changes),
     listDocumentKeys: (scope) => listDocumentKeys(client, scope),
     listUnresolvedReferences: (scope) =>
       listUnresolvedReferences(client, scope),
@@ -386,108 +388,177 @@ async function deleteWhere(
 }
 
 /**
- * Deletes the chunks, the outgoing relations (from `relations` and from
- * `relations_in`) and the reference keys of each document.
+ * At most this many values go in one IN list. ClickHouse takes the query
+ * parameters of a DELETE in the URL, and keeps the URL below
+ * `http_max_uri_size` (1 MiB). A longer list goes in more statements.
  */
-async function deleteContent(
+const IN_LIST_CAP = 1000
+
+const slices = <T>(items: T[]): T[][] =>
+  Array.from({ length: Math.ceil(items.length / IN_LIST_CAP) }, (_, index) =>
+    items.slice(index * IN_LIST_CAP, (index + 1) * IN_LIST_CAP),
+  )
+
+/**
+ * Deletes the rows of the keys `replaced` and the content of the keys
+ * `deleted`, with one DELETE for each table and each slice of keys:
+ * - chunks, the outgoing relations (from `relations` and from
+ *   `relations_in`) and the reference keys of each key;
+ * - each document row of a key of `replaced`, and each row of a key of
+ *   `deleted` that is not a tombstone.
+ * Returns the count of DELETEs.
+ */
+async function deleteRows(
   client: ClickHouseClient,
   scope: KnowledgeScope,
-  docKeys: string[],
-): Promise<void> {
-  // relations_in sorts by dst_doc. Its DELETE filters by the targets of the
-  // documents, which relations gives, so that it uses the sort key
-  // (CTX-1391).
-  const targets = await select<{ dstDoc: string }>(
-    client,
-    scope,
-    `SELECT DISTINCT dst_doc AS dstDoc FROM relations
-     WHERE ${scoped} AND src_doc IN {docKeys:Array(String)}`,
-    { docKeys },
-  )
-  await deleteWhere(
-    client,
-    scope,
-    "chunks",
-    "doc_key IN {docKeys:Array(String)}",
-    { docKeys },
-  )
-  // relations_in first: while a row stays in relations, a retry after a
-  // failure finds its target again.
-  if (targets.length > 0)
-    await deleteWhere(
+  replaced: string[],
+  deleted: string[],
+): Promise<number> {
+  let mutations = 0
+  const remove = async (
+    table: keyof TableRows,
+    where: string,
+    params: Record<string, unknown>,
+  ) => {
+    await deleteWhere(client, scope, table, where, params)
+    mutations++
+  }
+  const deletedKeys = new Set(deleted)
+  for (const docKeys of slices([...replaced, ...deleted])) {
+    // relations_in sorts by dst_doc, and doc_refs by ref_key. Their DELETEs
+    // filter by the targets and the keys of the documents too, so that they
+    // use the sort key (CTX-1391). Most documents state no key, and then no
+    // DELETE of doc_refs runs.
+    const targets = await select<{ dstDoc: string }>(
       client,
       scope,
-      "relations_in",
-      "dst_doc IN {dstDocs:Array(String)} AND src_doc IN {docKeys:Array(String)}",
-      { docKeys, dstDocs: targets.map((target) => target.dstDoc) },
+      `SELECT DISTINCT dst_doc AS dstDoc FROM relations
+       WHERE ${scoped} AND src_doc IN {docKeys:Array(String)}`,
+      { docKeys },
     )
-  await deleteWhere(
-    client,
-    scope,
-    "relations",
-    "src_doc IN {docKeys:Array(String)}",
-    { docKeys },
-  )
-  // doc_refs sorts by ref_key, so its DELETE filters by the keys too. Most
-  // documents state no key, and then no DELETE runs.
-  const refKeys = await select<{ refKey: string }>(
-    client,
-    scope,
-    `SELECT DISTINCT ref_key AS refKey FROM doc_refs
-     WHERE ${scoped} AND doc_key IN {docKeys:Array(String)}`,
-    { docKeys },
-  )
-  if (refKeys.length > 0)
-    await deleteWhere(
+    const refKeys = await select<{ refKey: string }>(
       client,
       scope,
-      "doc_refs",
-      "ref_key IN {refKeys:Array(String)} AND doc_key IN {docKeys:Array(String)}",
-      { docKeys, refKeys: refKeys.map((row) => row.refKey) },
+      `SELECT DISTINCT ref_key AS refKey FROM doc_refs
+       WHERE ${scoped} AND doc_key IN {docKeys:Array(String)}`,
+      { docKeys },
     )
+    await remove("chunks", "doc_key IN {docKeys:Array(String)}", { docKeys })
+    // relations_in first: while a row stays in relations, a retry after a
+    // failure finds its target again.
+    for (const dstDocs of slices(targets.map((target) => target.dstDoc)))
+      await remove(
+        "relations_in",
+        "dst_doc IN {dstDocs:Array(String)} AND src_doc IN {docKeys:Array(String)}",
+        { docKeys, dstDocs },
+      )
+    await remove("relations", "src_doc IN {docKeys:Array(String)}", {
+      docKeys,
+    })
+    for (const keys of slices(refKeys.map((row) => row.refKey)))
+      await remove(
+        "doc_refs",
+        "ref_key IN {refKeys:Array(String)} AND doc_key IN {docKeys:Array(String)}",
+        { docKeys, refKeys: keys },
+      )
+    // The document rows last: while a document row stays, a retry finds
+    // the key again.
+    await remove(
+      "documents",
+      "doc_key IN {replaced:Array(String)} OR (doc_key IN {deleted:Array(String)} AND status != 'deleted')",
+      {
+        replaced: docKeys.filter((docKey) => !deletedKeys.has(docKey)),
+        deleted: docKeys.filter((docKey) => deletedKeys.has(docKey)),
+      },
+    )
+  }
+  return mutations
 }
 
 type StoredRows = Omit<DocumentRows, "document"> & {
   document: KnowledgeDocument
 }
 
-/** Deletes all rows of each document, then inserts `rows`. */
-async function replaceRows(
+async function applyDocuments(
   client: ClickHouseClient,
   scope: KnowledgeScope,
-  rows: StoredRows[],
-): Promise<void> {
+  changes: DocumentChanges,
+): Promise<{ mutations: number }> {
   assertScope(scope)
-  if (rows.length === 0) return
-  const docKeys = rows.map((row) => row.document.docKey)
-  if (new Set(docKeys).size !== docKeys.length)
-    throw new Error("A batch has the same document key two times")
-  await deleteContent(client, scope, docKeys)
-  await deleteWhere(
-    client,
-    scope,
-    "documents",
-    "doc_key IN {docKeys:Array(String)}",
-    { docKeys },
-  )
-  await insertRows(client, scope, rows)
-}
+  const documents = changes.documents ?? []
+  const placeholders = changes.placeholders ?? []
+  const deleted = changes.deleted?.docKeys ?? []
+  const missing = placeholders
+    .filter((placeholder) => placeholder.status === "missing")
+    .map((placeholder) => placeholder.docKey)
+  const allKeys = [
+    ...documents.map((rows) => rows.document.docKey),
+    ...placeholders.map((placeholder) => placeholder.docKey),
+    ...deleted,
+  ]
+  if (new Set(allKeys).size !== allKeys.length)
+    throw new Error("A write has the same document key two times")
+  if (allKeys.length === 0) return { mutations: 0 }
 
-const replaceDocuments = (
-  client: ClickHouseClient,
-  scope: KnowledgeScope,
-  documents: DocumentRows[],
-) =>
-  replaceRows(
-    client,
-    scope,
-    documents.map(({ document, chunks, relations, refKeys }) => ({
-      document: { ...document, status: "active", deletedAt: null, error: "" },
+  const stored = await storedDocuments(client, scope, [...missing, ...deleted])
+  const deletedAt = changes.deleted?.deletedAt
+  const tombstones: StoredRows[] = deletedAt
+    ? deleted
+        .filter((docKey) => stored.get(docKey)?.status !== "deleted")
+        .map((docKey) => ({
+          document: {
+            ...(stored.get(docKey) ??
+              emptyDocument(docKey, "deleted", deletedAt)),
+            status: "deleted",
+            deletedAt,
+            error: "",
+          },
+          chunks: [],
+          relations: [],
+        }))
+    : []
+  const replacing: StoredRows[] = [
+    ...documents.map(({ document, chunks, relations, refKeys }) => ({
+      document: { ...document, status: "active" as const, deletedAt: null, error: "" },
       chunks,
       relations,
       refKeys,
     })),
+    ...placeholders
+      .filter(
+        (placeholder) =>
+          placeholder.status === "failed" || !stored.has(placeholder.docKey),
+      )
+      .map((placeholder) => ({
+        document: {
+          ...emptyDocument(
+            placeholder.docKey,
+            placeholder.status,
+            placeholder.observedAt,
+          ),
+          error: placeholder.status === "failed" ? placeholder.error : "",
+        },
+        chunks: [],
+        relations: [],
+      })),
+  ]
+
+  await insertRows(client, scope, tombstones)
+  // A key with no document row has no other row: each write deletes the
+  // document row last and inserts it first. Thus a `missing` placeholder
+  // needs no DELETE.
+  const mutations = await deleteRows(
+    client,
+    scope,
+    replacing
+      .map((rows) => rows.document)
+      .filter((document) => document.status !== "missing")
+      .map((document) => document.docKey),
+    deleted,
   )
+  await insertRows(client, scope, replacing)
+  return { mutations }
+}
 
 /** A document row with no content fields. */
 const emptyDocument = (
@@ -513,103 +584,26 @@ const emptyDocument = (
 
 /**
  * The stored document row of each key that has one. A key with a tombstone
- * and an old row (a `markDeleted` that stopped between its INSERT and its
- * DELETE) gives the tombstone.
+ * and an old row (a write that stopped between the INSERT of the tombstone
+ * and the DELETE of the old row) gives the tombstone.
  */
 async function storedDocuments(
   client: ClickHouseClient,
   scope: KnowledgeScope,
   docKeys: string[],
 ): Promise<Map<string, KnowledgeDocument>> {
-  const records = await select<DocumentRecord>(
-    client,
-    scope,
-    `SELECT ${documentColumns} FROM documents
-     WHERE ${scoped} AND doc_key IN {docKeys:Array(String)}`,
-    { docKeys },
-  )
   const stored = new Map<string, KnowledgeDocument>()
-  for (const record of records)
-    if (stored.get(record.docKey)?.status !== "deleted")
-      stored.set(record.docKey, toDocument(record))
+  for (const keys of slices(docKeys))
+    for (const record of await select<DocumentRecord>(
+      client,
+      scope,
+      `SELECT ${documentColumns} FROM documents
+       WHERE ${scoped} AND doc_key IN {docKeys:Array(String)}`,
+      { docKeys: keys },
+    ))
+      if (stored.get(record.docKey)?.status !== "deleted")
+        stored.set(record.docKey, toDocument(record))
   return stored
-}
-
-async function insertPlaceholders(
-  client: ClickHouseClient,
-  scope: KnowledgeScope,
-  placeholders: Placeholder[],
-): Promise<void> {
-  // A `missing` row is only for a key with no row (ADR-067 decision 7). It
-  // never replaces a document or a tombstone. A `failed` row replaces the
-  // state of its document.
-  const stored = await storedDocuments(
-    client,
-    scope,
-    placeholders
-      .filter((placeholder) => placeholder.status === "missing")
-      .map((placeholder) => placeholder.docKey),
-  )
-  await replaceRows(
-    client,
-    scope,
-    placeholders
-      .filter(
-        (placeholder) =>
-          placeholder.status === "failed" || !stored.has(placeholder.docKey),
-      )
-      .map((placeholder) => ({
-        document: {
-          ...emptyDocument(
-            placeholder.docKey,
-            placeholder.status,
-            placeholder.observedAt,
-          ),
-          error: placeholder.status === "failed" ? placeholder.error : "",
-        },
-        chunks: [],
-        relations: [],
-      })),
-  )
-}
-
-async function markDeleted(
-  client: ClickHouseClient,
-  scope: KnowledgeScope,
-  docKeys: string[],
-  deletedAt: Date,
-): Promise<void> {
-  assertScope(scope)
-  const keys = [...new Set(docKeys)]
-  if (keys.length === 0) return
-  const stored = await storedDocuments(client, scope, keys)
-  await deleteContent(client, scope, keys)
-  // A key that has a tombstone keeps it, with the date of the first
-  // deletion, also after a retry or the reconcile of a full rebuild.
-  await insertRows(
-    client,
-    scope,
-    keys
-      .filter((docKey) => stored.get(docKey)?.status !== "deleted")
-      .map((docKey) => ({
-        document: {
-          ...(stored.get(docKey) ??
-            emptyDocument(docKey, "deleted", deletedAt)),
-          status: "deleted",
-          deletedAt,
-          error: "",
-        },
-        chunks: [],
-        relations: [],
-      })),
-  )
-  await deleteWhere(
-    client,
-    scope,
-    "documents",
-    "doc_key IN {docKeys:Array(String)} AND status != 'deleted'",
-    { docKeys: keys },
-  )
 }
 
 const listDocumentKeys = (client: ClickHouseClient, scope: KnowledgeScope) =>

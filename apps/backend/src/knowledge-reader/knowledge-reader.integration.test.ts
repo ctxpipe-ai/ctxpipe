@@ -434,10 +434,7 @@ describe("the knowledge reader seam", () => {
                 ),
               )
         })
-        await writer.replaceDocuments(
-          { orgId: seed.orgId, workspaceId },
-          planeRows(workspaceId),
-        )
+        await writer.applyDocuments({ orgId: seed.orgId, workspaceId }, { documents: planeRows(workspaceId) })
       }
     } finally {
       await writer.close()
@@ -1020,7 +1017,7 @@ describe("the knowledge reader seam", () => {
     })
     const writer = createKnowledgeStore(knowledgeUrl)
     try {
-      await writer.replaceDocuments({ orgId: seed.orgId, workspaceId }, [
+      await writer.applyDocuments({ orgId: seed.orgId, workspaceId }, { documents: [
         {
           document: {
             ...imageDocument(doc).document,
@@ -1041,7 +1038,7 @@ describe("the knowledge reader seam", () => {
         },
         imageDocument(flow),
         imageDocument(tiny),
-      ])
+      ] })
     } finally {
       await writer.close()
     }
