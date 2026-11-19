@@ -32,7 +32,7 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
    - ClickHouse holds the content: documents, chunks and relations.
    - Postgres holds the operational data about the content. For each Workspace, that is the `knowledge_state` row of [ADR-067](ADR-067-knowledge-projection-applies-git-diff.md) decision 2: `last_sha`, the SHAs of runs that did not complete, the projection version (which includes the embedding model name), the run status and the failed count. Postgres also holds the job queue and the rollout flag.
    - Postgres holds no pointers to single documents or chunks. A tool that needs content calls ClickHouse.
-3. **Three shared tables.** All Workspaces share the same tables. There is no table or partition for each Workspace. Each table sorts by `(org_id, workspace_id, …)` first.
+3. **Four shared tables.** All Workspaces share the same tables. There is no table or partition for each Workspace. Each table sorts by `(org_id, workspace_id, …)` first.
    - `documents`: one row for each document. It holds:
      - `status`;
      - `deleted_at` and `error`;
@@ -40,7 +40,9 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
      - `s3_key` and `mime` for an image;
      - `valid_from`, `valid_to` and `observed_at`.
    - `chunks`: the sections of a document. It holds `ordinal`, `text`, the full vector and its binary form (the search is in [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md)), and a text index on `text`.
-   - `relations`: `(src_doc, src_chunk, predicate, dst_doc)`, with confidence, validity, source and `observed_at`. A projection sorted by `dst_doc` gives the incoming relations.
+   - `relations`: `(src_doc, src_chunk, predicate, dst_doc)`, with confidence, validity, source and `observed_at`. It sorts by `src_doc`, for the outgoing relations.
+   - `relations_in`: the same rows, sorted by `(org_id, workspace_id, dst_doc, predicate, src_doc)`, for the incoming relations. `KnowledgeStore` writes and deletes both tables.
+   - Why a second table and not a projection ([CTX-1391](https://linear.app/ctxpipe/issue/CTX-1391)): one patch part anywhere in a table stops every read from using any projection of that table, until a merge removes the patch. A `DELETE` on a table with a projection also rewrites whole parts. A second table does not have these limits: with a patch part present, it read the same 29 granules as a clean projection (12 ms warm).
 4. **The grain.** Search finds chunks. The traversal moves between documents. A relation records the chunk that states it (`src_chunk`), so the provenance points to a section.
 5. **A relation belongs to the document that states it.**
    - Its target is a document key that is resolved when it is read.
@@ -60,7 +62,7 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
    Search returns only `active` documents. The traversal sees all four. Thus, a relation always has a target ([ADR-067](ADR-067-knowledge-projection-applies-git-diff.md)).
 
    The CTO chose stored placeholder rows (2026-11-19), not only a target key that is missing at read time. Reasons: the maintenance job finds them with one status query, Jev sees "does not exist" as a fact of the candidate, and a stored row keeps the difference between "deleted on a date" and "never existed".
-8. **Changes use the lightweight SQL `UPDATE` and `DELETE`** (patch parts). They came as a beta in ClickHouse 25.7. In 26.10.6.18, the version that we pin, `system.settings` gives them the tier "Production", and the same for the text index ([CTX-1391](https://linear.app/ctxpipe/issue/CTX-1391)). We do not depend on the experimental transactions, which also are not in the cloud product.
+8. **Changes use the lightweight SQL `UPDATE` and `DELETE`** (patch parts). They came as a beta in ClickHouse 25.7. In 26.10.6.18, the version that we pin, they are tier "Production", and the text index became generally available (GA) in 26.2 ([CTX-1391](https://linear.app/ctxpipe/issue/CTX-1391)). A `DELETE` runs with `lightweight_delete_mode = 'lightweight_update'`, so it writes a patch part (about 90 ms) and does not rewrite parts. Each table sets `enable_block_number_column = 1` and `enable_block_offset_column = 1`. We do not depend on the experimental transactions, which also are not in the cloud product.
 9. **Org isolation.** `KnowledgeStore` is the only ClickHouse client. Each query session sets its org. Reads and writes need different walls, because a ClickHouse row policy filters reads only: unlike Postgres RLS `WITH CHECK`, it does not check the rows that a session inserts.
    - **Reads have two walls:**
      - every statement has `org_id` and `workspace_id` in its `WHERE` clause;
@@ -94,7 +96,7 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
 - **Cold reads:** the first read of a cold Workspace pays S3 round trips, and each layer of a traversal can pay them again. The cache size decides how many active Workspaces stay fast. A 256 MiB cache thrashed on the observability node ([CTX-1067](https://linear.app/ctxpipe/issue/CTX-1067)).
 - **Patch parts:** many open patch parts make reads slower until a merge, so we monitor their count.
 - **One wall for `UPDATE` and `DELETE`** (decision 9): a bug in the mutation API of the worker can change rows of another org. The read-only user of the backend and the tests of the mutation API limit this risk.
-- **Fact to verify** before the build depends on it: the lightweight changes work with the projection on `relations`.
+- **Two tables for one relation:** `KnowledgeStore` must write and delete `relations` and `relations_in` together. A failed run can leave them different until the retry of [ADR-067](ADR-067-knowledge-projection-applies-git-diff.md) repairs them.
 - **Self-host:** self-hosters lose the choice of graph database. The CDK construct, Compose and the self-host docs change.
 - **Supersedes and amends:**
   - When all orgs use ClickHouse, this ADR supersedes ADR-010.
