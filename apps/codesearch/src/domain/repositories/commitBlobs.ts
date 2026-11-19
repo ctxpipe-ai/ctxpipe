@@ -1,14 +1,4 @@
 /**
- * The most bytes of all blobs of one `blobs-query` request. A blob after the
- * limit gives null.
- */
-const MAX_REQUEST_BYTES = 32 * 1024 * 1024
-
-/** A tree entry of a regular file: mode 100644 or 100755, type blob. */
-const REGULAR_FILE =
-  /^(100644|100755) blob ([0-9a-f]{40}|[0-9a-f]{64}) +(\d+)\t/
-
-/**
  * The bytes of the regular files `paths` at the commit `sha`, from the object
  * store of the bare shared clone at `clonePath` (CTX-1412). It never reads a
  * working tree, so it never follows a symlink. A path gives null when its
@@ -46,14 +36,17 @@ export async function readCommitBlobs(input: {
   }
   const blobs = new Map<string, { oid: string; size: number }>()
   for (const entry of listing.toString("utf8").split("\0")) {
-    const match = REGULAR_FILE.exec(entry)
+    // Only a regular file: mode 100644 or 100755, type blob.
+    const match =
+      /^(100644|100755) blob ([0-9a-f]{40}|[0-9a-f]{64}) +(\d+)\t/.exec(entry)
     if (!match?.[2] || !match[3]) continue
     blobs.set(entry.slice(entry.indexOf("\t") + 1), {
       oid: match[2],
       size: Number(match[3]),
     })
   }
-  let left = MAX_REQUEST_BYTES
+  // The most bytes of all blobs of one request: a blob after it gives null.
+  let left = 32 * 1024 * 1024
   const reads: { path: string; oid: string }[] = []
   for (const path of input.paths) {
     const blob = blobs.get(full(path))
