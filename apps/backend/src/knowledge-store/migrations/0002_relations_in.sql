@@ -1,10 +1,9 @@
 -- The incoming relations get their own table (ADR-066 decision 3, CTX-1391).
--- One patch part anywhere in a table stops every read from using any
--- projection of that table, and a DELETE on a table with a projection
--- rewrites whole parts. Thus the projection by_dst goes, and relations_in
--- holds the same rows as relations, sorted by dst_doc. KnowledgeStore writes
--- and deletes both tables. The tables hold no product data yet, so the
--- migration does not copy rows.
+-- relations_in holds the same rows as relations, sorted by dst_doc, and the
+-- projection by_dst goes: a DELETE on a table with a projection rewrites whole
+-- parts. ADR-066 has the history. KnowledgeStore writes and deletes both
+-- tables. The tables hold no product data yet, so the migration does not copy
+-- rows.
 --
 -- relations_in has the same CHECK constraint and the same row policy as the
 -- other knowledge tables (see 0001_knowledge_tables.sql).

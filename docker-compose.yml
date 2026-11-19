@@ -244,11 +244,12 @@ services:
       DATABASE_APP_PASSWORD: ${POSTGRES_PASSWORD:-ctxpipe}
       # The admin user. Only migrate has it. Migrate makes the users
       # ctxpipe_reader (backend) and ctxpipe_writer (worker) with these
-      # passwords (ADR-066 decision 9). Use only URL-safe characters in each
-      # ClickHouse password.
+      # passwords (ADR-066 decision 9). They have no default: without a
+      # password, migrate makes no user, and the service cannot connect. Use
+      # only URL-safe characters in each ClickHouse password.
       CLICKHOUSE_URL: http://${CLICKHOUSE_USER:-ctxpipe}:${CLICKHOUSE_PASSWORD:-ctxpipe}@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}
-      CLICKHOUSE_READER_PASSWORD: ${CLICKHOUSE_READER_PASSWORD:-ctxpipe}
-      CLICKHOUSE_WRITER_PASSWORD: ${CLICKHOUSE_WRITER_PASSWORD:-ctxpipe}
+      CLICKHOUSE_READER_PASSWORD: ${CLICKHOUSE_READER_PASSWORD:-}
+      CLICKHOUSE_WRITER_PASSWORD: ${CLICKHOUSE_WRITER_PASSWORD:-}
       # The backend modules migrate imports parse the app env, which needs it.
       AUTH_SECRET: ${AUTH_SECRET:-}
     command: ["bun", "run", "apps/backend/src/db/migrate.ts"]
@@ -330,7 +331,7 @@ services:
       DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       GRAPH_DB_URI: redis://falkordb:6379
       # SELECT only: the backend cannot change the knowledge content.
-      CLICKHOUSE_URL: http://ctxpipe_reader:${CLICKHOUSE_READER_PASSWORD:-ctxpipe}@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}
+      CLICKHOUSE_URL: http://ctxpipe_reader:${CLICKHOUSE_READER_PASSWORD:-}@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}
       UI_PROXY_URL: http://ui:3002
       CODESEARCH_URL: http://codesearch:3001
       # The worker gets the same PORT: ingest sandboxes call the API on it.
@@ -401,7 +402,7 @@ services:
       DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}
       GRAPH_DB_URI: redis://falkordb:6379
       # The projection writes the knowledge content. No access management.
-      CLICKHOUSE_URL: http://ctxpipe_writer:${CLICKHOUSE_WRITER_PASSWORD:-ctxpipe}@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}
+      CLICKHOUSE_URL: http://ctxpipe_writer:${CLICKHOUSE_WRITER_PASSWORD:-}@clickhouse:8123/${CLICKHOUSE_DB:-ctxpipe}
       # Required to decrypt connection secrets (Slack bot tokens, GitHub App keys).
       AUTH_SECRET: ${AUTH_SECRET:-}
       AUTH_BASE_URL: ${AUTH_BASE_URL:-http://localhost:3000}

@@ -71,9 +71,13 @@ Compose gives each service its own ClickHouse user in `CLICKHOUSE_URL`:
 | `backend` | `ctxpipe_reader` | `CLICKHOUSE_READER_PASSWORD` | Reads the knowledge tables only |
 | `worker` | `ctxpipe_writer` | `CLICKHOUSE_WRITER_PASSWORD` | Reads, inserts, and deletes rows in the knowledge tables. It cannot manage users or row policies. |
 
-The default user is `ctxpipe`, and each default password is `ctxpipe`. Before
-the first start, set three different passwords. Use only URL-safe characters
-in them. `CLICKHOUSE_DB` sets the database (default `ctxpipe`). To change a
+Set `CLICKHOUSE_READER_PASSWORD` and `CLICKHOUSE_WRITER_PASSWORD` before the
+first start. They have no default. Without them, `migrate` does not make the
+two users, and the backend and the worker cannot connect to ClickHouse.
+`migrate` refuses a reader or writer password that is the same as
+`CLICKHOUSE_PASSWORD`. The default admin user and password are `ctxpipe`, so
+also set your own `CLICKHOUSE_PASSWORD`. Use only URL-safe characters in each
+password. `CLICKHOUSE_DB` sets the database (default `ctxpipe`). To change a
 reader or writer password, change it in `.env` and run `migrate` again.
 
 ## Settings that need an override file

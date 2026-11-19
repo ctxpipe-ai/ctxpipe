@@ -8,7 +8,10 @@ import { createClickHouseClient } from "./knowledge-store.js"
 
 /**
  * The passwords of the two ClickHouse users that the migration makes. If a
- * password is not set, the migration does not change that user.
+ * password is not set, the migration does not make or change that user. A
+ * user that does not exist cannot connect, so a missing password fails
+ * closed. A password that is the same as the password of the admin user in
+ * `url` is refused.
  */
 type KnowledgeUserPasswords = {
   /** The user of the backend (`ctxpipe_reader`): SELECT only. */
@@ -19,8 +22,6 @@ type KnowledgeUserPasswords = {
    */
   writer?: string
 }
-
-const knowledgeTables = ["documents", "chunks", "relations", "relations_in"]
 
 /**
  * Applies the ClickHouse SQL files of `migrations/` in name order, each one
@@ -33,6 +34,12 @@ export async function migrateKnowledgeStore(
   url: string,
   passwords: KnowledgeUserPasswords = {},
 ): Promise<void> {
+  const adminPassword = decodeURIComponent(new URL(url).password)
+  for (const password of [passwords.reader, passwords.writer])
+    if (password && password === adminPassword)
+      throw new Error(
+        "[migrate] The ClickHouse reader and writer passwords must be different from the admin password",
+      )
   const migrationsFolder = new URL("./migrations/", import.meta.url)
   const client = createClickHouseClient(url)
   try {
@@ -103,7 +110,14 @@ async function setUser(
   password: string | undefined,
   privileges: string,
 ): Promise<void> {
-  if (!password) return
+  if (!password) {
+    log.info({
+      step: "migrate",
+      message: "[migrate] no password for a ClickHouse user: it is not changed",
+      user: name,
+    })
+    return
+  }
   // The statement holds a SHA-256 hash in hex, not the password: nothing
   // from the setting gets into the SQL text or the query log.
   const salt = randomBytes(16).toString("hex")
@@ -111,12 +125,15 @@ async function setUser(
     .update(password + salt)
     .digest("hex")
   const identified = `IDENTIFIED WITH sha256_hash BY '${hash}' SALT '${salt}'`
-  await client.command({ query: `CREATE USER IF NOT EXISTS ${name} ${identified}` })
+  await client.command({
+    query: `CREATE USER IF NOT EXISTS ${name} ${identified}`,
+  })
   await client.command({ query: `ALTER USER ${name} ${identified}` })
   // WITH REPLACE OPTION removes each grant that is not in this statement.
   await client.command({
-    query: `GRANT ${knowledgeTables.map((table) => `${privileges} ON ${table}`).join(", ")}
-      TO ${name} WITH REPLACE OPTION`,
+    query: `GRANT ${["documents", "chunks", "relations", "relations_in"]
+      .map((table) => `${privileges} ON ${table}`)
+      .join(", ")} TO ${name} WITH REPLACE OPTION`,
   })
   log.info({
     step: "migrate",

@@ -16,7 +16,7 @@ export type KnowledgeScope = { orgId: string; workspaceId: string }
 
 type DocumentStatus = "active" | "deleted" | "missing" | "failed"
 
-export type KnowledgeDocument = {
+type KnowledgeDocument = {
   docKey: string
   kind: string
   status: DocumentStatus
@@ -74,7 +74,7 @@ export type DocumentRows = {
  * target that does not exist in Git, `failed` for a file that did not parse
  * or embed.
  */
-export type Placeholder = { docKey: string; observedAt: Date } & (
+type Placeholder = { docKey: string; observedAt: Date } & (
   | { status: "missing" }
   | { status: "failed"; error: string }
 )
@@ -111,7 +111,10 @@ type KnowledgeStore = {
    * Replaces the state of each document: deletes its document, chunk and
    * outgoing relation rows, then inserts the new rows with status `active`.
    */
-  replaceDocuments(scope: KnowledgeScope, documents: DocumentRows[]): Promise<void>
+  replaceDocuments(
+    scope: KnowledgeScope,
+    documents: DocumentRows[],
+  ): Promise<void>
   /**
    * Makes a tombstone of each document (ADR-067 decision 6): status
    * `deleted` and `deletedAt`, with the other fields of its row. Deletes its
@@ -188,7 +191,10 @@ function assertScope(scope: KnowledgeScope): void {
 const scoped = "org_id = {orgId:String} AND workspace_id = {workspaceId:String}"
 
 /** The parameters of `scoped`. They come last: a caller cannot replace them. */
-const scopeParams = (scope: KnowledgeScope, params: Record<string, unknown>) => ({
+const scopeParams = (
+  scope: KnowledgeScope,
+  params: Record<string, unknown>,
+) => ({
   ...params,
   orgId: scope.orgId,
   workspaceId: scope.workspaceId,
@@ -293,7 +299,7 @@ type StoredRows = Omit<DocumentRows, "document"> & {
 }
 
 /** Deletes all rows of each document, then inserts `rows`. */
-async function replace(
+async function replaceRows(
   client: ClickHouseClient,
   scope: KnowledgeScope,
   rows: StoredRows[],
@@ -319,7 +325,7 @@ const replaceDocuments = (
   scope: KnowledgeScope,
   documents: DocumentRows[],
 ) =>
-  replace(
+  replaceRows(
     client,
     scope,
     documents.map(({ document, chunks, relations }) => ({
@@ -332,11 +338,12 @@ const replaceDocuments = (
 /** A document row with no content fields. */
 const emptyDocument = (
   docKey: string,
+  status: DocumentStatus,
   observedAt: Date,
 ): KnowledgeDocument => ({
   docKey,
   kind: "",
-  status: "missing",
+  status,
   deletedAt: null,
   error: "",
   title: "",
@@ -351,24 +358,59 @@ const emptyDocument = (
   observedAt,
 })
 
-const insertPlaceholders = (
+/** The stored document row of each key that has one. */
+async function storedDocuments(
+  client: ClickHouseClient,
+  scope: KnowledgeScope,
+  docKeys: string[],
+): Promise<Map<string, KnowledgeDocument>> {
+  const records = await select<DocumentRecord>(
+    client,
+    scope,
+    `SELECT ${documentColumns} FROM documents
+     WHERE ${scoped} AND doc_key IN {docKeys:Array(String)}`,
+    { docKeys },
+  )
+  return new Map(records.map((record) => [record.docKey, toDocument(record)]))
+}
+
+async function insertPlaceholders(
   client: ClickHouseClient,
   scope: KnowledgeScope,
   placeholders: Placeholder[],
-) =>
-  replace(
+): Promise<void> {
+  // A `missing` row is only for a key with no row (ADR-067 decision 7). It
+  // never replaces a document or a tombstone. A `failed` row replaces the
+  // state of its document.
+  const stored = await storedDocuments(
     client,
     scope,
-    placeholders.map((placeholder) => ({
-      document: {
-        ...emptyDocument(placeholder.docKey, placeholder.observedAt),
-        status: placeholder.status,
-        error: placeholder.status === "failed" ? placeholder.error : "",
-      },
-      chunks: [],
-      relations: [],
-    })),
+    placeholders
+      .filter((placeholder) => placeholder.status === "missing")
+      .map((placeholder) => placeholder.docKey),
   )
+  await replaceRows(
+    client,
+    scope,
+    placeholders
+      .filter(
+        (placeholder) =>
+          placeholder.status === "failed" || !stored.has(placeholder.docKey),
+      )
+      .map((placeholder) => ({
+        document: {
+          ...emptyDocument(
+            placeholder.docKey,
+            placeholder.status,
+            placeholder.observedAt,
+          ),
+          error: placeholder.status === "failed" ? placeholder.error : "",
+        },
+        chunks: [],
+        relations: [],
+      })),
+  )
+}
 
 async function markDeleted(
   client: ClickHouseClient,
@@ -376,30 +418,29 @@ async function markDeleted(
   docKeys: string[],
   deletedAt: Date,
 ): Promise<void> {
-  const stored = new Map(
-    (
-      await select<DocumentRecord>(
-        client,
-        scope,
-        `SELECT ${documentColumns} FROM documents
-         WHERE ${scoped} AND doc_key IN {docKeys:Array(String)}`,
-        { docKeys },
-      )
-    ).map((record) => [record.docKey, toDocument(record)]),
-  )
-  await replace(
+  const stored = await storedDocuments(client, scope, docKeys)
+  await replaceRows(
     client,
     scope,
-    [...new Set(docKeys)].map((docKey) => ({
-      document: {
-        ...(stored.get(docKey) ?? emptyDocument(docKey, deletedAt)),
-        status: "deleted",
-        deletedAt,
-        error: "",
-      },
-      chunks: [],
-      relations: [],
-    })),
+    [...new Set(docKeys)].map((docKey) => {
+      const document =
+        stored.get(docKey) ?? emptyDocument(docKey, "deleted", deletedAt)
+      return {
+        document: {
+          ...document,
+          status: "deleted",
+          // A tombstone keeps the date of the first deletion, also after a
+          // retry or the reconcile of a full rebuild.
+          deletedAt:
+            document.status === "deleted" && document.deletedAt
+              ? document.deletedAt
+              : deletedAt,
+          error: "",
+        },
+        chunks: [],
+        relations: [],
+      }
+    }),
   )
 }
 

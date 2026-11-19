@@ -115,8 +115,10 @@ Give each process its own ClickHouse user in `CLICKHOUSE_URL`:
 - **Worker:** `ctxpipe_writer`. It can read, insert, and delete rows in the
   knowledge tables. It cannot manage users, grants, or row policies.
 
-The migrations create or update a user only when its password is set. They
-store a salted SHA-256 hash of the password. To change a password, set the new
+The migrations create or update a user only when its password is set. Without
+the password, the user does not exist and cannot connect. The migrations refuse
+a reader or writer password that is the same as the admin password. They store
+a salted SHA-256 hash of the password. To change a password, set the new
 value and run the migrations again. If `CLICKHOUSE_URL` is not set, the
 migrations skip ClickHouse.
 

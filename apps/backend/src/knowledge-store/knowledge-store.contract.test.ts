@@ -12,7 +12,10 @@ import {
   afterEach,
   beforeAll,
   beforeEach,
-  describe, expect, it } from "vitest"
+  describe,
+  expect,
+  it,
+} from "vitest"
 
 import { contractImage } from "../test/contract-images.js"
 import {
@@ -82,6 +85,7 @@ async function rawRows<T>(
 }
 
 const observedAt = new Date("2026-11-19T10:11:12.345Z")
+const denied = /ACCESS_DENIED|Not enough privileges/
 
 function rowsOf(
   title: string,
@@ -333,7 +337,9 @@ describe("org isolation of reads", () => {
       await store.replaceDocuments(orgA, [rowsOf("Org A", "shared.md")])
       await store.replaceDocuments(orgA, [rowsOf("Org A source", "a.md")])
       await store.replaceDocuments(orgB, [rowsOf("Org B", "shared.md")])
-      await store.replaceDocuments(orgB, [rowsOf("Org B target", "target.md", "other.md")])
+      await store.replaceDocuments(orgB, [
+        rowsOf("Org B target", "target.md", "other.md"),
+      ])
       // Without the policy, a statement for org B sees both orgs.
       const all = await rawRows<{ org_id: string }>(
         client,
@@ -468,8 +474,9 @@ describe("known gap: a change in a patch part can stay hidden from reads", () =>
   // a read that moves a filter to PREWHERE (the default) still returns the old
   // rows, until a later merge. ClickHouse PR #112947 describes this. Thus
   // KnowledgeStore uses only the classic lightweight DELETE and INSERT; the
-  // tests above read after each such DELETE. This test fails when a ClickHouse version fixes the gap, so that the ADR can
-  // change back to patch parts.
+  // tests above read after each such DELETE. This test fails when a
+  // ClickHouse version fixes the gap, so that the ADR can change back to
+  // patch parts.
   it.each([
     [
       "DELETE in lightweight_update mode",
@@ -609,7 +616,6 @@ describe("users and mutations", () => {
       { docKey: "r.md", status: "active" },
     ])
 
-    const denied = /ACCESS_DENIED|Not enough privileges/
     await expect(
       reader.replaceDocuments(scope, [rowsOf("Changed", "r.md")]),
     ).rejects.toThrow(denied)
@@ -654,7 +660,6 @@ describe("users and mutations", () => {
 
   it("the writer user cannot manage access, drop a wall or change the migrations", async () => {
     const client = rawClient(writerUrl)
-    const denied = /ACCESS_DENIED|Not enough privileges/
     for (const table of tables) {
       await expect(
         client.command({
@@ -686,6 +691,16 @@ describe("users and mutations", () => {
       await expect(client.command({ query }), query).rejects.toThrow(denied)
   })
 
+  it("refuses a reader or writer password that is the admin password", async () => {
+    for (const users of [
+      { reader: "knowledge-test" },
+      { writer: "knowledge-test" },
+    ])
+      await expect(migrateKnowledgeStore(adminUrl, users)).rejects.toThrow(
+        /different from the admin password/,
+      )
+  })
+
   it("a second migration sets a new password and keeps the grants", async () => {
     await migrateKnowledgeStore(adminUrl, {
       reader: "reader-rotated",
@@ -701,7 +716,7 @@ describe("users and mutations", () => {
       ).resolves.toEqual([{ rows: 0 }])
       await expect(
         rotated.command({ query: "DELETE FROM documents WHERE 1" }),
-      ).rejects.toThrow(/ACCESS_DENIED|Not enough privileges/)
+      ).rejects.toThrow(denied)
     } finally {
       // Back to the first password for the other tests.
       await migrateKnowledgeStore(adminUrl, passwords)
@@ -775,13 +790,18 @@ describe("users and mutations", () => {
       expect(stored?.incoming.map((relation) => relation.srcDoc)).toEqual([
         "doc.md",
       ])
-      expect(
-        (await reader.readDocument(target, "doc.md"))?.incoming,
-      ).toEqual([])
+      expect((await reader.readDocument(target, "doc.md"))?.incoming).toEqual(
+        [],
+      )
       expect(await reader.listDocumentKeys(target)).toEqual([
         { docKey: "doc.md", status: "active" },
         { docKey: "target.md", status: "deleted" },
       ])
+      // A retry keeps the date of the first deletion.
+      await writer.markDeleted(target, ["target.md"], observedAt)
+      expect(
+        (await reader.readDocument(target, "target.md"))?.document.deletedAt,
+      ).toEqual(deletedAt)
       // A key with no row: a retry after a failure between the DELETE and
       // the INSERT of a tombstone still makes the tombstone.
       await writer.markDeleted(target, ["gone.md"], deletedAt)
@@ -823,6 +843,20 @@ describe("users and mutations", () => {
       ).toMatchObject({ status: "missing", error: "", deletedAt: null })
     })
 
+    it("a missing placeholder does not replace a document or a tombstone", async () => {
+      const deletedAt = new Date("2026-11-20T08:00:00.123Z")
+      await writer.markDeleted(target, ["gone.md"], deletedAt)
+      const before = await snapshot(target)
+      await writer.insertPlaceholders(target, [
+        { docKey: "target.md", status: "missing", observedAt },
+        { docKey: "gone.md", status: "missing", observedAt },
+      ])
+      expect(await snapshot(target)).toEqual(before)
+      expect(
+        (await reader.readDocument(target, "gone.md"))?.document,
+      ).toMatchObject({ status: "deleted", deletedAt })
+    })
+
     it("a document key cannot change the predicates of a statement", async () => {
       const injected = "x') OR (1 = 1"
       await writer.markDeleted(target, [injected], observedAt)
@@ -840,12 +874,15 @@ describe("users and mutations", () => {
     it("refuses a batch with the same document key two times", async () => {
       const unchanged = await snapshot(target)
       await expect(
-        writer.replaceDocuments(target, [rowsOf("A", "doc.md"), rowsOf("B", "doc.md")]),
+        writer.replaceDocuments(target, [
+          rowsOf("A", "doc.md"),
+          rowsOf("B", "doc.md"),
+        ]),
       ).rejects.toThrow(/two times/)
       await expect(
         writer.insertPlaceholders(target, [
-          { docKey: "doc.md", status: "missing", observedAt },
-          { docKey: "doc.md", status: "missing", observedAt },
+          { docKey: "new.md", status: "missing", observedAt },
+          { docKey: "new.md", status: "missing", observedAt },
         ]),
       ).rejects.toThrow(/two times/)
       expect(await snapshot(target)).toEqual(unchanged)
