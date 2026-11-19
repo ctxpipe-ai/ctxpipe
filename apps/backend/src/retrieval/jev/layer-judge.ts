@@ -38,7 +38,7 @@ const QUESTIONS = {
 }
 
 /** The metadata line of a candidate, in one fixed format. */
-function metaLine(meta: CandidateMeta): string {
+export function metaLine(meta: CandidateMeta): string {
   return [
     `status: ${meta.status}`,
     `source type: ${meta.sourceType}`,
@@ -53,7 +53,7 @@ function metaLine(meta: CandidateMeta): string {
  * Wrap text in a `<data>` block. The angle brackets of the text are escaped,
  * so that the text cannot close the block and give instructions.
  */
-const dataBlock = (text: string) =>
+export const dataBlock = (text: string) =>
   `<data>${text.replaceAll("<", "&lt;").replaceAll(">", "&gt;")}</data>`
 
 /**
