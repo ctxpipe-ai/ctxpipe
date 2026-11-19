@@ -375,7 +375,13 @@ async function listTreeEntries(
   dir: string,
   prefix?: string,
 ): Promise<
-  Array<{ kind: string; sha: string; path: string; size: number | null }>
+  Array<{
+    mode: string
+    kind: string
+    sha: string
+    path: string
+    size: number | null
+  }>
 > {
   const stdout = await gitOutput(
     [
@@ -397,19 +403,38 @@ async function listTreeEntries(
     .split("\0")
     .filter(Boolean)
     .map((record) => {
-      const entry = /^\d+ (\w+) ([0-9a-f]+)(?: +(\d+|-))?\t([\s\S]+)$/.exec(
+      const entry = /^(\d+) (\w+) ([0-9a-f]+)(?: +(\d+|-))?\t([\s\S]+)$/.exec(
         record,
       )
-      if (!entry?.[1] || !entry[2] || !entry[4] || !isSafeGitPath(entry[4]))
+      if (
+        !entry?.[1] ||
+        !entry[2] ||
+        !entry[3] ||
+        !entry[5] ||
+        !isSafeGitPath(entry[5])
+      )
         throw new Error("Invalid path in immutable Git tree")
       return {
-        kind: entry[1],
-        sha: entry[2],
-        path: entry[4],
+        mode: entry[1],
+        kind: entry[2],
+        sha: entry[3],
+        path: entry[5],
         size:
-          entry[3] === undefined || entry[3] === "-" ? null : Number(entry[3]),
+          entry[4] === undefined || entry[4] === "-" ? null : Number(entry[4]),
       }
     })
+}
+
+/**
+ * True for a regular file (mode 100644 or 100755). A symlink (120000) is a
+ * blob too, but its bytes are the link target, not file content. A submodule
+ * (160000) is a commit. The reads treat both as missing.
+ */
+function isRegularFile(entry: { mode: string; kind: string }): boolean {
+  return (
+    entry.kind === "blob" &&
+    (entry.mode === "100644" || entry.mode === "100755")
+  )
 }
 
 async function gitShowBytes(
@@ -420,7 +445,7 @@ async function gitShowBytes(
   if (!isSafeGitPath(path)) return { kind: "missing" }
   const entry = (
     await listTreeEntries(dir, fetchBlobs ? path : undefined)
-  ).find((candidate) => candidate.kind === "blob" && candidate.path === path)
+  ).find((candidate) => isRegularFile(candidate) && candidate.path === path)
   if (!entry) return { kind: "missing" }
   await fetchBlobs?.([entry.sha])
   const { stdout } = await gitExec(
@@ -536,7 +561,7 @@ export async function listMarkdownFilesAtGitSha(input: {
       ).flatMap((entry) => {
         const path = workspaceRelativePath(input.root ?? "", entry.path)
         return path !== null &&
-          entry.kind === "blob" &&
+          isRegularFile(entry) &&
           (!prefix || path.startsWith(prefix)) &&
           (path.endsWith(".md") ||
             input.extraPaths?.includes(path) ||

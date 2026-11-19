@@ -1,6 +1,6 @@
 import type { Env } from "../../config/env.js"
-import type { ModelTier } from "../../retrieval/services/providers/providerTypes.js"
 import { parseSandboxCallbackHost } from "../workspaces/sandbox-callback-host.js"
+import type { IngestModelTier } from "./ingest-opencode.js"
 import type { IngestSource } from "./ingestion-run.js"
 import type { IngestSkillBundle } from "./skill-bundle.js"
 
@@ -50,7 +50,7 @@ export type IngestRuntimeStep = {
   name: string
   skill: string
   run: "script" | "model"
-  tier?: ModelTier
+  tier?: IngestModelTier
   /** The root path of a root step; null for a repository-wide step. */
   root: string | null
   workspaceId: string

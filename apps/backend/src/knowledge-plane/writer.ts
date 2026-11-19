@@ -1,14 +1,22 @@
-import { createHash } from "node:crypto"
-
 import { metrics, type Span, SpanStatusCode, trace } from "@opentelemetry/api"
 
+import { githubSourceRepositories } from "../domain/workspace-sources/github-sources.js"
+import {
+  isSourcesTreePath,
+  SOURCES_FOLDER_PREFIX,
+} from "../domain/workspace-sources/source-tree.js"
+import { SOURCES_FILE_PATH } from "../domain/workspace-sources/sources-file.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
-import { imageContentType } from "../domain/workspaces/raw-file.js"
-import type {
-  DocumentRows,
-  DocumentStatus,
-  KnowledgeScope,
-  KnowledgeStore,
+import {
+  imageContentType,
+  imageOfBytes,
+} from "../domain/workspaces/raw-file.js"
+import {
+  type DocumentRows,
+  type DocumentStatus,
+  type KnowledgeScope,
+  type KnowledgeStore,
+  REFERENCE_TARGET_PREFIX,
 } from "../knowledge-store/knowledge-store.js"
 import {
   beginKnowledgeRun,
@@ -18,6 +26,7 @@ import {
 } from "../models/knowledge-state.js"
 import { getLogger } from "../observability/logger.js"
 import {
+  EmbeddingStatusError,
   type EmbeddingInput,
   embedMultimodal,
   multimodalEmbeddingConfig,
@@ -71,10 +80,11 @@ type KnowledgeRunSummary =
  * 1. `beginKnowledgeRun` adds the tip to `attempt_shas`.
  * 2. The planner gives the change set: a delta, or a full rebuild.
  * 3. Each changed document file replaces the rows of its document: a
- *    knowledge file (Markdown) or an image file (its key is its path, and
- *    its `s3_key` has the hash of its bytes). A knowledge file that does not
- *    parse gets a `failed` document.
- * 4. Each relation target with no row gets a `missing` placeholder.
+ *    knowledge file (Markdown) or an image file (its key is its path). A
+ *    knowledge file that does not parse gets a `failed` document.
+ * 4. Each relation target with no row gets a `missing` placeholder. A
+ *    reference key target gets none: the read resolves it (ADR-066
+ *    decision 5).
  * 5. Each document whose file is gone gets a tombstone. A full rebuild does
  *    this for each document that the tree does not give (the reconcile).
  * 6. `completeKnowledgeRun` moves `last_sha` to the tip.
@@ -84,7 +94,10 @@ type KnowledgeRunSummary =
  * files again. The caller holds the hydrate lock of the Workspace, so one
  * run of a Workspace runs at a time.
  *
- * Images get no bytes in S3 and no embedding yet (CTX-1412).
+ * The vector of an image comes from its bytes at the tip. An image that the
+ * embedding model does not take (its type or its size) gets a `failed`
+ * document, and the run goes on (ADR-066 decision 6). The bytes stay in
+ * the Workspace Git: the writer stores no copy.
  */
 export async function projectKnowledgePlane(input: {
   orgId: string
@@ -217,6 +230,11 @@ async function applyChangeSet(input: {
     isKnowledgePath(path) || imageContentType(path) !== null
   const tree = await regularFiles(directory, input.tip, root)
   const blobPath = workspaceBlobPath(input.remote.url, root)
+  const sourceRepositories = await sourceRepositoriesAt(
+    directory,
+    tree,
+    input.remote.url,
+  )
   // The status of each key. A key with a tombstone and an old row (a
   // `markDeleted` that stopped between its two statements) gives the old
   // row, so that the run makes the tombstone again.
@@ -239,19 +257,24 @@ async function applyChangeSet(input: {
       batch.map((path) => tree.get(path) ?? ""),
     )
     const documents: UnembeddedDocumentRows[] = []
-    const images: UnembeddedDocumentRows[] = []
+    const images: {
+      rows: UnembeddedDocumentRows
+      bytes: Buffer
+      mimeType: string
+    }[] = []
     const failed: { docKey: string; error: string }[] = []
     for (const [index, path] of batch.entries()) {
       const bytes = contents[index] ?? Buffer.alloc(0)
       if (!isKnowledgePath(path)) {
-        images.push(
-          imageRows({
-            ...scope,
-            path,
-            hash: createHash("sha256").update(bytes).digest("hex"),
-            observedAt,
-          }),
-        )
+        const image = embeddableImage(path, bytes)
+        if ("error" in image)
+          failed.push({ docKey: keyOf(path), error: image.error })
+        else
+          images.push({
+            rows: imageRows({ workspaceId, path, observedAt }),
+            bytes,
+            mimeType: image.mimeType,
+          })
         continue
       }
       // The parse and the mapper read no Git and no network: an error here
@@ -262,6 +285,7 @@ async function applyChangeSet(input: {
           blobPath,
           path,
           content: bytes.toString("utf8"),
+          sourceRepositories,
         })
         if (parsed.kind === "failed")
           failed.push({ docKey: keyOf(path), error: parsed.error })
@@ -270,6 +294,7 @@ async function applyChangeSet(input: {
             knowledgeRows({
               workspaceId,
               unit: parsed.unit,
+              references: parsed.references,
               blobPath,
               observedAt,
             }),
@@ -281,24 +306,28 @@ async function applyChangeSet(input: {
         })
       }
     }
+    const embeddedImages = await embedImages(images)
+    failed.push(...embeddedImages.failed)
     await store.replaceDocuments(scope, [
       ...(await embedDocuments(documents)),
-      // No image bytes yet, so no image embedding (CTX-1412).
-      ...images.map((rows) => ({
-        ...rows,
-        chunks: rows.chunks.map((chunk) => ({ ...chunk, embedding: [] })),
-      })),
+      ...embeddedImages.documents,
     ])
     await store.insertPlaceholders(
       scope,
       failed.map((row) => ({ ...row, status: "failed", observedAt })),
     )
-    for (const { document, relations } of [...documents, ...images]) {
+    for (const { document, relations } of [
+      ...documents,
+      ...embeddedImages.documents,
+    ]) {
       written.add(document.docKey)
-      for (const relation of relations) targets.add(relation.dstDoc)
+      for (const relation of relations)
+        if (!relation.dstDoc.startsWith(REFERENCE_TARGET_PREFIX))
+          targets.add(relation.dstDoc)
     }
     for (const { docKey } of failed) written.add(docKey)
-    changed += documents.length + images.length + failed.length
+    changed +=
+      documents.length + embeddedImages.documents.length + failed.length
   })
 
   // The store skips each target that has a row.
@@ -329,8 +358,41 @@ async function applyChangeSet(input: {
   return changed + stale.length
 }
 
+/**
+ * The repository URL of each GitHub source file of the tree, for the
+ * `CHANGED` keys of a package file. A change of the sources starts a full
+ * rebuild (ADR-067 decision 4), so each package file gets the new URLs.
+ */
+async function sourceRepositoriesAt(
+  directory: string,
+  tree: ReadonlyMap<string, string>,
+  workspaceUrl: string,
+): Promise<Map<string, string>> {
+  const paths = [...tree.keys()].filter(isSourcesTreePath)
+  if (paths.length === 0) return new Map()
+  const blobs = await readGitBlobs(
+    directory,
+    paths.map((path) => tree.get(path) ?? ""),
+  )
+  const text = new Map(
+    paths.map((path, index) => [path, blobs[index]?.toString("utf8") ?? ""]),
+  )
+  return new Map(
+    githubSourceRepositories(
+      text.get(SOURCES_FILE_PATH) ?? null,
+      null,
+      paths
+        .filter((path) => path.startsWith(SOURCES_FOLDER_PREFIX))
+        .map((path) => ({ path, text: text.get(path) ?? "" })),
+      { workspaceUrl },
+    )
+      .filter((source) => source.path.startsWith(SOURCES_FOLDER_PREFIX))
+      .map((source) => [source.path, source.gitUrl]),
+  )
+}
+
 /** Call `call` for each batch of at most `size` items, in order. */
-async function inBatches<T>(
+export async function inBatches<T>(
   items: readonly T[],
   size: number,
   call: (batch: T[]) => Promise<void>,
@@ -367,6 +429,111 @@ async function embedDocuments(
       embedding: chunk.text.trim() ? (vectors[next++] ?? []) : [],
     })),
   }))
+}
+
+/**
+ * The type of the image file at `path`, from its bytes, when the embedding
+ * model takes it; else the error for the `failed` document of the file. The
+ * type comes from the bytes, so a file with a wrong name (or bytes that are
+ * not an image) does not go to the model and fail the run.
+ */
+function embeddableImage(
+  path: string,
+  bytes: Buffer,
+): { mimeType: string } | { error: string } {
+  const { imageTypes, maxImageBytes } = multimodalEmbeddingConfig
+  const image = imageOfBytes(bytes)
+  // The type of the bytes, else the type of the file name.
+  const type = image?.contentType ?? imageContentType(path) ?? "unknown"
+  if (!imageTypes.includes(type))
+    return {
+      error: `The embedding model does not take images of type ${type}.`,
+    }
+  if (!image) return { error: `The bytes are not an image of type ${type}.` }
+  if (bytes.length > maxImageBytes)
+    return {
+      error: `The image has ${bytes.length} bytes. The embedding model takes at most ${maxImageBytes}.`,
+    }
+  return { mimeType: image.contentType }
+}
+
+/**
+ * Embed the bytes of each image. The vector goes on the one chunk of the
+ * image, whose text is empty, so the request has the image part only
+ * (ADR-066 decision 6). Images share a request until their bytes reach
+ * `maxImageBytes`, so that one request stays in the provider limit.
+ *
+ * The model can refuse the bytes of an image with a good header (for
+ * example a cut file). When it refuses a request (HTTP 400, 413 or 422),
+ * each image of the request goes again alone, and an image that it refuses
+ * alone gets a `failed` document. Another error fails the run.
+ */
+async function embedImages(
+  images: { rows: UnembeddedDocumentRows; bytes: Buffer; mimeType: string }[],
+): Promise<{
+  documents: DocumentRows[]
+  failed: { docKey: string; error: string }[]
+}> {
+  const requests: (typeof images)[] = []
+  let size = 0
+  for (const image of images) {
+    const last = requests.at(-1)
+    if (
+      last &&
+      size + image.bytes.length <= multimodalEmbeddingConfig.maxImageBytes
+    ) {
+      last.push(image)
+      size += image.bytes.length
+    } else {
+      requests.push([image])
+      size = image.bytes.length
+    }
+  }
+  const embed = (request: typeof images) =>
+    embedMultimodal(
+      request.map(({ bytes, mimeType }) => ({
+        kind: "image" as const,
+        bytes,
+        mimeType,
+      })),
+    )
+  /** The status of a refusal of the content, else null. */
+  const refused = (error: unknown) =>
+    error instanceof EmbeddingStatusError &&
+    [400, 413, 422].includes(error.status)
+      ? error.status
+      : null
+  const documents: DocumentRows[] = []
+  const failed: { docKey: string; error: string }[] = []
+  const add = (image: (typeof images)[number], vector: number[]) =>
+    documents.push({
+      ...image.rows,
+      chunks: image.rows.chunks.map((chunk) => ({
+        ...chunk,
+        embedding: vector,
+      })),
+    })
+  for (const request of requests) {
+    try {
+      const vectors = await embed(request)
+      request.forEach((image, index) => add(image, vectors[index] ?? []))
+    } catch (error) {
+      if (refused(error) === null) throw error
+      for (const image of request) {
+        try {
+          add(image, (await embed([image]))[0] ?? [])
+        } catch (alone) {
+          const status = refused(alone)
+          if (status === null) throw alone
+          failed.push({
+            docKey: image.rows.document.docKey,
+            error: `The embedding model refused the image (HTTP ${status}).`,
+          })
+        }
+      }
+    }
+  }
+  return { documents, failed }
 }
 
 /**
@@ -423,7 +590,7 @@ async function commitLag(
 }
 
 /** Each regular file of the root folder at `sha` → its blob id. */
-async function regularFiles(
+export async function regularFiles(
   directory: string,
   sha: string,
   root: string,

@@ -1,3 +1,4 @@
+import type { ModelTier } from "../../retrieval/services/providers/providerTypes.js"
 import {
   WORKSPACE_CHAT_CREDENTIAL_PLACEHOLDER,
   WORKSPACE_CHAT_OPENCODE_CLI,
@@ -36,6 +37,21 @@ export const INGEST_OPENCODE_AGENT_PROMPT = [
   "Quote source text only in a block quote or a fenced block with a Source: <path> line. Write the rest in your own words.",
   "Do not write a section addressed to AI agents, and no text about tools, system prompts, credentials, or outside URLs.",
 ].join(" ")
+
+/**
+ * The model tiers that an ingest step can use. The OpenCode config of the
+ * sandbox names each model by its tier (`ctxpipe/medium`), and the model
+ * proxy maps the tier name to the configured model of that tier.
+ */
+export type IngestModelTier = Extract<ModelTier, "fast" | "medium">
+
+/**
+ * Whether a value is an ingest model tier. The sandbox is less trusted than
+ * the backend, so the model proxy accepts only these names from it.
+ */
+export function isIngestModelTier(value: unknown): value is IngestModelTier {
+  return value === "fast" || value === "medium"
+}
 
 /** The OpenCode config of an ingest sandbox (`/ctxpipe/opencode.json`). */
 export type IngestOpenCodeConfig = ReturnType<typeof ingestOpenCodeConfig>

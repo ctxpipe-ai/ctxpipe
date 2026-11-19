@@ -37,7 +37,7 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
      - `status`;
      - `deleted_at` and `error`;
      - `kind`, title, path, source type, source and summary;
-     - `s3_key` and `mime` for an image;
+     - `mime` for an image;
      - `valid_from`, `valid_to` and `observed_at`.
    - `chunks`: the sections of a document. It holds `ordinal`, `text`, the full vector and its binary form (the search is in [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md)), and a text index on `text`.
    - `relations`: `(src_doc, src_chunk, predicate, dst_doc)`, with confidence, validity, source and `observed_at`. It sorts by `src_doc`, for the outgoing relations.
@@ -50,15 +50,19 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
    - No stored value depends on another document, for example a degree or an in-degree.
    - Thus, a change to one file changes only the rows of that file.
    - Some links name their target by a key from the front matter of another file, for example a Linear identifier or an issue URL in a mirror file. Such a link targets that reference key. Each file states its own reference keys in `doc_refs` (decision 3), and the read resolves a key target through it. A key with no row is a `missing` target ([CTX-1400](https://linear.app/ctxpipe/issue/CTX-1400)). The `CHANGED` claims of a merged pull request work the same way.
+   - `relations.dst_doc` holds a key target as `ref:<key>`. A document key is a hash, so it never starts with `ref:`.
+   - A key target gets no stored `missing` placeholder (decision 7). The read gives a `missing` neighbor for it. Reason: a file names no Linear team, so each identifier in capitals (also `SHA-256`) is a key. A stored placeholder for each one would fill the `documents` table.
+   - A file cannot see which package roots exist. Thus a merged pull request has a `CHANGED` relation to each package whose root holds a changed file, and to its Repository. The old stack picks only the deepest root, and the Repository only for a file outside each root.
+   - A Linear URL key holds the Linear workspace of the URL, so a URL of another Linear workspace does not resolve. A Confluence URL key holds only the page id, because a mirror file does not name its site.
    - The `source_type` of a document is its source authority kind (`adr`, `merged-pr`, `docs`, `issue`, `open-pr`, `chat` or `other`), which the mapper takes from the file alone: its path, its kind and its own front matter. [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md) decision 4 ranks it ([CTX-1410](https://linear.app/ctxpipe/issue/CTX-1410)).
 6. **An image is a Git file like any other**, of kind `image`.
    - Its key is its path. A changed image file replaces its rows, and a removed image file becomes a tombstone, the same as any file.
    - A file that shows an image states only an `EMBEDS_IMAGE` relation to the image's path, with the alt text on the relation. If the image has no row, the target is a `missing` placeholder. Thus the rows of a file do not depend on the bytes of an image (decision 5).
-   - The bytes stay in the S3 artifacts bucket (local disk in self-host).
+   - The bytes stay only in the Workspace Git. There is no copy in object storage and no store setting (the CTO, 2026-11-19). The `s3_key` column is dropped ([CTX-1412](https://linear.app/ctxpipe/issue/CTX-1412)).
+     - The writer reads the bytes from Git at the tip of its run, and embeds them.
+     - The backend reads the bytes for Jev from the Workspace Git at the served SHA (`knowledge_state.last_sha`), by the image's path. It reads only the repository of the Workspace of the request, so no row can point it at the image of another org. It reads a blob from the Git object store (`<sha>:<path>`), and only when the tree entry is a regular file. It never reads a working-tree checkout, and it never follows a symlink or a submodule entry, because a Workspace writer can commit a symlink at an image path.
    - Each image has one chunk row. Its vector is the image embedding. Its text comes only from the bytes: the OCR text or a description, if the evals choose one, else empty.
-   - The projection makes each `s3_key` from the org, the Workspace and the SHA-256 of the bytes. It never takes a key from the content. The SHA-256 is used only in `s3_key`, because the key of an image is its path.
-   - An image type that the embedding model does not take (for example SVG) gets an `error` on its document. It is not a failed run.
-   - Before the backend reads image bytes (for example to send them to Jev), it checks that the key starts with the org and Workspace prefix of the request. Thus a row cannot point the backend at the image of another org.
+   - The embedding takes PNG and JPEG only. Any other image type (for example SVG) gets a `failed` document with the error. It is not a failed run ([CTX-1412](https://linear.app/ctxpipe/issue/CTX-1412)).
 7. **Document status.** Each document is one of four:
    - `active`;
    - `deleted`, a tombstone with `deleted_at`;

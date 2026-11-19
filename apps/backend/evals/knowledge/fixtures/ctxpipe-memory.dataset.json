@@ -1,0 +1,226 @@
+{
+  "version": "0-example",
+  "corpora": [
+    {
+      "id": "ctxpipe-memory",
+      "source": "ctxpipe-ai/ctxpipe .ai/memory",
+      "contextRepo": {
+        "url": "https://github.com/ctxpipe-ai/ctxpipe",
+        "sha": "bac8869156847225d1a5e1aaa2f79f5792d7d4ea"
+      },
+      "workspace": "ctxpipe-memory-v0"
+    }
+  ],
+  "questions": [
+    {
+      "id": "orm-dist-tag",
+      "corpus": "ctxpipe-memory",
+      "category": "lookup",
+      "split": "dev",
+      "text": "Which dist-tag of Drizzle ORM does the backend use?",
+      "gold": [".ai/memory/decisions/ADR-003-drizzle-beta.md"],
+      "keyFacts": [
+        "The backend uses the beta dist-tag of drizzle-orm and drizzle-kit."
+      ]
+    },
+    {
+      "id": "lint-format-tools",
+      "corpus": "ctxpipe-memory",
+      "category": "lookup",
+      "split": "dev",
+      "text": "Which tools replaced Biome for lint and format?",
+      "gold": [
+        ".ai/memory/decisions/ADR-056-oxlint-and-oxfmt-replace-biome.md"
+      ],
+      "keyFacts": ["Oxlint and Oxfmt replace Biome."]
+    },
+    {
+      "id": "local-dev-infra",
+      "corpus": "ctxpipe-memory",
+      "category": "disagreement",
+      "split": "dev",
+      "text": "How do we run the local development infrastructure with Docker Compose?",
+      "gold": [
+        ".ai/memory/decisions/ADR-004-local-development-docker-compose.md",
+        ".ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md"
+      ],
+      "seeds": [
+        ".ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md"
+      ],
+      "positions": [
+        {
+          "refs": [
+            ".ai/memory/decisions/ADR-004-local-development-docker-compose.md"
+          ],
+          "status": "superseded"
+        },
+        {
+          "refs": [
+            ".ai/memory/decisions/ADR-015-docker-compose-profiles-and-small-scale-deploy.md"
+          ],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "One docker-compose.yml uses profiles, and pnpm dev:infra starts the infra profile."
+      ]
+    },
+    {
+      "id": "agent-memory",
+      "corpus": "ctxpipe-memory",
+      "category": "disagreement",
+      "split": "dev",
+      "text": "How do coding agents keep durable local memory?",
+      "gold": [
+        ".ai/memory/decisions/ADR-021-local-agent-memory-agentmemory-hybrid-mcp-proxy.md",
+        ".ai/memory/decisions/ADR-024-markdown-only-local-memory-capture.md"
+      ],
+      "seeds": [
+        ".ai/memory/decisions/ADR-024-markdown-only-local-memory-capture.md"
+      ],
+      "positions": [
+        {
+          "refs": [
+            ".ai/memory/decisions/ADR-021-local-agent-memory-agentmemory-hybrid-mcp-proxy.md"
+          ],
+          "status": "superseded"
+        },
+        {
+          "refs": [
+            ".ai/memory/decisions/ADR-024-markdown-only-local-memory-capture.md"
+          ],
+          "status": "current"
+        }
+      ],
+      "keyFacts": [
+        "Durable agent memory is Markdown only under .ai/memory, with candidate-first capture."
+      ]
+    },
+    {
+      "id": "hosted-region",
+      "corpus": "ctxpipe-memory",
+      "category": "multi-hop",
+      "split": "dev",
+      "text": "Which decision replaced Railway compute in US East, and in which AWS region does hosted ctxpipe run now?",
+      "gold": [
+        ".ai/memory/decisions/ADR-029-railway-us-east-next-to-neon.md",
+        ".ai/memory/decisions/ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md"
+      ],
+      "seeds": [".ai/memory/decisions/ADR-029-railway-us-east-next-to-neon.md"],
+      "keyFacts": [
+        "ADR-061 replaces ADR-029.",
+        "Hosted ctxpipe runs in AWS us-west-2."
+      ]
+    },
+    {
+      "id": "projection-hydrate",
+      "corpus": "ctxpipe-memory",
+      "category": "cross-source",
+      "split": "dev",
+      "text": "What is a hydrate, and how does the knowledge projection apply a new commit?",
+      "gold": [
+        ".ai/memory/glossary.md",
+        ".ai/memory/decisions/ADR-067-knowledge-projection-applies-git-diff.md"
+      ],
+      "keyFacts": [
+        "A hydrate rebuilds the projection from a workspace-repository tree and never writes the repository.",
+        "The knowledge projection applies the Git diff from last_sha."
+      ]
+    },
+    {
+      "id": "billing-provider",
+      "corpus": "ctxpipe-memory",
+      "category": "no-answer",
+      "split": "dev",
+      "text": "Which payment provider does ctxpipe use to bill customers?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "image-deploys-october",
+      "corpus": "ctxpipe-memory",
+      "category": "time",
+      "split": "dev",
+      "text": "In October 2026, how did production image deploys work?",
+      "gold": [
+        ".ai/memory/decisions/ADR-039-production-image-deploys-one-environment.md"
+      ],
+      "validAt": "2026-10-01T00:00:00Z",
+      "keyFacts": [
+        "Production image deploys stayed on one Railway environment."
+      ]
+    },
+    {
+      "id": "ops-observability",
+      "corpus": "ctxpipe-memory",
+      "category": "disagreement",
+      "split": "holdout",
+      "text": "Which stack holds ops observability: Amplitude, self-hosted ClickStack and Langfuse, or HyperDX on AWS?",
+      "gold": [
+        ".ai/memory/decisions/ADR-017-amplitude-analytics.md",
+        ".ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md",
+        ".ai/memory/decisions/ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md"
+      ],
+      "seeds": [
+        ".ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md"
+      ],
+      "positions": [
+        {
+          "refs": [".ai/memory/decisions/ADR-017-amplitude-analytics.md"],
+          "status": "superseded"
+        },
+        {
+          "refs": [
+            ".ai/memory/decisions/ADR-038-self-hosted-clickstack-langfuse.md"
+          ],
+          "status": "superseded"
+        },
+        {
+          "refs": [
+            ".ai/memory/decisions/ADR-061-hosted-ctxpipe-on-aws-behind-cloudflare.md"
+          ],
+          "status": "current"
+        }
+      ],
+      "keyFacts": ["Hosted ctxpipe uses HyperDX only, on AWS."]
+    },
+    {
+      "id": "knowledge-store",
+      "corpus": "ctxpipe-memory",
+      "category": "multi-hop",
+      "split": "holdout",
+      "text": "Which store replaces FalkorDB for knowledge content, and how does it keep orgs apart?",
+      "gold": [
+        ".ai/memory/decisions/ADR-010-opencypher-graph-db-falkordb-default.md",
+        ".ai/memory/decisions/ADR-066-knowledge-content-in-clickhouse.md"
+      ],
+      "seeds": [
+        ".ai/memory/decisions/ADR-010-opencypher-graph-db-falkordb-default.md"
+      ],
+      "keyFacts": [
+        "ClickHouse replaces FalkorDB for knowledge content.",
+        "Org isolation is a WHERE clause and a row policy."
+      ]
+    },
+    {
+      "id": "oncall-rotation",
+      "corpus": "ctxpipe-memory",
+      "category": "no-answer",
+      "split": "holdout",
+      "text": "Who is on call for the codesearch service this week?",
+      "gold": [],
+      "keyFacts": []
+    },
+    {
+      "id": "memory-mcp",
+      "corpus": "ctxpipe-memory",
+      "category": "lookup",
+      "split": "holdout",
+      "text": "Is there a memory MCP server for local agent memory?",
+      "gold": [
+        ".ai/memory/decisions/ADR-024-markdown-only-local-memory-capture.md"
+      ],
+      "keyFacts": ["Local agent memory has no embeddings and no memory MCP."]
+    }
+  ]
+}

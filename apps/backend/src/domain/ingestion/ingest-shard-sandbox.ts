@@ -30,7 +30,6 @@ import {
   lockedSandboxProvider,
 } from "../workspaces/sandbox-provider.js"
 import { workspaceChatCompletionsPath } from "../workspaces/workspace-chat-model-proxy.js"
-import { workspaceChatOpenCodeContract } from "../workspaces/workspace-chat-opencode-contract.js"
 import {
   mintWorkspaceIngestRunCapability,
   mintWorkspaceIngestToolsCapability,
@@ -38,7 +37,10 @@ import {
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
 import { stepContextIndex } from "./context-index.js"
 import { holdScratch, releaseScratch } from "./held-scratch.js"
-import { ingestOpenCodeConfig } from "./ingest-opencode.js"
+import {
+  type IngestModelTier,
+  ingestOpenCodeConfig,
+} from "./ingest-opencode.js"
 import {
   assertIngestProvider,
   collectIngestStep,
@@ -82,15 +84,6 @@ import { runGit } from "./run-git.js"
  * Docker and AgentCore: the shard's Agent Vault adds each credential, and
  * the provider refuses a host where traffic is not forced through the vault.
  */
-
-/** Model names for the tiers that the skill plan uses. */
-function ingestModels() {
-  const medium = workspaceChatOpenCodeContract(process.env, "medium")
-  const fast = workspaceChatOpenCodeContract(process.env, "fast")
-  if (!medium.ok) throw new Error(medium.error)
-  if (!fast.ok) throw new Error(fast.error)
-  return { medium: medium.modelBase, fast: fast.modelBase }
-}
 
 /**
  * The projection read of a step index. A workflow step has no request org, so
@@ -365,6 +358,8 @@ async function shardSandbox(
 }
 
 function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
+  // The tier of a model step with no tier, and the OpenCode default model.
+  const defaultTier: IngestModelTier = "medium"
   const firstWorkspace = spec.destinations[0]?.workspaceId
   if (!firstWorkspace) throw new Error("An ingest shard needs a destination")
   const target = {
@@ -437,12 +432,11 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
             return { handle, root, agentEnv }
           },
           prepare: async ({ handle, root, agentEnv }) => {
-            const models = ingestModels()
             await prepareIngestShard(handle, root, {
               bundle: spec.bundle,
               opencodeConfig: ingestOpenCodeConfig({
-                modelBase: models.medium,
-                models: [models.fast],
+                modelBase: defaultTier,
+                models: ["fast" satisfies IngestModelTier],
                 skills: spec.bundle.skills,
                 proxyAddsCredentials: true,
                 toolBridgeUrl: egress.bridge.url,
@@ -488,7 +482,6 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
       withShard(
         step.name,
         async ({ handle, root, agentEnv, signal }) => {
-          const models = step.run === "model" ? ingestModels() : undefined
           const destination = spec.destinations.find(
             (d) => d.workspaceId === step.workspaceId,
           )
@@ -506,10 +499,8 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
             sourceUrl: spec.source.url,
             sourcePath: destination.sourcePath,
             index: json,
-            ...(models
-              ? {
-                  model: `ctxpipe/${step.tier === "fast" ? models.fast : models.medium}`,
-                }
+            ...(step.run === "model"
+              ? { model: `ctxpipe/${step.tier ?? defaultTier}` }
               : {}),
           })
           return {

@@ -10,11 +10,13 @@ import {
 import { knowledgeChunkRows } from "../domain/workspaces/knowledge-chunks.js"
 import { imageContentType } from "../domain/workspaces/raw-file.js"
 import { workspaceGraphNodes } from "../domain/workspaces/workspace-graph.js"
-import type {
-  DocumentRows,
-  KnowledgeChunk,
-  KnowledgeRelation,
+import {
+  type DocumentRows,
+  type KnowledgeChunk,
+  type KnowledgeRelation,
+  REFERENCE_TARGET_PREFIX,
 } from "../knowledge-store/knowledge-store.js"
+import type { FileReferences } from "./reference-keys.js"
 
 /** The rows of one document before the embedding step adds the vectors. */
 export type UnembeddedDocumentRows = Omit<DocumentRows, "chunks"> & {
@@ -31,10 +33,13 @@ export type UnembeddedDocumentRows = Omit<DocumentRows, "chunks"> & {
  * A relation does not need a target row. Its target is the document key of
  * the resolved path, and the read resolves it (ADR-066 decision 5). Each
  * shown image has an `EMBEDS_IMAGE` relation to the key of its path. The
- * image document comes from the image file (`imageRows`).
+ * image document comes from the image file (`imageRows`). A link or a claim
+ * that names a reference key targets the key (`ref:<key>`), and the
+ * document states its own keys (`refKeys`).
  *
- * The rows depend only on the unit. Give a unit from `parseKnowledgeFile`,
- * which parses one file alone (CTX-1400), and after
+ * The rows depend only on the unit and its references. Give a unit and its
+ * references from `parseKnowledgeFile`, which parses one file alone
+ * (CTX-1400), and the unit after
  * `applyEffectiveValidFromToUnits`. A validity bound that is not a time (for
  * example a Git SHA) becomes null.
  */
@@ -47,6 +52,8 @@ export function knowledgeRows(input: {
    * target. Without it, a URL has no target.
    */
   blobPath?: (url: string) => string | null
+  /** The reference keys of the file (`parseKnowledgeFile`). */
+  references: FileReferences
   observedAt: Date
 }): UnembeddedDocumentRows {
   const { workspaceId, unit, observedAt } = input
@@ -99,25 +106,34 @@ export function knowledgeRows(input: {
     ),
   )
   /**
-   * The image targets of a text: inline and reference-style images, outside
-   * fenced code.
+   * The image references of a text, with their alt texts: inline and
+   * reference-style images, outside fenced code.
    */
   const imagesOf = (raw: string) => {
     const text = withoutFencedCode(raw)
     return [
-      ...Array.from(text.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g), (m) => m[1]),
+      ...Array.from(text.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g), (m) => ({
+        alt: m[1] ?? "",
+        href: m[2],
+      })),
       ...Array.from(
         text.matchAll(/!\[([^\]]*)\](?:\[([^\]]*)\]|(?![([]))/g),
-        (m) => definitions.get((m[2] || m[1] || "").toLowerCase()),
+        (m) => ({
+          alt: m[1] ?? "",
+          href: definitions.get((m[2] || m[1] || "").toLowerCase()),
+        }),
       ),
-    ].flatMap((href) => {
+    ].flatMap(({ alt, href }) => {
       const target = href ? targetOf(href) : ""
-      return target && imageContentType(target) ? [target] : []
+      return target && imageContentType(target)
+        ? [{ target, alt: alt.replace(/\s+/g, " ").trim() }]
+        : []
     })
   }
-  const chunkLinks = chunks.map((chunk) => [
+  const chunkImages = chunks.map((chunk) => imagesOf(chunk.text))
+  const chunkLinks = chunks.map((chunk, index) => [
     ...markdownLinks(chunk.text).map(targetOf),
-    ...imagesOf(chunk.text),
+    ...(chunkImages[index] ?? []).map((image) => image.target),
   ])
   // A claim is in the front matter, so no chunk states it, and a mirror
   // reference link is in no Markdown link of the body. Such a relation takes
@@ -128,19 +144,26 @@ export function knowledgeRows(input: {
       chunkLinks.findIndex((targets) => targets.includes(target)),
     )
 
-  const images = new Set(imagesOf(unit.body))
+  // Each shown image with each of its alt texts, outside fenced code of the
+  // whole body.
+  const imageKey = (image: { target: string; alt: string }) =>
+    JSON.stringify([image.target, image.alt])
+  const images = new Map(
+    imagesOf(unit.body).map((image) => [imageKey(image), image]),
+  )
+  const shown = new Set([...images.values()].map(({ target }) => target))
 
-  // The target is a Workspace path now. CTX-1400 adds a reference key (for
-  // example a Linear identifier) that the read resolves.
+  // The target is a Workspace path. A reference key target comes below.
   const relation = (
     target: string,
     row: Pick<KnowledgeRelation, "predicate" | "confidence" | "source"> &
-      Partial<Pick<KnowledgeRelation, "validFrom" | "validTo">>,
+      Partial<Pick<KnowledgeRelation, "validFrom" | "validTo" | "altText">>,
   ): Omit<KnowledgeRelation, "srcDoc"> => ({
     srcChunk: chunkOf(target),
     dstDoc: keyOf(target),
     validFrom: null,
     validTo: null,
+    altText: "",
     observedAt,
     ...row,
   })
@@ -152,7 +175,7 @@ export function knowledgeRows(input: {
     const target =
       entry.from === "claim" ? entry.target : withoutTitle(entry.target)
     if (entry.from === "link") {
-      if (images.has(target) || linked.has(target)) return []
+      if (shown.has(target) || linked.has(target)) return []
       linked.add(target)
     }
     return [
@@ -166,16 +189,56 @@ export function knowledgeRows(input: {
     ]
   })
 
-  for (const target of images)
-    relations.push(
-      relation(target, {
-        predicate: "EMBEDS_IMAGE",
-        confidence: 1,
-        source: "git",
-      }),
-    )
+  // One relation for each image and alt text in each chunk that shows it.
+  // Two references with the same alt text in one chunk give one relation. A
+  // reference that no chunk has takes the first chunk that links to the
+  // image.
+  const imageRelation = (
+    image: { target: string; alt: string },
+    srcChunk: number,
+  ) => ({
+    ...relation(image.target, {
+      predicate: "EMBEDS_IMAGE",
+      confidence: 1,
+      source: "git",
+      altText: image.alt,
+    }),
+    srcChunk,
+  })
+  const placed = new Set<string>()
+  chunkImages.forEach((list, index) => {
+    for (const key of new Set(list.map(imageKey))) {
+      const image = images.get(key)
+      if (!image) continue
+      placed.add(key)
+      relations.push(imageRelation(image, index))
+    }
+  })
+  for (const [key, image] of images)
+    if (!placed.has(key))
+      relations.push(imageRelation(image, chunkOf(image.target)))
+
+  for (const link of input.references.links)
+    relations.push({
+      srcChunk: Math.max(
+        0,
+        link.text
+          ? chunks.findIndex((chunk) => chunk.text.includes(link.text))
+          : 0,
+      ),
+      predicate: link.predicate,
+      dstDoc: `${REFERENCE_TARGET_PREFIX}${link.key}`,
+      confidence: 1,
+      validFrom: dateOrNull(normalizeValidityBound(link.validFrom)),
+      validTo: null,
+      altText: "",
+      observedAt,
+      // A `CHANGED` claim comes from the GitHub pull request mirror.
+      source: link.predicate === "CHANGED" ? "github" : "git",
+    })
 
   return {
+    refKeys: input.references.keys,
     document: {
       ...documentDefaults(observedAt),
       docKey: unit.servingId,
@@ -191,20 +254,15 @@ export function knowledgeRows(input: {
 }
 
 /**
- * The rows of the `image` document of the image file at `path`, whose bytes
- * have the SHA-256 `hash` (hex). Only the hash makes the S3 key, never text
- * from a file (ADR-066 decision 6).
+ * The rows of the `image` document of the image file at `path`. Its key is
+ * its path, and its bytes stay in the Workspace Git (ADR-066 decision 6).
  */
 export function imageRows(input: {
-  orgId: string
   workspaceId: string
   path: string
-  hash: string
   observedAt: Date
 }): UnembeddedDocumentRows {
-  const { path, hash, observedAt } = input
-  if (!/^[0-9a-f]{64}$/.test(hash))
-    throw new Error(`The image hash of ${path} is not a SHA-256 hex digest`)
+  const { path, observedAt } = input
   return {
     document: {
       ...documentDefaults(observedAt),
@@ -213,9 +271,6 @@ export function imageRows(input: {
       title: path.slice(path.lastIndexOf("/") + 1),
       path,
       sourceType: sourceAuthority({ path }),
-      s3Key: `${input.orgId}/${input.workspaceId}/${hash}`,
-      // The embedding step reads the type, and it decides how to send a
-      // type that the model does not take (for example SVG).
       mime: imageContentType(path) ?? "",
     },
     // The image embedding is the vector of this chunk. Its text stays empty:
@@ -280,7 +335,6 @@ function documentDefaults(observedAt: Date) {
   return {
     source: "",
     summary: "",
-    s3Key: "",
     mime: "",
     validFrom: null,
     validTo: null,
