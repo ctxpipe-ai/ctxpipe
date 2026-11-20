@@ -9,22 +9,23 @@ import {
 } from "../../src/retrieval/embeddings/textEmbeddings.js"
 import { JEV_MODEL } from "../../src/retrieval/jev/client.js"
 import { judgeLayer } from "../../src/retrieval/jev/layer-judge.js"
-import { ZDR_PROVIDER } from "../../src/retrieval/services/modelProvider.js"
+import {
+  isAllowedProvider,
+  openRouterProvider,
+} from "../../src/retrieval/services/openRouterProvider.js"
 import { percentile } from "./metrics.js"
 import type { ModelCalls } from "./model-calls.js"
 import { readZdrList, withChangedBody } from "./probe.js"
 
 /*
  * The latency of the model calls of a plane search (ADR-068), for a decision
- * of the CTO on the time budget. Each call goes only to a ZDR endpoint
- * (ADR-068 decision 7). The command sends fixed public texts only, one
+ * of the CTO on the time budget. Each call goes only to a ZDR endpoint of
+ * an allowed provider (ADR-070). The command sends fixed public texts only, one
  * sample at a time, so that each latency is the latency of one request:
  *
  * - the query embedding of the plane through the real client, with no pin
  *   (as production sends it), and pinned to each ZDR endpoint of the model
  *   for the measurement only;
- * - a hedged query embedding: the request of the client to two endpoints at
- *   once, and the first answer;
  * - the query embedding of the other text embedding models with a ZDR
  *   endpoint, with no pin, and pinned to each of its ZDR endpoints;
  * - Jev with the request of the layer judge (10 candidates);
@@ -60,26 +61,23 @@ function servedBy(calls: ModelCalls): string | undefined {
 
 /**
  * Run `call` `runs` times, one after the other, and keep each latency: the
- * time until `call` gives its answer. Then wait for `settle` of the answer
- * (the calls that are still in flight) before the next sample.
+ * time until `call` gives its answer.
  */
 async function sample(
   runs: number,
   calls: ModelCalls,
-  call: () => Promise<{ settle?: Promise<unknown> } | unknown>,
+  call: () => Promise<unknown>,
 ): Promise<Measure["samples"]> {
   const samples: Measure["samples"] = []
   for (let run = 0; run < runs && !calls.stopped; run++) {
     const started = performance.now()
     try {
-      const answer = await call()
+      await call()
       samples.push({
         ms: performance.now() - started,
         ok: true,
         servedBy: servedBy(calls),
       })
-      if (answer && typeof answer === "object" && "settle" in answer)
-        await answer.settle
     } catch (error) {
       samples.push({
         ms: performance.now() - started,
@@ -110,7 +108,10 @@ export async function measureLatency(input: {
     if (!response.ok) throw new Error(`GET ${path}: HTTP ${response.status}`)
     return response.json() as Promise<unknown>
   }
-  const zdr = await readZdrList(base)
+  // Only the endpoints of the allowed providers (ADR-070).
+  const zdr = (await readZdrList(base)).filter((endpoint) =>
+    isAllowedProvider(endpoint.tag),
+  )
   const tagsOf = (model: string) =>
     zdr
       .filter((endpoint) => endpoint.model_id === model)
@@ -155,11 +156,11 @@ export async function measureLatency(input: {
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${text}`)
   }
   /**
-   * The provider block of the measurement: the ZDR fields, and one endpoint
-   * tag with no fallback. The tag also fixes the quantization.
+   * The provider block of the measurement: the provider block of ADR-070,
+   * and one endpoint tag with no fallback.
    */
   const pin = (tag: string) => ({
-    ...ZDR_PROVIDER,
+    ...openRouterProvider(),
     only: [tag],
     allow_fallbacks: false,
   })
@@ -177,27 +178,22 @@ export async function measureLatency(input: {
   })
 
   // The query embedding of the plane through the real client.
-  const qwen = textEmbeddingConfig.model
-  const qwenTags = tagsOf(qwen)
-  const qwenPrice = await pricesOf(qwen)
+  const plane = textEmbeddingConfig.model
+  const planeTags = tagsOf(plane)
+  const planePrice = await pricesOf(plane)
   measures.push({
     name: "plane query embedding, production request",
-    model: qwen,
+    model: plane,
     provider: "routing",
-    usdPer1MTokens: qwenPrice(qwenTags),
+    usdPer1MTokens: planePrice(planeTags),
     samples: await sample(runs, calls, () => embedQuery(QUERY)),
   })
-  // The hedge sends the body of the last production sample, which the
-  // recorder kept: no extra call captures it.
-  const clientBody = calls.records.findLast(
-    (record) => record.kind === "embedding",
-  )?.request
-  for (const tag of qwenTags)
+  for (const tag of planeTags)
     measures.push({
       name: "plane query embedding, pinned",
-      model: qwen,
+      model: plane,
       provider: tag,
-      usdPer1MTokens: qwenPrice([tag]),
+      usdPer1MTokens: planePrice([tag]),
       // The query path makes one attempt, so that an error counts.
       samples: await sample(runs, calls, () =>
         withChangedBody(
@@ -207,31 +203,6 @@ export async function measureLatency(input: {
       ),
     })
 
-  // The hedged request: the body of the client to two endpoints at once,
-  // at the quantizations that production allows.
-  const hedge = zdr
-    .filter(
-      (endpoint) =>
-        endpoint.model_id === qwen &&
-        textEmbeddingConfig.quantizations.includes(endpoint.quantization),
-    )
-    .map((endpoint) => endpoint.tag)
-    .slice(0, 2)
-  if (hedge.length === 2 && clientBody && typeof clientBody === "object")
-    measures.push({
-      name: "plane query embedding, hedged (first of two)",
-      model: qwen,
-      provider: hedge.join(" + "),
-      usdPer1MTokens: `2 × ${qwenPrice(hedge)}`,
-      samples: await sample(runs, calls, async () => {
-        const requests = hedge.map((tag) =>
-          post({ ...clientBody, provider: pin(tag) }),
-        )
-        await Promise.any(requests)
-        return { settle: Promise.allSettled(requests) }
-      }),
-    })
-
   // The other text embedding models with a ZDR endpoint.
   const others = [
     ...new Set(
@@ -239,7 +210,7 @@ export async function measureLatency(input: {
         .map((endpoint) => endpoint.model_id)
         .filter(
           (model) =>
-            /embed/.test(model) && !/image/.test(model) && model !== qwen,
+            /embed/.test(model) && !/image/.test(model) && model !== plane,
         ),
     ),
   ].sort()
@@ -253,7 +224,7 @@ export async function measureLatency(input: {
       provider: `routing (${tags.join(", ")})`,
       usdPer1MTokens: price(tags),
       samples: await sample(runs, calls, () =>
-        post({ ...body, provider: ZDR_PROVIDER }),
+        post({ ...body, provider: openRouterProvider() }),
       ),
     })
     for (const tag of tags)

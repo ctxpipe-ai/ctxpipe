@@ -1,12 +1,11 @@
 import type { ModelParams } from "../modelParams.js"
+import { DEFAULT_OPENROUTER_BASE } from "../openRouterProvider.js"
 import { openAiHostAdapter } from "./openAiHostAdapter.js"
 import type {
   OpenAiCompatibleFetch,
   ProviderCallOpts,
   ProviderCallResult,
 } from "./providerTypes.js"
-
-const DEFAULT_OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
 function isNonEmptyRecord(value: Record<string, unknown>): boolean {
   return Object.keys(value).length > 0

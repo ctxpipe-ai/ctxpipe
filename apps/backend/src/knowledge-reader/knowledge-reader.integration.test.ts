@@ -33,11 +33,7 @@ import {
 } from "../models/knowledge-state.js"
 import { textEmbeddingConfig } from "../retrieval/embeddings/textEmbeddings.js"
 import { startClickHouse, userUrl } from "../test/clickhouse.js"
-import {
-  embedText,
-  planeInputVector,
-  planeVector,
-} from "../test/knowledge-search-fixture.js"
+import { embedText, planeVector } from "../test/knowledge-search-fixture.js"
 import {
   callTool,
   connectToolClient,
@@ -82,8 +78,12 @@ let planeEmbeddings = 0
 
 const models = setupServer(
   http.post(`${MODEL_URL}/embeddings`, async ({ request }) => {
-    const body = (await request.json()) as { model: string; input: string[] }
-    const plane = body.model === textEmbeddingConfig.model
+    const body = (await request.json()) as {
+      input: string[]
+      dimensions?: number
+    }
+    // Both stacks use one model; the plane asks for its own dimension.
+    const plane = body.dimensions === textEmbeddingConfig.dimensions
     if (plane) planeEmbeddings += 1
     if (slowEmbedding && plane) await delay(5_000)
     if (embeddingFailure && plane)
@@ -91,7 +91,7 @@ const models = setupServer(
     return HttpResponse.json({
       data: body.input.map((input, index) => ({
         index,
-        embedding: plane ? planeInputVector(input) : embedText(input),
+        embedding: plane ? planeVector(input) : embedText(input),
       })),
     })
   }),

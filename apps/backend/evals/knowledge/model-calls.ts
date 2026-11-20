@@ -3,7 +3,6 @@ import { createHash } from "node:crypto"
 import { z } from "zod"
 
 import { gatewayCost } from "../../src/observability/gatewayCost.js"
-import { ZDR_PROVIDER } from "../../src/retrieval/services/modelProvider.js"
 
 /*
  * The model calls of an eval run: Jev, the embedding endpoints of both
@@ -14,12 +13,11 @@ import { ZDR_PROVIDER } from "../../src/retrieval/services/modelProvider.js"
  * - keeps each Jev and embedding request and its raw answer, so that a later
  *   run can replay them with no new call (`rescore`);
  * - counts the calls and the cost of each arm and question;
- * - stops at the spend cap;
- * - with `addZdr`, adds the ZDR provider block of ADR-068 decision 7 to a
- *   request that has no provider block, so that each call of the run goes
- *   only to a ZDR endpoint. A model with no ZDR endpoint then refuses the
- *   call, and it does not fall back. The old stack sends no provider block,
- *   so only its calls change. `zdrAdded` counts the changed calls.
+ * - stops at the spend cap.
+ *
+ * It does not change a request. Each client sends the provider block of
+ * ADR-070 itself, and `openRouterProvider.test.ts` proves it for each
+ * client.
  */
 
 type CallKind = "jev" | "embedding" | "chat" | "vision"
@@ -75,7 +73,7 @@ const RESERVED_COST_USD: Record<CallKind, number> = {
 
 /**
  * The reservation of an embedding call grows with its input: a batch of the
- * hydrate holds up to 64 chunks. $0.5 for each million UTF-8 bytes is above
+ * hydrate holds up to 300,000 bytes (`maxBatchBytes`). $0.5 for each million UTF-8 bytes is above
  * the price of each embedding model of the stacks for each million tokens,
  * and each token holds at least one byte.
  */
@@ -96,12 +94,6 @@ function reservationOf(kind: CallKind, body: string): number {
 }
 
 const answerSchema = z.object({ usage: z.unknown() }).partial()
-
-/** The fields of a model request that the ZDR rule reads. */
-const requestBodySchema = z.looseObject({
-  model: z.string().optional(),
-  provider: z.record(z.string(), z.unknown()).nullish(),
-})
 
 /** The arm, the question and the counts that a call belongs to. */
 type Owner = { arm: string; question: string; counts: CallCounts }
@@ -152,11 +144,6 @@ export class ModelCalls {
   spentUsd = 0
   /** True after the spend cap stopped a call. Each later call stops too. */
   stopped = false
-  /**
-   * With `addZdr`: the calls that got the ZDR provider block, by the arm,
-   * the kind and the model of the call (`legacy embedding openai/…`).
-   */
-  readonly zdrAdded: Record<string, number> = {}
   /** The reserved cost of the calls that are in flight. */
   private reservedUsd = 0
   private readonly inFlight = new Set<Promise<Response>>()
@@ -175,7 +162,6 @@ export class ModelCalls {
     private readonly capUsd: number,
     replay?: readonly RecordedCall[],
     private readonly options: {
-      addZdr?: boolean
       /** False: count and cap the calls, but keep no record of them. */
       keepRecords?: boolean
     } = {},
@@ -194,7 +180,6 @@ export class ModelCalls {
       capUsd: this.capUsd,
       spentUsd: this.spentUsd,
       stopped: this.stopped,
-      zdrAdded: { ...this.zdrAdded },
     }
   }
 
@@ -264,14 +249,11 @@ export class ModelCalls {
       return unavailable("The spend cap of the eval run is spent.")
     }
     this.reservedUsd += reserved
-    const sent = this.options.addZdr
-      ? this.withZdr(request, body, kind, owner)
-      : { request, body }
     const started = performance.now()
     let response: Response
     let text: string
     try {
-      response = await next(sent.request)
+      response = await next(request)
       text = await response.text()
     } catch (error) {
       // The provider can charge a call that failed on the way back.
@@ -298,7 +280,7 @@ export class ModelCalls {
         question: owner.question,
         kind,
         key,
-        request: parseOr(sent.body, sent.body),
+        request: parseOr(body, body),
         status: response.status,
         response: text,
         costUsd,
@@ -313,44 +295,6 @@ export class ModelCalls {
           response.headers.get("content-type") ?? "application/json",
       },
     })
-  }
-
-  /**
-   * The request with the ZDR provider block, when its JSON body does not
-   * set both of its fields. The block goes over the fields of a provider
-   * block of the request. The replay key stays the key of the body of the
-   * reader, so a replay finds the call.
-   */
-  private withZdr(
-    request: Request,
-    body: string,
-    kind: CallKind,
-    owner: Owner,
-  ): { request: Request; body: string } {
-    const parsed = requestBodySchema.safeParse(parseOr(body, null)).data
-    if (!parsed) return { request, body }
-    const provider = parsed.provider ?? {}
-    if (
-      provider.zdr === ZDR_PROVIDER.zdr &&
-      provider.data_collection === ZDR_PROVIDER.data_collection
-    )
-      return { request, body }
-    const changed = JSON.stringify({
-      ...parsed,
-      provider: { ...provider, ...ZDR_PROVIDER },
-    })
-    const model = parsed.model ?? "unknown"
-    const name = `${owner.arm} ${kind} ${model}`
-    this.zdrAdded[name] = (this.zdrAdded[name] ?? 0) + 1
-    return {
-      request: new Request(request.url, {
-        method: request.method,
-        headers: request.headers,
-        body: changed,
-        signal: request.signal,
-      }),
-      body: changed,
-    }
   }
 
   /**
