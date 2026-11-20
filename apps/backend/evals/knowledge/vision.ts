@@ -574,7 +574,7 @@ export async function runVision(input: {
       }
       input.calls.begin(model, fixture.name)
       const started = performance.now()
-      const read = await readImage(fixture.image, { models: [model] }).catch(
+      const read = await readImage(fixture.image, { model }).catch(
         (error: unknown) =>
           error instanceof Error ? error : new Error(String(error)),
       )

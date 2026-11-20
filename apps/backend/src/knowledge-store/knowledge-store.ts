@@ -276,15 +276,14 @@ export type KnowledgeStore = {
     embeddingKeys: string[],
   ): Promise<Map<string, number[]>>
   /**
-   * The stored reading of each image blob of `blobShas` for the prompt
-   * version `promptVersion` (CTX-1433), in the Workspace of `scope` only.
-   * A blob with readings of more than one model of `models` gets the
-   * reading of the first such model in `models`.
+   * The stored reading of each image blob of `blobShas` by the vision model
+   * `model` with the prompt version `promptVersion` (CTX-1433), in the
+   * Workspace of `scope` only.
    */
   readImageTexts(
     scope: KnowledgeScope,
     blobShas: string[],
-    models: readonly string[],
+    model: string,
     promptVersion: number,
   ): Promise<Map<string, ImageTextRow>>
   /** Stores the readings `rows` for the Workspace of `scope`. */
@@ -359,8 +358,8 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     listDocumentKeys: (scope) => listDocumentKeys(client, scope),
     readEmbeddings: (scope, docKeys, embeddingKeys) =>
       readEmbeddings(client, scope, docKeys, embeddingKeys),
-    readImageTexts: (scope, blobShas, models, promptVersion) =>
-      readImageTexts(client, scope, blobShas, models, promptVersion),
+    readImageTexts: (scope, blobShas, model, promptVersion) =>
+      readImageTexts(client, scope, blobShas, model, promptVersion),
     writeImageTexts: (scope, rows) => writeImageTexts(client, scope, rows),
     listUnresolvedReferences: (scope) =>
       listUnresolvedReferences(client, scope),
@@ -703,26 +702,22 @@ async function readImageTexts(
   client: ClickHouseClient,
   scope: KnowledgeScope,
   blobShas: string[],
-  models: readonly string[],
+  model: string,
   promptVersion: number,
 ): Promise<Map<string, ImageTextRow>> {
   const found = new Map<string, ImageTextRow>()
-  if (models.length === 0) return found
   for (const slice of slices([...new Set(blobShas)].filter(Boolean)))
     for (const row of await select<ImageTextRow>(
       client,
       scope,
-      // The first model of `models` wins: the same blob gives the same text
-      // on each run. FINAL keeps one row of a key that was written twice.
+      // FINAL keeps one row of a key that was written twice.
       `SELECT blob_sha AS blobSha, model, prompt_version AS promptVersion,
               reading
        FROM image_texts FINAL
        WHERE ${scoped} AND blob_sha IN {blobShas:Array(String)}
-         AND model IN {models:Array(String)}
-         AND prompt_version = {promptVersion:UInt32}
-       ORDER BY blobSha, indexOf({models:Array(String)}, model)
-       LIMIT 1 BY blobSha`,
-      { blobShas: slice, models: [...models], promptVersion },
+         AND model = {model:String}
+         AND prompt_version = {promptVersion:UInt32}`,
+      { blobShas: slice, model, promptVersion },
     ))
       found.set(row.blobSha, row)
   return found

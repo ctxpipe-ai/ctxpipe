@@ -338,7 +338,7 @@ describe("image_texts (CTX-1433)", () => {
             ...(await store.readImageTexts(
               scope,
               ["sha1", "sha2"],
-              ["m/a"],
+              "m/a",
               version,
             )),
           ].map(([sha, text]) => [sha, text.reading]),
@@ -352,27 +352,26 @@ describe("image_texts (CTX-1433)", () => {
     }
   })
 
-  it("gives the reading of the first model of the list, and one row for a key written twice", async () => {
+  it("gives the reading of the model only, and one row for a key written twice", async () => {
     const store = createKnowledgeStore(await freshDatabase())
     try {
       await store.writeImageTexts(orgA, [
-        row("sha1", "m/fallback", "from the fallback"),
-        row("sha2", "m/fallback", "only the fallback"),
+        row("sha1", "m/old", "from the old model"),
+        row("sha2", "m/old", "only the old model"),
       ])
-      await store.writeImageTexts(orgA, [row("sha1", "m/first", "first")])
-      await store.writeImageTexts(orgA, [row("sha1", "m/first", "first")])
+      await store.writeImageTexts(orgA, [row("sha1", "m/new", "new")])
+      await store.writeImageTexts(orgA, [row("sha1", "m/new", "new")])
       const texts = await store.readImageTexts(
         orgA,
         ["sha1", "sha2"],
-        ["m/first", "m/fallback"],
+        "m/new",
         1,
       )
       expect(Object.fromEntries(texts)).toEqual({
-        sha1: row("sha1", "m/first", "first"),
-        sha2: row("sha2", "m/fallback", "only the fallback"),
+        sha1: row("sha1", "m/new", "new"),
       })
       expect(
-        (await store.readImageTexts(orgA, ["sha1"], ["m/other"], 1)).size,
+        (await store.readImageTexts(orgA, ["sha1"], "m/other", 1)).size,
       ).toBe(0)
     } finally {
       await store.close()

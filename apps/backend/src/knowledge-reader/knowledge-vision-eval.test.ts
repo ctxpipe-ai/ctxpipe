@@ -287,18 +287,18 @@ describe("runVision", () => {
       http.post(`${BASE}/chat/completions`, async ({ request }) => {
         const body = z
           .object({
-            models: z.array(z.string()),
+            model: z.string(),
             messages: z.array(z.unknown()),
           })
           .parse(await request.json())
         bodies.push(body)
-        if (body.models[0] === "vendor/broken")
+        if (body.model === "vendor/broken")
           return HttpResponse.json({ error: {} }, { status: 400 })
         const url = JSON.stringify(body.messages).match(
           /base64,([A-Za-z0-9+/=]+)/,
         )?.[1]
         return HttpResponse.json({
-          model: body.models[0],
+          model: body.model,
           provider: "Alpha",
           choices: [
             {

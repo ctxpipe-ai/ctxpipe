@@ -163,7 +163,7 @@ const completion = (reading: ImageReading) =>
 describe("readImage", () => {
   const image = { bytes: Buffer.from("png-bytes"), mimeType: "image/png" }
 
-  it("sends a ZDR request with the fallback models and no provider pin, and returns the reading, the model that answered and the cost", async () => {
+  it("sends a ZDR request for one model with no provider pin, and returns the reading, the model that answered and the cost", async () => {
     let body: Record<string, unknown> = {}
     server.use(
       http.post(`${BASE}/chat/completions`, async ({ request }) => {
@@ -172,17 +172,15 @@ describe("readImage", () => {
         return completion(graphReading)
       }),
     )
-    const result = await readImage(image, {
-      models: ["vendor/model-a", "vendor/model-b"],
-    })
+    const result = await readImage(image, { model: "vendor/model-a" })
     expect(result).toEqual({
       reading: graphReading,
       model: "vendor/model-a",
       provider: "Azure",
       costUsd: 0.004,
     })
-    expect(body.models).toEqual(["vendor/model-a", "vendor/model-b"])
-    expect(body.model).toBeUndefined()
+    expect(body.model).toBe("vendor/model-a")
+    expect(body.models).toBeUndefined()
     expect(body.provider).toEqual({
       data_collection: "deny",
       zdr: true,
@@ -208,7 +206,7 @@ describe("readImage", () => {
       }),
     )
     const result = await readImage(image, {
-      models: ["vendor/model-a"],
+      model: "vendor/model-a",
       backoffMs: 1,
     })
     expect(calls).toBe(3)
@@ -227,7 +225,7 @@ describe("readImage", () => {
       }),
     )
     const error = await readImage(image, {
-      models: ["vendor/model-a"],
+      model: "vendor/model-a",
       backoffMs: 1,
     }).catch((caught: unknown) => caught)
     expect(calls).toBe(1)
@@ -246,14 +244,14 @@ describe("readImage", () => {
       ),
     )
     await expect(
-      readImage(image, { models: ["vendor/model-a", "vendor/model-b"] }),
+      readImage(image, { model: "vendor/model-a" }),
     ).rejects.toMatchObject({ kind: "invalid-answer" })
   })
 
   it("refuses a deployment whose model provider is not OpenRouter", async () => {
     vi.stubEnv("MODEL_PROVIDER", "bedrock")
     await expect(
-      readImage(image, { models: ["vendor/model-a", "vendor/model-b"] }),
+      readImage(image, { model: "vendor/model-a" }),
     ).rejects.toMatchObject({ kind: "config" })
   })
 })

@@ -19,6 +19,22 @@ export const sandboxProxyHostSchema = z.preprocess(
     .optional(),
 )
 
+/**
+ * `MODEL_VISION_NAME`: the one OpenRouter model that reads the images of the
+ * knowledge plane (ADR-068 decision 6). The default is the model that the
+ * vision eval chose. An operator can set another model: it must take image
+ * input and a JSON schema, and have a ZDR endpoint on OpenRouter. An empty
+ * value is unset; a value of only spaces is refused.
+ */
+export const visionModelSchema = z.preprocess(
+  (v) => (v === "" ? undefined : v),
+  z
+    .string()
+    .trim()
+    .min(1, "MODEL_VISION_NAME must name one OpenRouter model")
+    .default("openai/gpt-6.1-terra"),
+)
+
 const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "production", "test"])
@@ -139,6 +155,7 @@ const envSchema = z.object({
   MODEL_MEDIUM_NAME: z.string().optional(),
   MODEL_HIGH_NAME: z.string().optional(),
   MODEL_EMBEDDING_NAME: z.string().optional(),
+  MODEL_VISION_NAME: visionModelSchema,
   /** When unset, Bedrock IAM SigV4 resolves region from MODEL_PROVIDER_URL, AWS_REGION, or AWS_DEFAULT_REGION */
   MODEL_BEDROCK_AWS_REGION: z.string().optional(),
 

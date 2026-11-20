@@ -19,7 +19,6 @@ import {
 } from "../knowledge-store/knowledge-store.js"
 import { startClickHouse } from "../test/clickhouse.js"
 import {
-  IMAGE_TEXT_MODELS,
   IMAGE_TEXT_PROMPT_VERSION,
   type ImageReading,
   type ImageTextCounter,
@@ -53,23 +52,23 @@ const reading = (label: string): ImageReading => ({
 })
 
 /** The label of the image, from its bytes: each test image is a label. */
-const visionCalls: { models: string[]; label: string }[] = []
-let answer: (models: string[]) => {
+const visionCalls: { model: string; label: string }[] = []
+let answer: (model: string) => {
   status: number
   model?: string
-} = (models) => ({ status: 200, model: models[0] })
+} = (model) => ({ status: 200, model })
 const msw = setupServer(
   http.post(`${BASE}/chat/completions`, async ({ request }) => {
     const body = z
-      .object({ models: z.array(z.string()), messages: z.array(z.unknown()) })
+      .object({ model: z.string(), messages: z.array(z.unknown()) })
       .parse(await request.json())
     const label = Buffer.from(
       JSON.stringify(body.messages).match(/base64,([A-Za-z0-9+/=]+)/)?.[1] ??
         "",
       "base64",
     ).toString()
-    visionCalls.push({ models: body.models, label })
-    const { status, model } = answer(body.models)
+    visionCalls.push({ model: body.model, label })
+    const { status, model } = answer(body.model)
     if (status !== 200)
       return HttpResponse.json({ error: { message: "no" } }, { status })
     return HttpResponse.json({
@@ -100,7 +99,7 @@ beforeEach(async () => {
   vi.stubEnv("MODEL_PROVIDER_URL", BASE)
   store = createKnowledgeStore(await clickHouse.freshDatabase())
   visionCalls.length = 0
-  answer = (models) => ({ status: 200, model: models[0] })
+  answer = (model) => ({ status: 200, model })
 })
 
 afterEach(async () => {
@@ -144,7 +143,8 @@ describe("imageTexts", () => {
     const first = counter()
     const texts = await run(images, first)
     expect(visionCalls.map((call) => call.label)).toEqual(["API", "Queue"])
-    expect(visionCalls[0]?.models).toEqual([...IMAGE_TEXT_MODELS])
+    // MODEL_VISION_NAME is not set: the default model reads.
+    expect(visionCalls[0]?.model).toBe("openai/gpt-6.1-terra")
     expect(first).toEqual({ hits: 0, misses: 2, failures: 0, costUsd: 0.01 })
     expect(texts.get("sha-api")).toEqual({
       text: expect.stringContaining('n1["API"]'),
@@ -156,21 +156,48 @@ describe("imageTexts", () => {
     expect(second).toEqual({ hits: 2, misses: 0, failures: 0, costUsd: 0 })
   })
 
-  it("keeps a fallback answer under the model that answered, and reuses it", async () => {
-    const fallback = IMAGE_TEXT_MODELS[1]
-    answer = () => ({ status: 200, model: fallback })
+  it("reads with the model of MODEL_VISION_NAME and caches under it; another model reads again", async () => {
+    vi.stubEnv("MODEL_VISION_NAME", " vendor/custom ")
+    // The answer names the model in a dated form: the cache key is the
+    // model of the request.
+    answer = (model) => ({ status: 200, model: `${model}-2026-11-01` })
     await run([{ blobSha: "sha-1", label: "Cache" }])
+    expect(visionCalls.map((call) => call.model)).toEqual(["vendor/custom"])
     const stored = await store.readImageTexts(
       scope,
       ["sha-1"],
-      [fallback],
+      "vendor/custom",
       IMAGE_TEXT_PROMPT_VERSION,
     )
-    expect(stored.get("sha-1")?.model).toBe(fallback)
-
-    answer = (models) => ({ status: 200, model: models[0] })
+    expect(stored.get("sha-1")?.model).toBe("vendor/custom")
     await run([{ blobSha: "sha-1", label: "Cache" }])
     expect(visionCalls).toHaveLength(1)
+
+    // A change of the model gives a new entry and keeps the old one.
+    vi.stubEnv("MODEL_VISION_NAME", "vendor/other")
+    await run([{ blobSha: "sha-1", label: "Cache" }])
+    expect(visionCalls.map((call) => call.model)).toEqual([
+      "vendor/custom",
+      "vendor/other",
+    ])
+    expect(
+      (
+        await store.readImageTexts(
+          scope,
+          ["sha-1"],
+          "vendor/custom",
+          IMAGE_TEXT_PROMPT_VERSION,
+        )
+      ).size,
+    ).toBe(1)
+  })
+
+  it("refuses a MODEL_VISION_NAME of only spaces before it calls a model", async () => {
+    vi.stubEnv("MODEL_VISION_NAME", "   ")
+    await expect(run([{ blobSha: "sha-1", label: "Cache" }])).rejects.toThrow(
+      "MODEL_VISION_NAME must name one OpenRouter model",
+    )
+    expect(visionCalls).toHaveLength(0)
   })
 
   it("gives a failed reading its error, caches nothing, and tries again on the next run", async () => {
@@ -182,7 +209,7 @@ describe("imageTexts", () => {
     })
     expect(failed.failures).toBe(1)
 
-    answer = (models) => ({ status: 200, model: models[0] })
+    answer = (model) => ({ status: 200, model })
     expect(
       (await run([{ blobSha: "sha-bad", label: "Bad" }])).get("sha-bad"),
     ).toEqual({ text: expect.stringContaining("Bad") })

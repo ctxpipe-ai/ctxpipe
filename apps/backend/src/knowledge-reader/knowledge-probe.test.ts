@@ -47,7 +47,7 @@ const decisionSchema = z.object({
   provider: providerSchema,
 })
 const visionSchema = z.object({
-  models: z.array(z.string()),
+  model: z.string(),
   messages: z.array(z.unknown()),
   response_format: z.object({ type: z.literal("json_schema") }),
   provider: providerSchema.extend({ require_parameters: z.boolean() }),
@@ -70,7 +70,6 @@ const ENDPOINTS: Record<string, { name: string; zdr: boolean }> = {
 const VISION_ENDPOINTS: Record<string, { name: string; zdr: boolean }> = {
   "openai/gpt-6.1-terra": { name: "Azure", zdr: true },
   "google/gemini-2.5-flash-lite": { name: "Google AI Studio", zdr: false },
-  "openai/gpt-4o-mini-2024-07-18": { name: "OpenAI", zdr: false },
 }
 const reading = {
   description: "A state machine.",
@@ -106,9 +105,8 @@ const ZDR_LIST = [
  * request with `zdr: true` to the non-ZDR model. Embedding requests route
  * the same way: `openai/text-embedding-ada-002` has no ZDR endpoint. A
  * request with more than `maxInputs` embedding inputs finds no endpoint.
- * A vision request goes to the first model of its `models` that has an
- * endpoint for its provider block; with `zdrOnFirstModel`, the gateway
- * applies `zdr` to the first model of the list only.
+ * A vision request routes the same way: `google/gemini-2.5-flash-lite` has
+ * no ZDR endpoint.
  */
 function gateway(options: {
   enforcesZdr: boolean
@@ -118,7 +116,6 @@ function gateway(options: {
   refusal?: { status: number; message: string }
   /** The most embedding inputs that one request may hold. */
   maxInputs?: number
-  zdrOnFirstModel?: boolean
 }) {
   const bodies = {
     decisions: [] as z.infer<typeof decisionSchema>[],
@@ -162,15 +159,12 @@ function gateway(options: {
     http.post(CHAT, async ({ request }) => {
       const body = visionSchema.parse(await request.json())
       bodies.vision.push(body)
-      const model = body.models.find((name, index) => {
-        const endpoint = VISION_ENDPOINTS[name]
-        const zdr =
-          options.enforcesZdr &&
-          body.provider.zdr &&
-          (index === 0 || !options.zdrOnFirstModel)
-        return endpoint && (!zdr || endpoint.zdr)
-      })
-      if (!model)
+      const { model } = body
+      const endpoint = VISION_ENDPOINTS[model]
+      if (
+        !endpoint ||
+        (options.enforcesZdr && body.provider.zdr && !endpoint.zdr)
+      )
         return HttpResponse.json(
           {
             error: { message: "No endpoints found matching your data policy." },
@@ -179,7 +173,7 @@ function gateway(options: {
         )
       return HttpResponse.json({
         model,
-        provider: VISION_ENDPOINTS[model]?.name,
+        provider: endpoint.name,
         choices: [{ message: { content: JSON.stringify(reading) } }],
         usage: { cost: 0.004 },
       })
@@ -290,18 +284,18 @@ describe("the provider probe", () => {
         status: 404,
       }),
       expect.objectContaining({
-        name: "vision-fallback-skips-a-model-with-no-zdr-endpoint",
+        name: "vision-read",
         pass: true,
         status: 200,
         provider: "Azure",
       }),
       expect.objectContaining({
-        name: "vision-fallback-control-without-zdr",
+        name: "vision-control-without-zdr",
         pass: true,
         status: 200,
       }),
       expect.objectContaining({
-        name: "vision-fallback-refused-without-zdr-endpoint",
+        name: "vision-refused-without-zdr-endpoint",
         pass: true,
         status: 404,
       }),
@@ -364,38 +358,24 @@ describe("the provider probe", () => {
       provider: { data_collection: "deny", zdr: true },
     })
 
-    // The vision requests are the request of the client with the ZDR block
-    // and no pin; the refusal pair changes only the models and `zdr`.
-    const [fallback, visionControl, visionRefused] = bodies.vision
-    expect(fallback?.models).toEqual([
-      "google/gemini-2.5-flash-lite",
-      "openai/gpt-6.1-terra",
-    ])
-    expect(fallback?.provider).toEqual({
+    // The vision requests are the request of the client for the default
+    // model, with the ZDR block and no pin; the refusal pair changes only
+    // the model and `zdr`.
+    const [vision, visionControl, visionRefused] = bodies.vision
+    expect(vision?.model).toBe("openai/gpt-6.1-terra")
+    expect(vision?.provider).toEqual({
       data_collection: "deny",
       zdr: true,
       require_parameters: true,
     })
-    expect(visionControl?.models).toEqual([
-      "google/gemini-2.5-flash-lite",
-      "openai/gpt-4o-mini-2024-07-18",
-    ])
-    expect(visionControl?.provider.zdr).toBe(false)
+    expect(visionControl).toEqual({
+      ...vision,
+      model: "google/gemini-2.5-flash-lite",
+      provider: { ...vision?.provider, zdr: false },
+    })
     expect(visionRefused).toEqual({
       ...visionControl,
       provider: { ...visionControl?.provider, zdr: true },
-    })
-  })
-
-  it("fails the vision refusal when the gateway applies zdr to the first model of the list only", async () => {
-    gateway({ enforcesZdr: true, zdrOnFirstModel: true })
-
-    expect(await run(0.25)).toBe(4)
-
-    expect(await passes()).toMatchObject({
-      "vision-fallback-skips-a-model-with-no-zdr-endpoint": true,
-      "vision-fallback-control-without-zdr": true,
-      "vision-fallback-refused-without-zdr-endpoint": false,
     })
   })
 
@@ -439,9 +419,9 @@ describe("the provider probe", () => {
       "embedding-text-batch": false,
       "embedding-control-without-zdr": true,
       "embedding-refused-without-zdr-endpoint": false,
-      "vision-fallback-skips-a-model-with-no-zdr-endpoint": false,
-      "vision-fallback-control-without-zdr": true,
-      "vision-fallback-refused-without-zdr-endpoint": false,
+      "vision-read": true,
+      "vision-control-without-zdr": true,
+      "vision-refused-without-zdr-endpoint": false,
     })
     const result = await readResult()
     expect(result.checks[0]?.provider).toBe("Other Host")

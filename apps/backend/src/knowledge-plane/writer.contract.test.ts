@@ -129,7 +129,7 @@ const msw = setupServer(
   http.post(VISION_URL, async ({ request }) => {
     vision.calls++
     const body = z
-      .object({ models: z.array(z.string()), messages: z.array(z.unknown()) })
+      .object({ model: z.string(), messages: z.array(z.unknown()) })
       .parse(await request.json())
     const image = Buffer.from(
       JSON.stringify(body.messages).match(/base64,([A-Za-z0-9+/=]+)/)?.[1] ??
@@ -140,7 +140,7 @@ const msw = setupServer(
       return HttpResponse.json({ error: { message: "bad" } }, { status: 400 })
     const label = createHash("sha256").update(image).digest("hex").slice(0, 8)
     return HttpResponse.json({
-      model: body.models[0],
+      model: body.model,
       choices: [{ message: { content: JSON.stringify(visionReading(label)) } }],
       usage: { cost: 0.001 },
     })

@@ -126,8 +126,9 @@ fn set_limits(memory_mb: u64, cpu_seconds: u64) {
 }
 
 /// The seccomp filters of the conversion (Linux). After the input is read,
-/// each system call that opens a file, makes a socket, starts a program or
-/// a process, reads, signals or changes another process, or gives an
+/// each system call that opens a file, changes a path (a new, renamed or
+/// removed directory entry, or its mode, owner, times or attributes), makes
+/// a socket, starts a program or a process, reads, signals or changes another process, or gives an
 /// indirect way to do one of these (io_uring, bpf) fails with EPERM. The
 /// calls that set the limits or the scheduling of a process work only on
 /// this process (pid 0): all the converters run as `nobody`, so another
@@ -153,6 +154,23 @@ fn sandbox() -> Result<(), String> {
         libc::SYS_openat2,
         libc::SYS_open_by_handle_at,
         libc::SYS_name_to_handle_at,
+        // A change of a path: the converter writes no file, and `/tmp` is
+        // shared with the worker and the other converters.
+        libc::SYS_mkdirat,
+        libc::SYS_mknodat,
+        libc::SYS_symlinkat,
+        libc::SYS_linkat,
+        libc::SYS_renameat,
+        libc::SYS_renameat2,
+        libc::SYS_unlinkat,
+        libc::SYS_truncate,
+        libc::SYS_fchmodat,
+        libc::SYS_fchownat,
+        libc::SYS_utimensat,
+        libc::SYS_setxattr,
+        libc::SYS_lsetxattr,
+        libc::SYS_removexattr,
+        libc::SYS_lremovexattr,
         libc::SYS_socket,
         libc::SYS_socketpair,
         libc::SYS_connect,
@@ -202,6 +220,19 @@ fn sandbox() -> Result<(), String> {
     refused.extend([
         libc::SYS_open,
         libc::SYS_creat,
+        libc::SYS_mkdir,
+        libc::SYS_mknod,
+        libc::SYS_symlink,
+        libc::SYS_link,
+        libc::SYS_rename,
+        libc::SYS_unlink,
+        libc::SYS_rmdir,
+        libc::SYS_chmod,
+        libc::SYS_chown,
+        libc::SYS_lchown,
+        libc::SYS_utime,
+        libc::SYS_utimes,
+        libc::SYS_futimesat,
         libc::SYS_accept,
         libc::SYS_fork,
         libc::SYS_vfork,
@@ -581,6 +612,30 @@ mod tests {
                 std::net::TcpStream::connect("127.0.0.1:9").is_err(),
                 "a socket opens"
             );
+            for (name, changed) in [
+                (
+                    "a directory is made",
+                    std::fs::create_dir("/tmp/ctxpipe-sandbox-dir"),
+                ),
+                (
+                    "a symlink is made",
+                    std::os::unix::fs::symlink("/", "/tmp/ctxpipe-sandbox-link"),
+                ),
+                (
+                    "a file is renamed",
+                    std::fs::rename("/tmp/ctxpipe-sandbox-a", "/tmp/ctxpipe-sandbox-b"),
+                ),
+                (
+                    "a file is removed",
+                    std::fs::remove_file("/tmp/ctxpipe-sandbox-a"),
+                ),
+            ] {
+                assert_eq!(
+                    changed.map_err(|error| error.raw_os_error()),
+                    Err(Some(libc::EPERM)),
+                    "{name}"
+                );
+            }
             // SAFETY: a fork that the filter refuses returns -1 and makes no child.
             assert_eq!(unsafe { libc::fork() }, -1, "a process starts");
             // SAFETY: a read of the limits of this process, then of the parent.

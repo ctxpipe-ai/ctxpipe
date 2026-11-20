@@ -5,13 +5,16 @@
 // always valid and the same reading always gives the same text. The model
 // writes no Mermaid itself.
 //
+// One vision model reads the images: "We just pick one and go with that"
+// (the CTO, 2026-11-20). `MODEL_VISION_NAME` sets it (`imageTextModel`).
 // The request goes to OpenRouter with `zdr: true` and
 // `data_collection: "deny"`, and with no provider pin: OpenRouter can fall
-// back to another ZDR endpoint of a model, and to the next model of
-// `IMAGE_TEXT_MODELS` (the CTO, 2026-11-20). The projection keeps each
-// reading in a cache by blob SHA (`imageTexts`), so a rebuild calls no model.
+// back to another ZDR endpoint of the model. The projection keeps each
+// reading in a cache by blob SHA and model (`imageTexts`), so a rebuild
+// calls no model.
 import { z } from "zod"
 
+import { visionModelSchema } from "../config/env.js"
 import { assertNotInOrgDbContext } from "../db/client.js"
 import type {
   KnowledgeScope,
@@ -36,17 +39,14 @@ import {
 export const IMAGE_TEXT_PROMPT_VERSION = 1
 
 /**
- * The vision models, in fallback order (the lead, 2026-11-20, from the
- * vision eval: GPT-6.1 Terra was the cheapest and the fastest, with no
- * error). Each model has ZDR endpoints of one provider only, so the second
- * model is the fallback (OpenRouter `models`). The evals of ADR-069 can
- * change the list: a change of it changes only the models of new readings,
- * because a cached reading keeps the model that answered.
+ * The vision model: `MODEL_VISION_NAME`, else GPT-6.1 Terra, the choice of
+ * the vision eval (the best edge F1, the lowest cost and the lowest latency
+ * in three runs). A change of the model gives new cache entries and keeps
+ * the old ones correct, because the cache key holds the model.
  */
-export const IMAGE_TEXT_MODELS = [
-  "openai/gpt-6.1-terra",
-  "google/gemini-3.8-flash",
-] as const
+export function imageTextModel(): string {
+  return visionModelSchema.parse(process.env.MODEL_VISION_NAME)
+}
 
 // scope-allow: the prompt stays beside its version, IMAGE_TEXT_PROMPT_VERSION.
 const PROMPT = `You convert one image into text for a search index. Return JSON that matches the schema.
@@ -249,8 +249,7 @@ type ImageReadResult = {
 }
 
 /**
- * Read one image with the first vision model of `models` that answers
- * (OpenRouter `models` fallback). The key and the base URL
+ * Read one image with the vision model `model`. The key and the base URL
  * come from the backend model settings, which must point at OpenRouter
  * (`openRouterSettings`). A 429, a 5xx and a network error retry, up to
  * three attempts. A failure throws a `VisionError`. The call must not run
@@ -259,11 +258,8 @@ type ImageReadResult = {
 export async function readImage(
   image: { bytes: Buffer; mimeType: string },
   options: {
-    /**
-     * The OpenRouter model ids, in fallback order. Each must take an image
-     * and a JSON schema.
-     */
-    models: readonly string[]
+    /** The OpenRouter model id. It must take an image and a JSON schema. */
+    model: string
     /** The first backoff of a retry. */
     backoffMs?: number
   },
@@ -276,7 +272,7 @@ export async function readImage(
       "The vision model needs MODEL_PROVIDER openrouter or openai-like, an OpenRouter MODEL_PROVIDER_URL, and MODEL_PROVIDER_API_KEY.",
     )
   const body = JSON.stringify({
-    models: options.models,
+    model: options.model,
     messages: [
       { role: "system", content: PROMPT },
       {
@@ -299,9 +295,7 @@ export async function readImage(
         schema: z.toJSONSchema(readingSchema),
       },
     },
-    // Each ZDR endpoint of a model that takes the JSON schema can answer.
-    // The OpenRouter docs do not say that this block holds for each model
-    // of `models`; the knowledge probe checks it with real calls.
+    // Each ZDR endpoint of the model that takes the JSON schema can answer.
     provider: { ...ZDR_PROVIDER, require_parameters: true },
   })
   try {
@@ -407,11 +401,10 @@ type ImageInput = {
 /**
  * The text of each image of `images`, by blob SHA, or the error of a reading
  * that failed. The reading of a blob comes from the cache (`image_texts`)
- * when a model of `IMAGE_TEXT_MODELS` has read it with this prompt
- * version. Else the vision model reads it, and the cache keeps the reading
- * under the model that answered, at once, so that a run that stops later
- * does not pay for it again. Thus a rebuild makes no vision call, and the
- * same bytes give the same text.
+ * when the vision model (`imageTextModel`) has read it with this prompt
+ * version. Else the model reads it, and the cache keeps the reading at
+ * once, so that a run that stops later does not pay for it again. Thus a
+ * rebuild makes no vision call, and the same bytes give the same text.
  */
 export async function imageTexts(input: {
   store: Pick<KnowledgeStore, "readImageTexts" | "writeImageTexts">
@@ -422,10 +415,11 @@ export async function imageTexts(input: {
   backoffMs?: number
 }): Promise<Map<string, { text: string } | { error: string }>> {
   const results = new Map<string, { text: string } | { error: string }>()
+  const model = imageTextModel()
   const cached = await input.store.readImageTexts(
     input.scope,
     input.images.map((image) => image.blobSha),
-    IMAGE_TEXT_MODELS,
+    model,
     IMAGE_TEXT_PROMPT_VERSION,
   )
   const withLabels = (reading: ImageReading, labels?: string) =>
@@ -453,14 +447,16 @@ export async function imageTexts(input: {
     input.counter.misses++
     try {
       const read = await readImage(image, {
-        models: IMAGE_TEXT_MODELS,
+        model,
         backoffMs: input.backoffMs,
       })
       input.counter.costUsd += read.costUsd ?? 0
       await input.store.writeImageTexts(input.scope, [
         {
           blobSha,
-          model: read.model,
+          // The model of the request: the key of the lookup. The answer can
+          // name the model in another form (a dated id).
+          model,
           promptVersion: IMAGE_TEXT_PROMPT_VERSION,
           reading: JSON.stringify(read.reading),
         },
