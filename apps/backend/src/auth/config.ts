@@ -151,7 +151,6 @@ export function createBetterAuth() {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean)
-  const githubOAuth = githubOAuthUrls(env)
   // Email/password accounts verify their address before signing in. Not on
   // PR previews (throwaway test accounts), and not without an email
   // transport, where mail is only logged and nobody could verify.
@@ -305,8 +304,8 @@ export function createBetterAuth() {
           ? {
               clientId: env.GITHUB_CLIENT_ID,
               clientSecret: env.GITHUB_CLIENT_SECRET,
-              authorizationEndpoint: githubOAuth.authorizeUrl,
-              redirectURI: githubOAuth.redirectUri,
+              authorizationEndpoint: githubOAuthUrls(env).authorizeUrl,
+              redirectURI: githubOAuthUrls(env).redirectUri,
             }
           : undefined,
       google:
