@@ -38,32 +38,26 @@ useMswServer(
           model_id: textEmbeddingConfig.model,
           provider_name: "Azure",
           tag: "azure",
-          quantization: "unknown",
         },
         {
           model_id: "qwen/qwen3-embedding-8b",
           provider_name: "Nebius",
           tag: "nebius/bf16",
-          quantization: "bf16",
         },
         {
           model_id: "openai/text-embedding-3-small",
           provider_name: "Azure",
           tag: "azure",
-          // The list can give no quantization.
-          quantization: null,
         },
         {
           model_id: "amazon/titan-embed-image-v1",
           provider_name: "Amazon Bedrock",
           tag: "amazon-bedrock",
-          quantization: "unknown",
         },
         {
           model_id: "typesafe/jev-1.14",
           provider_name: "TypeSafe",
           tag: "typesafe",
-          quantization: "unknown",
         },
       ],
     }),

@@ -44,13 +44,20 @@ export const textEmbeddingConfig = {
    * embeddings APIs (2048).
    */
   maxBatchInputs: 2048,
-  /**
-   * The most tokens in one request, summed over its inputs: the limit of the
-   * OpenAI and Azure embeddings APIs (300,000). The client has no tokenizer.
-   * A token of the model is at least one byte of UTF-8, so the client limits
-   * the UTF-8 bytes of a request to this number.
+  /*
+   * The OpenAI and Azure embeddings APIs take at most 300,000 tokens in one
+   * request, summed over its inputs, and 8192 tokens in one input. The
+   * client has no tokenizer. A token of the model is at least one byte of
+   * UTF-8, so the client limits the UTF-8 bytes to these numbers.
    */
-  maxBatchTokens: 300_000,
+  /** The most UTF-8 bytes in one request, summed over its inputs. */
+  maxBatchBytes: 300_000,
+  /**
+   * The most UTF-8 bytes of one input. A longer input loses its end. A chunk
+   * has at most 2048 characters, so only a chunk with a very long title or
+   * many 4-byte characters can be longer.
+   */
+  maxInputBytes: 8192,
   /** The most requests in flight of one `embedTexts` call. */
   concurrency: 4,
   /**
@@ -100,14 +107,20 @@ export function embeddingKey(
   config: TextEmbeddingConfig = textEmbeddingConfig,
 ): string {
   return createHash("sha256")
-    .update(JSON.stringify([config.model, config.dimensions, chunkText(input)]))
+    .update(
+      JSON.stringify([
+        config.model,
+        config.dimensions,
+        chunkText(input, config),
+      ]),
+    )
     .digest("hex")
 }
 
 /**
  * Embed the chunks of documents in the one vector space of the knowledge
  * plane (the ingest path). The result has the order of `inputs`. One request
- * holds as many inputs as `maxBatchInputs` and `maxBatchTokens` allow, and
+ * holds as many inputs as `maxBatchInputs` and `maxBatchBytes` allow, and
  * at most `concurrency` requests are in flight. Every request sets
  * `provider.data_collection: "deny"` and `provider.zdr: true`, so OpenRouter
  * routes it only to a ZDR endpoint. A 429, a 5xx and a network error retry
@@ -141,13 +154,13 @@ export async function embedTexts(
   // A batch closes before the input that would put it over a limit.
   const batches: string[][] = []
   let bytes = 0
-  for (const text of inputs.map(chunkText)) {
+  for (const text of inputs.map((input) => chunkText(input, config))) {
     const size = Buffer.byteLength(text, "utf8")
     const last = batches.at(-1)
     if (
       last &&
       last.length < config.maxBatchInputs &&
-      bytes + size <= config.maxBatchTokens
+      bytes + size <= config.maxBatchBytes
     ) {
       last.push(text)
       bytes += size
@@ -163,8 +176,8 @@ export async function embedTexts(
 }
 
 /**
- * Embed one search question (the query path), as it is: the model needs no
- * instruction line. The request has the provider block of `embedTexts`, and
+ * Embed one search question (the query path), as it is, up to
+ * `maxInputBytes`: the model needs no instruction line. The request has the provider block of `embedTexts`, and
  * it asks OpenRouter to sort the ZDR endpoints by latency, with its default
  * fallback (ADR-068 decision 7). The query has a time budget, so a failure
  * does not retry: the search returns partial.
@@ -173,7 +186,11 @@ export async function embedQuery(
   text: string,
   config: TextEmbeddingConfig = textEmbeddingConfig,
 ): Promise<number[]> {
-  const [vector] = await embedRequest([text], config, "latency")
+  const [vector] = await embedRequest(
+    [fitInput(text, config.maxInputBytes)],
+    config,
+    "latency",
+  )
   if (!vector) throw new Error("The embedding endpoint returned no vector")
   return vector
 }
@@ -265,12 +282,25 @@ function embedRequest(
 
 /**
  * The text of one chunk: one line of context, the document title and the
- * chunk position (ADR-068 decision 5).
+ * chunk position (ADR-068 decision 5), up to `maxInputBytes`.
  */
-function chunkText(input: EmbeddingInput): string {
+function chunkText(input: EmbeddingInput, config: TextEmbeddingConfig): string {
   const title = input.documentTitle.replace(/\s+/g, " ").trim()
   const context = `${title} (part ${input.chunkIndex + 1} of ${input.chunkCount})`
-  return `${context}\n\n${input.text}`
+  return fitInput(`${context}\n\n${input.text}`, config.maxInputBytes)
+}
+
+/** The start of `text` with at most `maxBytes` bytes of UTF-8, at a code point. */
+function fitInput(text: string, maxBytes: number): string {
+  if (Buffer.byteLength(text, "utf8") <= maxBytes) return text
+  let bytes = 0
+  let end = 0
+  for (const point of text) {
+    bytes += Buffer.byteLength(point, "utf8")
+    if (bytes > maxBytes) break
+    end += point.length
+  }
+  return text.slice(0, end)
 }
 
 /**

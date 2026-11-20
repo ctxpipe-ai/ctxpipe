@@ -90,8 +90,7 @@ async function zdrProviders(base: string): Promise<ZdrProvidersOf> {
 
 /**
  * The OpenRouter ZDR list (`GET /api/v1/endpoints/zdr`): each ZDR endpoint
- * with its model, provider, tag and quantization (`unknown` when the list
- * gives none).
+ * with its model, provider and tag.
  */
 export async function readZdrList(base: string) {
   const response = await fetch(`${base.replace(/\/+$/, "")}/endpoints/zdr`)
@@ -104,10 +103,6 @@ export async function readZdrList(base: string) {
           model_id: z.string(),
           provider_name: z.string(),
           tag: z.string(),
-          quantization: z
-            .string()
-            .nullish()
-            .transform((value) => value ?? "unknown"),
         }),
       ),
     })

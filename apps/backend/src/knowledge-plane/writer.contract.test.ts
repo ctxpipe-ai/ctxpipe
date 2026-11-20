@@ -1212,25 +1212,33 @@ describe("projectKnowledgePlane", () => {
 
   it("sends the text chunks to the embedding model in batches", async () => {
     const remote = await Remote.create()
-    // A small input limit, so that the test needs few files.
-    const { maxBatchInputs } = textEmbeddingConfig
-    textEmbeddingConfig.maxBatchInputs = 64
     try {
       const workspaceId = await newWorkspace()
-      // One chunk for each file: more chunks than one batch holds.
+      // One chunk of about 1900 bytes for each file: more bytes than one
+      // request takes (`maxBatchBytes`).
       const files = Object.fromEntries(
-        Array.from({ length: 64 + 6 }, (_, index) => [
+        Array.from({ length: 160 }, (_, index) => [
           `notes/n${String(index).padStart(3, "0")}.md`,
-          `# Note ${index}\n\nText of note ${index}.\n`,
+          `# Note ${index}\n\nText of note ${index}. ${"Some words of the note. ".repeat(80)}\n`,
         ]),
       )
       await run(remote, workspaceId, await remote.commit(files))
       // The chunks of the whole write group go to the client in one call,
-      // so the requests fill to `maxBatchInputs`. Two requests are in flight
-      // together, so their order is not fixed.
+      // so the first request fills to `maxBatchBytes`. Two requests are in
+      // flight together, so their order is not fixed.
+      const bytes = (inputs: string[]) =>
+        inputs.reduce((sum, input) => sum + Buffer.byteLength(input), 0)
+      const [full, rest] = [...embeddings.inputs].sort(
+        (a, b) => b.length - a.length,
+      )
+      expect(embeddings.inputs).toHaveLength(2)
+      expect(embeddings.inputs.flat()).toHaveLength(160)
+      expect(bytes(full ?? [])).toBeLessThanOrEqual(
+        textEmbeddingConfig.maxBatchBytes,
+      )
       expect(
-        embeddings.inputs.map((inputs) => inputs.length).sort((a, b) => b - a),
-      ).toEqual([64, 6])
+        bytes(full ?? []) + bytes((rest ?? []).slice(0, 1)),
+      ).toBeGreaterThan(textEmbeddingConfig.maxBatchBytes)
       // Each input is the chunk text after its context line.
       expect(embeddings.inputs.flat()).toContainEqual(
         expect.stringMatching(
@@ -1238,7 +1246,6 @@ describe("projectKnowledgePlane", () => {
         ),
       )
     } finally {
-      textEmbeddingConfig.maxBatchInputs = maxBatchInputs
       await remote.remove()
     }
   })

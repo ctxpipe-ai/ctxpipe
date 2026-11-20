@@ -292,9 +292,9 @@ describe("the ZDR provider block", () => {
     bodies.length = 0
     const live = new ModelCalls(BASE, 1, undefined, { addZdr: true })
     const plane = {
-      model: "qwen/qwen3-embedding-8b",
+      model: "openai/text-embedding-3-large",
       input: ["q"],
-      provider: { zdr: true, data_collection: "deny", quantizations: ["bf16"] },
+      provider: { zdr: true, data_collection: "deny", sort: "latency" },
     }
     let restore = live.install()
     try {
@@ -305,9 +305,9 @@ describe("the ZDR provider block", () => {
       // A provider block without the ZDR fields gets them.
       live.begin("plane", "other")
       await post({
-        model: "qwen/qwen3-embedding-8b",
+        model: "openai/text-embedding-3-large",
         input: ["q"],
-        provider: { quantizations: ["bf16"] },
+        provider: { sort: "latency" },
       })
       // A model with no ZDR endpoint fails: it does not fall back.
       live.begin("legacy", "other")
@@ -325,10 +325,10 @@ describe("the ZDR provider block", () => {
       },
       plane,
       {
-        model: "qwen/qwen3-embedding-8b",
+        model: "openai/text-embedding-3-large",
         input: ["q"],
         provider: {
-          quantizations: ["bf16"],
+          sort: "latency",
           data_collection: "deny",
           zdr: true,
         },
@@ -341,7 +341,7 @@ describe("the ZDR provider block", () => {
     ])
     expect(live.zdrAdded).toEqual({
       "legacy embedding openai/text-embedding-3-large": 1,
-      "plane embedding qwen/qwen3-embedding-8b": 1,
+      "plane embedding openai/text-embedding-3-large": 1,
       "legacy embedding no-zdr/model": 1,
     })
     expect(live.records[0]?.request).toEqual(bodies[0])

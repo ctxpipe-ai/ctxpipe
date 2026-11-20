@@ -86,14 +86,13 @@ const reading = {
 
 /** The fake OpenRouter ZDR list (`GET /api/v1/endpoints/zdr`). */
 const ZDR_LIST = [
-  ["typesafe/jev-1.14", "TypeSafe", "unknown"],
-  ["openai/gpt-6.1-terra", "Azure", "unknown"],
-  ["openai/text-embedding-3-large", "Azure", "unknown"],
-].map(([model_id = "", provider_name = "", quantization]) => ({
+  ["typesafe/jev-1.14", "TypeSafe"],
+  ["openai/gpt-6.1-terra", "Azure"],
+  ["openai/text-embedding-3-large", "Azure"],
+].map(([model_id = "", provider_name = ""]) => ({
   model_id,
   provider_name,
-  tag: `${provider_name.toLowerCase()}/${quantization}`,
-  quantization,
+  tag: provider_name.toLowerCase(),
 }))
 
 /**

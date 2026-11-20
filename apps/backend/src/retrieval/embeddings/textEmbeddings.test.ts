@@ -5,6 +5,7 @@ import { useMswServer } from "../../../test/msw.js"
 import { recordSpans } from "../../../test/spans.js"
 import {
   type EmbeddingInput,
+  embeddingKey,
   embedQuery,
   embedTexts,
   textEmbeddingConfig,
@@ -123,7 +124,7 @@ describe("embedTexts", () => {
     )
   })
 
-  it("closes a batch before an input that puts its UTF-8 bytes over `maxBatchTokens`", async () => {
+  it("closes a batch before an input that puts its UTF-8 bytes over `maxBatchBytes`", async () => {
     const bodies: Body[] = []
     server.use(echoHandler(bodies))
     // "Design notes (part N of 5)\n\n" is 28 bytes. Each "é" is 2 bytes.
@@ -131,7 +132,7 @@ describe("embedTexts", () => {
       ...text(n),
       text: "é".repeat(accents),
     })
-    const limits = { ...config, maxBatchInputs: 10, maxBatchTokens: 100 }
+    const limits = { ...config, maxBatchInputs: 10, maxBatchBytes: 100 }
 
     const result = await embedTexts(
       [chunk(0, 11), chunk(1, 25), chunk(2, 25), chunk(3, 40), chunk(4, 1)],
@@ -150,6 +151,25 @@ describe("embedTexts", () => {
     )
     // 3 × 42 bytes: two fit in 100, the third does not.
     expect(bodies.map((body) => body.input.length)).toEqual([2, 1])
+  })
+
+  it("cuts an input over `maxInputBytes` at a code point, and the key holds the cut text", async () => {
+    const bodies: Body[] = []
+    server.use(echoHandler(bodies))
+    const limits = { ...config, maxInputBytes: 33 }
+    // The context line and the blank line are 28 bytes. 2 + 2 bytes of "é"
+    // fit; the third "é" would end at byte 34, so the cut drops it.
+    const long = { ...text(0), text: "éééé" }
+    const exact = { ...text(0), text: "éé" }
+
+    await embedTexts([long], limits)
+
+    expect(bodies[0]?.input).toEqual(["Design notes (part 1 of 5)\n\néé"])
+    expect(embeddingKey(long, limits)).toBe(embeddingKey(exact, limits))
+    expect(embeddingKey(long, limits)).not.toBe(embeddingKey(long, config))
+
+    await embedQuery("ü".repeat(20), limits)
+    expect(bodies[1]?.input).toEqual(["ü".repeat(16)])
   })
 
   it("sends nothing when the model settings do not point at OpenRouter", async () => {
