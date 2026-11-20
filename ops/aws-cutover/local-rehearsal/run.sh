@@ -9,7 +9,7 @@
 #   reset-database.
 #
 # Each server is a container of its own: a Neon-like and an Aurora-like
-# Postgres 17, a source and a target FalkorDB, and an S3 server (rclone).
+# Postgres 17, a source and a target FalkorDB, and an S3 server (versitygw).
 # Nothing reads or writes the `pnpm dev:infra` stack. The script deletes its
 # containers, volumes and network at the end (--keep keeps them).
 #
@@ -19,7 +19,7 @@
 #   docker build -f apps/backend/Dockerfile -t ctx1217-backend:rehearsal .
 #   docker build -f apps/codesearch/Dockerfile -t ctx1217-codesearch:rehearsal .
 #   docker build -f apps/codesearch/Dockerfile --target test -t ctxpipe-codesearch:test .
-# The test image gives rclone for the S3 server.
+# The test image gives versitygw for the S3 server.
 #
 # Each Postgres has TLS from a CA that the script makes. The backend tasks
 # get that CA at the path of the RDS CA bundle, so that the URLs of the
@@ -135,8 +135,9 @@ docker run -d --name "$p-target-pg" --network "$net" --shm-size=1g "${pg_tls[@]}
 docker run -d --name "$p-source-falkordb" --network "$net" "$falkordb" >/dev/null
 docker run -d --name "$p-target-falkordb" --network "$net" -e REDIS_ARGS="--appendonly no" \
   -v "$p-target-falkordb:/var/lib/falkordb/data" "$falkordb" >/dev/null
-docker run -d --name "$p-s3" --network "$net" --entrypoint sh "$s3_image" -c \
-  "mkdir -p /s3/$bucket && exec rclone serve s3 /s3 --addr 0.0.0.0:8080 --auth-key rehearsalaccess,rehearsalsecret --config /dev/null" >/dev/null
+docker run -d --name "$p-s3" --network "$net" --entrypoint sh \
+  -e ROOT_ACCESS_KEY=rehearsalaccess -e ROOT_SECRET_KEY=rehearsalsecret "$s3_image" -c \
+  "mkdir -p /s3/$bucket && exec versitygw --port 0.0.0.0:8080 posix /s3" >/dev/null
 wait_pg "$p-source-pg" cloud_admin
 wait_pg "$p-target-pg" rdsadmin
 
