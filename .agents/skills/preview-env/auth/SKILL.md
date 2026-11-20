@@ -53,11 +53,12 @@ Account and membership surface. Runs after [onboarding](../onboarding/SKILL.md),
 **Evidence** `AUTH-4-1.png` (enrolled), `AUTH-4-2.png` (challenge); trace of the verify request. The secret stays out of the report.
 
 ### AUTH-5 Invite a second account and accept
-**Requires** ONB-2; account B unregistered; a way to read the invitation link (*uncertain:* when SMTP is not configured the mail is only logged; read the `invitations` row id from the database or the backend log, then open `/.auth/accept-invitation?invitationId={id}&email={B}`, else `SKIP(needs-inbox)`).
+**Requires** ONB-2; account B unregistered; a way to read the invitation link: `factory inbox wait {B} --link {BASE_URL}/.auth/accept-invitation --timeout 120` ([test inbox](../run-setup.md#test-inbox)). *Uncertain:* a target without an email transport only logs the mail; then read the `invitations` row id from the database or the backend log, and open `/.auth/accept-invitation?invitationId={id}&email={B}`, else `SKIP(needs-inbox)`.
 **Steps**
 1. As A, open `/{orgSlug}/organization/members` and invite B (role member).
 2. In B's context, open the invitation link; sign up as B (the email is prefilled).
-3. Walk B's joiner slides (welcome, overview, MCP, done) and finish.
+3. If the target requires a verified address, the sign-up shows "Open it to finish joining" and starts no session: run `factory inbox wait {B} --link {BASE_URL}/.auth/api/v1/auth/verify-email --timeout 120` and open the link in B's context. It verifies B and signs B in.
+4. Walk B's joiner slides (welcome, overview, MCP, done) and finish.
 
 **Expect (UI)** A's Members list shows B as pending, then as a member; B passes no create-org step and lands on the org's Workspace composer (`/{orgSlug}/ws/{workspace1Slug}`) with Workspace 1 in the sidebar.
 **Expect (backend)** `invitations` row (pending, then accepted); `members` row for B with role member; B's `onboardingCompletedAt` set.
