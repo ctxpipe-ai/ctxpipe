@@ -1,0 +1,378 @@
+{
+  "category": "architecture",
+  "kind": "graph",
+  "direction": null,
+  "groups": [],
+  "nodes": [
+    {
+      "label": "Web app",
+      "group": null
+    },
+    {
+      "label": "Mobile app",
+      "group": null
+    },
+    {
+      "label": "Partner API",
+      "group": null
+    },
+    {
+      "label": "API gateway",
+      "group": null
+    },
+    {
+      "label": "Auth service",
+      "group": null
+    },
+    {
+      "label": "User service",
+      "group": null
+    },
+    {
+      "label": "Profile DB",
+      "group": null
+    },
+    {
+      "label": "Catalog service",
+      "group": null
+    },
+    {
+      "label": "Catalog DB",
+      "group": null
+    },
+    {
+      "label": "Search service",
+      "group": null
+    },
+    {
+      "label": "Search index",
+      "group": null
+    },
+    {
+      "label": "Pricing service",
+      "group": null
+    },
+    {
+      "label": "Inventory service",
+      "group": null
+    },
+    {
+      "label": "Inventory DB",
+      "group": null
+    },
+    {
+      "label": "Cart service",
+      "group": null
+    },
+    {
+      "label": "Cart cache",
+      "group": null
+    },
+    {
+      "label": "Order service",
+      "group": null
+    },
+    {
+      "label": "Order DB",
+      "group": null
+    },
+    {
+      "label": "Payment service",
+      "group": null
+    },
+    {
+      "label": "Fraud check",
+      "group": null
+    },
+    {
+      "label": "Payment gateway",
+      "group": null
+    },
+    {
+      "label": "Shipping service",
+      "group": null
+    },
+    {
+      "label": "Carrier API",
+      "group": null
+    },
+    {
+      "label": "Notification service",
+      "group": null
+    },
+    {
+      "label": "Email provider",
+      "group": null
+    },
+    {
+      "label": "SMS provider",
+      "group": null
+    },
+    {
+      "label": "Event bus",
+      "group": null
+    },
+    {
+      "label": "Analytics pipeline",
+      "group": null
+    },
+    {
+      "label": "Data warehouse",
+      "group": null
+    },
+    {
+      "label": "Recommendation service",
+      "group": null
+    },
+    {
+      "label": "Feature store",
+      "group": null
+    },
+    {
+      "label": "Admin console",
+      "group": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "Web app",
+      "to": "API gateway",
+      "label": null
+    },
+    {
+      "from": "Mobile app",
+      "to": "API gateway",
+      "label": null
+    },
+    {
+      "from": "Partner API",
+      "to": "API gateway",
+      "label": "mTLS"
+    },
+    {
+      "from": "Admin console",
+      "to": "API gateway",
+      "label": null
+    },
+    {
+      "from": "API gateway",
+      "to": "Auth service",
+      "label": "verify"
+    },
+    {
+      "from": "API gateway",
+      "to": "User service",
+      "label": null
+    },
+    {
+      "from": "API gateway",
+      "to": "Catalog service",
+      "label": null
+    },
+    {
+      "from": "API gateway",
+      "to": "Search service",
+      "label": null
+    },
+    {
+      "from": "API gateway",
+      "to": "Cart service",
+      "label": null
+    },
+    {
+      "from": "API gateway",
+      "to": "Order service",
+      "label": null
+    },
+    {
+      "from": "API gateway",
+      "to": "Recommendation service",
+      "label": null
+    },
+    {
+      "from": "Auth service",
+      "to": "User service",
+      "label": null
+    },
+    {
+      "from": "User service",
+      "to": "Profile DB",
+      "label": null
+    },
+    {
+      "from": "Catalog service",
+      "to": "Catalog DB",
+      "label": null
+    },
+    {
+      "from": "Catalog service",
+      "to": "Pricing service",
+      "label": null
+    },
+    {
+      "from": "Catalog service",
+      "to": "Event bus",
+      "label": "CatalogChanged"
+    },
+    {
+      "from": "Search service",
+      "to": "Search index",
+      "label": null
+    },
+    {
+      "from": "Event bus",
+      "to": "Search service",
+      "label": "reindex"
+    },
+    {
+      "from": "Cart service",
+      "to": "Cart cache",
+      "label": null
+    },
+    {
+      "from": "Cart service",
+      "to": "Pricing service",
+      "label": null
+    },
+    {
+      "from": "Cart service",
+      "to": "Inventory service",
+      "label": "reserve"
+    },
+    {
+      "from": "Inventory service",
+      "to": "Inventory DB",
+      "label": null
+    },
+    {
+      "from": "Inventory service",
+      "to": "Event bus",
+      "label": null
+    },
+    {
+      "from": "Order service",
+      "to": "Order DB",
+      "label": null
+    },
+    {
+      "from": "Order service",
+      "to": "Cart service",
+      "label": null
+    },
+    {
+      "from": "Order service",
+      "to": "Payment service",
+      "label": null
+    },
+    {
+      "from": "Order service",
+      "to": "Inventory service",
+      "label": "commit"
+    },
+    {
+      "from": "Order service",
+      "to": "Event bus",
+      "label": "OrderPlaced"
+    },
+    {
+      "from": "Payment service",
+      "to": "Fraud check",
+      "label": null
+    },
+    {
+      "from": "Payment service",
+      "to": "Payment gateway",
+      "label": "charge"
+    },
+    {
+      "from": "Payment service",
+      "to": "Event bus",
+      "label": null
+    },
+    {
+      "from": "Event bus",
+      "to": "Shipping service",
+      "label": null
+    },
+    {
+      "from": "Shipping service",
+      "to": "Carrier API",
+      "label": null
+    },
+    {
+      "from": "Shipping service",
+      "to": "Order DB",
+      "label": null
+    },
+    {
+      "from": "Event bus",
+      "to": "Notification service",
+      "label": null
+    },
+    {
+      "from": "Notification service",
+      "to": "Email provider",
+      "label": null
+    },
+    {
+      "from": "Notification service",
+      "to": "SMS provider",
+      "label": null
+    },
+    {
+      "from": "Notification service",
+      "to": "User service",
+      "label": null
+    },
+    {
+      "from": "Event bus",
+      "to": "Analytics pipeline",
+      "label": null
+    },
+    {
+      "from": "Analytics pipeline",
+      "to": "Data warehouse",
+      "label": null
+    },
+    {
+      "from": "Analytics pipeline",
+      "to": "Feature store",
+      "label": null
+    },
+    {
+      "from": "Recommendation service",
+      "to": "Feature store",
+      "label": null
+    },
+    {
+      "from": "Recommendation service",
+      "to": "Catalog service",
+      "label": null
+    },
+    {
+      "from": "Admin console",
+      "to": "Data warehouse",
+      "label": "reports"
+    },
+    {
+      "from": "Fraud check",
+      "to": "Feature store",
+      "label": null
+    },
+    {
+      "from": "Pricing service",
+      "to": "Inventory service",
+      "label": null
+    },
+    {
+      "from": "Order service",
+      "to": "Notification service",
+      "label": null
+    },
+    {
+      "from": "Search service",
+      "to": "Pricing service",
+      "label": null
+    }
+  ]
+}

@@ -1,0 +1,92 @@
+{
+  "category": "architecture",
+  "kind": "graph",
+  "direction": "LR",
+  "groups": [
+    {
+      "label": "Ingest workers",
+      "parent": null
+    }
+  ],
+  "nodes": [
+    {
+      "label": "Phone app",
+      "group": null
+    },
+    {
+      "label": "Upload API",
+      "group": null
+    },
+    {
+      "label": "Resize image",
+      "group": "Ingest workers"
+    },
+    {
+      "label": "Extract text",
+      "group": "Ingest workers"
+    },
+    {
+      "label": "Auto tag",
+      "group": "Ingest workers"
+    },
+    {
+      "label": "Photo bucket",
+      "group": null
+    },
+    {
+      "label": "Metadata DB",
+      "group": null
+    },
+    {
+      "label": "Search index",
+      "group": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "Phone app",
+      "to": "Upload API",
+      "label": "POST /photos"
+    },
+    {
+      "from": "Upload API",
+      "to": "Photo bucket",
+      "label": "put object"
+    },
+    {
+      "from": "Upload API",
+      "to": "Resize image",
+      "label": "job"
+    },
+    {
+      "from": "Resize image",
+      "to": "Extract text",
+      "label": null
+    },
+    {
+      "from": "Extract text",
+      "to": "Auto tag",
+      "label": null
+    },
+    {
+      "from": "Resize image",
+      "to": "Photo bucket",
+      "label": "thumbnails"
+    },
+    {
+      "from": "Auto tag",
+      "to": "Metadata DB",
+      "label": "tags"
+    },
+    {
+      "from": "Extract text",
+      "to": "Search index",
+      "label": "text"
+    },
+    {
+      "from": "Phone app",
+      "to": "Search index",
+      "label": "query"
+    }
+  ]
+}

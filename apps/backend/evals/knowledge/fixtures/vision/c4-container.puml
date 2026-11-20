@@ -1,0 +1,23 @@
+@startuml
+!include <C4/C4_Container>
+LAYOUT_LEFT_RIGHT()
+Person(customer, "Customer", "A user of the shop")
+System_Boundary(shop, "Online shop") {
+  Container(spa, "Single-page app", "React", "The shop in the browser")
+  Container(api, "API application", "Go", "The JSON API")
+  ContainerDb(db, "Database", "PostgreSQL", "Orders and users")
+  ContainerQueue(queue, "Job queue", "RabbitMQ", "Background jobs")
+  Container(worker, "Worker", "Go", "Sends email and settles payments")
+}
+System_Ext(stripe, "Stripe", "Card payments")
+System_Ext(mail, "Email service", "Sends email")
+Rel(customer, spa, "Uses", "HTTPS")
+Rel(spa, api, "Calls", "JSON/HTTPS")
+Rel(api, db, "Reads and writes", "SQL")
+Rel(api, queue, "Publishes jobs")
+Rel(worker, queue, "Consumes jobs")
+Rel(worker, db, "Updates orders", "SQL")
+Rel(worker, mail, "Sends email", "SMTP")
+Rel(worker, stripe, "Settles payments", "HTTPS")
+Rel(api, stripe, "Creates charges", "HTTPS")
+@enduml
