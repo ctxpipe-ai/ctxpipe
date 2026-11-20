@@ -94,6 +94,25 @@ describe("withTransientHttpRetry", () => {
     expect(n).toBe(2)
   })
 
+  it("retries an undici socket or connect timeout error under a non-fetch error", async () => {
+    for (const code of ["UND_ERR_SOCKET", "UND_ERR_CONNECT_TIMEOUT"]) {
+      let n = 0
+      const result = await withTransientHttpRetry(
+        async () => {
+          n += 1
+          if (n < 2) {
+            const cause = Object.assign(new Error("socket"), { code })
+            throw new Error("request failed", { cause })
+          }
+          return "ok"
+        },
+        { retries: 2, baseDelayMs: 1 },
+      )
+      expect(result).toBe("ok")
+      expect(n).toBe(2)
+    }
+  })
+
   describe("retryRestartsUntilAborted: a codesearch redeploy within the call's deadline", () => {
     const failing = (code: string, times: number) => {
       let n = 0
