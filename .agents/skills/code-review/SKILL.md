@@ -27,7 +27,7 @@ Give the same `--input` files in each run of a branch. A changed ticket or brief
 
 The reviewers read the rules of each critic below through the `inputs` of `critics.json`, at the merge base. To change a review rule, change it here, not in the factory.
 
-The merge gate checks that each critic has a stored verdict for the PR diff (job `Merge gate critics`). Its report is the job summary of the `Merge gate` check run, and `decision/summary.md` in the artifact `merge-gate-decision` (the factory-check skill, step 8). The gate posts no PR comment. When the report says that a critic is missing, run `factory check` on the PR head, then use **Re-run all jobs**. The gate proves that an agent recorded a review of the hunks. It does not prove that the review was sound.
+The merge gate checks that each critic has a stored verdict for the PR diff (job `Merge gate critics`). Its report is the job summary of the `Merge gate` check run, and `decision/summary.md` in the artifact `merge-gate-decision` (the factory-check skill, step 8). The gate posts no PR comment. When the report says that a critic is missing, run `factory check` on the PR head, then re-run the failed jobs (`gh run rerun <run id> --failed`). The job `Merge gate critics` fails too when a critic is missing, so it looks up the verdicts again. A rerun of only the `Merge gate` job reads the old record. The gate proves that an agent recorded a review of the hunks. It does not prove that the review was sound.
 
 ## Dispute a finding
 
