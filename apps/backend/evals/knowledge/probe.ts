@@ -271,7 +271,8 @@ function zdrPairProvider(provider: unknown, zdr: boolean) {
 
 /**
  * The Jev request of the client, sent to the non-ZDR Decisions model. Only
- * the model and `zdr` change.
+ * the model and `zdr` change, and the pair sends no `only`
+ * (`zdrPairProvider`).
  */
 const nonZdrDecision = (zdr: boolean) =>
   withChangedBody(
@@ -285,9 +286,10 @@ const nonZdrDecision = (zdr: boolean) =>
 
 /**
  * The embedding request of the client, sent to the non-ZDR embedding model.
- * The model and `zdr` change. The dimension goes out too, so that the
- * control model can serve the request; both requests of the pair are the
- * same apart from `zdr`.
+ * The model and `zdr` change, and the pair sends no `only`
+ * (`zdrPairProvider`). The dimension goes out too, so that the control
+ * model can serve the request; both requests of the pair are the same apart
+ * from `zdr`.
  */
 const nonZdrEmbedding = (zdr: boolean) =>
   withChangedBody(

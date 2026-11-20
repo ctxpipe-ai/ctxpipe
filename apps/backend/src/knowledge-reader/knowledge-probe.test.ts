@@ -24,9 +24,11 @@ const CHAT = `${BASE}/chat/completions`
 
 const server = useMswServer()
 
-/** The allowlist of the tests, and the provider block of each request. */
-// As on the hosted stack: the control models of the ZDR pairs are at
-// providers outside it (OpenAI, Google AI Studio).
+/**
+ * The allowlist of the tests, and the provider block of each request. As on
+ * the hosted stack, the control models of the ZDR pairs are at providers
+ * outside it (OpenAI, Google AI Studio).
+ */
 const ALLOWED = ["typesafe", "azure", "amazon-bedrock", "google-vertex"]
 const BLOCK = { data_collection: "deny", zdr: true, only: ALLOWED }
 
@@ -622,6 +624,8 @@ describe("the provider probe", () => {
       embeddingName: "OpenAI",
       dimensions: 768,
     })
+    // OpenAI is on this allowlist, so the fake gateway serves the endpoint
+    // with no ZDR, and the checks fail on ZDR, not on the allowlist.
     vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", [...ALLOWED, "openai"].join(","))
 
     expect(await run()).toBe(4)
