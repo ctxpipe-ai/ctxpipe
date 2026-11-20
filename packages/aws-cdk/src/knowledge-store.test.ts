@@ -366,6 +366,40 @@ describe("knowledge store", () => {
     }
   })
 
+  it("sends S3 traffic of the private subnets through a gateway endpoint, not NAT", () => {
+    const t = template()
+    const endpoints = Object.values(t.findResources("AWS::EC2::VPCEndpoint"))
+    expect(endpoints).toHaveLength(1)
+    const endpoint = endpoints[0]?.Properties as Record<string, unknown>
+    expect(endpoint.VpcEndpointType).toBe("Gateway")
+    expect(JSON.stringify(endpoint.ServiceName)).toContain(".s3")
+    const routeTables = JSON.stringify(endpoint.RouteTableIds)
+    const privateTables = Object.entries(
+      t.findResources("AWS::EC2::SubnetRouteTableAssociation"),
+    )
+      .filter(([id]) => id.includes("privateSubnet"))
+      .map(
+        ([, association]) =>
+          JSON.stringify(
+            (association.Properties as { RouteTableId: unknown }).RouteTableId,
+          ).match(/"(CtxPipe[A-Za-z0-9]+)"/)?.[1] ?? "",
+      )
+    expect(privateTables.length).toBeGreaterThan(0)
+    for (const table of privateTables) expect(routeTables).toContain(table)
+  })
+
+  it("alarms when the host fails its EC2 status checks", () => {
+    const t = template()
+    const [groupId] = node(t, "AWS::AutoScaling::AutoScalingGroup")
+    expect(node(t, "AWS::CloudWatch::Alarm")[1].Properties).toMatchObject({
+      Namespace: "AWS/EC2",
+      MetricName: "StatusCheckFailed",
+      Dimensions: [{ Name: "AutoScalingGroupName", Value: { Ref: groupId } }],
+      Threshold: 1,
+      ComparisonOperator: "GreaterThanOrEqualToThreshold",
+    })
+  })
+
   it("boots ClickHouse with the hot and cold storage policy, the cold volume on the bucket behind a cache", () => {
     const script = userData(template())
     expect(script).toContain(

@@ -18,6 +18,11 @@ export class NetworkingConstruct extends Construct {
     const vpc = new ec2.Vpc(this, "Vpc", {
       maxAzs: props.maxAzs,
       natGateways: props.natGateways,
+      // Same-region S3 traffic (the cold parts of the knowledge store, image
+      // layers) skips the NAT gateway and its per-GB charge.
+      gatewayEndpoints: {
+        S3: { service: ec2.GatewayVpcEndpointAwsService.S3 },
+      },
       subnetConfiguration: [
         {
           name: "public",

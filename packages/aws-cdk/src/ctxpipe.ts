@@ -182,6 +182,11 @@ export class CtxPipe extends Construct {
    * add your own (for example an SNS topic) with `addAlarmAction`.
    */
   public readonly sandboxHostAlarms: readonly cloudwatch.IAlarm[]
+  /**
+   * The status check alarm of the ClickHouse knowledge store host. It has no
+   * actions; add your own with `addAlarmAction`.
+   */
+  public readonly knowledgeStoreAlarms: readonly cloudwatch.IAlarm[]
 
   public constructor(scope: Construct, id: string, props: CtxPipeProps) {
     super(scope, id)
@@ -287,6 +292,7 @@ export class CtxPipe extends Construct {
     this.connectorSecret = secrets.resources.connectorSecret
     this.appUrl = ingress.resources.appUrl
     this.sandboxHostAlarms = sandboxHost?.resources.alarms ?? []
+    this.knowledgeStoreAlarms = knowledgeStore.resources.alarms
 
     new OutputsConstruct(this, "Outputs", {
       appUrl: this.appUrl,

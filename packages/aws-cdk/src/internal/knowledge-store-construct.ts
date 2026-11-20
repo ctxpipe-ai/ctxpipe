@@ -1,5 +1,6 @@
 import * as cdk from "aws-cdk-lib"
 import * as autoscaling from "aws-cdk-lib/aws-autoscaling"
+import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch"
 import * as ec2 from "aws-cdk-lib/aws-ec2"
 import * as iam from "aws-cdk-lib/aws-iam"
 import * as logs from "aws-cdk-lib/aws-logs"
@@ -267,8 +268,27 @@ export class KnowledgeStoreConstruct extends Construct {
       }),
     )
 
+    const statusCheckAlarm = new cloudwatch.Alarm(this, "StatusCheckAlarm", {
+      alarmDescription:
+        "ctxpipe knowledge store: the ClickHouse host failed its EC2 status checks. The Auto Scaling group replaces it; the new host attaches the same data volume.",
+      metric: new cloudwatch.Metric({
+        namespace: "AWS/EC2",
+        metricName: "StatusCheckFailed",
+        dimensionsMap: {
+          AutoScalingGroupName: autoScalingGroup.autoScalingGroupName,
+        },
+        statistic: cloudwatch.Stats.MAXIMUM,
+        period: cdk.Duration.minutes(1),
+      }),
+      threshold: 1,
+      evaluationPeriods: 2,
+      comparisonOperator:
+        cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+    })
+
     this.resources = {
       autoScalingGroup,
+      alarms: [statusCheckAlarm],
       clientSecurityGroup,
       host: discovery.hostname,
       port: CLICKHOUSE_PORT,

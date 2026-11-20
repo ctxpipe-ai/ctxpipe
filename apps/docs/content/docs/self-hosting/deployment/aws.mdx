@@ -275,7 +275,7 @@ settings.
 
 | Layer | What is provisioned | Purpose |
 |---|---|---|
-| Network | VPC with public/private subnets and NAT egress | Isolates internal services while allowing controlled outbound access. |
+| Network | VPC with public/private subnets, NAT egress, and an S3 gateway endpoint | Isolates internal services while allowing controlled outbound access. S3 traffic does not go through the NAT gateway. |
 | Edge + ingress | Public ALB + ACM certificate + Route 53 records | Exposes one HTTPS origin and routes public traffic to backend. |
 | Compute | ECS cluster + Fargate services (`backend`, `worker`, `ui`, `codesearch`) | Runs application APIs, background jobs, UI, and code indexing/search workloads. |
 | Chat sandboxes | One EC2 Docker host in an Auto Scaling group, Docker volume, TLS secrets, CloudWatch alarms | Runs each Workspace conversation's agent in its own container. |
@@ -301,7 +301,7 @@ answers, and the backend and the worker do not use ClickHouse.
 |---|---|
 | Host | One Graviton EC2 instance in an Auto Scaling group of one, in the first private subnet. ClickHouse runs in Docker on the host network. The image is the same pinned image as in Docker Compose. |
 | Data | An encrypted gp3 EBS volume holds the new parts and the cache of the old parts. The volume is not part of the instance: each new host attaches it again. When you delete the stack, CloudFormation keeps a snapshot of the volume. |
-| Old parts | The knowledge tables move a part to the volume `cold` when its newest row is 30 days old. On AWS, `cold` is an S3 bucket of the stack behind a cache on the EBS volume (a fifth of the volume). The bucket blocks public access, is encrypted, and stays when you delete the stack. When the volume has less than 20% free space, ClickHouse also moves its largest parts to the bucket. |
+| Old parts | The knowledge tables move a part to the volume `cold` when its newest row is 30 days old. On AWS, `cold` is an S3 bucket of the stack behind a cache on the EBS volume (a fifth of the volume). The bucket blocks public access, is encrypted, and stays when you delete the stack. When the volume has less than 20% free space, ClickHouse also moves its largest parts to the bucket. The VPC has an S3 gateway endpoint, so this traffic does not go through the NAT gateway. |
 | Network | Only the backend, the worker, and the migrate task reach ClickHouse, on port 8123 (HTTP), at `clickhouse.ctxpipe.local`. The host registers this Cloud Map name when it boots. There is no public listener and no SSH key. |
 | Users | The stack generates three passwords in Secrets Manager. The migrate task gets the admin user and the two other passwords, and makes the users `ctxpipe_reader` and `ctxpipe_writer`. The backend gets `ctxpipe_reader` (read only). The worker gets `ctxpipe_writer`. Each task gets its own `CLICKHOUSE_URL`. |
 | Credentials | ClickHouse reads and writes the bucket with the instance role. The role reaches only the prefix `clickhouse/` of the bucket. |
@@ -309,6 +309,16 @@ answers, and the backend and the worker do not use ClickHouse.
 
 The output `KnowledgeStoreAutoScalingGroupName` names the group. Open a shell
 on its instance with Session Manager for checks.
+
+### Knowledge store alarm
+
+| Alarm | Fires when | What to do |
+|---|---|---|
+| Status check | The ClickHouse host fails its EC2 status checks for 2 minutes | The Auto Scaling group replaces the host, and the new host attaches the same data volume. If the alarm stays on, look at the group's activity history and the ClickHouse log group. |
+
+The alarm has no actions. Subscribe it to your own topic through
+`ctxPipe.knowledgeStoreAlarms`, as for the
+[chat sandbox host alarms](#alarms).
 
 ### Sizes and cost
 
