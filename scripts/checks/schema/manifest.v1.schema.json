@@ -22,9 +22,42 @@
       "items": {
         "$ref": "#/$defs/artifact"
       }
+    },
+    "builds": {
+      "description": "Programs that the repo builds from its own source and that tests start as a process (scripts/checks/builds.mjs). No test imports their source, so a selector finds the checks that start one from the trace (`execs`), selects them when an input changes, and keys them by the inputs. Optional; without it, none.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/build"
+      }
     }
   },
   "$defs": {
+    "build": {
+      "type": "object",
+      "required": ["output", "inputs"],
+      "additionalProperties": false,
+      "properties": {
+        "output": {
+          "description": "The repo-relative path of the program that the build writes, as the code that starts it names it.",
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.)[A-Za-z0-9_.][^*]*$"
+        },
+        "inputs": {
+          "description": "Repo-relative files, or folders with a trailing `/**`, whose content changes the program. No other glob, no `..`.",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^(?!.*\\.\\.)[A-Za-z0-9_.][^*]*(/\\*\\*)?$"
+          }
+        },
+        "native": {
+          "description": "True: the program is native code of the host, so its result can differ between OS and CPU architectures. A check that starts it is never portable: its key holds the OS and the CPU architecture. Optional; without it, false.",
+          "type": "boolean"
+        }
+      }
+    },
     "artifact": {
       "type": "object",
       "required": ["name", "prerequisite", "path", "inputs"],
