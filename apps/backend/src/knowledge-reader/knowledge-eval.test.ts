@@ -223,8 +223,8 @@ describe("the spend cap", () => {
     const calls = new ModelCalls(BASE, 0.005)
     const restore = calls.install()
     try {
-      // 64 chunks of 200 characters: $0.0064 at $0.5 for each million
-      // characters, above the cap.
+      // 64 chunks of 200 bytes: $0.0064 at $0.5 for each million bytes,
+      // above the cap.
       const batch = Array.from({ length: 64 }, () => "x".repeat(200))
       expect((await post(`${BASE}/embeddings`, { input: batch })).status).toBe(
         503,

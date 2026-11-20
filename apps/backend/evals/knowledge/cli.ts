@@ -365,10 +365,6 @@ async function main(argv: string[]): Promise<number> {
     )
   const databaseUrl = process.env.DATABASE_URL
   if (!databaseUrl) throw new SetupError("Set DATABASE_URL.")
-  const kept = values.kept
-    ? keptRunSchema.parse(await readJson(values.kept))
-    : null
-  const settings = parseSettings(values.set ?? [])
   const dataset = values.dataset
   if (command === "hydrate") {
     if (!dataset) throw new SetupError("hydrate needs --dataset.")
@@ -376,10 +372,8 @@ async function main(argv: string[]): Promise<number> {
       throw new SetupError("hydrate takes no --set and no --kept.")
     // The projection of the plane converts each file with it.
     buildConverter()
-  }
-  initDb(databaseUrl)
-  try {
-    if (command === "hydrate" && dataset)
+    initDb(databaseUrl)
+    try {
       return await hydrateCommand({
         dataset: await readDataset(dataset),
         // The eval org. Its ids are made up.
@@ -392,6 +386,17 @@ async function main(argv: string[]): Promise<number> {
         out,
         capUsd,
       })
+    } finally {
+      await closeGraphDb()
+      await closeDb()
+    }
+  }
+  const kept = values.kept
+    ? keptRunSchema.parse(await readJson(values.kept))
+    : null
+  const settings = parseSettings(values.set ?? [])
+  initDb(databaseUrl)
+  try {
     let report: Report
     if (command === "rescore") {
       if (!values.from) throw new SetupError("rescore needs --from.")
