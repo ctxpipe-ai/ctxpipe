@@ -9,6 +9,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 
 import type { AppEnv } from "../../app/env.js"
+import { convertFileParts } from "../../retrieval/services/convertFileParts.js"
 import { modelSpecBase } from "../../retrieval/services/parseModelSpec.js"
 import {
   scrubForModel,
@@ -71,7 +72,8 @@ const chatRoute = createRoute({
     200: { description: "Upstream chat-completion response (JSON or SSE)" },
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Model not allowed",
+      description:
+        "Model not allowed, a file part that is not a PDF, or a PDF with no text",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -160,12 +162,17 @@ export const openaiRoutes = new OpenAPIHono<AppEnv>()
         503,
       )
     }
+    // Each PDF file part becomes the text of our converter, and each other
+    // file part fails the request (CTX-1454).
+    const converted = await convertFileParts(
+      await c.req.json().catch(() => ({})),
+    )
+    if (!converted.ok) return c.json({ error: converted.error }, 400)
     // The body goes to a model: each secret in it is removed first, and a
     // part that the scrubber cannot read is refused (ADR-072).
-    const raw: unknown = await c.req.json().catch(() => ({}))
-    const unreadable = unreadableContentPart(raw)
+    const unreadable = unreadableContentPart(converted.body)
     if (unreadable) return c.json({ error: unreadable }, 400)
-    const body = (await scrubForModel(raw)) as {
+    const body = (await scrubForModel(converted.body)) as {
       model?: unknown
       stream?: unknown
       messages?: unknown[]
