@@ -500,7 +500,7 @@ export async function probeControls(input: {
       },
     ],
     // The text space (CTX-1431): does a text-only model take a batch on a
-    // ZDR endpoint? Each endpoint tag is pinned with no fallback.
+    // ZDR endpoint? Each control pins one endpoint tag with no fallback.
     ...(
       [
         ["qwen/qwen3-embedding-8b", "deepinfra/us"],
