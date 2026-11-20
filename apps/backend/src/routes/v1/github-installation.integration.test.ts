@@ -490,13 +490,13 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
     })
 
     it("goes through the OAuth forwarder of the deployment, when it has one", async () => {
-      // The AWS PR previews (CTX-1426): the forwarder gives the state back
+      // The AWS PR previews (CTX-1441): the forwarder gives the state back
       // as this deployment sent it.
       const forwarded = createApp({
         ...env,
-        GITHUB_AUTHORIZE_URL:
-          "https://forwarder.example.test/github/authorize/pr-12",
-        GITHUB_REDIRECT_URI: "https://forwarder.example.test/github/callback",
+        GITHUB_WEB_URL: "https://forwarder.example.test/.to-github/pr-12",
+        GITHUB_REDIRECT_URI:
+          "https://forwarder.example.test/.auth/api/v1/auth/callback/github",
       })
       const res = await attach({ installationId }, forwarded)
       expect(res.status).toBe(403)
@@ -504,10 +504,10 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
         ((await res.json()) as { authorizeUrl?: string }).authorizeUrl ?? "",
       )
       expect(url.origin + url.pathname).toBe(
-        "https://forwarder.example.test/github/authorize/pr-12",
+        "https://forwarder.example.test/.to-github/pr-12/login/oauth/authorize",
       )
       expect(url.searchParams.get("redirect_uri")).toBe(
-        "https://forwarder.example.test/github/callback",
+        "https://forwarder.example.test/.auth/api/v1/auth/callback/github",
       )
       // The UI sends the user only to the authorize page that the deployment
       // names.
@@ -517,7 +517,9 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
       expect(
         ((await config.json()) as { githubAuthorizeUrl?: string })
           .githubAuthorizeUrl,
-      ).toBe("https://forwarder.example.test/github/authorize/pr-12")
+      ).toBe(
+        "https://forwarder.example.test/.to-github/pr-12/login/oauth/authorize",
+      )
 
       const done = await forwarded.request(
         `http://backend.test/.auth/api/v1/auth/callback/github?${new URLSearchParams({ code: "code-visible", state: url.searchParams.get("state") ?? "" })}`,
@@ -529,7 +531,7 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
       )
       expect(codeExchanges).toHaveLength(1)
       expect(codeExchanges[0]?.redirect_uri).toBe(
-        "https://forwarder.example.test/github/callback",
+        "https://forwarder.example.test/.auth/api/v1/auth/callback/github",
       )
     })
 

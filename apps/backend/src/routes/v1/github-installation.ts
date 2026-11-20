@@ -4,6 +4,8 @@ import { RequestError } from "octokit"
 
 import type { AppEnv } from "../../app/env.js"
 import { createGithubInstallationProofUrl } from "../../auth/github-installation-proof.js"
+import { githubDeploymentAppInstallUrl } from "../../auth/github-oauth-urls.js"
+import type { Env } from "../../config/env.js"
 import { attachGithubInstallation } from "../../domain/github-installation-attach.js"
 import type { GitHubInstallationShape } from "../../models/connection-rows.js"
 import {
@@ -116,17 +118,13 @@ const GithubConnectorBootstrapResponseSchema = z
   })
   .openapi("GithubConnectorBootstrap")
 
-function hostedDefaultGithubAppInstallUrl(env: {
-  GITHUB_APP_ID?: string | null
-  GITHUB_PRIVATE_KEY?: string | null
-  GITHUB_APP_SLUG?: string | null
-}): string | null {
+function hostedDefaultGithubAppInstallUrl(env: Env): string | null {
   const slug = env.GITHUB_APP_SLUG?.trim() || "ctxpipe-agent"
   const hasApp =
     Boolean(env.GITHUB_APP_ID?.trim()) &&
     Boolean(env.GITHUB_PRIVATE_KEY?.trim())
   if (!hasApp) return null
-  return `https://github.com/apps/${slug}/installations/new`
+  return githubDeploymentAppInstallUrl(env, slug)
 }
 
 async function githubInstallationResponsePayload(

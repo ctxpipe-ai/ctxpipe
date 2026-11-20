@@ -61,8 +61,8 @@ All social providers are optional. Omit the variables to disable that provider.
 |---|---|
 | `GITHUB_CLIENT_ID` | Client ID of the GitHub App (sign-in, and the check that a user can access an installation) |
 | `GITHUB_CLIENT_SECRET` | Client secret of the GitHub App |
-| `GITHUB_AUTHORIZE_URL` | Optional. The authorize URL of GitHub sign-in when an OAuth forwarder serves it. Set it together with `GITHUB_REDIRECT_URI`. Default: GitHub's authorize URL |
-| `GITHUB_REDIRECT_URI` | Optional. The callback URL that the GitHub App lists, when an OAuth forwarder serves it. Default: `{AUTH_BASE_URL}/.auth/api/v1/auth/callback/github` |
+| `GITHUB_WEB_URL` | Optional. The base URL, in place of `https://github.com`, of the GitHub pages that the browser opens for the deployment's App (the authorize page and the install page), when a forwarder serves them. Set it together with `GITHUB_REDIRECT_URI`. Default: `https://github.com` |
+| `GITHUB_REDIRECT_URI` | Optional. The callback URL that the GitHub App lists, when a forwarder serves it. Set it together with `GITHUB_WEB_URL`. Default: `{AUTH_BASE_URL}/.auth/api/v1/auth/callback/github` |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
 | `MICROSOFT_CLIENT_ID` | Microsoft Entra application client ID |
