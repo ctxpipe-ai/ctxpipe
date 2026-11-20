@@ -2,6 +2,10 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import {
+  GITHUB_SETUP_RESULT_KEY,
+  getActiveGithubPopupFlowState,
+} from "@/lib/popup"
 import { githubAppMissingHandlers, signedInHandlers } from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
@@ -47,15 +51,54 @@ export const Slack: Story = {
 }
 
 /**
+ * Presses "Connect GitHub" with `popup` in place of `window.open`, and stops
+ * the page load that follows. Chromium's Navigation API can cancel it, so the
+ * button state stays on screen. Returns the URL the page tried to load.
+ */
+async function connectUntilNavigation(
+  canvasElement: HTMLElement,
+  popup: () => Window | null,
+) {
+  const canvas = within(canvasElement)
+  const button = await canvas.findByRole("button", { name: "Connect GitHub" })
+  await waitFor(() => expect(button).not.toHaveAttribute("data-pending"))
+  let destination: string | undefined
+  const stop = (event: NavigateEvent) => {
+    destination = event.destination.url
+    event.preventDefault()
+  }
+  const open = window.open
+  window.navigation.addEventListener("navigate", stop)
+  window.open = popup
+  try {
+    await userEvent.click(button)
+    await waitFor(() => expect(destination).toBeDefined())
+  } finally {
+    window.open = open
+    window.navigation.removeEventListener("navigate", stop)
+  }
+  return { button, destination: destination ?? "" }
+}
+
+/**
  * The admin installed the App in the popup, and ctxpipe sends the page to
  * GitHub setup to prove access. The button stays in progress until the page
- * unloads. The story stops the navigation, so the state stays on screen.
+ * unloads.
  */
+let installationReads = 0
+
 export const RedirectKeepsPending: Story = {
-  args: { orgSlug, sourceName: "Slack" },
+  ...Slack,
   parameters: {
     msw: {
       handlers: {
+        github: [
+          githubAppMissingHandlers[0],
+          http.get(`*/${orgSlug}/api/v1/github/installation`, () => {
+            installationReads += 1
+            return HttpResponse.json(null)
+          }),
+        ],
         register: http.post(`*/${orgSlug}/api/v1/github/installation`, () =>
           HttpResponse.json(
             { error: "Refused", why: "github_authorization_unavailable" },
@@ -65,48 +108,42 @@ export const RedirectKeepsPending: Story = {
       },
     },
   },
-  render: Slack.render,
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    const navigations: string[] = []
-    // Chromium's Navigation API can cancel a same-origin page load.
-    const nav = (
-      window as unknown as {
-        navigation: EventTarget
-      }
-    ).navigation
-    const stop = (event: Event) => {
-      const e = event as Event & { destination: { url: string } }
-      navigations.push(e.destination.url)
-      e.preventDefault()
-    }
-    nav.addEventListener("navigate", stop)
-    const open = window.open
-    // The popup returns the installation at once and closes.
-    window.open = () => {
-      const flow = JSON.parse(localStorage.getItem("github-popup-flow") ?? "{}")
-      localStorage.setItem(
-        "github-setup-result",
-        JSON.stringify({ installationId: 42, popupFlowNonce: flow.nonce }),
-      )
-      return { closed: true, focus() {} } as unknown as Window
-    }
-    try {
-      const button = await canvas.findByRole("button", {
-        name: "Connect GitHub",
-      })
-      await waitFor(() => expect(button).not.toHaveAttribute("data-pending"))
-      await userEvent.click(button)
-      await waitFor(() =>
-        expect(navigations.some((url) => url.includes("/.github/setup"))).toBe(
-          true,
-        ),
-      )
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      await expect(button).toHaveAttribute("data-pending", "true")
-    } finally {
-      window.open = open
-      nav.removeEventListener("navigate", stop)
-    }
+    installationReads = 0
+    const { button, destination } = await connectUntilNavigation(
+      canvasElement,
+      () => {
+        // The popup returns the installation at once and closes.
+        localStorage.setItem(
+          GITHUB_SETUP_RESULT_KEY,
+          JSON.stringify({
+            installationId: 42,
+            popupFlowNonce: getActiveGithubPopupFlowState()?.nonce,
+          }),
+        )
+        return { closed: true, focus() {} } as Window
+      },
+    )
+    await expect(destination).toContain("/.github/setup")
+    // The flow refreshes the installation after the navigation starts. Wait
+    // for that read and one more task, then check that the button did not go
+    // back to idle.
+    await waitFor(() => expect(installationReads).toBeGreaterThan(1))
+    await new Promise((resolve) => setTimeout(resolve))
+    await expect(button).toHaveAttribute("data-pending", "true")
+  },
+}
+
+/** The browser blocked the popup, so the page itself goes to GitHub. */
+export const BlockedPopupKeepsPending: Story = {
+  ...Slack,
+  parameters: { visual: { skip: "Same screen as RedirectKeepsPending." } },
+  play: async ({ canvasElement }) => {
+    const { button, destination } = await connectUntilNavigation(
+      canvasElement,
+      () => null,
+    )
+    await expect(destination).toContain("https://github.com/apps/ctxpipe")
+    await expect(button).toHaveAttribute("data-pending", "true")
   },
 }
