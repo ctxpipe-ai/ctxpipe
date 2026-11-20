@@ -1,0 +1,92 @@
+{
+  "category": "architecture",
+  "kind": "graph",
+  "direction": "LR",
+  "groups": [
+    {
+      "label": "Online shop",
+      "parent": null
+    }
+  ],
+  "nodes": [
+    {
+      "label": "Customer",
+      "group": null
+    },
+    {
+      "label": "Single-page app",
+      "group": "Online shop"
+    },
+    {
+      "label": "API application",
+      "group": "Online shop"
+    },
+    {
+      "label": "Database",
+      "group": "Online shop"
+    },
+    {
+      "label": "Job queue",
+      "group": "Online shop"
+    },
+    {
+      "label": "Worker",
+      "group": "Online shop"
+    },
+    {
+      "label": "Stripe",
+      "group": null
+    },
+    {
+      "label": "Email service",
+      "group": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "Customer",
+      "to": "Single-page app",
+      "label": "Uses"
+    },
+    {
+      "from": "Single-page app",
+      "to": "API application",
+      "label": "Calls"
+    },
+    {
+      "from": "API application",
+      "to": "Database",
+      "label": "Reads and writes"
+    },
+    {
+      "from": "API application",
+      "to": "Job queue",
+      "label": "Publishes jobs"
+    },
+    {
+      "from": "Worker",
+      "to": "Job queue",
+      "label": "Consumes jobs"
+    },
+    {
+      "from": "Worker",
+      "to": "Database",
+      "label": "Updates orders"
+    },
+    {
+      "from": "Worker",
+      "to": "Email service",
+      "label": "Sends email"
+    },
+    {
+      "from": "Worker",
+      "to": "Stripe",
+      "label": "Settles payments"
+    },
+    {
+      "from": "API application",
+      "to": "Stripe",
+      "label": "Creates charges"
+    }
+  ]
+}

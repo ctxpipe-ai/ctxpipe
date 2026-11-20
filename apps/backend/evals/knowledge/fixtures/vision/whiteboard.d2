@@ -1,0 +1,20 @@
+direction: right
+phone: Phone app
+upload: Upload API
+ingest: Ingest workers {
+  resize: Resize image
+  ocr: Extract text
+  tag: Auto tag
+}
+bucket: Photo bucket {shape: cylinder}
+meta: Metadata DB {shape: cylinder}
+search: Search index {shape: cylinder}
+phone -> upload: POST /photos
+upload -> bucket: put object
+upload -> ingest.resize: job
+ingest.resize -> ingest.ocr
+ingest.ocr -> ingest.tag
+ingest.resize -> bucket: thumbnails
+ingest.tag -> meta: tags
+ingest.ocr -> search: text
+phone -> search: query

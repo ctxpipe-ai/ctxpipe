@@ -2,7 +2,7 @@
 
 import HyperDX from "@hyperdx/browser"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 
 import { GithubSelfHostedWizardModal } from "@/features/connectors/components/GithubSelfHostedWizardModal"
 import { getGithubConnectStartBranch } from "@/features/connectors/githubConnectFlow"
@@ -29,7 +29,8 @@ import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
 type UseGithubConnectFlowOptions = {
   orgSlug: string
   onAlreadyInstalled?: () => void
-  onRegistered?: () => void
+  /** A returned promise keeps the button in progress until it settles (e.g. a navigation). */
+  onRegistered?: () => void | Promise<void>
   onRegistrationFailed?: (message: string) => void
   /** Fired when the self-hosted wizard modal is dismissed (completed install or cancelled). */
   onWizardClosed?: () => void
@@ -50,6 +51,18 @@ export function useGithubConnectFlow({
   const [installStarting, setInstallStarting] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [selfHostedWizardOpen, setSelfHostedWizardOpen] = useState(false)
+
+  // Back from GitHub can restore this page from the back/forward cache with
+  // the flow still in progress: let the user start again.
+  useEffect(() => {
+    const onPageShow = (event: PageTransitionEvent) => {
+      if (!event.persisted) return
+      setInstallStarting(false)
+      setIsSyncing(false)
+    }
+    window.addEventListener("pageshow", onPageShow)
+    return () => window.removeEventListener("pageshow", onPageShow)
+  }, [])
 
   const { data: bootstrap, isPending: bootstrapPending } =
     useGithubConnectorBootstrap(orgSlug)
@@ -77,11 +90,17 @@ export function useGithubConnectFlow({
   }, [])
 
   const handleInstallSettled = useCallback(
-    ({ status }: GithubSetupPopupResult) => {
+    async ({ status }: GithubSetupPopupResult) => {
       if (status === "redirected") return
       if (status === "registered") {
         HyperDX.addAction("connector_connect", { connector: "github" })
-        onRegistered?.()
+        try {
+          await onRegistered?.()
+        } catch {
+          onRegistrationFailed?.(
+            "GitHub is connected, but the next step did not open. Please reload the page.",
+          )
+        }
       } else if (status === "registration_failed")
         onRegistrationFailed?.(
           "Could not complete GitHub connection. Please try again.",
@@ -111,9 +130,10 @@ export function useGithubConnectFlow({
         width: 1120,
         height: 780,
       })
+      // A blocked popup makes the page itself go to GitHub, so the button
+      // stays in progress until the page unloads.
       if (!popup) {
         clearGithubPopupFlow()
-        setInstallStarting(false)
         return
       }
       watchPopupClose(
@@ -122,12 +142,16 @@ export function useGithubConnectFlow({
           setInstallStarting(false)
           setIsSyncing(true)
           void (async () => {
-            const result = await handleGithubSetupPopupResult(
-              orgSlug,
-              queryClient,
-            )
+            let result: GithubSetupPopupResult
+            try {
+              result = await handleGithubSetupPopupResult(orgSlug, queryClient)
+            } catch {
+              result = { status: "registration_failed" }
+            }
+            // A redirect unloads the page: keep the button in progress.
+            if (result.status === "redirected") return
+            await handleInstallSettled(result)
             setIsSyncing(false)
-            handleInstallSettled(result)
           })()
         },
         {
