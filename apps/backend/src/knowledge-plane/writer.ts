@@ -555,7 +555,9 @@ async function embedWithReuse<R>(
   embed: (inputs: EmbeddingInput[]) => Promise<R[]>,
 ): Promise<{ key: string; vector: number[] | R }[]> {
   const { counter } = reuse
-  const keys = inputs.map((input) => embeddingKey(input))
+  const keys = inputs.map((input) =>
+    embeddingKey(input, multimodalEmbeddingConfig),
+  )
   const stored = await reuse.store.readEmbeddings(reuse.scope, docKeys, keys)
   const missing = new Map<string, EmbeddingInput>()
   for (const [index, input] of inputs.entries()) {
