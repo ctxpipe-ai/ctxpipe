@@ -164,8 +164,8 @@ const readResult = async () =>
   resultSchema.parse(
     JSON.parse(await readFile(join(out, "probe.json"), "utf8")),
   )
-const run = (capUsd: number) =>
-  probe({ out, calls: new ModelCalls(BASE, capUsd), capUsd })
+const run = (capUsd: number, controls = false) =>
+  probe({ out, calls: new ModelCalls(BASE, capUsd), capUsd, controls })
 const passes = async () =>
   Object.fromEntries(
     (await readResult()).checks.map((check) => [check.name, check.pass]),
@@ -376,6 +376,92 @@ describe("the provider probe", () => {
     ])
     expect(result.checks[2]?.error).toBe(
       "The spend cap stopped the probe before this check.",
+    )
+  })
+})
+
+describe("the provider probe controls", () => {
+  const controlSchema = z.object({
+    model: z.string(),
+    input: z.array(z.unknown()),
+    provider: z.object({
+      zdr: z.boolean(),
+      order: z.array(z.string()).optional(),
+    }),
+  })
+
+  it("sends each control once and records its status, provider, error and vector count", async () => {
+    const bodies: z.infer<typeof controlSchema>[] = []
+    // A gateway with the batch finding: with zdr true, Gemini has no
+    // endpoint for more than one input.
+    server.use(
+      http.post(EMBEDDINGS, async ({ request }) => {
+        const body = controlSchema.parse(await request.json())
+        bodies.push(body)
+        if (
+          body.model === "google/gemini-embedding-2" &&
+          body.provider.zdr &&
+          body.input.length > 1
+        )
+          return HttpResponse.json(
+            {
+              error: {
+                message:
+                  "No endpoints found matching your data policy (Zero data retention).",
+              },
+            },
+            { status: 404 },
+          )
+        return HttpResponse.json({
+          data: body.input.map((_, index) => ({ embedding: [0.1], index })),
+          provider: body.model.startsWith("google/") ? "Google" : "Other",
+          usage: { cost: 0.00001 },
+        })
+      }),
+    )
+
+    expect(await run(0.05, true)).toBe(0)
+
+    const result = z
+      .object({
+        controls: z.array(
+          z.object({
+            name: z.string(),
+            status: z.number().nullable(),
+            provider: z.string().nullable(),
+            error: z.string().nullable(),
+            vectors: z.number().nullable(),
+          }),
+        ),
+      })
+      .parse(JSON.parse(await readFile(join(out, "controls.json"), "utf8")))
+    const refused =
+      "No endpoints found matching your data policy (Zero data retention)."
+    expect(
+      result.controls.map(({ name, status, error, vectors }) => [
+        name,
+        status,
+        error,
+        vectors,
+      ]),
+    ).toEqual([
+      ["gemini-16-multimodal-zdr", 404, refused, null],
+      ["gemini-1-multimodal-zdr", 200, null, 1],
+      ["gemini-16-multimodal-no-zdr", 200, null, 16],
+      ["gemini-16-strings-zdr", 404, refused, null],
+      ["gemini-2-multimodal-zdr", 404, refused, null],
+      ["gemini-4-multimodal-zdr", 404, refused, null],
+      ["gemini-16-multimodal-zdr-no-pin", 404, refused, null],
+      ["titan-16-strings-zdr", 200, null, 16],
+      ["openai-3-large-16-strings-zdr", 200, null, 16],
+    ])
+    expect(bodies).toHaveLength(9)
+    // Only the fixed texts go out.
+    expect(JSON.stringify(bodies)).not.toMatch(
+      /"text":"(?!Square \d+ of the checkerboard is (red|blue)\.)/,
+    )
+    expect(await readFile(join(out, "controls.md"), "utf8")).toContain(
+      "| gemini-16-multimodal-no-zdr | Is ZDR the cause?",
     )
   })
 })

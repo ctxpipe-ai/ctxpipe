@@ -12,7 +12,7 @@
  *     --models A,B,C --out FILE [--cap-usd 5]
  *   bun evals/knowledge/cli.ts corpus snapshot|issues|freeze --plan FILE \
  *     --out FILE
- *   bun evals/knowledge/cli.ts probe --out DIR [--cap-usd 0.05]
+ *   bun evals/knowledge/cli.ts probe --out DIR [--cap-usd 0.05] [--controls]
  *
  * See README.md. Exit code 0: done. 2: bad setup. 3: the spend cap stopped
  * the command (the output holds the work before the stop). 4: a check of
@@ -232,6 +232,7 @@ async function main(argv: string[]): Promise<number> {
       draft: { type: "string" },
       repo: { type: "string" },
       models: { type: "string" },
+      controls: { type: "boolean", default: false },
     },
   })
   const capUsd = Number(values["cap-usd"] ?? (command === "probe" ? 0.05 : 5))
@@ -244,7 +245,12 @@ async function main(argv: string[]): Promise<number> {
   if (command === "probe") {
     if (!process.env.MODEL_PROVIDER_API_KEY)
       throw new SetupError("probe needs MODEL_PROVIDER_API_KEY.")
-    return probe({ out, calls: modelCalls(capUsd), capUsd })
+    return probe({
+      out,
+      calls: modelCalls(capUsd),
+      capUsd,
+      controls: values.controls,
+    })
   }
 
   if (command !== "run" && command !== "rescore")
