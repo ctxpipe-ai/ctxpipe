@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -22,6 +22,7 @@ import {
 } from "vitest"
 import { stringify } from "yaml"
 
+import { buildConverter } from "../../test/converter.js"
 import { recordSpans } from "../../test/spans.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
@@ -46,7 +47,8 @@ import { projectKnowledgePlane } from "./writer.js"
 /*
  * The projection writer of ADR-067 against real collaborators: a real Git
  * remote (`file://`), Postgres (`knowledge_state`), and ClickHouse of the
- * pinned image as the writer user. msw answers the embedding API.
+ * pinned image as the writer user. msw answers the embedding API and the
+ * vision model. The file converter is the real CLI of this checkout.
  */
 
 const here = fileURLToPath(new URL(".", import.meta.url))
@@ -63,6 +65,30 @@ const tables = [
   "doc_refs",
 ] as const
 const EMBEDDINGS_URL = "https://embeddings.test/api/v1/embeddings"
+const VISION_URL = "https://embeddings.test/api/v1/chat/completions"
+
+/**
+ * The vision calls. The reading of an image comes from its bytes alone, so
+ * the same image always gives the same text. An image whose bytes say
+ * "This is text" gets a 400, a refusal of the model.
+ */
+const vision = { calls: 0 }
+const visionReading = (label: string) => ({
+  description: `A diagram ${label}.`,
+  text: label,
+  diagram: {
+    kind: "graph",
+    direction: "LR",
+    groups: [],
+    nodes: [
+      { id: "a", label: `Service ${label}`, group: "" },
+      { id: "b", label: "Database", group: "" },
+    ],
+    edges: [{ from: "a", to: "b", label: "SQL", arrow: "forward" }],
+    participants: [],
+    messages: [],
+  },
+})
 
 /**
  * A vector that only the text of the input decides. Most of its values are
@@ -97,6 +123,26 @@ const msw = setupServer(
         index,
         embedding: vectorOf(input),
       })),
+    })
+  }),
+  http.post(VISION_URL, async ({ request }) => {
+    vision.calls++
+    const body = (await request.json()) as {
+      models: string[]
+      messages: unknown[]
+    }
+    const image = Buffer.from(
+      JSON.stringify(body.messages).match(/base64,([A-Za-z0-9+/=]+)/)?.[1] ??
+        "",
+      "base64",
+    )
+    if (image.includes("This is text"))
+      return HttpResponse.json({ error: { message: "bad" } }, { status: 400 })
+    const label = createHash("sha256").update(image).digest("hex").slice(0, 8)
+    return HttpResponse.json({
+      model: body.models[0],
+      choices: [{ message: { content: JSON.stringify(visionReading(label)) } }],
+      usage: { cost: 0.001 },
     })
   }),
   // The statements to ClickHouse: see `fault`.
@@ -165,6 +211,7 @@ let store: KnowledgeStore
 const workspaceIds: string[] = []
 beforeAll(async () => {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
+  buildConverter()
   initDb(process.env.DATABASE_URL)
   await getSystemDb().insert(organizations).values({
     id: orgId,
@@ -208,6 +255,7 @@ beforeEach(() => {
   embeddings.requests = 0
   embeddings.failAt = 0
   embeddings.inputs = []
+  vision.calls = 0
   Object.assign(fault, {
     match: /./,
     failAt: 0,
@@ -441,6 +489,20 @@ function halfTombstones(): KnowledgeStore {
 
 const key = (workspaceId: string, path: string) =>
   servingIdForKnowledgePath(workspaceId, path)
+
+/** Make the stored projection version old, so the next run is a full rebuild. */
+const staleVersion = (workspaceId: string) =>
+  withOrgDbContext(orgId, (db) =>
+    db
+      .update(knowledgeState)
+      .set({ projectionVersion: "old" })
+      .where(
+        and(
+          eq(knowledgeState.organizationId, orgId),
+          eq(knowledgeState.workspaceId, workspaceId),
+        ),
+      ),
+  )
 
 /** A PNG header (400 × 300 px), then `seed`, so that each seed gives other bytes. */
 const png = (seed: string) => {
@@ -1180,24 +1242,37 @@ describe("projectKnowledgePlane", () => {
     }
   })
 
-  it("gives each image file a document with no chunk and no vector, sends no image to the embedding model, skips submodules, and reads only the root folder", async () => {
+  it("turns each image into text through the vision model and each document through the converter, gives a failed document to a file that nothing can read, and reads only the root folder", async () => {
     const remote = await Remote.create()
     try {
       const workspaceId = await newWorkspace()
       const scope = { orgId, workspaceId }
-      const tip = await remote.commit({
+      const pdf = await readFile(
+        fileURLToPath(
+          new URL("./fixtures/convert/sample.pdf", import.meta.url),
+        ),
+      )
+      const files = {
         "docs/a.md":
           "# Alpha\n\n![d](img/d.png) ![Logo](logo.svg) ![Photo](p.jpg) ![Fake](fake.png)\n",
         "docs/img/d.png": png("one"),
-        "docs/logo.svg": '<svg xmlns="http://www.w3.org/2000/svg"/>',
+        "docs/img/same.png": png("one"),
+        "docs/logo.svg":
+          '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="20"><text x="2" y="15">Logo label</text></svg>',
         "docs/p.jpg": jpeg,
-        // The writer reads no image bytes, so it does not check them.
+        // Text in a PNG file: the model refuses it.
         "docs/fake.png": "This is text, not a PNG.",
+        "docs/runbook.pdf": pdf,
+        "docs/old.doc": "A binary Word file.",
+        // Not a document: no row.
+        "docs/config.json": "{}",
         "outside.md": "# Outside\n",
-      })
+        "outside.png": png("outside"),
+      }
+      const tip = await remote.commit(files)
       expect(
         await run(remote, workspaceId, tip, { root: "docs" }),
-      ).toMatchObject({ mode: "full", failedCount: 0 })
+      ).toMatchObject({ mode: "full", failedCount: 2 })
       const image = await store.readDocument(
         scope,
         key(workspaceId, "img/d.png"),
@@ -1208,15 +1283,44 @@ describe("projectKnowledgePlane", () => {
         path: "img/d.png",
         mime: "image/png",
       })
-      expect(image?.chunks).toEqual([])
-      for (const path of ["logo.svg", "p.jpg", "fake.png"])
-        expect(
-          (await store.readDocument(scope, key(workspaceId, path)))?.document,
-        ).toMatchObject({ kind: "image", status: "active" })
-      // Only the one chunk of a.md goes to the embedding model.
-      expect(embeddings.inputs).toEqual([
-        [expect.stringContaining("![d](img/d.png)")],
-      ])
+      expect(image?.chunks.map((chunk) => chunk.text).join("\n")).toMatch(
+        /A diagram [0-9a-f]{8}\.[\s\S]*flowchart LR[\s\S]*-->\|"SQL"\|/,
+      )
+      // The SVG goes to the model as the PNG of the converter, and its
+      // labels are part of its text.
+      const logo = await store.readDocument(scope, key(workspaceId, "logo.svg"))
+      expect(logo?.document).toMatchObject({
+        kind: "image",
+        mime: "image/svg+xml",
+      })
+      expect(logo?.chunks.map((chunk) => chunk.text).join("\n")).toContain(
+        "Labels in the file:\nLogo label",
+      )
+      const runbook = await store.readDocument(
+        scope,
+        key(workspaceId, "runbook.pdf"),
+      )
+      expect(runbook?.document).toMatchObject({
+        kind: "document",
+        mime: "application/pdf",
+      })
+      expect(runbook?.chunks.map((chunk) => chunk.text).join("\n")).toContain(
+        "rotate the signing key",
+      )
+      expect(
+        (await store.readDocument(scope, key(workspaceId, "fake.png")))
+          ?.document,
+      ).toMatchObject({
+        status: "failed",
+        error: "The vision model answered 400.",
+      })
+      expect(
+        (await store.readDocument(scope, key(workspaceId, "old.doc")))
+          ?.document,
+      ).toMatchObject({
+        status: "failed",
+        error: "No converter takes .doc files.",
+      })
       // The alt text of the reference is on its relation.
       expect(
         image?.incoming.map(({ predicate, altText }) => ({
@@ -1224,17 +1328,36 @@ describe("projectKnowledgePlane", () => {
           altText,
         })),
       ).toEqual([{ predicate: "EMBEDS_IMAGE", altText: "d" }])
-      // A chunk of a knowledge file keeps the lines that the mapper gives.
-      expect(
-        (await store.readDocument(scope, key(workspaceId, "a.md")))?.chunks.map(
-          ({ startLine, endLine }) => ({ startLine, endLine }),
-        ),
-      ).toEqual([{ startLine: 1, endLine: 3 }])
       expect(Object.keys(await statusOf(workspaceId)).sort()).toEqual(
-        ["a.md", "img/d.png", "logo.svg", "p.jpg", "fake.png"]
+        [
+          "a.md",
+          "img/d.png",
+          "img/same.png",
+          "logo.svg",
+          "p.jpg",
+          "fake.png",
+          "runbook.pdf",
+          "old.doc",
+        ]
           .map((path) => key(workspaceId, path))
           .sort(),
       )
+      // d.png and same.png have one blob: one call. The SVG, the JPEG and
+      // the refused PNG: one call each.
+      expect(vision.calls).toBe(4)
+
+      // A full rebuild reads the image texts from the cache: no vision call
+      // for the images that it read, and the same text.
+      await staleVersion(workspaceId)
+      vision.calls = 0
+      expect(
+        await run(remote, workspaceId, tip, { root: "docs" }),
+      ).toMatchObject({ mode: "full", fullReason: "projection_version" })
+      expect(vision.calls).toBe(1)
+      expect(
+        (await store.readDocument(scope, key(workspaceId, "img/d.png")))
+          ?.chunks,
+      ).toEqual(image?.chunks)
     } finally {
       await remote.remove()
     }
@@ -1471,18 +1594,6 @@ describe("reference keys (CTX-1400)", () => {
 
 describe("vector reuse (CTX-1428)", () => {
   /** Make the stored projection version old, so that the next run is full. */
-  const staleVersion = (workspaceId: string) =>
-    withOrgDbContext(orgId, (db) =>
-      db
-        .update(knowledgeState)
-        .set({ projectionVersion: "old" })
-        .where(
-          and(
-            eq(knowledgeState.organizationId, orgId),
-            eq(knowledgeState.workspaceId, workspaceId),
-          ),
-        ),
-    )
   const embeddingOf = () =>
     spans.spanNamed("knowledge.projection.apply")?.attributes
   /** The text of each request since the last reset. */

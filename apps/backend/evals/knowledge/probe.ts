@@ -1,8 +1,12 @@
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { z } from "zod"
 
+import {
+  IMAGE_TEXT_MODELS,
+  readImage,
+} from "../../src/knowledge-plane/image-text.js"
 import {
   type EmbeddingInput,
   embedTexts,
@@ -53,6 +57,17 @@ const NON_ZDR_DECISIONS_MODEL = "openai/gpt-6-luna-decisions"
  */
 const NON_ZDR_EMBEDDING_MODEL = "openai/text-embedding-ada-002"
 
+/**
+ * The ZDR controls of the vision fallback (CTX-1433): two vision models that
+ * take an image and a JSON schema and are not on the OpenRouter ZDR list
+ * (2026-11-20). If the catalog changes, a control check fails and says so;
+ * then pick other such models.
+ */
+const NON_ZDR_VISION_MODELS = [
+  "google/gemini-2.5-flash-lite",
+  "openai/gpt-4o-mini-2024-07-18",
+] as const
+
 /** The provider names of the ZDR endpoints of a model (`zdrProviders`). */
 type ZdrProvidersOf = (
   model: string,
@@ -100,6 +115,7 @@ async function zdrProviders(base: string): Promise<ZdrProvidersOf> {
 
 const answerSchema = z.object({
   provider: z.string().optional(),
+  model: z.string().optional(),
   error: z.object({ message: z.string().optional() }).optional(),
   data: z.array(z.unknown()).optional(),
 })
@@ -340,6 +356,44 @@ async function probeChecks(
     })),
   )
   await refusalPair("embedding", NON_ZDR_EMBEDDING_MODEL, nonZdrEmbedding)
+
+  // The vision fallback (CTX-1433). The client sends the models of
+  // `IMAGE_TEXT_MODELS` with one provider block, and OpenRouter's docs do not
+  // say that the block holds for each model of the list. A made-up diagram
+  // of the vision eval goes to the client with a model of no ZDR endpoint in
+  // front: the answer must come from the next model, at a ZDR provider.
+  const image = {
+    bytes: await readFile(
+      new URL("./fixtures/vision/order-states.png", import.meta.url),
+    ),
+    mimeType: "image/png",
+  }
+  const [noZdr, otherNoZdr] = NON_ZDR_VISION_MODELS
+  const [first] = IMAGE_TEXT_MODELS
+  const fallback = await observe(calls, () =>
+    readImage(image, { models: [noZdr, first] }),
+  )
+  const visionProviders = zdrProvidersOf(first)
+  check(
+    "vision-fallback-skips-a-model-with-no-zdr-endpoint",
+    fallback,
+    fallback.status === 200 &&
+      fallback.result?.model === first &&
+      visionProviders.has(fallback.provider ?? ""),
+    `HTTP 200 from ${first} at a ZDR provider (${[...visionProviders].join(", ") || "none listed"}) after ${noZdr} (no ZDR endpoint)`,
+  )
+  // The refusal pair of the list: both models have no ZDR endpoint. If
+  // `zdr` held only for the first model, the second would answer.
+  await refusalPair("vision-fallback", `${noZdr} then ${otherNoZdr}`, (zdr) =>
+    withChangedBody(
+      (body) => ({
+        ...body,
+        models: [noZdr, otherNoZdr],
+        provider: { ...jsonObject.parse(body.provider), zdr },
+      }),
+      () => readImage(image, { models: IMAGE_TEXT_MODELS, backoffMs: 1 }),
+    ),
+  )
   return checks
 }
 

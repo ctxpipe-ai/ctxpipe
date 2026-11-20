@@ -73,7 +73,8 @@ export const images = [
     image: "worker",
     dockerfile: "apps/backend/Dockerfile.worker",
     packages: ["@ctxpipe/backend"],
-    inputs: backend,
+    // The file converter of the knowledge plane (CTX-1433).
+    inputs: [...backend, "apps/backend/converter"],
   },
   {
     image: "ui",

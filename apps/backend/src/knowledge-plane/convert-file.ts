@@ -1,0 +1,285 @@
+// Files become text at projection time (ADR-066 decision 6, CTX-1433). The
+// writer reads a file of the Workspace Git at the tip and converts it in
+// memory. No derived text goes into Git. The converter is the Rust CLI of
+// `apps/backend/converter` (`ctxpipe-convert`): fast, battle-tested parsers
+// for the top file types only. The same bytes give the same text.
+//
+// The input is untrusted, so the CLI runs in its own process with limits:
+// its own address-space and CPU limits (set before it reads the input), a
+// wall-clock limit, and caps on the input and the output.
+import { spawn } from "node:child_process"
+import { existsSync } from "node:fs"
+import { fileURLToPath } from "node:url"
+
+import { z } from "zod"
+
+/**
+ * The version line of `ctxpipe-convert --version`. It is part of the
+ * projection version (ADR-067): a new parser version changes the text of a
+ * file, so it starts a full rebuild. A test checks it against the CLI.
+ */
+export const CONVERTER_VERSION =
+  "ctxpipe-convert 0.1.0 (anydoc 0.2.5, pdf-inspector 1.26.1, htmd 0.6.0, resvg 0.50.0)"
+
+/** The formats of the converter, by file extension, with their media type. */
+const FORMATS: Record<string, { format: ConverterFormat; mime: string }> = {
+  pdf: { format: "pdf", mime: "application/pdf" },
+  docx: {
+    format: "docx",
+    mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  },
+  pptx: {
+    format: "pptx",
+    mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  },
+  xlsx: {
+    format: "xlsx",
+    mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  },
+  html: { format: "html", mime: "text/html" },
+  htm: { format: "html", mime: "text/html" },
+  svg: { format: "svg", mime: "image/svg+xml" },
+}
+type ConverterFormat = "pdf" | "docx" | "pptx" | "xlsx" | "html" | "svg"
+
+/** The images that the vision model reads as they are. */
+const IMAGES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+}
+
+/**
+ * The document and image types that a Workspace can hold but that have no
+ * converter: "Good support speed for the top file types is more important
+ * than exotic file types" (the CTO, 2026-11-20). A file of such a type gets
+ * a `failed` document that says so. Other files (code, configuration) are
+ * not documents and get no row.
+ */
+const UNCONVERTED = new Set([
+  "doc",
+  "ppt",
+  "xls",
+  "odt",
+  "odp",
+  "ods",
+  "rtf",
+  "epub",
+  "key",
+  "pages",
+  "numbers",
+  "tif",
+  "tiff",
+  "bmp",
+  "heic",
+  "ico",
+])
+
+const extensionOf = (path: string) => {
+  const name = path.split("/").pop() ?? ""
+  const dot = name.lastIndexOf(".")
+  return dot > 0 ? name.slice(dot + 1).toLowerCase() : ""
+}
+
+/** The converter format of a path, or null when no converter takes it. */
+export function converterFormat(path: string): ConverterFormat | null {
+  return FORMATS[extensionOf(path)]?.format ?? null
+}
+
+/** What the projection does with a file that is not a knowledge file. */
+export type FileType =
+  /** The converter gives its text (an SVG: a PNG and its labels). */
+  | { kind: "convert"; format: ConverterFormat; mime: string }
+  /** The vision model reads it as it is. */
+  | { kind: "image"; mime: string }
+  /** A document or an image type with no converter: a `failed` document. */
+  | { kind: "unsupported"; extension: string }
+
+/** The type of a path, or null for a file that is not a document. */
+export function fileType(path: string): FileType | null {
+  const extension = extensionOf(path)
+  const converted = FORMATS[extension]
+  if (converted) return { kind: "convert", ...converted }
+  const image = IMAGES[extension]
+  if (image) return { kind: "image", mime: image }
+  if (UNCONVERTED.has(extension)) return { kind: "unsupported", extension }
+  return null
+}
+
+/** Why a file gives no text. The writer records it on a `failed` document. */
+export type ConversionFailure =
+  /** A file of more than 64 MiB, or a text of more than 16 MiB. */
+  | "too-large"
+  /** A PDF of more than 2,000 pages. */
+  | "too-many-pages"
+  | "encrypted"
+  /** A PDF with no text layer (scanned or image-only). */
+  | "no-text-layer"
+  /** The parser cannot read the file. */
+  | "malformed"
+  /** The converter used all its memory or CPU time. */
+  | "resource-limit"
+  /** The converter did not finish within the wall-clock limit. */
+  | "timeout"
+
+/** The result of one conversion. */
+export type Conversion =
+  | {
+      kind: "text"
+      /** Markdown. */
+      text: string
+      /** The 1-based PDF pages with no text layer; their text is missing. */
+      imageOnlyPages: number[]
+    }
+  | {
+      /** An SVG: a PNG for the vision model, and the text of its labels. */
+      kind: "image"
+      png: Buffer
+      labels: string
+    }
+  | { kind: "failed"; failure: ConversionFailure; message: string }
+
+const MAX_INPUT_BYTES = 64 * 1024 * 1024
+/** The text (16 MiB) or the PNG of an SVG (at most 2048 × 2048), as JSON. */
+const MAX_OUTPUT_BYTES = 48 * 1024 * 1024
+
+const outputSchema = z.union([
+  z.object({
+    ok: z.literal(true),
+    text: z.string(),
+    imageOnlyPages: z.array(z.number()).optional(),
+    png: z.string().optional(),
+  }),
+  z.object({
+    ok: z.literal(false),
+    failure: z.string(),
+    message: z.string(),
+  }),
+])
+
+const KNOWN_FAILURES = new Set<string>([
+  "too-large",
+  "too-many-pages",
+  "encrypted",
+  "no-text-layer",
+  "malformed",
+])
+
+/**
+ * The CLI: the build of this checkout when it exists (local development and
+ * tests), else the copy of the worker image (`Dockerfile.worker`). The path
+ * is absolute, because the process gets no PATH.
+ */
+export function converterBinary(): string {
+  const local = fileURLToPath(
+    new URL("../../converter/target/release/ctxpipe-convert", import.meta.url),
+  )
+  return existsSync(local) ? local : "/usr/local/bin/ctxpipe-convert"
+}
+
+/**
+ * Convert one file of format `format` to text. A file that the converter
+ * cannot read gives a `failed` result, not an error: the writer records it
+ * on a `failed` document (ADR-067 decision 8). An error is thrown only when
+ * the converter cannot start.
+ */
+export async function convertFile(
+  format: ConverterFormat,
+  bytes: Buffer,
+  limits: { timeoutMs?: number; maxMemoryMb?: number } = {},
+): Promise<Conversion> {
+  if (bytes.length > MAX_INPUT_BYTES)
+    return {
+      kind: "failed",
+      failure: "too-large",
+      message: "The file is larger than 64 MiB.",
+    }
+  const timeoutMs = limits.timeoutMs ?? 60_000
+  const child = spawn(
+    converterBinary(),
+    [
+      "--format",
+      format,
+      "--max-memory-mb",
+      String(limits.maxMemoryMb ?? 512),
+      "--max-cpu-seconds",
+      String(Math.ceil(timeoutMs / 1000)),
+    ],
+    // No environment: the converter reads no setting.
+    { stdio: ["pipe", "pipe", "ignore"], env: {} },
+  )
+  const chunks: Buffer[] = []
+  let size = 0
+  let stop: "timeout" | "too-large" | null = null
+  const timer = setTimeout(() => {
+    stop = "timeout"
+    child.kill("SIGKILL")
+  }, timeoutMs)
+  child.stdout.on("data", (chunk: Buffer) => {
+    size += chunk.length
+    if (size > MAX_OUTPUT_BYTES) {
+      stop = "too-large"
+      child.kill("SIGKILL")
+    } else chunks.push(chunk)
+  })
+  // The converter can stop before it reads all the input.
+  child.stdin.on("error", () => {})
+  child.stdin.end(bytes)
+  const exit = await new Promise<{ code: number | null }>((resolve, reject) => {
+    child.on("error", reject)
+    child.on("close", (code) => resolve({ code }))
+  }).finally(() => clearTimeout(timer))
+  if (stop === "timeout")
+    return {
+      kind: "failed",
+      failure: "timeout",
+      message: `The converter did not finish within ${timeoutMs} ms.`,
+    }
+  if (stop === "too-large")
+    return {
+      kind: "failed",
+      failure: "too-large",
+      message: "The output of the converter is larger than 48 MiB.",
+    }
+  const output = outputSchema.safeParse(
+    exit.code === 0 ? parseJson(Buffer.concat(chunks).toString("utf8")) : null,
+  )
+  // A process that a limit stopped (an allocation failure aborts it, and
+  // the CPU limit sends SIGXCPU) writes no result.
+  if (!output.success)
+    return {
+      kind: "failed",
+      failure: "resource-limit",
+      message: "The converter stopped at its memory or CPU limit.",
+    }
+  const result = output.data
+  if (!result.ok)
+    return {
+      kind: "failed",
+      failure: KNOWN_FAILURES.has(result.failure)
+        ? (result.failure as ConversionFailure)
+        : "malformed",
+      message: result.message,
+    }
+  if (result.png !== undefined)
+    return {
+      kind: "image",
+      png: Buffer.from(result.png, "base64"),
+      labels: result.text,
+    }
+  return {
+    kind: "text",
+    text: result.text,
+    imageOnlyPages: result.imageOnlyPages ?? [],
+  }
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}

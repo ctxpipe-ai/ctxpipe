@@ -7,14 +7,22 @@
 //
 // The request goes to OpenRouter with `zdr: true` and
 // `data_collection: "deny"`, and with no provider pin: OpenRouter can fall
-// back to another ZDR endpoint of the model (the CTO, 2026-11-20).
+// back to another ZDR endpoint of a model, and to the next model of
+// `IMAGE_TEXT_MODELS` (the CTO, 2026-11-20). The projection keeps each
+// reading in a cache by blob SHA (`imageTexts`), so a rebuild calls no model.
 import { z } from "zod"
 
 import { assertNotInOrgDbContext } from "../db/client.js"
+import type {
+  KnowledgeScope,
+  KnowledgeStore,
+} from "../knowledge-store/knowledge-store.js"
+import { mapPool } from "../lib/mapPool.js"
 import {
   TransientHttpError,
   withTransientHttpRetry,
 } from "../lib/withTransientHttpRetry.js"
+import { gatewayCost } from "../observability/gatewayCost.js"
 import {
   openRouterSettings,
   ZDR_PROVIDER,
@@ -25,6 +33,19 @@ import {
  * changes the text of an image, so the cache key of the text holds it.
  */
 export const IMAGE_TEXT_PROMPT_VERSION = 1
+
+/**
+ * The vision models, in fallback order (the lead, 2026-11-20, from the
+ * vision eval: GPT-6.1 Terra was the cheapest and the fastest, with no
+ * error). Each model has ZDR endpoints of one provider only, so the second
+ * model is the fallback (OpenRouter `models`). The evals of ADR-069 can
+ * change the list: a change of it changes only the models of new readings,
+ * because a cached reading keeps the model that answered.
+ */
+export const IMAGE_TEXT_MODELS = [
+  "openai/gpt-6.1-terra",
+  "google/gemini-3.8-flash",
+] as const
 
 // scope-allow: the prompt stays beside its version, IMAGE_TEXT_PROMPT_VERSION.
 const PROMPT = `You convert one image into text for a search index. Return JSON that matches the schema.
@@ -215,11 +236,20 @@ export class VisionError extends Error {
   }
 }
 
-/** One reading, and the upstream provider that answered. */
-type ImageReadResult = { reading: ImageReading; provider: string | null }
+/** One reading, and the call that made it. */
+type ImageReadResult = {
+  reading: ImageReading
+  /** The model that answered (the `model` of the answer). */
+  model: string
+  /** The upstream provider that answered. */
+  provider: string | null
+  /** The cost that OpenRouter reports, or null when the answer has none. */
+  costUsd: number | null
+}
 
 /**
- * Read one image with the vision model `model`. The key and the base URL
+ * Read one image with the first vision model of `models` that answers
+ * (OpenRouter `models` fallback). The key and the base URL
  * come from the backend model settings, which must point at OpenRouter
  * (`openRouterSettings`). A 429, a 5xx and a network error retry, up to
  * three attempts. A failure throws a `VisionError`. The call must not run
@@ -228,8 +258,11 @@ type ImageReadResult = { reading: ImageReading; provider: string | null }
 export async function readImage(
   image: { bytes: Buffer; mimeType: string },
   options: {
-    /** The OpenRouter model id. It must take an image and a JSON schema. */
-    model: string
+    /**
+     * The OpenRouter model ids, in fallback order. Each must take an image
+     * and a JSON schema.
+     */
+    models: readonly string[]
     /** The first backoff of a retry. */
     backoffMs?: number
   },
@@ -242,7 +275,7 @@ export async function readImage(
       "The vision model needs MODEL_PROVIDER openrouter or openai-like, an OpenRouter MODEL_PROVIDER_URL, and MODEL_PROVIDER_API_KEY.",
     )
   const body = JSON.stringify({
-    model: options.model,
+    models: options.models,
     messages: [
       { role: "system", content: PROMPT },
       {
@@ -265,7 +298,9 @@ export async function readImage(
         schema: z.toJSONSchema(readingSchema),
       },
     },
-    // Each ZDR endpoint of the model that takes the JSON schema can answer.
+    // Each ZDR endpoint of a model that takes the JSON schema can answer.
+    // The OpenRouter docs do not say that this block holds for each model
+    // of `models`; the knowledge probe checks it with real calls.
     provider: { ...ZDR_PROVIDER, require_parameters: true },
   })
   try {
@@ -296,7 +331,9 @@ export async function readImage(
 }
 
 const answerSchema = z.object({
+  model: z.string(),
   provider: z.string().optional(),
+  usage: z.unknown().optional(),
   choices: z
     .array(z.object({ message: z.object({ content: z.unknown() }) }))
     .min(1),
@@ -328,22 +365,134 @@ async function send(
       response.status,
     )
   // A network error while the body arrives throws here, and it retries.
-  const text = await response.text()
-  const json = (value: unknown): unknown => {
-    try {
-      return typeof value === "string" ? JSON.parse(value) : null
-    } catch {
-      return null
-    }
-  }
-  const answer = answerSchema.safeParse(json(text))
+  const answer = answerSchema.safeParse(parseJson(await response.text()))
+  const content = answer.data?.choices[0]?.message.content
   const reading = readingSchema.safeParse(
-    json(answer.data?.choices[0]?.message.content),
+    typeof content === "string" ? parseJson(content) : null,
   )
   if (!answer.success || !reading.success)
     throw new VisionError(
       "invalid-answer",
       "The vision model gave an answer out of the reading schema.",
     )
-  return { reading: reading.data, provider: answer.data.provider ?? null }
+  return {
+    reading: reading.data,
+    model: answer.data.model,
+    provider: answer.data.provider ?? null,
+    costUsd: gatewayCost(answer.data.usage) ?? null,
+  }
+}
+
+/** The image work of one run, for its metrics. */
+export type ImageTextCounter = {
+  /** Images whose reading came from the cache (`image_texts`). */
+  hits: number
+  /** Images that went to the vision model. */
+  misses: number
+  /** Images that got no reading: their documents are `failed`. */
+  failures: number
+  /** The cost of the vision calls of the run. */
+  costUsd: number
+}
+
+/** One image of a run, by the SHA of its Git blob. */
+type ImageInput = {
+  blobSha: string
+  image: { bytes: Buffer; mimeType: string }
+  /** The text of the labels of an SVG, which the converter takes from it. */
+  labels?: string
+}
+
+/**
+ * The text of each image of `images`, by blob SHA, or the error of a reading
+ * that failed. The reading of a blob comes from the cache (`image_texts`)
+ * when a model of `IMAGE_TEXT_MODELS` has read it with this prompt
+ * version. Else the vision model reads it, and the cache keeps the reading
+ * under the model that answered, at once, so that a run that stops later
+ * does not pay for it again. Thus a rebuild makes no vision call, and the
+ * same bytes give the same text.
+ */
+export async function imageTexts(input: {
+  store: Pick<KnowledgeStore, "readImageTexts" | "writeImageTexts">
+  scope: KnowledgeScope
+  images: ImageInput[]
+  counter: ImageTextCounter
+  /** The first backoff of a retry of the vision call. */
+  backoffMs?: number
+}): Promise<Map<string, { text: string } | { error: string }>> {
+  const results = new Map<string, { text: string } | { error: string }>()
+  const cached = await input.store.readImageTexts(
+    input.scope,
+    input.images.map((image) => image.blobSha),
+    IMAGE_TEXT_MODELS,
+    IMAGE_TEXT_PROMPT_VERSION,
+  )
+  const withLabels = (reading: ImageReading, labels?: string) =>
+    labels?.trim()
+      ? `${imageText(reading)}\nLabels in the file:\n${labels.trim()}\n`
+      : imageText(reading)
+  const misses: ImageInput[] = []
+  for (const image of input.images) {
+    const { blobSha, labels } = image
+    if (results.has(blobSha) || misses.some((miss) => miss.blobSha === blobSha))
+      continue
+    const stored = cached.get(blobSha)
+    const reading = stored
+      ? readingSchema.safeParse(parseJson(stored.reading))
+      : null
+    if (reading?.success) {
+      input.counter.hits++
+      results.set(blobSha, { text: withLabels(reading.data, labels) })
+    } else misses.push(image)
+  }
+  // A few calls at a time: a first rebuild of a Workspace with many images
+  // waits on the model, not on the order.
+  await mapPool(misses, 4, async ({ blobSha, image, labels }) => {
+    input.counter.misses++
+    try {
+      const read = await readImage(image, {
+        models: IMAGE_TEXT_MODELS,
+        backoffMs: input.backoffMs,
+      })
+      input.counter.costUsd += read.costUsd ?? 0
+      await input.store.writeImageTexts(input.scope, [
+        {
+          blobSha,
+          model: read.model,
+          promptVersion: IMAGE_TEXT_PROMPT_VERSION,
+          reading: JSON.stringify(read.reading),
+        },
+      ])
+      results.set(blobSha, { text: withLabels(read.reading, labels) })
+    } catch (error) {
+      // A content failure makes a `failed` document: an answer out of the
+      // schema, or a 4xx refusal of the image. An outage (network, timeout,
+      // 429, 5xx, settings) and a store error stop the run, as each
+      // infrastructure error does (ADR-067 decision 8): the retry reads the
+      // image again.
+      if (
+        !(error instanceof VisionError) ||
+        !(
+          error.kind === "invalid-answer" ||
+          (error.kind === "http" &&
+            error.status !== undefined &&
+            error.status >= 400 &&
+            error.status < 500 &&
+            error.status !== 429)
+        )
+      )
+        throw error
+      input.counter.failures++
+      results.set(blobSha, { error: error.message })
+    }
+  })
+  return results
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
 }

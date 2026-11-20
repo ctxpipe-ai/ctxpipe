@@ -1,3 +1,10 @@
 # A baseline screenshot of a story (pnpm visual:update). Git must not
 # change its line endings or show it as a text diff.
 *.screenshot.png binary
+
+# Office and PDF test files of the file converter (CTX-1433). Git must not
+# show them as a text diff: a PDF can look like text but hold other bytes.
+*.pdf binary
+*.docx binary
+*.pptx binary
+*.xlsx binary

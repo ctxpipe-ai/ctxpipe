@@ -1,0 +1,91 @@
+{
+  "category": "architecture",
+  "kind": "graph",
+  "direction": "LR",
+  "groups": [
+    {
+      "label": "AWS account",
+      "parent": null
+    },
+    {
+      "label": "Private subnet",
+      "parent": "AWS account"
+    }
+  ],
+  "nodes": [
+    {
+      "label": "Customers",
+      "group": null
+    },
+    {
+      "label": "API Gateway",
+      "group": "AWS account"
+    },
+    {
+      "label": "Orders Lambda",
+      "group": "Private subnet"
+    },
+    {
+      "label": "Payments Lambda",
+      "group": "Private subnet"
+    },
+    {
+      "label": "DynamoDB orders",
+      "group": "Private subnet"
+    },
+    {
+      "label": "EventBridge",
+      "group": "AWS account"
+    },
+    {
+      "label": "SQS dead-letter queue",
+      "group": "AWS account"
+    },
+    {
+      "label": "Stripe",
+      "group": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "Customers",
+      "to": "API Gateway",
+      "label": "HTTPS"
+    },
+    {
+      "from": "API Gateway",
+      "to": "Orders Lambda",
+      "label": "invoke"
+    },
+    {
+      "from": "Orders Lambda",
+      "to": "DynamoDB orders",
+      "label": "put item"
+    },
+    {
+      "from": "Orders Lambda",
+      "to": "EventBridge",
+      "label": "OrderCreated"
+    },
+    {
+      "from": "EventBridge",
+      "to": "Payments Lambda",
+      "label": "rule"
+    },
+    {
+      "from": "Payments Lambda",
+      "to": "Stripe",
+      "label": "charge"
+    },
+    {
+      "from": "Payments Lambda",
+      "to": "SQS dead-letter queue",
+      "label": "on failure"
+    },
+    {
+      "from": "Payments Lambda",
+      "to": "DynamoDB orders",
+      "label": "update status"
+    }
+  ]
+}

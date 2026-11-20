@@ -2,6 +2,8 @@ import { isSourcesTreePath } from "../domain/workspace-sources/source-tree.js"
 import { parseNameStatus } from "../services/git/name-status.js"
 import { listTreeBlobs, nativeGit } from "../services/git/pack.js"
 import { workspaceRelativePath } from "../services/git/root-folder.js"
+import { CONVERTER_VERSION } from "./convert-file.js"
+import { IMAGE_TEXT_PROMPT_VERSION } from "./image-text.js"
 
 /**
  * The projection version of the knowledge plane (ADR-067 decision 4): a code
@@ -20,8 +22,18 @@ export function knowledgeProjectionVersion(input: {
   // text of EMBEDS_IMAGE (CTX-1412). 4: the ClickHouse migration 0007 made
   // the tables again, empty (CTX-1417). 5: `valid_from` from the commit that
   // introduced the file (CTX-1421). 6: one text vector space, and an image
-  // document has no chunk (CTX-1431).
-  return JSON.stringify([6, input.embeddingModel, input.dimensions, input.root])
+  // document has no chunk (CTX-1431). 7: files become text at projection
+  // time (CTX-1433). The converter version and the prompt version of the
+  // image text are part of it too: a new parser or prompt gives other text
+  // for the same bytes.
+  return JSON.stringify([
+    7,
+    input.embeddingModel,
+    input.dimensions,
+    input.root,
+    CONVERTER_VERSION,
+    IMAGE_TEXT_PROMPT_VERSION,
+  ])
 }
 
 /** The reasons for a full rebuild instead of a delta. */

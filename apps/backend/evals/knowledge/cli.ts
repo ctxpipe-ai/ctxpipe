@@ -12,7 +12,7 @@
  *     --models A,B,C --out FILE [--cap-usd 5]
  *   bun evals/knowledge/cli.ts corpus snapshot|issues|freeze --plan FILE \
  *     --out FILE
- *   bun evals/knowledge/cli.ts probe --out DIR [--cap-usd 0.05]
+ *   bun evals/knowledge/cli.ts probe --out DIR [--cap-usd 0.25]
  *   bun evals/knowledge/cli.ts vision --out DIR [--models A,B,C] [--cap-usd 5]
  *
  * See README.md. Exit code 0: done. 2: bad setup. 3: the spend cap stopped
@@ -224,7 +224,7 @@ async function main(argv: string[]): Promise<number> {
       out: { type: "string" },
       from: { type: "string" },
       split: { type: "string" },
-      // The spend cap of the command, in USD. The default is $5, and $0.05
+      // The spend cap of the command, in USD. The default is $5, and $0.25
       // for `probe`.
       "cap-usd": { type: "string" },
       set: { type: "string", multiple: true },
@@ -234,7 +234,7 @@ async function main(argv: string[]): Promise<number> {
       models: { type: "string" },
     },
   })
-  const capUsd = Number(values["cap-usd"] ?? (command === "probe" ? 0.05 : 5))
+  const capUsd = Number(values["cap-usd"] ?? (command === "probe" ? 0.25 : 5))
   if (!Number.isFinite(capUsd) || capUsd < 0)
     throw new SetupError("--cap-usd needs a number of 0 or more.")
   if (!values.out) throw new SetupError("Give --out.")

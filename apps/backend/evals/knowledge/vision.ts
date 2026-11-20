@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url"
 
 import { z } from "zod"
 
+import { convertFile } from "../../src/knowledge-plane/convert-file.js"
 import {
   firstOfEachId,
   IMAGE_TEXT_PROMPT_VERSION,
@@ -11,6 +12,7 @@ import {
   imageText,
   readImage,
 } from "../../src/knowledge-plane/image-text.js"
+import { buildConverter } from "../../test/converter.js"
 import type { ModelCalls } from "./model-calls.js"
 
 /*
@@ -309,14 +311,18 @@ type Fixture = {
 }
 
 /**
- * Each `<name>.gold.json` of `fixtures/vision/` with its image `<name>.png`
- * or `<name>.jpg`.
+ * Each `<name>.gold.json` of `fixtures/vision/` with its image `<name>.png`,
+ * `<name>.jpg` or `<name>.svg`. An SVG becomes the PNG of the converter, as
+ * in the projection (`convertFile`).
  */
 export async function readFixtures(): Promise<Fixture[]> {
+  // The export of `factory eval` has no build of the converter.
+  buildConverter()
   const dir = fileURLToPath(new URL("./fixtures/vision", import.meta.url))
   const mimeTypes: Record<string, string> = {
     png: "image/png",
     jpg: "image/jpeg",
+    svg: "image/svg+xml",
   }
   const files = (await readdir(dir)).sort()
   const fixtures: Fixture[] = []
@@ -327,15 +333,21 @@ export async function readFixtures(): Promise<Fixture[]> {
       Object.keys(mimeTypes).some((ext) => other === `${name}.${ext}`),
     )
     if (!image) throw new Error(`The fixture ${name} has no image.`)
+    const bytes = await readFile(join(dir, image))
+    const svg = image.endsWith(".svg") ? await convertFile("svg", bytes) : null
+    if (svg && svg.kind !== "image")
+      throw new Error(`The converter cannot render the fixture ${name}.`)
     fixtures.push({
       name,
       gold: goldSchema.parse(
         JSON.parse(await readFile(join(dir, file), "utf8")),
       ),
-      image: {
-        bytes: await readFile(join(dir, image)),
-        mimeType: mimeTypes[image.split(".").pop() ?? ""] ?? "image/png",
-      },
+      image: svg
+        ? { bytes: svg.png, mimeType: "image/png" }
+        : {
+            bytes,
+            mimeType: mimeTypes[image.split(".").pop() ?? ""] ?? "image/png",
+          },
     })
   }
   return fixtures
@@ -562,7 +574,7 @@ export async function runVision(input: {
       }
       input.calls.begin(model, fixture.name)
       const started = performance.now()
-      const read = await readImage(fixture.image, { model }).catch(
+      const read = await readImage(fixture.image, { models: [model] }).catch(
         (error: unknown) =>
           error instanceof Error ? error : new Error(String(error)),
       )

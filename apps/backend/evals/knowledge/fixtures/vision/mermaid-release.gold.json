@@ -1,0 +1,86 @@
+{
+  "category": "flow",
+  "kind": "graph",
+  "direction": "LR",
+  "groups": [
+    {
+      "label": "Build stage",
+      "parent": null
+    },
+    {
+      "label": "Release stage",
+      "parent": null
+    }
+  ],
+  "nodes": [
+    {
+      "label": "Commit pushed",
+      "group": "Build stage"
+    },
+    {
+      "label": "Compile",
+      "group": "Build stage"
+    },
+    {
+      "label": "Unit tests",
+      "group": "Build stage"
+    },
+    {
+      "label": "Tag release",
+      "group": "Release stage"
+    },
+    {
+      "label": "Sign artifacts",
+      "group": "Release stage"
+    },
+    {
+      "label": "Publish to registry",
+      "group": "Release stage"
+    },
+    {
+      "label": "Alert the author",
+      "group": null
+    },
+    {
+      "label": "Post release notes",
+      "group": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "Commit pushed",
+      "to": "Compile",
+      "label": null
+    },
+    {
+      "from": "Compile",
+      "to": "Unit tests",
+      "label": null
+    },
+    {
+      "from": "Tag release",
+      "to": "Sign artifacts",
+      "label": null
+    },
+    {
+      "from": "Sign artifacts",
+      "to": "Publish to registry",
+      "label": null
+    },
+    {
+      "from": "Unit tests",
+      "to": "Tag release",
+      "label": "green"
+    },
+    {
+      "from": "Unit tests",
+      "to": "Alert the author",
+      "label": "red"
+    },
+    {
+      "from": "Publish to registry",
+      "to": "Post release notes",
+      "label": null
+    }
+  ]
+}

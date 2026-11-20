@@ -20,6 +20,7 @@ import { useMswServer } from "../../test/msw.js"
 const BASE = "https://probe-gateway.test/api/v1"
 const DECISIONS = "https://probe-gateway.test/api/alpha/decisions"
 const EMBEDDINGS = `${BASE}/embeddings`
+const CHAT = `${BASE}/chat/completions`
 
 const server = useMswServer()
 
@@ -45,6 +46,12 @@ const decisionSchema = z.object({
   questions: z.record(z.string(), z.unknown()),
   provider: providerSchema,
 })
+const visionSchema = z.object({
+  models: z.array(z.string()),
+  messages: z.array(z.unknown()),
+  response_format: z.object({ type: z.literal("json_schema") }),
+  provider: providerSchema.extend({ require_parameters: z.boolean() }),
+})
 const embeddingSchema = z.object({
   model: z.string(),
   dimensions: z.number().optional(),
@@ -59,9 +66,30 @@ const ENDPOINTS: Record<string, { name: string; zdr: boolean }> = {
   "openai/gpt-6-luna-decisions": { name: "OpenAI", zdr: false },
 }
 
+/** The vision endpoints of the fake catalog. */
+const VISION_ENDPOINTS: Record<string, { name: string; zdr: boolean }> = {
+  "openai/gpt-6.1-terra": { name: "Azure", zdr: true },
+  "google/gemini-2.5-flash-lite": { name: "Google AI Studio", zdr: false },
+  "openai/gpt-4o-mini-2024-07-18": { name: "OpenAI", zdr: false },
+}
+const reading = {
+  description: "A state machine.",
+  text: "Created",
+  diagram: {
+    kind: "graph",
+    direction: "LR",
+    groups: [],
+    nodes: [{ id: "c", label: "Created", group: "" }],
+    edges: [],
+    participants: [],
+    messages: [],
+  },
+}
+
 /** The fake OpenRouter ZDR list (`GET /api/v1/endpoints/zdr`). */
 const ZDR_LIST = [
   ["typesafe/jev-1.14", "TypeSafe", "unknown"],
+  ["openai/gpt-6.1-terra", "Azure", "unknown"],
   ["qwen/qwen3-embedding-8b", "Nebius", "bf16"],
   ["qwen/qwen3-embedding-8b", "DeepInfra", "unknown"],
   ["qwen/qwen3-embedding-8b", "SiliconFlow", "fp8"],
@@ -78,6 +106,9 @@ const ZDR_LIST = [
  * request with `zdr: true` to the non-ZDR model. Embedding requests route
  * the same way: `openai/text-embedding-ada-002` has no ZDR endpoint. A
  * request with more than `maxInputs` embedding inputs finds no endpoint.
+ * A vision request goes to the first model of its `models` that has an
+ * endpoint for its provider block; with `zdrOnFirstModel`, the gateway
+ * applies `zdr` to the first model of the list only.
  */
 function gateway(options: {
   enforcesZdr: boolean
@@ -87,10 +118,12 @@ function gateway(options: {
   refusal?: { status: number; message: string }
   /** The most embedding inputs that one request may hold. */
   maxInputs?: number
+  zdrOnFirstModel?: boolean
 }) {
   const bodies = {
     decisions: [] as z.infer<typeof decisionSchema>[],
     embeddings: [] as z.infer<typeof embeddingSchema>[],
+    vision: [] as z.infer<typeof visionSchema>[],
   }
   server.use(
     http.get(`${BASE}/endpoints/zdr`, () =>
@@ -124,6 +157,31 @@ function gateway(options: {
             ? (options.jevName ?? endpoint.name)
             : endpoint.name,
         usage: { cost: 0.0001 },
+      })
+    }),
+    http.post(CHAT, async ({ request }) => {
+      const body = visionSchema.parse(await request.json())
+      bodies.vision.push(body)
+      const model = body.models.find((name, index) => {
+        const endpoint = VISION_ENDPOINTS[name]
+        const zdr =
+          options.enforcesZdr &&
+          body.provider.zdr &&
+          (index === 0 || !options.zdrOnFirstModel)
+        return endpoint && (!zdr || endpoint.zdr)
+      })
+      if (!model)
+        return HttpResponse.json(
+          {
+            error: { message: "No endpoints found matching your data policy." },
+          },
+          { status: 404 },
+        )
+      return HttpResponse.json({
+        model,
+        provider: VISION_ENDPOINTS[model]?.name,
+        choices: [{ message: { content: JSON.stringify(reading) } }],
+        usage: { cost: 0.004 },
       })
     }),
     http.post(EMBEDDINGS, async ({ request }) => {
@@ -190,7 +248,7 @@ describe("the provider probe", () => {
   it("passes each check when the gateway enforces the provider settings", async () => {
     const bodies = gateway({ enforcesZdr: true })
 
-    expect(await run(0.05)).toBe(0)
+    expect(await run(0.25)).toBe(0)
 
     const result = await readResult()
     expect(result.checks).toEqual([
@@ -228,6 +286,22 @@ describe("the provider probe", () => {
       }),
       expect.objectContaining({
         name: "embedding-refused-without-zdr-endpoint",
+        pass: true,
+        status: 404,
+      }),
+      expect.objectContaining({
+        name: "vision-fallback-skips-a-model-with-no-zdr-endpoint",
+        pass: true,
+        status: 200,
+        provider: "Azure",
+      }),
+      expect.objectContaining({
+        name: "vision-fallback-control-without-zdr",
+        pass: true,
+        status: 200,
+      }),
+      expect.objectContaining({
+        name: "vision-fallback-refused-without-zdr-endpoint",
         pass: true,
         status: 404,
       }),
@@ -289,12 +363,46 @@ describe("the provider probe", () => {
       ...embeddingControl,
       provider: { data_collection: "deny", zdr: true },
     })
+
+    // The vision requests are the request of the client with the ZDR block
+    // and no pin; the refusal pair changes only the models and `zdr`.
+    const [fallback, visionControl, visionRefused] = bodies.vision
+    expect(fallback?.models).toEqual([
+      "google/gemini-2.5-flash-lite",
+      "openai/gpt-6.1-terra",
+    ])
+    expect(fallback?.provider).toEqual({
+      data_collection: "deny",
+      zdr: true,
+      require_parameters: true,
+    })
+    expect(visionControl?.models).toEqual([
+      "google/gemini-2.5-flash-lite",
+      "openai/gpt-4o-mini-2024-07-18",
+    ])
+    expect(visionControl?.provider.zdr).toBe(false)
+    expect(visionRefused).toEqual({
+      ...visionControl,
+      provider: { ...visionControl?.provider, zdr: true },
+    })
+  })
+
+  it("fails the vision refusal when the gateway applies zdr to the first model of the list only", async () => {
+    gateway({ enforcesZdr: true, zdrOnFirstModel: true })
+
+    expect(await run(0.25)).toBe(4)
+
+    expect(await passes()).toMatchObject({
+      "vision-fallback-skips-a-model-with-no-zdr-endpoint": true,
+      "vision-fallback-control-without-zdr": true,
+      "vision-fallback-refused-without-zdr-endpoint": false,
+    })
   })
 
   it("fails the batch check on a gateway that takes one input per request", async () => {
     gateway({ enforcesZdr: true, maxInputs: 1 })
 
-    expect(await run(0.05)).toBe(4)
+    expect(await run(0.25)).toBe(4)
 
     expect(await passes()).toMatchObject({
       "embedding-query": true,
@@ -321,7 +429,7 @@ describe("the provider probe", () => {
       dimensions: 768,
     })
 
-    expect(await run(0.05)).toBe(4)
+    expect(await run(0.25)).toBe(4)
 
     expect(await passes()).toEqual({
       "decisions-zdr-provider": false,
@@ -331,6 +439,9 @@ describe("the provider probe", () => {
       "embedding-text-batch": false,
       "embedding-control-without-zdr": true,
       "embedding-refused-without-zdr-endpoint": false,
+      "vision-fallback-skips-a-model-with-no-zdr-endpoint": false,
+      "vision-fallback-control-without-zdr": true,
+      "vision-fallback-refused-without-zdr-endpoint": false,
     })
     const result = await readResult()
     expect(result.checks[0]?.provider).toBe("Other Host")
@@ -348,7 +459,7 @@ describe("the provider probe", () => {
   ])("does not take an unrelated $status refusal as proof", async (refusal) => {
     gateway({ enforcesZdr: true, refusal })
 
-    expect(await run(0.05)).toBe(4)
+    expect(await run(0.25)).toBe(4)
 
     expect(await passes()).toMatchObject({
       "decisions-control-without-zdr": true,
@@ -370,7 +481,7 @@ describe("the provider probe", () => {
       }),
     )
 
-    expect(await run(0.05)).toBe(4)
+    expect(await run(0.25)).toBe(4)
 
     expect(await passes()).toMatchObject({
       "decisions-zdr-provider": true,
@@ -388,7 +499,7 @@ describe("the provider probe", () => {
       gateway({ enforcesZdr: true })
       server.use(http.get(`${BASE}/endpoints/zdr`, answer))
 
-      expect(await run(0.05)).toBe(4)
+      expect(await run(0.25)).toBe(4)
 
       const result = await readResult()
       expect(result.checks[0]).toMatchObject({ name: "zdr-list", pass: false })
@@ -412,6 +523,9 @@ describe("the provider probe", () => {
     expect(result.spentUsd).toBeCloseTo(0.0001)
     expect(result.checks.map((check) => [check.pass, check.status])).toEqual([
       [true, 200],
+      [false, null],
+      [false, null],
+      [false, null],
       [false, null],
       [false, null],
       [false, null],
