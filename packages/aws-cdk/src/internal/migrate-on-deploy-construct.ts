@@ -186,12 +186,20 @@ exports.isComplete = async (event) => {
         SubnetIds: props.networking.vpc.selectSubnets({
           subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
         }).subnetIds,
-        SecurityGroupIds: [props.networking.appSecurityGroup.securityGroupId],
+        SecurityGroupIds: [
+          props.networking.appSecurityGroup.securityGroupId,
+          props.knowledgeStore.clientSecurityGroup.securityGroupId,
+        ],
       },
     })
 
     migrateResource.node.addDependency(props.dataPlane.dbCluster)
     migrateResource.node.addDependency(props.secrets.databaseUrlWriter)
+    // ClickHouse answers, and its URLs exist, before migrate makes its tables
+    // and users. The services start after migrate, so they get the URLs too.
+    migrateResource.node.addDependency(props.knowledgeStore.autoScalingGroup)
+    for (const writer of props.secrets.clickhouseUrlWriters)
+      migrateResource.node.addDependency(writer)
     props.secrets.runtimeDatabaseUrlWriter.node.addDependency(migrateResource)
 
     this.resources = {

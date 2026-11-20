@@ -128,7 +128,7 @@ services. Each Workspace conversation's agent runs in its own container there.
 
 `DOCKER-USER` rules on the host let sandboxes reach only the Agent Vault proxy.
 Agent Vault reaches the internet through NAT and may dial private addresses
-only in the VPC. Security groups keep Postgres, Neptune, EFS, codesearch, the
+only in the VPC. Security groups keep Postgres, Neptune, ClickHouse, EFS, codesearch, the
 UI, and the worker away from the host. The host also blocks sandboxes from the
 host itself. See
 [AWS: Chat sandbox host](/docs/self-hosting/deployment/aws#chat-sandbox-host).

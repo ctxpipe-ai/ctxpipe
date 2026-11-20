@@ -8,7 +8,11 @@ import * as ses from "aws-cdk-lib/aws-ses"
 import * as cr from "aws-cdk-lib/custom-resources"
 import { Construct } from "constructs"
 
-import type { SecretsConstructProps, SecretsResources } from "./contracts"
+import type {
+  ClickHouseUser,
+  SecretsConstructProps,
+  SecretsResources,
+} from "./contracts"
 
 export class SecretsConstruct extends Construct {
   public readonly resources: SecretsResources
@@ -62,6 +66,8 @@ export class SecretsConstruct extends Construct {
       },
     )
 
+    // Writes a connection URL from a generated password: the Postgres
+    // DATABASE_URL secrets and the ClickHouse CLICKHOUSE_URL secrets.
     const databaseUrlWriterFunction = new lambda.Function(
       this,
       "DatabaseUrlWriterFunction",
@@ -106,8 +112,10 @@ export class SecretsConstruct extends Construct {
               throw new Error("Database URL writer missing Username");
             }
 
+            // Postgres by default; the ClickHouse URLs give their own scheme and key.
             const databaseUrl =
-              "postgresql://" +
+              (properties.Scheme || "postgresql") +
+              "://" +
               encodeURIComponent(username) +
               ":" +
               encodeURIComponent(password) +
@@ -121,7 +129,9 @@ export class SecretsConstruct extends Construct {
             await client.send(
               new PutSecretValueCommand({
                 SecretId: properties.DatabaseUrlSecretArn,
-                SecretString: JSON.stringify({ DATABASE_URL: databaseUrl }),
+                SecretString: JSON.stringify({
+                  [properties.UrlKey || "DATABASE_URL"]: databaseUrl,
+                }),
               }),
             );
 
@@ -191,6 +201,47 @@ export class SecretsConstruct extends Construct {
     runtimeDatabaseUrlWriter.node.addDependency(appDatabaseCredentialsSecret)
     runtimeDatabaseUrlWriter.node.addDependency(props.dataPlane.dbCluster)
     runtimeDatabaseUrlWriter.node.addDependency(runtimeDatabaseUrlSecret)
+
+    // CLICKHOUSE_URL of each ClickHouse user (ADR-066 decision 9). ECS gives
+    // a task a key of a secret, not a URL built from one.
+    const knowledgeStore = props.knowledgeStore
+    const clickhouseUrl = (id: string, user: ClickHouseUser) => {
+      const { username, credentialsSecret: credentials } = user
+      const secret = new secretsmanager.Secret(this, `${id}Secret`, {
+        description: `ClickHouse URL of ${username} (populated at deploy time)`,
+      })
+      credentials.grantRead(databaseUrlWriterFunction)
+      secret.grantWrite(databaseUrlWriterFunction)
+      const writer = new cdk.CustomResource(this, `${id}Writer`, {
+        serviceToken: databaseUrlWriterProvider.serviceToken,
+        properties: {
+          WriterPhysicalId: `${username}-clickhouse-url-writer`,
+          Scheme: "http",
+          UrlKey: "CLICKHOUSE_URL",
+          Username: username,
+          DbCredentialsSecretArn: credentials.secretArn,
+          DatabaseUrlSecretArn: secret.secretArn,
+          DbHost: knowledgeStore.host,
+          DbPort: String(knowledgeStore.port),
+          DatabaseName: knowledgeStore.database,
+        },
+      })
+      writer.node.addDependency(credentials)
+      writer.node.addDependency(secret)
+      return { secret, writer }
+    }
+    const clickhouseAdminUrl = clickhouseUrl(
+      "ClickhouseAdminUrl",
+      knowledgeStore.admin,
+    )
+    const clickhouseReaderUrl = clickhouseUrl(
+      "ClickhouseReaderUrl",
+      knowledgeStore.reader,
+    )
+    const clickhouseWriterUrl = clickhouseUrl(
+      "ClickhouseWriterUrl",
+      knowledgeStore.writer,
+    )
 
     const modelProviderSecret = props.modelProviderApiKey
       ? new secretsmanager.Secret(this, "ModelProviderSecret", {
@@ -530,6 +581,14 @@ export class SecretsConstruct extends Construct {
       smtpSecret,
       connectorSecret,
       connectorEnv,
+      clickhouseAdminUrlSecret: clickhouseAdminUrl.secret,
+      clickhouseReaderUrlSecret: clickhouseReaderUrl.secret,
+      clickhouseWriterUrlSecret: clickhouseWriterUrl.secret,
+      clickhouseUrlWriters: [
+        clickhouseAdminUrl.writer,
+        clickhouseReaderUrl.writer,
+        clickhouseWriterUrl.writer,
+      ],
     }
   }
 }

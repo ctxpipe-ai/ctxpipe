@@ -5,14 +5,13 @@ import * as ec2 from "aws-cdk-lib/aws-ec2"
 import * as ecs from "aws-cdk-lib/aws-ecs"
 import * as iam from "aws-cdk-lib/aws-iam"
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager"
-import * as servicediscovery from "aws-cdk-lib/aws-servicediscovery"
-import * as cr from "aws-cdk-lib/custom-resources"
 import { Construct } from "constructs"
 
 import type {
   SandboxHostConstructProps,
   SandboxHostResources,
 } from "./contracts"
+import { hostDiscovery } from "./host-discovery"
 
 const DOCKER_TLS_PORT = 2376
 /** Agent Vault's API (backend and worker) and proxy (sandboxes only). */
@@ -42,12 +41,6 @@ export class SandboxHostConstruct extends Construct {
   ) {
     super(scope, id)
     const { vpc, cluster } = props.networking
-    const namespace = cluster.defaultCloudMapNamespace
-    if (!(namespace instanceof servicediscovery.PrivateDnsNamespace)) {
-      throw new Error(
-        "The sandbox host needs the cluster's private DNS namespace",
-      )
-    }
 
     const hostSecurityGroup = new ec2.SecurityGroup(this, "HostSecurityGroup", {
       vpc,
@@ -138,14 +131,6 @@ export class SandboxHostConstruct extends Construct {
       },
     )
 
-    const discovery = new servicediscovery.Service(this, "Discovery", {
-      namespace,
-      name: "sandbox-host",
-      dnsRecordType: servicediscovery.DnsRecordType.A,
-      dnsTtl: cdk.Duration.seconds(10),
-    })
-    const dockerHostname = `${discovery.serviceName}.${namespace.namespaceName}`
-
     const role = new iam.Role(this, "InstanceRole", {
       assumedBy: new iam.ServicePrincipal("ec2.amazonaws.com"),
       managedPolicies: [
@@ -163,22 +148,14 @@ export class SandboxHostConstruct extends Construct {
     clientTlsSecret.grantRead(role)
     clientTlsSecret.grantWrite(role)
     agentVaultMasterSecret.grantRead(role)
-    role.addToPrincipalPolicy(
-      new iam.PolicyStatement({
-        actions: ["servicediscovery:RegisterInstance"],
-        resources: [discovery.serviceArn],
-      }),
+    const discovery = hostDiscovery(
+      this,
+      cluster,
+      "sandbox-host",
+      DISCOVERY_INSTANCE_ID,
+      role,
     )
-    role.addToPrincipalPolicy(
-      cloudMapRoute53Statement(namespace, ["route53:CreateHealthCheck"]),
-    )
-    role.addToPrincipalPolicy(
-      new iam.PolicyStatement({
-        // Cloud Map checks the registered instance; describe has no resource scope.
-        actions: ["ec2:DescribeInstances"],
-        resources: ["*"],
-      }),
-    )
+    const dockerHostname = discovery.hostname
     role.addToPrincipalPolicy(
       new iam.PolicyStatement({
         actions: ["cloudformation:SignalResource"],
@@ -245,32 +222,7 @@ export class SandboxHostConstruct extends Construct {
       },
     )
 
-    // Cloud Map refuses to delete a service with instances; the host registers
-    // itself, so deregister after the host is gone and before the service goes.
-    const deregistration = new cr.AwsCustomResource(
-      this,
-      "DiscoveryDeregistration",
-      {
-        onDelete: {
-          service: "ServiceDiscovery",
-          action: "deregisterInstance",
-          parameters: {
-            ServiceId: discovery.serviceId,
-            InstanceId: DISCOVERY_INSTANCE_ID,
-          },
-          ignoreErrorCodesMatching: "InstanceNotFound|ServiceNotFound",
-        },
-        policy: cr.AwsCustomResourcePolicy.fromStatements([
-          new iam.PolicyStatement({
-            actions: ["servicediscovery:DeregisterInstance"],
-            resources: [discovery.serviceArn],
-          }),
-          cloudMapRoute53Statement(namespace, ["route53:DeleteHealthCheck"]),
-        ]),
-        installLatestAwsSdk: false,
-      },
-    )
-    autoScalingGroup.node.addDependency(deregistration)
+    autoScalingGroup.node.addDependency(discovery.deregistration)
 
     userData.addCommands(
       ...hostBootstrapScript({
@@ -281,14 +233,15 @@ export class SandboxHostConstruct extends Construct {
         ),
         serverTlsSecretArn: serverTlsSecret.secretArn,
         clientTlsSecretArn: clientTlsSecret.secretArn,
-        discoveryServiceId: discovery.serviceId,
+        discoveryServiceId: discovery.service.serviceId,
         dockerHostname,
         agentVaultMasterSecretArn: agentVaultMasterSecret.secretArn,
         // The backend tasks' subnets. They are the stack's only private
-        // subnets, so they also hold RDS, Neptune, EFS and the UI and
-        // codesearch tasks. Only security groups keep the proxy out of them:
-        // the sandbox host's group must never be in the app security group
-        // or in their ingress rules. The host's own ports are rejected below.
+        // subnets, so they also hold RDS, Neptune, the ClickHouse host, EFS,
+        // and the UI and codesearch tasks. Only security groups keep the
+        // proxy out of them: the sandbox host's group must never be in the
+        // app security group or in their ingress rules. The host's own ports
+        // are rejected below.
         backendSubnetCidrs: vpc
           .selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS })
           .subnets.map((subnet) => subnet.ipv4CidrBlock),
@@ -415,25 +368,6 @@ export function addSandboxHostClient(
     "AGENT_VAULT_OWNER_PASSWORD",
     ecs.Secret.fromSecretsManager(host.agentVaultOwnerSecret),
   )
-}
-
-/** Cloud Map writes the instance's DNS record with the caller's permissions. */
-function cloudMapRoute53Statement(
-  namespace: servicediscovery.PrivateDnsNamespace,
-  healthCheckActions: string[],
-): iam.PolicyStatement {
-  return new iam.PolicyStatement({
-    actions: [
-      "route53:ChangeResourceRecordSets",
-      "route53:GetHealthCheck",
-      "route53:UpdateHealthCheck",
-      ...healthCheckActions,
-    ],
-    resources: [
-      `arn:${cdk.Aws.PARTITION}:route53:::hostedzone/${namespace.namespaceHostedZoneId}`,
-      `arn:${cdk.Aws.PARTITION}:route53:::healthcheck/*`,
-    ],
-  })
 }
 
 interface HostBootstrapInput {

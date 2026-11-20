@@ -41,5 +41,10 @@ export class OutputsConstruct extends Construct {
         value: props.sandboxHostAutoScalingGroupName,
       })
     }
+    new cdk.CfnOutput(this, "KnowledgeStoreAutoScalingGroupName", {
+      description:
+        "ClickHouse knowledge store host; open a Session Manager shell on its instance for checks",
+      value: props.knowledgeStoreAutoScalingGroupName,
+    })
   }
 }
