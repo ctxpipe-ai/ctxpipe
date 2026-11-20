@@ -16,6 +16,10 @@ import { promisify } from "node:util"
 
 import { z } from "zod"
 
+import {
+  fileExtension,
+  rasterImageType,
+} from "../domain/workspaces/raw-file.js"
 import { parseJson } from "../lib/parseJson.js"
 
 let version: Promise<string> | undefined
@@ -54,15 +58,6 @@ const FORMATS: Record<string, { format: ConverterFormat; mime: string }> = {
 }
 type ConverterFormat = "pdf" | "docx" | "pptx" | "xlsx" | "html" | "svg"
 
-/** The images that the vision model reads as they are. */
-const IMAGES: Record<string, string> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-}
-
 /**
  * The document and image types that a Workspace can hold but that have no
  * converter: "Good support speed for the top file types is more important
@@ -89,12 +84,6 @@ const UNCONVERTED = new Set([
   "ico",
 ])
 
-const extensionOf = (path: string) => {
-  const name = path.split("/").pop() ?? ""
-  const dot = name.lastIndexOf(".")
-  return dot > 0 ? name.slice(dot + 1).toLowerCase() : ""
-}
-
 /** What the projection does with a file that is not a knowledge file. */
 export type FileType =
   /** The converter gives its text (an SVG: a PNG and its labels). */
@@ -106,10 +95,11 @@ export type FileType =
 
 /** The type of a path, or null for a file that is not a document. */
 export function fileType(path: string): FileType | null {
-  const extension = extensionOf(path)
+  const extension = fileExtension(path)
   const converted = FORMATS[extension]
   if (converted) return { kind: "convert", ...converted }
-  const image = IMAGES[extension]
+  // The vision model reads a raster image as it is.
+  const image = rasterImageType(path)
   if (image) return { kind: "image", mime: image }
   if (UNCONVERTED.has(extension)) return { kind: "unsupported", extension }
   return null

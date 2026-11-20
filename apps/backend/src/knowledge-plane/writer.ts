@@ -430,6 +430,36 @@ const READ_BYTES = 32 * 1024 * 1024
 const IMAGE_BATCH_BYTES = 32 * 1024 * 1024
 
 /**
+ * The blobs in read groups of at most READ_BYTES each, with their framing,
+ * and the blobs above their limit, which no group holds. A blob above
+ * READ_BYTES and below its limit is a group alone.
+ */
+function readGroups(blobs: { blob: string; size: number; limit: number }[]): {
+  groups: string[][]
+  tooLarge: { blob: string; limit: number }[]
+} {
+  const groups: string[][] = [[]]
+  const tooLarge: { blob: string; limit: number }[] = []
+  let groupBytes = 0
+  for (const { blob, size, limit } of blobs) {
+    if (size > limit) {
+      tooLarge.push({ blob, limit })
+      continue
+    }
+    // `cat-file --batch` adds a header line (`<sha> blob <size>`) and a
+    // newline to each blob: 128 bytes is more than both.
+    const bytes = size + 128
+    if (groupBytes + bytes > READ_BYTES && (groups.at(-1)?.length ?? 0) > 0) {
+      groups.push([])
+      groupBytes = 0
+    }
+    groups.at(-1)?.push(blob)
+    groupBytes += bytes
+  }
+  return { groups, tooLarge }
+}
+
+/**
  * The rows of each file of `paths`, with no vectors: a document, or a
  * `failed` placeholder with the content error. A knowledge file that gives
  * no unit gives no row.
@@ -496,35 +526,24 @@ async function projectFiles(input: {
   // The size of each blob before a read: a file above its limit gets a
   // `failed` document, and each git read stays within the output limit.
   const sizes = await readGitBlobSizes(input.directory, blobs)
-  const groups: string[][] = [[]]
-  let groupBytes = 0
-  for (const [index, blob] of blobs.entries()) {
-    const size = sizes[index] ?? 0
-    const shared = entriesOf.get(blob) ?? []
-    const limit = shared.some((entry) => entry.type?.kind === "image")
-      ? MAX_IMAGE_BYTES
-      : MAX_FILE_BYTES
-    if (size > limit) {
-      for (const entry of shared) {
-        fail(entry.path, `The file is larger than ${limit / 1024 / 1024} MiB.`)
-        if (entry.type)
-          count(
-            entry.type.kind === "image" ? "image" : entry.type.format,
-            "too-large",
-          )
-      }
-      continue
+  const { groups, tooLarge } = readGroups(
+    blobs.map((blob, index) => ({
+      blob,
+      size: sizes[index] ?? 0,
+      limit: entriesOf.get(blob)?.some((entry) => entry.type?.kind === "image")
+        ? MAX_IMAGE_BYTES
+        : MAX_FILE_BYTES,
+    })),
+  )
+  for (const { blob, limit } of tooLarge)
+    for (const entry of entriesOf.get(blob) ?? []) {
+      fail(entry.path, `The file is larger than ${limit / 1024 / 1024} MiB.`)
+      if (entry.type)
+        count(
+          entry.type.kind === "image" ? "image" : entry.type.format,
+          "too-large",
+        )
     }
-    // `cat-file --batch` adds a header line (`<sha> blob <size>`) and a
-    // newline to each blob: 128 bytes is more than both.
-    const bytes = size + 128
-    if (groupBytes + bytes > READ_BYTES && (groups.at(-1)?.length ?? 0) > 0) {
-      groups.push([])
-      groupBytes = 0
-    }
-    groups.at(-1)?.push(blob)
-    groupBytes += bytes
-  }
   /** The images for the vision model, with the paths and the type of each. */
   const images: {
     paths: string[]
