@@ -13,14 +13,8 @@ import {
   metaLine,
 } from "./state.js"
 
-/**
- * One candidate: its text, or its image bytes. The caller sends an image
- * that Jev can take (each side from 280 to 1568 px).
- */
-export type LayerCandidate = {
-  id: string
-  meta: CandidateMeta
-} & ({ text: string } | { image: { mediaType: string; bytes: Uint8Array } })
+/** One candidate: its text. An image candidate gives the text of the image. */
+export type LayerCandidate = { id: string; meta: CandidateMeta; text: string }
 
 type LayerJudgment = { pAnswers: number; pExplore: number }
 
@@ -75,16 +69,7 @@ export async function judgeLayer({
       batch.forEach((candidate, index) => {
         const n = index + 1
         state.push(`Candidate ${n} (${metaLine(candidate.meta)}):`)
-        state.push(
-          "text" in candidate
-            ? dataBlock(candidate.text)
-            : {
-                type: "image_url",
-                image_url: {
-                  url: `data:${candidate.image.mediaType};base64,${Buffer.from(candidate.image.bytes).toString("base64")}`,
-                },
-              },
-        )
+        state.push(dataBlock(candidate.text))
         questions[`answers.${n}`] = {
           type: "noul",
           instructions: QUESTIONS.answers(n),

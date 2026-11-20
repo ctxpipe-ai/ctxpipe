@@ -10,7 +10,7 @@ const DECISIONS = "https://jev-gateway.test/api/alpha/decisions"
 
 type DecisionsRequest = {
   model: string
-  state: (string | { type: string; image_url: { url: string } })[]
+  state: string[]
   questions: Record<string, { type: string; instructions: string }>
   provider: unknown
 }
@@ -73,10 +73,7 @@ describe("judgeLayer", () => {
         ...textCandidates(1),
         {
           id: "img",
-          image: {
-            mediaType: "image/png",
-            bytes: new Uint8Array([1, 2, 3]),
-          },
+          text: "[image] docs/diagram.png",
           meta: { ...meta, observedAt: null, confidence: null },
         },
       ],
@@ -85,7 +82,6 @@ describe("judgeLayer", () => {
     expect(requests).toHaveLength(1)
     const [{ body, headers }] = requests as [(typeof requests)[number]]
     expect(headers.get("authorization")).toBe("Bearer test-key")
-    expect(headers.get("typesafe-danger-zone-images")).toBe("true")
     expect(body.model).toBe("typesafe/jev-1.14")
     expect(body.provider).toEqual({
       data_collection: "deny",
@@ -100,7 +96,7 @@ describe("judgeLayer", () => {
       "Candidate 1 (status: active; source type: linear; observed at: 2026-11-01T00:00:00Z; valid from: 2026-10-01T00:00:00Z; valid to: open; confidence: 0.80):",
       "<data>Candidate text 0</data>",
       "Candidate 2 (status: active; source type: linear; observed at: unknown; valid from: 2026-10-01T00:00:00Z; valid to: open; confidence: unknown):",
-      { type: "image_url", image_url: { url: "data:image/png;base64,AQID" } },
+      "<data>[image] docs/diagram.png</data>",
     ])
     expect(Object.keys(body.questions)).toEqual([
       "answers.1",
@@ -122,16 +118,6 @@ describe("judgeLayer", () => {
         ["img", { pAnswers: 0.2, pExplore: 0.02 }],
       ]),
     )
-  })
-
-  it("sends a text-only request without the image header", async () => {
-    server.use(answering)
-    await judgeLayer({
-      question: "q",
-      intent: "i",
-      candidates: textCandidates(1),
-    })
-    expect(requests[0]?.headers.has("typesafe-danger-zone-images")).toBe(false)
   })
 
   it("splits the candidates into parallel batches, each pinned, with one span each", async () => {

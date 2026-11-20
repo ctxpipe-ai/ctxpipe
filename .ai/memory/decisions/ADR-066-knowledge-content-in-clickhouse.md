@@ -39,7 +39,7 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
      - `kind`, title, path, source type, source and summary;
      - `mime` for an image;
      - `valid_from`, `valid_to` and `observed_at`.
-   - `chunks`: the sections of a document. It holds `ordinal`, `text`, the full vector and its binary form (the search is in [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md)), and a text index on `text`.
+   - `chunks`: the sections of a document. It holds `ordinal`, `text`, the full vector and its binary form (the search is in [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md)), the key of the vector for its reuse (`embedding_key`, [ADR-067](ADR-067-knowledge-projection-applies-git-diff.md) decision 5), and a text index on `text`.
    - `relations`: `(src_doc, src_chunk, predicate, dst_doc)`, with confidence, validity, source and `observed_at`. It sorts by `src_doc`, for the outgoing relations.
    - `relations_in`: the same rows, sorted by `(org_id, workspace_id, dst_doc, predicate, src_doc)`, for the incoming relations. `KnowledgeStore` writes and deletes both tables.
    - `doc_refs`: `(org_id, workspace_id, ref_key, doc_key)`, sorted by `ref_key`. Each row is a reference key that a file states for itself (decision 5). `KnowledgeStore` writes and deletes it together with the other rows of the file. It has the same `CHECK` constraint and row policy as the other tables (decision 9). It comes with [CTX-1400](https://linear.app/ctxpipe/issue/CTX-1400).
@@ -59,7 +59,7 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
    - Its key is its path. A changed image file replaces its rows, and a removed image file becomes a tombstone, the same as any file.
    - A file that shows an image states only an `EMBEDS_IMAGE` relation to the image's path, with the alt text on the relation. If the image has no row, the target is a `missing` placeholder. Thus the rows of a file do not depend on the bytes of an image (decision 5).
    - The bytes stay only in the Workspace Git. There is no copy in object storage and no store setting (the CTO, 2026-11-19). The `s3_key` column is dropped ([CTX-1412](https://linear.app/ctxpipe/issue/CTX-1412)).
-     - The backend reads the bytes for Jev from the Workspace Git at the served SHA (`knowledge_state.last_sha`), by the image's path. It reads only the repository of the Workspace of the request, so no row can point it at the image of another org. It reads a blob from the Git object store (`<sha>:<path>`), and only when the tree entry is a regular file. It never reads a working-tree checkout, and it never follows a symlink or a submodule entry, because a Workspace writer can commit a symlink at an image path.
+     - The backend reads no image bytes at retrieval, and Jev sees none ([ADR-068](ADR-068-knowledge-retrieval-jev-layers.md) decision 6; [CTX-1432](https://linear.app/ctxpipe/issue/CTX-1432)). Codesearch has no route that reads a blob at a commit.
    - An image document has no chunk and no vector. Ingest writes a text file beside each image (a description, the text in the image, and Mermaid for a diagram), and the projection indexes that file like any text file ([ADR-068](ADR-068-knowledge-retrieval-jev-layers.md) decisions 5 and 6; the CTO, 2026-11-20).
 7. **Document status.** Each document is one of four:
    - `active`;
