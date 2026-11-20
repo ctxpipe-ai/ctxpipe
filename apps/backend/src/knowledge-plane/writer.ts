@@ -559,15 +559,14 @@ function embeddableImage(
 }
 
 /**
- * Embed the bytes of each image. The vector goes on the one chunk of the
- * image, whose text is empty, so the request has the image part only
- * (ADR-066 decision 6). Images share a request until their bytes reach
- * `maxImageBytes`, so that one request stays in the provider limit.
+ * Embed the bytes of each image, one image for each request. The vector goes
+ * on the one chunk of the image, whose text is empty, so the request has the
+ * image part only (ADR-066 decision 6). At most
+ * `multimodalEmbeddingConfig.concurrency` requests are in flight.
  *
  * The model can refuse the bytes of an image with a good header (for
- * example a cut file). When it refuses a request (HTTP 400, 413 or 422),
- * each image of the request goes again alone, and an image that it refuses
- * alone gets a `failed` document. Another error fails the run.
+ * example a cut file). An image that it refuses (HTTP 400, 413 or 422) gets
+ * a `failed` document. Another error fails the run.
  */
 async function embedImages(
   images: { rows: UnembeddedDocumentRows; bytes: Buffer; mimeType: string }[],
@@ -575,65 +574,46 @@ async function embedImages(
   documents: DocumentRows[]
   failed: { docKey: string; error: string }[]
 }> {
-  const requests: (typeof images)[] = []
-  let size = 0
-  for (const image of images) {
-    const last = requests.at(-1)
-    if (
-      last &&
-      size + image.bytes.length <= multimodalEmbeddingConfig.maxImageBytes
-    ) {
-      last.push(image)
-      size += image.bytes.length
-    } else {
-      requests.push([image])
-      size = image.bytes.length
-    }
-  }
-  const embed = (request: typeof images) =>
-    embedMultimodal(
-      request.map(({ bytes, mimeType }) => ({
-        kind: "image" as const,
-        bytes,
-        mimeType,
-      })),
-    )
-  /** The status of a refusal of the content, else null. */
-  const refused = (error: unknown) =>
-    error instanceof EmbeddingStatusError &&
-    [400, 413, 422].includes(error.status)
-      ? error.status
-      : null
-  const documents: DocumentRows[] = []
-  const failed: { docKey: string; error: string }[] = []
-  const add = (image: (typeof images)[number], vector: number[]) =>
-    documents.push({
-      ...image.rows,
-      chunks: image.rows.chunks.map((chunk) => ({
-        ...chunk,
-        embedding: vector,
-      })),
-    })
-  for (const request of requests) {
+  const embed = async (
+    image: (typeof images)[number],
+  ): Promise<DocumentRows | { docKey: string; error: string }> => {
     try {
-      const vectors = await embed(request)
-      request.forEach((image, index) => add(image, vectors[index] ?? []))
+      const [vector] = await embedMultimodal([
+        { kind: "image", bytes: image.bytes, mimeType: image.mimeType },
+      ])
+      return {
+        ...image.rows,
+        chunks: image.rows.chunks.map((chunk) => ({
+          ...chunk,
+          embedding: vector ?? [],
+        })),
+      }
     } catch (error) {
-      if (refused(error) === null) throw error
-      for (const image of request) {
-        try {
-          add(image, (await embed([image]))[0] ?? [])
-        } catch (alone) {
-          const status = refused(alone)
-          if (status === null) throw alone
-          failed.push({
-            docKey: image.rows.document.docKey,
-            error: `The embedding model refused the image (HTTP ${status}).`,
-          })
-        }
+      if (
+        !(error instanceof EmbeddingStatusError) ||
+        ![400, 413, 422].includes(error.status)
+      )
+        throw error
+      return {
+        docKey: image.rows.document.docKey,
+        error: `The embedding model refused the image (HTTP ${error.status}).`,
       }
     }
   }
+  // In the order of `images`, at most `concurrency` requests at a time.
+  const results: Awaited<ReturnType<typeof embed>>[] = []
+  const { concurrency } = multimodalEmbeddingConfig
+  for (let start = 0; start < images.length; start += concurrency)
+    results.push(
+      ...(await Promise.all(
+        images.slice(start, start + concurrency).map(embed),
+      )),
+    )
+  const documents: DocumentRows[] = []
+  const failed: { docKey: string; error: string }[] = []
+  for (const result of results)
+    if ("error" in result) failed.push(result)
+    else documents.push(result)
   return { documents, failed }
 }
 

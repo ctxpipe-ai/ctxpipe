@@ -36,14 +36,19 @@ export const multimodalEmbeddingConfig = {
    */
   imageTypes: ["image/png", "image/jpeg"],
   /**
-   * The largest image file that the writer embeds, and the most image bytes
-   * of one request. A larger image gets a `failed` document. The base64 form
-   * of the bytes is a third larger. The first real call confirms the
-   * provider limit.
+   * The largest image file that the writer embeds. A larger image gets a
+   * `failed` document. The base64 form of the bytes is a third larger. The
+   * first real call confirms the provider limit.
    */
   maxImageBytes: 10 * 1024 * 1024,
-  /** The maximum number of inputs in one request. */
-  batchSize: 16,
+  /**
+   * The most requests in flight of one `embedMultimodal` call. Each request
+   * holds one input: with `zdr: true`, OpenRouter finds no endpoint for a
+   * request with more inputs ("No endpoints found matching your data policy
+   * (Zero data retention)", measured with 16 inputs on 2026-11-20 by the
+   * probe `embedding-text-batch`).
+   */
+  concurrency: 8,
   /** The maximum number of attempts of one request (429 and 5xx retry). */
   maxAttempts: 5,
   /** The first backoff. Each retry doubles it, up to `maxBackoffMs`. */
@@ -133,12 +138,10 @@ export async function embedMultimodal(
   const base = env.MODEL_PROVIDER_URL ?? "https://openrouter.ai/api/v1"
   const url = `${base.replace(/\/$/, "")}/embeddings`
 
-  const out: number[][] = []
-  for (let start = 0; start < inputs.length; start += config.batchSize) {
-    const batch = inputs.slice(start, start + config.batchSize)
+  const embedOne = async (input: EmbeddingInput): Promise<number[]> => {
     const body = JSON.stringify({
       model: config.model,
-      input: batch.map((input) => ({ content: contentParts(input) })),
+      input: [{ content: contentParts(input) }],
       dimensions: config.dimensions,
       encoding_format: "float",
       provider: {
@@ -150,13 +153,13 @@ export async function embedMultimodal(
     })
     for (let attempt = 1; ; attempt++) {
       try {
-        const vectors = await embedRequest(batch, body, {
+        const [vector] = await embedRequest([input], body, {
           url,
           apiKey: env.MODEL_PROVIDER_API_KEY,
           config,
         })
-        out.push(...vectors)
-        break
+        // `orderedVectors` checked that the answer holds one vector.
+        return vector ?? []
       } catch (err) {
         if (
           !(err instanceof RetryableStatusError) ||
@@ -169,6 +172,27 @@ export async function embedMultimodal(
       }
     }
   }
+
+  // One request for each input, at most `concurrency` in flight. After a
+  // failure, no new request starts.
+  const out = new Array<number[]>(inputs.length)
+  // The workers share one iterator, so each input goes to one worker.
+  const queue = inputs.entries()
+  let failed = false
+  const worker = async () => {
+    for (const [index, input] of queue) {
+      if (failed) return
+      try {
+        out[index] = await embedOne(input)
+      } catch (error) {
+        failed = true
+        throw error
+      }
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(config.concurrency, inputs.length) }, worker),
+  )
   return out
 }
 

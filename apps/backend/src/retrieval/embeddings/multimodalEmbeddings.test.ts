@@ -18,7 +18,7 @@ const config = {
   model: "vendor/multimodal-embed",
   upstreamProvider: "vendor-cloud",
   dimensions: 16,
-  batchSize: 2,
+  concurrency: 2,
   maxAttempts: 3,
   backoffMs: 1,
   maxBackoffMs: 2,
@@ -74,20 +74,37 @@ describe("embedMultimodal", () => {
     vi.unstubAllEnvs()
   })
 
-  it("sends no-retention, pinned-provider requests in batches and keeps the input order", async () => {
+  it("sends one no-retention, pinned-provider request for each input, at most `concurrency` at a time, and keeps the input order", async () => {
     const bodies: Body[] = []
     const auth: (string | null)[] = []
+    let inFlight = 0
+    let most = 0
     server.use(
-      http.post(EMBEDDINGS_URL, ({ request }) => {
+      http.post(EMBEDDINGS_URL, async ({ request }) => {
         auth.push(request.headers.get("authorization"))
+        inFlight++
+        most = Math.max(most, inFlight)
+        // The answers come back in the reverse order of the requests.
+        const body = (await request.json()) as Body
+        await new Promise((resolve) =>
+          setTimeout(resolve, 20 - bodies.length * 4),
+        )
+        bodies.push(body)
+        inFlight--
+        const text = JSON.stringify(body.input[0]?.content)
+        const n = Number(/chunk (\d)/.exec(text)?.[1])
+        return HttpResponse.json({
+          data: [{ index: 0, embedding: vector(n) }],
+        })
       }),
-      echoHandler(bodies),
     )
 
     const result = await embedMultimodal([0, 1, 2, 3, 4].map(text), config)
 
-    expect(bodies.map((b) => b.input.length)).toEqual([2, 2, 1])
+    expect(bodies).toHaveLength(5)
+    expect(most).toBe(2)
     for (const body of bodies) {
+      expect(body.input).toHaveLength(1)
       expect(body.model).toBe("vendor/multimodal-embed")
       expect(body.dimensions).toBe(16)
       expect(body.provider).toEqual({
@@ -97,18 +114,29 @@ describe("embedMultimodal", () => {
         zdr: true,
       })
     }
-    expect(auth).toEqual([
-      "Bearer test-key",
-      "Bearer test-key",
-      "Bearer test-key",
-    ])
-    expect(bodies[0]?.input[1]).toEqual({
+    expect(auth).toEqual(Array.from({ length: 5 }, () => "Bearer test-key"))
+    expect(bodies.map((body) => body.input[0])).toContainEqual({
       content: [
         { type: "text", text: "Design notes (part 2 of 5)\n\nchunk 1" },
       ],
     })
-    // The handler returns the rows in reverse order; `index` restores it.
-    expect(result.map((e) => e[0])).toEqual([10, 11, 20, 21, 30])
+    expect(result.map((e) => e[0])).toEqual([0, 1, 2, 3, 4])
+  })
+
+  it("starts no new request after a failure", async () => {
+    let calls = 0
+    server.use(
+      http.post(EMBEDDINGS_URL, () => {
+        calls += 1
+        return new HttpResponse("bad model", { status: 400 })
+      }),
+    )
+
+    await expect(
+      embedMultimodal([0, 1, 2, 3, 4].map(text), config),
+    ).rejects.toThrow("400")
+    // The two first requests were in flight together; no third one started.
+    expect(calls).toBe(2)
   })
 
   it("sends a search query as its text only, with no context line", async () => {
