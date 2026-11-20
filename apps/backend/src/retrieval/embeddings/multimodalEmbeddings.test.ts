@@ -201,7 +201,7 @@ describe("embedMultimodal", () => {
     )
   })
 
-  it("retries 429 and 5xx, with one span for each request and the usage on the answered one", async () => {
+  it("retries 429 and 5xx, with one span and one `onRequest` call for each request, and the usage on the answered one", async () => {
     const statuses = [429, 503]
     const bodies: Body[] = []
     const echo = echoHandler(bodies)
@@ -213,9 +213,11 @@ describe("embedMultimodal", () => {
       echo,
     )
 
-    const result = await embedMultimodal([text(0)], config)
+    let sent = 0
+    const result = await embedMultimodal([text(0)], config, () => sent++)
 
     expect(result).toHaveLength(1)
+    expect(sent).toBe(3)
     const requests = spans
       .finishedSpans()
       .filter((s) => s.name === "embeddings.embedMultimodal")

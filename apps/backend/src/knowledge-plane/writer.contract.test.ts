@@ -72,7 +72,7 @@ function vectorOf(content: unknown): number[] {
   const digest = createHash("sha256").update(JSON.stringify(content)).digest()
   return Array.from(
     { length: multimodalEmbeddingConfig.dimensions },
-    (_, i) => ((digest[i % digest.length] ?? 0) - 128) / 37,
+    (_, i) => ((digest[i % digest.length] ?? 0) - 128) / 100,
   )
 }
 
@@ -1650,6 +1650,59 @@ describe("vector reuse (CTX-1428)", () => {
       await remote.remove()
     }
   })
+
+  it("a retry after a run that failed after its first write of 1000 files embeds only the files of the later writes", async () => {
+    const remote = await Remote.create()
+    try {
+      // 1005 files: the first write has 1000 files, the second 5.
+      const count = 1005
+      const name = (index: number) => `f${String(index).padStart(4, "0")}.md`
+      const tip = await remote.commit(
+        Object.fromEntries(
+          Array.from({ length: count }, (_, index) => [
+            name(index),
+            `# File ${index}\n\nThe text of file ${index}.\n`,
+          ]),
+        ),
+      )
+      const workspaceId = await newWorkspace()
+      // The first request of the second write fails the run, after the
+      // first write is in ClickHouse. The 5 requests of the second write
+      // start together.
+      embeddings.failAt = 1001
+      await expect(run(remote, workspaceId, tip)).rejects.toThrow("HTTP 401")
+      expect(embeddings.requests).toBe(1005)
+      expect(await getKnowledgeState({ orgId, workspaceId })).toMatchObject({
+        lastSha: null,
+        attemptShas: [tip],
+      })
+
+      embeddings.failAt = 0
+      embeddings.requests = 0
+      embeddings.inputs = []
+      spans.reset()
+      expect(await run(remote, workspaceId, tip)).toMatchObject({
+        mode: "full",
+      })
+      expect(embeddings.requests).toBe(5)
+      expect(sentTexts().sort()).toEqual(
+        Array.from({ length: 5 }, (_, index) =>
+          expect.stringContaining(`The text of file ${1000 + index}.`),
+        ),
+      )
+      expect(embeddingOf()).toMatchObject({
+        "ctxpipe.knowledge.outcome": "completed",
+        "ctxpipe.knowledge.embedding_reused": 1000,
+        "ctxpipe.knowledge.embedding_embedded": 5,
+        "ctxpipe.knowledge.embedding_requests": 5,
+      })
+      const statuses = Object.values(await statusOf(workspaceId))
+      expect(statuses).toHaveLength(count)
+      expect(statuses.every((status) => status === "active")).toBe(true)
+    } finally {
+      await remote.remove()
+    }
+  }, 120_000)
 
   it("a change of the embedding model embeds each input again", async () => {
     const remote = await Remote.create()

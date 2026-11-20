@@ -521,8 +521,8 @@ type EmbeddingCounter = {
   /** The inputs with no stored vector. */
   embedded: number
   /**
-   * The inputs that went to the model. Inputs of one batch with the same key
-   * go one time. A retry of a request is not counted again.
+   * The HTTP requests to the embedding API, each retry too. Inputs of one
+   * batch with the same key go in one request.
    */
   requests: number
   /** The time in the embedding API, in seconds. */
@@ -556,10 +556,7 @@ async function embedWithReuse<R>(
 ): Promise<{ key: string; vector: number[] | R }[]> {
   const { counter } = reuse
   const keys = inputs.map((input) => embeddingKey(input))
-  const stored =
-    inputs.length === 0
-      ? new Map<string, number[]>()
-      : await reuse.store.readEmbeddings(reuse.scope, docKeys, keys)
+  const stored = await reuse.store.readEmbeddings(reuse.scope, docKeys, keys)
   const missing = new Map<string, EmbeddingInput>()
   for (const [index, input] of inputs.entries()) {
     const key = keys[index] ?? ""
@@ -571,7 +568,6 @@ async function embedWithReuse<R>(
   }
   const fresh = new Map<string, R>()
   if (missing.size > 0) {
-    counter.requests += missing.size
     const started = performance.now()
     try {
       const missingKeys = [...missing.keys()]
@@ -590,6 +586,11 @@ async function embedWithReuse<R>(
     if (vector === undefined) throw new Error("An input got no vector")
     return { key, vector }
   })
+}
+
+/** The `onRequest` of `embedMultimodal`: it counts each HTTP request. */
+const countRequest = (reuse: VectorReuse) => () => {
+  reuse.counter.requests++
 }
 
 /** Embed the text chunks of each document. A chunk with no text gets no vector. */
@@ -616,15 +617,17 @@ async function embedDocuments(
     reuse,
     documents.map(({ document }) => document.docKey),
     inputs,
-    embedMultimodal,
+    (missing) =>
+      embedMultimodal(missing, multimodalEmbeddingConfig, countRequest(reuse)),
   )
   let next = 0
   return documents.map((rows) => ({
     ...rows,
     chunks: rows.chunks.map((chunk) => {
       if (!chunk.text.trim()) return { ...chunk, embedding: [] }
-      const { key, vector } = vectors[next++] ?? { key: "", vector: [] }
-      return { ...chunk, embedding: vector, embeddingKey: key }
+      const result = vectors[next++]
+      if (!result) throw new Error("A chunk got no vector")
+      return { ...chunk, embedding: result.vector, embeddingKey: result.key }
     }),
   }))
 }
@@ -678,7 +681,12 @@ async function embedImages(
     input: EmbeddingInput,
   ): Promise<number[] | { refused: number }> => {
     try {
-      return (await embedMultimodal([input]))[0] ?? []
+      const [vector] = await embedMultimodal(
+        [input],
+        multimodalEmbeddingConfig,
+        countRequest(reuse),
+      )
+      return vector ?? []
     } catch (error) {
       if (
         !(error instanceof EmbeddingStatusError) ||
@@ -706,7 +714,9 @@ async function embedImages(
   const documents: DocumentRows[] = []
   const failed: { docKey: string; error: string }[] = []
   for (const [index, image] of images.entries()) {
-    const { key, vector } = vectors[index] ?? { key: "", vector: [] }
+    const result = vectors[index]
+    if (!result) throw new Error("An image got no vector")
+    const { key, vector } = result
     if ("refused" in vector)
       failed.push({
         docKey: image.rows.document.docKey,
@@ -892,11 +902,14 @@ function recordRun(input: {
   // The share of the inputs that got a stored vector is the hit rate of the
   // vector reuse (ADR-067 decision 5).
   const { embedding } = input
-  const inputs = meter.createHistogram("knowledge.projection.embedding_inputs", {
-    description:
-      "The embedding inputs of one knowledge projection run, by the source of the vector",
-    unit: "{input}",
-  })
+  const inputs = meter.createHistogram(
+    "knowledge.projection.embedding_inputs",
+    {
+      description:
+        "The embedding inputs of one knowledge projection run, by the source of the vector",
+      unit: "{input}",
+    },
+  )
   inputs.record(embedding.reused, { outcome, mode, source: "stored" })
   inputs.record(embedding.embedded, { outcome, mode, source: "model" })
   meter
@@ -907,7 +920,8 @@ function recordRun(input: {
     .record(embedding.requests, { outcome, mode })
   meter
     .createHistogram("knowledge.projection.embedding_duration", {
-      description: "The time in the embedding API of one knowledge projection run",
+      description:
+        "The time in the embedding API of one knowledge projection run",
       unit: "s",
     })
     .record(embedding.seconds, { outcome, mode })

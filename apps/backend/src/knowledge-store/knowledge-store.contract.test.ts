@@ -294,9 +294,9 @@ describe("readEmbeddings (CTX-1428)", () => {
       await store.applyDocuments(orgA, {
         documents: [keyed("first.md", "k", vector)],
       })
-      const stored = (await store.readEmbeddings(orgA, ["first.md"], ["k"])).get(
-        "k",
-      )
+      const stored = (
+        await store.readEmbeddings(orgA, ["first.md"], ["k"])
+      ).get("k")
       expect(stored).toHaveLength(vector.length)
       expect(stored).not.toEqual(vector)
       await store.applyDocuments(orgA, {

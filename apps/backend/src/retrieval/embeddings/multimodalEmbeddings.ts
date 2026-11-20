@@ -153,10 +153,12 @@ export function embeddingKey(
  * Embed texts and images in one vector space. The result has the order of
  * `inputs`. Every request sets `provider.data_collection: "deny"` and
  * `provider.zdr: true`, and pins the upstream provider without fallback.
+ * `onRequest` is called before each HTTP request, also before each retry.
  */
 export async function embedMultimodal(
   inputs: EmbeddingInput[],
   config: MultimodalEmbeddingConfig = multimodalEmbeddingConfig,
+  onRequest?: () => void,
 ): Promise<number[][]> {
   if (inputs.length === 0) return []
   assertNotInOrgDbContext()
@@ -179,6 +181,7 @@ export async function embedMultimodal(
     })
     for (let attempt = 1; ; attempt++) {
       try {
+        onRequest?.()
         return await embedRequest(input, body, {
           url,
           apiKey: env.MODEL_PROVIDER_API_KEY,
