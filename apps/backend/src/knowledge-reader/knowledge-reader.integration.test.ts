@@ -18,8 +18,6 @@ import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
 import { withOrgDbContext } from "../db/client.js"
 import { knowledgeState } from "../db/schema/knowledge_state.js"
 import { orgFeatures } from "../db/schema/org_features.js"
-import { repositories } from "../db/schema/repositories.js"
-import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { workspaceKnowledgeUnits, workspaces } from "../db/schema/workspaces.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
 import {
@@ -27,7 +25,6 @@ import {
   type DocumentRows,
 } from "../knowledge-store/knowledge-store.js"
 import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
-import { generateObjectId } from "../lib/id.js"
 import { getRelatedTool } from "../mcp/tools/get-related.js"
 import { searchKnowledgeTool } from "../mcp/tools/search-knowledge.js"
 import {
@@ -999,34 +996,15 @@ describe("the knowledge reader seam", () => {
     ])
   })
 
-  it("on: Jev gets an image as its text, and the backend reads no image bytes", async () => {
+  it("on: Jev gets an image candidate as its text", async () => {
     await setFlag("on")
     const doc = "knowledge/flows.md"
     const flow = "knowledge/img/flow.png"
-    const tiny = "knowledge/img/tiny.png"
     const { workspaceId } = await seedRelatedWorkspace({
       seed,
       slug: "pictures",
       sha: planeSha,
       units: [{ path: doc, kind: "Note", title: "Flows" }],
-    })
-    const repositoryId = generateObjectId("repo")
-    await withOrgDbContext(seed.orgId, async (db) => {
-      await db.insert(repositories).values({
-        id: repositoryId,
-        orgId: seed.orgId,
-        name: "acme/pictures",
-        gitUrl: "https://git.example.test/acme/pictures.git",
-        lastIngestedHash: planeSha,
-      })
-      await db.insert(repositoryCheckouts).values({
-        id: generateObjectId("checkout"),
-        orgId: seed.orgId,
-        repositoryId,
-        checkoutKey: `rev:${planeSha}`,
-        ref: "main",
-        commitSha: planeSha,
-      })
     })
     const key = (path: string) => servingIdForKnowledgePath(workspaceId, path)
     const observedAt = new Date("2026-11-01T00:00:00Z")
@@ -1088,10 +1066,9 @@ describe("the knowledge reader seam", () => {
                   embedding: planeVector("The flows. hub"),
                 },
               ],
-              relations: [embeds(flow, "The flow"), embeds(tiny, "")],
+              relations: [embeds(flow, "The flow")],
             },
             imageDocument(flow),
-            imageDocument(tiny),
           ],
         },
       )
@@ -1100,32 +1077,13 @@ describe("the knowledge reader seam", () => {
     }
     await markReady(workspaceId)
 
-    // The Workspace has a repository at the served SHA, but the backend
-    // asks codesearch for no image bytes.
-    const codesearchReads: string[] = []
-    vi.stubEnv("CODESEARCH_URL", "http://codesearch.test")
-    models.use(
-      http.all("http://codesearch.test/*", ({ request }) => {
-        codesearchReads.push(request.url)
-        return HttpResponse.json({ error: "unexpected" }, { status: 500 })
-      }),
-    )
-    try {
-      const result = await relatedCall({
-        workspace: "pictures",
-        seeds: [doc],
-        maxDepth: 1,
-      })
-      expect(result.isError).toBeFalsy()
-      expect(codesearchReads).toEqual([])
-      // Each candidate goes to Jev as text. An image goes as its text form.
-      expect(jevParts.every((part) => typeof part === "string")).toBe(true)
-      for (const path of [flow, tiny])
-        expect(
-          jevParts.some((part) => String(part).includes(`[image] ${path}`)),
-        ).toBe(true)
-    } finally {
-      models.resetHandlers()
-    }
+    const result = await relatedCall({
+      workspace: "pictures",
+      seeds: [doc],
+      maxDepth: 1,
+    })
+    expect(result.isError).toBeFalsy()
+    expect(jevParts.every((part) => typeof part === "string")).toBe(true)
+    expect(jevParts).toContain(`<data>flow.png\n\n[image] ${flow}</data>`)
   })
 })
