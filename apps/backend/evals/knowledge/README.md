@@ -77,7 +77,7 @@ Write each run folder outside the checkout, as in these examples. The folder hol
 - `--set NAME=VALUE` changes one setting of `ORCHESTRATOR_DEFAULTS` for the run. A run changes one setting (ADR-069 decision 7), so `--set` is allowed one time only.
 - `--cap-usd` is the hard spend cap (default $5). Before each model call, the run reserves the worst-case cost of that kind of call: $0.002 for Jev, $0.001 for an embedding (or $0.5 for each million UTF-8 bytes of its input, when that is more: a batch of the hydrate holds up to 300,000 bytes), $0.25 for a judge. Each value is above the highest cost that the bake-offs measured. A call that would take the spent and reserved total over the cap does not go out, and the run stops with the spend-cap status in the report. After the call, its real `usage.cost` replaces the reservation. An answer with no cost, or a failed call, keeps the reserved value. Thus calls in parallel never take the run over the cap. The report compares only the questions that both arms answered before the stop, and it lists the others. The spend-capped model key is a second limit, outside the code.
 - `--kept` is the report of the last kept run. The report then compares the plane with it for each split and category, gives its guards against the kept guards, and gives the change of each question.
-- Each model call goes only to a ZDR endpoint (ADR-068 decision 7). The old stack sends its embedding calls with no provider block, so the recorder adds `{"data_collection":"deny","zdr":true}` to each request that does not set these two fields, over the fields of its provider block. This changes only the endpoint that serves the call, not the model. A model with no ZDR endpoint then refuses the call: it does not fall back. The run notes of the report name the calls that got the block.
+- Each model call goes only to a ZDR endpoint of an allowed provider (ADR-068 decision 7, ADR-070). Each client sends the provider block itself; the recorder does not change a request. A model with no such endpoint refuses the call: it does not fall back.
 
 ### Score again with no model call
 
@@ -123,12 +123,13 @@ The plan (`fixtures/corpora-v0.plan.json`) gives the slice of each source of ADR
 ### Probe the provider settings
 
 ```sh
-factory eval knowledge:probe --repo CTXPIPE-CHECKOUT --out "$TMPDIR/knowledge-probe" [--max-cost 0.25]
+factory eval knowledge:probe --repo CTXPIPE-CHECKOUT --out "$TMPDIR/knowledge-probe" [--max-cost 1] -- \
+  --setting MODEL_PROVIDER_ALLOWLIST=SLUGS [--setting MODEL_HIGH_NAME=MODEL ...]
 # or, with the model key in the environment:
-bun --env-file=.env.local evals/knowledge/cli.ts probe --out "$TMPDIR/knowledge-probe" [--cap-usd 0.25]
+bun --env-file=.env.local evals/knowledge/cli.ts probe --out "$TMPDIR/knowledge-probe" [--setting NAME=VALUE ...] [--cap-usd 1]
 ```
 
-Before the first org leaves `off`, this command confirms with real calls that OpenRouter applies the request settings of the knowledge plane (ADR-068 decision 7). Each check sends its request through the real client (`decideNoul`, `embedQuery`, `embedTexts`), and it records the status, the `provider` field of the answer, and the error text:
+Before the first org leaves `off`, this command confirms with real calls that OpenRouter applies the request settings of the knowledge plane (ADR-068 decision 7), and that each model in use answers from a provider of the allowlist (ADR-070). The factory passes no setting but the key. So give each model setting of the hosted stack (factory `machines/hosted`) with `--setting NAME=VALUE`: `MODEL_PROVIDER_ALLOWLIST`, and each `MODEL_*_NAME` that it sets (`MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, `MODEL_HIGH_NAME`, `MODEL_EMBEDDING_NAME`, `MODEL_VISION_NAME`). A model name that the hosted stack does not set is the code default on both sides. The probe takes no URL and no key as a setting: the key goes only to the provider that the code names. A setting that is not given comes from the environment. The clients send the allowlist in each request, as production does. Each check of a served answer also needs a provider of the allowlist. Each check sends its request through the real client (`decideNoul`, `embedQuery`, `embedTexts`), and it records the status, the `provider` field of the answer, and the error text:
 
 | Check | Passes when |
 | --- | --- |
@@ -142,8 +143,13 @@ Before the first org leaves `off`, this command confirms with real calls that Op
 | `vision-read` | The vision client (`readImage`) reads a made-up diagram of the vision eval with the vision model (`MODEL_VISION_NAME`, else its default) and gets HTTP 200. The answer names a provider of a ZDR endpoint of the model. |
 | `vision-control-without-zdr` | The vision request of the client, sent to a vision model with no ZDR endpoint (`google/gemini-2.5-flash-lite`) and with `zdr: false`, gets HTTP 200. |
 | `vision-refused-without-zdr-endpoint` | The same request with `zdr: true` gets HTTP 404 with a no-endpoint error. This proves that the vision request enforces `zdr`. |
+| `chat <model>` | One fixed question through the real chat client (`getModel`) for each chat model in use: the model of each tier (tiers with the same model share one call) and the fixed model of the commit subjects. Each model goes out alone, with no fallback model. It gets HTTP 200 from a provider of the allowlist. |
+| `embedding-current-stack` | One fixed question through `generateEmbeddings` (the embedding model of the current stack) gets HTTP 200 and one vector from a provider of the allowlist. |
+| `allowlist-control-without-only` | The question request of the plane client, sent to an embedding model whose only ZDR endpoint is outside the allowlist (`qwen/qwen3-embedding-4b`, DeepInfra) with no `only` field, gets HTTP 200 from a provider outside the list. |
+| `allowlist-refused-outside-list` | The same request with the allowlist gets HTTP 404 with a no-endpoint error. The two requests differ only in `only`, so this proves that OpenRouter applies the allowlist with ZDR and fallback. |
+| `provider-allowlist` | The allowlist is set, and each slug is on the OpenRouter provider list (`GET /api/v1/providers`). The probe maps each slug to the provider name that an answer gives. |
 
-The probe sends only fixed texts (questions and one batch of 2048 checkerboard chunks) and one made-up diagram (`fixtures/vision/order-states.png`), and the default spend cap is $0.25: the recorder holds $0.05 for each vision call in flight. An answer names only its provider, not the endpoint: when a provider has more than one endpoint of a model, the name does not show which endpoint served the call. The `zdr` field of the request decides the endpoint, and the refusal pairs show that OpenRouter applies `zdr`. When the probe cannot read the ZDR list, the check `zdr-list` fails with the error, and the other checks find no ZDR provider. It writes `probe.json` and `probe.md` to `--out`. It needs no store, but the backend environment check still needs `DATABASE_URL` and `AUTH_SECRET` to be set. Exit codes: 0 all checks pass, 3 the spend cap stopped a call, 4 a check failed. A failed check shows the error of the client, then the error text of the provider. The client error keeps only a complete routing message of OpenRouter (for example "No endpoints found that can handle the requested parameters."), because other error text can echo the input. The probe sends only fixed public inputs, so it also shows the provider text. When a check fails, report it. Do not change the request settings to make it pass.
+The probe sends only fixed texts (questions and one batch of 2048 checkerboard chunks) and one made-up diagram (`fixtures/vision/order-states.png`), and the default spend cap is $1: the recorder holds $0.05 for each vision call and $0.25 for each chat call in flight. An answer names only its provider, not the endpoint: when a provider has more than one endpoint of a model, the name does not show which endpoint served the call. The `zdr` field of the request decides the endpoint, and the refusal pairs show that OpenRouter applies `zdr`. When the probe cannot read the ZDR list, the check `zdr-list` fails with the error, and the other checks find no ZDR provider. It writes `probe.json` and `probe.md` to `--out`. It needs no store, but the backend environment check still needs `DATABASE_URL` and `AUTH_SECRET` to be set. Exit codes: 0 all checks pass, 3 the spend cap stopped a call, 4 a check failed. A failed check shows the error of the client, then the error text of the provider. The client error keeps only a complete routing message of OpenRouter (for example "No endpoints found that can handle the requested parameters."), because other error text can echo the input. The probe sends only fixed public inputs, so it also shows the provider text. When a check fails, report it. Do not change the request settings to make it pass.
 
 ### Measure the latency of the model calls
 
@@ -153,7 +159,7 @@ factory eval knowledge:latency --repo CTXPIPE-CHECKOUT --out "$TMPDIR/knowledge-
 bun --env-file=.env.local evals/knowledge/cli.ts latency --out "$TMPDIR/knowledge-latency" [--runs 50] [--cap-usd 2]
 ```
 
-The time budget of a plane search (`timeBudgetMs`) must fit the latency of its model calls. This command measures them for a decision on the budget. It sends one fixed public question, and one call at a time, so that each latency is the latency of one request. Each call goes only to a ZDR endpoint (ADR-068 decision 7).
+The time budget of a plane search (`timeBudgetMs`) must fit the latency of its model calls. This command measures them for a decision on the budget. It sends one fixed public question, and one call at a time, so that each latency is the latency of one request. Each call goes only to a ZDR endpoint of a provider of the allowlist (ADR-068 decision 7, ADR-070). It measures only the endpoints of the allowed providers.
 
 | Measure | What it sends |
 | --- | --- |
@@ -200,7 +206,7 @@ A recorder in front of `fetch` keeps the calls (`model-calls.ts`). Thus the read
 
 ## The report
 
-The run notes name the calls that got the ZDR block. The first table compares the plane with the baseline arm, the current stack, for each split and category: the baseline value, the plane value, and the change. Then come the operations guards (with the count of partial answers) and the cost.
+The first table compares the plane with the baseline arm, the current stack, for each split and category: the baseline value, the plane value, and the change. Then come the operations guards (with the count of partial answers) and the cost.
 
 With `--kept`, the next section compares the plane with the kept run. It is the input of the keep-or-revert rule of ADR-069 decision 7: a change stays only if the hold-out set improves and no guard gets worse.
 

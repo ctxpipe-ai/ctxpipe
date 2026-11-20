@@ -3,7 +3,10 @@ import { z } from "zod"
 
 import { JEV_MODEL } from "../../src/retrieval/jev/client.js"
 import { POSITION_STATUSES } from "../../src/retrieval/jev/disagreement.js"
-import { DEFAULT_OPENROUTER_BASE } from "../../src/retrieval/services/modelProvider.js"
+import {
+  DEFAULT_OPENROUTER_BASE,
+  openRouterProvider,
+} from "../../src/retrieval/services/openRouterProvider.js"
 import {
   type Dataset,
   type Position,
@@ -113,7 +116,7 @@ async function ask(
           schema: verdictJsonSchema,
         },
       },
-      provider: { data_collection: "deny" },
+      provider: openRouterProvider(),
     }),
   })
   if (!response.ok)

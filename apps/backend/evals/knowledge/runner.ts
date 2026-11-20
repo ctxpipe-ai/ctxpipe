@@ -148,11 +148,6 @@ const manifestSchema = z.object({
   capUsd: z.number(),
   spentUsd: z.number(),
   stopped: z.boolean(),
-  /**
-   * The calls that the recorder gave the ZDR provider block, by the arm, the
-   * kind and the model (`ModelCalls.zdrAdded`). Only a live run sends calls.
-   */
-  zdrAdded: z.record(z.string(), z.number()).default({}),
 })
 export type Manifest = z.infer<typeof manifestSchema>
 

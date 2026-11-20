@@ -250,7 +250,8 @@ const run = async (
 describe("the knowledge eval harness", () => {
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
-    vi.stubEnv("MODEL_PROVIDER", "openai-like")
+    // As `factory eval` runs the harness.
+    vi.stubEnv("MODEL_PROVIDER", "openrouter")
     vi.stubEnv("MODEL_PROVIDER_API_KEY", "fixture-only")
     vi.stubEnv("MODEL_PROVIDER_URL", MODEL_URL)
     // ClickHouse and FalkorDB are real servers.
@@ -472,15 +473,7 @@ describe("the knowledge eval harness", () => {
       // answer, at the upper estimate of $0.001.
       costUsd: 0.064,
     })
-    // The old stack sends no provider block, so the harness added the ZDR
-    // block to each of its calls, and the report says so.
-    expect(live.run.zdrAdded).toEqual({
-      "legacy embedding openai/text-embedding-3-large": 17,
-    })
     const markdown = await readFile(join(folder, "live", "report.md"), "utf8")
-    expect(markdown).toContain(
-      'harness added the ZDR block `{"data_collection":"deny","zdr":true}` (ADR-068 decision 7): legacy embedding openai/text-embedding-3-large (17).',
-    )
     const firstTable = markdown.slice(markdown.indexOf("\n## "))
     expect(firstTable).toMatch(
       /^\n## Comparison with the baseline: current stack \(Postgres \+ FalkorDB\)/,
@@ -497,6 +490,11 @@ describe("the knowledge eval harness", () => {
     expect(kept.calls.filter((call) => call.kind === "embedding")).toHaveLength(
       34,
     )
+    // Each client of both arms sent the provider block (ADR-070).
+    for (const call of kept.calls)
+      expect(call.request).toMatchObject({
+        provider: { data_collection: "deny", zdr: true },
+      })
   })
 
   it("scores a new threshold again from the kept calls, with no model call", async () => {
@@ -506,15 +504,10 @@ describe("the knowledge eval harness", () => {
       settings: { keepAt: 0.95 },
       capUsd: 0,
       kept: live,
-      replay: {
-        calls: recorded.calls,
-        zdrAdded: recorded.manifest.zdrAdded,
-      },
+      replay: { calls: recorded.calls },
     })
     expect(requests).toEqual(before)
     expect(rescored.run.mode).toBe("replay")
-    // The replayed calls went out with the ZDR block in the live run.
-    expect(rescored.run.zdrAdded).toEqual(live.run.zdrAdded)
     expect(rescored.incomplete).toEqual([])
     // At 0.95, get_related on the plane keeps no document (Jev gave 0.9),
     // so each question with seeds gets worse; a no-answer stays correct.
@@ -655,10 +648,7 @@ describe("the knowledge eval harness", () => {
       settings: { replacesAt: 0.95 },
       capUsd: 0,
       kept: live,
-      replay: {
-        calls: recorded.calls,
-        zdrAdded: recorded.manifest.zdrAdded,
-      },
+      replay: { calls: recorded.calls },
     })
     expect(requests).toEqual(before)
     expect(rescored.incomplete).toEqual([])

@@ -17,6 +17,10 @@ import {
   modelNameShape,
   tierModelSpec,
 } from "./modelTierSpecs.js"
+import {
+  DEFAULT_OPENROUTER_BASE,
+  withProviderBlock,
+} from "./openRouterProvider.js"
 import { modelParamsFromSpec, modelSpecBase } from "./parseModelSpec.js"
 import { azureModelProvider } from "./providers/azureModelProvider.js"
 import { bedrockModelProvider } from "./providers/bedrockModelProvider.js"
@@ -29,17 +33,6 @@ import type {
 } from "./providers/providerTypes.js"
 
 const EMBEDDING_DIMENSIONS = 2000
-
-export const DEFAULT_OPENROUTER_BASE = "https://openrouter.ai/api/v1"
-
-/**
- * The OpenRouter provider block of each call that sends customer content
- * (Jev, the embeddings of the knowledge plane, the vision model): only ZDR
- * endpoints, and no data collection. It pins no provider, so OpenRouter can
- * fall back among the ZDR endpoints of the model (ADR-068 decision 7). A
- * call can add other routing fields to it.
- */
-export const ZDR_PROVIDER = { data_collection: "deny", zdr: true } as const
 
 /**
  * The OpenRouter base URL and key of the backend model settings, or null
@@ -364,11 +357,13 @@ export async function generateEmbeddings(
           signal,
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            model: embeddingModel,
-            input: chunk,
-            dimensions: EMBEDDING_DIMENSIONS,
-          }),
+          body: JSON.stringify(
+            withProviderBlock(env.MODEL_PROVIDER, embedUrl, {
+              model: embeddingModel,
+              input: chunk,
+              dimensions: EMBEDDING_DIMENSIONS,
+            }),
+          ),
         })
 
         if (!res.ok) {

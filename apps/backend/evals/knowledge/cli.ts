@@ -13,7 +13,8 @@
  *     --models A,B,C --out FILE [--cap-usd 5]
  *   bun evals/knowledge/cli.ts corpus snapshot|issues|freeze --plan FILE \
  *     --out FILE
- *   bun evals/knowledge/cli.ts probe --out DIR [--cap-usd 0.25]
+ *   bun evals/knowledge/cli.ts probe --out DIR [--setting NAME=VALUE ...]
+ *     [--cap-usd 1]
  *   bun evals/knowledge/cli.ts latency --out DIR [--runs 50] [--cap-usd 2]
  *   bun evals/knowledge/cli.ts vision --out DIR [--models A,B,C] [--cap-usd 5]
  *
@@ -35,7 +36,7 @@ import { closeDb, initDb } from "../../src/db/client.js"
 import { ORCHESTRATOR_DEFAULTS } from "../../src/knowledge-reader/orchestrator.js"
 import { initEvlog } from "../../src/observability/logger.js"
 import { closeGraphDb } from "../../src/platform/graph/client.js"
-import { DEFAULT_OPENROUTER_BASE } from "../../src/retrieval/services/modelProvider.js"
+import { DEFAULT_OPENROUTER_BASE } from "../../src/retrieval/services/openRouterProvider.js"
 import {
   freezeCorpora,
   importCorpusIssues,
@@ -47,7 +48,7 @@ import type { EvalOrg } from "./hydrate.js"
 import { measureLatency } from "./latency.js"
 import { ModelCalls, type RecordedCall } from "./model-calls.js"
 import { labelWithPanel } from "./panel.js"
-import { probe } from "./probe.js"
+import { applyProbeSettings, probe } from "./probe.js"
 import {
   buildReport,
   type KeptRun,
@@ -94,16 +95,11 @@ export async function executeRun(input: {
   now: Date
   out: string
   kept: KeptRun | null
-  replay?: {
-    calls: readonly RecordedCall[]
-    zdrAdded: Manifest["zdrAdded"]
-  }
+  replay?: { calls: readonly RecordedCall[] }
 }): Promise<Report> {
-  // Each call of the arms goes only to a ZDR endpoint (ADR-068 decision 7).
-  // A replay sends no call.
-  const calls = input.replay
-    ? modelCalls(input.capUsd, input.replay.calls)
-    : modelCalls(input.capUsd, undefined, { addZdr: true })
+  // A replay sends no call. Each client of a live run sends the provider
+  // block (ADR-070).
+  const calls = modelCalls(input.capUsd, input.replay?.calls)
   const restoreSettings = applySettings(input.settings)
   const restoreFetch = calls.install()
   try {
@@ -124,7 +120,6 @@ export async function executeRun(input: {
       loop: { ...ORCHESTRATOR_DEFAULTS },
       mode: input.replay ? "replay" : "live",
       ...calls.summary(),
-      ...(input.replay ? { zdrAdded: input.replay.zdrAdded } : {}),
     }
     await writeRun(input.out, {
       manifest,
@@ -185,10 +180,7 @@ export async function hydrateCommand(input: {
 }): Promise<number> {
   // The hydrate sends each chunk of each corpus, so the recorder keeps no
   // call: a rescore replays only the calls of `run`.
-  const calls = modelCalls(input.capUsd, undefined, {
-    addZdr: true,
-    keepRecords: false,
-  })
+  const calls = modelCalls(input.capUsd, undefined, { keepRecords: false })
   // Only `hydrate` loads the workflows: their OpenWorkflow client connects to
   // Postgres when it loads, and the other commands need no database.
   const { hydrateCorpora } = await import("./hydrate.js")
@@ -328,8 +320,8 @@ async function main(argv: string[]): Promise<number> {
       out: { type: "string" },
       from: { type: "string" },
       split: { type: "string" },
-      // The spend cap of the command, in USD. The default is $5, and $0.25
-      // for `probe`.
+      // The spend cap of the command, in USD. The default is $5, $1 for
+      // `probe` and $2 for `latency`.
       "cap-usd": { type: "string" },
       set: { type: "string", multiple: true },
       kept: { type: "string" },
@@ -337,11 +329,12 @@ async function main(argv: string[]): Promise<number> {
       repo: { type: "string" },
       models: { type: "string" },
       runs: { type: "string" },
+      setting: { type: "string", multiple: true },
     },
   })
   const capUsd = Number(
     values["cap-usd"] ??
-      (command === "probe" ? 0.25 : command === "latency" ? 2 : 5),
+      (command === "probe" ? 1 : command === "latency" ? 2 : 5),
   )
   if (!Number.isFinite(capUsd) || capUsd < 0)
     throw new SetupError("--cap-usd needs a number of 0 or more.")
@@ -352,6 +345,11 @@ async function main(argv: string[]): Promise<number> {
   if (command === "probe") {
     if (!process.env.MODEL_PROVIDER_API_KEY)
       throw new SetupError("probe needs MODEL_PROVIDER_API_KEY.")
+    try {
+      applyProbeSettings(values.setting ?? [])
+    } catch (error) {
+      throw new SetupError((error as Error).message)
+    }
     const calls = modelCalls(capUsd)
     return probe({ out, calls, capUsd, base: modelBase() })
   }
@@ -362,8 +360,7 @@ async function main(argv: string[]): Promise<number> {
     const runs = Number(values.runs ?? 50)
     if (!Number.isInteger(runs) || runs < 1)
       throw new SetupError("--runs needs a whole number of 1 or more.")
-    // Each call goes only to a ZDR endpoint (ADR-068 decision 7).
-    const calls = modelCalls(capUsd, undefined, { addZdr: true })
+    const calls = modelCalls(capUsd)
     const restore = calls.install()
     try {
       await measureLatency({ out, calls, base: modelBase(), runs })
@@ -447,10 +444,7 @@ async function main(argv: string[]): Promise<number> {
         now: new Date(recorded.manifest.now),
         out,
         kept,
-        replay: {
-          calls: recorded.calls,
-          zdrAdded: recorded.manifest.zdrAdded,
-        },
+        replay: { calls: recorded.calls },
       })
     } else {
       if (!dataset || !values.targets)

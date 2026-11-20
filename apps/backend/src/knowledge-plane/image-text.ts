@@ -26,11 +26,9 @@ import {
   withTransientHttpRetry,
 } from "../lib/withTransientHttpRetry.js"
 import { gatewayCost } from "../observability/gatewayCost.js"
-import {
-  openRouterSettings,
-  ZDR_PROVIDER,
-} from "../retrieval/services/modelProvider.js"
+import { openRouterSettings } from "../retrieval/services/modelProvider.js"
 import { visionModelFromEnv } from "../retrieval/services/modelTierSpecs.js"
+import { openRouterProvider } from "../retrieval/services/openRouterProvider.js"
 
 /**
  * The version of the prompt and the reading schema. A change of either
@@ -294,7 +292,7 @@ export async function readImage(
       },
     },
     // Each ZDR endpoint of the model that takes the JSON schema can answer.
-    provider: { ...ZDR_PROVIDER, require_parameters: true },
+    provider: { ...openRouterProvider(), require_parameters: true },
   })
   try {
     return await withTransientHttpRetry(

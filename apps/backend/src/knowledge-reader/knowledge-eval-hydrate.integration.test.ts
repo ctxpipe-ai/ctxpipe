@@ -289,7 +289,6 @@ describe("the hydrate of the knowledge eval harness", () => {
         capUsd: 0,
         spentUsd: 0,
         stopped: true,
-        zdrAdded: {},
         failedDocuments: null,
       },
     )
@@ -336,17 +335,11 @@ describe("the hydrate of the knowledge eval harness", () => {
   it("stops at the first failed step, with its error", async () => {
     // A setup error: the projection cannot sign in to ClickHouse.
     vi.stubEnv("CLICKHOUSE_URL", userUrl(writerUrl, "ctxpipe_writer", "wrong"))
-    const calls = new ModelCalls(MODEL_URL, 1, undefined, { addZdr: true })
-    await expect(hydrate(calls)).rejects.toThrow(
+    await expect(hydrate(new ModelCalls(MODEL_URL, 1))).rejects.toThrow(
       new RegExp(
         `^The step project-knowledge-plane of the hydrate of ${workspaceId} failed: .*Authentication failed`,
       ),
     )
-    // The old stack was written first. It sends no provider block, so the
-    // harness added it.
-    expect(calls.zdrAdded).toEqual({
-      "hydrate embedding openai/text-embedding-3-large": 1,
-    })
     // The projection writes as the writer user, as the worker does.
     vi.stubEnv("CLICKHOUSE_URL", writerUrl)
   })
@@ -376,10 +369,7 @@ describe("the hydrate of the knowledge eval harness", () => {
     failOldStack = true
     try {
       await expect(
-        hydrate(
-          new ModelCalls(MODEL_URL, 1, undefined, { addZdr: true }),
-          broken,
-        ),
+        hydrate(new ModelCalls(MODEL_URL, 1), broken),
       ).rejects.toThrow(
         `The old stack has the state failed for its embeddings of ws_knowledge_eval_${suffix}_broken`,
       )
@@ -390,7 +380,6 @@ describe("the hydrate of the knowledge eval harness", () => {
 
   it("writes the frozen corpus to both stacks, with ZDR on each model call", async () => {
     const calls = new ModelCalls(MODEL_URL, 1, undefined, {
-      addZdr: true,
       keepRecords: false,
     })
     const hydrated = await hydrate(calls)
@@ -399,8 +388,8 @@ describe("the hydrate of the knowledge eval harness", () => {
     expect(targets).toEqual({
       "tiny-v0": { orgId: org.id, orgSlug: org.slug, workspace: "tiny-v0" },
     })
-    // Both writers embedded the files of the root, and each request went
-    // only to ZDR endpoints.
+    // Both writers embedded the files of the root, and each client sent the
+    // provider block (ADR-070).
     expect(new Set(embeddingBodies.map((body) => body.dimensions))).toEqual(
       new Set([EMBEDDING_DIMENSIONS, textEmbeddingConfig.dimensions]),
     )
@@ -415,7 +404,7 @@ describe("the hydrate of the knowledge eval harness", () => {
 
   it("finds both stacks current on a second hydrate", async () => {
     const before = embeddingBodies.length
-    await hydrate(new ModelCalls(MODEL_URL, 1, undefined, { addZdr: true }))
+    await hydrate(new ModelCalls(MODEL_URL, 1))
     expect(embeddingBodies.length).toBe(before)
   })
 
@@ -454,7 +443,7 @@ describe("the hydrate of the knowledge eval harness", () => {
         { ...corpus, contextRepo: { ...corpus.contextRepo, root: "" } },
       ],
     }
-    await hydrate(new ModelCalls(MODEL_URL, 1, undefined, { addZdr: true }))
+    await hydrate(new ModelCalls(MODEL_URL, 1))
     // The file at the new root went to both writers: the hydrate waited for
     // the projection of the new root.
     const outside = embeddingBodies
