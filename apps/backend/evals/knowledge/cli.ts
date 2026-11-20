@@ -19,9 +19,10 @@
  * the command (the output holds the work before the stop). 4: a check of
  * `probe` failed.
  */
-import { execFile } from "node:child_process"
+import { execFile, execFileSync } from "node:child_process"
 import { writeFile } from "node:fs/promises"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { parseArgs, promisify } from "node:util"
 
 import { Octokit } from "octokit"
@@ -251,6 +252,22 @@ async function main(argv: string[]): Promise<number> {
   if (command === "vision") {
     if (!process.env.MODEL_PROVIDER_API_KEY)
       throw new SetupError("vision needs MODEL_PROVIDER_API_KEY.")
+    // The SVG fixtures go through the converter, and the export of
+    // `factory eval` has no build of it.
+    execFileSync(
+      process.execPath,
+      [
+        fileURLToPath(
+          new URL(
+            "../../../../scripts/checks/prerequisites.mjs",
+            import.meta.url,
+          ),
+        ),
+        "converter",
+      ],
+      // Its result line (and the fix of a failure) goes to stderr.
+      { stdio: ["ignore", 2, "inherit"] },
+    )
     const calls = modelCalls(capUsd)
     const restore = calls.install()
     try {

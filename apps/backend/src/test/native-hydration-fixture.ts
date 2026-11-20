@@ -20,7 +20,6 @@ import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { expect, vi } from "vitest"
 
-import { buildConverter } from "../../test/converter.js"
 import { withOrgIdContext } from "../auth/withAuth.js"
 import { parseEnv } from "../config/env.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
@@ -159,8 +158,6 @@ async function createNativeHydrationFixture(
     options.files?.filter((file) => file.mode !== "120000").length ??
     options.count ??
     1
-  // The knowledge projection runs the real file converter (CTX-1433).
-  if (options.knowledgePlane) buildConverter()
   const embeddingFailure = options.embeddings === "failed"
   const incompleteEmbeddings = options.embeddings === "empty"
   const databaseUrl = process.env.DATABASE_URL
