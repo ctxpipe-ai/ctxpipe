@@ -107,7 +107,7 @@ The dataset must cover three shapes of customer: one large monorepo, an org with
    - **Both stacks stay current.** While the flag is not `off`, the worker writes both stacks, so `on → off` needs no rebuild. ClickHouse serves a Workspace only when `knowledge_state` says that it is ready.
    - **Cursors.** A cursor records the stack that made it. A cursor from the other stack fails with a clear error.
    - **Order:** our own org first, then chosen customer orgs one at a time, each in `shadow` first.
-   - **Data.** Each Jev and embedding call goes only to a ZDR endpoint. Before the first org leaves `off`, the ZDR probe of [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md) decision 7 passes. No other condition holds back the flag (the CTO, 2026-11-19). Shadow logs hold ids, scores and timings, no content.
+   - **Data.** Each Jev call, embedding call and vision call goes only to a ZDR endpoint. Before the first org leaves `off`, the ZDR probe of [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md) decision 7 passes. No other condition holds back the flag (the CTO, 2026-11-19). Shadow logs hold ids, scores and timings, no content.
    - **The end.** When all orgs are `on` and their metrics are at least as good, we remove the old stack, the dual write and the flag.
 
 ## Consequences
@@ -115,4 +115,4 @@ The dataset must cover three shapes of customer: one large monorepo, an org with
 - **Proof before switch:** each change has a measured effect before it reaches a customer, and the switch for each org is reversible.
 - **Cost:** a one-time ingest for each dataset version, and double hydrate work for orgs in `shadow` or `on` during the trial.
 - **Fit to the dataset:** many small improvements can fit the dataset too closely. The hold-out set and new questions over time limit this.
-- **The first run of the loop** is a small test of multimodal embeddings, OCR and Jev on diagrams.
+- **The first runs of the loop** choose the text embedding model (Qwen3 Embedding 8B against pplx-embed-v1-4b) and the vision model of ingest: how well its description, its text from the image and its Mermaid of a diagram let a question find the image ([ADR-068](ADR-068-knowledge-retrieval-jev-layers.md) decisions 5 and 6).

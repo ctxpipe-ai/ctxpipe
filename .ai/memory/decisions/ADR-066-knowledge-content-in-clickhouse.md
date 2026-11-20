@@ -59,10 +59,8 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
    - Its key is its path. A changed image file replaces its rows, and a removed image file becomes a tombstone, the same as any file.
    - A file that shows an image states only an `EMBEDS_IMAGE` relation to the image's path, with the alt text on the relation. If the image has no row, the target is a `missing` placeholder. Thus the rows of a file do not depend on the bytes of an image (decision 5).
    - The bytes stay only in the Workspace Git. There is no copy in object storage and no store setting (the CTO, 2026-11-19). The `s3_key` column is dropped ([CTX-1412](https://linear.app/ctxpipe/issue/CTX-1412)).
-     - The writer reads the bytes from Git at the tip of its run, and embeds them.
      - The backend reads the bytes for Jev from the Workspace Git at the served SHA (`knowledge_state.last_sha`), by the image's path. It reads only the repository of the Workspace of the request, so no row can point it at the image of another org. It reads a blob from the Git object store (`<sha>:<path>`), and only when the tree entry is a regular file. It never reads a working-tree checkout, and it never follows a symlink or a submodule entry, because a Workspace writer can commit a symlink at an image path.
-   - Each image has one chunk row. Its vector is the image embedding. Its text comes only from the bytes: the OCR text or a description, if the evals choose one, else empty.
-   - The embedding takes PNG and JPEG only. Any other image type (for example SVG) gets a `failed` document with the error. It is not a failed run ([CTX-1412](https://linear.app/ctxpipe/issue/CTX-1412)).
+   - An image document has no chunk and no vector. Ingest writes a text file beside each image (a description, the text in the image, and Mermaid for a diagram), and the projection indexes that file like any text file ([ADR-068](ADR-068-knowledge-retrieval-jev-layers.md) decisions 5 and 6; the CTO, 2026-11-20).
 7. **Document status.** Each document is one of four:
    - `active`;
    - `deleted`, a tombstone with `deleted_at`;

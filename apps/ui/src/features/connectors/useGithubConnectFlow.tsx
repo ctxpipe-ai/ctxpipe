@@ -18,15 +18,12 @@ import {
   GITHUB_SETUP_RESULT_KEY,
   GITHUB_SETUP_RESULT_MESSAGE,
   type GithubSetupPopupResult,
-  githubLinkErrorMessage,
-  githubLinkPopupUrl,
   handleGithubSetupPopupResult,
   openCenteredPopup,
   setGithubSetupOrgHint,
   useWatchPopupClose,
   withGithubPopupState,
 } from "@/lib/popup"
-import { useGithubSignInEnabled } from "@/lib/useGetAuthConfig"
 import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
 
 type UseGithubConnectFlowOptions = {
@@ -63,12 +60,6 @@ export function useGithubConnectFlow({
     enabled: Boolean(orgSlug),
   })
 
-  // The backend attaches an installation through the deployment's App only
-  // for a user whose linked GitHub account can see it. With GitHub sign-in,
-  // the popup links the account first, then installs, in one flow. Wait for
-  // the config: without it, a click would skip the link step.
-  const githubSignIn = useGithubSignInEnabled()
-
   const hasHostedApp = bootstrapPending
     ? null
     : Boolean(bootstrap?.hostedDefaultAppInstallUrl)
@@ -86,12 +77,7 @@ export function useGithubConnectFlow({
   }, [])
 
   const handleInstallSettled = useCallback(
-    (result: GithubSetupPopupResult) => {
-      if (result.status === "link_failed") {
-        onRegistrationFailed?.(githubLinkErrorMessage(result.linkError))
-        return
-      }
-      const { status } = result
+    ({ status }: GithubSetupPopupResult) => {
       if (status === "redirected") return
       if (status === "registered") {
         HyperDX.addAction("connector_connect", { connector: "github" })
@@ -120,16 +106,11 @@ export function useGithubConnectFlow({
       setInstallStarting(true)
       const popupFlowNonce = beginGithubPopupFlow()
       const installUrl = withGithubPopupState(url, popupFlowNonce)
-      const popup = openCenteredPopup(
-        githubSignIn ? githubLinkPopupUrl(installUrl) : installUrl,
-        {
-          name: GITHUB_POPUP_NAME,
-          width: 1120,
-          height: 780,
-          // Without a popup, /.github/setup links the account after the install.
-          fallbackUrl: installUrl,
-        },
-      )
+      const popup = openCenteredPopup(installUrl, {
+        name: GITHUB_POPUP_NAME,
+        width: 1120,
+        height: 780,
+      })
       if (!popup) {
         clearGithubPopupFlow()
         setInstallStarting(false)
@@ -155,12 +136,12 @@ export function useGithubConnectFlow({
         },
       )
     },
-    [orgSlug, watchPopupClose, queryClient, handleInstallSettled, githubSignIn],
+    [orgSlug, watchPopupClose, queryClient, handleInstallSettled],
   )
 
   const start = useCallback(
     (intent: "connect" | "manage_scope") => {
-      if (!orgSlug.trim() || githubSignIn === undefined) return
+      if (!orgSlug.trim()) return
       if (intent === "manage_scope" && installation?.appSlug?.trim()) {
         openManagedInstallPopup(
           `https://github.com/apps/${encodeURIComponent(
@@ -210,7 +191,6 @@ export function useGithubConnectFlow({
       onAlreadyInstalled,
       delegateSelfHostedWizard,
       openManagedInstallPopup,
-      githubSignIn,
     ],
   )
 
@@ -218,11 +198,7 @@ export function useGithubConnectFlow({
 
   return {
     start,
-    isPending:
-      installationPending ||
-      bootstrapPending ||
-      installStarting ||
-      githubSignIn === undefined,
+    isPending: installationPending || bootstrapPending || installStarting,
     isSyncing,
     selfHostedWizard: {
       isOpen: selfHostedWizardOpen,

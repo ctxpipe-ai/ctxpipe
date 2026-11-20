@@ -6,6 +6,8 @@ type ApiErrorBody = {
   message?: string
   code?: string
   why?: string
+  /** With `why: github_authorization_required`: GitHub's authorize page. */
+  authorizeUrl?: string
   worktreeVersion?: string
 }
 

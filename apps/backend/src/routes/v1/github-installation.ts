@@ -3,7 +3,8 @@ import type { Context } from "hono"
 import { RequestError } from "octokit"
 
 import type { AppEnv } from "../../app/env.js"
-import { rebindUnboundWorkspaces } from "../../domain/workspaces/workspace-lifecycle.js"
+import { createGithubInstallationProofUrl } from "../../auth/github-installation-proof.js"
+import { attachGithubInstallation } from "../../domain/github-installation-attach.js"
 import type { GitHubInstallationShape } from "../../models/connection-rows.js"
 import {
   githubConnectionToShape,
@@ -24,11 +25,9 @@ import {
   listReposForInstallation,
   MULTIPLE_GITHUB_CONNECTIONS_MESSAGE,
   refreshGithubConnectionAccountSlug,
-  registerInstallationOnConnection,
   resolveGithubInstallationForOrgDetailed,
   searchReposForInstallation,
   updateInstallationOptions,
-  upsertInstallation,
   userCanAccessInstallation,
 } from "../../models/github-installation.js"
 import {
@@ -49,6 +48,8 @@ const ErrorResponseSchema = z
     statusCode: z.number().optional(),
     message: z.string().optional(),
     why: z.string().optional(),
+    /** With `why: github_authorization_required`: where the user authorizes the GitHub App. */
+    authorizeUrl: z.string().url().optional(),
     fix: z.string().optional(),
     link: z.string().url().optional(),
     data: z
@@ -300,7 +301,7 @@ const registerInstallationRoute = createRoute({
     403: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description:
-        "Not an org admin or owner; GitHub account not linked (`why: github_not_linked`); or the linked GitHub account cannot access the installation (`why: github_installation_not_accessible`)",
+        "Not an org admin or owner; the connection's own App does not own the installation (`why: github_installation_not_accessible`); the user must authorize the GitHub App once at `authorizeUrl` to prove access (`why: github_authorization_required`); or the deployment has no GitHub App client to ask (`why: github_authorization_unavailable`)",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -860,77 +861,73 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
           )
         }
       } else {
-        const githubNotLinked = {
-          error: "Connect your GitHub account to link this installation",
-          message: "Connect your GitHub account to link this installation",
-          why: "github_not_linked",
-        }
+        // A linked GitHub account that sees the installation is proof enough.
+        // Else the user authorizes the App once (CTX-1429): the callback
+        // checks the installation with a token that nothing stores.
         const user = c.get("user") as { id: string }
         const githubAccessToken = await getGithubUserAccessToken(user.id)
-        if (!githubAccessToken) return c.json(githubNotLinked, 403)
-        let canAccess: boolean
-        try {
-          canAccess = await userCanAccessInstallation(
-            githubAccessToken,
-            body.installationId,
-          )
-        } catch (e) {
-          // A revoked token, or one GitHub will not list installations for.
-          if (
-            e instanceof RequestError &&
-            (e.status === 401 || e.status === 403)
-          ) {
-            return c.json(githubNotLinked, 403)
+        let canAccess = false
+        if (githubAccessToken) {
+          try {
+            canAccess = await userCanAccessInstallation(
+              githubAccessToken,
+              body.installationId,
+            )
+          } catch (e) {
+            // A revoked token, or one GitHub will not list installations for.
+            if (
+              !(
+                e instanceof RequestError &&
+                (e.status === 401 || e.status === 403)
+              )
+            )
+              throw e
           }
-          throw e
         }
         if (!canAccess) {
+          const authorizeUrl = await createGithubInstallationProofUrl(
+            c.var.env,
+            {
+              orgId,
+              orgSlug: c.get("orgSlug") ?? "",
+              userId: user.id,
+              installationId: body.installationId,
+              connectionId: body.connectionId,
+            },
+          )
+          if (!authorizeUrl) {
+            return c.json(
+              {
+                error:
+                  "This deployment cannot confirm GitHub access. Use your organization's own GitHub App",
+                message:
+                  "This deployment cannot confirm GitHub access. Use your organization's own GitHub App",
+                why: "github_authorization_unavailable",
+              },
+              403,
+            )
+          }
           return c.json(
             {
-              error:
-                "Your GitHub account cannot access this GitHub App installation",
-              message:
-                "Your GitHub account cannot access this GitHub App installation",
-              why: "github_installation_not_accessible",
+              error: "Authorize the GitHub App to confirm your access",
+              message: "Authorize the GitHub App to confirm your access",
+              why: "github_authorization_required",
+              authorizeUrl,
             },
             403,
           )
         }
       }
 
-      let installation: GitHubInstallationShape
-
-      if (body.connectionId) {
-        const linked = await registerInstallationOnConnection({
-          orgId,
-          connectionId: body.connectionId,
-          installationId: body.installationId,
-          env: c.var.env,
-        })
-        if (!linked) {
-          return c.json({ error: "Unknown GitHub connection" }, 404)
-        }
-        installation = linked
-      } else {
-        installation = await upsertInstallation(
-          orgId,
-          body.installationId,
-          c.var.env,
-        )
-        installation =
-          (await refreshGithubConnectionAccountSlug(
-            orgId,
-            installation.id,
-            c.var.env,
-          )) ?? installation
-      }
-      await rebindUnboundWorkspaces({
+      const installation = await attachGithubInstallation({
         orgId,
-        connectionId: installation.id,
+        installationId: body.installationId,
+        connectionId: body.connectionId,
         env: c.var.env,
-        log: c.get("log"),
       })
-
+      if (!installation) {
+        return c.json({ error: "Unknown GitHub connection" }, 404)
+      }
       return c.json(await githubInstallationResponsePayload(installation), 200)
     } catch (e) {
       if (e instanceof Error && e.name === "EvlogError") {
