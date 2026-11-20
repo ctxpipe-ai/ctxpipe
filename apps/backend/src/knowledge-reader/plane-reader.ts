@@ -1,8 +1,5 @@
-import { requireCurrentOrgId } from "../auth/context.js"
 import { parseEnv } from "../config/env.js"
-import { fetchCommitBlob } from "../domain/codeIngestion/codesearchClient.js"
 import { connectorMirrorRoot } from "../domain/codeIngestion/connectorMirrorPaths.js"
-import { publishedWorkspaceCheckout } from "../domain/workspaces/checkout-read.js"
 import type {
   ExpandedEdge,
   ExpandedNode,
@@ -34,10 +31,7 @@ import {
 import { truncateText } from "../mcp/framework/budget.js"
 import { checkPath } from "../mcp/framework/refs.js"
 import { McpToolError } from "../mcp/framework/tool-errors.js"
-import {
-  embedMultimodal,
-  multimodalEmbeddingConfig,
-} from "../retrieval/embeddings/multimodalEmbeddings.js"
+import { embedMultimodal } from "../retrieval/embeddings/multimodalEmbeddings.js"
 import { JevError } from "../retrieval/jev/client.js"
 import {
   disagreementCalls,
@@ -53,7 +47,6 @@ import type {
 import {
   beforeDeadline,
   evidenceText,
-  type ImageBytes,
   isBudgetSpent,
   jevMeta,
   judge,
@@ -96,11 +89,10 @@ export function planeKnowledgeReader(input: {
     if (!vector) throw new Error("The embedding endpoint returned no vector")
     return vector
   }
-  const imageBytes = gitImageBytes(input.shas)
   return {
     stack: "plane",
-    search: (request) => search(request, input.shas, embed, meter, imageBytes),
-    related: (request) => related(request, embed, meter, imageBytes),
+    search: (request) => search(request, input.shas, embed, meter),
+    related: (request) => related(request, embed, meter),
     graph: async ({ orgId, workspaceId }) => {
       // The graph view shows at most 5,000 documents and relations.
       const graph = await knowledgeStore().readGraph(
@@ -148,40 +140,6 @@ export function planeKnowledgeReader(input: {
 }
 
 /**
- * The image reader of one request (ADR-068 decision 6). It reads the blob of
- * the image path at the served SHA of the plane from the Git object store of
- * codesearch: only a regular file, never a symlink or a working tree. It
- * reads only the repository of the Workspace of the document, so a row
- * cannot point it at the content of another Workspace or org. It gives null
- * before the first index of the Workspace.
- */
-function gitImageBytes(shas: ReadonlyMap<string, string>): ImageBytes {
-  const checkouts = new Map<
-    string,
-    ReturnType<typeof publishedWorkspaceCheckout>
-  >()
-  return async ({ workspaceId }, path) => {
-    const sha = shas.get(workspaceId)
-    if (!sha) return null
-    let checkout = checkouts.get(workspaceId)
-    if (!checkout) {
-      checkout = publishedWorkspaceCheckout(workspaceId)
-      checkouts.set(workspaceId, checkout)
-    }
-    const repository = await checkout
-    if (!repository) return null
-    return fetchCommitBlob({
-      repositoryId: repository.repositoryId,
-      orgId: requireCurrentOrgId(),
-      sha,
-      path,
-      ...(repository.rootPath ? { root: repository.rootPath } : {}),
-      maxBytes: multimodalEmbeddingConfig.maxImageBytes,
-    })
-  }
-}
-
-/**
  * The `source` of a result, as the old stack gives it: the connector mirror
  * root of the path, else `authored`. The `source_type` of the plane is the
  * authority kind of the source (CTX-1410), which only Jev reads.
@@ -218,7 +176,6 @@ async function search(
   shas: ReadonlyMap<string, string>,
   embed: (text: string) => Promise<number[]>,
   meter: ModelMeter,
-  imageBytes: ImageBytes,
 ): Promise<SearchResult> {
   const query = request.query.trim()
   if (!query || request.workspaceIds.length === 0) return { hits: [] }
@@ -261,15 +218,13 @@ async function search(
   // A Jev failure or the end of the time budget keeps the search order.
   let unjudged: SearchResult["partialReason"]
   const [judged, relations] = await Promise.all([
-    judge(inputs, query, "search", deadline, meter, imageBytes).catch(
-      (error: unknown) => {
-        // A Jev timeout is the end of the budget: Jev gets the rest of it.
-        if (isBudgetSpent(error)) unjudged = "total_timeout"
-        else if (error instanceof JevError) unjudged = "judge_unavailable"
-        else throw error
-        return null
-      },
-    ),
+    judge(inputs, query, "search", deadline, meter).catch((error: unknown) => {
+      // A Jev timeout is the end of the budget: Jev gets the rest of it.
+      if (isBudgetSpent(error)) unjudged = "total_timeout"
+      else if (error instanceof JevError) unjudged = "judge_unavailable"
+      else throw error
+      return null
+    }),
     // The claims of the hits. With no time left, the hits have none.
     beforeDeadline(deadline, () =>
       store.readFrontier(
@@ -362,7 +317,6 @@ async function related(
   { org, workspace, input, now }: RelatedRequest,
   embed: (text: string) => Promise<number[]>,
   meter: ModelMeter,
-  imageBytes: ImageBytes,
 ): Promise<Ranking> {
   const deadline = performance.now() + ORCHESTRATOR_DEFAULTS.timeBudgetMs
   const store = knowledgeStore()
@@ -444,7 +398,6 @@ async function related(
           : {}),
       },
       meter,
-      imageBytes,
     })
     const top = keptNodes(traversal.nodes, input).slice(
       0,
