@@ -100,7 +100,6 @@ async function zdrProviders(base: string): Promise<ZdrProvidersOf> {
 
 const answerSchema = z.object({
   provider: z.string().optional(),
-  model: z.string().optional(),
   error: z.object({ message: z.string().optional() }).optional(),
   data: z.array(z.unknown()).optional(),
 })
@@ -121,12 +120,8 @@ type Evidence<T> = {
   result: T | undefined
   status: number | null
   provider: string | null
-  /** The `model` field of the answer. */
-  model: string | null
   /** The count of vectors in the answer (`data`). */
   vectors: number | null
-  /** The time of the last model call, in milliseconds. */
-  latencyMs: number | null
   error: string | null
 }
 
@@ -146,9 +141,7 @@ async function observe<T>(
       result: undefined,
       status: null,
       provider: null,
-      model: null,
       vectors: null,
-      latencyMs: null,
       error: stopped,
     }
   const before = calls.records.length
@@ -178,9 +171,7 @@ async function observe<T>(
     result,
     status: last?.status ?? null,
     provider: answer.provider ?? null,
-    model: answer.model ?? null,
     vectors: answer.data?.length ?? null,
-    latencyMs: last?.latencyMs ?? null,
     error: errors.length > 0 ? errors.join(" Provider: ") : null,
   }
 }
@@ -353,51 +344,6 @@ async function probeChecks(
 }
 
 /**
- * Write the report of a probe command: `NAME.json` and `NAME.md` in `out`,
- * and the Markdown to stdout. The Markdown has `title`, a table, and the
- * spend.
- */
-async function writeReport(input: {
-  out: string
-  name: string
-  title: string
-  calls: ModelCalls
-  capUsd: number
-  items: Record<string, unknown>
-  header: string[]
-  rows: (string | number | boolean | null)[][]
-}): Promise<void> {
-  const { calls } = input
-  const at = new Date().toISOString()
-  const result = {
-    at,
-    capUsd: input.capUsd,
-    spentUsd: calls.spentUsd,
-    stopped: calls.stopped,
-    ...input.items,
-  }
-  const row = (values: (string | number | boolean | null)[]) =>
-    `| ${values.map((value) => String(value ?? "—").replace(/\|/g, "\\|")).join(" | ")} |`
-  const markdown = [
-    `# ${input.title}, ${at}`,
-    "",
-    row(input.header),
-    row(input.header.map(() => "---")),
-    ...input.rows.map(row),
-    "",
-    `Spent $${calls.spentUsd.toFixed(4)} of the cap $${input.capUsd}.${calls.stopped ? " The spend cap stopped a call." : ""}`,
-    "",
-  ].join("\n")
-  await mkdir(input.out, { recursive: true })
-  await writeFile(
-    join(input.out, `${input.name}.json`),
-    `${JSON.stringify(result, null, 2)}\n`,
-  )
-  await writeFile(join(input.out, `${input.name}.md`), markdown)
-  process.stdout.write(markdown)
-}
-
-/**
  * The `probe` command. It sends the calls through `calls`, and it writes
  * `probe.json` and `probe.md` to `out`. Returns the exit code: 0 all checks
  * pass, 3 the spend cap stopped a call, 4 a check failed.
@@ -433,122 +379,50 @@ export async function probe(input: {
   } finally {
     restore()
   }
-  await writeReport({
-    ...input,
-    name: "probe",
-    title: "Provider probe",
-    items: { checks },
-    header: ["Check", "Result", "Status", "Provider", "Error", "Pass needs"],
-    rows: checks.map((check) => [
-      check.name,
-      check.pass ? "pass" : "FAIL",
-      check.status,
-      check.provider,
-      check.error,
-      check.expects,
-    ]),
-  })
+  const at = new Date().toISOString()
+  const row = (values: (string | number | boolean | null)[]) =>
+    `| ${values.map((value) => String(value ?? "—").replace(/\|/g, "\\|")).join(" | ")} |`
+  const header = [
+    "Check",
+    "Result",
+    "Status",
+    "Provider",
+    "Error",
+    "Pass needs",
+  ]
+  const markdown = [
+    `# Provider probe, ${at}`,
+    "",
+    row(header),
+    row(header.map(() => "---")),
+    ...checks.map((check) =>
+      row([
+        check.name,
+        check.pass ? "pass" : "FAIL",
+        check.status,
+        check.provider,
+        check.error,
+        check.expects,
+      ]),
+    ),
+    "",
+    `Spent $${calls.spentUsd.toFixed(4)} of the cap $${input.capUsd}.${calls.stopped ? " The spend cap stopped a call." : ""}`,
+    "",
+  ].join("\n")
+  const result = {
+    at,
+    capUsd: input.capUsd,
+    spentUsd: calls.spentUsd,
+    stopped: calls.stopped,
+    checks,
+  }
+  await mkdir(input.out, { recursive: true })
+  await writeFile(
+    join(input.out, "probe.json"),
+    `${JSON.stringify(result, null, 2)}\n`,
+  )
+  await writeFile(join(input.out, "probe.md"), markdown)
+  process.stdout.write(markdown)
   if (calls.stopped) return 3
   return checks.every((check) => check.pass) ? 0 : 4
-}
-
-/**
- * The `probe --controls` command: does each text embedding candidate take a
- * batch on its ZDR endpoint ([CTX-1431](https://linear.app/ctxpipe/issue/CTX-1431))?
- * Each control sends 16 or 64 plain strings with `zdr: true` to one model,
- * pinned to one endpoint with no fallback. These are experiments, so they
- * send hand-written bodies to `{base}/embeddings`, not the request of the
- * client. The inputs are fixed public texts only. The controls have no pass
- * or fail. On 2026-11-20 every control got HTTP 200 and one vector for each
- * input. Run it again when the eval of ADR-069 considers another text model
- * or endpoint. It writes `controls.json` and `controls.md` to `out`. Returns the
- * exit code: 0 done, 3 the spend cap stopped a call.
- */
-export async function probeControls(input: {
-  out: string
-  calls: ModelCalls
-  capUsd: number
-  /** `MODEL_PROVIDER_URL`, the base of the recorder. */
-  base: string
-}): Promise<number> {
-  const { calls } = input
-  const texts = (count: number) =>
-    Array.from({ length: count }, (_, index) => checkerboardSentence(index))
-  const requests: [name: string, question: string, body: object][] = (
-    [
-      ["qwen/qwen3-embedding-8b", "deepinfra/us"],
-      ["qwen/qwen3-embedding-8b", "nebius/bf16"],
-      ["qwen/qwen3-embedding-8b", "siliconflow/fp8"],
-      ["perplexity/pplx-embed-v1-4b", "perplexity/int8"],
-      ["openai/text-embedding-3-small", "azure"],
-    ] as const
-  ).flatMap(([textModel, tag]) =>
-    [16, 64].map((count): [string, string, object] => [
-      `${textModel.split("/")[1]}-${count}-strings-zdr-${tag.replace("/", "-")}`,
-      `Does ${textModel} on ${tag} take a batch? ${count} plain strings, pin ${tag}, zdr true.`,
-      {
-        model: textModel,
-        input: texts(count),
-        encoding_format: "float",
-        provider: {
-          data_collection: "deny",
-          order: [tag],
-          allow_fallbacks: false,
-          zdr: true,
-        },
-      },
-    ]),
-  )
-  const url = `${input.base.replace(/\/+$/, "")}/embeddings`
-  const restore = calls.install()
-  const controls: (Evidence<Response> & { name: string; question: string })[] =
-    []
-  try {
-    for (const [name, question, body] of requests)
-      controls.push({
-        name,
-        question,
-        ...(await observe(calls, () =>
-          fetch(url, {
-            method: "POST",
-            headers: {
-              authorization: `Bearer ${process.env.MODEL_PROVIDER_API_KEY}`,
-              "content-type": "application/json",
-            },
-            body: JSON.stringify(body),
-          }),
-        )),
-      })
-  } finally {
-    restore()
-  }
-  await writeReport({
-    ...input,
-    name: "controls",
-    title: "Provider probe controls",
-    items: {
-      controls: controls.map(({ result: _response, ...control }) => control),
-    },
-    header: [
-      "Control",
-      "Question",
-      "Status",
-      "Provider",
-      "Model",
-      "Error",
-      "Vectors",
-      "Latency (ms)",
-    ],
-    rows: controls.map((control) => [
-      control.name,
-      control.question,
-      control.status,
-      control.provider,
-      control.model,
-      control.error,
-      control.vectors,
-      control.latencyMs,
-    ]),
-  })
-  return calls.stopped ? 3 : 0
 }

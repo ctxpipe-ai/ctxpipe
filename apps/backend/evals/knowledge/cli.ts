@@ -12,7 +12,7 @@
  *     --models A,B,C --out FILE [--cap-usd 5]
  *   bun evals/knowledge/cli.ts corpus snapshot|issues|freeze --plan FILE \
  *     --out FILE
- *   bun evals/knowledge/cli.ts probe --out DIR [--cap-usd 0.05] [--controls]
+ *   bun evals/knowledge/cli.ts probe --out DIR [--cap-usd 0.05]
  *   bun evals/knowledge/cli.ts vision --out DIR [--models A,B,C] [--cap-usd 5]
  *
  * See README.md. Exit code 0: done. 2: bad setup. 3: the spend cap stopped
@@ -40,7 +40,7 @@ import {
 import { type Dataset, readDataset } from "./dataset.js"
 import { ModelCalls, type RecordedCall } from "./model-calls.js"
 import { labelWithPanel } from "./panel.js"
-import { probe, probeControls } from "./probe.js"
+import { probe } from "./probe.js"
 import {
   buildReport,
   type KeptRun,
@@ -232,7 +232,6 @@ async function main(argv: string[]): Promise<number> {
       draft: { type: "string" },
       repo: { type: "string" },
       models: { type: "string" },
-      controls: { type: "boolean", default: false },
     },
   })
   const capUsd = Number(values["cap-usd"] ?? (command === "probe" ? 0.05 : 5))
@@ -246,9 +245,7 @@ async function main(argv: string[]): Promise<number> {
     if (!process.env.MODEL_PROVIDER_API_KEY)
       throw new SetupError("probe needs MODEL_PROVIDER_API_KEY.")
     const calls = modelCalls(capUsd)
-    return values.controls
-      ? probeControls({ out, calls, capUsd, base: modelBase() })
-      : probe({ out, calls, capUsd, base: modelBase() })
+    return probe({ out, calls, capUsd, base: modelBase() })
   }
 
   if (command === "vision") {

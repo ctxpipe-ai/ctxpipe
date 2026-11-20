@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
 import { ModelCalls } from "../../evals/knowledge/model-calls.js"
-import { probe, probeControls } from "../../evals/knowledge/probe.js"
+import { probe } from "../../evals/knowledge/probe.js"
 import { useMswServer } from "../../test/msw.js"
 
 /*
@@ -421,123 +421,6 @@ describe("the provider probe", () => {
     ])
     expect(result.checks[2]?.error).toBe(
       "The spend cap stopped the probe before this check.",
-    )
-  })
-})
-
-describe("the provider probe controls", () => {
-  const controlSchema = z.object({
-    model: z.string(),
-    input: z.array(z.unknown()),
-    provider: z
-      .object({
-        zdr: z.boolean(),
-        order: z.array(z.string()).optional(),
-      })
-      .passthrough(),
-  })
-
-  it("sends each control once and records its status, provider, error, vector count and latency", async () => {
-    const bodies: z.infer<typeof controlSchema>[] = []
-    // A gateway that refuses each request pinned to `siliconflow/fp8`.
-    server.use(
-      http.post(EMBEDDINGS, async ({ request }) => {
-        const body = controlSchema.parse(await request.json())
-        bodies.push(body)
-        if (body.provider.order?.[0] === "siliconflow/fp8")
-          return HttpResponse.json(
-            {
-              error: {
-                message:
-                  "No endpoints found matching your data policy (Zero data retention).",
-              },
-            },
-            { status: 404 },
-          )
-        return HttpResponse.json({
-          data: body.input.map((_, index) => ({ embedding: [0.1], index })),
-          provider: "Other",
-          usage: { cost: 0.00001 },
-        })
-      }),
-    )
-
-    const capUsd = 0.05
-    expect(
-      await probeControls({
-        out,
-        calls: new ModelCalls(BASE, capUsd),
-        capUsd,
-        base: BASE,
-      }),
-    ).toBe(0)
-
-    const result = z
-      .object({
-        controls: z.array(
-          z.object({
-            name: z.string(),
-            status: z.number().nullable(),
-            provider: z.string().nullable(),
-            error: z.string().nullable(),
-            vectors: z.number().nullable(),
-            latencyMs: z.number().nullable(),
-          }),
-        ),
-      })
-      .parse(JSON.parse(await readFile(join(out, "controls.json"), "utf8")))
-    const refused =
-      "No endpoints found matching your data policy (Zero data retention)."
-    expect(
-      result.controls.map(({ name, status, error, vectors }) => [
-        name,
-        status,
-        error,
-        vectors,
-      ]),
-    ).toEqual([
-      ["qwen3-embedding-8b-16-strings-zdr-deepinfra-us", 200, null, 16],
-      ["qwen3-embedding-8b-64-strings-zdr-deepinfra-us", 200, null, 64],
-      ["qwen3-embedding-8b-16-strings-zdr-nebius-bf16", 200, null, 16],
-      ["qwen3-embedding-8b-64-strings-zdr-nebius-bf16", 200, null, 64],
-      ["qwen3-embedding-8b-16-strings-zdr-siliconflow-fp8", 404, refused, null],
-      ["qwen3-embedding-8b-64-strings-zdr-siliconflow-fp8", 404, refused, null],
-      ["pplx-embed-v1-4b-16-strings-zdr-perplexity-int8", 200, null, 16],
-      ["pplx-embed-v1-4b-64-strings-zdr-perplexity-int8", 200, null, 64],
-      ["text-embedding-3-small-16-strings-zdr-azure", 200, null, 16],
-      ["text-embedding-3-small-64-strings-zdr-azure", 200, null, 64],
-    ])
-    expect(bodies).toHaveLength(10)
-    // Each answered control records the time of its call.
-    expect(
-      result.controls.every(
-        (control) => control.latencyMs !== null && control.latencyMs >= 0,
-      ),
-    ).toBe(true)
-    // A control pins one ZDR endpoint with no fallback.
-    expect(bodies[1]).toMatchObject({
-      model: "qwen/qwen3-embedding-8b",
-      provider: {
-        data_collection: "deny",
-        order: ["deepinfra/us"],
-        allow_fallbacks: false,
-        zdr: true,
-      },
-    })
-    expect(bodies[1]?.input).toHaveLength(64)
-    expect(bodies[1]?.input.at(-1)).toBe(
-      "Square 64 of the checkerboard is blue.",
-    )
-    // Only the fixed texts go out.
-    expect(
-      bodies
-        .flatMap((body) => body.input)
-        .every((text) =>
-          /^Square \d+ of the checkerboard is (red|blue)\.$/.test(String(text)),
-        ),
-    ).toBe(true)
-    expect(await readFile(join(out, "controls.md"), "utf8")).toContain(
-      "| qwen3-embedding-8b-64-strings-zdr-nebius-bf16 | Does qwen/qwen3-embedding-8b on nebius/bf16 take a batch?",
     )
   })
 })
