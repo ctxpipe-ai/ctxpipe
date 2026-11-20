@@ -15,6 +15,7 @@ import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
 import { withOrgDbContext } from "../db/client.js"
 import { workspaceKnowledgeUnits, workspaces } from "../db/schema/workspaces.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
+import { knowledgeProjectionVersion } from "../knowledge-plane/change-set.js"
 import {
   createKnowledgeStore,
   type DocumentRows,
@@ -160,6 +161,28 @@ const models = setupServer(
   }),
 )
 
+/** The root of the example corpus. */
+const root = dataset.corpora[0]?.contextRepo.root ?? ""
+let seededWorkspace: string
+
+/** Record a complete plane run of the frozen SHA at the root `of`. */
+async function projectPlane(of: string) {
+  const key = { orgId: seed.orgId, workspaceId: seededWorkspace }
+  await beginKnowledgeRun({ ...key, tip: frozenSha })
+  await completeKnowledgeRun({
+    ...key,
+    tip: frozenSha,
+    projectionVersion: knowledgeProjectionVersion({
+      embeddingModel: textEmbeddingConfig.model,
+      dimensions: textEmbeddingConfig.dimensions,
+      root: of,
+      converter: "fixture",
+      visionModel: "fixture",
+    }),
+    failedCount: 0,
+  })
+}
+
 let seed: SeededOrg
 let clickHouse: Awaited<ReturnType<typeof startClickHouse>>
 let folder: string
@@ -249,7 +272,7 @@ describe("the knowledge eval harness", () => {
     // The backend reads as the reader user, with SELECT only.
     vi.stubEnv("CLICKHOUSE_URL", userUrl(url, "ctxpipe_reader", "reader-test"))
     seed = await seedOrg()
-    const { workspaceId } = await seedRelatedWorkspace({
+    const { workspaceId, revision } = await seedRelatedWorkspace({
       seed,
       slug: "memory",
       sha: frozenSha,
@@ -264,6 +287,18 @@ describe("the knowledge eval harness", () => {
       })),
       chunks: true,
     })
+    seededWorkspace = workspaceId
+    // The gold paths are relative to the root of the corpus, and the old
+    // stack serves that root.
+    await withOrgDbContext(seed.orgId, (db) =>
+      db
+        .update(workspaces)
+        .set({
+          rootPath: root,
+          activeRevision: { ...revision, rootPath: root },
+        })
+        .where(eq(workspaces.id, workspaceId)),
+    )
     // The search of the old stack reads the claims of a unit for `validAt`.
     await withOrgDbContext(seed.orgId, async (db) => {
       for (const unit of units)
@@ -288,14 +323,7 @@ describe("the knowledge eval harness", () => {
     } finally {
       await writer.close()
     }
-    await beginKnowledgeRun({ orgId: seed.orgId, workspaceId, tip: frozenSha })
-    await completeKnowledgeRun({
-      orgId: seed.orgId,
-      workspaceId,
-      tip: frozenSha,
-      projectionVersion: "test",
-      failedCount: 0,
-    })
+    await projectPlane(root)
     targets = {
       "ctxpipe-memory-v0": {
         orgId: seed.orgId,
@@ -444,7 +472,15 @@ describe("the knowledge eval harness", () => {
       // answer, at the upper estimate of $0.001.
       costUsd: 0.064,
     })
+    // The old stack sends no provider block, so the harness added the ZDR
+    // block to each of its calls, and the report says so.
+    expect(live.run.zdrAdded).toEqual({
+      "legacy embedding openai/text-embedding-3-large": 17,
+    })
     const markdown = await readFile(join(folder, "live", "report.md"), "utf8")
+    expect(markdown).toContain(
+      'harness added the ZDR block `{"data_collection":"deny","zdr":true}` (ADR-068 decision 7): legacy embedding openai/text-embedding-3-large (17).',
+    )
     const firstTable = markdown.slice(markdown.indexOf("\n## "))
     expect(firstTable).toMatch(
       /^\n## Comparison with the baseline: current stack \(Postgres \+ FalkorDB\)/,
@@ -470,10 +506,15 @@ describe("the knowledge eval harness", () => {
       settings: { keepAt: 0.95 },
       capUsd: 0,
       kept: live,
-      replay: recorded.calls,
+      replay: {
+        calls: recorded.calls,
+        zdrAdded: recorded.manifest.zdrAdded,
+      },
     })
     expect(requests).toEqual(before)
     expect(rescored.run.mode).toBe("replay")
+    // The replayed calls went out with the ZDR block in the live run.
+    expect(rescored.run.zdrAdded).toEqual(live.run.zdrAdded)
     expect(rescored.incomplete).toEqual([])
     // At 0.95, get_related on the plane keeps no document (Jev gave 0.9),
     // so each question with seeds gets worse; a no-answer stays correct.
@@ -507,7 +548,10 @@ describe("the knowledge eval harness", () => {
       settings: { replacesAt: 0.95 },
       capUsd: 0,
       kept: live,
-      replay: recorded.calls,
+      replay: {
+        calls: recorded.calls,
+        zdrAdded: recorded.manifest.zdrAdded,
+      },
     })
     expect(requests).toEqual(before)
     expect(rescored.incomplete).toEqual([])
@@ -558,5 +602,36 @@ describe("the knowledge eval harness", () => {
       }),
     ).rejects.toThrow(/must serve the frozen SHA f{40}/)
     expect(requests).toEqual(before)
+  })
+
+  it("refuses a Workspace whose root is not the root of the corpus", async () => {
+    const before = { ...requests }
+    await expect(
+      run("other-root", {
+        dataset: {
+          ...dataset,
+          corpora: dataset.corpora.map((corpus) => ({
+            ...corpus,
+            contextRepo: { ...corpus.contextRepo, root: "" },
+          })),
+        },
+      }),
+    ).rejects.toThrow(
+      'Workspace memory must serve the root "" of ctxpipe-memory on both stacks. The Workspace has ".ai/memory", the old stack serves ".ai/memory", and the plane serves ".ai/memory".',
+    )
+    expect(requests).toEqual(before)
+  })
+
+  it("refuses a plane that serves another root of the frozen SHA", async () => {
+    // A failed projection after a change of the root keeps the earlier
+    // projection of the same SHA.
+    await projectPlane("")
+    try {
+      await expect(run("plane-root")).rejects.toThrow(
+        'the old stack serves ".ai/memory", and the plane serves "".',
+      )
+    } finally {
+      await projectPlane(root)
+    }
   })
 })

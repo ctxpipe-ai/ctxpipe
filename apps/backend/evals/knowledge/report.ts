@@ -1,5 +1,6 @@
 import { z } from "zod"
 
+import { ZDR_PROVIDER } from "../../src/retrieval/services/modelProvider.js"
 import { CATEGORIES, type Dataset, type Question } from "./dataset.js"
 import {
   meanMetrics,
@@ -198,6 +199,16 @@ export function renderMarkdown(report: Report): string {
     "",
     `Status: ${report.status}. Dataset ${report.datasetVersion}. Mode: ${report.run.mode}. Query time: ${report.run.now}.`,
     `Settings: ${JSON.stringify(report.run.settings)}. Spend: ${usd(report.run.spentUsd)} of ${usd(report.run.capUsd)}.`,
+    ...(Object.keys(report.run.zdrAdded).length
+      ? [
+          "",
+          `Run notes: the request did not set the ZDR fields, so the harness added the ZDR block \`${JSON.stringify(ZDR_PROVIDER)}\` (ADR-068 decision 7): ${Object.entries(
+            report.run.zdrAdded,
+          )
+            .map(([call, count]) => `${call} (${count})`)
+            .join(", ")}.`,
+        ]
+      : []),
     ...(report.run.stopped
       ? [
           "",

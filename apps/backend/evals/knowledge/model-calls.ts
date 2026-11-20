@@ -3,6 +3,7 @@ import { createHash } from "node:crypto"
 import { z } from "zod"
 
 import { gatewayCost } from "../../src/observability/gatewayCost.js"
+import { ZDR_PROVIDER } from "../../src/retrieval/services/modelProvider.js"
 
 /*
  * The model calls of an eval run: Jev, the embedding endpoints of both
@@ -13,7 +14,12 @@ import { gatewayCost } from "../../src/observability/gatewayCost.js"
  * - keeps each Jev and embedding request and its raw answer, so that a later
  *   run can replay them with no new call (`rescore`);
  * - counts the calls and the cost of each arm and question;
- * - stops at the spend cap.
+ * - stops at the spend cap;
+ * - with `addZdr`, adds the ZDR provider block of ADR-068 decision 7 to a
+ *   request that has no provider block, so that each call of the run goes
+ *   only to a ZDR endpoint. A model with no ZDR endpoint then refuses the
+ *   call, and it does not fall back. The old stack sends no provider block,
+ *   so only its calls change. `zdrAdded` counts the changed calls.
  */
 
 type CallKind = "jev" | "embedding" | "chat" | "vision"
@@ -67,7 +73,35 @@ const RESERVED_COST_USD: Record<CallKind, number> = {
   vision: 0.05,
 }
 
+/**
+ * The reservation of an embedding call grows with its input: a batch of the
+ * hydrate holds up to 64 chunks. $0.5 for each million UTF-8 bytes is above
+ * the price of each embedding model of the stacks for each million tokens,
+ * and each token holds at least one byte.
+ */
+const EMBEDDING_USD_PER_BYTE = 0.5 / 1_000_000
+
+/** The worst-case cost of one call of `kind` with the request `body`. */
+function reservationOf(kind: CallKind, body: string): number {
+  if (kind !== "embedding") return RESERVED_COST_USD[kind]
+  const input = z
+    .object({ input: z.union([z.string(), z.array(z.string())]) })
+    .safeParse(parseOr(body, {})).data?.input
+  const texts = typeof input === "string" ? [input] : (input ?? [])
+  const bytes = texts.reduce(
+    (sum, text) => sum + Buffer.byteLength(text, "utf8"),
+    0,
+  )
+  return Math.max(RESERVED_COST_USD.embedding, bytes * EMBEDDING_USD_PER_BYTE)
+}
+
 const answerSchema = z.object({ usage: z.unknown() }).partial()
+
+/** The fields of a model request that the ZDR rule reads. */
+const requestBodySchema = z.looseObject({
+  model: z.string().optional(),
+  provider: z.record(z.string(), z.unknown()).nullish(),
+})
 
 /** The arm, the question and the counts that a call belongs to. */
 type Owner = { arm: string; question: string; counts: CallCounts }
@@ -118,6 +152,11 @@ export class ModelCalls {
   spentUsd = 0
   /** True after the spend cap stopped a call. Each later call stops too. */
   stopped = false
+  /**
+   * With `addZdr`: the calls that got the ZDR provider block, by the arm,
+   * the kind and the model of the call (`legacy embedding openai/…`).
+   */
+  readonly zdrAdded: Record<string, number> = {}
   /** The reserved cost of the calls that are in flight. */
   private reservedUsd = 0
   private readonly inFlight = new Set<Promise<Response>>()
@@ -135,12 +174,27 @@ export class ModelCalls {
     baseUrl: string,
     private readonly capUsd: number,
     replay?: readonly RecordedCall[],
+    private readonly options: {
+      addZdr?: boolean
+      /** False: count and cap the calls, but keep no record of them. */
+      keepRecords?: boolean
+    } = {},
   ) {
     this.origin = new URL(baseUrl).origin
     this.replay = replay ? new Map() : null
     for (const call of replay ?? []) {
       const key = this.replayKey(call.arm, call.question, call.key)
       this.replay?.set(key, [...(this.replay.get(key) ?? []), call])
+    }
+  }
+
+  /** The spend of the calls, for the run folder. */
+  summary() {
+    return {
+      capUsd: this.capUsd,
+      spentUsd: this.spentUsd,
+      stopped: this.stopped,
+      zdrAdded: { ...this.zdrAdded },
     }
   }
 
@@ -201,7 +255,7 @@ export class ModelCalls {
     // a call that would take the spent and reserved total over the cap is
     // not sent. The check and the reservation have no `await` between them,
     // so calls in parallel cannot pass the cap together.
-    const reserved = RESERVED_COST_USD[kind]
+    const reserved = reservationOf(kind, body)
     if (
       this.stopped ||
       this.spentUsd + this.reservedUsd + reserved > this.capUsd
@@ -210,11 +264,14 @@ export class ModelCalls {
       return unavailable("The spend cap of the eval run is spent.")
     }
     this.reservedUsd += reserved
+    const sent = this.options.addZdr
+      ? this.withZdr(request, body, kind, owner)
+      : { request, body }
     const started = performance.now()
     let response: Response
     let text: string
     try {
-      response = await next(request)
+      response = await next(sent.request)
       text = await response.text()
     } catch (error) {
       // The provider can charge a call that failed on the way back.
@@ -235,18 +292,19 @@ export class ModelCalls {
     // it out. The record keeps it as evidence (the probe reads it).
     if (kind === "jev" || kind === "embedding") owner.counts[kind] += 1
     if (kind === "jev") owner.counts.jevQuestions += questionsOf(body)
-    this.records.push({
-      arm: owner.arm,
-      question: owner.question,
-      kind,
-      key,
-      request: parseOr(body, body),
-      status: response.status,
-      response: text,
-      costUsd,
-      estimated: known === undefined,
-      latencyMs: Math.round(latencyMs),
-    })
+    if (this.options.keepRecords !== false)
+      this.records.push({
+        arm: owner.arm,
+        question: owner.question,
+        kind,
+        key,
+        request: parseOr(sent.body, sent.body),
+        status: response.status,
+        response: text,
+        costUsd,
+        estimated: known === undefined,
+        latencyMs: Math.round(latencyMs),
+      })
     // The text is decoded, so only the content type still applies.
     return new Response(text, {
       status: response.status,
@@ -255,6 +313,44 @@ export class ModelCalls {
           response.headers.get("content-type") ?? "application/json",
       },
     })
+  }
+
+  /**
+   * The request with the ZDR provider block, when its JSON body does not
+   * set both of its fields. The block goes over the fields of a provider
+   * block of the request. The replay key stays the key of the body of the
+   * reader, so a replay finds the call.
+   */
+  private withZdr(
+    request: Request,
+    body: string,
+    kind: CallKind,
+    owner: Owner,
+  ): { request: Request; body: string } {
+    const parsed = requestBodySchema.safeParse(parseOr(body, null)).data
+    if (!parsed) return { request, body }
+    const provider = parsed.provider ?? {}
+    if (
+      provider.zdr === ZDR_PROVIDER.zdr &&
+      provider.data_collection === ZDR_PROVIDER.data_collection
+    )
+      return { request, body }
+    const changed = JSON.stringify({
+      ...parsed,
+      provider: { ...provider, ...ZDR_PROVIDER },
+    })
+    const model = parsed.model ?? "unknown"
+    const name = `${owner.arm} ${kind} ${model}`
+    this.zdrAdded[name] = (this.zdrAdded[name] ?? 0) + 1
+    return {
+      request: new Request(request.url, {
+        method: request.method,
+        headers: request.headers,
+        body: changed,
+        signal: request.signal,
+      }),
+      body: changed,
+    }
   }
 
   /**
