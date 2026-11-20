@@ -106,7 +106,11 @@ RUN npm install -g pnpm@10.12.1
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/codesearch/package.json apps/codesearch/package.json
-RUN pnpm install --frozen-lockfile --prod --config.confirmModulesPurge=false
+# The pnpm store is a BuildKit cache mount: a lockfile change downloads only
+# the new packages. The mount is not in the image and not in a registry
+# cache, so a builder without it downloads each package again.
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --store-dir /pnpm/store --frozen-lockfile --prod --config.confirmModulesPurge=false
 
 # ── Stage 8: Production runtime ──────────────────────────────────────────────
 # Keep the indexer OS contract on Bookworm. Bun's newer slim image uses
@@ -233,7 +237,8 @@ WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* tsconfig.json ./
 COPY patches patches
 COPY apps/codesearch/package.json apps/codesearch/package.json
-RUN pnpm install --frozen-lockfile --config.confirmModulesPurge=false
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --store-dir /pnpm/store --frozen-lockfile --config.confirmModulesPurge=false
 COPY apps/codesearch ./apps/codesearch
 COPY scripts/ci/check-test-report.mjs ./scripts/ci/check-test-report.mjs
 # The trace and result record code (run-vitest-contracts.mjs --trace, --records).

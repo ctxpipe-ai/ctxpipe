@@ -7,7 +7,22 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
 COPY patches patches
 COPY apps/ui/package.json apps/ui/package.json
 COPY apps/backend/package.json apps/backend/package.json
-RUN pnpm install --frozen-lockfile
+# The pnpm store is a BuildKit cache mount: a lockfile change downloads only
+# the new packages. The mount is not in the image and not in a registry
+# cache, so a builder without it downloads each package again.
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --store-dir /pnpm/store --frozen-lockfile
+
+# The backend and shared files that the UI bundle imports as values
+# (scripts/checks/ui-bundled-imports.mjs). The builder copies only these
+# files, so a backend change outside them does not rebuild the bundle.
+FROM node:26.13.1-alpine AS ui-imports
+WORKDIR /app
+COPY apps/ui/src apps/ui/src
+COPY apps/backend/src apps/backend/src
+COPY shared shared
+COPY scripts/checks/ui-bundled-imports.mjs scripts/checks/ui-bundled-imports.mjs
+RUN node scripts/checks/ui-bundled-imports.mjs /out
 
 FROM node:26.13.1-alpine AS builder
 WORKDIR /app
@@ -17,8 +32,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/ui/node_modules ./apps/ui/node_modules
 COPY --from=deps /app/apps/backend/node_modules ./apps/backend/node_modules
 COPY apps/ui ./apps/ui
-COPY apps/backend/src ./apps/backend/src
-COPY shared ./shared
+COPY --from=ui-imports /out/ ./
 ARG VITE_PUBLIC_API_URL=http://localhost:3000
 ENV VITE_PUBLIC_API_URL=$VITE_PUBLIC_API_URL
 # Node sets a heap limit of about 2 GB on a Docker Desktop VM with 8 GB of
