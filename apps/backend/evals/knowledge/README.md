@@ -121,6 +121,27 @@ The probe sends only fixed texts (one query and one batch of 16 checkerboard chu
 
 `probe --controls` (with `factory eval`: `-- --controls`) runs no checks. It sends the control requests of the batch finding and writes `controls.json` and `controls.md`. Each control changes one thing of the request that found no endpoint: `zdr`, the input shape (plain strings), the input count (1, 2, 4, 16), the pin (also to each endpoint tag: `google-vertex/us`, `google-vertex/global`, `google-ai-studio`), and the model (`google/gemini-embedding-2:batch`, Titan Multimodal G1, `openai/text-embedding-3-large`). The text-space controls ([CTX-1431](https://linear.app/ctxpipe/issue/CTX-1431)) send 16 and 64 plain strings with `zdr: true` to the text-only models, pinned to each ZDR endpoint: `qwen/qwen3-embedding-8b` on `deepinfra/us`, `nebius/bf16` and `siliconflow/fp8`, `perplexity/pplx-embed-v1-4b` on `perplexity/int8`, and `openai/text-embedding-3-small` on `azure`. The table gives the status, the provider, the model, the error text, the vector count and the latency of each control. The controls are experiments with hand-written bodies, not the request of the client, and they have no pass or fail.
 
+### Compare the vision models
+
+```sh
+factory eval knowledge:vision --repo CTXPIPE-CHECKOUT --out "$TMPDIR/knowledge-vision" [--max-cost 5] [-- --models A,B,C]
+# or, with the model key in the environment:
+bun --env-file=.env.local evals/knowledge/cli.ts vision --out "$TMPDIR/knowledge-vision" [--models A,B,C] [--cap-usd 5]
+```
+
+A vision model reads each image of the knowledge plane and writes its text: a description, the text in the image, and the graph or the sequence of a diagram. Our code renders the Mermaid of the diagram from that reading (`src/knowledge-plane/image-text.ts`). Diagrams are the main feature, so this command compares the candidate models on the diagrams of `fixtures/vision/` (architecture, flow and sequence; see its README). Each model reads each fixture through the production client (`readImage`), and the command scores the reading against the gold graph of the fixture:
+
+| Measure | What it counts |
+| --- | --- |
+| Node F1 | The nodes, or the participants of a sequence, matched by label. A small reading error still matches (character-pair similarity of 0.75 or more). |
+| Edge F1 | The edges between the matched nodes, in the gold direction (either direction for a line with no arrowhead), or the messages of a sequence with their labels. |
+| Edge label | The share of the matched edges with the gold label. |
+| Group F1, group membership | The groups (clusters, containers, subgraphs) by label, and the share of the matched nodes in the gold group. |
+| Direction | The share of the graphs with the gold flow direction. |
+| Sequence order | The share of the matched messages in the gold order. |
+
+The report also gives the failed readings, the cost of each image, the median latency, the providers that answered, and the fallback endpoints of each model: the ZDR endpoints that take the JSON schema (`GET /endpoints/zdr`). The request has no provider pin, so OpenRouter can fall back from one of them to another. The default models are `openai/gpt-6.1-terra`, `google/gemini-3.8-flash` and `anthropic/claude-sonnet-5.5`. The command writes `vision.md`, `vision.json` (each reading and its score), and the text of each reading (`<model>/<fixture>.md`) to `--out`. Exit codes: 0 done, 3 the spend cap stopped a call.
+
 ## The run folder
 
 | File | Holds |

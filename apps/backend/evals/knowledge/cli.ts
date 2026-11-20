@@ -13,6 +13,7 @@
  *   bun evals/knowledge/cli.ts corpus snapshot|issues|freeze --plan FILE \
  *     --out FILE
  *   bun evals/knowledge/cli.ts probe --out DIR [--cap-usd 0.05] [--controls]
+ *   bun evals/knowledge/cli.ts vision --out DIR [--models A,B,C] [--cap-usd 5]
  *
  * See README.md. Exit code 0: done. 2: bad setup. 3: the spend cap stopped
  * the command (the output holds the work before the stop). 4: a check of
@@ -60,6 +61,7 @@ import {
   writeJson,
   writeRun,
 } from "./runner.js"
+import { runVision, VISION_MODELS } from "./vision.js"
 
 /** The model calls go to `MODEL_PROVIDER_URL`, as in the readers. */
 const modelBase = () =>
@@ -249,9 +251,29 @@ async function main(argv: string[]): Promise<number> {
       : probe({ out, calls, capUsd })
   }
 
+  if (command === "vision") {
+    if (!process.env.MODEL_PROVIDER_API_KEY)
+      throw new SetupError("vision needs MODEL_PROVIDER_API_KEY.")
+    const calls = modelCalls(capUsd)
+    const restore = calls.install()
+    try {
+      const result = await runVision({
+        models: values.models?.split(",").filter(Boolean) ?? VISION_MODELS,
+        out,
+        calls,
+        capUsd,
+        base: modelBase(),
+      })
+      process.stdout.write(`The report is in ${join(out, "vision.md")}.\n`)
+      return result.stopped ? 3 : 0
+    } finally {
+      restore()
+    }
+  }
+
   if (command !== "run" && command !== "rescore")
     throw new SetupError(
-      "Use the command run, rescore, label, corpus or probe.",
+      "Use the command run, rescore, label, corpus, probe or vision.",
     )
   if (!process.env.DATABASE_URL) throw new SetupError("Set DATABASE_URL.")
   const kept = values.kept

@@ -1,0 +1,114 @@
+{
+  "category": "flow",
+  "kind": "graph",
+  "direction": "TB",
+  "groups": [],
+  "nodes": [
+    {
+      "label": "Merge to main",
+      "group": null
+    },
+    {
+      "label": "Build image",
+      "group": null
+    },
+    {
+      "label": "Tests pass?",
+      "group": null
+    },
+    {
+      "label": "Deploy to staging",
+      "group": null
+    },
+    {
+      "label": "Smoke tests pass?",
+      "group": null
+    },
+    {
+      "label": "Deploy to production",
+      "group": null
+    },
+    {
+      "label": "Error rate < 1%?",
+      "group": null
+    },
+    {
+      "label": "Done",
+      "group": null
+    },
+    {
+      "label": "Roll back staging",
+      "group": null
+    },
+    {
+      "label": "Roll back production",
+      "group": null
+    },
+    {
+      "label": "Notify author",
+      "group": null
+    }
+  ],
+  "edges": [
+    {
+      "from": "Merge to main",
+      "to": "Build image",
+      "label": null
+    },
+    {
+      "from": "Build image",
+      "to": "Tests pass?",
+      "label": null
+    },
+    {
+      "from": "Tests pass?",
+      "to": "Deploy to staging",
+      "label": "yes"
+    },
+    {
+      "from": "Tests pass?",
+      "to": "Notify author",
+      "label": "no"
+    },
+    {
+      "from": "Deploy to staging",
+      "to": "Smoke tests pass?",
+      "label": null
+    },
+    {
+      "from": "Smoke tests pass?",
+      "to": "Deploy to production",
+      "label": "yes"
+    },
+    {
+      "from": "Smoke tests pass?",
+      "to": "Roll back staging",
+      "label": "no"
+    },
+    {
+      "from": "Roll back staging",
+      "to": "Notify author",
+      "label": null
+    },
+    {
+      "from": "Deploy to production",
+      "to": "Error rate < 1%?",
+      "label": null
+    },
+    {
+      "from": "Error rate < 1%?",
+      "to": "Done",
+      "label": "yes"
+    },
+    {
+      "from": "Error rate < 1%?",
+      "to": "Roll back production",
+      "label": "no"
+    },
+    {
+      "from": "Roll back production",
+      "to": "Notify author",
+      "label": null
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "category": "sequence",
+  "kind": "sequence",
+  "participants": [
+    "Customer",
+    "Storefront",
+    "Order service",
+    "Payment provider"
+  ],
+  "messages": [
+    {
+      "from": "Customer",
+      "to": "Storefront",
+      "label": "Place order"
+    },
+    {
+      "from": "Storefront",
+      "to": "Order service",
+      "label": "createOrder()"
+    },
+    {
+      "from": "Order service",
+      "to": "Payment provider",
+      "label": "authorize(amount)"
+    },
+    {
+      "from": "Payment provider",
+      "to": "Order service",
+      "label": "authorized"
+    },
+    {
+      "from": "Order service",
+      "to": "Order service",
+      "label": "reserve stock"
+    },
+    {
+      "from": "Order service",
+      "to": "Storefront",
+      "label": "order confirmed"
+    },
+    {
+      "from": "Storefront",
+      "to": "Customer",
+      "label": "Confirmation page"
+    },
+    {
+      "from": "Payment provider",
+      "to": "Order service",
+      "label": "webhook: captured"
+    }
+  ]
+}

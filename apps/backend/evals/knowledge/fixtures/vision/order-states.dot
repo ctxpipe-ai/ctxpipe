@@ -1,0 +1,7 @@
+digraph G {
+  rankdir=LR; node [shape=circle, fixedsize=true, width=1.3, fontname="DejaVu Sans", fontsize=11]; edge [fontname="DejaVu Sans", fontsize=10];
+  created [label="Created"]; paid [label="Paid"]; shipped [label="Shipped"]; delivered [label="Delivered"];
+  cancelled [label="Cancelled", shape=doublecircle, width=1.2]; refunded [label="Refunded", shape=doublecircle, width=1.2];
+  created -> paid [label="payment received"]; created -> cancelled [label="timeout 30 min"]; paid -> shipped [label="label printed"];
+  paid -> refunded [label="customer cancels"]; shipped -> delivered [label="carrier scan"]; delivered -> refunded [label="return accepted"];
+}

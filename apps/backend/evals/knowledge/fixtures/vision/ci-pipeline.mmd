@@ -1,0 +1,12 @@
+flowchart LR
+    subgraph pr [Pull request]
+        open([Open PR]) --> lint[Lint]
+        open --> unit[Unit tests]
+        lint --> review{Review}
+        unit --> review
+    end
+    subgraph main [Main branch]
+        merge[Merge] --> build[Build] --> publish[(Publish package)]
+    end
+    review -->|approved| merge
+    review -->|changes requested| open
