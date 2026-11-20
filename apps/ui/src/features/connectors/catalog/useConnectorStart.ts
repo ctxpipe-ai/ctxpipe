@@ -39,7 +39,7 @@ export function useConnectorStart(input: {
   const github = useGithubConnectFlow({
     orgSlug,
     onAlreadyInstalled: () => void goToGithubSetup(),
-    onRegistered: () => void goToGithubSetup(),
+    onRegistered: goToGithubSetup,
     onRegistrationFailed: (message) => toast.error(message),
     delegateSelfHostedWizard: () => {
       selfHosted.current = true

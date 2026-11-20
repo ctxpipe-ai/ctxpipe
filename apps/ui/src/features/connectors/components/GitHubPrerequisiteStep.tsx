@@ -22,7 +22,7 @@ export function GitHubPrerequisiteStep({
     useGithubConnectFlow({
       orgSlug,
       onAlreadyInstalled: () => void onConnected?.(),
-      onRegistered: () => void onConnected?.(),
+      onRegistered: () => onConnected?.(),
       onRegistrationFailed: (message) => toast.error(message),
     })
 
