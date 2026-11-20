@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import { expect, userEvent, waitFor, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import {
   atlassianCapabilitiesHandler,
@@ -353,8 +353,8 @@ const installationPostRecorded = http.post(
     return HttpResponse.json({ id: atlassianConnectionId })
   },
 )
-/** Each `window.open` call of the install story: its arguments. */
-const openCalls: Parameters<typeof window.open>[] = []
+/** Records each `window.open` call of the install story. */
+const openPopup = fn()
 const installHandlers = [
   status(sInstall),
   atlassianCapabilitiesHandler(
@@ -402,13 +402,13 @@ export const InstallMarksTheDraft: Story = {
     msw: { handlers: { page: installHandlers } },
   },
   beforeEach: () => {
-    openCalls.length = 0
+    openPopup.mockClear()
     const open = window.open
     // The product opens the install URL with `window.open` after the install
     // intent request completes. The stub stays in place until the story ends,
     // so the real popup never opens and the run stays on the Storybook server.
     window.open = ((...args: Parameters<typeof window.open>) => {
-      openCalls.push(args)
+      openPopup(...args)
       return null
     }) as typeof window.open
     return () => {
@@ -423,13 +423,11 @@ export const InstallMarksTheDraft: Story = {
     )
     await waitFor(() => expect(intentCalls).toEqual(["true"]))
     await waitFor(() =>
-      expect(openCalls).toEqual([
-        [
-          "https://marketplace.atlassian.com/apps/123/ctxpipe",
-          "ctxpipe-forge-install",
-          "width=860,height=740",
-        ],
-      ]),
+      expect(openPopup).toHaveBeenCalledExactlyOnceWith(
+        "https://marketplace.atlassian.com/apps/123/ctxpipe",
+        "ctxpipe-forge-install",
+        "width=860,height=740",
+      ),
     )
   },
 }
