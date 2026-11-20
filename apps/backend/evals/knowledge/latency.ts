@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { z } from "zod"
 
 import {
-  embedTexts,
+  embedQuery,
   textEmbeddingConfig,
 } from "../../src/retrieval/embeddings/textEmbeddings.js"
 import { JEV_MODEL } from "../../src/retrieval/jev/client.js"
@@ -185,9 +185,7 @@ export async function measureLatency(input: {
     model: qwen,
     provider: "routing",
     usdPer1MTokens: qwenPrice(qwenTags),
-    samples: await sample(runs, calls, () =>
-      embedTexts([{ kind: "query", text: QUERY }]),
-    ),
+    samples: await sample(runs, calls, () => embedQuery(QUERY)),
   })
   // The hedge sends the body of the last production sample, which the
   // recorder kept: no extra call captures it.
@@ -200,15 +198,11 @@ export async function measureLatency(input: {
       model: qwen,
       provider: tag,
       usdPer1MTokens: qwenPrice([tag]),
-      // One attempt, so that an error counts.
+      // The query path makes one attempt, so that an error counts.
       samples: await sample(runs, calls, () =>
         withChangedBody(
           (body) => ({ ...body, provider: pin(tag) }),
-          () =>
-            embedTexts([{ kind: "query", text: QUERY }], {
-              ...textEmbeddingConfig,
-              maxAttempts: 1,
-            }),
+          () => embedQuery(QUERY),
         ),
       ),
     })

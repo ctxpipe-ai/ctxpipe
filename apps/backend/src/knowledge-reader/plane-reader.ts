@@ -31,7 +31,7 @@ import {
 import { truncateText } from "../mcp/framework/budget.js"
 import { checkPath } from "../mcp/framework/refs.js"
 import { McpToolError } from "../mcp/framework/tool-errors.js"
-import { embedTexts } from "../retrieval/embeddings/textEmbeddings.js"
+import { embedQuery } from "../retrieval/embeddings/textEmbeddings.js"
 import { JevError } from "../retrieval/jev/client.js"
 import {
   disagreementCalls,
@@ -85,9 +85,7 @@ export function planeKnowledgeReader(input: {
   }
   const embed = async (text: string) => {
     meter.embeddingCalls += 1
-    const [vector] = await embedTexts([{ kind: "query", text }])
-    if (!vector) throw new Error("The embedding endpoint returned no vector")
-    return vector
+    return embedQuery(text)
   }
   return {
     stack: "plane",

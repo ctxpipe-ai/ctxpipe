@@ -8,7 +8,7 @@ import {
   readImage,
 } from "../../src/knowledge-plane/image-text.js"
 import {
-  type EmbeddingInput,
+  embedQuery,
   embedTexts,
   textEmbeddingConfig,
 } from "../../src/retrieval/embeddings/textEmbeddings.js"
@@ -19,8 +19,9 @@ import type { ModelCalls } from "./model-calls.js"
  * The live provider probe (ADR-068 decision 7, ADR-063 decision 6). Before
  * the first org leaves `off`, real calls confirm that the model provider
  * applies the request settings of the knowledge plane. Each check sends its
- * request through the real client (`decideNoul`, `embedTexts`), so the
- * probe tests the request that production sends, not a copy. The recorder of
+ * request through the real client (`decideNoul`, `embedQuery`,
+ * `embedTexts`), so the probe tests the request that production sends, not
+ * a copy. The recorder of
  * the eval run (`ModelCalls`) keeps the status and the raw answer of each
  * call as evidence, and it applies the spend cap.
  *
@@ -264,7 +265,7 @@ const nonZdrEmbedding = (zdr: boolean) =>
         provider: { ...provider, zdr },
       }
     },
-    () => embedTexts([{ kind: "query", text: "Is the sky blue?" }]),
+    () => embedQuery("Is the sky blue?"),
   )
 
 /** The checks of the probe, one after the other. */
@@ -335,34 +336,38 @@ async function probeChecks(
 
   const { model, dimensions, batchSize, quantizations } = textEmbeddingConfig
   const embeddingProviders = zdrProvidersOf(model, quantizations)
-  const embedded = async (name: string, inputs: EmbeddingInput[]) => {
-    const evidence = await observe(calls, () => embedTexts(inputs))
+  const embedded = async (
+    name: string,
+    count: number,
+    embed: () => Promise<number[][]>,
+  ) => {
+    const evidence = await observe(calls, embed)
     check(
       name,
       evidence,
       evidence.status === 200 &&
         embeddingProviders.has(evidence.provider ?? "") &&
-        evidence.vectors === inputs.length &&
-        evidence.result?.length === inputs.length &&
+        evidence.vectors === count &&
+        evidence.result?.length === count &&
         evidence.result.every((vector) => vector.length === dimensions),
-      `HTTP 200, a ZDR provider of ${model} at ${quantizations.join(", ")} (${[...embeddingProviders].join(", ") || "none listed"}), and ${inputs.length} vector(s) of ${dimensions} dimensions in one answer`,
+      `HTTP 200, a ZDR provider of ${model} at ${quantizations.join(", ")} (${[...embeddingProviders].join(", ") || "none listed"}), and ${count} vector(s) of ${dimensions} dimensions in one answer`,
     )
   }
-  await embedded("embedding-query", [
-    { kind: "query", text: "Which squares of the checkerboard are red?" },
+  await embedded("embedding-query", 1, async () => [
+    await embedQuery("Which squares of the checkerboard are red?"),
   ])
   // One full batch of document chunks in one request, as the projection
   // sends them: this proves that a ZDR endpoint at an allowed quantization
   // takes a batch and the configured dimension.
-  await embedded(
-    "embedding-text-batch",
-    Array.from({ length: batchSize }, (_, index) => ({
-      kind: "text" as const,
-      text: checkerboardSentence(index),
-      documentTitle: "Checkerboard",
-      chunkIndex: index,
-      chunkCount: batchSize,
-    })),
+  await embedded("embedding-text-batch", batchSize, () =>
+    embedTexts(
+      Array.from({ length: batchSize }, (_, index) => ({
+        text: checkerboardSentence(index),
+        documentTitle: "Checkerboard",
+        chunkIndex: index,
+        chunkCount: batchSize,
+      })),
+    ),
   )
   await refusalPair("embedding", NON_ZDR_EMBEDDING_MODEL, nonZdrEmbedding)
 

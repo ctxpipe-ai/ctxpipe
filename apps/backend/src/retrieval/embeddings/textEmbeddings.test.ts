@@ -5,6 +5,7 @@ import { useMswServer } from "../../../test/msw.js"
 import { recordSpans } from "../../../test/spans.js"
 import {
   type EmbeddingInput,
+  embedQuery,
   embedTexts,
   textEmbeddingConfig,
 } from "./textEmbeddings.js"
@@ -32,7 +33,6 @@ function vector(seed: number): number[] {
 
 function text(n: number): EmbeddingInput {
   return {
-    kind: "text",
     text: `chunk ${n}`,
     documentTitle: "Design\n  notes",
     chunkIndex: n,
@@ -213,16 +213,50 @@ describe("embedTexts", () => {
     expect(requests).toBe(3)
   })
 
-  it("sends a search question with the instruction line of the model and no context line", async () => {
+  it("sends a search question with the instruction line of the model, no context line, and the ZDR provider block sorted by latency", async () => {
     const bodies: Body[] = []
     server.use(echoHandler(bodies))
 
-    await embedTexts([{ kind: "query", text: "why did it fail" }], config)
+    expect(await embedQuery("why did it fail", config)).toEqual(vector(10))
 
+    expect(bodies).toHaveLength(1)
     expect(bodies[0]?.input).toEqual([
       "Instruct: Find the answer\nQuery:why did it fail",
     ])
+    // No pin, no order and no `allow_fallbacks: false`: OpenRouter falls
+    // back among the ZDR endpoints in the order of their latency.
+    expect(bodies[0]?.provider).toEqual({
+      data_collection: "deny",
+      zdr: true,
+      quantizations: ["bf16"],
+      sort: "latency",
+    })
   })
+
+  it.each([
+    ["a 429", () => new HttpResponse("busy", { status: 429 })],
+    ["a 503", () => new HttpResponse("busy", { status: 503 })],
+    ["a network error", () => HttpResponse.error()],
+  ])(
+    "does not retry a search question after %s, so it makes no backoff wait",
+    async (_, failure) => {
+      let calls = 0
+      server.use(
+        http.post(EMBEDDINGS_URL, () => {
+          calls += 1
+          return failure()
+        }),
+      )
+      // A backoff of one minute: a wait would time out the test.
+      const slow = { ...config, backoffMs: 60_000, maxBackoffMs: 60_000 }
+
+      const started = Date.now()
+      await expect(embedQuery("why did it fail", slow)).rejects.toThrow()
+
+      expect(calls).toBe(1)
+      expect(Date.now() - started).toBeLessThan(1_000)
+    },
+  )
 
   it("returns the full vector of each input as numbers", async () => {
     const values = [

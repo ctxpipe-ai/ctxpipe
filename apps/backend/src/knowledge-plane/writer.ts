@@ -781,7 +781,6 @@ async function embedDocuments(
       chunk.text.trim()
         ? [
             {
-              kind: "text" as const,
               text: chunk.text,
               documentTitle: document.title,
               chunkIndex: index,
