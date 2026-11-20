@@ -207,7 +207,12 @@ const registerFlow = installFlow(() => HttpResponse.json({ ok: true }))
  */
 export const RegisteredKeepsPending: Story = {
   ...Slack,
-  args: { ...Slack.args, onConnected: () => new Promise<void>(() => {}) },
+  args: {
+    ...Slack.args,
+    // The next step is a page load that does not end while the story runs.
+    onConnected: () =>
+      new Promise<void>(() => window.location.assign("/acme/next-step")),
+  },
   parameters: {
     visual: {
       skip: "Behavior test: it ends in the same state as RedirectKeepsPending.",
@@ -216,11 +221,17 @@ export const RegisteredKeepsPending: Story = {
   },
   play: async ({ canvasElement }) => {
     registerFlow.reads.count = 0
-    const { release } = await pressConnect(
+    const { destinations, release } = await pressConnect(
       canvasElement,
       popupReturnsInstallation,
     )
-    release()
-    await expectStillPending(canvasElement, registerFlow.reads)
+    try {
+      await waitFor(() =>
+        expect(destinations.join(" ")).toContain("/acme/next-step"),
+      )
+      await expectStillPending(canvasElement, registerFlow.reads)
+    } finally {
+      release()
+    }
   },
 }
