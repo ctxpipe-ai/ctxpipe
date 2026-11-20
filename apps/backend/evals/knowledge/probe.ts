@@ -262,7 +262,7 @@ export async function withChangedBody<T>(
  * The provider block of a request of a ZDR pair: the block of the client
  * with another `zdr`, and with no `only`. A ZDR pair proves `zdr` alone. Its
  * control model can be at a trusted provider that the allowlist does not
- * turn on now (ADR-070), and the allowlist pair proves `only`.
+ * include now (ADR-070), and the allowlist pair proves `only`.
  */
 function zdrPairProvider(provider: unknown, zdr: boolean) {
   const { only: _only, ...block } = jsonObject.parse(provider)
@@ -339,8 +339,8 @@ async function probeChecks(
 
   // The ZDR proof of an endpoint is a pair of requests to a model of that
   // endpoint that has no ZDR endpoint. Both are the request of the client,
-  // with fallback and with `data_collection: "deny"`, and they differ only in
-  // `zdr`. The control (`zdr: false`) must be served: this shows that the
+  // with fallback and with `data_collection: "deny"`, but with no `only`
+  // (`zdrPairProvider`), and they differ only in `zdr`. The control (`zdr: false`) must be served: this shows that the
   // endpoint can serve the request. The same request with `zdr: true` must
   // then be refused with "no endpoint". Thus the refusal comes from `zdr`
   // alone: the endpoint enforces it. The requests of the clients have the
