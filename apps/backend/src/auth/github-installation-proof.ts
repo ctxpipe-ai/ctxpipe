@@ -163,16 +163,17 @@ export async function githubInstallationProofCallback(c: Context<AppEnv>) {
     url.searchParams.set("error_description", description)
     return c.redirect(url.toString(), 302)
   }
-  const restart = "The GitHub authorization expired or is not valid."
+  const invalidAuthorization =
+    "The GitHub authorization expired or is not valid."
 
   const proof = await consumeProof(c.req.query("state") ?? "")
-  if (!proof) return toConnectors(undefined, restart)
+  if (!proof) return toConnectors(undefined, invalidAuthorization)
 
   // Only the session cookie: an API key or a bearer token cannot finish it.
   const headers = new Headers({ cookie: c.req.header("cookie") ?? "" })
   const session = await getAuth().api.getSession({ headers })
   if (session?.user.id !== proof.userId)
-    return toConnectors(proof.orgSlug, restart)
+    return toConnectors(proof.orgSlug, invalidAuthorization)
 
   const code = c.req.query("code")
   if (!code) {
@@ -199,7 +200,7 @@ export async function githubInstallationProofCallback(c: Context<AppEnv>) {
     code,
     codeVerifier: proof.codeVerifier,
   })
-  if (!token) return toConnectors(proof.orgSlug, restart)
+  if (!token) return toConnectors(proof.orgSlug, invalidAuthorization)
   const notAccessible =
     "Your GitHub account cannot access this GitHub App installation."
   let githubLogin: string
@@ -213,12 +214,23 @@ export async function githubInstallationProofCallback(c: Context<AppEnv>) {
     return toConnectors(proof.orgSlug, notAccessible)
   }
 
-  const installation = await attachGithubInstallation({
-    orgId: proof.orgId,
-    installationId: proof.installationId,
-    connectionId: proof.connectionId,
-    env,
-  })
+  let installation: Awaited<ReturnType<typeof attachGithubInstallation>>
+  try {
+    installation = await attachGithubInstallation({
+      orgId: proof.orgId,
+      installationId: proof.installationId,
+      connectionId: proof.connectionId,
+      env,
+    })
+  } catch (e) {
+    getLogger().error(e instanceof Error ? e : new Error(String(e)), {
+      step: "github_installation.proof_attach",
+    })
+    return toConnectors(
+      proof.orgSlug,
+      "ctxpipe could not attach the installation. Try again.",
+    )
+  }
   if (!installation)
     return toConnectors(proof.orgSlug, "Unknown GitHub connection.")
   // The audit record of the proof. The token is not in it.
