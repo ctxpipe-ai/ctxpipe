@@ -117,7 +117,7 @@ describe("convertFile", () => {
     expect(result.kind === "text" && result.text.length).toBeLessThan(100)
   })
 
-  it("refuses a file of more than 64 MiB before it starts the converter", async () => {
+  it("refuses a file of more than 64 MiB", async () => {
     expect(
       await convertFile("pdf", Buffer.alloc(64 * 1024 * 1024 + 1)),
     ).toMatchObject({ kind: "failed", failure: "too-large" })

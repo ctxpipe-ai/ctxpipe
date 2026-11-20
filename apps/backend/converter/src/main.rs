@@ -127,8 +127,11 @@ fn set_limits(memory_mb: u64, cpu_seconds: u64) {
 
 /// The seccomp filters of the conversion (Linux). After the input is read,
 /// each system call that opens a file, makes a socket, starts a program or
-/// a process, reads or signals another process, or gives an indirect way to
-/// do one of these (io_uring, bpf) fails with EPERM. A new thread (`clone` with
+/// a process, reads, signals or changes another process, or gives an
+/// indirect way to do one of these (io_uring, bpf) fails with EPERM. The
+/// calls that set the limits or the scheduling of a process work only on
+/// this process (pid 0): all the converters run as `nobody`, so another
+/// pid can be the converter of another organization. A new thread (`clone` with
 /// `CLONE_THREAD`) still works: a parser can use threads, but no process.
 /// `clone3` fails with ENOSYS, so that the C library uses `clone`, whose
 /// flags the filter can read. The parsers need none of the refused calls:
@@ -175,6 +178,12 @@ fn sandbox() -> Result<(), String> {
         libc::SYS_tgkill,
         libc::SYS_rt_sigqueueinfo,
         libc::SYS_rt_tgsigqueueinfo,
+        // The priority or the memory of another process.
+        libc::SYS_setpriority,
+        libc::SYS_ioprio_set,
+        libc::SYS_migrate_pages,
+        libc::SYS_move_pages,
+        libc::SYS_process_madvise,
         libc::SYS_io_uring_setup,
         libc::SYS_io_uring_enter,
         libc::SYS_io_uring_register,
@@ -211,6 +220,22 @@ fn sandbox() -> Result<(), String> {
         libc::SYS_clone,
         vec![SeccompRule::new(vec![not_a_thread]).map_err(|error| error.to_string())?],
     );
+    // The limits or the scheduling of a process other than this one.
+    for call in [
+        libc::SYS_prlimit64,
+        libc::SYS_sched_setaffinity,
+        libc::SYS_sched_setscheduler,
+        libc::SYS_sched_setparam,
+        libc::SYS_sched_setattr,
+    ] {
+        let another_process =
+            SeccompCondition::new(0, SeccompCmpArgLen::Dword, SeccompCmpOp::Ne, 0)
+                .map_err(|error| error.to_string())?;
+        rules.insert(
+            call,
+            vec![SeccompRule::new(vec![another_process]).map_err(|error| error.to_string())?],
+        );
+    }
     let program = |rules, action| -> Result<BpfProgram, String> {
         SeccompFilter::new(rules, SeccompAction::Allow, action, arch)
             .map_err(|error| error.to_string())?
@@ -558,6 +583,32 @@ mod tests {
             );
             // SAFETY: a fork that the filter refuses returns -1 and makes no child.
             assert_eq!(unsafe { libc::fork() }, -1, "a process starts");
+            // SAFETY: a read of the limits of this process, then of the parent.
+            let mut limit = libc::rlimit {
+                rlim_cur: 0,
+                rlim_max: 0,
+            };
+            let prlimit = |pid: libc::pid_t, limit: &mut libc::rlimit| unsafe {
+                libc::syscall(
+                    libc::SYS_prlimit64,
+                    pid,
+                    libc::RLIMIT_CPU,
+                    std::ptr::null::<libc::rlimit>(),
+                    limit,
+                )
+            };
+            assert_eq!(
+                prlimit(0, &mut limit),
+                0,
+                "a read of the limits of this process fails"
+            );
+            // SAFETY: the parent pid of this process.
+            let parent = unsafe { libc::getppid() };
+            assert_eq!(
+                prlimit(parent, &mut limit),
+                -1,
+                "a read of the limits of another process works"
+            );
             // SAFETY: a signal that the filter refuses goes nowhere.
             assert_eq!(
                 unsafe { libc::kill(1, 0) },

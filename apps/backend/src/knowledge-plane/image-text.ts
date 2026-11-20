@@ -433,10 +433,11 @@ export async function imageTexts(input: {
       ? `${imageText(reading)}\nLabels in the file:\n${labels.trim()}\n`
       : imageText(reading)
   const misses: ImageInput[] = []
+  const seen = new Set<string>()
   for (const image of input.images) {
     const { blobSha, labels } = image
-    if (results.has(blobSha) || misses.some((miss) => miss.blobSha === blobSha))
-      continue
+    if (seen.has(blobSha)) continue
+    seen.add(blobSha)
     const stored = cached.get(blobSha)
     const reading = stored
       ? readingSchema.safeParse(parseJson(stored.reading))

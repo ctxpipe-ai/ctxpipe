@@ -148,7 +148,6 @@ export type Conversion =
     }
   | { kind: "failed"; failure: ConversionFailure; message: string }
 
-const MAX_INPUT_BYTES = 64 * 1024 * 1024
 /** The text (16 MiB) or the PNG of an SVG (at most 2048 × 2048), as JSON. */
 const MAX_OUTPUT_BYTES = 48 * 1024 * 1024
 
@@ -199,12 +198,6 @@ export async function convertFile(
   bytes: Buffer,
   limits: { timeoutMs?: number } = {},
 ): Promise<Conversion> {
-  if (bytes.length > MAX_INPUT_BYTES)
-    return {
-      kind: "failed",
-      failure: "too-large",
-      message: "The file is larger than 64 MiB.",
-    }
   const timeoutMs = limits.timeoutMs ?? 60_000
   const child = spawn(
     converterBinary(),

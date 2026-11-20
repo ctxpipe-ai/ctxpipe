@@ -1252,13 +1252,17 @@ describe("projectKnowledgePlane", () => {
           new URL("./fixtures/convert/sample.pdf", import.meta.url),
         ),
       )
+      const logoSvg =
+        '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="20"><text x="2" y="15">Logo label</text></svg>'
       const files = {
         "docs/a.md":
           "# Alpha\n\n![d](img/d.png) ![Logo](logo.svg) ![Photo](p.jpg) ![Fake](fake.png)\n",
         "docs/img/d.png": png("one"),
         "docs/img/same.png": png("one"),
-        "docs/logo.svg":
-          '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="20"><text x="2" y="15">Logo label</text></svg>',
+        "docs/logo.svg": logoSvg,
+        // One blob under two paths of each type: one conversion, two rows.
+        "docs/copy/logo.svg": logoSvg,
+        "docs/copy/runbook.pdf": pdf,
         "docs/p.jpg": jpeg,
         // Text in a PNG file: the model refuses it.
         "docs/fake.png": "This is text, not a PNG.",
@@ -1296,6 +1300,11 @@ describe("projectKnowledgePlane", () => {
       expect(logo?.chunks.map((chunk) => chunk.text).join("\n")).toContain(
         "Labels in the file:\nLogo label",
       )
+      expect(
+        (
+          await store.readDocument(scope, key(workspaceId, "copy/logo.svg"))
+        )?.chunks.map((chunk) => chunk.text),
+      ).toEqual(logo?.chunks.map((chunk) => chunk.text))
       const runbook = await store.readDocument(
         scope,
         key(workspaceId, "runbook.pdf"),
@@ -1307,6 +1316,11 @@ describe("projectKnowledgePlane", () => {
       expect(runbook?.chunks.map((chunk) => chunk.text).join("\n")).toContain(
         "rotate the signing key",
       )
+      expect(
+        (
+          await store.readDocument(scope, key(workspaceId, "copy/runbook.pdf"))
+        )?.chunks.map((chunk) => chunk.text),
+      ).toEqual(runbook?.chunks.map((chunk) => chunk.text))
       expect(
         (await store.readDocument(scope, key(workspaceId, "fake.png")))
           ?.document,
@@ -1334,6 +1348,8 @@ describe("projectKnowledgePlane", () => {
           "img/d.png",
           "img/same.png",
           "logo.svg",
+          "copy/logo.svg",
+          "copy/runbook.pdf",
           "p.jpg",
           "fake.png",
           "runbook.pdf",
@@ -1342,8 +1358,8 @@ describe("projectKnowledgePlane", () => {
           .map((path) => key(workspaceId, path))
           .sort(),
       )
-      // d.png and same.png have one blob: one call. The SVG, the JPEG and
-      // the refused PNG: one call each.
+      // d.png and same.png have one blob: one call. The two SVG paths: one
+      // call. The JPEG and the refused PNG: one call each.
       expect(vision.calls).toBe(4)
 
       // A full rebuild reads the image texts from the cache: no vision call

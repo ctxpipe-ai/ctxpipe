@@ -422,6 +422,12 @@ const MAX_IMAGE_BYTES = 20 * 1024 * 1024
 const MAX_FILE_BYTES = 48 * 1024 * 1024
 /** The bytes of the blobs of one git read, with their framing. */
 const READ_BYTES = 32 * 1024 * 1024
+/**
+ * The image bytes that wait for the vision step, at most (with the one
+ * image that goes above it). The PNG of an SVG can be much larger than the
+ * SVG, so a read group alone does not limit them.
+ */
+const IMAGE_BATCH_BYTES = 32 * 1024 * 1024
 
 /**
  * The rows of each file of `paths`, with no vectors: a document, or a
@@ -519,35 +525,44 @@ async function projectFiles(input: {
     groups.at(-1)?.push(blob)
     groupBytes += bytes
   }
-  /** The images for the vision model, with the path and the type of each. */
+  /** The images for the vision model, with the paths and the type of each. */
   const images: {
-    path: string
+    paths: string[]
     mime: string
     blobSha: string
     image: { bytes: Buffer; mimeType: string }
     labels?: string
   }[] = []
-  // The images of a group go to the vision step before the next read, so
-  // the run holds the bytes of one group at a time.
+  let imageBytes = 0
+  // The images go to the vision step at the end of each group, and when
+  // they pass IMAGE_BATCH_BYTES: the run holds the bytes of one group and
+  // of one batch of images at a time.
   for (const group of groups) {
     const contents = await readGitBlobs(input.directory, group)
-    for (const [index, blob] of group.entries())
-      for (const { path, type } of entriesOf.get(blob) ?? [])
-        await projectEntry(path, blob, type, contents[index] ?? Buffer.alloc(0))
+    for (const [index, blob] of group.entries()) {
+      const bytes = contents[index] ?? Buffer.alloc(0)
+      // The paths of the blob by type: each type converts the blob one
+      // time, also when more paths have it.
+      const pathsOf = new Map<
+        string,
+        { type: Entry["type"]; paths: string[] }
+      >()
+      for (const { path, type } of entriesOf.get(blob) ?? []) {
+        const key = type === null ? "" : `${type.kind}:${type.mime}`
+        const same = pathsOf.get(key) ?? { type, paths: [] }
+        same.paths.push(path)
+        pathsOf.set(key, same)
+      }
+      for (const { type, paths } of pathsOf.values())
+        if (type) await projectFile({ paths, blob, type, bytes })
+        else for (const path of paths) projectKnowledgeFile(path, bytes)
+      if (imageBytes > IMAGE_BATCH_BYTES) await projectImages()
+    }
     await projectImages()
   }
   return { documents, failed }
 
-  async function projectEntry(
-    path: string,
-    blob: string,
-    type: Entry["type"],
-    bytes: Buffer,
-  ): Promise<void> {
-    if (type) {
-      await projectFile({ path, blob, type, bytes })
-      return
-    }
+  function projectKnowledgeFile(path: string, bytes: Buffer): void {
     // The parse and the mapper read no Git and no network: an error here
     // is a content error of the file.
     try {
@@ -575,32 +590,50 @@ async function projectFiles(input: {
     }
   }
 
+  /** The rows of the `paths` of one blob of one type. */
   async function projectFile(file: {
-    path: string
+    paths: string[]
     blob: string
     type: Exclude<FileType, { kind: "unsupported" }>
     bytes: Buffer
   }): Promise<void> {
-    const { path, blob, type, bytes } = file
+    const { paths, blob, type, bytes } = file
     if (type.kind === "image") {
       images.push({
-        path,
+        paths,
         mime: type.mime,
         blobSha: blob,
         image: { bytes, mimeType: type.mime },
       })
+      imageBytes += bytes.length
       return
     }
     const conversion = await convertFile(type.format, bytes)
-    count(
-      type.format,
-      conversion.kind === "failed" ? conversion.failure : conversion.kind,
-    )
-    if (conversion.kind === "failed")
-      fail(path, `${conversion.failure}: ${conversion.message}`)
-    else if (conversion.kind === "image")
+    for (const path of paths) {
+      count(
+        type.format,
+        conversion.kind === "failed" ? conversion.failure : conversion.kind,
+      )
+      if (conversion.kind === "failed")
+        fail(path, `${conversion.failure}: ${conversion.message}`)
+      else if (conversion.kind === "text")
+        documents.push(
+          fileRows({
+            workspaceId,
+            path,
+            kind: "document",
+            mime: type.mime,
+            text: conversion.text,
+            summary: conversion.imageOnlyPages.length
+              ? `The pages ${conversion.imageOnlyPages.join(", ")} have no text layer.`
+              : "",
+            observedAt,
+          }),
+        )
+    }
+    if (conversion.kind === "image") {
       images.push({
-        path,
+        paths,
         mime: type.mime,
         // The key of the cache is the SVG blob: the same SVG gives the same
         // PNG.
@@ -608,20 +641,8 @@ async function projectFiles(input: {
         image: { bytes: conversion.png, mimeType: "image/png" },
         labels: conversion.labels,
       })
-    else
-      documents.push(
-        fileRows({
-          workspaceId,
-          path,
-          kind: "document",
-          mime: type.mime,
-          text: conversion.text,
-          summary: conversion.imageOnlyPages.length
-            ? `The pages ${conversion.imageOnlyPages.join(", ")} have no text layer.`
-            : "",
-          observedAt,
-        }),
-      )
+      imageBytes += conversion.png.length
+    }
   }
 
   /** The texts of the images of `images`, which it then empties. */
@@ -633,21 +654,23 @@ async function projectFiles(input: {
       images,
       counter: input.files.images,
     })
-    for (const { path, mime, blobSha } of images.splice(0)) {
+    imageBytes = 0
+    for (const { paths, mime, blobSha } of images.splice(0)) {
       const text = texts.get(blobSha)
-      if (!text || "error" in text)
-        fail(path, text?.error ?? "The image has no text.")
-      else
-        documents.push(
-          fileRows({
-            workspaceId,
-            path,
-            kind: "image",
-            mime,
-            text: text.text,
-            observedAt,
-          }),
-        )
+      for (const path of paths)
+        if (!text || "error" in text)
+          fail(path, text?.error ?? "The image has no text.")
+        else
+          documents.push(
+            fileRows({
+              workspaceId,
+              path,
+              kind: "image",
+              mime,
+              text: text.text,
+              observedAt,
+            }),
+          )
     }
   }
 }
