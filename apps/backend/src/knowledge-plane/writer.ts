@@ -52,7 +52,11 @@ import {
   type FileType,
   fileType,
 } from "./convert-file.js"
-import { type ImageTextCounter, imageTexts } from "./image-text.js"
+import {
+  type ImageTextCounter,
+  imageTextModel,
+  imageTexts,
+} from "./image-text.js"
 import {
   isKnowledgePath,
   parseKnowledgeFile,
@@ -129,6 +133,7 @@ export async function projectKnowledgePlane(input: {
     dimensions: textEmbeddingConfig.dimensions,
     root: input.root,
     converter: await converterVersion(),
+    visionModel: imageTextModel(),
   })
   const state = await getKnowledgeState(key)
   if (

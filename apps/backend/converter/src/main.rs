@@ -126,18 +126,23 @@ fn set_limits(memory_mb: u64, cpu_seconds: u64) {
 }
 
 /// The seccomp filters of the conversion (Linux). After the input is read,
-/// each system call that opens a file, changes a path (a new, renamed or
-/// removed directory entry, or its mode, owner, times or attributes), makes
-/// a socket, starts a program or a process, reads, signals or changes another process, or gives an
-/// indirect way to do one of these (io_uring, bpf) fails with EPERM. The
-/// calls that set the limits or the scheduling of a process work only on
-/// this process (pid 0): all the converters run as `nobody`, so another
-/// pid can be the converter of another organization. A new thread (`clone` with
-/// `CLONE_THREAD`) still works: a parser can use threads, but no process.
-/// `clone3` fails with ENOSYS, so that the C library uses `clone`, whose
-/// flags the filter can read. The parsers need none of the refused calls:
-/// the input is in memory and the output goes to stdout, which is open. The
-/// threads that a parser starts later get the same filters.
+/// only the calls that the parsers need work: memory, threads, time,
+/// signals of this process, random bytes, and the read and write of the
+/// open stdin and stdout. Each other call fails with EPERM: a file, a
+/// change of a path, a socket, a program, a process, shared memory or a
+/// message queue (they outlive the process), and another process. The set
+/// comes from a trace of the conversion of each test file (`strace`).
+///
+/// - `clone` works only with `CLONE_THREAD`: a parser can use threads, but
+///   no process.
+/// - `prlimit64` works only on this process (pid 0): all converters run as
+///   `nobody`, so another pid can be the converter of another organization.
+/// - `clone3` fails with ENOSYS, so that the C library uses `clone`, whose
+///   flags the filter can read. A first filter gives the ENOSYS; the
+///   allowlist lets `clone3` through to it, because the kernel takes the
+///   errno of the newest filter that refuses a call.
+///
+/// The threads that a parser starts later get the same filters.
 #[cfg(target_os = "linux")]
 fn sandbox() -> Result<(), String> {
     use seccompiler::{
@@ -147,141 +152,84 @@ fn sandbox() -> Result<(), String> {
     let arch = std::env::consts::ARCH
         .try_into()
         .map_err(|_| "no seccomp target for this arch".to_string())?;
-    // x86_64 adds the old calls that arm64 does not have.
-    #[cfg_attr(not(target_arch = "x86_64"), allow(unused_mut))]
-    let mut refused = vec![
-        libc::SYS_openat,
-        libc::SYS_openat2,
-        libc::SYS_open_by_handle_at,
-        libc::SYS_name_to_handle_at,
-        // A change of a path: the converter writes no file, and `/tmp` is
-        // shared with the worker and the other converters.
-        libc::SYS_mkdirat,
-        libc::SYS_mknodat,
-        libc::SYS_symlinkat,
-        libc::SYS_linkat,
-        libc::SYS_renameat,
-        libc::SYS_renameat2,
-        libc::SYS_unlinkat,
-        libc::SYS_truncate,
-        libc::SYS_fchmodat,
-        libc::SYS_fchownat,
-        libc::SYS_utimensat,
-        libc::SYS_setxattr,
-        libc::SYS_lsetxattr,
-        libc::SYS_removexattr,
-        libc::SYS_lremovexattr,
-        libc::SYS_socket,
-        libc::SYS_socketpair,
-        libc::SYS_connect,
-        libc::SYS_bind,
-        libc::SYS_listen,
-        libc::SYS_accept4,
-        libc::SYS_sendto,
-        libc::SYS_sendmsg,
-        libc::SYS_sendmmsg,
-        libc::SYS_execve,
-        libc::SYS_execveat,
-        libc::SYS_ptrace,
-        libc::SYS_process_vm_readv,
-        libc::SYS_process_vm_writev,
-        // Another process: its file descriptors, or a signal to it. An abort
-        // of this process still ends it (the C library then crashes it).
-        libc::SYS_pidfd_open,
-        libc::SYS_pidfd_getfd,
-        libc::SYS_pidfd_send_signal,
-        libc::SYS_kcmp,
-        libc::SYS_kill,
-        libc::SYS_tkill,
-        libc::SYS_tgkill,
-        libc::SYS_rt_sigqueueinfo,
-        libc::SYS_rt_tgsigqueueinfo,
-        // The priority or the memory of another process.
-        libc::SYS_setpriority,
-        libc::SYS_ioprio_set,
-        libc::SYS_migrate_pages,
-        libc::SYS_move_pages,
-        libc::SYS_process_madvise,
-        libc::SYS_io_uring_setup,
-        libc::SYS_io_uring_enter,
-        libc::SYS_io_uring_register,
-        libc::SYS_bpf,
-        libc::SYS_perf_event_open,
-        libc::SYS_userfaultfd,
-        libc::SYS_memfd_create,
-        libc::SYS_mount,
-        libc::SYS_umount2,
-        libc::SYS_unshare,
-        libc::SYS_setns,
-        libc::SYS_chroot,
-        libc::SYS_pivot_root,
-    ];
-    #[cfg(target_arch = "x86_64")]
-    refused.extend([
-        libc::SYS_open,
-        libc::SYS_creat,
-        libc::SYS_mkdir,
-        libc::SYS_mknod,
-        libc::SYS_symlink,
-        libc::SYS_link,
-        libc::SYS_rename,
-        libc::SYS_unlink,
-        libc::SYS_rmdir,
-        libc::SYS_chmod,
-        libc::SYS_chown,
-        libc::SYS_lchown,
-        libc::SYS_utime,
-        libc::SYS_utimes,
-        libc::SYS_futimesat,
-        libc::SYS_accept,
-        libc::SYS_fork,
-        libc::SYS_vfork,
-    ]);
-    let mut rules: std::collections::BTreeMap<i64, Vec<SeccompRule>> =
-        refused.into_iter().map(|call| (call, vec![])).collect();
-    // A clone that is not a thread is a new process.
-    let not_a_thread = SeccompCondition::new(
-        0,
-        SeccompCmpArgLen::Qword,
-        SeccompCmpOp::MaskedEq(libc::CLONE_THREAD as u64),
-        0,
-    )
-    .map_err(|error| error.to_string())?;
-    rules.insert(
-        libc::SYS_clone,
-        vec![SeccompRule::new(vec![not_a_thread]).map_err(|error| error.to_string())?],
-    );
-    // The limits or the scheduling of a process other than this one.
-    for call in [
-        libc::SYS_prlimit64,
-        libc::SYS_sched_setaffinity,
-        libc::SYS_sched_setscheduler,
-        libc::SYS_sched_setparam,
-        libc::SYS_sched_setattr,
-    ] {
-        let another_process =
-            SeccompCondition::new(0, SeccompCmpArgLen::Dword, SeccompCmpOp::Ne, 0)
-                .map_err(|error| error.to_string())?;
-        rules.insert(
-            call,
-            vec![SeccompRule::new(vec![another_process]).map_err(|error| error.to_string())?],
-        );
-    }
-    let program = |rules, action| -> Result<BpfProgram, String> {
-        SeccompFilter::new(rules, SeccompAction::Allow, action, arch)
+    let program = |rules, mismatch, matched| -> Result<BpfProgram, String> {
+        SeccompFilter::new(rules, mismatch, matched, arch)
             .map_err(|error| error.to_string())?
             .try_into()
             .map_err(|error: seccompiler::BackendError| error.to_string())
     };
-    seccompiler::apply_filter(&program(rules, SeccompAction::Errno(libc::EPERM as u32))?)
-        .map_err(|error| error.to_string())?;
     let clone3 = [(libc::SYS_clone3, vec![])].into_iter().collect();
-    seccompiler::apply_filter(&program(clone3, SeccompAction::Errno(libc::ENOSYS as u32))?)
-        .map_err(|error| error.to_string())
+    seccompiler::apply_filter(&program(
+        clone3,
+        SeccompAction::Allow,
+        SeccompAction::Errno(libc::ENOSYS as u32),
+    )?)
+    .map_err(|error| error.to_string())?;
+
+    let condition = |arg, op, value| {
+        SeccompCondition::new(arg, SeccompCmpArgLen::Qword, op, value)
+            .and_then(|condition| SeccompRule::new(vec![condition]))
+            .map_err(|error| error.to_string())
+    };
+    // x86_64 adds `nanosleep`, which arm64 does not have.
+    #[cfg_attr(not(target_arch = "x86_64"), allow(unused_mut))]
+    let mut allowed = vec![
+        // stdin, stdout and stderr, which are open.
+        libc::SYS_read,
+        libc::SYS_write,
+        libc::SYS_writev,
+        libc::SYS_close,
+        // Memory.
+        libc::SYS_brk,
+        libc::SYS_mmap,
+        libc::SYS_munmap,
+        libc::SYS_mremap,
+        libc::SYS_mprotect,
+        libc::SYS_madvise,
+        // Threads and their locks.
+        libc::SYS_futex,
+        libc::SYS_sched_yield,
+        libc::SYS_sched_getaffinity,
+        libc::SYS_gettid,
+        libc::SYS_getpid,
+        libc::SYS_set_robust_list,
+        libc::SYS_exit,
+        libc::SYS_exit_group,
+        // The signals of this process (a panic or an abort).
+        libc::SYS_rt_sigaction,
+        libc::SYS_rt_sigprocmask,
+        libc::SYS_rt_sigreturn,
+        libc::SYS_sigaltstack,
+        // Time and random bytes.
+        libc::SYS_clock_gettime,
+        libc::SYS_clock_nanosleep,
+        libc::SYS_getrandom,
+        libc::SYS_clone3,
+    ];
+    #[cfg(target_arch = "x86_64")]
+    allowed.push(libc::SYS_nanosleep);
+    let mut rules: std::collections::BTreeMap<i64, Vec<SeccompRule>> =
+        allowed.into_iter().map(|call| (call, vec![])).collect();
+    rules.insert(
+        libc::SYS_clone,
+        vec![condition(
+            0,
+            SeccompCmpOp::MaskedEq(libc::CLONE_THREAD as u64),
+            libc::CLONE_THREAD as u64,
+        )?],
+    );
+    rules.insert(
+        libc::SYS_prlimit64,
+        vec![condition(0, SeccompCmpOp::Eq, 0)?],
+    );
+    seccompiler::apply_filter(&program(
+        rules,
+        SeccompAction::Errno(libc::EPERM as u32),
+        SeccompAction::Allow,
+    )?)
+    .map_err(|error| error.to_string())
 }
 
-/// No seccomp outside Linux: the worker runs on Linux, and a developer host
-/// relies on the limits of the caller.
 #[cfg(not(target_os = "linux"))]
 fn sandbox() -> Result<(), String> {
     Ok(())
@@ -664,6 +612,31 @@ mod tests {
                 -1,
                 "a read of the limits of another process works"
             );
+            // SAFETY: a shared-memory segment and a message queue that the
+            // filter refuses are not made.
+            assert_eq!(
+                unsafe { libc::shmget(libc::IPC_PRIVATE, 4096, libc::IPC_CREAT | 0o600) },
+                -1,
+                "a shared-memory segment is made"
+            );
+            assert_eq!(
+                unsafe {
+                    libc::syscall(
+                        libc::SYS_mq_open,
+                        c"ctxpipe-sandbox".as_ptr(),
+                        libc::O_CREAT | libc::O_RDWR,
+                        0o600,
+                        std::ptr::null::<libc::c_void>(),
+                    )
+                },
+                -1,
+                "a message queue is made"
+            );
+            assert_eq!(
+                std::io::Error::last_os_error().raw_os_error(),
+                Some(libc::EPERM),
+                "the message queue fails with another error"
+            );
             // SAFETY: a signal that the filter refuses goes nowhere.
             assert_eq!(
                 unsafe { libc::kill(1, 0) },
@@ -678,5 +651,44 @@ mod tests {
         })
         .join()
         .expect("the sandbox test thread");
+    }
+
+    #[test]
+    fn each_format_converts_within_the_sandbox() {
+        let fixture = |name: &str| {
+            std::fs::read(format!(
+                "{}/../src/knowledge-plane/fixtures/convert/{name}",
+                env!("CARGO_MANIFEST_DIR")
+            ))
+            .expect("a fixture of the backend")
+        };
+        let inputs: Vec<(&str, Vec<u8>)> = [
+            "sample.pdf",
+            "sample.docx",
+            "sample.pptx",
+            "sample.xlsx",
+            "sample.html",
+        ]
+        .into_iter()
+        .map(|name| (name.rsplit('.').next().unwrap_or(""), fixture(name)))
+        .chain([(
+            "svg",
+            br#"<svg xmlns="http://www.w3.org/2000/svg" width="80" height="20"><text x="2" y="15">Label</text></svg>"#
+                .to_vec(),
+        )])
+        .collect();
+        std::thread::spawn(move || {
+            super::sandbox().expect("the filters go on");
+            for (format, bytes) in inputs {
+                let value = super::convert(format, &bytes)
+                    .unwrap_or_else(|failure| panic!("{format}: {}", failure.message));
+                assert!(
+                    value["text"].as_str().is_some_and(|text| !text.is_empty()),
+                    "{format} gives no text"
+                );
+            }
+        })
+        .join()
+        .expect("the conversion thread");
     }
 }

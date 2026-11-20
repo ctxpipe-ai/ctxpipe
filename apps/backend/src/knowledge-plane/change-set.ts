@@ -17,6 +17,8 @@ export function knowledgeProjectionVersion(input: {
   root: string
   /** The version of the file converter (`converterVersion`). */
   converter: string
+  /** The vision model (`imageTextModel`). */
+  visionModel: string
 }): string {
   // Increase the code version when the parser, the chunking or the mapper
   // changes. 2: the reference keys of CTX-1400. 3: image vectors and the alt
@@ -24,15 +26,16 @@ export function knowledgeProjectionVersion(input: {
   // the tables again, empty (CTX-1417). 5: `valid_from` from the commit that
   // introduced the file (CTX-1421). 6: one text vector space, and an image
   // document has no chunk (CTX-1431). 7: files become text at projection
-  // time (CTX-1433). The converter version and the prompt version of the
-  // image text are part of it too: a new parser or prompt gives other text
-  // for the same bytes.
+  // time (CTX-1433). The converter version, the vision model and the prompt
+  // version of the image text are part of it too: a new parser, model or
+  // prompt gives other text for the same bytes.
   return JSON.stringify([
     7,
     input.embeddingModel,
     input.dimensions,
     input.root,
     input.converter,
+    input.visionModel,
     IMAGE_TEXT_PROMPT_VERSION,
   ])
 }

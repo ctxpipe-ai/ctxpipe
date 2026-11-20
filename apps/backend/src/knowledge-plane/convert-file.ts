@@ -6,7 +6,8 @@
 //
 // The input is untrusted, so the CLI runs in its own process: with its own
 // address-space and CPU limits (set before it reads the input), a seccomp
-// filter on Linux (no file, socket or program after the input is read), no
+// allowlist on Linux (after the input is read, only memory, threads, time
+// and stdin and stdout; no file, socket, program or process), no
 // environment, as the unprivileged user `nobody` when the worker is root, a
 // wall-clock limit, and caps on the input and the output.
 import { execFile, spawn } from "node:child_process"

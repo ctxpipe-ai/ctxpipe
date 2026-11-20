@@ -209,7 +209,7 @@ type KnowledgeGraph = {
 /** The reading of one image by one vision model (`image_texts`). */
 export type ImageTextRow = {
   blobSha: string
-  /** The model that answered. */
+  /** The vision model of the request (`MODEL_VISION_NAME`). */
   model: string
   promptVersion: number
   /** The JSON of the structured reading. */

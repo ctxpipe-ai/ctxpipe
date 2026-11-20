@@ -192,14 +192,6 @@ describe("imageTexts", () => {
     ).toBe(1)
   })
 
-  it("refuses a MODEL_VISION_NAME of only spaces before it calls a model", async () => {
-    vi.stubEnv("MODEL_VISION_NAME", "   ")
-    await expect(run([{ blobSha: "sha-1", label: "Cache" }])).rejects.toThrow(
-      "MODEL_VISION_NAME must name one OpenRouter model",
-    )
-    expect(visionCalls).toHaveLength(0)
-  })
-
   it("gives a failed reading its error, caches nothing, and tries again on the next run", async () => {
     answer = () => ({ status: 400 })
     const failed = counter()

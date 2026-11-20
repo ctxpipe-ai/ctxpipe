@@ -14,7 +14,6 @@
 // calls no model.
 import { z } from "zod"
 
-import { visionModelSchema } from "../config/env.js"
 import { assertNotInOrgDbContext } from "../db/client.js"
 import type {
   KnowledgeScope,
@@ -31,6 +30,7 @@ import {
   openRouterSettings,
   ZDR_PROVIDER,
 } from "../retrieval/services/modelProvider.js"
+import { visionModelFromEnv } from "../retrieval/services/modelTierSpecs.js"
 
 /**
  * The version of the prompt and the reading schema. A change of either
@@ -45,7 +45,7 @@ export const IMAGE_TEXT_PROMPT_VERSION = 1
  * the old ones correct, because the cache key holds the model.
  */
 export function imageTextModel(): string {
-  return visionModelSchema.parse(process.env.MODEL_VISION_NAME)
+  return visionModelFromEnv(process.env)
 }
 
 // scope-allow: the prompt stays beside its version, IMAGE_TEXT_PROMPT_VERSION.
@@ -240,8 +240,6 @@ export class VisionError extends Error {
 /** One reading, and the call that made it. */
 type ImageReadResult = {
   reading: ImageReading
-  /** The model that answered (the `model` of the answer). */
-  model: string
   /** The upstream provider that answered. */
   provider: string | null
   /** The cost that OpenRouter reports, or null when the answer has none. */
@@ -326,7 +324,6 @@ export async function readImage(
 }
 
 const answerSchema = z.object({
-  model: z.string(),
   provider: z.string().optional(),
   usage: z.unknown().optional(),
   choices: z
@@ -372,7 +369,6 @@ async function send(
     )
   return {
     reading: reading.data,
-    model: answer.data.model,
     provider: answer.data.provider ?? null,
     costUsd: gatewayCost(answer.data.usage) ?? null,
   }
@@ -454,7 +450,7 @@ export async function imageTexts(input: {
       await input.store.writeImageTexts(input.scope, [
         {
           blobSha,
-          // The model of the request: the key of the lookup. The answer can
+          // The model of the request, the key of the lookup: an answer can
           // name the model in another form (a dated id).
           model,
           promptVersion: IMAGE_TEXT_PROMPT_VERSION,

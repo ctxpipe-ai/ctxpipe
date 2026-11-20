@@ -163,7 +163,7 @@ const completion = (reading: ImageReading) =>
 describe("readImage", () => {
   const image = { bytes: Buffer.from("png-bytes"), mimeType: "image/png" }
 
-  it("sends a ZDR request for one model with no provider pin, and returns the reading, the model that answered and the cost", async () => {
+  it("sends a ZDR request for one model with no provider pin, and returns the reading, the provider and the cost", async () => {
     let body: Record<string, unknown> = {}
     server.use(
       http.post(`${BASE}/chat/completions`, async ({ request }) => {
@@ -175,7 +175,6 @@ describe("readImage", () => {
     const result = await readImage(image, { model: "vendor/model-a" })
     expect(result).toEqual({
       reading: graphReading,
-      model: "vendor/model-a",
       provider: "Azure",
       costUsd: 0.004,
     })
