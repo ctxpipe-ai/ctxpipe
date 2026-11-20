@@ -189,8 +189,8 @@ export async function measureLatency(input: {
       embedTexts([{ kind: "query", text: QUERY }]),
     ),
   })
-  // The body that the client sent: the pinned and the hedged requests send
-  // it with another provider block.
+  // The hedge sends the body of the last production sample, which the
+  // recorder kept: no extra call captures it.
   const clientBody = calls.records.findLast(
     (record) => record.kind === "embedding",
   )?.request
