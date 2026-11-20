@@ -118,6 +118,8 @@ export async function projectKnowledgePlane(input: {
   /** A store with the writer user. */
   store: KnowledgeStore
   observedAt: Date
+  /** The time of the hydrate that queued the run: the start of its lag. */
+  hydratedAt: Date
 }): Promise<KnowledgeRunSummary> {
   const key = { orgId: input.orgId, workspaceId: input.workspaceId }
   const projectionVersion = knowledgeProjectionVersion({
@@ -130,8 +132,10 @@ export async function projectKnowledgePlane(input: {
     state?.lastSha === input.tip &&
     state.attemptShas.length === 0 &&
     state.projectionVersion === projectionVersion
-  )
+  ) {
+    recordLag(0, "current")
     return { mode: "current" }
+  }
 
   const started = performance.now()
   return trace
@@ -143,10 +147,15 @@ export async function projectKnowledgePlane(input: {
       })
       let summary: KnowledgeRunSummary | undefined
       const counter: MutationCounter = { mutations: 0 }
-      /** Seconds from the commit of `last_sha` to that of the tip, at the start. */
+      /** Seconds from `pending_since` to the start of the run. */
       let lagSeconds: number | null = null
       try {
-        await beginKnowledgeRun({ ...key, tip: input.tip })
+        const pendingSince = await beginKnowledgeRun({
+          ...key,
+          tip: input.tip,
+          hydratedAt: input.hydratedAt,
+        })
+        lagSeconds = Math.max(0, (Date.now() - pendingSince.getTime()) / 1000)
         summary = await withGitDirectory(
           input.tip,
           async (directory) => {
@@ -155,9 +164,6 @@ export async function projectKnowledgePlane(input: {
               ...(state?.attemptShas ?? []),
             ]
             await fetchCommits(directory, input.remote, input.tip, earlier)
-            lagSeconds = state?.lastSha
-              ? await commitLag(directory, state.lastSha, input.tip)
-              : null
             const plan = await planKnowledgeChangeSet({
               directory,
               root: input.root,
@@ -723,26 +729,6 @@ async function fetchCommits(
   }
 }
 
-/** Seconds from the commit time of `from` to that of `to`, or null. */
-async function commitLag(
-  directory: string,
-  from: string,
-  to: string,
-): Promise<number | null> {
-  const time = async (sha: string) =>
-    Number(
-      (await nativeGit(directory, ["show", "-s", "--format=%ct", sha]))
-        .toString()
-        .trim(),
-    )
-  try {
-    return Math.max(0, (await time(to)) - (await time(from)))
-  } catch {
-    // The commit of `from` is missing.
-    return null
-  }
-}
-
 /** Each regular file of the root folder at `sha` → its blob id. */
 export async function regularFiles(
   directory: string,
@@ -766,6 +752,25 @@ export async function regularFiles(
         return match?.[2] && path ? [[path, match[2]] as const] : []
       }),
   )
+}
+
+/**
+ * The lag of a Workspace at the start of a run (ADR-067 decision 11): the
+ * wall-clock time since the hydrate of the oldest tip that no completed run
+ * applied. A Workspace that is current has 0.
+ */
+function recordLag(
+  seconds: number,
+  outcome: "completed" | "failed" | "current",
+): void {
+  metrics
+    .getMeter("ctxpipe-backend")
+    .createHistogram("knowledge.projection.lag", {
+      description:
+        "Time since the hydrate of the oldest tip that no run applied, at run start",
+      unit: "s",
+    })
+    .record(seconds, { outcome })
 }
 
 /**
@@ -804,12 +809,7 @@ function recordRun(input: {
     "ctxpipe.knowledge.mutations": input.mutations,
   }
   if (input.lagSeconds !== null) {
-    meter
-      .createHistogram("knowledge.projection.lag", {
-        description: "From the commit of last_sha to the tip, at run start",
-        unit: "s",
-      })
-      .record(input.lagSeconds, { outcome })
+    recordLag(input.lagSeconds, outcome)
     fields["ctxpipe.knowledge.lag_s"] = input.lagSeconds
   }
   if (summary?.mode === "delta" || summary?.mode === "full") {

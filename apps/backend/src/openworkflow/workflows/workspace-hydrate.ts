@@ -220,6 +220,7 @@ export function defineWorkspaceHydrateWorkflow() {
           await enqueueWorkflow(knowledgeProjection.spec, {
             orgId: input.orgId,
             workspaceId: input.workspaceId,
+            hydratedAt: new Date().toISOString(),
           })
           return true
         })

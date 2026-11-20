@@ -127,7 +127,7 @@ async function setReady(ready: boolean) {
       ),
   )
   if (!ready) return
-  await beginKnowledgeRun({ orgId: seed.orgId, workspaceId, tip: servedSha })
+  await beginKnowledgeRun({ orgId: seed.orgId, workspaceId, tip: servedSha, hydratedAt: new Date() })
   await completeKnowledgeRun({
     orgId: seed.orgId,
     workspaceId,

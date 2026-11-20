@@ -27,6 +27,14 @@ export const knowledgeState = pgTable.withRLS(
     runStatus: text("run_status")
       .$type<"running" | "completed" | "failed">()
       .notNull(),
+    /**
+     * The hydrate time of the oldest tip that no completed run applied
+     * (ADR-067 decision 11); null when the projection is current.
+     */
+    pendingSince: timestamp("pending_since", {
+      withTimezone: true,
+      mode: "date",
+    }),
     /** The count of `failed` documents after the last completed run. */
     failedCount: integer("failed_count").notNull().default(0),
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })

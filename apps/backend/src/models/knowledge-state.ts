@@ -65,11 +65,16 @@ export async function readyKnowledgeShas(
  * nothing. The Workspace must belong to the org: the foreign key does not
  * check the org, so without this check an org could take the row of a
  * Workspace of another org.
+ *
+ * Returns `pending_since`, the start of the lag (ADR-067 decision 11). An
+ * earlier run that did not complete keeps its value. Else it is `hydratedAt`,
+ * but not before the last completed run: a queued run of an old hydrate can
+ * apply a newer tip after that run.
  */
 export async function beginKnowledgeRun(
-  input: KnowledgeStateKey & { tip: string },
-): Promise<void> {
-  await withOrgDbContext(input.orgId, async (db) => {
+  input: KnowledgeStateKey & { tip: string; hydratedAt: Date },
+): Promise<Date> {
+  return withOrgDbContext(input.orgId, async (db) => {
     const [workspace] = await db
       .select({ id: workspaces.id })
       .from(workspaces)
@@ -83,28 +88,35 @@ export async function beginKnowledgeRun(
       throw new Error(
         `The org ${input.orgId} has no Workspace ${input.workspaceId}`,
       )
-    await db
+    const [row] = await db
       .insert(knowledgeState)
       .values({
         workspaceId: input.workspaceId,
         organizationId: input.orgId,
         attemptShas: [input.tip],
         runStatus: "running",
+        pendingSince: input.hydratedAt,
       })
       .onConflictDoUpdate({
         target: knowledgeState.workspaceId,
         set: {
           attemptShas: sql`case when ${input.tip} = any(${knowledgeState.attemptShas}) then ${knowledgeState.attemptShas} else array_append(${knowledgeState.attemptShas}, ${input.tip}::text) end`,
+          // `updated_at` of a completed row is the time of its completion.
+          pendingSince: sql`coalesce(${knowledgeState.pendingSince}, greatest(${input.hydratedAt.toISOString()}::timestamptz, case when ${knowledgeState.runStatus} = 'completed' then ${knowledgeState.updatedAt} end))`,
           runStatus: "running",
           updatedAt: new Date(),
         },
       })
+      .returning({ pendingSince: knowledgeState.pendingSince })
+    if (!row?.pendingSince)
+      throw new Error(`The Workspace ${input.workspaceId} has no pending_since`)
+    return row.pendingSince
   })
 }
 
 /**
  * Record a run that applied all of its work: `last_sha` moves to the tip,
- * and `attempt_shas` becomes empty, in one update.
+ * and `attempt_shas` and `pending_since` become empty, in one update.
  */
 export async function completeKnowledgeRun(
   input: KnowledgeStateKey & {
@@ -117,6 +129,7 @@ export async function completeKnowledgeRun(
   await updateState(input, {
     lastSha: input.tip,
     attemptShas: [],
+    pendingSince: null,
     projectionVersion: input.projectionVersion,
     runStatus: "completed",
     failedCount: input.failedCount,
