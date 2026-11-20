@@ -151,10 +151,10 @@ export function createBetterAuth() {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean)
+  const githubOAuth = githubOAuthUrls(env)
   // Email/password accounts verify their address before signing in. Not on
   // PR previews (throwaway test accounts), and not without an email
   // transport, where mail is only logged and nobody could verify.
-  const githubOAuth = githubOAuthUrls(env)
   const canSendEmail = emailTransport(env) !== undefined
   const requireEmailVerification =
     canSendEmail && !isPreviewDeployment(process.env)

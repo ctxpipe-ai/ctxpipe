@@ -1,6 +1,5 @@
 import { inArray } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
-import { setupServer } from "msw/node"
 import {
   afterAll,
   afterEach,
@@ -12,6 +11,7 @@ import {
   vi,
 } from "vitest"
 
+import { useMswServer } from "../../test/msw.js"
 import { closeDb, getSystemDb, initDb } from "../db/client.js"
 import { users } from "../db/schema/auth.js"
 import { getAuth, resetBetterAuthForTests } from "./config.js"
@@ -30,7 +30,7 @@ const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 
 const githubEmail = `forwarder-github-${suffix}@example.com`
 
 let tokenRequests: URLSearchParams[] = []
-const github = setupServer(
+useMswServer(
   http.post(
     "https://github.com/login/oauth/access_token",
     async ({ request }) => {
@@ -95,7 +95,6 @@ describe("GitHub sign-in through an OAuth forwarder (Postgres)", () => {
       throw new Error("DATABASE_URL is unset: this test needs Postgres")
     }
     initDb(process.env.DATABASE_URL)
-    github.listen({ onUnhandledRequest: "bypass" })
   })
 
   beforeEach(() => {
@@ -116,7 +115,6 @@ describe("GitHub sign-in through an OAuth forwarder (Postgres)", () => {
   })
 
   afterAll(async () => {
-    github.close()
     await getSystemDb()
       .delete(users)
       .where(inArray(users.email, [githubEmail]))

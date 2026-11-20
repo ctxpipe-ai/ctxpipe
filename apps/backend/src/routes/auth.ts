@@ -14,6 +14,7 @@ import {
   githubInstallationProofCallback,
   isGithubInstallationProofState,
 } from "../auth/github-installation-proof.js"
+import { githubOAuthUrls } from "../auth/github-oauth-urls.js"
 import { MCP_SCOPES } from "../auth/mcp-scopes.js"
 import {
   logOAuthError,
@@ -81,7 +82,11 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
       .filter(([, value]) => value)
       .map(([provider]) => provider)
 
-    return c.json({ providers: socialProviders })
+    return c.json({
+      providers: socialProviders,
+      // The UI sends a user only to this GitHub authorize page.
+      githubAuthorizeUrl: githubOAuthUrls(c.var.env).authorizeUrl,
+    })
   })
 
   app.get("/.auth/api/v1/public/invitations/:invitationId", async (c) => {

@@ -8,6 +8,7 @@ import {
 import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
 import { client } from "@/lib/api"
 import { ApiError, readApiJson } from "@/lib/api-result"
+import { authConfigQuery } from "@/lib/useGetAuthConfig"
 
 /**
  * Shared key for the GitHub setup popup to relay `installation_id` back to the
@@ -130,9 +131,14 @@ export function consumeGithubSetupOrgHint() {
 
 /**
  * The GitHub authorize address of a `github_authorization_required` refusal,
- * or `null`. The page goes there only when it is GitHub's authorize page.
+ * or `null`. The page goes there only when it is the deployment's GitHub
+ * authorize page: `authorizePage` from `/.auth/api/config`, GitHub's own
+ * when the deployment has no OAuth forwarder.
  */
-export function githubAuthorizeUrlOf(error: unknown): string | null {
+export function githubAuthorizeUrlOf(
+  error: unknown,
+  authorizePage = "https://github.com/login/oauth/authorize",
+): string | null {
   if (
     !(error instanceof ApiError) ||
     error.body.why !== "github_authorization_required" ||
@@ -141,8 +147,10 @@ export function githubAuthorizeUrlOf(error: unknown): string | null {
     return null
   try {
     const url = new URL(error.body.authorizeUrl)
-    return url.origin === "https://github.com" &&
-      url.pathname === "/login/oauth/authorize"
+    const page = new URL(authorizePage)
+    return url.protocol === "https:" &&
+      url.origin === page.origin &&
+      url.pathname === page.pathname
       ? url.toString()
       : null
   } catch {
@@ -321,7 +329,11 @@ export async function handleGithubSetupPopupResult(
             await readApiJson(response)
             status = "registered"
           } catch (e) {
-            const authorizeUrl = githubAuthorizeUrlOf(e)
+            const authorizeUrl = githubAuthorizeUrlOf(
+              e,
+              (await queryClient.ensureQueryData(authConfigQuery))
+                .githubAuthorizeUrl,
+            )
             if (
               !authorizeUrl &&
               !(

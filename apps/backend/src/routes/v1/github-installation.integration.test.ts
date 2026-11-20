@@ -471,6 +471,15 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
       expect(url.searchParams.get("redirect_uri")).toBe(
         "https://forwarder.example.test/github/callback",
       )
+      // The UI sends the user only to the authorize page that the deployment
+      // names.
+      const config = await forwarded.request(
+        "http://backend.test/.auth/api/config",
+      )
+      expect(
+        ((await config.json()) as { githubAuthorizeUrl?: string })
+          .githubAuthorizeUrl,
+      ).toBe("https://forwarder.example.test/github/authorize/pr-12")
 
       const done = await forwarded.request(
         `http://backend.test/.auth/api/v1/auth/callback/github?${new URLSearchParams({ code: "code-visible", state: url.searchParams.get("state") ?? "" })}`,

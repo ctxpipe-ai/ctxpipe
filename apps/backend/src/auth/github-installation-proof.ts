@@ -29,8 +29,8 @@ import { hasOrgAdminOrOwnerRole } from "./withAuth.js"
  * token, and no account link is made or changed.
  *
  * The callback uses the redirect URI of GitHub sign-in, because that is the
- * callback URL that the App lists ({@link githubOAuthUrls}). The `state` prefix tells the two flows
- * apart.
+ * callback URL that the App lists ({@link githubOAuthUrls}). The `state`
+ * prefix tells the two flows apart.
  */
 const STATE_PREFIX = "gh-installation."
 
