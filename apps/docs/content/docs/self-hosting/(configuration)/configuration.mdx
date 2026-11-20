@@ -61,6 +61,8 @@ All social providers are optional. Omit the variables to disable that provider.
 |---|---|
 | `GITHUB_CLIENT_ID` | Client ID of the GitHub App (sign-in, and the check that a user can access an installation) |
 | `GITHUB_CLIENT_SECRET` | Client secret of the GitHub App |
+| `GITHUB_AUTHORIZE_URL` | Optional. The authorize URL of GitHub sign-in when an OAuth forwarder serves it. Set it together with `GITHUB_REDIRECT_URI`. Default: GitHub's authorize URL |
+| `GITHUB_REDIRECT_URI` | Optional. The callback URL that the GitHub App lists, when an OAuth forwarder serves it. Default: `{AUTH_BASE_URL}/.auth/api/v1/auth/callback/github` |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
 | `MICROSOFT_CLIENT_ID` | Microsoft Entra application client ID |
@@ -79,6 +81,7 @@ behavior.
 | `MODEL_BEDROCK_AWS_REGION` | Optional explicit region for native Bedrock; otherwise use the AWS runtime region. |
 | `MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, `MODEL_HIGH_NAME` | Optional model names per tier. |
 | `MODEL_EMBEDDING_NAME` | Optional embedding model ID. |
+| `MODEL_VISION_NAME` | Optional. The one OpenRouter model that reads images for the knowledge plane (default `openai/gpt-6.1-terra`). It must take image input and have a ZDR endpoint on OpenRouter. |
 
 See [Model configuration](/docs/self-hosting/models) for provider-specific
 examples and embedding requirements.

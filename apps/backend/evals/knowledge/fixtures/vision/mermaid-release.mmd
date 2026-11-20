@@ -1,0 +1,10 @@
+flowchart LR
+    subgraph build [Build stage]
+        commit[Commit pushed] --> compile[Compile] --> unit[Unit tests]
+    end
+    subgraph release [Release stage]
+        tag[Tag release] --> sign[Sign artifacts] --> publish[Publish to registry]
+    end
+    unit -->|green| tag
+    unit -->|red| alert[Alert the author]
+    publish --> announce[Post release notes]

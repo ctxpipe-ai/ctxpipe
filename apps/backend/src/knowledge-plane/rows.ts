@@ -273,30 +273,50 @@ export function knowledgeRows(input: {
 }
 
 /**
- * The rows of the `image` document of the image file at `path`. Its key is
- * its path, and its bytes stay in the Workspace Git (ADR-066 decision 6).
+ * The rows of a file that is not a knowledge file: a document (PDF, DOCX,
+ * PPTX, XLSX, HTML) or an image (CTX-1433). `text` is the text of the
+ * converter, or of the vision model for an image (ADR-066 decision 6). The
+ * text gets the chunks of a knowledge file, with the file name as the
+ * title. The document states no relation: the alt text of an image belongs
+ * to the file that shows it (ADR-066 decision 5).
  */
-export function imageRows(input: {
+export function fileRows(input: {
   workspaceId: string
   path: string
+  kind: "document" | "image"
+  mime: string
+  text: string
+  /** A note on the text, for example the PDF pages with no text layer. */
+  summary?: string
   observedAt: Date
 }): UnembeddedDocumentRows {
   const { path, observedAt } = input
+  const docKey = servingIdForKnowledgePath(input.workspaceId, path)
+  const title = path.slice(path.lastIndexOf("/") + 1)
+  // The rows hold no chunk hash, so the embedding model is not an input here.
+  const chunks = knowledgeChunkRows(
+    [{ servingId: docKey, body: input.text, title }],
+    "",
+  ).map(({ ordinal, text, startLine, endLine }) => ({
+    ordinal,
+    text,
+    startLine,
+    endLine,
+  }))
+  if (!chunks.length)
+    chunks.push({ ordinal: 0, text: title, startLine: 1, endLine: 1 })
   return {
     document: {
       ...documentDefaults(observedAt),
-      docKey: servingIdForKnowledgePath(input.workspaceId, path),
-      kind: "image",
-      title: path.slice(path.lastIndexOf("/") + 1),
+      docKey,
+      kind: input.kind,
+      title,
       path,
       sourceType: sourceAuthority({ path }),
-      mime: imageContentType(path) ?? "",
+      mime: input.mime,
+      summary: input.summary ?? "",
     },
-    // No chunk and no vector: the search finds the image through the text
-    // file that ingest writes beside it (ADR-066 decision 6). The alt text
-    // belongs to the file that shows the image, and two files can give one
-    // image different alt texts (ADR-066 decision 5).
-    chunks: [],
+    chunks,
     relations: [],
   }
 }

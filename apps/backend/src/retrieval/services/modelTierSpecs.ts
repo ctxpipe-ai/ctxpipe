@@ -21,6 +21,16 @@ export const modelNameShape = {
     .default("openai/gpt-6-luna?reasoning.effort=xhigh"),
   MODEL_HIGH_NAME: z.string().default("xiaomi/mimo-v2.6-pro"),
   MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
+  /**
+   * The one OpenRouter model that reads the images of the knowledge plane
+   * (ADR-068 decision 6). The default is the choice of the vision eval. It
+   * must take image input and a JSON schema, and have a ZDR endpoint.
+   */
+  MODEL_VISION_NAME: z
+    .string()
+    .trim()
+    .min(1, "MODEL_VISION_NAME must name one OpenRouter model")
+    .default("openai/gpt-6.1-terra"),
 }
 
 const modelNamesSchema = z.preprocess(
@@ -38,6 +48,13 @@ export function tierModelSpec(
   if (tier === "fast") return env.MODEL_FAST_NAME
   if (tier === "medium") return env.MODEL_MEDIUM_NAME
   return env.MODEL_HIGH_NAME
+}
+
+/** The vision model of an environment (`MODEL_VISION_NAME`, else its default). */
+export function visionModelFromEnv(
+  env: Record<string, string | undefined>,
+): string {
+  return modelNamesSchema.parse(env).MODEL_VISION_NAME
 }
 
 /** The model spec of a tier for an environment, with the shared defaults. */

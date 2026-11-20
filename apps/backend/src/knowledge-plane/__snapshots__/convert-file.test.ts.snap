@@ -1,0 +1,94 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`convertFile > converts sample.docx to Markdown 1`] = `
+{
+  "imageOnlyPages": [],
+  "kind": "text",
+  "text": "# Incident review: cache outage
+
+The cache cluster lost its primary at 09:12 UTC.
+
+1. Fail over to the replica
+2. Rebuild the primary
+3. Write the postmortem
+
+| Metric | Value |
+| --- | --- |
+| Downtime | 14 minutes |
+| Requests lost | 0 |
+",
+}
+`;
+
+exports[`convertFile > converts sample.html to Markdown 1`] = `
+{
+  "imageOnlyPages": [],
+  "kind": "text",
+  "text": "# Deploy guide
+
+Run \`make deploy\` from the **main** branch.
+
+*   Check the dashboard
+*   Watch the error rate
+
+| Stage | Time  |
+| ----- | ----- |
+| Build | 4 min |
+",
+}
+`;
+
+exports[`convertFile > converts sample.pdf to Markdown 1`] = `
+{
+  "imageOnlyPages": [],
+  "kind": "text",
+  "text": "Runbook: rotate the signing key
+
+1. Create the new key.
+
+2. Publish the public key.
+3. Retire the old key after 24 hours.
+",
+}
+`;
+
+exports[`convertFile > converts sample.pptx to Markdown 1`] = `
+{
+  "imageOnlyPages": [],
+  "kind": "text",
+  "text": "## Roadmap Q3
+
+- Search ranking
+- Image text
+
+> Say that the dates are estimates.
+
+## Risks
+
+- Vision model cost
+- Parser edge cases
+
+> Ask for the budget.
+",
+}
+`;
+
+exports[`convertFile > converts sample.xlsx to Markdown 1`] = `
+{
+  "imageOnlyPages": [],
+  "kind": "text",
+  "text": "## Budget
+
+| Item | Cost |
+| --- | --- |
+| Vision calls | 120.5 |
+| Embeddings | 30 |
+
+## Plan
+
+| Milestone | Date |
+| --- | --- |
+| Converter ships | 2026-12-01 |
+",
+}
+`;

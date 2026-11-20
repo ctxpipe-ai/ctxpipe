@@ -7,6 +7,7 @@ import { expect, userEvent, waitFor, within } from "storybook/test"
 
 import { responseGate } from "@/components/ui/skeletonMatchStory"
 import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
+import { waitForGraphReady } from "@/features/knowledge-graph/graphReadyStory"
 import { signedInHandlers } from "@/mocks/handlers"
 import {
   conversationDetailLoadingHandler,
@@ -1678,17 +1679,11 @@ export const GraphPane: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    const page = within(canvasElement.ownerDocument.body)
-    // The graph shows when its layout has stopped. Then the control to
-    // play the layout again shows.
-    await page.findByRole(
-      "button",
-      { name: "Play layout" },
-      // The layout runs in WebGL. The screenshot container renders WebGL on
-      // the CPU: with one CPU, the 300 steps took up to 41 s. The bound is
-      // about 2x that, and less than the 120 s of the runner for each story.
-      { timeout: 80_000 },
-    )
+    const body = canvasElement.ownerDocument.body
+    // With reduced motion, the graph shows when its layout has stopped.
+    // Then the control to play the layout again shows.
+    await waitForGraphReady(body)
+    within(body).getByRole("button", { name: "Play layout" })
   },
 }
 

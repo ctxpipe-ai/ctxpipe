@@ -74,12 +74,9 @@ async function prove() {
     const directory = join(out, `run-${run}`)
     const started = Date.now()
     // Run 1 uses one container; run 2 uses the default count of containers.
-    const shots = await captureInContainer(
-      plan,
-      directory,
-      "desktop",
-      run === 1 ? 1 : undefined,
-    )
+    const shots = await captureInContainer(plan, directory, {
+      workers: run === 1 ? 1 : undefined,
+    })
     process.stdout.write(
       `Run ${run}: ${((Date.now() - started) / 1000).toFixed(0)} s.\n`,
     )

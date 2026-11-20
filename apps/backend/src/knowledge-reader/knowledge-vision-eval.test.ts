@@ -3,7 +3,16 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { HttpResponse, http } from "msw"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
+import { z } from "zod"
 
 import { ModelCalls } from "../../evals/knowledge/model-calls.js"
 import {
@@ -12,11 +21,14 @@ import {
   runVision,
   scoreReading,
 } from "../../evals/knowledge/vision.js"
+import { buildConverter } from "../../test/converter.js"
 import { useMswServer } from "../../test/msw.js"
 import type { ImageReading } from "../knowledge-plane/image-text.js"
 
 const BASE = "https://openrouter.test/api/v1"
 const server = useMswServer()
+// The SVG fixtures go through the real converter, as in the projection.
+beforeAll(buildConverter, 900_000)
 
 beforeEach(() => {
   vi.stubEnv("MODEL_PROVIDER", "openrouter")
@@ -273,10 +285,12 @@ describe("runVision", () => {
         }),
       ),
       http.post(`${BASE}/chat/completions`, async ({ request }) => {
-        const body = (await request.json()) as {
-          model: string
-          messages: { content: unknown }[]
-        }
+        const body = z
+          .object({
+            model: z.string(),
+            messages: z.array(z.unknown()),
+          })
+          .parse(await request.json())
         bodies.push(body)
         if (body.model === "vendor/broken")
           return HttpResponse.json({ error: {} }, { status: 400 })
@@ -284,6 +298,7 @@ describe("runVision", () => {
           /base64,([A-Za-z0-9+/=]+)/,
         )?.[1]
         return HttpResponse.json({
+          model: body.model,
           provider: "Alpha",
           choices: [
             {
@@ -307,8 +322,8 @@ describe("runVision", () => {
         now: new Date("2026-11-20T00:00:00Z"),
       })
       const [good, broken] = result.summaries
-      expect(readings.size).toBe(17)
-      expect(bodies).toHaveLength(34)
+      expect(readings.size).toBe(19)
+      expect(bodies).toHaveLength(38)
       expect(good).toMatchObject({
         model: "vendor/good",
         nodeF1: 1,
@@ -326,11 +341,11 @@ describe("runVision", () => {
       expect(good?.costPerImageUsd).toBeCloseTo(0.01)
       // A failed call with no reported cost keeps the reserved cost.
       expect(broken).toMatchObject({
-        failed: 17,
+        failed: 19,
         edgeF1: null,
-        costPerImageUsd: 0.25,
         zdrEndpoints: [],
       })
+      expect(broken?.costPerImageUsd).toBeCloseTo(0.05)
       expect(calls.spentUsd).toBeGreaterThan(0)
       const report = await readFile(join(out, "vision.md"), "utf8")
       expect(report).toContain("| vendor/good | 1.00 | 1.00 |")

@@ -22,9 +22,10 @@ import "../src/styles.css"
 // every request"). A request that no handler answers fails with a network
 // error, and the play runner (scripts/ci/storybook-play.mjs) fails the story
 // that made it. A static asset (a script, a style, a font, an image, a
-// WebAssembly module) of the Storybook server or of a CDN goes to the
-// network. An API path (`/api/`) is never an asset, also when it ends in
-// `.md` or `.json`.
+// WebAssembly module) goes on to the network. There the play runner serves
+// a file of the Storybook server, and fails the story for a request to
+// another host. An API path (`/api/`) is never an asset, also when it ends
+// in `.md` or `.json`.
 const unhandledRequests: string[] = []
 // MSW calls `onUnhandledRequest` for a WebSocket only when no `ws` handler
 // exists. When a story has one, MSW gives each socket to the `ws` handlers,

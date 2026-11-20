@@ -1,0 +1,35 @@
+[package]
+name = "ctxpipe-convert"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "Converts one file (PDF, DOCX, PPTX, XLSX, HTML, SVG) to text for the ctxpipe knowledge plane"
+
+# Exact versions: the same bytes give the same text only with the same
+# parsers. build.rs puts a hash of Cargo.lock, the source and the font in
+# the version (`--version`), which is part of the projection version
+# (ADR-067): a change of any of them starts a full rebuild.
+[dependencies]
+anydoc = "=0.2.5"
+pdf-inspector = "=1.26.1"
+htmd = "=0.6.0"
+resvg = "=0.50.0"
+roxmltree = "=0.21.2"
+base64 = "=0.23.1"
+serde_json = "=1.0.154"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+seccompiler = "=0.5.0"
+
+[build-dependencies]
+sha2 = "=0.11.1"
+
+[profile.release]
+lto = "thin"
+strip = "symbols"
+codegen-units = 1
+panic = "abort"

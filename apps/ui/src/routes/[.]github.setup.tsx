@@ -22,6 +22,7 @@ import {
   getActiveGithubPopupFlowState,
   githubAuthorizeUrlOf,
 } from "@/lib/popup"
+import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
 
 export const Route = createFileRoute("/.github/setup")({
   ssr: false,
@@ -154,6 +155,7 @@ export function ConnectGithubView({
 }: ConnectGithubViewProps) {
   const navigate = useNavigate()
 
+  const { data: authConfig, isPending: authConfigPending } = useGetAuthConfig()
   const { mutate, error, isIdle } = useMutation({
     scope: { id: `installation-${installationId}` },
     mutationFn: async (orgSlug: string) => {
@@ -193,7 +195,10 @@ export function ConnectGithubView({
 
   // Someone can send this address to the user, so the user confirms the org
   // before GitHub, which can skip its own consent screen.
-  const authorizeUrl = githubAuthorizeUrlOf(error)
+  const authorizeUrl = githubAuthorizeUrlOf(
+    error,
+    authConfig?.githubAuthorizeUrl,
+  )
   if (authorizeUrl) {
     return (
       <AppShell>
@@ -243,7 +248,7 @@ export function ConnectGithubView({
           <h1 className="text-3xl font-medium tracking-tight text-foreground">
             Link GitHub installation
           </h1>
-          {error ? (
+          {error && !authConfigPending ? (
             <div className="mt-8">
               <InlineAlert
                 variant="error"

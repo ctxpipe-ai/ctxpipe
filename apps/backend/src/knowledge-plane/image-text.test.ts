@@ -1,5 +1,6 @@
 import { HttpResponse, http } from "msw"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { z } from "zod"
 
 import { useMswServer } from "../../test/msw.js"
 import {
@@ -153,25 +154,32 @@ describe("imageText", () => {
 
 const completion = (reading: ImageReading) =>
   HttpResponse.json({
+    model: "vendor/model-a",
     provider: "Azure",
     choices: [{ message: { content: JSON.stringify(reading) } }],
+    usage: { cost: 0.004 },
   })
 
 describe("readImage", () => {
   const image = { bytes: Buffer.from("png-bytes"), mimeType: "image/png" }
 
-  it("sends a ZDR request with no provider pin, and returns the reading", async () => {
+  it("sends a ZDR request for one model with no provider pin, and returns the reading, the provider and the cost", async () => {
     let body: Record<string, unknown> = {}
     server.use(
       http.post(`${BASE}/chat/completions`, async ({ request }) => {
-        body = (await request.json()) as Record<string, unknown>
+        body = z.record(z.string(), z.unknown()).parse(await request.json())
         expect(request.headers.get("authorization")).toBe("Bearer test-key")
         return completion(graphReading)
       }),
     )
     const result = await readImage(image, { model: "vendor/model-a" })
-    expect(result).toEqual({ reading: graphReading, provider: "Azure" })
+    expect(result).toEqual({
+      reading: graphReading,
+      provider: "Azure",
+      costUsd: 0.004,
+    })
     expect(body.model).toBe("vendor/model-a")
+    expect(body.models).toBeUndefined()
     expect(body.provider).toEqual({
       data_collection: "deny",
       zdr: true,
@@ -229,6 +237,7 @@ describe("readImage", () => {
     server.use(
       http.post(`${BASE}/chat/completions`, () =>
         HttpResponse.json({
+          model: "vendor/model-a",
           choices: [{ message: { content: '{"description": 3}' } }],
         }),
       ),

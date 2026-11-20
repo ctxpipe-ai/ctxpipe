@@ -38,6 +38,7 @@ beforeEach(() => {
     removeItem: (key: string) => store.delete(key),
   })
   vi.stubGlobal("window", { location: { assign } })
+  serveAuthConfig("https://github.com/login/oauth/authorize")
   const fetchWithOrigin = globalThis.fetch
   vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
     fetchWithOrigin(
@@ -56,6 +57,15 @@ afterEach(() => {
 afterAll(() => {
   server.close()
 })
+
+/** The deployment's `/.auth/api/config`, with its GitHub authorize page. */
+function serveAuthConfig(githubAuthorizeUrl: string) {
+  server.use(
+    http.get("*/.auth/api/config", () =>
+      HttpResponse.json({ providers: ["github"], githubAuthorizeUrl }),
+    ),
+  )
+}
 
 function refuseRegistration(why: string, authorizeUrl?: string) {
   server.use(
@@ -86,6 +96,44 @@ describe("handleGithubSetupPopupResult", () => {
 
     expect(status).toBe("redirected")
     expect(assign).toHaveBeenCalledWith(authorizeUrl)
+  })
+
+  it("sends the user to the deployment's own authorize page, behind an OAuth forwarder", async () => {
+    const forwarded =
+      "https://forwarder.example.test/github/authorize/pr-12?client_id=Iv1.test&state=s1"
+    serveAuthConfig("https://forwarder.example.test/github/authorize/pr-12")
+    localStorage.setItem(
+      GITHUB_SETUP_RESULT_KEY,
+      JSON.stringify({ installationId: 42 }),
+    )
+    refuseRegistration("github_authorization_required", forwarded)
+
+    const { status } = await handleGithubSetupPopupResult(
+      "acme",
+      new QueryClient(),
+    )
+
+    expect(status).toBe("redirected")
+    expect(assign).toHaveBeenCalledWith(forwarded)
+  })
+
+  it("goes nowhere when the refusal names another page than the deployment's", async () => {
+    localStorage.setItem(
+      GITHUB_SETUP_RESULT_KEY,
+      JSON.stringify({ installationId: 42 }),
+    )
+    refuseRegistration(
+      "github_authorization_required",
+      "https://forwarder.example.test/github/authorize/pr-12?state=s1",
+    )
+
+    const { status } = await handleGithubSetupPopupResult(
+      "acme",
+      new QueryClient(),
+    )
+
+    expect(status).toBe("registration_failed")
+    expect(assign).not.toHaveBeenCalled()
   })
 
   it("sends the user to /.github/setup when the deployment cannot ask GitHub", async () => {
@@ -163,6 +211,21 @@ describe("githubAuthorizeUrlOf", () => {
       undefined,
     ]) {
       expect(githubAuthorizeUrlOf(refusal(url))).toBeNull()
+    }
+  })
+
+  it("accepts only the deployment's authorize page when it has an OAuth forwarder", () => {
+    const page = "https://forwarder.example.test/github/authorize/pr-12"
+    expect(githubAuthorizeUrlOf(refusal(`${page}?state=s1`), page)).toBe(
+      `${page}?state=s1`,
+    )
+    for (const url of [
+      authorizeUrl,
+      "https://forwarder.example.test/github/authorize/pr-13?state=s1",
+      "http://forwarder.example.test/github/authorize/pr-12?state=s1",
+      "https://forwarder.example.test.evil.test/github/authorize/pr-12",
+    ]) {
+      expect(githubAuthorizeUrlOf(refusal(url), page)).toBeNull()
     }
   })
 

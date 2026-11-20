@@ -31,6 +31,7 @@ import { emailTransport } from "../email/configured.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import { apiKeyLifecycleEvents } from "./api-key-events.js"
+import { githubOAuthUrls } from "./github-oauth-urls.js"
 import { invitationEmailLink } from "./invitation-email-url.js"
 import { MCP_READ_SCOPE, MCP_WRITE_SCOPE } from "./mcp-scopes.js"
 import { resolveOAuthGrantReference } from "./oauth-grants.js"
@@ -303,7 +304,8 @@ export function createBetterAuth() {
           ? {
               clientId: env.GITHUB_CLIENT_ID,
               clientSecret: env.GITHUB_CLIENT_SECRET,
-              redirectURI: `${env.AUTH_BASE_URL}/.auth/api/v1/auth/callback/github`,
+              authorizationEndpoint: githubOAuthUrls(env).authorizeUrl,
+              redirectURI: githubOAuthUrls(env).redirectUri,
             }
           : undefined,
       google:

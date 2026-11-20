@@ -6,6 +6,7 @@ import { type ComponentProps, useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
 import { Button } from "@/components/ui/Button"
+import { waitForGraphReady } from "@/features/knowledge-graph/graphReadyStory"
 import { signedInHandlers } from "@/mocks/handlers"
 import {
   conversationFilePutHandler,
@@ -950,17 +951,10 @@ export const Graph: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    // The graph shows when its layout has stopped. Then the control to
-    // play the layout again shows.
-    await canvas.findByRole(
-      "button",
-      { name: "Play layout" },
-      // The layout runs in WebGL. The screenshot container renders WebGL on
-      // the CPU: with one CPU, the 300 steps took up to 41 s. The bound is
-      // about 2x that, and less than the 120 s of the runner for each story.
-      { timeout: 80_000 },
-    )
+    // With reduced motion, the graph shows when its layout has stopped.
+    // Then the control to play the layout again shows.
+    await waitForGraphReady(canvasElement)
+    within(canvasElement).getByRole("button", { name: "Play layout" })
   },
 }
 

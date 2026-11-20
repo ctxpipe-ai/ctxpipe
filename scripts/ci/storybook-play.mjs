@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from "node:fs"
 import { createServer } from "node:http"
 import { createRequire } from "node:module"
-import { extname, join } from "node:path"
+import { basename, dirname, extname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 // Plays Storybook stories in a headless Chromium, one page for each story.
@@ -23,6 +23,7 @@ const mime = {
   ".png": "image/png",
   ".ico": "image/x-icon",
   ".woff2": "font/woff2",
+  ".wasm": "application/wasm",
 }
 
 // Serves the static Storybook build. Port 0 takes a free port; the URL of
@@ -252,8 +253,15 @@ const unhandledError = (page) =>
         `Could not read the unhandled requests of the page: ${readError.message}`,
     )
 
-const withUnhandled = (storyError, unhandled) =>
-  [unhandled, storyError].filter(Boolean).join("\n") || undefined
+// The error for the requests that went out of the page origin, or undefined
+// when there is none.
+const outsideError = (outside) =>
+  outside.length
+    ? `The story requested files out of the Storybook server. A story run has no network: mock the request with MSW, or serve the file from the repo (the storybook skill, "Mock every request"):\n${[...new Set(outside)].map((request) => `  ${request}`).join("\n")}`
+    : undefined
+
+const joinErrors = (storyError, ...requestErrors) =>
+  [...requestErrors, storyError].filter(Boolean).join("\n") || undefined
 
 // Plays each story (an index.json entry) and calls `onStory(story, outcome)`
 // after it. `outcome.error` is set when the story failed. The options:
@@ -276,6 +284,27 @@ export async function playStories(
   { trace = false, beforePlay, afterPlay, viewport } = {},
 ) {
   const { chromium } = createRequire(join(ui, "package.json"))("playwright")
+  // Cosmograph (the knowledge graph canvas) loads the DuckDB-Wasm worker and
+  // its WebAssembly module (about 40 MB) from jsDelivr when it starts. Thus a
+  // play of a graph story waited on the internet: when jsDelivr was slow, the
+  // graph did not start before the bound of the play (CTX-1437). The context
+  // serves these files from the DuckDB-Wasm package that Cosmograph uses. The
+  // URL names the version of that package, so the files are the same.
+  const cosmographReact = createRequire(join(ui, "package.json")).resolve(
+    "@cosmograph/react/package.json",
+  )
+  const cosmograph = createRequire(cosmographReact).resolve(
+    "@cosmograph/cosmograph/package.json",
+  )
+  const duckdbDist = dirname(
+    createRequire(cosmograph).resolve(
+      "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm",
+    ),
+  )
+  const duckdbVersion = JSON.parse(
+    readFileSync(join(duckdbDist, "../package.json"), "utf8"),
+  ).version
+  const duckdbCdn = `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${duckdbVersion}/dist/`
   // The browser starts with a time zone and a language that no pin uses, so
   // the Testing/Play host story fails when a pin of playContext is missing.
   const browser = await chromium.launch({
@@ -296,6 +325,19 @@ export async function playStories(
         ...playContext,
         ...(viewport && { viewport }),
       })
+      // A story run has no network: the context fails each request that
+      // goes out of the page origin, and the story fails with a message that
+      // names the request. Thus a play or a screenshot never waits on the
+      // internet, and a story that needs a file of the internet fails at
+      // once, on each host (CTX-1437). The routes below this one serve the
+      // page origin and the DuckDB-Wasm files: Playwright tries the route
+      // that was added last first.
+      const outside = []
+      await context.route("**/*", (route) => {
+        const request = route.request()
+        outside.push(`${request.method()} ${request.url()}`)
+        return route.abort("blockedbyclient").catch(() => undefined)
+      })
       // The context, not the page, routes the origin: in Chromium only the
       // context sees the requests of the MSW service worker.
       await context.route(`${playOrigin}/**`, async (route) => {
@@ -305,6 +347,19 @@ export async function playStories(
         await route
           .fetch({ url: `${storybookUrl}${pathname}${search}` })
           .then((response) => route.fulfill({ response }))
+          .catch(() => route.abort().catch(() => undefined))
+      })
+      // The DuckDB-Wasm worker fetches the module from the jsDelivr origin,
+      // so the response must allow that cross-origin read. A file that is not
+      // in the package fails its request.
+      await context.route(`${duckdbCdn}*`, (route) => {
+        const file = basename(new URL(route.request().url()).pathname)
+        return route
+          .fulfill({
+            path: join(duckdbDist, file),
+            contentType: mime[extname(file)],
+            headers: { "access-control-allow-origin": "*" },
+          })
           .catch(() => route.abort().catch(() => undefined))
       })
       const page = await context.newPage()
@@ -362,13 +417,21 @@ export async function playStories(
                 .evaluate(settle)
                 .catch((settleError) => String(settleError.message))
       // A request that no MSW handler answered fails the story
-      // (apps/ui/.storybook/preview.tsx). It is often the cause of a play
-      // error too, so the message names both. The record is read again
-      // after `afterPlay`, so a request of the screenshot capture fails the
-      // story too.
-      const playError = withUnhandled(storyError, await unhandledError(page))
+      // (apps/ui/.storybook/preview.tsx), and so does a request out of the
+      // page origin. It is often the cause of a play error too, so the
+      // message names both. The records are read again after `afterPlay`,
+      // so a request of the screenshot capture fails the story too.
+      const playError = joinErrors(
+        storyError,
+        await unhandledError(page),
+        outsideError(outside),
+      )
       await afterPlay?.(page, story, playError)
-      const error = withUnhandled(storyError, await unhandledError(page))
+      const error = joinErrors(
+        storyError,
+        await unhandledError(page),
+        outsideError(outside),
+      )
       let mocks
       let coverage
       if (trace) {

@@ -206,6 +206,16 @@ type KnowledgeGraph = {
   truncated: boolean
 }
 
+/** The reading of one image by one vision model (`image_texts`). */
+export type ImageTextRow = {
+  blobSha: string
+  /** The vision model of the request (`MODEL_VISION_NAME`). */
+  model: string
+  promptVersion: number
+  /** The JSON of the structured reading. */
+  reading: string
+}
+
 /**
  * The only ClickHouse client of the knowledge content (ADR-066). Each
  * function takes the org and one or more Workspaces of it, and each statement
@@ -265,6 +275,19 @@ export type KnowledgeStore = {
     docKeys: string[],
     embeddingKeys: string[],
   ): Promise<Map<string, number[]>>
+  /**
+   * The stored reading of each image blob of `blobShas` by the vision model
+   * `model` with the prompt version `promptVersion` (CTX-1433), in the
+   * Workspace of `scope` only.
+   */
+  readImageTexts(
+    scope: KnowledgeScope,
+    blobShas: string[],
+    model: string,
+    promptVersion: number,
+  ): Promise<Map<string, ImageTextRow>>
+  /** Stores the readings `rows` for the Workspace of `scope`. */
+  writeImageTexts(scope: KnowledgeScope, rows: ImageTextRow[]): Promise<void>
   /**
    * Each relation target that is a reference key with no document in
    * `doc_refs` (`ref:<key>`), with each document that states it. Such a key
@@ -335,6 +358,9 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     listDocumentKeys: (scope) => listDocumentKeys(client, scope),
     readEmbeddings: (scope, docKeys, embeddingKeys) =>
       readEmbeddings(client, scope, docKeys, embeddingKeys),
+    readImageTexts: (scope, blobShas, model, promptVersion) =>
+      readImageTexts(client, scope, blobShas, model, promptVersion),
+    writeImageTexts: (scope, rows) => writeImageTexts(client, scope, rows),
     listUnresolvedReferences: (scope) =>
       listUnresolvedReferences(client, scope),
     readDocument: (scope, docKey) => readDocument(client, scope, docKey),
@@ -670,6 +696,58 @@ async function readEmbeddings(
       ))
         vectors.set(row.key, row.embedding)
   return vectors
+}
+
+async function readImageTexts(
+  client: ClickHouseClient,
+  scope: KnowledgeScope,
+  blobShas: string[],
+  model: string,
+  promptVersion: number,
+): Promise<Map<string, ImageTextRow>> {
+  const found = new Map<string, ImageTextRow>()
+  for (const slice of slices([...new Set(blobShas)].filter(Boolean)))
+    for (const row of await select<ImageTextRow>(
+      client,
+      scope,
+      // FINAL keeps one row of a key that was written twice.
+      `SELECT blob_sha AS blobSha, model, prompt_version AS promptVersion,
+              reading
+       FROM image_texts FINAL
+       WHERE ${scoped} AND blob_sha IN {blobShas:Array(String)}
+         AND model = {model:String}
+         AND prompt_version = {promptVersion:UInt32}`,
+      { blobShas: slice, model, promptVersion },
+    ))
+      found.set(row.blobSha, row)
+  return found
+}
+
+async function writeImageTexts(
+  client: ClickHouseClient,
+  scope: KnowledgeScope,
+  rows: ImageTextRow[],
+): Promise<void> {
+  assertScope(scope)
+  if (rows.length === 0) return
+  // As in insertRows: each row is made field by field, and the org and
+  // Workspace columns come only from the scope.
+  await client.insert({
+    table: "image_texts",
+    values: rows.map((row) => ({
+      org_id: scope.orgId,
+      workspace_id: scope.workspaceId,
+      blob_sha: row.blobSha,
+      model: row.model,
+      prompt_version: row.promptVersion,
+      reading: row.reading,
+    })),
+    format: "JSONEachRow",
+    clickhouse_settings: {
+      [ORG_SETTING]: scope.orgId,
+      wait_for_async_insert: 1,
+    },
+  })
 }
 
 const listUnresolvedReferences = (

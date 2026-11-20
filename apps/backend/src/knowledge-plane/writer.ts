@@ -7,7 +7,6 @@ import {
 } from "../domain/workspace-sources/source-tree.js"
 import { SOURCES_FILE_PATH } from "../domain/workspace-sources/sources-file.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
-import { imageContentType } from "../domain/workspaces/raw-file.js"
 import {
   type DocumentRows,
   type DocumentStatus,
@@ -36,6 +35,7 @@ import {
 import {
   fetchGitCommits,
   nativeGit,
+  readGitBlobSizes,
   readGitBlobs,
   withGitDirectory,
 } from "../services/git/pack.js"
@@ -47,15 +47,22 @@ import {
   planKnowledgeChangeSet,
 } from "./change-set.js"
 import {
+  convertFile,
+  converterVersion,
+  type FileType,
+  fileType,
+} from "./convert-file.js"
+import {
+  type ImageTextCounter,
+  imageTextModel,
+  imageTexts,
+} from "./image-text.js"
+import {
   isKnowledgePath,
   parseKnowledgeFile,
   workspaceBlobPath,
 } from "./parse-file.js"
-import {
-  imageRows,
-  knowledgeRows,
-  type UnembeddedDocumentRows,
-} from "./rows.js"
+import { fileRows, knowledgeRows, type UnembeddedDocumentRows } from "./rows.js"
 
 /** The Workspace repository and its read token. */
 export type KnowledgeRemote = {
@@ -125,6 +132,8 @@ export async function projectKnowledgePlane(input: {
     embeddingModel: textEmbeddingConfig.model,
     dimensions: textEmbeddingConfig.dimensions,
     root: input.root,
+    converter: await converterVersion(),
+    visionModel: imageTextModel(),
   })
   const state = await getKnowledgeState(key)
   if (
@@ -149,6 +158,10 @@ export async function projectKnowledgePlane(input: {
         misses: 0,
         requests: 0,
         seconds: 0,
+      }
+      const files: FileCounter = {
+        conversions: new Map(),
+        images: { hits: 0, misses: 0, failures: 0, costUsd: 0 },
       }
       try {
         await beginKnowledgeRun({ ...key, tip: input.tip })
@@ -186,6 +199,7 @@ export async function projectKnowledgePlane(input: {
               }),
               counter,
               embedding,
+              files,
             })
             const failedCount = (
               await input.store.listDocumentKeys(key)
@@ -230,6 +244,7 @@ export async function projectKnowledgePlane(input: {
           summary,
           mutations: counter.mutations,
           embedding,
+          files,
         })
         span.end()
       }
@@ -261,6 +276,7 @@ async function applyChangeSet(input: {
   introductions: FileIntroductions
   counter: MutationCounter
   embedding: EmbeddingCounter
+  files: FileCounter
 }): Promise<number> {
   const { workspaceId, root, store, observedAt, directory, plan } = input
   const scope: KnowledgeScope = {
@@ -269,7 +285,7 @@ async function applyChangeSet(input: {
   }
   const keyOf = (path: string) => servingIdForKnowledgePath(workspaceId, path)
   const isDocumentPath = (path: string) =>
-    isKnowledgePath(path) || imageContentType(path) !== null
+    isKnowledgePath(path) || fileType(path) !== null
   const tree = await regularFiles(directory, input.tip, root)
   const blobPath = workspaceBlobPath(input.remote.url, root)
   const sourceRepositories = await sourceRepositoriesAt(
@@ -323,6 +339,9 @@ async function applyChangeSet(input: {
         introducedAtByPath: input.introductions.introducedAtByPath,
         paths: batch,
         blobs: batch.map((path) => tree.get(path) ?? ""),
+        store,
+        scope,
+        files: input.files,
       })
       unembedded.push(...rows.documents)
       failed.push(...rows.failed)
@@ -389,10 +408,73 @@ async function applyChangeSet(input: {
   return changed
 }
 
+/** The file conversions and the image texts of one run, for its metrics. */
+type FileCounter = {
+  /**
+   * The count of each result (`text`, `image`, `unsupported`, `too-large` or
+   * a failure of the converter) of each format.
+   */
+  conversions: Map<string, Map<string, number>>
+  images: ImageTextCounter
+}
+
+/** The largest image that goes to the vision model. */
+const MAX_IMAGE_BYTES = 20 * 1024 * 1024
+/**
+ * The largest other file that the writer reads. One git call gives at most
+ * 64 MiB (`nativeGit`), with the header of each blob.
+ */
+const MAX_FILE_BYTES = 48 * 1024 * 1024
+/** The bytes of the blobs of one git read, with their framing. */
+const READ_BYTES = 32 * 1024 * 1024
+/**
+ * The image bytes that wait for the vision step, at most (with the one
+ * image that goes above it). The PNG of an SVG can be much larger than the
+ * SVG, so a read group alone does not limit them.
+ */
+const IMAGE_BATCH_BYTES = 32 * 1024 * 1024
+
+/**
+ * The blobs in read groups of at most READ_BYTES each, with their framing,
+ * and the blobs above their limit, which no group holds. A blob above
+ * READ_BYTES and below its limit is a group alone.
+ */
+function readGroups(blobs: { blob: string; size: number; limit: number }[]): {
+  groups: string[][]
+  tooLarge: { blob: string; limit: number }[]
+} {
+  const groups: string[][] = [[]]
+  const tooLarge: { blob: string; limit: number }[] = []
+  let groupBytes = 0
+  for (const { blob, size, limit } of blobs) {
+    if (size > limit) {
+      tooLarge.push({ blob, limit })
+      continue
+    }
+    // `cat-file --batch` adds a header line (`<sha> blob <size>`) and a
+    // newline to each blob: 128 bytes is more than both.
+    const bytes = size + 128
+    if (groupBytes + bytes > READ_BYTES && (groups.at(-1)?.length ?? 0) > 0) {
+      groups.push([])
+      groupBytes = 0
+    }
+    groups.at(-1)?.push(blob)
+    groupBytes += bytes
+  }
+  return { groups, tooLarge }
+}
+
 /**
  * The rows of each file of `paths`, with no vectors: a document, or a
  * `failed` placeholder with the content error. A knowledge file that gives
  * no unit gives no row.
+ *
+ * A file that is not a knowledge file becomes text here, from its blob at
+ * the tip (ADR-066 decision 6, CTX-1433): a document through the converter,
+ * an image through the vision model and its cache (an SVG is first drawn to
+ * a PNG). No text goes into Git. A file with no converter, or one that the
+ * converter or the vision model cannot read, gets a `failed` document with
+ * the reason.
  */
 async function projectFiles(input: {
   directory: string
@@ -407,26 +489,104 @@ async function projectFiles(input: {
   paths: string[]
   /** The blob id of each path. */
   blobs: string[]
+  store: KnowledgeStore
+  scope: KnowledgeScope
+  files: FileCounter
 }): Promise<{
   documents: UnembeddedDocumentRows[]
   failed: { docKey: string; error: string }[]
 }> {
   const { workspaceId, keyOf, blobPath, observedAt } = input
-  // An image file gives its rows from its path alone, so the writer reads
-  // only the blobs of the knowledge files.
-  const documents: UnembeddedDocumentRows[] = input.paths
-    .filter((path) => !isKnowledgePath(path))
-    .map((path) => imageRows({ workspaceId, path, observedAt }))
-  const knowledge = input.paths.flatMap((path, index) =>
-    isKnowledgePath(path) ? [{ path, blob: input.blobs[index] ?? "" }] : [],
-  )
-  const contents = await readGitBlobs(
-    input.directory,
-    knowledge.map(({ blob }) => blob),
-  )
+  const documents: UnembeddedDocumentRows[] = []
   const failed: { docKey: string; error: string }[] = []
-  for (const [index, { path }] of knowledge.entries()) {
-    const bytes = contents[index] ?? Buffer.alloc(0)
+  const fail = (path: string, error: string) =>
+    failed.push({ docKey: keyOf(path), error })
+  type Entry = {
+    path: string
+    blob: string
+    /** Null for a knowledge file. */
+    type: Exclude<FileType, { kind: "unsupported" }> | null
+  }
+  const count = (format: string, result: string) => {
+    const results = input.files.conversions.get(format) ?? new Map()
+    results.set(result, (results.get(result) ?? 0) + 1)
+    input.files.conversions.set(format, results)
+  }
+  const entries = input.paths.flatMap((path, index): Entry[] => {
+    const blob = input.blobs[index] ?? ""
+    if (isKnowledgePath(path)) return [{ path, blob, type: null }]
+    const type = fileType(path)
+    if (type?.kind === "unsupported") {
+      fail(path, `No converter takes .${type.extension} files.`)
+      count(type.extension, "unsupported")
+      return []
+    }
+    return type ? [{ path, blob, type }] : []
+  })
+  // Each blob is read once, also when more paths have it.
+  const entriesOf = new Map<string, Entry[]>()
+  for (const entry of entries)
+    entriesOf.set(entry.blob, [...(entriesOf.get(entry.blob) ?? []), entry])
+  const blobs = [...entriesOf.keys()]
+  // The size of each blob before a read: a file above its limit gets a
+  // `failed` document, and each git read stays within the output limit.
+  const sizes = await readGitBlobSizes(input.directory, blobs)
+  const { groups, tooLarge } = readGroups(
+    blobs.map((blob, index) => ({
+      blob,
+      size: sizes[index] ?? 0,
+      limit: entriesOf.get(blob)?.some((entry) => entry.type?.kind === "image")
+        ? MAX_IMAGE_BYTES
+        : MAX_FILE_BYTES,
+    })),
+  )
+  for (const { blob, limit } of tooLarge)
+    for (const entry of entriesOf.get(blob) ?? []) {
+      fail(entry.path, `The file is larger than ${limit / 1024 / 1024} MiB.`)
+      if (entry.type)
+        count(
+          entry.type.kind === "image" ? "image" : entry.type.format,
+          "too-large",
+        )
+    }
+  /** The images for the vision model, with the paths and the type of each. */
+  const images: {
+    paths: string[]
+    mime: string
+    blobSha: string
+    image: { bytes: Buffer; mimeType: string }
+    labels?: string
+  }[] = []
+  let imageBytes = 0
+  // The images go to the vision step at the end of each group, and when
+  // they pass IMAGE_BATCH_BYTES: the run holds the bytes of one group and
+  // of one batch of images at a time.
+  for (const group of groups) {
+    const contents = await readGitBlobs(input.directory, group)
+    for (const [index, blob] of group.entries()) {
+      const bytes = contents[index] ?? Buffer.alloc(0)
+      // The paths of the blob by type: each type converts the blob one
+      // time, also when more paths have it.
+      const pathsOf = new Map<
+        string,
+        { type: Entry["type"]; paths: string[] }
+      >()
+      for (const { path, type } of entriesOf.get(blob) ?? []) {
+        const key = type === null ? "" : `${type.kind}:${type.mime}`
+        const same = pathsOf.get(key) ?? { type, paths: [] }
+        same.paths.push(path)
+        pathsOf.set(key, same)
+      }
+      for (const { type, paths } of pathsOf.values())
+        if (type) await projectFile({ paths, blob, type, bytes })
+        else for (const path of paths) projectKnowledgeFile(path, bytes)
+      if (imageBytes > IMAGE_BATCH_BYTES) await projectImages()
+    }
+    await projectImages()
+  }
+  return { documents, failed }
+
+  function projectKnowledgeFile(path: string, bytes: Buffer): void {
     // The parse and the mapper read no Git and no network: an error here
     // is a content error of the file.
     try {
@@ -437,8 +597,7 @@ async function projectFiles(input: {
         content: bytes.toString("utf8"),
         sourceRepositories: input.sourceRepositories,
       })
-      if (parsed.kind === "failed")
-        failed.push({ docKey: keyOf(path), error: parsed.error })
+      if (parsed.kind === "failed") fail(path, parsed.error)
       if (parsed.kind === "unit")
         documents.push(
           knowledgeRows({
@@ -451,13 +610,93 @@ async function projectFiles(input: {
           }),
         )
     } catch (error) {
-      failed.push({
-        docKey: keyOf(path),
-        error: error instanceof Error ? error.message : String(error),
-      })
+      fail(path, error instanceof Error ? error.message : String(error))
     }
   }
-  return { documents, failed }
+
+  /** The rows of the `paths` of one blob of one type. */
+  async function projectFile(file: {
+    paths: string[]
+    blob: string
+    type: Exclude<FileType, { kind: "unsupported" }>
+    bytes: Buffer
+  }): Promise<void> {
+    const { paths, blob, type, bytes } = file
+    if (type.kind === "image") {
+      images.push({
+        paths,
+        mime: type.mime,
+        blobSha: blob,
+        image: { bytes, mimeType: type.mime },
+      })
+      imageBytes += bytes.length
+      return
+    }
+    const conversion = await convertFile(type.format, bytes)
+    for (const path of paths) {
+      count(
+        type.format,
+        conversion.kind === "failed" ? conversion.failure : conversion.kind,
+      )
+      if (conversion.kind === "failed")
+        fail(path, `${conversion.failure}: ${conversion.message}`)
+      else if (conversion.kind === "text")
+        documents.push(
+          fileRows({
+            workspaceId,
+            path,
+            kind: "document",
+            mime: type.mime,
+            text: conversion.text,
+            summary: conversion.imageOnlyPages.length
+              ? `The pages ${conversion.imageOnlyPages.join(", ")} have no text layer.`
+              : "",
+            observedAt,
+          }),
+        )
+    }
+    if (conversion.kind === "image") {
+      images.push({
+        paths,
+        mime: type.mime,
+        // The key of the cache is the SVG blob: the same SVG gives the same
+        // PNG.
+        blobSha: blob,
+        image: { bytes: conversion.png, mimeType: "image/png" },
+        labels: conversion.labels,
+      })
+      imageBytes += conversion.png.length
+    }
+  }
+
+  /** The texts of the images of `images`, which it then empties. */
+  async function projectImages(): Promise<void> {
+    if (images.length === 0) return
+    const texts = await imageTexts({
+      store: input.store,
+      scope: input.scope,
+      images,
+      counter: input.files.images,
+    })
+    imageBytes = 0
+    for (const { paths, mime, blobSha } of images.splice(0)) {
+      const text = texts.get(blobSha)
+      for (const path of paths)
+        if (!text || "error" in text)
+          fail(path, text?.error ?? "The image has no text.")
+        else
+          documents.push(
+            fileRows({
+              workspaceId,
+              path,
+              kind: "image",
+              mime,
+              text: text.text,
+              observedAt,
+            }),
+          )
+    }
+  }
 }
 
 /**
@@ -745,6 +984,8 @@ function recordRun(input: {
   mutations: number
   /** The embedding work of the run, also of a failed run. */
   embedding: EmbeddingCounter
+  /** The file conversions and image texts of the run, also of a failed run. */
+  files: FileCounter
 }): void {
   const { summary } = input
   const outcome = summary ? "completed" : "failed"
@@ -788,7 +1029,44 @@ function recordRun(input: {
       unit: "s",
     })
     .record(embedding.seconds, { outcome, mode })
+  // The file conversions by format and result, and the image texts
+  // (CTX-1433): the cache hit rate, the failures and the vision cost.
+  const conversions = meter.createCounter("knowledge.projection.conversions", {
+    description:
+      "The file conversions of the knowledge projection, by format and result",
+    unit: "{file}",
+  })
+  for (const [format, results] of input.files.conversions)
+    for (const [result, count] of results)
+      conversions.add(count, { outcome, mode, format, result })
+  const { images } = input.files
+  const imageTextHistogram = meter.createHistogram(
+    "knowledge.projection.image_texts",
+    {
+      description:
+        "The images of one knowledge projection run, by result: a cache hit, a vision call, or a failure",
+      unit: "{image}",
+    },
+  )
+  imageTextHistogram.record(images.hits, { outcome, mode, result: "hit" })
+  imageTextHistogram.record(images.misses, { outcome, mode, result: "miss" })
+  imageTextHistogram.record(images.failures, {
+    outcome,
+    mode,
+    result: "failure",
+  })
+  meter
+    .createHistogram("knowledge.projection.vision_cost", {
+      description:
+        "The cost of the vision calls of one knowledge projection run",
+      unit: "USD",
+    })
+    .record(images.costUsd, { outcome, mode })
   const fields: Record<string, string | number> = {
+    "ctxpipe.knowledge.image_hits": images.hits,
+    "ctxpipe.knowledge.image_misses": images.misses,
+    "ctxpipe.knowledge.image_failures": images.failures,
+    "ctxpipe.knowledge.vision_cost_usd": images.costUsd,
     "ctxpipe.knowledge.outcome": outcome,
     "ctxpipe.knowledge.mode": mode,
     "ctxpipe.knowledge.duration_s": input.seconds,
@@ -825,6 +1103,13 @@ function recordRun(input: {
       seconds: input.seconds,
       mutations: input.mutations,
       embedding,
+      conversions: Object.fromEntries(
+        [...input.files.conversions].map(([format, results]) => [
+          format,
+          Object.fromEntries(results),
+        ]),
+      ),
+      images,
       ...summary,
     },
   })

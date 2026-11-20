@@ -121,7 +121,7 @@ const result = await runVisual({
         id: story.id,
       })),
       dir,
-      viewport,
+      { viewport },
     )
     return new Map(
       shots.map((shot) => {
