@@ -22,9 +22,12 @@ import {
 /*
  * The report of one run: JSON for tools, Markdown for people. The first
  * table compares the plane with the baseline arm, the current stack, for
- * each split and category (a CTO requirement). Each question also gets its
- * change against the kept run: the report of the last run that the
- * improvement loop kept (ADR-069 decision 7).
+ * each split and category (a CTO requirement). The kept run is the report
+ * of the last run that the improvement loop kept (ADR-069 decision 7). The
+ * report compares the plane with it for each split and category, and its
+ * guards, for the keep-or-revert rule: a change stays only if the hold-out
+ * set improves and no guard gets worse. Each question also gets its change
+ * against the kept run.
  */
 
 type Change = "better" | "worse" | "mixed" | "same" | "new"
@@ -38,6 +41,38 @@ type ComparisonRow = {
   plane: MetricValues
   /** The plane value minus the baseline value. */
   change: MetricValues
+}
+
+/** The plane against the kept run, for one split and category. */
+type KeptRow = {
+  split: Question["split"]
+  category: Question["category"] | "all"
+  questions: number
+  kept: MetricValues
+  now: MetricValues
+  /** The value now minus the kept value. */
+  change: MetricValues
+}
+
+/** The guards of the plane against the kept run, for one split. */
+type KeptGuardRow = {
+  split: Question["split"]
+  questions: number
+  kept: Guards
+  now: Guards
+}
+
+/**
+ * The guards of ADR-069 decision 6 that the keep-or-revert rule reads. A
+ * latency is null in a replay.
+ */
+type Guards = {
+  searchP95Ms: number | null
+  relatedP95Ms: number | null
+  jevCallsPerQuestion: number
+  jevQuestionsPerQuestion: number
+  costPerQuestionUsd: number
+  errors: number
 }
 
 export type Report = {
@@ -54,6 +89,11 @@ export type Report = {
   costUsd: number
   questions: (QuestionScore & { kept: MetricValues | null; change: Change })[]
   /**
+   * The plane against the kept run, on the questions that both runs scored.
+   * Null when there is no kept run.
+   */
+  kept: { comparison: KeptRow[]; guards: KeptGuardRow[] } | null
+  /**
    * The questions that the report leaves out, because an arm has no complete
    * answer: the spend cap stopped the run, or a replay missed a call.
    */
@@ -62,11 +102,20 @@ export type Report = {
 
 /** The part of a kept report that a new report compares with. */
 export const keptRunSchema = z.object({
+  run: z.object({ mode: z.enum(["live", "replay"]) }),
   questions: z.array(
     z.object({
       arm: z.enum(ARMS),
       question: z.string(),
       metrics: z.record(z.enum(METRICS), z.number().nullable()),
+      searchMs: z.number(),
+      relatedMs: z.number().nullable(),
+      jevCalls: z.number(),
+      jevQuestions: z.number(),
+      embeddingCalls: z.number(),
+      costUsd: z.number(),
+      error: z.string().optional(),
+      partial: z.boolean(),
     }),
   ),
 })
@@ -181,7 +230,91 @@ export function buildReport(input: {
     incomplete: asked
       .filter((question) => !complete(question.id))
       .map((question) => question.id),
+    kept: input.kept
+      ? compareWithKept({
+          now: scores,
+          kept: input.kept,
+          splits: manifest.splits,
+          measured: manifest.mode === "live",
+        })
+      : null,
   }
+}
+
+/**
+ * The plane against the kept run, for each split and category, and its
+ * guards for each split. Both sides read only the questions that both runs
+ * scored, so a question that one run left out moves no mean.
+ */
+function compareWithKept(input: {
+  now: readonly QuestionScore[]
+  kept: KeptRun
+  splits: Manifest["splits"]
+  measured: boolean
+}): NonNullable<Report["kept"]> {
+  const now = new Map(
+    input.now
+      .filter((score) => score.arm === "plane")
+      .map((score) => [score.question, score]),
+  )
+  const pairs = input.kept.questions.flatMap((kept) => {
+    const score = kept.arm === "plane" ? now.get(kept.question) : undefined
+    // The split and the category are those of the dataset of this run.
+    return score
+      ? [{ now: score, kept: { ...score, ...kept, arm: "plane" as const } }]
+      : []
+  })
+  const guards = (
+    scores: readonly QuestionScore[],
+    measured: boolean,
+  ): Guards => {
+    const row = operations(scores, measured)
+    return {
+      searchP95Ms: row.searchP95Ms,
+      relatedP95Ms: row.relatedP95Ms,
+      jevCallsPerQuestion: row.jevCallsPerQuestion,
+      jevQuestionsPerQuestion: row.jevQuestionsPerQuestion,
+      costPerQuestionUsd: row.questions ? row.costUsd / row.questions : 0,
+      errors: row.errors,
+    }
+  }
+  const comparison: KeptRow[] = []
+  const guardRows: KeptGuardRow[] = []
+  for (const split of input.splits) {
+    for (const category of ["all" as const, ...CATEGORIES]) {
+      const group = pairs.filter(
+        (pair) =>
+          pair.now.split === split &&
+          (category === "all" || pair.now.category === category),
+      )
+      if (group.length === 0) continue
+      const kept = meanMetrics(group.map((pair) => pair.kept))
+      const value = meanMetrics(group.map((pair) => pair.now))
+      comparison.push({
+        split,
+        category,
+        questions: group.length,
+        kept,
+        now: value,
+        change: delta(value, kept),
+      })
+    }
+    const group = pairs.filter((pair) => pair.now.split === split)
+    if (group.length)
+      guardRows.push({
+        split,
+        questions: group.length,
+        kept: guards(
+          group.map((pair) => pair.kept),
+          input.kept.run.mode === "live",
+        ),
+        now: guards(
+          group.map((pair) => pair.now),
+          input.measured,
+        ),
+      })
+  }
+  return { comparison, guards: guardRows }
 }
 
 const value = (number: number | null) =>
@@ -191,6 +324,8 @@ const signed = (number: number | null) =>
 const ms = (number: number | null) =>
   number === null ? "n/a" : `${Math.round(number)} ms`
 const usd = (number: number) => `$${number.toFixed(4)}`
+const count = (number: number | null) =>
+  number === null ? "n/a" : number.toFixed(1)
 
 /** The Markdown of a report. */
 export function renderMarkdown(report: Report): string {
@@ -249,9 +384,61 @@ export function renderMarkdown(report: Report): string {
     "",
     `Model cost: ${usd(report.costUsd)}${report.run.mode === "replay" ? " (the cost of the recorded calls when they were made)" : ""}.`,
     "",
-    "## Changes against the kept run",
-    "",
   )
+  if (report.kept) {
+    lines.push(
+      "## The plane against the kept run",
+      "",
+      "The keep-or-revert rule of ADR-069 decision 7: the change stays only if the hold-out set improves and no guard gets worse. Both columns read only the questions that both runs scored.",
+      "",
+      "| Split | Category | Questions | Metric | Kept | Now | Change |",
+      "| --- | --- | ---: | --- | ---: | ---: | ---: |",
+    )
+    for (const row of report.kept.comparison)
+      for (const metric of METRICS) {
+        if (row.kept[metric] === null && row.now[metric] === null) continue
+        lines.push(
+          `| ${row.split} | ${row.category} | ${row.questions} | ${METRIC_NAMES[metric]} | ${value(row.kept[metric])} | ${value(row.now[metric])} | ${signed(row.change[metric])} |`,
+        )
+      }
+    const guardNames: [
+      keyof Guards,
+      string,
+      (number: number | null) => string,
+    ][] = [
+      ["searchP95Ms", "search p95", ms],
+      ["relatedP95Ms", "get_related p95", ms],
+      ["jevCallsPerQuestion", "Jev calls / question", count],
+      ["jevQuestionsPerQuestion", "Jev questions / question", count],
+      [
+        "costPerQuestionUsd",
+        "cost / question",
+        (number) => (number === null ? "n/a" : usd(number)),
+      ],
+      ["errors", "errors", count],
+    ]
+    lines.push(
+      "",
+      "Guards (a higher value is worse; a replay gives no latency):",
+      "",
+      "| Split | Questions | Guard | Kept | Now | Change |",
+      "| --- | ---: | --- | ---: | ---: | ---: |",
+    )
+    for (const row of report.kept.guards)
+      for (const [key, name, format] of guardNames) {
+        const kept = row.kept[key]
+        const now = row.now[key]
+        const change =
+          kept === null || now === null
+            ? "n/a"
+            : `${now - kept >= 0 ? "+" : "-"}${format(Math.abs(now - kept))}`
+        lines.push(
+          `| ${row.split} | ${row.questions} | ${name} | ${format(kept)} | ${format(now)} | ${change} |`,
+        )
+      }
+    lines.push("")
+  }
+  lines.push("## Changes against the kept run", "")
   const changed = report.questions.filter(
     (question) => question.change !== "same",
   )

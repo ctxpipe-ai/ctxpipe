@@ -76,7 +76,7 @@ Write each run folder outside the checkout, as in these examples. The folder hol
 
 - `--set NAME=VALUE` changes one setting of `ORCHESTRATOR_DEFAULTS` for the run. A run changes one setting (ADR-069 decision 7), so `--set` is allowed one time only.
 - `--cap-usd` is the hard spend cap (default $5). Before each model call, the run reserves the worst-case cost of that kind of call: $0.002 for Jev, $0.001 for an embedding (or $0.5 for each million UTF-8 bytes of its input, when that is more: a batch of the hydrate holds up to 64 chunks), $0.25 for a judge. Each value is above the highest cost that the bake-offs measured. A call that would take the spent and reserved total over the cap does not go out, and the run stops with the spend-cap status in the report. After the call, its real `usage.cost` replaces the reservation. An answer with no cost, or a failed call, keeps the reserved value. Thus calls in parallel never take the run over the cap. The report compares only the questions that both arms answered before the stop, and it lists the others. The spend-capped model key is a second limit, outside the code.
-- `--kept` is the report of the last kept run. The report then gives the change of each question against it.
+- `--kept` is the report of the last kept run. The report then compares the plane with it for each split and category, gives its guards against the kept guards, and gives the change of each question.
 - Each model call goes only to a ZDR endpoint (ADR-068 decision 7). The old stack sends its embedding calls with no provider block, so the recorder adds `{"data_collection":"deny","zdr":true}` to each request that does not set these two fields, over the fields of its provider block. This changes only the endpoint that serves the call, not the model. A model with no ZDR endpoint then refuses the call: it does not fall back. The run notes of the report name the calls that got the block.
 
 ### Score again with no model call
@@ -180,7 +180,7 @@ A recorder in front of `fetch` keeps the calls (`model-calls.ts`). Thus the read
 
 ## The report
 
-The run notes name the calls that got the ZDR block. The first table compares the plane with the baseline arm, the current stack, for each split and category: the baseline value, the plane value, and the change. Then come the operations guards (with the count of partial answers), the cost, the change of each question against the kept run, the errors, and the questions that the report leaves out.
+The run notes name the calls that got the ZDR block. The first table compares the plane with the baseline arm, the current stack, for each split and category: the baseline value, the plane value, and the change. Then come the operations guards (with the count of partial answers) and the cost. With `--kept`, the next section is the input of the keep-or-revert rule of ADR-069 decision 7 (a change stays only if the hold-out set improves and no guard gets worse): the plane metrics now and in the kept run for each split and category, and the guards of the plane (search and `get_related` p95, Jev calls and Jev questions for each question, cost for each question, errors) now and in the kept run for each split. Both read only the questions that both runs scored. A replay gives no latency. Then come the change of each question against the kept run, the errors, and the questions that the report leaves out.
 
 ## Proof
 
