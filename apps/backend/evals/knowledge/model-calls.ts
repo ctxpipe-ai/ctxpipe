@@ -75,7 +75,7 @@ const RESERVED_COST_USD: Record<CallKind, number> = {
 
 /**
  * The reservation of an embedding call grows with its input: a batch of the
- * hydrate holds up to 64 chunks. $0.5 for each million UTF-8 bytes is above
+ * hydrate holds up to 300,000 bytes (`maxBatchTokens`). $0.5 for each million UTF-8 bytes is above
  * the price of each embedding model of the stacks for each million tokens,
  * and each token holds at least one byte.
  */

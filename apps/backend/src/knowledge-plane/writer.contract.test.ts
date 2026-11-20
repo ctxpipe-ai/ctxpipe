@@ -1212,23 +1212,25 @@ describe("projectKnowledgePlane", () => {
 
   it("sends the text chunks to the embedding model in batches", async () => {
     const remote = await Remote.create()
+    // A small input limit, so that the test needs few files.
+    const { maxBatchInputs } = textEmbeddingConfig
+    textEmbeddingConfig.maxBatchInputs = 64
     try {
       const workspaceId = await newWorkspace()
-      const { batchSize } = textEmbeddingConfig
       // One chunk for each file: more chunks than one batch holds.
       const files = Object.fromEntries(
-        Array.from({ length: batchSize + 6 }, (_, index) => [
+        Array.from({ length: 64 + 6 }, (_, index) => [
           `notes/n${String(index).padStart(3, "0")}.md`,
           `# Note ${index}\n\nText of note ${index}.\n`,
         ]),
       )
       await run(remote, workspaceId, await remote.commit(files))
       // The chunks of the whole write group go to the client in one call,
-      // so the requests fill to `batchSize`. Two requests are in flight
+      // so the requests fill to `maxBatchInputs`. Two requests are in flight
       // together, so their order is not fixed.
       expect(
         embeddings.inputs.map((inputs) => inputs.length).sort((a, b) => b - a),
-      ).toEqual([batchSize, 6])
+      ).toEqual([64, 6])
       // Each input is the chunk text after its context line.
       expect(embeddings.inputs.flat()).toContainEqual(
         expect.stringMatching(
@@ -1236,6 +1238,7 @@ describe("projectKnowledgePlane", () => {
         ),
       )
     } finally {
+      textEmbeddingConfig.maxBatchInputs = maxBatchInputs
       await remote.remove()
     }
   })
@@ -1713,13 +1716,12 @@ describe("vector reuse (CTX-1428)", () => {
         ),
       )
       const workspaceId = await newWorkspace()
-      // The first write sends 1000 chunks in 16 requests (15 of 64 and one
-      // of 40). The request of the second write fails the run, after the
-      // first write is in ClickHouse.
-      const firstWrite = Math.ceil(1000 / textEmbeddingConfig.batchSize)
-      embeddings.failAt = firstWrite + 1
+      // The first write sends its 1000 short chunks in one request. The
+      // request of the second write fails the run, after the first write is
+      // in ClickHouse.
+      embeddings.failAt = 2
       await expect(run(remote, workspaceId, tip)).rejects.toThrow("HTTP 401")
-      expect(embeddings.requests).toBe(firstWrite + 1)
+      expect(embeddings.requests).toBe(2)
       expect(await getKnowledgeState({ orgId, workspaceId })).toMatchObject({
         lastSha: null,
         attemptShas: [tip],

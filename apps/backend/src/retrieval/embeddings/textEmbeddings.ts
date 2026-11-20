@@ -33,28 +33,24 @@ import { openRouterSettings, ZDR_PROVIDER } from "../services/modelProvider.js"
  * stored vectors stale.
  */
 export const textEmbeddingConfig = {
-  model: "qwen/qwen3-embedding-8b",
+  /**
+   * OpenAI text-embedding-3-large (ADR-068 decision 5). It takes
+   * `dimensions` and gives a shortened vector of that length.
+   */
+  model: "openai/text-embedding-3-large",
   dimensions: 1024,
   /**
-   * The quantizations of the endpoints that may serve a request (OpenRouter
-   * `provider.quantizations`). No provider is pinned: OpenRouter routes to a
-   * ZDR endpoint of the model, with fallback (ADR-068 decision 7). A known
-   * low precision (fp8, int8, fp4) is not allowed, so that a fallback never
-   * puts the vectors of such a model into the space. `unknown` is allowed,
-   * so that a second endpoint exists for the fallback (ADR-068 decision 5).
+   * The most inputs in one request: the limit of the OpenAI and Azure
+   * embeddings APIs (2048).
    */
-  quantizations: ["bf16", "fp16", "fp32", "unknown"],
+  maxBatchInputs: 2048,
   /**
-   * The task line of a search question. The model expects an instruction
-   * before a query and none before a document (ADR-068 decision 5).
+   * The most tokens in one request, summed over its inputs: the limit of the
+   * OpenAI and Azure embeddings APIs (300,000). The client has no tokenizer.
+   * A token of the model is at least one byte of UTF-8, so the client limits
+   * the UTF-8 bytes of a request to this number.
    */
-  queryInstruction:
-    "Given a question, retrieve the passages of a knowledge base that answer it",
-  /**
-   * The most inputs in one request. The probe sends a batch of this size with
-   * `zdr: true` (`embedding-text-batch`).
-   */
-  batchSize: 64,
+  maxBatchTokens: 300_000,
   /** The most requests in flight of one `embedTexts` call. */
   concurrency: 4,
   /**
@@ -110,12 +106,12 @@ export function embeddingKey(
 
 /**
  * Embed the chunks of documents in the one vector space of the knowledge
- * plane (the ingest path). The result has the order of `inputs`. The client
- * sends at most `batchSize` inputs in one request, and at most `concurrency`
- * requests in flight. Every request sets `provider.data_collection: "deny"`,
- * `provider.zdr: true` and the allowed quantizations, so OpenRouter routes
- * it only to a ZDR endpoint that is not of a known low precision. A 429, a
- * 5xx and a network error retry with backoff, up to `maxAttempts`.
+ * plane (the ingest path). The result has the order of `inputs`. One request
+ * holds as many inputs as `maxBatchInputs` and `maxBatchTokens` allow, and
+ * at most `concurrency` requests are in flight. Every request sets
+ * `provider.data_collection: "deny"` and `provider.zdr: true`, so OpenRouter
+ * routes it only to a ZDR endpoint. A 429, a 5xx and a network error retry
+ * with backoff, up to `maxAttempts`.
  * `onRequest` is called before each HTTP request, also before each retry.
  */
 export async function embedTexts(
@@ -125,8 +121,7 @@ export async function embedTexts(
 ): Promise<number[][]> {
   if (inputs.length === 0) return []
 
-  const embedBatch = async (batch: EmbeddingInput[]): Promise<number[][]> => {
-    const texts = batch.map(chunkText)
+  const embedBatch = async (texts: string[]): Promise<number[][]> => {
     for (let attempt = 1; ; attempt++) {
       try {
         onRequest?.()
@@ -143,9 +138,24 @@ export async function embedTexts(
     }
   }
 
-  const batches: EmbeddingInput[][] = []
-  for (let at = 0; at < inputs.length; at += config.batchSize)
-    batches.push(inputs.slice(at, at + config.batchSize))
+  // A batch closes before the input that would put it over a limit.
+  const batches: string[][] = []
+  let bytes = 0
+  for (const text of inputs.map(chunkText)) {
+    const size = Buffer.byteLength(text, "utf8")
+    const last = batches.at(-1)
+    if (
+      last &&
+      last.length < config.maxBatchInputs &&
+      bytes + size <= config.maxBatchTokens
+    ) {
+      last.push(text)
+      bytes += size
+    } else {
+      batches.push([text])
+      bytes = size
+    }
+  }
   // After a failure, no new request starts.
   return (
     await mapWithConcurrency(batches, config.concurrency, embedBatch)
@@ -153,29 +163,24 @@ export async function embedTexts(
 }
 
 /**
- * Embed one search question (the query path). The text gets the instruction
- * line of the model (ADR-068 decision 5). The request has the provider block
- * of `embedTexts`, and it asks OpenRouter to sort the ZDR endpoints by
- * latency, with its default fallback (ADR-068 decision 7). The query has a
- * time budget, so a failure does not retry: the search returns partial.
+ * Embed one search question (the query path), as it is: the model needs no
+ * instruction line. The request has the provider block of `embedTexts`, and
+ * it asks OpenRouter to sort the ZDR endpoints by latency, with its default
+ * fallback (ADR-068 decision 7). The query has a time budget, so a failure
+ * does not retry: the search returns partial.
  */
 export async function embedQuery(
   text: string,
   config: TextEmbeddingConfig = textEmbeddingConfig,
 ): Promise<number[]> {
-  const [vector] = await embedRequest(
-    [`Instruct: ${config.queryInstruction}\nQuery:${text}`],
-    config,
-    "latency",
-  )
+  const [vector] = await embedRequest([text], config, "latency")
   if (!vector) throw new Error("The embedding endpoint returned no vector")
   return vector
 }
 
 /**
  * One HTTP request with `texts`, in one span. The provider block has the ZDR
- * fields, the allowed quantizations and `sort` when it is set. The span
- * holds counts, never content.
+ * fields, and `sort` when it is set. The span holds counts, never content.
  */
 function embedRequest(
   texts: string[],
@@ -221,7 +226,6 @@ function embedRequest(
             encoding_format: "float",
             provider: {
               ...ZDR_PROVIDER,
-              quantizations: config.quantizations,
               ...(sort ? { sort } : {}),
             },
           }),
@@ -261,7 +265,7 @@ function embedRequest(
 
 /**
  * The text of one chunk: one line of context, the document title and the
- * chunk position, and no instruction line (ADR-068 decision 5).
+ * chunk position (ADR-068 decision 5).
  */
 function chunkText(input: EmbeddingInput): string {
   const title = input.documentTitle.replace(/\s+/g, " ").trim()

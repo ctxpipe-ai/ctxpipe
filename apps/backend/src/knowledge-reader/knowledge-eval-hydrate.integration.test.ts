@@ -21,15 +21,13 @@ import { ModelCalls } from "../../evals/knowledge/model-calls.js"
 import type { Targets } from "../../evals/knowledge/runner.js"
 import { getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
+import { EMBEDDING_DIMENSIONS } from "../db/schema/objects.js"
 import { workspaces } from "../db/schema/workspaces.js"
 import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
 import { textEmbeddingConfig } from "../retrieval/embeddings/textEmbeddings.js"
 import { startClickHouse, userUrl } from "../test/clickhouse.js"
 import { startGitHttpServer } from "../test/git-http-server.js"
-import {
-  embedText,
-  planeInputVector,
-} from "../test/knowledge-search-fixture.js"
+import { embedText, planeVector } from "../test/knowledge-search-fixture.js"
 import { dropOrgGraph } from "../test/related-fixture.js"
 
 /*
@@ -64,6 +62,7 @@ let failOldStack = false
 const embeddingBodies: {
   model: string
   input: string[]
+  dimensions?: number
   provider?: unknown
 }[] = []
 
@@ -72,10 +71,12 @@ const models = setupServer(
     const body = (await request.json()) as {
       model: string
       input: string[]
+      dimensions?: number
       provider?: unknown
     }
     embeddingBodies.push(body)
-    const plane = body.model === textEmbeddingConfig.model
+    // Both stacks use one model; the plane asks for its own dimension.
+    const plane = body.dimensions === textEmbeddingConfig.dimensions
     if (!plane && failOldStack)
       return HttpResponse.json(
         { error: { message: "fixture outage" } },
@@ -84,7 +85,7 @@ const models = setupServer(
     return HttpResponse.json({
       data: body.input.map((input, index) => ({
         index,
-        embedding: plane ? planeInputVector(input) : embedText(input),
+        embedding: plane ? planeVector(input) : embedText(input),
       })),
       usage: { cost: 0.0001 },
     })
@@ -400,8 +401,8 @@ describe("the hydrate of the knowledge eval harness", () => {
     })
     // Both writers embedded the files of the root, and each request went
     // only to ZDR endpoints.
-    expect(new Set(embeddingBodies.map((body) => body.model))).toEqual(
-      new Set(["openai/text-embedding-3-large", textEmbeddingConfig.model]),
+    expect(new Set(embeddingBodies.map((body) => body.dimensions))).toEqual(
+      new Set([EMBEDDING_DIMENSIONS, textEmbeddingConfig.dimensions]),
     )
     for (const body of embeddingBodies)
       expect(body.provider).toMatchObject({
@@ -459,9 +460,9 @@ describe("the hydrate of the knowledge eval harness", () => {
     const outside = embeddingBodies
       .slice(before)
       .filter((body) => body.input.some((text) => text.includes("Outside")))
-      .map((body) => body.model)
+      .map((body) => body.dimensions)
     expect(new Set(outside)).toEqual(
-      new Set(["openai/text-embedding-3-large", textEmbeddingConfig.model]),
+      new Set([EMBEDDING_DIMENSIONS, textEmbeddingConfig.dimensions]),
     )
   })
 })
