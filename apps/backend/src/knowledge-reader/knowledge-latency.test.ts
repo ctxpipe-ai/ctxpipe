@@ -223,6 +223,14 @@ describe("the latency command", () => {
           servedBy: ["Nebius"],
         },
         {
+          name: "query embedding, other model, pinned",
+          model: "openai/text-embedding-3-small",
+          provider: "azure",
+          usdPer1MTokens: "0.0200",
+          ok: 2,
+          servedBy: ["Nebius"],
+        },
+        {
           name: "Jev, layer judge (10 candidates)",
           model: "typesafe/jev-1.14",
           provider: "routing",
@@ -254,6 +262,8 @@ describe("the latency command", () => {
       [["deepinfra/us"], false],
       [["nebius/bf16"], false],
       [["deepinfra/us"], false],
+      [["azure"], false],
+      [["azure"], false],
     ])
     // The production request: no pin, and the quantizations of the client.
     expect(

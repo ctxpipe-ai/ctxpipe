@@ -26,8 +26,7 @@ import { readZdrList, withChangedBody } from "./probe.js"
  * - a hedged query embedding: the request of the client to two endpoints at
  *   once, and the first answer;
  * - the query embedding of the other text embedding models with a ZDR
- *   endpoint, with no pin, and pinned to each endpoint when a model has more
- *   than one;
+ *   endpoint, with no pin, and pinned to each of its ZDR endpoints;
  * - Jev with the request of the layer judge (10 candidates);
  * - a request to OpenRouter that reaches no model, for the network time of
  *   this host.
@@ -263,17 +262,16 @@ export async function measureLatency(input: {
         post({ ...body, provider: ZDR_PROVIDER }),
       ),
     })
-    if (tags.length > 1)
-      for (const tag of tags)
-        measures.push({
-          name: "query embedding, other model, pinned",
-          model,
-          provider: tag,
-          usdPer1MTokens: price([tag]),
-          samples: await sample(runs, calls, () =>
-            post({ ...body, provider: pin(tag) }),
-          ),
-        })
+    for (const tag of tags)
+      measures.push({
+        name: "query embedding, other model, pinned",
+        model,
+        provider: tag,
+        usdPer1MTokens: price([tag]),
+        samples: await sample(runs, calls, () =>
+          post({ ...body, provider: pin(tag) }),
+        ),
+      })
   }
 
   // Jev with the request of the layer judge: 10 made-up candidates.
