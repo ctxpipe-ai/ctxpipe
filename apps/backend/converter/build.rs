@@ -14,13 +14,16 @@ fn main() {
     }
     // The compiler: cargo gives a build script the compiler that it builds
     // with. Its version names the exact Rust, also when an override replaces
-    // the pin. A change of the pin runs this script again.
-    println!("cargo:rerun-if-changed=rust-toolchain.toml");
-    let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
+    // the pin.
+    let rustc = std::env::var("RUSTC").expect("cargo sets RUSTC");
     let version = std::process::Command::new(rustc)
         .arg("--version")
         .output()
         .expect("the Rust compiler of the build");
+    assert!(
+        version.status.success() && !version.stdout.is_empty(),
+        "rustc --version gives no version"
+    );
     hash.update(b"rustc");
     hash.update(version.stdout);
     let hex: String = hash
