@@ -135,7 +135,7 @@ describe("the latency command", () => {
   })
 
   it("measures each call with ZDR, and pins for the measurement only", async () => {
-    const calls = new ModelCalls(BASE, 1, undefined, { addZdr: true })
+    const calls = new ModelCalls(BASE, 1)
     const restore = calls.install()
     try {
       const measures = await measureLatency({ out, calls, base: BASE, runs: 2 })

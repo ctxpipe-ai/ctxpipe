@@ -292,18 +292,29 @@ describe("workspace-chat openai completions", () => {
     expect(calls).toBe(0)
   })
 
-  it("forwards to OpenRouter when MODEL_PROVIDER_URL is unset", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : String(input)
-      expect(url).toBe("https://openrouter.ai/api/v1/chat/completions")
-      return new Response(
-        JSON.stringify({
-          id: "chatcmpl_or",
-          choices: [{ message: { role: "assistant", content: "ok" } }],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      )
-    })
+  it("forwards to OpenRouter with the provider block when MODEL_PROVIDER_URL is unset", async () => {
+    vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "openai,azure")
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = typeof input === "string" ? input : String(input)
+        expect(url).toBe("https://openrouter.ai/api/v1/chat/completions")
+        // ADR-070: the block goes over the provider fields of the sandbox.
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          provider: {
+            data_collection: "deny",
+            zdr: true,
+            only: ["openai", "azure"],
+          },
+        })
+        return new Response(
+          JSON.stringify({
+            id: "chatcmpl_or",
+            choices: [{ message: { role: "assistant", content: "ok" } }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        )
+      },
+    )
     vi.stubGlobal("fetch", fetchMock)
     try {
       const app = appWithRoutes({ apiKey: "sk-or-v1-test" })
@@ -325,6 +336,7 @@ describe("workspace-chat openai completions", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1)
     } finally {
       vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
     }
   })
 })

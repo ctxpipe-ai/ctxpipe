@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
 import { ModelCalls } from "../../evals/knowledge/model-calls.js"
-import { probe } from "../../evals/knowledge/probe.js"
+import { applyProbeSettings, probe } from "../../evals/knowledge/probe.js"
 import { useMswServer } from "../../test/msw.js"
 
 /*
@@ -24,11 +24,23 @@ const CHAT = `${BASE}/chat/completions`
 
 const server = useMswServer()
 
+/** The allowlist of the tests, and the provider block of each request. */
+const ALLOWED = ["typesafe", "openai", "azure", "nebius"]
+const BLOCK = { data_collection: "deny", zdr: true, only: ALLOWED }
+
 let out: string
 beforeEach(async () => {
-  vi.stubEnv("MODEL_PROVIDER", "openai-like")
+  // As `factory eval` runs the probe.
+  vi.stubEnv("MODEL_PROVIDER", "openrouter")
   vi.stubEnv("MODEL_PROVIDER_URL", BASE)
   vi.stubEnv("MODEL_PROVIDER_API_KEY", "fixture-only")
+  // The allowlist of these tests holds the providers of the fake catalog
+  // that serve the models in use, not DeepInfra.
+  vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", ALLOWED.join(","))
+  vi.stubEnv("MODEL_FAST_NAME", "openai/fast-model")
+  vi.stubEnv("MODEL_MEDIUM_NAME", "openai/fast-model?reasoning.effort=high")
+  vi.stubEnv("MODEL_HIGH_NAME", "openai/high-model")
+  vi.stubEnv("MODEL_EMBEDDING_NAME", "openai/text-embedding-3-large")
   out = await mkdtemp(join(tmpdir(), "knowledge-probe-"))
 })
 afterEach(async () => {
@@ -38,6 +50,7 @@ afterEach(async () => {
 const providerSchema = z.object({
   data_collection: z.string(),
   zdr: z.boolean(),
+  only: z.array(z.string()).optional(),
 })
 const decisionSchema = z.object({
   model: z.string(),
@@ -55,9 +68,29 @@ const embeddingSchema = z.object({
   model: z.string(),
   dimensions: z.number().optional(),
   input: z.array(z.string()),
-  encoding_format: z.string(),
+  encoding_format: z.string().optional(),
   provider: providerSchema,
 })
+const tierSchema = z.object({ model: z.string(), provider: providerSchema })
+
+/** The OpenRouter provider list (`GET /api/v1/providers`) of the fake catalog. */
+const PROVIDERS = [
+  ["typesafe", "TypeSafe"],
+  ["openai", "OpenAI"],
+  ["azure", "Azure"],
+  ["nebius", "Nebius"],
+  ["deepinfra", "DeepInfra"],
+  ["siliconflow", "SiliconFlow"],
+  ["primalabs", "PrimaLabs"],
+].map(([slug, name]) => ({ slug, name }))
+const slugOf = (name: string) =>
+  PROVIDERS.find((provider) => provider.name === name)?.slug ?? name
+
+/** The embedding endpoint of each other embedding model of the catalog. */
+const EMBEDDING_ENDPOINTS: Record<string, string> = {
+  "openai/text-embedding-ada-002": "OpenAI",
+  "qwen/qwen3-embedding-4b": "DeepInfra",
+}
 
 /** The Decisions endpoints of the fake catalog, as on OpenRouter. */
 const ENDPOINTS: Record<string, { name: string; zdr: boolean }> = {
@@ -113,16 +146,36 @@ function gateway(options: {
   refusal?: { status: number; message: string }
   /** The most embedding inputs that one request may hold. */
   maxInputs?: number
+  /** The provider that serves the chat models of the tiers. */
+  tierName?: string
 }) {
   const bodies = {
     decisions: [] as z.infer<typeof decisionSchema>[],
     embeddings: [] as z.infer<typeof embeddingSchema>[],
     vision: [] as z.infer<typeof visionSchema>[],
+    tiers: [] as z.infer<typeof tierSchema>[],
   }
+  /**
+   * OpenRouter refuses a request whose allowlist excludes each endpoint. A
+   * request of these tests holds the allowlist of the environment, or none.
+   */
+  const outsideAllowlist = (provider: object, name: string) =>
+    Object.hasOwn(provider, "only") &&
+    !process.env.MODEL_PROVIDER_ALLOWLIST?.split(",").includes(slugOf(name))
+  const noAllowedProvider = () =>
+    HttpResponse.json(
+      {
+        error: {
+          message: "No allowed providers are available for the selected model.",
+        },
+      },
+      { status: 404 },
+    )
   server.use(
     http.get(`${BASE}/endpoints/zdr`, () =>
       HttpResponse.json({ data: ZDR_LIST }),
     ),
+    http.get(`${BASE}/providers`, () => HttpResponse.json({ data: PROVIDERS })),
     http.post(DECISIONS, async ({ request }) => {
       const body = decisionSchema.parse(await request.json())
       bodies.decisions.push(body)
@@ -154,7 +207,30 @@ function gateway(options: {
       })
     }),
     http.post(CHAT, async ({ request }) => {
-      const body = visionSchema.parse(await request.json())
+      const json = await request.json()
+      const tier = tierSchema.safeParse(json)
+      if (!visionSchema.safeParse(json).success && tier.success) {
+        bodies.tiers.push(tier.data)
+        return HttpResponse.json({
+          id: "reply",
+          model: tier.data.model,
+          provider: options.tierName ?? "OpenAI",
+          choices: [
+            {
+              index: 0,
+              message: { role: "assistant", content: "yes" },
+              finish_reason: "stop",
+            },
+          ],
+          usage: {
+            prompt_tokens: 4,
+            completion_tokens: 1,
+            total_tokens: 5,
+            cost: 0.0001,
+          },
+        })
+      }
+      const body = visionSchema.parse(json)
       bodies.vision.push(body)
       const { model } = body
       const endpoint = VISION_ENDPOINTS[model]
@@ -178,6 +254,9 @@ function gateway(options: {
     http.post(EMBEDDINGS, async ({ request }) => {
       const body = embeddingSchema.parse(await request.json())
       bodies.embeddings.push(body)
+      const other = EMBEDDING_ENDPOINTS[body.model]
+      const name = other ?? options.embeddingName ?? "Azure"
+      if (outsideAllowlist(body.provider, name)) return noAllowedProvider()
       if (
         body.input.length > (options.maxInputs ?? Infinity) ||
         (options.enforcesZdr &&
@@ -197,12 +276,18 @@ function gateway(options: {
       return HttpResponse.json({
         data: body.input.map((_, index) => ({
           embedding: Array.from(
-            { length: options.dimensions ?? 1024 },
+            {
+              // The current stack asks for 2000 dimensions.
+              length:
+                body.dimensions === 2000
+                  ? 2000
+                  : (options.dimensions ?? body.dimensions ?? 1024),
+            },
             () => 0.1,
           ),
           index,
         })),
-        provider: options.embeddingName ?? "Azure",
+        provider: name,
         usage: { prompt_tokens: 4, cost: 0.00001 },
       })
     }),
@@ -228,7 +313,7 @@ const readResult = async () =>
   resultSchema.parse(
     JSON.parse(await readFile(join(out, "probe.json"), "utf8")),
   )
-const run = (capUsd: number) =>
+const run = (capUsd = 1) =>
   probe({ out, calls: new ModelCalls(BASE, capUsd), capUsd, base: BASE })
 const passes = async () =>
   Object.fromEntries(
@@ -239,7 +324,7 @@ describe("the provider probe", () => {
   it("passes each check when the gateway enforces the provider settings", async () => {
     const bodies = gateway({ enforcesZdr: true })
 
-    expect(await run(0.25)).toBe(0)
+    expect(await run()).toBe(0)
 
     const result = await readResult()
     expect(result.checks).toEqual([
@@ -296,6 +381,40 @@ describe("the provider probe", () => {
         pass: true,
         status: 404,
       }),
+      // fast and medium have the same model: one call.
+      expect.objectContaining({
+        name: "chat openai/fast-model",
+        pass: true,
+        status: 200,
+        provider: "OpenAI",
+      }),
+      expect.objectContaining({ name: "chat openai/high-model", pass: true }),
+      expect.objectContaining({
+        name: "chat anthropic/claude-haiku-4-5",
+        pass: true,
+      }),
+      expect.objectContaining({
+        name: "embedding-current-stack",
+        pass: true,
+        status: 200,
+        provider: "Azure",
+      }),
+      expect.objectContaining({
+        name: "allowlist-control-without-only",
+        pass: true,
+        status: 200,
+        provider: "DeepInfra",
+      }),
+      expect.objectContaining({
+        name: "allowlist-refused-outside-list",
+        pass: true,
+        status: 404,
+      }),
+      expect.objectContaining({
+        name: "provider-allowlist",
+        pass: true,
+        error: null,
+      }),
     ])
     expect(result.stopped).toBe(false)
     expect(await readFile(join(out, "probe.md"), "utf8")).toContain(
@@ -305,7 +424,7 @@ describe("the provider probe", () => {
     // The control and the refused request are the request of the real
     // client: only the model and `zdr` change. No request pins a provider.
     const [served, control, refused] = bodies.decisions
-    expect(served?.provider).toEqual({ data_collection: "deny", zdr: true })
+    expect(served?.provider).toEqual(BLOCK)
     const nonZdr = {
       ...served,
       model: "openai/gpt-6-luna-decisions",
@@ -313,7 +432,7 @@ describe("the provider probe", () => {
     }
     expect(control).toEqual({
       ...nonZdr,
-      provider: { data_collection: "deny", zdr: false },
+      provider: { ...BLOCK, zdr: false },
     })
     expect(refused).toEqual(nonZdr)
 
@@ -323,11 +442,11 @@ describe("the provider probe", () => {
       dimensions: 1024,
       encoding_format: "float",
       input: ["Which squares of the checkerboard are red?"],
-      provider: { data_collection: "deny", zdr: true },
+      provider: BLOCK,
     })
     // The batch is one request with 2048 document chunks (the input limit
     // of the API), each with the context line of the projection.
-    expect(bodies.embeddings).toHaveLength(4)
+    expect(bodies.embeddings).toHaveLength(7)
     expect(bodies.embeddings[1]?.input).toHaveLength(2048)
     expect(bodies.embeddings[1]?.input.at(-1)).toBe(
       "Checkerboard (part 2048 of 2048)\n\nSquare 2048 of the checkerboard is blue.",
@@ -339,11 +458,11 @@ describe("the provider probe", () => {
       model: "openai/text-embedding-ada-002",
       encoding_format: "float",
       input: ["Is the sky blue?"],
-      provider: { data_collection: "deny", zdr: false },
+      provider: { ...BLOCK, zdr: false },
     })
     expect(embeddingRefused).toEqual({
       ...embeddingControl,
-      provider: { data_collection: "deny", zdr: true },
+      provider: BLOCK,
     })
 
     // The vision requests are the request of the client for the default
@@ -351,11 +470,7 @@ describe("the provider probe", () => {
     // the model and `zdr`.
     const [vision, visionControl, visionRefused] = bodies.vision
     expect(vision?.model).toBe("openai/gpt-6.1-terra")
-    expect(vision?.provider).toEqual({
-      data_collection: "deny",
-      zdr: true,
-      require_parameters: true,
-    })
+    expect(vision?.provider).toEqual({ ...BLOCK, require_parameters: true })
     expect(visionControl).toEqual({
       ...vision,
       model: "google/gemini-2.5-flash-lite",
@@ -365,12 +480,105 @@ describe("the provider probe", () => {
       ...visionControl,
       provider: { ...visionControl?.provider, zdr: true },
     })
+
+    // Each chat model goes out alone (no fallback models) with the block,
+    // and so does the embedding call of the current stack. The allowlist
+    // pair is the query request of the plane client to a model outside the
+    // list: only the `only` field differs.
+    expect(bodies.tiers).toEqual([
+      { model: "openai/fast-model", provider: BLOCK },
+      { model: "openai/high-model", provider: BLOCK },
+      { model: "anthropic/claude-haiku-4-5", provider: BLOCK },
+    ])
+    const [, , , , legacy, outside, outsideRefused] = bodies.embeddings
+    expect(legacy).toMatchObject({
+      model: "openai/text-embedding-3-large",
+      provider: BLOCK,
+    })
+    const { provider: queryProvider, ...query } = bodies.embeddings[0] ?? {}
+    expect(outside).toEqual({
+      ...query,
+      model: "qwen/qwen3-embedding-4b",
+      input: ["Is the sky blue?"],
+      provider: { ...queryProvider, ...BLOCK, only: undefined },
+    })
+    expect(outsideRefused).toEqual({
+      ...outside,
+      provider: { ...outside?.provider, only: ALLOWED },
+    })
+  })
+
+  it("fails the checks of a model that answers from a provider outside the allowlist", async () => {
+    gateway({ enforcesZdr: true, tierName: "PrimaLabs" })
+
+    expect(await run()).toBe(4)
+
+    expect(await passes()).toMatchObject({
+      "decisions-zdr-provider": true,
+      "chat openai/fast-model": false,
+      "chat openai/high-model": false,
+      "provider-allowlist": true,
+    })
+  })
+
+  it("takes the allowlist and the model names of the hosted stack as settings, and never the URL or the key", async () => {
+    gateway({ enforcesZdr: true })
+    vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "")
+    applyProbeSettings([
+      `MODEL_PROVIDER_ALLOWLIST=${ALLOWED.join(",")}`,
+      "MODEL_HIGH_NAME=openai/other-high-model",
+    ])
+
+    expect(await run()).toBe(0)
+    expect(await passes()).toMatchObject({
+      "chat openai/other-high-model": true,
+      "provider-allowlist": true,
+    })
+
+    for (const setting of [
+      "MODEL_PROVIDER_URL=https://elsewhere.test/v1",
+      "MODEL_PROVIDER_API_KEY=other",
+      "MODEL_HIGH_NAME=",
+    ])
+      expect(() => applyProbeSettings([setting])).toThrow(
+        /--setting takes NAME=VALUE/,
+      )
+    expect(process.env.MODEL_PROVIDER_URL).toBe(BASE)
+  })
+
+  it("fails the allowlist checks with no allowlist, or with a slug that OpenRouter does not list", async () => {
+    gateway({ enforcesZdr: true })
+    vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "")
+
+    expect(await run()).toBe(4)
+
+    const result = await readResult()
+    expect(result.checks.at(-1)).toMatchObject({
+      name: "provider-allowlist",
+      pass: false,
+      error: "No allowlist is set: no provider was checked.",
+    })
+    expect(await passes()).toMatchObject({
+      "decisions-zdr-provider": true,
+      "allowlist-refused-outside-list": false,
+    })
+
+    vi.stubEnv(
+      "MODEL_PROVIDER_ALLOWLIST",
+      "typesafe,openai,azure,nebius,amazon",
+    )
+    expect(await run()).toBe(4)
+    expect((await readResult()).checks.at(-1)).toMatchObject({
+      name: "provider-allowlist",
+      pass: false,
+      error: "Not on the provider list: amazon.",
+    })
   })
 
   it("fails the batch check on a gateway that takes one input per request", async () => {
     gateway({ enforcesZdr: true, maxInputs: 1 })
 
-    expect(await run(0.25)).toBe(4)
+    expect(await run()).toBe(4)
 
     expect(await passes()).toMatchObject({
       "embedding-query": true,
@@ -397,7 +605,7 @@ describe("the provider probe", () => {
       dimensions: 768,
     })
 
-    expect(await run(0.25)).toBe(4)
+    expect(await run()).toBe(4)
 
     expect(await passes()).toEqual({
       "decisions-zdr-provider": false,
@@ -410,6 +618,13 @@ describe("the provider probe", () => {
       "vision-read": true,
       "vision-control-without-zdr": true,
       "vision-refused-without-zdr-endpoint": false,
+      "chat openai/fast-model": true,
+      "chat openai/high-model": true,
+      "chat anthropic/claude-haiku-4-5": true,
+      "embedding-current-stack": true,
+      "allowlist-control-without-only": true,
+      "allowlist-refused-outside-list": true,
+      "provider-allowlist": true,
     })
     const result = await readResult()
     expect(result.checks[0]?.provider).toBe("Other Host")
@@ -427,7 +642,7 @@ describe("the provider probe", () => {
   ])("does not take an unrelated $status refusal as proof", async (refusal) => {
     gateway({ enforcesZdr: true, refusal })
 
-    expect(await run(0.25)).toBe(4)
+    expect(await run()).toBe(4)
 
     expect(await passes()).toMatchObject({
       "decisions-control-without-zdr": true,
@@ -449,7 +664,7 @@ describe("the provider probe", () => {
       }),
     )
 
-    expect(await run(0.25)).toBe(4)
+    expect(await run()).toBe(4)
 
     expect(await passes()).toMatchObject({
       "decisions-zdr-provider": true,
@@ -467,7 +682,7 @@ describe("the provider probe", () => {
       gateway({ enforcesZdr: true })
       server.use(http.get(`${BASE}/endpoints/zdr`, answer))
 
-      expect(await run(0.25)).toBe(4)
+      expect(await run()).toBe(4)
 
       const result = await readResult()
       expect(result.checks[0]).toMatchObject({ name: "zdr-list", pass: false })
@@ -489,17 +704,12 @@ describe("the provider probe", () => {
     const result = await readResult()
     expect(result.stopped).toBe(true)
     expect(result.spentUsd).toBeCloseTo(0.0001)
+    // Each check after the first sends nothing. The allowlist check reads
+    // only the provider list.
     expect(result.checks.map((check) => [check.pass, check.status])).toEqual([
       [true, 200],
-      [false, null],
-      [false, null],
-      [false, null],
-      [false, null],
-      [false, null],
-      [false, null],
-      [false, null],
-      [false, null],
-      [false, null],
+      ...Array.from({ length: 15 }, () => [false, null]),
+      [true, null],
     ])
     expect(result.checks[2]?.error).toBe(
       "The spend cap stopped the probe before this check.",

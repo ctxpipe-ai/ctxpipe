@@ -12,7 +12,8 @@ import {
 import { gatewayCost } from "../../observability/gatewayCost.js"
 import { gatewayRoutingError } from "../../observability/gatewayError.js"
 import { withLlmGeneration } from "../../observability/llm-spans.js"
-import { openRouterSettings, ZDR_PROVIDER } from "../services/modelProvider.js"
+import { openRouterSettings } from "../services/modelProvider.js"
+import { openRouterProvider } from "../services/openRouterProvider.js"
 
 /*
  * The embedding client of the knowledge plane (ADR-068 decisions 1, 5 and 7).
@@ -242,7 +243,7 @@ function embedRequest(
             dimensions: config.dimensions,
             encoding_format: "float",
             provider: {
-              ...ZDR_PROVIDER,
+              ...openRouterProvider(),
               ...(sort ? { sort } : {}),
             },
           }),

@@ -419,6 +419,102 @@ describe("v1/openai proxy", () => {
     expect(body.data[0]?.embedding).toEqual([0.1, 0.2])
   })
 
+  it.each(["/v1/chat/completions", "/v1/embeddings"])(
+    "puts the provider block of ADR-070 over the provider fields of the client on %s to OpenRouter, and drops its plugins, fallback models and route",
+    async (path) => {
+      vi.stubEnv("MODEL_PROVIDER_ALLOWLIST", "openai,azure")
+      const seen: unknown[] = []
+      upstream = await startUpstream((req) => {
+        seen.push(req.body)
+        return { body: {} }
+      })
+      const app = appWithRoutes({
+        authed: true,
+        orgId: "org_acme",
+        upstreamUrl: upstream.origin,
+        apiKey: "sk-upstream",
+        modelProvider: "openrouter",
+      })
+      try {
+        const res = await app.request(`/acme/api/v1/openai${path}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model:
+              path === "/v1/embeddings"
+                ? "text-embedding-3-small"
+                : "gpt-5.4-nano",
+            messages: [{ role: "user", content: "hi" }],
+            input: "hi",
+            provider: { zdr: false, only: ["deepinfra"], sort: "price" },
+            // A web search or a file parser sends the content to another
+            // service, past the provider filters.
+            plugins: [{ id: "web" }, { id: "file-parser" }],
+            models: ["vendor/other-model"],
+            route: "fallback",
+          }),
+        })
+        expect(res.status).toBe(200)
+      } finally {
+        vi.unstubAllEnvs()
+      }
+      expect(seen[0]).toMatchObject({
+        provider: {
+          data_collection: "deny",
+          zdr: true,
+          only: ["openai", "azure"],
+          sort: "price",
+        },
+      })
+      expect(seen[0]).not.toHaveProperty("plugins")
+      expect(seen[0]).not.toHaveProperty("models")
+      expect(seen[0]).not.toHaveProperty("route")
+    },
+  )
+
+  it("refuses a model with the :online variant, which adds a web search", async () => {
+    upstream = await startUpstream(() => ({ body: {} }))
+    const app = appWithRoutes({
+      authed: true,
+      orgId: "org_acme",
+      upstreamUrl: upstream.origin,
+      apiKey: "sk-upstream",
+      modelProvider: "openrouter",
+    })
+    const res = await app.request("/acme/api/v1/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4-nano:online",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it("sends no provider block to an upstream that is not OpenRouter", async () => {
+    let seen: unknown
+    upstream = await startUpstream((req) => {
+      seen = req.body
+      return { body: {} }
+    })
+    const app = appWithRoutes({
+      authed: true,
+      orgId: "org_acme",
+      upstreamUrl: upstream.origin,
+      apiKey: "sk-upstream",
+    })
+    await app.request("/acme/api/v1/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-5.4-nano",
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    })
+    expect(seen).not.toHaveProperty("provider")
+  })
+
   it("handles Bedrock embeddings via native InvokeModel", async () => {
     const embedding = new Array(1536).fill(0.03)
     mockBedrockSend.mockResolvedValue({
