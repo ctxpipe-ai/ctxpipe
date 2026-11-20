@@ -34,7 +34,7 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
    - **p(answers):** "does this help answer the question?" It gives the final order.
    - **p(explore):** "must the traversal explore from here?" It picks the next frontier.
 
-   Each candidate goes to Jev with its text or image and its metadata: status, source type, dates, validity and confidence. The questions ask only for relevance and for exploration. They do not tell Jev to weigh the metadata ([CTX-1418](https://linear.app/ctxpipe/issue/CTX-1418)). Code applies the status and the validity: the store reads only `active` documents, the layers of `get_related` read only rows that are valid at `validAt` (now by default), a search hit that is not valid at `validAt` (or now) comes after the valid hits, and decision 4 gives the status of each position.
+   Each candidate goes to Jev with its text and its metadata: status, source type, dates, validity and confidence. The questions ask only for relevance and for exploration. They do not tell Jev to weigh the metadata ([CTX-1418](https://linear.app/ctxpipe/issue/CTX-1418)). Code applies the status and the validity: the store reads only `active` documents, the layers of `get_related` read only rows that are valid at `validAt` (now by default), a search hit that is not valid at `validAt` (or now) comes after the valid hits, and decision 4 gives the status of each position.
    - The "why" path is the parent chain that the traversal records.
    - The budgets stay in code: depth, fan-out, time and the visited set. `validAt` filters in SQL.
    - PageRank, the intent presets, the predicate weights and MMR go away. No separate ranker runs after the layers.
@@ -80,10 +80,10 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
    - When ingest writes an image to the Workspace Git, a vision model reads it and writes a text file beside it: a description, the text in the image, and a Mermaid version for a diagram. The text file links to the image.
    - The projection indexes that text file like any other text file. Thus a full rebuild never calls a vision model, and the projection stays deterministic (ADR-067). The text can be reviewed, versioned, and repaired by the maintenance job.
    - The image stays the source of truth. The text file is derived from it.
-   - Jev still sees the image bytes when a candidate is an image or its text file. The backend reads them from the Workspace Git at the served SHA ([ADR-066](ADR-066-knowledge-content-in-clickhouse.md) decision 6).
+   - Jev sees no image bytes. An image candidate goes to Jev as text, and the backend reads no image bytes at retrieval. The code has no image path to Jev and no setting to turn one on: "just not do not implement it at all. We don't need to have a feature we don't intent to turn on" (the CTO, 2026-11-20; [CTX-1432](https://linear.app/ctxpipe/issue/CTX-1432)).
    - The vision model is a ZDR model on OpenRouter, and the evals of [ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md) choose it.
    - During the rollout, ingest calls the vision model only for an org whose `knowledge_plane` flag is not `off` ([ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md) decision 9). The images of an org that is `off` go to no new provider.
-7. **Data receivers.** Jev receives the question, the text of the candidates and images. The embedding provider receives the text chunks and the questions. At ingest, the vision-model provider receives the images. All three are upstreams of OpenRouter, which our public docs list as the model sub-processor, and we reach them only through ZDR endpoints. ADR-063 accepted the Jev endpoint only for public mock screenshots. For customer content:
+7. **Data receivers.** Jev receives the question and the text of the candidates. It receives no images. The embedding provider receives the text chunks and the questions. At ingest, the vision-model provider receives the images. All three are upstreams of OpenRouter, which our public docs list as the model sub-processor, and we reach them only through ZDR endpoints. ADR-063 accepted the Jev endpoint only for public mock screenshots. For customer content:
    - Every Jev call, every embedding call and every vision call at ingest sets `provider.data_collection: "deny"` and `provider.zdr: true`. Our public docs promise ZDR endpoints for hosted model calls. On 2026-11-20, the OpenRouter ZDR list (`GET /api/v1/endpoints/zdr`) had TypeSafe Jev 1.14 (provider `typesafe`) and Qwen3 Embedding 8B (`deepinfra/us`, `nebius/bf16` and `siliconflow/fp8`).
    - Every call pins its upstream provider, with no fallback to another provider (OpenRouter `provider.order` with `allow_fallbacks: false`). A call that the pinned provider cannot serve fails. It does not go to another provider.
    - These request settings are the guard. No written confirmation from a provider gates the flag (the CTO, 2026-11-19).
@@ -97,6 +97,5 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
 - **Open: what happens when Jev fails or is slow** (return the search order, or fail the call). The PoC decides it.
 - **Facts to verify:**
   - how many Jev questions fit in one call (50 candidates × 2, or 12 pairs × 4 and the items);
-  - Jev latency with images;
   - the speed of the binary scan from real S3 (the measurements of decision 1 used S3 on the same host).
 - **Amends** ADR-051 decision 6 (graph relevance) and section 8 (data layer) for orgs on the new plane. Until the rollout ends, the old ranking serves the other orgs.

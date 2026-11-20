@@ -24,11 +24,11 @@ const JEV_MODEL = "typesafe/jev-1.14"
 // scope-allow: the pinned provider stays next to the model id.
 export const JEV_PROVIDER = "typesafe"
 
-/** The state of a decisions request: text, and each image as a data URL. */
-export type JevState = (
-  | string
-  | { type: "image_url"; image_url: { url: string } }
-)[]
+/**
+ * The state of a decisions request: text only. Jev gets no image bytes
+ * (ADR-068 decision 6).
+ */
+export type JevState = string[]
 
 /** A yes/no question. Jev answers it with a probability of yes. */
 export type JevQuestion = { type: "noul"; instructions: string }
@@ -142,10 +142,6 @@ export async function decideNoul(
               headers: {
                 authorization: `Bearer ${apiKey}`,
                 "content-type": "application/json",
-                // TypeSafe requires this header for a state with an image.
-                ...(state.some((part) => typeof part !== "string")
-                  ? { "typesafe-danger-zone-images": "true" }
-                  : {}),
               },
               body: JSON.stringify({
                 model: JEV_MODEL,

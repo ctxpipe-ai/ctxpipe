@@ -63,10 +63,8 @@ const planeSha = "b".repeat(40)
  * scoped.
  */
 const jevRequests: { candidates: number }[] = []
-/** The data URL of each image part that Jev got. */
-const jevImages: string[] = []
-/** The text of each candidate that Jev got. */
-const jevTexts: string[] = []
+/** The state part of each candidate that Jev got. */
+const jevParts: unknown[] = []
 const disagreementRequests: string[][] = []
 /** Fail every Jev call, or only the calls of the disagreement step. */
 let jevFails: false | "all" | "disagreement" = false
@@ -129,13 +127,8 @@ const models = setupServer(
         const n =
           typeof part === "string" && /^Candidate (\d+) \(/.exec(part)?.[1]
         if (!n) return
-        const content = body.state[index + 1] as
-          | string
-          | { type: "image_url"; image_url: { url: string } }
-        // The stub scores each image part as an answer.
-        if (typeof content !== "string") jevImages.push(content.image_url.url)
-        else jevTexts.push(content)
-        const text = typeof content === "string" ? content : "answer"
+        jevParts.push(body.state[index + 1])
+        const text = String(body.state[index + 1])
         answers[`answers.${n}`] = {
           type: "noul",
           noul: text.includes("answer") ? 0.9 : 0.1,
@@ -441,8 +434,7 @@ describe("the knowledge reader seam", () => {
     slowEmbedding = false
     jevCalls = 0
     jevRequests.length = 0
-    jevImages.length = 0
-    jevTexts.length = 0
+    jevParts.length = 0
     disagreementRequests.length = 0
     events.length = 0
   })
@@ -1007,7 +999,7 @@ describe("the knowledge reader seam", () => {
     ])
   })
 
-  it("on: Jev gets the bytes of an image from the Workspace Git at the served SHA", async () => {
+  it("on: Jev gets an image as its text, and the backend reads no image bytes", async () => {
     await setFlag("on")
     const doc = "knowledge/flows.md"
     const flow = "knowledge/img/flow.png"
@@ -1108,59 +1100,15 @@ describe("the knowledge reader seam", () => {
     }
     await markReady(workspaceId)
 
-    /** A PNG header with the size of the image. */
-    const png = (width: number, height: number) => {
-      const bytes = Buffer.alloc(33)
-      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes)
-      bytes.writeUInt32BE(13, 8)
-      bytes.write("IHDR", 12, "ascii")
-      bytes.writeUInt32BE(width, 16)
-      bytes.writeUInt32BE(height, 20)
-      return bytes
-    }
-    const files: Record<string, Buffer> = {
-      [flow]: png(800, 600),
-      // Smaller than Jev takes: it goes as its text.
-      [tiny]: png(100, 100),
-    }
-    const reads: {
-      repositoryId: string
-      sha: string
-      paths: string[]
-      claims: Record<string, unknown>
-    }[] = []
-    let codesearchDown = false
+    // The Workspace has a repository at the served SHA, but the backend
+    // asks codesearch for no image bytes.
+    const codesearchReads: string[] = []
     vi.stubEnv("CODESEARCH_URL", "http://codesearch.test")
     models.use(
-      http.post(
-        "http://codesearch.test/:repoId/blobs-query",
-        async ({ request, params }) => {
-          const { sha, paths } = (await request.json()) as {
-            sha: string
-            paths: string[]
-          }
-          const token = request.headers.get("authorization") ?? ""
-          const claims = JSON.parse(
-            Buffer.from(token.split(".")[1] ?? "", "base64url").toString(),
-          ) as Record<string, unknown>
-          reads.push({
-            repositoryId: String(params.repoId),
-            sha,
-            paths,
-            claims,
-          })
-          if (codesearchDown)
-            return HttpResponse.json({ error: "down" }, { status: 503 })
-          return HttpResponse.json(
-            Object.fromEntries(
-              paths.map((path) => [
-                path,
-                files[path]?.toString("base64") ?? null,
-              ]),
-            ),
-          )
-        },
-      ),
+      http.all("http://codesearch.test/*", ({ request }) => {
+        codesearchReads.push(request.url)
+        return HttpResponse.json({ error: "unexpected" }, { status: 500 })
+      }),
     )
     try {
       const result = await relatedCall({
@@ -1169,45 +1117,13 @@ describe("the knowledge reader seam", () => {
         maxDepth: 1,
       })
       expect(result.isError).toBeFalsy()
-      expect(jevImages).toEqual([
-        `data:image/png;base64,${files[flow]?.toString("base64")}`,
-      ])
-      // One read of each image, in the Workspace repository at the served
-      // SHA of the plane.
-      expect(
-        reads
-          .map(({ repositoryId, sha, paths }) => [repositoryId, sha, ...paths])
-          .sort(),
-      ).toEqual([
-        [repositoryId, planeSha, flow],
-        [repositoryId, planeSha, tiny],
-      ])
-      // The token names only this commit: no Workspace scope, which would
-      // read the published checkout.
-      for (const { claims } of reads) {
-        expect(claims.repositoryRevisions).toEqual([
-          { repositoryId, sha: planeSha },
-        ])
-        expect(claims.workspaceId).toBeUndefined()
-      }
-
-      // When codesearch fails, each image goes to Jev as its text, and the
-      // call does not fail.
-      codesearchDown = true
-      jevImages.length = 0
-      jevTexts.length = 0
-      // Another question, so that no cached result answers.
-      const fallback = await relatedCall({
-        workspace: "pictures",
-        seeds: [doc],
-        maxDepth: 1,
-        query: "Which diagram shows the flow?",
-      })
-      expect(fallback.isError).toBeFalsy()
-      expect(jevImages).toEqual([])
-      expect(jevTexts.some((text) => text.includes(`[image] ${flow}`))).toBe(
-        true,
-      )
+      expect(codesearchReads).toEqual([])
+      // Each candidate goes to Jev as text. An image goes as its text form.
+      expect(jevParts.every((part) => typeof part === "string")).toBe(true)
+      for (const path of [flow, tiny])
+        expect(
+          jevParts.some((part) => String(part).includes(`[image] ${path}`)),
+        ).toBe(true)
     } finally {
       models.resetHandlers()
     }
