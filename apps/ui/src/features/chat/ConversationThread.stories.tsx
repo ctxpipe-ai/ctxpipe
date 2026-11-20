@@ -406,12 +406,14 @@ export const OpeningLogKeepsScroll: Story = {
     const top = log.getBoundingClientRect().top
     await userEvent.click(log)
     await waitFor(() => expect(log).toHaveAttribute("aria-expanded", "true"))
-    // The thread stops 1 px above the bottom, and its content has a fractional
-    // height. `document.fonts.ready` resolves when the web fonts load, but the
-    // browser lays out the text again only in a later frame. Then its scroll
-    // anchoring can move the thread by 1 px, after `top` is read (CTX-1437).
-    // A scroll to the bottom moves the counters by the height of the open
-    // log, which is much more than 1 px.
+    // The thread stops 1 px above the bottom (scrollTop 163 of 164), and its
+    // content has a fractional height (676.25 px). A trace of this play showed
+    // the browser move the thread to 162 in the frame after the fonts loaded,
+    // with no script that set scrollTop. Sometimes the stick to the bottom
+    // then set it back to 163. `document.fonts.ready` resolves when the fonts
+    // load, not when these frames end, so the move can come after `top` is
+    // read (CTX-1437). Thus the play accepts a move of 1 px. A scroll to the
+    // bottom moves the counters by the height of the open log (273 px).
     await waitFor(() =>
       expect(
         Math.abs(
