@@ -38,6 +38,7 @@ const backendInputs = [
   "apps/backend/vitest.config.ts",
   "apps/backend/src/test/setup-evlog.ts",
   "apps/backend/src/test/setup-openworkflow-runs.ts",
+  "apps/backend/src/test/global-setup-converter.ts",
   "apps/backend/migrations/**",
   "scripts/ci/contracts.json",
   "scripts/ci/service-pins.json",
@@ -97,7 +98,6 @@ const backendTraceInputs = { "apps/backend/migrations/**": "tables" }
 const databases = ["postgres", "migrations", "falkordb"]
 const nativePrerequisites = [
   ...databases,
-  "converter",
   "bun",
   "opencode",
   "zoekt",

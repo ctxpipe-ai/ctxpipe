@@ -365,10 +365,10 @@ export const prerequisites = {
     },
   },
   // The file converter of the knowledge plane (apps/backend/converter): the
-  // backend tests run the real CLI, so it is built before Vitest starts and
-  // no test waits for a build. Cargo reuses an earlier build. CI restores or
-  // builds it in a job step and sets SKIP_CONVERTER_BUILD=1, as for the
-  // Storybook build.
+  // backend tests run the real CLI. The global setup of the backend Vitest
+  // config runs this before any test file, so no test waits for a build.
+  // Cargo reuses an earlier build. CI restores or builds it in a job step
+  // and sets SKIP_CONVERTER_BUILD=1, as for the Storybook build.
   converter: {
     prepare: () => {
       if (process.env.SKIP_CONVERTER_BUILD !== "1")
