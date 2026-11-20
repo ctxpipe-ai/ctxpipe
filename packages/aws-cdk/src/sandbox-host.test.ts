@@ -87,6 +87,18 @@ function environment(t: Template, name: string): Record<string, unknown> {
   )
 }
 
+/** The sandbox host's resources of `type`: the knowledge store has an Auto Scaling group too. */
+function sandboxHostResources(
+  t: Template,
+  type: string,
+): Record<string, { Properties: unknown }> {
+  return Object.fromEntries(
+    Object.entries(t.findResources(type)).filter(([id]) =>
+      id.startsWith("CtxPipeSandboxHost"),
+    ),
+  )
+}
+
 function launchTemplateData(t: Template): {
   InstanceType: string
   BlockDeviceMappings: Array<{
@@ -97,7 +109,9 @@ function launchTemplateData(t: Template): {
   ImageId: string
   UserData: { "Fn::Base64": { "Fn::Join": [string, unknown[]] } }
 } {
-  const templates = Object.values(t.findResources("AWS::EC2::LaunchTemplate"))
+  const templates = Object.values(
+    sandboxHostResources(t, "AWS::EC2::LaunchTemplate"),
+  )
   expect(templates).toHaveLength(1)
   return (templates[0].Properties as { LaunchTemplateData: never })
     .LaunchTemplateData
@@ -124,27 +138,28 @@ function logicalIdOf(
 describe("sandbox host", () => {
   it("is always created as one self-healing Graviton instance in private subnets", () => {
     const t = template("small")
-    t.resourceCountIs("AWS::AutoScaling::AutoScalingGroup", 1)
-    t.hasResource("AWS::AutoScaling::AutoScalingGroup", {
-      Properties: Match.objectLike({
+    const groups = Object.values(
+      sandboxHostResources(t, "AWS::AutoScaling::AutoScalingGroup"),
+    )
+    expect(groups).toHaveLength(1)
+    const asg = groups[0]
+    expect(asg).toMatchObject({
+      Properties: {
         MinSize: "1",
         MaxSize: "1",
         HealthCheckType: "EC2",
-      }),
+      },
       CreationPolicy: { ResourceSignal: { Count: 1 } },
-      UpdatePolicy: Match.objectLike({
-        AutoScalingRollingUpdate: Match.objectLike({
+      UpdatePolicy: {
+        AutoScalingRollingUpdate: {
           MinInstancesInService: 0,
           WaitOnResourceSignals: true,
-        }),
-      }),
+        },
+      },
     })
     const subnets = t.findResources("AWS::EC2::Subnet", {
       Properties: { MapPublicIpOnLaunch: false },
     })
-    const asg = Object.values(
-      t.findResources("AWS::AutoScaling::AutoScalingGroup"),
-    )[0]
     for (const subnet of (
       asg.Properties as { VPCZoneIdentifier: Array<{ Ref: string }> }
     ).VPCZoneIdentifier) {
@@ -206,9 +221,12 @@ describe("sandbox host", () => {
 
   it("creates no host and gives the services no host settings when enabled is false", () => {
     const t = template("disabled", { sandboxHost: { enabled: false } })
-    t.resourceCountIs("AWS::AutoScaling::AutoScalingGroup", 0)
-    t.resourceCountIs("AWS::EC2::LaunchTemplate", 0)
-    t.resourceCountIs("AWS::CloudWatch::Alarm", 0)
+    for (const type of [
+      "AWS::AutoScaling::AutoScalingGroup",
+      "AWS::EC2::LaunchTemplate",
+      "AWS::CloudWatch::Alarm",
+    ])
+      expect(Object.keys(sandboxHostResources(t, type))).toHaveLength(0)
     expect(
       Object.keys(t.findOutputs("SandboxHostAutoScalingGroupName")),
     ).toHaveLength(0)
@@ -229,7 +247,11 @@ describe("sandbox host", () => {
 
   it("keeps the host when enabled is true or unset", () => {
     const t = template("enabled", { sandboxHost: { enabled: true } })
-    t.resourceCountIs("AWS::AutoScaling::AutoScalingGroup", 1)
+    expect(
+      Object.keys(
+        sandboxHostResources(t, "AWS::AutoScaling::AutoScalingGroup"),
+      ),
+    ).toHaveLength(1)
     expect(environment(t, "backend")).toHaveProperty(
       "SANDBOX_PROVIDER",
       "docker",
@@ -442,7 +464,9 @@ describe("sandbox host", () => {
 
   it("starts backend and worker only after the host has signalled", () => {
     const t = template("small")
-    const asg = logicalIdOf(t, "AWS::AutoScaling::AutoScalingGroup", () => true)
+    const asg = logicalIdOf(t, "AWS::AutoScaling::AutoScalingGroup", (id) =>
+      id.startsWith("CtxPipeSandboxHost"),
+    )
     const services = t.findResources("AWS::ECS::Service")
     const dependent = Object.entries(services)
       .filter(([, resource]) =>

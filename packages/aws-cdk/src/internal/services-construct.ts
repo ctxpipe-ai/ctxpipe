@@ -27,6 +27,7 @@ export class ServicesConstruct extends Construct {
       assignPublicIp: false,
       securityGroups: [
         props.networking.appSecurityGroup,
+        props.knowledgeStore.clientSecurityGroup,
         ...(props.sandboxHost ? [props.sandboxHost.backendSecurityGroup] : []),
       ],
       cloudMapOptions: {
@@ -48,6 +49,7 @@ export class ServicesConstruct extends Construct {
       assignPublicIp: false,
       securityGroups: [
         props.networking.appSecurityGroup,
+        props.knowledgeStore.clientSecurityGroup,
         ...(props.sandboxHost ? [props.sandboxHost.workerSecurityGroup] : []),
       ],
       cloudMapOptions: {
