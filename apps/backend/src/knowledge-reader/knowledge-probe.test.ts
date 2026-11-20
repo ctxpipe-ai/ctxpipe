@@ -392,7 +392,7 @@ describe("the provider probe controls", () => {
       .passthrough(),
   })
 
-  it("sends each control once and records its status, provider, error and vector count", async () => {
+  it("sends each control once and records its status, provider, error, vector count and latency", async () => {
     const bodies: z.infer<typeof controlSchema>[] = []
     // A gateway with the batch finding: with zdr true, Gemini has no
     // endpoint for more than one input.
@@ -441,6 +441,7 @@ describe("the provider probe controls", () => {
             provider: z.string().nullable(),
             error: z.string().nullable(),
             vectors: z.number().nullable(),
+            latencyMs: z.number().nullable(),
           }),
         ),
       })
@@ -472,14 +473,44 @@ describe("the provider probe controls", () => {
       ["gemini-batch-16-multimodal-no-zdr", 200, null, 16],
       ["titan-16-strings-zdr", 200, null, 16],
       ["openai-3-large-16-strings-zdr", 200, null, 16],
+      ["qwen3-embedding-8b-16-strings-zdr-deepinfra-us", 200, null, 16],
+      ["qwen3-embedding-8b-64-strings-zdr-deepinfra-us", 200, null, 64],
+      ["qwen3-embedding-8b-16-strings-zdr-nebius-bf16", 200, null, 16],
+      ["qwen3-embedding-8b-64-strings-zdr-nebius-bf16", 200, null, 64],
+      ["qwen3-embedding-8b-16-strings-zdr-siliconflow-fp8", 200, null, 16],
+      ["qwen3-embedding-8b-64-strings-zdr-siliconflow-fp8", 200, null, 64],
+      ["pplx-embed-v1-4b-16-strings-zdr-perplexity-int8", 200, null, 16],
+      ["pplx-embed-v1-4b-64-strings-zdr-perplexity-int8", 200, null, 64],
+      ["text-embedding-3-small-16-strings-zdr-azure", 200, null, 16],
+      ["text-embedding-3-small-64-strings-zdr-azure", 200, null, 64],
     ])
-    expect(bodies).toHaveLength(17)
+    expect(bodies).toHaveLength(27)
+    // Each answered control records the time of its call.
+    expect(
+      result.controls.every(
+        (control) => control.latencyMs !== null && control.latencyMs >= 0,
+      ),
+    ).toBe(true)
     expect(bodies[8]?.provider).toEqual({
       data_collection: "deny",
       order: ["google-vertex/us"],
       allow_fallbacks: false,
       zdr: true,
     })
+    // A text-space control pins one ZDR endpoint with no fallback.
+    expect(bodies[18]).toMatchObject({
+      model: "qwen/qwen3-embedding-8b",
+      provider: {
+        data_collection: "deny",
+        order: ["deepinfra/us"],
+        allow_fallbacks: false,
+        zdr: true,
+      },
+    })
+    expect(bodies[18]?.input).toHaveLength(64)
+    expect(bodies[18]?.input.at(-1)).toBe(
+      "Square 64 of the checkerboard is blue.",
+    )
     // Only the fixed texts go out.
     expect(JSON.stringify(bodies)).not.toMatch(
       /"text":"(?!Square \d+ of the checkerboard is (red|blue)\.)/,

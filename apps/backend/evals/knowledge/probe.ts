@@ -88,6 +88,8 @@ type Evidence<T> = {
   model: string | null
   /** The count of vectors in the answer (`data`). */
   vectors: number | null
+  /** The time of the last model call, in milliseconds. */
+  latencyMs: number | null
   error: string | null
 }
 
@@ -109,6 +111,7 @@ async function observe<T>(
       provider: null,
       model: null,
       vectors: null,
+      latencyMs: null,
       error: stopped,
     }
   const before = calls.records.length
@@ -140,6 +143,7 @@ async function observe<T>(
     provider: answer.provider ?? null,
     model: answer.model ?? null,
     vectors: answer.data?.length ?? null,
+    latencyMs: last?.latencyMs ?? null,
     error: errors.length > 0 ? errors.join(" Provider: ") : null,
   }
 }
@@ -499,6 +503,28 @@ export async function probeControls(input: {
         provider: unpinned(true),
       },
     ],
+    // The text space (CTX-1431): does a text-only model take a batch on a
+    // ZDR endpoint? Each control pins one endpoint tag with no fallback.
+    ...(
+      [
+        ["qwen/qwen3-embedding-8b", "deepinfra/us"],
+        ["qwen/qwen3-embedding-8b", "nebius/bf16"],
+        ["qwen/qwen3-embedding-8b", "siliconflow/fp8"],
+        ["perplexity/pplx-embed-v1-4b", "perplexity/int8"],
+        ["openai/text-embedding-3-small", "azure"],
+      ] as const
+    ).flatMap(([textModel, tag]): [string, string, object][] =>
+      [16, 64].map((count) => [
+        `${textModel.split("/")[1]}-${count}-strings-zdr-${tag.replace("/", "-")}`,
+        `Does ${textModel} on ${tag} take a batch? ${count} plain strings, pin ${tag}, zdr true.`,
+        {
+          model: textModel,
+          input: texts(count),
+          encoding_format: "float",
+          provider: pinned(true, tag),
+        },
+      ]),
+    ),
   ]
   const url = `${input.base.replace(/\/+$/, "")}/embeddings`
   const restore = calls.install()
@@ -538,6 +564,7 @@ export async function probeControls(input: {
       "Model",
       "Error",
       "Vectors",
+      "Latency (ms)",
     ],
     rows: controls.map((control) => [
       control.name,
@@ -547,6 +574,7 @@ export async function probeControls(input: {
       control.model,
       control.error,
       control.vectors,
+      control.latencyMs,
     ]),
   })
   return calls.stopped ? 3 : 0

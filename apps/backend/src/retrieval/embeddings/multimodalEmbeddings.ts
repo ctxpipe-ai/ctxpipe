@@ -4,6 +4,10 @@ import { z } from "zod"
 
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { mapWithConcurrency } from "../../lib/mapWithConcurrency.js"
+import {
+  isRetryableFetchFailure,
+  TransientHttpError,
+} from "../../lib/withTransientHttpRetry.js"
 import { gatewayCost } from "../../observability/gatewayCost.js"
 import { gatewayRoutingError } from "../../observability/gatewayError.js"
 import { withLlmGeneration } from "../../observability/llm-spans.js"
@@ -52,7 +56,10 @@ export const multimodalEmbeddingConfig = {
    * can be in flight at once.
    */
   concurrency: 8,
-  /** The maximum number of attempts of one request (429 and 5xx retry). */
+  /**
+   * The maximum number of attempts of one request (429, 5xx and network
+   * errors retry).
+   */
   maxAttempts: 5,
   /** The first backoff. Each retry doubles it, up to `maxBackoffMs`. */
   backoffMs: 500,
@@ -110,9 +117,6 @@ const responseSchema = z.object({
     .optional(),
 })
 
-/** A 429 or 5xx answer. The message holds only the status, never the body. */
-class RetryableStatusError extends Error {}
-
 /**
  * An answer with a status that a retry does not change (a 4xx other than
  * 429). The message holds only the status, never the body.
@@ -162,10 +166,9 @@ export async function embedMultimodal(
           config,
         })
       } catch (err) {
-        if (
-          !(err instanceof RetryableStatusError) ||
-          attempt >= config.maxAttempts
-        )
+        // A 429, a 5xx and a network error of fetch (no answer) retry. The
+        // message of a network error holds no input text.
+        if (!isRetryableFetchFailure(err) || attempt >= config.maxAttempts)
           throw err
         await sleep(
           Math.min(config.backoffMs * 2 ** (attempt - 1), config.maxBackoffMs),
@@ -219,7 +222,8 @@ function embedRequest(
         const routing = gatewayRoutingError(await res.text(), config.model)
         const message = `Embedding request failed: HTTP ${res.status}${routing ? `: ${routing}` : ""}`
         if (res.status === 429 || res.status >= 500)
-          throw new RetryableStatusError(message)
+          // The message holds only the status, never the body.
+          throw new TransientHttpError(message, res.status)
         throw new EmbeddingStatusError(message, res.status)
       }
       // A parse error can quote the body, and the provider can echo the input
