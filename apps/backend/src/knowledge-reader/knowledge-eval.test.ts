@@ -218,6 +218,24 @@ describe("the spend cap", () => {
     }
   })
 
+  it("reserves an embedding batch by the size of its input", async () => {
+    sent = 0
+    const calls = new ModelCalls(BASE, 0.005)
+    const restore = calls.install()
+    try {
+      // 64 chunks of 200 bytes: $0.0064 at $0.5 for each million bytes,
+      // above the cap.
+      const batch = Array.from({ length: 64 }, () => "x".repeat(200))
+      expect((await post(`${BASE}/embeddings`, { input: batch })).status).toBe(
+        503,
+      )
+      expect(sent).toBe(0)
+      expect(calls.stopped).toBe(true)
+    } finally {
+      restore()
+    }
+  })
+
   it("counts an answer with no cost at the reserved value", async () => {
     sent = 0
     const calls = new ModelCalls(BASE, 1)
@@ -236,6 +254,102 @@ describe("the spend cap", () => {
         costUsd: 0.001,
         missing: 0,
       })
+    } finally {
+      restore()
+    }
+  })
+})
+
+describe("the ZDR provider block", () => {
+  const BASE = "https://zdr.test/v1"
+  const bodies: unknown[] = []
+  useMswServer(
+    http.post(`${BASE}/embeddings`, async ({ request }) => {
+      const body = (await request.json()) as {
+        model?: string
+        provider?: { zdr?: boolean }
+      }
+      bodies.push(body)
+      // OpenRouter refuses a ZDR request to a model with no ZDR endpoint.
+      if (body.model === "no-zdr/model")
+        return HttpResponse.json(
+          { error: { message: "No endpoints found" } },
+          { status: 404 },
+        )
+      return HttpResponse.json({ data: [], usage: { cost: 0.0001 } })
+    }),
+  )
+  const post = (body: unknown) =>
+    fetch(`${BASE}/embeddings`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    })
+
+  it("goes on each request with no provider block, and the replay still finds the call", async () => {
+    bodies.length = 0
+    const live = new ModelCalls(BASE, 1, undefined, { addZdr: true })
+    const plane = {
+      model: "qwen/qwen3-embedding-8b",
+      input: ["q"],
+      provider: { zdr: true, data_collection: "deny", quantizations: ["bf16"] },
+    }
+    let restore = live.install()
+    try {
+      live.begin("legacy", "question")
+      await post({ model: "openai/text-embedding-3-large", input: ["q"] })
+      live.begin("plane", "question")
+      await post(plane)
+      // A provider block without the ZDR fields gets them.
+      live.begin("plane", "other")
+      await post({
+        model: "qwen/qwen3-embedding-8b",
+        input: ["q"],
+        provider: { quantizations: ["bf16"] },
+      })
+      // A model with no ZDR endpoint fails: it does not fall back.
+      live.begin("legacy", "other")
+      expect((await post({ model: "no-zdr/model", input: ["q"] })).status).toBe(
+        404,
+      )
+    } finally {
+      restore()
+    }
+    expect(bodies).toEqual([
+      {
+        model: "openai/text-embedding-3-large",
+        input: ["q"],
+        provider: { data_collection: "deny", zdr: true },
+      },
+      plane,
+      {
+        model: "qwen/qwen3-embedding-8b",
+        input: ["q"],
+        provider: {
+          quantizations: ["bf16"],
+          data_collection: "deny",
+          zdr: true,
+        },
+      },
+      {
+        model: "no-zdr/model",
+        input: ["q"],
+        provider: { data_collection: "deny", zdr: true },
+      },
+    ])
+    expect(live.zdrAdded).toEqual({
+      "legacy embedding openai/text-embedding-3-large": 1,
+      "plane embedding qwen/qwen3-embedding-8b": 1,
+      "legacy embedding no-zdr/model": 1,
+    })
+    expect(live.records[0]?.request).toEqual(bodies[0])
+
+    const replay = new ModelCalls(BASE, 0, live.records)
+    restore = replay.install()
+    try {
+      replay.begin("legacy", "question")
+      await post({ model: "openai/text-embedding-3-large", input: ["q"] })
+      expect(replay.end()).toMatchObject({ embedding: 1, missing: 0 })
     } finally {
       restore()
     }
@@ -307,6 +421,7 @@ describe("the judge panel", () => {
         contextRepo: {
           url: "https://example.test/repo",
           sha: "e".repeat(40),
+          root: "",
         },
         workspace: "corpus-v0",
       },

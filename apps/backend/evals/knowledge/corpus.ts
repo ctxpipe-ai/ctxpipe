@@ -423,7 +423,8 @@ export async function freezeCorpora(
       source: corpus.repositories
         .map((repository) => `${repository.source}@${repository.sha}`)
         .join(", "),
-      contextRepo: { url: `https://github.com/${fullName}`, sha },
+      // The Workspace of the corpus has the whole context repo.
+      contextRepo: { url: `https://github.com/${fullName}`, sha, root: "" },
       workspace: corpus.workspace,
     })
   }

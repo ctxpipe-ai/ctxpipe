@@ -4,6 +4,7 @@
  * the eval Workspaces (`DATABASE_URL`, `AUTH_SECRET`, `GRAPH_DB_URI`,
  * `CLICKHOUSE_URL`, and the model settings `MODEL_PROVIDER_*`):
  *
+ *   bun evals/knowledge/cli.ts hydrate --dataset FILE --out DIR [--cap-usd 5]
  *   bun evals/knowledge/cli.ts run --dataset FILE --targets FILE --out DIR \
  *     [--split dev|holdout] [--cap-usd 5] [--set NAME=VALUE] [--kept REPORT]
  *   bun evals/knowledge/cli.ts rescore --from DIR --out DIR \
@@ -19,8 +20,10 @@
  * the command (the output holds the work before the stop). 4: a check of
  * `probe` failed.
  */
+// First: it sets the OpenWorkflow namespace before the client loads.
+import "./eval-namespace.js"
 import { execFile, execFileSync } from "node:child_process"
-import { writeFile } from "node:fs/promises"
+import { mkdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseArgs, promisify } from "node:util"
@@ -39,6 +42,7 @@ import {
   snapshotRepositories,
 } from "./corpus.js"
 import { type Dataset, readDataset } from "./dataset.js"
+import type { EvalOrg } from "./hydrate.js"
 import { ModelCalls, type RecordedCall } from "./model-calls.js"
 import { labelWithPanel } from "./panel.js"
 import { probe } from "./probe.js"
@@ -67,13 +71,17 @@ import { runVision, VISION_MODELS } from "./vision.js"
 /** The model calls go to `MODEL_PROVIDER_URL`, as in the readers. */
 const modelBase = () =>
   process.env.MODEL_PROVIDER_URL || DEFAULT_OPENROUTER_BASE
-const modelCalls = (capUsd: number, replay?: readonly RecordedCall[]) =>
-  new ModelCalls(modelBase(), capUsd, replay)
+const modelCalls = (
+  capUsd: number,
+  replay?: readonly RecordedCall[],
+  options?: ConstructorParameters<typeof ModelCalls>[3],
+) => new ModelCalls(modelBase(), capUsd, replay, options)
 
 /**
  * Run the questions of `splits` through both arms, then write the run folder
  * and its report (`report.json`, `report.md`) to `out`. With `replay`, each
- * model answer comes from those recorded calls and no call goes out.
+ * model answer comes from the recorded calls of an earlier run and no call
+ * goes out. The report keeps the calls that got the ZDR block in that run.
  */
 export async function executeRun(input: {
   dataset: Dataset
@@ -84,9 +92,16 @@ export async function executeRun(input: {
   now: Date
   out: string
   kept: KeptRun | null
-  replay?: readonly RecordedCall[]
+  replay?: {
+    calls: readonly RecordedCall[]
+    zdrAdded: Manifest["zdrAdded"]
+  }
 }): Promise<Report> {
-  const calls = modelCalls(input.capUsd, input.replay)
+  // Each call of the arms goes only to a ZDR endpoint (ADR-068 decision 7).
+  // A replay sends no call.
+  const calls = input.replay
+    ? modelCalls(input.capUsd, input.replay.calls)
+    : modelCalls(input.capUsd, undefined, { addZdr: true })
   const restoreSettings = applySettings(input.settings)
   const restoreFetch = calls.install()
   try {
@@ -106,9 +121,8 @@ export async function executeRun(input: {
       settings: input.settings,
       loop: { ...ORCHESTRATOR_DEFAULTS },
       mode: input.replay ? "replay" : "live",
-      capUsd: input.capUsd,
-      spentUsd: calls.spentUsd,
-      stopped: calls.stopped,
+      ...calls.summary(),
+      ...(input.replay ? { zdrAdded: input.replay.zdrAdded } : {}),
     }
     await writeRun(input.out, {
       manifest,
@@ -134,6 +148,89 @@ export async function executeRun(input: {
 
 class SetupError extends Error {}
 
+/** Build the file converter: the export of `factory eval` has no build of it. */
+function buildConverter() {
+  execFileSync(
+    process.execPath,
+    [
+      fileURLToPath(
+        new URL(
+          "../../../../scripts/checks/prerequisites.mjs",
+          import.meta.url,
+        ),
+      ),
+      "converter",
+    ],
+    // Its result line (and the fix of a failure) goes to stderr.
+    { stdio: ["ignore", 2, "inherit"] },
+  )
+}
+
+/**
+ * Hydrate each corpus into both stacks in `org` (`hydrate.ts`), and write the
+ * targets of `run` (`targets.json`) to `out`. It writes the spend and the
+ * failed documents of the plane (`hydrate.json`) also when the hydrate
+ * fails. Returns the exit code: 3 when the spend cap stopped a call. Then it
+ * writes no targets, also when the workflows completed. Throws the other
+ * errors.
+ */
+export async function hydrateCommand(input: {
+  dataset: Dataset
+  org: EvalOrg
+  databaseUrl: string
+  out: string
+  capUsd: number
+}): Promise<number> {
+  // The hydrate sends each chunk of each corpus, so the recorder keeps no
+  // call: a rescore replays only the calls of `run`.
+  const calls = modelCalls(input.capUsd, undefined, {
+    addZdr: true,
+    keepRecords: false,
+  })
+  // Only `hydrate` loads the workflows: their OpenWorkflow client connects to
+  // Postgres when it loads, and the other commands need no database.
+  const { hydrateCorpora } = await import("./hydrate.js")
+  const restore = calls.install()
+  await mkdir(input.out, { recursive: true })
+  let failedDocuments: Record<string, number> | null = null
+  try {
+    const hydrated = await hydrateCorpora({
+      dataset: input.dataset,
+      org: input.org,
+      databaseUrl: input.databaseUrl,
+      calls,
+      log: (line) => process.stderr.write(`${line}\n`),
+    })
+    failedDocuments = hydrated.failedDocuments
+    if (calls.stopped) {
+      process.stderr.write(
+        "The spend cap stopped a call of the hydrate. Give a higher cap and run hydrate again.\n",
+      )
+      return 3
+    }
+    await writeJson(join(input.out, "targets.json"), hydrated.targets)
+    process.stdout.write(
+      `The targets are in ${join(input.out, "targets.json")}. Spend: $${calls.spentUsd.toFixed(4)}.\n`,
+    )
+    return 0
+  } catch (error) {
+    // A call that the cap stopped fails its workflow step.
+    if (calls.stopped) {
+      process.stderr.write(
+        `The spend cap stopped the hydrate: ${error instanceof Error ? error.message : String(error)}\n`,
+      )
+      return 3
+    }
+    throw error
+  } finally {
+    restore()
+    await writeJson(join(input.out, "hydrate.json"), {
+      ...calls.summary(),
+      failedDocuments,
+    })
+  }
+}
+
 /** Label a draft with the judge panel. Returns the exit code. */
 async function label(values: {
   draft?: string
@@ -146,8 +243,12 @@ async function label(values: {
     throw new SetupError("label needs --draft, --repo and --models.")
   const repo = values.repo
   const draft = await readDataset(values.draft)
-  const shas = new Map(
-    draft.corpora.map((corpus) => [corpus.id, corpus.contextRepo.sha]),
+  // The gold paths are relative to the root of the corpus.
+  const trees = new Map(
+    draft.corpora.map(({ id, contextRepo: { sha, root } }) => [
+      id,
+      root ? `${sha}:${root}/` : `${sha}:`,
+    ]),
   )
   const calls = modelCalls(values.capUsd)
   const restore = calls.install()
@@ -161,7 +262,7 @@ async function label(values: {
             "-C",
             repo,
             "show",
-            `${shas.get(corpus)}:${ref}`,
+            `${trees.get(corpus)}${ref}`,
           ])
         ).stdout,
       env: process.env,
@@ -252,22 +353,8 @@ async function main(argv: string[]): Promise<number> {
   if (command === "vision") {
     if (!process.env.MODEL_PROVIDER_API_KEY)
       throw new SetupError("vision needs MODEL_PROVIDER_API_KEY.")
-    // The SVG fixtures go through the converter, and the export of
-    // `factory eval` has no build of it.
-    execFileSync(
-      process.execPath,
-      [
-        fileURLToPath(
-          new URL(
-            "../../../../scripts/checks/prerequisites.mjs",
-            import.meta.url,
-          ),
-        ),
-        "converter",
-      ],
-      // Its result line (and the fix of a failure) goes to stderr.
-      { stdio: ["ignore", 2, "inherit"] },
-    )
+    // The SVG fixtures go through the converter.
+    buildConverter()
     const calls = modelCalls(capUsd)
     const restore = calls.install()
     try {
@@ -285,16 +372,43 @@ async function main(argv: string[]): Promise<number> {
     }
   }
 
-  if (command !== "run" && command !== "rescore")
+  if (command !== "run" && command !== "rescore" && command !== "hydrate")
     throw new SetupError(
-      "Use the command run, rescore, label, corpus, probe or vision.",
+      "Use the command hydrate, run, rescore, label, corpus, probe or vision.",
     )
-  if (!process.env.DATABASE_URL) throw new SetupError("Set DATABASE_URL.")
+  const databaseUrl = process.env.DATABASE_URL
+  if (!databaseUrl) throw new SetupError("Set DATABASE_URL.")
+  const dataset = values.dataset
+  if (command === "hydrate") {
+    if (!dataset) throw new SetupError("hydrate needs --dataset.")
+    if (values.set || values.kept)
+      throw new SetupError("hydrate takes no --set and no --kept.")
+    // The projection of the plane converts each file with it.
+    buildConverter()
+    initDb(databaseUrl)
+    try {
+      return await hydrateCommand({
+        dataset: await readDataset(dataset),
+        // The eval org. Its ids are made up.
+        org: {
+          id: "org_knowledge_eval",
+          slug: "knowledge-eval",
+          name: "Knowledge eval",
+        },
+        databaseUrl,
+        out,
+        capUsd,
+      })
+    } finally {
+      await closeGraphDb()
+      await closeDb()
+    }
+  }
   const kept = values.kept
     ? keptRunSchema.parse(await readJson(values.kept))
     : null
   const settings = parseSettings(values.set ?? [])
-  initDb(process.env.DATABASE_URL)
+  initDb(databaseUrl)
   try {
     let report: Report
     if (command === "rescore") {
@@ -309,10 +423,13 @@ async function main(argv: string[]): Promise<number> {
         now: new Date(recorded.manifest.now),
         out,
         kept,
-        replay: recorded.calls,
+        replay: {
+          calls: recorded.calls,
+          zdrAdded: recorded.manifest.zdrAdded,
+        },
       })
     } else {
-      if (!values.dataset || !values.targets)
+      if (!dataset || !values.targets)
         throw new SetupError("run needs --dataset and --targets.")
       const splits: Manifest["splits"] =
         values.split === "dev" || values.split === "holdout"
@@ -321,7 +438,7 @@ async function main(argv: string[]): Promise<number> {
       if (values.split && splits.length !== 1)
         throw new SetupError("--split is dev or holdout.")
       report = await executeRun({
-        dataset: await readDataset(values.dataset),
+        dataset: await readDataset(dataset),
         targets: targetsSchema.parse(await readJson(values.targets)),
         splits,
         settings,
