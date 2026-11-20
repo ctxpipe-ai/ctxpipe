@@ -1,6 +1,3 @@
--- One vision reading of an image blob for each (model, prompt version);
--- reading is its JSON. The wall is the one of 0001_knowledge_tables.sql.
-
 CREATE TABLE IF NOT EXISTS image_texts
 (
     org_id String,
