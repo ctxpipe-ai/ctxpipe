@@ -51,7 +51,10 @@ struct Failure {
 }
 
 fn fail(kind: &'static str, message: impl Into<String>) -> Failure {
-    Failure { kind, message: message.into() }
+    Failure {
+        kind,
+        message: message.into(),
+    }
 }
 
 fn main() -> ExitCode {
@@ -68,7 +71,8 @@ fn main() -> ExitCode {
     };
     let number = |name: &str| value(name).and_then(|text| text.parse::<u64>().ok());
     // The caller sets the limits, in one place.
-    let (Some(memory_mb), Some(cpu_seconds)) = (number("--max-memory-mb"), number("--max-cpu-seconds"))
+    let (Some(memory_mb), Some(cpu_seconds)) =
+        (number("--max-memory-mb"), number("--max-cpu-seconds"))
     else {
         eprintln!("Give --max-memory-mb and --max-cpu-seconds.");
         return ExitCode::FAILURE;
@@ -113,7 +117,10 @@ fn set_limits(memory_mb: u64, cpu_seconds: u64) {
             rlim_max: memory_mb * 1024 * 1024,
         };
         libc::setrlimit(libc::RLIMIT_AS, &memory);
-        let cpu = libc::rlimit { rlim_cur: cpu_seconds, rlim_max: cpu_seconds };
+        let cpu = libc::rlimit {
+            rlim_cur: cpu_seconds,
+            rlim_max: cpu_seconds,
+        };
         libc::setrlimit(libc::RLIMIT_CPU, &cpu);
     }
 }
@@ -183,7 +190,13 @@ fn sandbox() -> Result<(), String> {
         libc::SYS_pivot_root,
     ];
     #[cfg(target_arch = "x86_64")]
-    refused.extend([libc::SYS_open, libc::SYS_creat, libc::SYS_accept, libc::SYS_fork, libc::SYS_vfork]);
+    refused.extend([
+        libc::SYS_open,
+        libc::SYS_creat,
+        libc::SYS_accept,
+        libc::SYS_fork,
+        libc::SYS_vfork,
+    ]);
     let mut rules: std::collections::BTreeMap<i64, Vec<SeccompRule>> =
         refused.into_iter().map(|call| (call, vec![])).collect();
     // A clone that is not a thread is a new process.
@@ -226,7 +239,10 @@ fn convert(format: &str, bytes: &[u8]) -> Result<Value, Failure> {
         "xlsx" => office(bytes, anydoc::Format::Excel),
         "html" => html(bytes),
         "svg" => svg(bytes),
-        _ => Err(fail("unsupported", format!("No converter for the format {format}."))),
+        _ => Err(fail(
+            "unsupported",
+            format!("No converter for the format {format}."),
+        )),
     }
 }
 
@@ -258,7 +274,8 @@ fn pdf(bytes: &[u8]) -> Result<Value, Failure> {
     let options = pdf_inspector::PdfOptions::new().pages(1..=MAX_PDF_PAGES);
     let result = pdf_inspector::process_pdf_mem_with_options(bytes, options).map_err(|error| {
         let message = error.to_string();
-        if message.to_lowercase().contains("encrypt") || message.to_lowercase().contains("password") {
+        if message.to_lowercase().contains("encrypt") || message.to_lowercase().contains("password")
+        {
             fail("encrypted", "The PDF is encrypted.")
         } else {
             fail("malformed", message)
@@ -267,12 +284,18 @@ fn pdf(bytes: &[u8]) -> Result<Value, Failure> {
     if result.page_count > MAX_PDF_PAGES {
         return Err(fail(
             "too-many-pages",
-            format!("The PDF has {} pages; the limit is {MAX_PDF_PAGES}.", result.page_count),
+            format!(
+                "The PDF has {} pages; the limit is {MAX_PDF_PAGES}.",
+                result.page_count
+            ),
         ));
     }
     let markdown = result.markdown.unwrap_or_default();
     if markdown.trim().is_empty() {
-        return Err(fail("no-text-layer", "The PDF has no text layer (scanned or image-only)."));
+        return Err(fail(
+            "no-text-layer",
+            "The PDF has no text layer (scanned or image-only).",
+        ));
     }
     let mut value = text(markdown)?;
     value["imageOnlyPages"] = json!(result.pages_needing_ocr);
@@ -282,7 +305,9 @@ fn pdf(bytes: &[u8]) -> Result<Value, Failure> {
 /// HTML to Markdown. The tags that hold no reading text are skipped.
 fn html(bytes: &[u8]) -> Result<Value, Failure> {
     let converter = htmd::HtmlToMarkdown::builder()
-        .skip_tags(vec!["head", "script", "style", "noscript", "template", "nav", "svg", "iframe"])
+        .skip_tags(vec![
+            "head", "script", "style", "noscript", "template", "nav", "svg", "iframe",
+        ])
         .build();
     converter
         .convert(&String::from_utf8_lossy(bytes))
@@ -294,13 +319,18 @@ fn html(bytes: &[u8]) -> Result<Value, Failure> {
 /// document order. Before it renders, `prepare_svg` turns the parts that
 /// resvg cannot draw into parts that it can.
 fn svg(bytes: &[u8]) -> Result<Value, Failure> {
-    let source = std::str::from_utf8(bytes).map_err(|_| fail("malformed", "The SVG is not UTF-8."))?;
+    let source =
+        std::str::from_utf8(bytes).map_err(|_| fail("malformed", "The SVG is not UTF-8."))?;
     let source = plain_css(source);
     let document = roxmltree::Document::parse_with_options(
         &source,
         // A DTD is allowed: draw.io writes one. The node limit and the process
         // limits stop an entity expansion bomb.
-        roxmltree::ParsingOptions { allow_dtd: true, nodes_limit: MAX_SVG_NODES as u32, ..Default::default() },
+        roxmltree::ParsingOptions {
+            allow_dtd: true,
+            nodes_limit: MAX_SVG_NODES as u32,
+            ..Default::default()
+        },
     )
     .map_err(|error| fail("malformed", error.to_string()))?;
     let labels = svg_labels(&document);
@@ -336,8 +366,14 @@ fn svg(bytes: &[u8]) -> Result<Value, Failure> {
     let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height)
         .ok_or_else(|| fail("malformed", "The SVG has no drawable size."))?;
     pixmap.fill(resvg::tiny_skia::Color::WHITE);
-    resvg::render(&tree, resvg::tiny_skia::Transform::from_scale(scale, scale), &mut pixmap.as_mut());
-    let png = pixmap.encode_png().map_err(|error| fail("malformed", error.to_string()))?;
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    let png = pixmap
+        .encode_png()
+        .map_err(|error| fail("malformed", error.to_string()))?;
     let mut value = text(labels.join("\n"))?;
     value["png"] = json!(base64::engine::general_purpose::STANDARD.encode(png));
     Ok(value)
@@ -375,7 +411,11 @@ fn plain_css(source: &str) -> String {
         }
         match (comma, end) {
             (Some(comma), Some(end)) => {
-                let value = if name == "var(" { &inner[comma + 1..end] } else { &inner[..comma] };
+                let value = if name == "var(" {
+                    &inner[comma + 1..end]
+                } else {
+                    &inner[..comma]
+                };
                 out.push_str(value.trim());
                 rest = &inner[end + 1..];
             }
@@ -406,7 +446,9 @@ fn in_fallback_branch(node: roxmltree::Node) -> bool {
     node.ancestors().any(|ancestor| {
         ancestor.parent().is_some_and(|parent| {
             parent.has_tag_name("switch")
-                && parent.first_element_child().is_some_and(|first| first != ancestor)
+                && parent
+                    .first_element_child()
+                    .is_some_and(|first| first != ancestor)
                 && ancestor.is_element()
         })
     })
@@ -420,7 +462,12 @@ fn svg_labels(document: &roxmltree::Document) -> Vec<String> {
         .descendants()
         .filter(|node| node.has_tag_name("text") || node.has_tag_name("foreignObject"))
         // A text inside a label that is already taken is not taken again.
-        .filter(|node| !node.ancestors().skip(1).any(|a| a.has_tag_name("text") || a.has_tag_name("foreignObject")))
+        .filter(|node| {
+            !node
+                .ancestors()
+                .skip(1)
+                .any(|a| a.has_tag_name("text") || a.has_tag_name("foreignObject"))
+        })
         .filter(|node| !in_fallback_branch(*node))
         .map(words)
         .filter(|label| !label.is_empty())
@@ -429,11 +476,17 @@ fn svg_labels(document: &roxmltree::Document) -> Vec<String> {
 
 /// A number of an SVG length attribute, with no unit or `px`.
 fn length(node: roxmltree::Node, name: &str) -> Option<f32> {
-    node.attribute(name)?.trim().trim_end_matches("px").parse::<f32>().ok()
+    node.attribute(name)?
+        .trim()
+        .trim_end_matches("px")
+        .parse::<f32>()
+        .ok()
 }
 
 fn escape_xml(text: &str) -> String {
-    text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// The source of an SVG with the parts that resvg cannot draw changed:
@@ -456,7 +509,8 @@ fn prepare_svg(source: &str, document: &roxmltree::Document) -> String {
         } else if node.has_tag_name("foreignObject")
             && !node.ancestors().any(|a| a.has_tag_name("switch"))
         {
-            let (Some(width), Some(height)) = (length(node, "width"), length(node, "height")) else {
+            let (Some(width), Some(height)) = (length(node, "width"), length(node, "height"))
+            else {
                 continue;
             };
             let x = length(node, "x").unwrap_or(0.0) + width / 2.0;
@@ -494,13 +548,27 @@ mod tests {
     fn the_sandbox_refuses_files_sockets_and_processes_but_not_threads() {
         std::thread::spawn(|| {
             super::sandbox().expect("the filters go on");
-            assert!(std::fs::File::open("/etc/hostname").is_err(), "a file opens");
-            assert!(std::net::TcpStream::connect("127.0.0.1:9").is_err(), "a socket opens");
+            assert!(
+                std::fs::File::open("/etc/hostname").is_err(),
+                "a file opens"
+            );
+            assert!(
+                std::net::TcpStream::connect("127.0.0.1:9").is_err(),
+                "a socket opens"
+            );
             // SAFETY: a fork that the filter refuses returns -1 and makes no child.
             assert_eq!(unsafe { libc::fork() }, -1, "a process starts");
             // SAFETY: a signal that the filter refuses goes nowhere.
-            assert_eq!(unsafe { libc::kill(1, 0) }, -1, "a signal goes to another process");
-            assert_eq!(std::thread::spawn(|| 7).join().unwrap(), 7, "a thread does not start");
+            assert_eq!(
+                unsafe { libc::kill(1, 0) },
+                -1,
+                "a signal goes to another process"
+            );
+            assert_eq!(
+                std::thread::spawn(|| 7).join().unwrap(),
+                7,
+                "a thread does not start"
+            );
         })
         .join()
         .expect("the sandbox test thread");

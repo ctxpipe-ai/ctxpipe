@@ -10,6 +10,11 @@ fn main() {
         hash.update(path.as_bytes());
         hash.update(std::fs::read(path).expect("a file of the converter"));
     }
-    let hex: String = hash.finalize().iter().take(8).map(|byte| format!("{byte:02x}")).collect();
+    let hex: String = hash
+        .finalize()
+        .iter()
+        .take(8)
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
     println!("cargo:rustc-env=CONVERTER_HASH={hex}");
 }
