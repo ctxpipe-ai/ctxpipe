@@ -21,6 +21,7 @@ import {
   vi,
 } from "vitest"
 import { stringify } from "yaml"
+import { z } from "zod"
 
 import { buildConverter } from "../../test/converter.js"
 import { recordSpans } from "../../test/spans.js"
@@ -127,10 +128,9 @@ const msw = setupServer(
   }),
   http.post(VISION_URL, async ({ request }) => {
     vision.calls++
-    const body = (await request.json()) as {
-      models: string[]
-      messages: unknown[]
-    }
+    const body = z
+      .object({ models: z.array(z.string()), messages: z.array(z.unknown()) })
+      .parse(await request.json())
     const image = Buffer.from(
       JSON.stringify(body.messages).match(/base64,([A-Za-z0-9+/=]+)/)?.[1] ??
         "",
@@ -1593,7 +1593,6 @@ describe("reference keys (CTX-1400)", () => {
 })
 
 describe("vector reuse (CTX-1428)", () => {
-  /** Make the stored projection version old, so that the next run is full. */
   const embeddingOf = () =>
     spans.spanNamed("knowledge.projection.apply")?.attributes
   /** The text of each request since the last reset. */

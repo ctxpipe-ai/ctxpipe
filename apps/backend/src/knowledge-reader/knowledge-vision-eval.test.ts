@@ -12,6 +12,7 @@ import {
   it,
   vi,
 } from "vitest"
+import { z } from "zod"
 
 import { ModelCalls } from "../../evals/knowledge/model-calls.js"
 import {
@@ -284,10 +285,12 @@ describe("runVision", () => {
         }),
       ),
       http.post(`${BASE}/chat/completions`, async ({ request }) => {
-        const body = (await request.json()) as {
-          models: string[]
-          messages: { content: unknown }[]
-        }
+        const body = z
+          .object({
+            models: z.array(z.string()),
+            messages: z.array(z.unknown()),
+          })
+          .parse(await request.json())
         bodies.push(body)
         if (body.models[0] === "vendor/broken")
           return HttpResponse.json({ error: {} }, { status: 400 })

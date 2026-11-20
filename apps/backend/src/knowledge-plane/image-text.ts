@@ -18,6 +18,7 @@ import type {
   KnowledgeStore,
 } from "../knowledge-store/knowledge-store.js"
 import { mapPool } from "../lib/mapPool.js"
+import { parseJson } from "../lib/parseJson.js"
 import {
   TransientHttpError,
   withTransientHttpRetry,
@@ -466,19 +467,17 @@ export async function imageTexts(input: {
       results.set(blobSha, { text: withLabels(read.reading, labels) })
     } catch (error) {
       // A content failure makes a `failed` document: an answer out of the
-      // schema, or a 4xx refusal of the image. An outage (network, timeout,
-      // 429, 5xx, settings) and a store error stop the run, as each
-      // infrastructure error does (ADR-067 decision 8): the retry reads the
-      // image again.
+      // schema, or a refusal of the image itself (400, 413, 415, 422). Each
+      // other error stops the run, as an infrastructure error does (ADR-067
+      // decision 8): an outage (network, timeout, 429, 5xx), the settings or
+      // the account (401, 402, 403), no endpoint for the model (404), and a
+      // store error. The retry reads the image again.
       if (
         !(error instanceof VisionError) ||
         !(
           error.kind === "invalid-answer" ||
           (error.kind === "http" &&
-            error.status !== undefined &&
-            error.status >= 400 &&
-            error.status < 500 &&
-            error.status !== 429)
+            [400, 413, 415, 422].includes(error.status ?? 0))
         )
       )
         throw error
@@ -487,12 +486,4 @@ export async function imageTexts(input: {
     }
   })
   return results
-}
-
-function parseJson(text: string): unknown {
-  try {
-    return JSON.parse(text)
-  } catch {
-    return null
-  }
 }

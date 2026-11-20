@@ -35,6 +35,7 @@ import {
 import {
   fetchGitCommits,
   nativeGit,
+  readGitBlobSizes,
   readGitBlobs,
   withGitDirectory,
 } from "../services/git/pack.js"
@@ -45,7 +46,12 @@ import {
   knowledgeProjectionVersion,
   planKnowledgeChangeSet,
 } from "./change-set.js"
-import { convertFile, type FileType, fileType } from "./convert-file.js"
+import {
+  convertFile,
+  converterVersion,
+  type FileType,
+  fileType,
+} from "./convert-file.js"
 import { type ImageTextCounter, imageTexts } from "./image-text.js"
 import {
   isKnowledgePath,
@@ -122,6 +128,7 @@ export async function projectKnowledgePlane(input: {
     embeddingModel: textEmbeddingConfig.model,
     dimensions: textEmbeddingConfig.dimensions,
     root: input.root,
+    converter: await converterVersion(),
   })
   const state = await getKnowledgeState(key)
   if (
@@ -398,13 +405,23 @@ async function applyChangeSet(input: {
 
 /** The file conversions and the image texts of one run, for its metrics. */
 type FileCounter = {
-  /** The conversions, by `<format> <result>`: `text`, `image` or a failure. */
-  conversions: Map<string, number>
+  /**
+   * The count of each result (`text`, `image`, `unsupported`, `too-large` or
+   * a failure of the converter) of each format.
+   */
+  conversions: Map<string, Map<string, number>>
   images: ImageTextCounter
 }
 
 /** The largest image that goes to the vision model. */
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024
+/**
+ * The largest other file that the writer reads. One git call gives at most
+ * 64 MiB (`nativeGit`), with the header of each blob.
+ */
+const MAX_FILE_BYTES = 48 * 1024 * 1024
+/** The bytes of the blobs of one git read. */
+const READ_BYTES = 32 * 1024 * 1024
 
 /**
  * The rows of each file of `paths`, with no vectors: a document, or a
@@ -449,26 +466,49 @@ async function projectFiles(input: {
     /** Null for a knowledge file. */
     type: Exclude<FileType, { kind: "unsupported" }> | null
   }
+  const count = (format: string, result: string) => {
+    const results = input.files.conversions.get(format) ?? new Map()
+    results.set(result, (results.get(result) ?? 0) + 1)
+    input.files.conversions.set(format, results)
+  }
   const entries = input.paths.flatMap((path, index): Entry[] => {
     const blob = input.blobs[index] ?? ""
     if (isKnowledgePath(path)) return [{ path, blob, type: null }]
     const type = fileType(path)
     if (type?.kind === "unsupported") {
       fail(path, `No converter takes .${type.extension} files.`)
+      count(type.extension, "unsupported")
       return []
     }
     return type ? [{ path, blob, type }] : []
   })
-  const contents = await readGitBlobs(
+  // The size of each file before a read: a file above its limit gets a
+  // `failed` document, and each git read stays within the output limit.
+  const sizes = await readGitBlobSizes(
     input.directory,
     entries.map(({ blob }) => blob),
   )
-  const count = (format: string, result: string) => {
-    const key = `${format} ${result}`
-    input.files.conversions.set(
-      key,
-      (input.files.conversions.get(key) ?? 0) + 1,
-    )
+  const groups: Entry[][] = [[]]
+  let groupBytes = 0
+  for (const [index, entry] of entries.entries()) {
+    const size = sizes[index] ?? 0
+    const limit =
+      entry.type?.kind === "image" ? MAX_IMAGE_BYTES : MAX_FILE_BYTES
+    if (size > limit) {
+      fail(entry.path, `The file is larger than ${limit / 1024 / 1024} MiB.`)
+      if (entry.type)
+        count(
+          entry.type.kind === "image" ? "image" : entry.type.format,
+          "too-large",
+        )
+      continue
+    }
+    if (groupBytes + size > READ_BYTES && (groups.at(-1)?.length ?? 0) > 0) {
+      groups.push([])
+      groupBytes = 0
+    }
+    groups.at(-1)?.push(entry)
+    groupBytes += size
   }
   /** The images for the vision model, with the path and the type of each. */
   const images: {
@@ -478,11 +518,24 @@ async function projectFiles(input: {
     image: { bytes: Buffer; mimeType: string }
     labels?: string
   }[] = []
-  for (const [index, { path, blob, type }] of entries.entries()) {
-    const bytes = contents[index] ?? Buffer.alloc(0)
+  for (const group of groups) {
+    const contents = await readGitBlobs(
+      input.directory,
+      group.map(({ blob }) => blob),
+    )
+    for (const [index, { path, blob, type }] of group.entries())
+      await projectEntry(path, blob, type, contents[index] ?? Buffer.alloc(0))
+  }
+
+  async function projectEntry(
+    path: string,
+    blob: string,
+    type: Entry["type"],
+    bytes: Buffer,
+  ): Promise<void> {
     if (type) {
       await projectFile({ path, blob, type, bytes })
-      continue
+      return
     }
     // The parse and the mapper read no Git and no network: an error here
     // is a content error of the file.
@@ -519,15 +572,12 @@ async function projectFiles(input: {
   }): Promise<void> {
     const { path, blob, type, bytes } = file
     if (type.kind === "image") {
-      if (bytes.length > MAX_IMAGE_BYTES)
-        fail(path, "The image is larger than 20 MiB.")
-      else
-        images.push({
-          path,
-          mime: type.mime,
-          blobSha: blob,
-          image: { bytes, mimeType: type.mime },
-        })
+      images.push({
+        path,
+        mime: type.mime,
+        blobSha: blob,
+        image: { bytes, mimeType: type.mime },
+      })
       return
     }
     const conversion = await convertFile(type.format, bytes)
@@ -927,19 +977,25 @@ function recordRun(input: {
       "The file conversions of the knowledge projection, by format and result",
     unit: "{file}",
   })
-  for (const [key, count] of input.files.conversions) {
-    const [format = "", result = ""] = key.split(" ")
-    conversions.add(count, { outcome, mode, format, result })
-  }
+  for (const [format, results] of input.files.conversions)
+    for (const [result, count] of results)
+      conversions.add(count, { outcome, mode, format, result })
   const { images } = input.files
-  const imageTexts = meter.createHistogram("knowledge.projection.image_texts", {
-    description:
-      "The images of one knowledge projection run, by result: a cache hit, a vision call, or a failure",
-    unit: "{image}",
+  const imageTextHistogram = meter.createHistogram(
+    "knowledge.projection.image_texts",
+    {
+      description:
+        "The images of one knowledge projection run, by result: a cache hit, a vision call, or a failure",
+      unit: "{image}",
+    },
+  )
+  imageTextHistogram.record(images.hits, { outcome, mode, result: "hit" })
+  imageTextHistogram.record(images.misses, { outcome, mode, result: "miss" })
+  imageTextHistogram.record(images.failures, {
+    outcome,
+    mode,
+    result: "failure",
   })
-  imageTexts.record(images.hits, { outcome, mode, result: "hit" })
-  imageTexts.record(images.misses, { outcome, mode, result: "miss" })
-  imageTexts.record(images.failures, { outcome, mode, result: "failure" })
   meter
     .createHistogram("knowledge.projection.vision_cost", {
       description:
@@ -988,7 +1044,12 @@ function recordRun(input: {
       seconds: input.seconds,
       mutations: input.mutations,
       embedding,
-      conversions: Object.fromEntries(input.files.conversions),
+      conversions: Object.fromEntries(
+        [...input.files.conversions].map(([format, results]) => [
+          format,
+          Object.fromEntries(results),
+        ]),
+      ),
       images,
       ...summary,
     },

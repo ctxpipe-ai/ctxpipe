@@ -6,11 +6,10 @@ import { beforeAll, describe, expect, it } from "vitest"
 
 import { buildConverter } from "../../test/converter.js"
 import {
-  CONVERTER_VERSION,
   type Conversion,
   convertFile,
   converterBinary,
-  converterFormat,
+  converterVersion,
   fileType,
 } from "./convert-file.js"
 
@@ -26,9 +25,9 @@ const visionFixture = (name: string) =>
   )
 
 const convert = (name: string, bytes: Buffer = fixture(name)) => {
-  const format = converterFormat(name)
-  if (!format) throw new Error(`No converter for ${name}`)
-  return convertFile(format, bytes)
+  const type = fileType(name)
+  if (type?.kind !== "convert") throw new Error(`No converter for ${name}`)
+  return convertFile(type.format, bytes)
 }
 
 /** The width and the height of a PNG, from its IHDR chunk. */
@@ -58,24 +57,15 @@ describe("fileType", () => {
   })
 })
 
-describe("converterFormat", () => {
-  it("takes the top file types by extension only", () => {
-    expect(converterFormat("docs/Guide.PDF")).toBe("pdf")
-    expect(converterFormat("a/page.htm")).toBe("html")
-    expect(converterFormat("diagram.svg")).toBe("svg")
-    expect(converterFormat("notes.txt")).toBeNull()
-    expect(converterFormat("legacy.doc")).toBeNull()
-    expect(converterFormat("README")).toBeNull()
-  })
-})
-
 describe("convertFile", () => {
-  it("is the converter version that the projection version holds", () => {
+  it("gives the version of the CLI: the package version and the hash of its build", async () => {
+    const version = await converterVersion()
+    expect(version).toMatch(/^ctxpipe-convert \d+\.\d+\.\d+ [0-9a-f]{16}$/)
     expect(
       execFileSync(converterBinary(), ["--version"], {
         encoding: "utf8",
       }).trim(),
-    ).toBe(CONVERTER_VERSION)
+    ).toBe(version)
   })
 
   it.each([

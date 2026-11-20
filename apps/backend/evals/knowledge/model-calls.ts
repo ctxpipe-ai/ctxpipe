@@ -80,10 +80,9 @@ const emptyCounts = (): CallCounts => ({
   missing: 0,
 })
 
-/** The kind of a call to the origin of the model provider, from its path. */
 /**
- * The kind of a call to the origin of the model provider, from its path. A
- * chat call of the vision client (`readImage`) names its JSON schema
+ * The kind of a call to the origin of the model provider, from its path
+ * and its body. A chat call of the vision client (`readImage`) names its JSON schema
  * `image_reading`.
  */
 function kindOf(path: string, body: string): CallKind | null {

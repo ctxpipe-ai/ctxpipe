@@ -2,7 +2,6 @@ import { isSourcesTreePath } from "../domain/workspace-sources/source-tree.js"
 import { parseNameStatus } from "../services/git/name-status.js"
 import { listTreeBlobs, nativeGit } from "../services/git/pack.js"
 import { workspaceRelativePath } from "../services/git/root-folder.js"
-import { CONVERTER_VERSION } from "./convert-file.js"
 import { IMAGE_TEXT_PROMPT_VERSION } from "./image-text.js"
 
 /**
@@ -16,6 +15,8 @@ export function knowledgeProjectionVersion(input: {
   dimensions: number
   /** The Workspace root folder; `""` is the repository root. */
   root: string
+  /** The version of the file converter (`converterVersion`). */
+  converter: string
 }): string {
   // Increase the code version when the parser, the chunking or the mapper
   // changes. 2: the reference keys of CTX-1400. 3: image vectors and the alt
@@ -31,7 +32,7 @@ export function knowledgeProjectionVersion(input: {
     input.embeddingModel,
     input.dimensions,
     input.root,
-    CONVERTER_VERSION,
+    input.converter,
     IMAGE_TEXT_PROMPT_VERSION,
   ])
 }

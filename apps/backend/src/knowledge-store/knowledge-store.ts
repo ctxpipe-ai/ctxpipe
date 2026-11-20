@@ -206,6 +206,16 @@ type KnowledgeGraph = {
   truncated: boolean
 }
 
+/** The reading of one image by one vision model (`image_texts`). */
+export type ImageTextRow = {
+  blobSha: string
+  /** The model that answered. */
+  model: string
+  promptVersion: number
+  /** The JSON of the structured reading. */
+  reading: string
+}
+
 /**
  * The only ClickHouse client of the knowledge content (ADR-066). Each
  * function takes the org and one or more Workspaces of it, and each statement
@@ -225,16 +235,6 @@ type KnowledgeGraph = {
  * the rows of all its keys with one DELETE for each table. A retry after a
  * failure is safe (ADR-067 decision 5).
  */
-/** The reading of one image by one vision model (`image_texts`). */
-export type ImageTextRow = {
-  blobSha: string
-  /** The model that answered. */
-  model: string
-  promptVersion: number
-  /** The JSON of the structured reading. */
-  reading: string
-}
-
 export type KnowledgeStore = {
   /**
    * Applies `changes` with one DELETE for each table, for each slice of at

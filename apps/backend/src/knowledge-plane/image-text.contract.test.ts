@@ -10,6 +10,7 @@ import {
   it,
   vi,
 } from "vitest"
+import { z } from "zod"
 
 import {
   createKnowledgeStore,
@@ -59,10 +60,9 @@ let answer: (models: string[]) => {
 } = (models) => ({ status: 200, model: models[0] })
 const msw = setupServer(
   http.post(`${BASE}/chat/completions`, async ({ request }) => {
-    const body = (await request.json()) as {
-      models: string[]
-      messages: { content: unknown }[]
-    }
+    const body = z
+      .object({ models: z.array(z.string()), messages: z.array(z.unknown()) })
+      .parse(await request.json())
     const label = Buffer.from(
       JSON.stringify(body.messages).match(/base64,([A-Za-z0-9+/=]+)/)?.[1] ??
         "",

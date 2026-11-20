@@ -4,22 +4,34 @@
 // `apps/backend/converter` (`ctxpipe-convert`): fast, battle-tested parsers
 // for the top file types only. The same bytes give the same text.
 //
-// The input is untrusted, so the CLI runs in its own process with limits:
-// its own address-space and CPU limits (set before it reads the input), a
+// The input is untrusted, so the CLI runs in its own process: with its own
+// address-space and CPU limits (set before it reads the input), a seccomp
+// filter on Linux (no file, socket or program after the input is read), no
+// environment, as the unprivileged user `nobody` when the worker is root, a
 // wall-clock limit, and caps on the input and the output.
-import { spawn } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
 import { existsSync } from "node:fs"
 import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
 
 import { z } from "zod"
 
+import { parseJson } from "../lib/parseJson.js"
+
+let version: Promise<string> | undefined
+
 /**
- * The version line of `ctxpipe-convert --version`. It is part of the
- * projection version (ADR-067): a new parser version changes the text of a
- * file, so it starts a full rebuild. A test checks it against the CLI.
+ * The version of the converter (`ctxpipe-convert --version`): its package
+ * version and a hash of its locked dependencies, its source and its font.
+ * It is part of the projection version (ADR-067), so a new parser starts a
+ * full rebuild. The process asks the CLI once.
  */
-export const CONVERTER_VERSION =
-  "ctxpipe-convert 0.1.0 (anydoc 0.2.5, pdf-inspector 1.26.1, htmd 0.6.0, resvg 0.50.0)"
+export function converterVersion(): Promise<string> {
+  version ??= promisify(execFile)(converterBinary(), ["--version"], {
+    env: {},
+  }).then(({ stdout }) => stdout.trim())
+  return version
+}
 
 /** The formats of the converter, by file extension, with their media type. */
 const FORMATS: Record<string, { format: ConverterFormat; mime: string }> = {
@@ -81,11 +93,6 @@ const extensionOf = (path: string) => {
   const name = path.split("/").pop() ?? ""
   const dot = name.lastIndexOf(".")
   return dot > 0 ? name.slice(dot + 1).toLowerCase() : ""
-}
-
-/** The converter format of a path, or null when no converter takes it. */
-export function converterFormat(path: string): ConverterFormat | null {
-  return FORMATS[extensionOf(path)]?.format ?? null
 }
 
 /** What the projection does with a file that is not a knowledge file. */
@@ -154,17 +161,19 @@ const outputSchema = z.union([
   }),
   z.object({
     ok: z.literal(false),
-    failure: z.string(),
+    // Any other failure of the CLI (`usage`, `io`, `sandbox`) is a file that
+    // the converter cannot read.
+    failure: z
+      .enum([
+        "too-large",
+        "too-many-pages",
+        "encrypted",
+        "no-text-layer",
+        "malformed",
+      ])
+      .catch("malformed"),
     message: z.string(),
   }),
-])
-
-const KNOWN_FAILURES = new Set<string>([
-  "too-large",
-  "too-many-pages",
-  "encrypted",
-  "no-text-layer",
-  "malformed",
 ])
 
 /**
@@ -188,7 +197,7 @@ export function converterBinary(): string {
 export async function convertFile(
   format: ConverterFormat,
   bytes: Buffer,
-  limits: { timeoutMs?: number; maxMemoryMb?: number } = {},
+  limits: { timeoutMs?: number } = {},
 ): Promise<Conversion> {
   if (bytes.length > MAX_INPUT_BYTES)
     return {
@@ -203,12 +212,18 @@ export async function convertFile(
       "--format",
       format,
       "--max-memory-mb",
-      String(limits.maxMemoryMb ?? 512),
+      "512",
       "--max-cpu-seconds",
       String(Math.ceil(timeoutMs / 1000)),
     ],
-    // No environment: the converter reads no setting.
-    { stdio: ["pipe", "pipe", "ignore"], env: {} },
+    {
+      stdio: ["pipe", "pipe", "ignore"],
+      // No environment: the converter reads no setting, and it gets no key.
+      env: {},
+      // The worker runs as root: the converter runs as `nobody`, so it
+      // cannot read the files or the environment of the worker.
+      ...(process.getuid?.() === 0 ? { uid: 65534, gid: 65534 } : {}),
+    },
   )
   const chunks: Buffer[] = []
   let size = 0
@@ -256,13 +271,7 @@ export async function convertFile(
     }
   const result = output.data
   if (!result.ok)
-    return {
-      kind: "failed",
-      failure: KNOWN_FAILURES.has(result.failure)
-        ? (result.failure as ConversionFailure)
-        : "malformed",
-      message: result.message,
-    }
+    return { kind: "failed", failure: result.failure, message: result.message }
   if (result.png !== undefined)
     return {
       kind: "image",
@@ -273,13 +282,5 @@ export async function convertFile(
     kind: "text",
     text: result.text,
     imageOnlyPages: result.imageOnlyPages ?? [],
-  }
-}
-
-function parseJson(text: string): unknown {
-  try {
-    return JSON.parse(text)
-  } catch {
-    return null
   }
 }

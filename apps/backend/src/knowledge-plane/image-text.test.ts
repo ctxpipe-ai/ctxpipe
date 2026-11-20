@@ -1,5 +1,6 @@
 import { HttpResponse, http } from "msw"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { z } from "zod"
 
 import { useMswServer } from "../../test/msw.js"
 import {
@@ -166,7 +167,7 @@ describe("readImage", () => {
     let body: Record<string, unknown> = {}
     server.use(
       http.post(`${BASE}/chat/completions`, async ({ request }) => {
-        body = (await request.json()) as Record<string, unknown>
+        body = z.record(z.string(), z.unknown()).parse(await request.json())
         expect(request.headers.get("authorization")).toBe("Bearer test-key")
         return completion(graphReading)
       }),

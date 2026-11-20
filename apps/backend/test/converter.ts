@@ -17,6 +17,21 @@ export function buildConverter(): void {
       "--manifest-path",
       fileURLToPath(new URL("../converter/Cargo.toml", import.meta.url)),
     ],
-    { stdio: ["ignore", "ignore", "inherit"] },
+    {
+      stdio: ["ignore", "ignore", "inherit"],
+      // Only what cargo needs: the build scripts of the dependencies get no
+      // model key of an eval.
+      env: Object.fromEntries(
+        [
+          "PATH",
+          "HOME",
+          "CARGO_HOME",
+          "RUSTUP_HOME",
+          "RUSTUP_TOOLCHAIN",
+        ].flatMap((name) =>
+          process.env[name] ? [[name, process.env[name]]] : [],
+        ),
+      ),
+    },
   )
 }

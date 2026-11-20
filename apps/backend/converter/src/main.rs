@@ -3,14 +3,17 @@
 //! to stdout as one JSON object. The same bytes give the same output.
 //!
 //!   ctxpipe-convert --format <pdf|docx|pptx|xlsx|html|svg>
-//!                   [--max-memory-mb N] [--max-cpu-seconds N]
+//!                   --max-memory-mb N --max-cpu-seconds N
 //!   ctxpipe-convert --version
 //!
 //! The input is untrusted. The process sets its own memory and CPU limits
 //! before it reads the input, and each parser has size limits. The caller
-//! also applies a wall-clock limit and a cap on the output. The process
-//! makes no network call and reads no file: an SVG cannot load an external
-//! image, and the only font is the embedded DejaVu Sans.
+//! also applies a wall-clock limit and a cap on the output, and runs the
+//! process as an unprivileged user with no environment. On Linux, after it
+//! reads the input, the process installs a seccomp filter that refuses each
+//! system call that opens a file, makes a socket or starts a program
+//! (`sandbox`). An SVG cannot load an external image, and the only font is
+//! the embedded DejaVu Sans.
 
 use std::io::{Read, Write};
 use std::process::ExitCode;
@@ -18,12 +21,13 @@ use std::process::ExitCode;
 use base64::Engine;
 use serde_json::{Value, json};
 
-/// The version line of `--version`. The TypeScript side checks it against
-/// CONVERTER_VERSION, which is part of the projection version (ADR-067).
+/// The version line of `--version`: the package version and the hash of
+/// build.rs. It is part of the projection version (ADR-067).
 const VERSION: &str = concat!(
     "ctxpipe-convert ",
     env!("CARGO_PKG_VERSION"),
-    " (anydoc 0.2.5, pdf-inspector 1.26.1, htmd 0.6.0, resvg 0.50.0)"
+    " ",
+    env!("CONVERTER_HASH")
 );
 
 /// The largest input. The caller refuses a larger file before it starts the
@@ -61,10 +65,14 @@ fn main() -> ExitCode {
             .and_then(|at| args.get(at + 1))
             .cloned()
     };
-    let number = |name: &str, default: u64| {
-        value(name).and_then(|text| text.parse::<u64>().ok()).unwrap_or(default)
+    let number = |name: &str| value(name).and_then(|text| text.parse::<u64>().ok());
+    // The caller sets the limits, in one place.
+    let (Some(memory_mb), Some(cpu_seconds)) = (number("--max-memory-mb"), number("--max-cpu-seconds"))
+    else {
+        eprintln!("Give --max-memory-mb and --max-cpu-seconds.");
+        return ExitCode::FAILURE;
     };
-    set_limits(number("--max-memory-mb", 1_024), number("--max-cpu-seconds", 60));
+    set_limits(memory_mb, cpu_seconds);
     let result = value("--format")
         .ok_or_else(|| fail("usage", "Give --format."))
         .and_then(|format| {
@@ -76,6 +84,7 @@ fn main() -> ExitCode {
             if bytes.len() as u64 > MAX_INPUT_BYTES {
                 return Err(fail("too-large", "The file is larger than 64 MiB."));
             }
+            sandbox().map_err(|error| fail("sandbox", error))?;
             convert(&format, &bytes)
         });
     let output = match result {
@@ -106,6 +115,61 @@ fn set_limits(memory_mb: u64, cpu_seconds: u64) {
         let cpu = libc::rlimit { rlim_cur: cpu_seconds, rlim_max: cpu_seconds };
         libc::setrlimit(libc::RLIMIT_CPU, &cpu);
     }
+}
+
+/// The seccomp filter of the conversion (Linux): each system call that opens
+/// a file, makes a socket, starts a program or reads another process fails
+/// with EPERM. The parsers need none of them: the input is in memory and
+/// the output goes to stdout, which is open. The threads that a parser
+/// starts later get the same filter.
+#[cfg(target_os = "linux")]
+fn sandbox() -> Result<(), String> {
+    use seccompiler::{BpfProgram, SeccompAction, SeccompFilter};
+    // x86_64 adds the old calls that arm64 does not have.
+    #[cfg_attr(not(target_arch = "x86_64"), allow(unused_mut))]
+    let mut calls = vec![
+        libc::SYS_openat,
+        libc::SYS_openat2,
+        libc::SYS_open_by_handle_at,
+        libc::SYS_socket,
+        libc::SYS_socketpair,
+        libc::SYS_connect,
+        libc::SYS_bind,
+        libc::SYS_listen,
+        libc::SYS_accept4,
+        libc::SYS_sendto,
+        libc::SYS_sendmsg,
+        libc::SYS_sendmmsg,
+        libc::SYS_execve,
+        libc::SYS_execveat,
+        libc::SYS_ptrace,
+        libc::SYS_process_vm_readv,
+        libc::SYS_process_vm_writev,
+        libc::SYS_mount,
+        libc::SYS_umount2,
+        libc::SYS_unshare,
+        libc::SYS_setns,
+        libc::SYS_chroot,
+        libc::SYS_pivot_root,
+    ];
+    #[cfg(target_arch = "x86_64")]
+    calls.extend([libc::SYS_open, libc::SYS_creat, libc::SYS_accept]);
+    let filter = SeccompFilter::new(
+        calls.into_iter().map(|call| (call, vec![])).collect(),
+        SeccompAction::Allow,
+        SeccompAction::Errno(libc::EPERM as u32),
+        std::env::consts::ARCH.try_into().map_err(|_| "no seccomp target for this arch".to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+    let program: BpfProgram = filter.try_into().map_err(|error: seccompiler::BackendError| error.to_string())?;
+    seccompiler::apply_filter(&program).map_err(|error| error.to_string())
+}
+
+/// No seccomp outside Linux: the worker runs on Linux, and a developer host
+/// relies on the limits of the caller.
+#[cfg(not(target_os = "linux"))]
+fn sandbox() -> Result<(), String> {
+    Ok(())
 }
 
 fn convert(format: &str, bytes: &[u8]) -> Result<Value, Failure> {
