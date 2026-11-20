@@ -31,6 +31,7 @@ import { emailTransport } from "../email/configured.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import { apiKeyLifecycleEvents } from "./api-key-events.js"
+import { githubOAuthUrls } from "./github-oauth-urls.js"
 import { invitationEmailLink } from "./invitation-email-url.js"
 import { MCP_READ_SCOPE, MCP_WRITE_SCOPE } from "./mcp-scopes.js"
 import { resolveOAuthGrantReference } from "./oauth-grants.js"
@@ -153,6 +154,7 @@ export function createBetterAuth() {
   // Email/password accounts verify their address before signing in. Not on
   // PR previews (throwaway test accounts), and not without an email
   // transport, where mail is only logged and nobody could verify.
+  const githubOAuth = githubOAuthUrls(env)
   const canSendEmail = emailTransport(env) !== undefined
   const requireEmailVerification =
     canSendEmail && !isPreviewDeployment(process.env)
@@ -303,7 +305,8 @@ export function createBetterAuth() {
           ? {
               clientId: env.GITHUB_CLIENT_ID,
               clientSecret: env.GITHUB_CLIENT_SECRET,
-              redirectURI: `${env.AUTH_BASE_URL}/.auth/api/v1/auth/callback/github`,
+              authorizationEndpoint: githubOAuth.authorizeUrl,
+              redirectURI: githubOAuth.redirectUri,
             }
           : undefined,
       google:

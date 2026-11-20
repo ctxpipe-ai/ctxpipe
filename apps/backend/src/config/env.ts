@@ -44,6 +44,13 @@ const envSchema = z.object({
   ),
   GITHUB_CLIENT_ID: z.string().min(1).optional(),
   GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
+  /**
+   * The authorize URL and the redirect URI of the GitHub OAuth flows, when an
+   * OAuth forwarder serves them (set both). Unset: GitHub's authorize URL and
+   * `${AUTH_BASE_URL}/.auth/api/v1/auth/callback/github`.
+   */
+  GITHUB_AUTHORIZE_URL: z.string().url().optional(),
+  GITHUB_REDIRECT_URI: z.string().url().optional(),
   GOOGLE_CLIENT_ID: z.string().min(1).optional(),
   GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
   MICROSOFT_CLIENT_ID: z.string().min(1).optional(),
