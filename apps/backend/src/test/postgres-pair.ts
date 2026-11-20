@@ -198,7 +198,7 @@ export async function clientToolsDirectory(workRoot: string): Promise<string> {
       path,
       [
         "#!/bin/sh",
-        `exec docker run --rm --network host --user ${uid.trim()}:${gid.trim()} -e PGPASSWORD -v "${workRoot}:${workRoot}" ${POSTGRES_IMAGE} ${tool} "$@"`,
+        `exec docker run --rm ${testLabelArgs().join(" ")} --network host --user ${uid.trim()}:${gid.trim()} -e PGPASSWORD -v "${workRoot}:${workRoot}" ${POSTGRES_IMAGE} ${tool} "$@"`,
         "",
       ].join("\n"),
     )

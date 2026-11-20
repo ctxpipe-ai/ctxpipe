@@ -17,7 +17,10 @@ import { promisify } from "node:util"
 
 import type Docker from "dockerode"
 
-import { testLabels } from "../../../../scripts/ci/test-containers.mjs"
+import {
+  TEST_LABEL,
+  testLabels,
+} from "../../../../scripts/ci/test-containers.mjs"
 
 const exec = promisify(execFile)
 
@@ -161,6 +164,7 @@ export async function withNativeHttpsGitFixture<T>(
       Image: input.baseImage,
       User: "0:0",
       Cmd: ["sh", "-c", "sleep 300"],
+      Labels: testLabels(),
     })
     await customizer.start()
     await customizer.putArchive(await readFile(caArchive), {
@@ -170,7 +174,9 @@ export async function withNativeHttpsGitFixture<T>(
     await customizer.commit({
       repo: derivedRepository,
       tag: "fixture",
-      changes: ["USER 1000:1000"],
+      // The image does not keep the owner of this run: a container of it
+      // that a later run starts is not this run's container.
+      changes: ["USER 1000:1000", `LABEL ${TEST_LABEL}=""`],
     })
     await customizer.remove({ force: true, v: true })
     customizer = undefined

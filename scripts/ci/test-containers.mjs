@@ -16,7 +16,7 @@ export const TEST_LABEL = "ai.ctxpipe.test"
 const OWNER_ENV = "CTXPIPE_TEST_OWNER"
 
 /** The owner of the containers that this process starts: `<host>/<pid>`. */
-export function testOwner() {
+function testOwner() {
   return process.env[OWNER_ENV] || `${hostname()}/${process.pid}`
 }
 
@@ -44,15 +44,11 @@ function dockerLines(args) {
 /** Removes the containers `ids` with their anonymous volumes. */
 function remove(ids) {
   if (ids.length > 0) dockerLines(["rm", "--force", "--volumes", ...ids])
-  return ids.length
 }
 
-/**
- * Removes the test containers of `owner` (default: this process or the run
- * that started it), with their anonymous volumes. Returns their number.
- */
-export function removeTestContainers(owner = testOwner()) {
-  return remove(
+/** Removes the test containers of `owner`, with their anonymous volumes. */
+function removeTestContainers(owner) {
+  remove(
     dockerLines(["ps", "-aq", "--filter", `label=${TEST_LABEL}=${owner}`]),
   )
 }
@@ -70,7 +66,6 @@ function alive(pid) {
 /**
  * Removes the test containers whose owner was a process on this host that is
  * gone. A container of another host, or of a process that runs, stays.
- * Returns their number.
  */
 export function removeOrphanTestContainers() {
   const host = hostname()
@@ -91,7 +86,7 @@ export function removeOrphanTestContainers() {
         : false
     return orphan && id ? [id] : []
   })
-  return remove(orphans)
+  remove(orphans)
 }
 
 const SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"]
