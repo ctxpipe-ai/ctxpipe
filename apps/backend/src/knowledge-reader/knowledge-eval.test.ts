@@ -306,7 +306,7 @@ describe("the ZDR provider block", () => {
     })
     expect(live.records[0]?.request).toEqual(bodies[0])
 
-    const replay = new ModelCalls(BASE, 0, live.records, { addZdr: true })
+    const replay = new ModelCalls(BASE, 0, live.records)
     restore = replay.install()
     try {
       replay.begin("legacy", "question")

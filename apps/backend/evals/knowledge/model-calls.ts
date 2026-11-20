@@ -160,6 +160,16 @@ export class ModelCalls {
     }
   }
 
+  /** The spend of the calls, for the run folder. */
+  summary() {
+    return {
+      capUsd: this.capUsd,
+      spentUsd: this.spentUsd,
+      stopped: this.stopped,
+      zdrAdded: { ...this.zdrAdded },
+    }
+  }
+
   /** Start counting the calls of `arm` on `question`. */
   begin(arm: string, question: string): void {
     this.context = { arm, question }

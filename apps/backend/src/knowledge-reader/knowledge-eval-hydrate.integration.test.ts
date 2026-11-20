@@ -1,5 +1,11 @@
 import { execFileSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -8,7 +14,7 @@ import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 
-import { executeRun } from "../../evals/knowledge/cli.js"
+import { executeRun, hydrateCommand } from "../../evals/knowledge/cli.js"
 import { type Dataset, datasetSchema } from "../../evals/knowledge/dataset.js"
 import { hydrateCorpora } from "../../evals/knowledge/hydrate.js"
 import { ModelCalls } from "../../evals/knowledge/model-calls.js"
@@ -33,6 +39,15 @@ import { dropOrgGraph } from "../test/related-fixture.js"
  * the model). Then `run` answers its question on both arms.
  */
 
+/** The eval org of this run. */
+const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+const org = {
+  id: `org_knowledge_eval_${suffix}`,
+  slug: `knowledge-eval-${suffix}`,
+  name: "Knowledge eval test",
+}
+const workspaceId = `ws_knowledge_eval_${suffix}_tiny`
+
 // The worker of the hydrate takes the runs of its OpenWorkflow namespace,
 // so the test has its own namespace, set before the client module loads.
 vi.hoisted(() => {
@@ -40,8 +55,14 @@ vi.hoisted(() => {
 })
 
 const MODEL_URL = "https://hydrate-model.test/v1"
-/** The body of each embedding request, by model. */
-const embeddingBodies: { model: string; provider?: unknown }[] = []
+/** The embedding endpoint of the old stack fails. */
+let failOldStack = false
+/** The body of each embedding request. */
+const embeddingBodies: {
+  model: string
+  input: string[]
+  provider?: unknown
+}[] = []
 
 const models = setupServer(
   http.post(`${MODEL_URL}/embeddings`, async ({ request }) => {
@@ -50,8 +71,13 @@ const models = setupServer(
       input: string[]
       provider?: unknown
     }
-    embeddingBodies.push({ model: body.model, provider: body.provider })
+    embeddingBodies.push(body)
     const plane = body.model === textEmbeddingConfig.model
+    if (!plane && failOldStack)
+      return HttpResponse.json(
+        { error: { message: "fixture outage" } },
+        { status: 500 },
+      )
     return HttpResponse.json({
       data: body.input.map((input, index) => ({
         index,
@@ -87,11 +113,12 @@ let readerUrl: string
 let writerUrl: string
 let dataset: Dataset
 
-const hydrate = async (calls: ModelCalls) => {
+const hydrate = async (calls: ModelCalls, of: Dataset = dataset) => {
   const restore = calls.install()
   try {
     return await hydrateCorpora({
-      dataset,
+      dataset: of,
+      org,
       databaseUrl: process.env.DATABASE_URL ?? "",
       calls,
       log: () => {},
@@ -137,6 +164,7 @@ describe("the hydrate of the knowledge eval harness", () => {
       "Frozen context repo",
     )
     const sha = run("rev-parse", "HEAD")
+    execFileSync("git", ["clone", "--quiet", repo, join(directory, "copy")])
     git = await startGitHttpServer(directory)
 
     clickHouse = await startClickHouse()
@@ -177,7 +205,7 @@ describe("the hydrate of the knowledge eval harness", () => {
   }, 240_000)
 
   afterAll(async () => {
-    const orgId = "org_knowledge_eval"
+    const orgId = org.id
     await getSystemDb().execute(
       sql`delete from openworkflow.workflow_runs where input->>'orgId' = ${orgId}`,
     )
@@ -196,12 +224,32 @@ describe("the hydrate of the knowledge eval harness", () => {
 
   let targets: Targets
 
+  it("stops with exit code 3 when the spend cap stops a call, and writes the spend", async () => {
+    vi.stubEnv("CLICKHOUSE_URL", writerUrl)
+    const out = join(directory, "capped")
+    expect(
+      await hydrateCommand({
+        dataset,
+        org,
+        databaseUrl: process.env.DATABASE_URL ?? "",
+        out,
+        capUsd: 0,
+      }),
+    ).toBe(3)
+    expect(JSON.parse(readFileSync(join(out, "hydrate.json"), "utf8"))).toEqual(
+      { capUsd: 0, spentUsd: 0, stopped: true, zdrAdded: {} },
+    )
+    expect(embeddingBodies).toEqual([])
+  })
+
   it("stops at the first failed step, with its error", async () => {
     // A setup error: the projection cannot sign in to ClickHouse.
     vi.stubEnv("CLICKHOUSE_URL", userUrl(writerUrl, "ctxpipe_writer", "wrong"))
     const calls = new ModelCalls(MODEL_URL, 1, undefined, { addZdr: true })
     await expect(hydrate(calls)).rejects.toThrow(
-      /^The step project-knowledge-plane of the hydrate of ws_knowledge_eval_tiny failed: .*Authentication failed/,
+      new RegExp(
+        `^The step project-knowledge-plane of the hydrate of ${workspaceId} failed: .*Authentication failed`,
+      ),
     )
     // The old stack was written first. It sends no provider block, so the
     // harness added it.
@@ -212,6 +260,43 @@ describe("the hydrate of the knowledge eval harness", () => {
     vi.stubEnv("CLICKHOUSE_URL", writerUrl)
   })
 
+  it("stops when the old stack records a failed store", async () => {
+    vi.stubEnv("CLICKHOUSE_URL", writerUrl)
+    // A Workspace of its own, so that the old stack embeds its files again.
+    const [corpus] = dataset.corpora
+    if (!corpus) throw new Error("The dataset has no corpus.")
+    const broken = {
+      ...dataset,
+      // A copy of the repository: one org binds a repository to one
+      // Workspace.
+      corpora: [
+        {
+          ...corpus,
+          id: "broken",
+          workspace: "broken-v0",
+          contextRepo: {
+            ...corpus.contextRepo,
+            url: corpus.contextRepo.url.replace(/context$/, "copy"),
+          },
+        },
+      ],
+    }
+    // The hydrate records the failure of the embeddings, and completes.
+    failOldStack = true
+    try {
+      await expect(
+        hydrate(
+          new ModelCalls(MODEL_URL, 1, undefined, { addZdr: true }),
+          broken,
+        ),
+      ).rejects.toThrow(
+        `The embeddings of the old stack for ws_knowledge_eval_${suffix}_broken are failed`,
+      )
+    } finally {
+      failOldStack = false
+    }
+  })
+
   it("writes the frozen corpus to both stacks, with ZDR on each model call", async () => {
     const calls = new ModelCalls(MODEL_URL, 1, undefined, {
       addZdr: true,
@@ -219,11 +304,7 @@ describe("the hydrate of the knowledge eval harness", () => {
     })
     targets = await hydrate(calls)
     expect(targets).toEqual({
-      "tiny-v0": {
-        orgId: "org_knowledge_eval",
-        orgSlug: "knowledge-eval",
-        workspace: "tiny-v0",
-      },
+      "tiny-v0": { orgId: org.id, orgSlug: org.slug, workspace: "tiny-v0" },
     })
     // Both writers embedded the files of the root, and each request went
     // only to ZDR endpoints.
@@ -267,5 +348,28 @@ describe("the hydrate of the knowledge eval harness", () => {
       { arm: "legacy", recall5: 1 },
       { arm: "plane", recall5: 1 },
     ])
+  })
+
+  it("projects both stacks again when the root changes at the same SHA", async () => {
+    vi.stubEnv("CLICKHOUSE_URL", writerUrl)
+    const before = embeddingBodies.length
+    const [corpus] = dataset.corpora
+    if (!corpus) throw new Error("The dataset has no corpus.")
+    dataset = {
+      ...dataset,
+      corpora: [
+        { ...corpus, contextRepo: { ...corpus.contextRepo, root: "" } },
+      ],
+    }
+    await hydrate(new ModelCalls(MODEL_URL, 1, undefined, { addZdr: true }))
+    // The file at the new root went to both writers: the hydrate waited for
+    // the projection of the new root.
+    const outside = embeddingBodies
+      .slice(before)
+      .filter((body) => body.input.some((text) => text.includes("Outside")))
+      .map((body) => body.model)
+    expect(new Set(outside)).toEqual(
+      new Set(["openai/text-embedding-3-large", textEmbeddingConfig.model]),
+    )
   })
 })

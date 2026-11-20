@@ -20,6 +20,8 @@
  * the command (the output holds the work before the stop). 4: a check of
  * `probe` failed.
  */
+// First: it sets the OpenWorkflow namespace before the client loads.
+import "./eval-namespace.js"
 import { execFile, execFileSync } from "node:child_process"
 import { mkdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
@@ -72,13 +74,21 @@ const modelBase = () =>
 const modelCalls = (
   capUsd: number,
   replay?: readonly RecordedCall[],
-  options?: { addZdr?: boolean },
+  options?: ConstructorParameters<typeof ModelCalls>[3],
 ) => new ModelCalls(modelBase(), capUsd, replay, options)
+
+/** The eval org of `hydrate`. Its ids are made up. */
+const EVAL_ORG = {
+  id: "org_knowledge_eval",
+  slug: "knowledge-eval",
+  name: "Knowledge eval",
+}
 
 /**
  * Run the questions of `splits` through both arms, then write the run folder
  * and its report (`report.json`, `report.md`) to `out`. With `replay`, each
- * model answer comes from those recorded calls and no call goes out.
+ * model answer comes from the recorded calls of an earlier run and no call
+ * goes out. The report keeps the calls that got the ZDR block in that run.
  */
 export async function executeRun(input: {
   dataset: Dataset
@@ -89,10 +99,16 @@ export async function executeRun(input: {
   now: Date
   out: string
   kept: KeptRun | null
-  replay?: readonly RecordedCall[]
+  replay?: {
+    calls: readonly RecordedCall[]
+    zdrAdded: Manifest["zdrAdded"]
+  }
 }): Promise<Report> {
   // Each call of the arms goes only to a ZDR endpoint (ADR-068 decision 7).
-  const calls = modelCalls(input.capUsd, input.replay, { addZdr: true })
+  // A replay sends no call.
+  const calls = input.replay
+    ? modelCalls(input.capUsd, input.replay.calls)
+    : modelCalls(input.capUsd, undefined, { addZdr: true })
   const restoreSettings = applySettings(input.settings)
   const restoreFetch = calls.install()
   try {
@@ -112,10 +128,8 @@ export async function executeRun(input: {
       settings: input.settings,
       loop: { ...ORCHESTRATOR_DEFAULTS },
       mode: input.replay ? "replay" : "live",
-      capUsd: input.capUsd,
-      spentUsd: calls.spentUsd,
-      stopped: calls.stopped,
-      zdrAdded: { ...calls.zdrAdded },
+      ...calls.summary(),
+      ...(input.replay ? { zdrAdded: input.replay.zdrAdded } : {}),
     }
     await writeRun(input.out, {
       manifest,
@@ -160,47 +174,51 @@ function buildConverter() {
 }
 
 /**
- * Hydrate each corpus into both stacks (`hydrate.ts`), and write the targets
- * of `run` (`targets.json`) and the spend (`hydrate.json`) to `out`. Returns
- * the exit code.
+ * Hydrate each corpus into both stacks in `org` (`hydrate.ts`), and write the
+ * targets of `run` (`targets.json`) to `out`. It writes the spend
+ * (`hydrate.json`) also when the hydrate fails. Returns the exit code: 3
+ * when the spend cap stopped a call. Throws the other errors.
  */
-async function hydrate(input: {
+export async function hydrateCommand(input: {
   dataset: Dataset
+  org: typeof EVAL_ORG
   databaseUrl: string
   out: string
   capUsd: number
 }): Promise<number> {
   // The hydrate sends each chunk of each corpus, so the recorder keeps no
   // call: a rescore replays only the calls of `run`.
-  const calls = new ModelCalls(modelBase(), input.capUsd, undefined, {
+  const calls = modelCalls(input.capUsd, undefined, {
     addZdr: true,
     keepRecords: false,
   })
   const restore = calls.install()
-  initDb(input.databaseUrl)
+  await mkdir(input.out, { recursive: true })
   try {
     const targets = await hydrateCorpora({
       dataset: input.dataset,
+      org: input.org,
       databaseUrl: input.databaseUrl,
       calls,
       log: (line) => process.stderr.write(`${line}\n`),
     })
-    await mkdir(input.out, { recursive: true })
     await writeJson(join(input.out, "targets.json"), targets)
-    await writeJson(join(input.out, "hydrate.json"), {
-      capUsd: input.capUsd,
-      spentUsd: calls.spentUsd,
-      stopped: calls.stopped,
-      zdrAdded: calls.zdrAdded,
-    })
     process.stdout.write(
       `The targets are in ${join(input.out, "targets.json")}. Spend: $${calls.spentUsd.toFixed(4)}.\n`,
     )
-    return calls.stopped ? 3 : 0
+    return 0
+  } catch (error) {
+    // A call that the cap stopped fails its workflow step.
+    if (calls.stopped) {
+      process.stderr.write(
+        `The spend cap stopped the hydrate: ${error instanceof Error ? error.message : String(error)}\n`,
+      )
+      return 3
+    }
+    throw error
   } finally {
     restore()
-    await closeGraphDb()
-    await closeDb()
+    await writeJson(join(input.out, "hydrate.json"), calls.summary())
   }
 }
 
@@ -349,24 +367,27 @@ async function main(argv: string[]): Promise<number> {
     throw new SetupError(
       "Use the command hydrate, run, rescore, label, corpus, probe or vision.",
     )
-  if (!process.env.DATABASE_URL) throw new SetupError("Set DATABASE_URL.")
-  if (command === "hydrate") {
-    if (!values.dataset) throw new SetupError("hydrate needs --dataset.")
-    // The projection of the plane converts each file with it.
-    buildConverter()
-    return hydrate({
-      dataset: await readDataset(values.dataset),
-      databaseUrl: process.env.DATABASE_URL,
-      out,
-      capUsd,
-    })
-  }
+  const databaseUrl = process.env.DATABASE_URL
+  if (!databaseUrl) throw new SetupError("Set DATABASE_URL.")
   const kept = values.kept
     ? keptRunSchema.parse(await readJson(values.kept))
     : null
   const settings = parseSettings(values.set ?? [])
-  initDb(process.env.DATABASE_URL)
+  if (command === "hydrate") {
+    if (!values.dataset) throw new SetupError("hydrate needs --dataset.")
+    // The projection of the plane converts each file with it.
+    buildConverter()
+  }
+  initDb(databaseUrl)
   try {
+    if (command === "hydrate")
+      return await hydrateCommand({
+        dataset: await readDataset(values.dataset ?? ""),
+        org: EVAL_ORG,
+        databaseUrl,
+        out,
+        capUsd,
+      })
     let report: Report
     if (command === "rescore") {
       if (!values.from) throw new SetupError("rescore needs --from.")
@@ -380,7 +401,10 @@ async function main(argv: string[]): Promise<number> {
         now: new Date(recorded.manifest.now),
         out,
         kept,
-        replay: recorded.calls,
+        replay: {
+          calls: recorded.calls,
+          zdrAdded: recorded.manifest.zdrAdded,
+        },
       })
     } else {
       if (!values.dataset || !values.targets)

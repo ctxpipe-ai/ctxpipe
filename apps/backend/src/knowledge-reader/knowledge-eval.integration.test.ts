@@ -485,10 +485,15 @@ describe("the knowledge eval harness", () => {
       settings: { keepAt: 0.95 },
       capUsd: 0,
       kept: live,
-      replay: recorded.calls,
+      replay: {
+        calls: recorded.calls,
+        zdrAdded: recorded.manifest.zdrAdded,
+      },
     })
     expect(requests).toEqual(before)
     expect(rescored.run.mode).toBe("replay")
+    // The replayed calls went out with the ZDR block in the live run.
+    expect(rescored.run.zdrAdded).toEqual(live.run.zdrAdded)
     expect(rescored.incomplete).toEqual([])
     // At 0.95, get_related on the plane keeps no document (Jev gave 0.9),
     // so each question with seeds gets worse; a no-answer stays correct.
@@ -522,7 +527,10 @@ describe("the knowledge eval harness", () => {
       settings: { replacesAt: 0.95 },
       capUsd: 0,
       kept: live,
-      replay: recorded.calls,
+      replay: {
+        calls: recorded.calls,
+        zdrAdded: recorded.manifest.zdrAdded,
+      },
     })
     expect(requests).toEqual(before)
     expect(rescored.incomplete).toEqual([])
