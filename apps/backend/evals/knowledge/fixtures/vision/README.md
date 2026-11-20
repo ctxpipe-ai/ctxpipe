@@ -6,6 +6,8 @@ These are the diagrams of the vision eval (`../../vision.ts`). Each fixture has 
 - the image that the model reads (`.png`, or `.jpg` for the photo);
 - the gold graph (`.gold.json`), which we wrote by hand from the source.
 
+`arch-web-photo.gold.json` is a copy of `arch-web.gold.json` on purpose: each fixture is one image and one gold graph. Change the two files together.
+
 All the diagrams are made up. They contain no customer data. Four tools drew them, so the eval sees more than one style:
 
 | Fixture | Category | Tool |
@@ -20,7 +22,7 @@ All the diagrams are made up. They contain no customer data. Four tools drew the
 | `incident` | flow | D2, hand-drawn sketch style, with a loop |
 | `order-states` | flow | Graphviz state machine |
 | `oauth-login` | sequence | PlantUML |
-| `checkout` | sequence | Mermaid, with a self-message and an async message |
+| `checkout` | sequence | Mermaid, with a self-message |
 | `cdn-cache` | sequence | D2 |
 
 ## Draw the images again

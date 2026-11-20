@@ -8,18 +8,14 @@
 // The request goes to OpenRouter with `zdr: true` and
 // `data_collection: "deny"`, and with no provider pin: OpenRouter can fall
 // back to another ZDR endpoint of the model (the CTO, 2026-11-20).
-import { setTimeout as sleep } from "node:timers/promises"
-
 import { z } from "zod"
 
 import { assertNotInOrgDbContext } from "../db/client.js"
 import {
-  isRetryableFetchFailure,
   TransientHttpError,
+  withTransientHttpRetry,
 } from "../lib/withTransientHttpRetry.js"
-import { gatewayCost } from "../observability/gatewayCost.js"
-import { DEFAULT_OPENROUTER_BASE } from "../retrieval/services/modelProvider.js"
-import { dropEmptyEnvValues } from "../retrieval/services/modelTierSpecs.js"
+import { openRouterSettings } from "../retrieval/services/modelProvider.js"
 
 /**
  * The version of the prompt and the reading schema. A change of either
@@ -27,6 +23,7 @@ import { dropEmptyEnvValues } from "../retrieval/services/modelTierSpecs.js"
  */
 export const IMAGE_TEXT_PROMPT_VERSION = 1
 
+// scope-allow: the prompt stays beside its version, IMAGE_TEXT_PROMPT_VERSION.
 const PROMPT = `You convert one image into text for a search index. Return JSON that matches the schema.
 
 description: two to four sentences that say what the image shows and what it is for.
@@ -46,29 +43,34 @@ For a sequence diagram (kind "sequence"):
 
 Do not add shapes, lines or text that are not in the image. Leave the lists of the other diagram kind empty.`
 
-const readingSchema = z.object({
+// Strict at each level: the structured output of the model needs
+// `additionalProperties: false`. No field is nullable: an empty string means
+// "none", because some providers do not take a type list.
+const readingSchema = z.strictObject({
   description: z.string(),
   text: z.string(),
-  diagram: z.object({
+  diagram: z.strictObject({
     kind: z.enum(["none", "graph", "sequence"]),
     direction: z.enum(["TB", "LR", "BT", "RL"]),
     groups: z.array(
-      z.object({ id: z.string(), label: z.string(), parent: z.string() }),
+      z.strictObject({ id: z.string(), label: z.string(), parent: z.string() }),
     ),
     nodes: z.array(
-      z.object({ id: z.string(), label: z.string(), group: z.string() }),
+      z.strictObject({ id: z.string(), label: z.string(), group: z.string() }),
     ),
     edges: z.array(
-      z.object({
+      z.strictObject({
         from: z.string(),
         to: z.string(),
         label: z.string(),
         arrow: z.enum(["forward", "both", "none"]),
       }),
     ),
-    participants: z.array(z.object({ id: z.string(), label: z.string() })),
+    participants: z.array(
+      z.strictObject({ id: z.string(), label: z.string() }),
+    ),
     messages: z.array(
-      z.object({
+      z.strictObject({
         from: z.string(),
         to: z.string(),
         label: z.string(),
@@ -81,60 +83,15 @@ const readingSchema = z.object({
 /** What the vision model reads in one image. */
 export type ImageReading = z.infer<typeof readingSchema>
 
-/**
- * The JSON schema of `readingSchema` for the structured output of the model.
- * It has no nullable field: an empty string means "none", because some
- * providers do not take a type list.
- */
-const readingJsonSchema = (() => {
-  const string = { type: "string" }
-  const object = (properties: Record<string, unknown>) => ({
-    type: "object",
-    properties,
-    required: Object.keys(properties),
-    additionalProperties: false,
-  })
-  const list = (properties: Record<string, unknown>) => ({
-    type: "array",
-    items: object(properties),
-  })
-  return object({
-    description: string,
-    text: string,
-    diagram: object({
-      kind: { type: "string", enum: ["none", "graph", "sequence"] },
-      direction: { type: "string", enum: ["TB", "LR", "BT", "RL"] },
-      groups: list({ id: string, label: string, parent: string }),
-      nodes: list({ id: string, label: string, group: string }),
-      edges: list({
-        from: string,
-        to: string,
-        label: string,
-        arrow: { type: "string", enum: ["forward", "both", "none"] },
-      }),
-      participants: list({ id: string, label: string }),
-      messages: list({
-        from: string,
-        to: string,
-        label: string,
-        reply: { type: "boolean" },
-      }),
-    }),
-  })
-})()
-
-const ENTITIES: Record<string, string> = {
-  "#": "#35;",
-  '"': "#quot;",
-  ";": "#59;",
-}
-
 /** A label as Mermaid text: one line, with its special characters as entities. */
 const escape = (label: string) =>
   label
     .replace(/\s+/g, " ")
     .trim()
-    .replace(/[#";]/g, (char) => ENTITIES[char] ?? char)
+    .replace(
+      /[#";]/g,
+      (char) => `#${char === '"' ? "quot" : char.charCodeAt(0)};`,
+    )
 
 type Diagram = ImageReading["diagram"]
 
@@ -255,67 +212,32 @@ export class VisionError extends Error {
   }
 }
 
-const settingsSchema = z.preprocess(
-  dropEmptyEnvValues,
-  z.object({
-    MODEL_PROVIDER: z.string().default("openai-like"),
-    MODEL_PROVIDER_API_KEY: z.string().optional(),
-    MODEL_PROVIDER_URL: z.string().url().default(DEFAULT_OPENROUTER_BASE),
-  }),
-)
-
-const answerSchema = z.object({
-  provider: z.string().optional(),
-  choices: z
-    .array(z.object({ message: z.object({ content: z.unknown() }) }))
-    .min(1),
-  usage: z.unknown().optional(),
-})
-
-/** One reading, with the cost and the upstream provider of the call. */
-type ImageReadResult = {
-  reading: ImageReading
-  /** The cost that OpenRouter reports, or null when the answer has none. */
-  costUsd: number | null
-  /** The upstream provider that answered (the `provider` of the answer). */
-  provider: string | null
-}
-
-type ReadOptions = {
-  /** The OpenRouter model id. It must take an image and a JSON schema. */
-  model: string
-  /** The time limit of one attempt. */
-  timeoutMs?: number
-  /** The number of attempts: a 429, a 5xx and a network error retry. */
-  maxAttempts?: number
-  /** The first backoff. Each retry doubles it. */
-  backoffMs?: number
-}
+/** One reading, and the upstream provider that answered. */
+type ImageReadResult = { reading: ImageReading; provider: string | null }
 
 /**
  * Read one image with the vision model `model`. The key and the base URL
- * come from the backend model settings, which must point at OpenRouter: an
- * operator who chose another provider sends no image to OpenRouter. A
- * failure throws a `VisionError`. The call must not run inside an org
- * database transaction.
+ * come from the backend model settings, which must point at OpenRouter
+ * (`openRouterSettings`). A 429, a 5xx and a network error retry, up to
+ * three attempts. A failure throws a `VisionError`. The call must not run
+ * inside an org database transaction.
  */
 export async function readImage(
   image: { bytes: Buffer; mimeType: string },
-  options: ReadOptions,
+  options: {
+    /** The OpenRouter model id. It must take an image and a JSON schema. */
+    model: string
+    /** The first backoff of a retry. */
+    backoffMs?: number
+  },
 ): Promise<ImageReadResult> {
   assertNotInOrgDbContext()
-  const settings = settingsSchema.safeParse(process.env)
-  if (
-    !settings.success ||
-    !["openrouter", "openai-like"].includes(settings.data.MODEL_PROVIDER) ||
-    !settings.data.MODEL_PROVIDER_API_KEY
-  )
+  const settings = openRouterSettings()
+  if (!settings)
     throw new VisionError(
       "config",
       "The vision model needs MODEL_PROVIDER openrouter or openai-like, an OpenRouter MODEL_PROVIDER_URL, and MODEL_PROVIDER_API_KEY.",
     )
-  const { MODEL_PROVIDER_URL: base, MODEL_PROVIDER_API_KEY: apiKey } =
-    settings.data
   const body = JSON.stringify({
     model: options.model,
     messages: [
@@ -337,57 +259,60 @@ export async function readImage(
       json_schema: {
         name: "image_reading",
         strict: true,
-        schema: readingJsonSchema,
+        schema: z.toJSONSchema(readingSchema),
       },
     },
     // No pin and no `allow_fallbacks: false`: each ZDR endpoint of the model
     // that takes the JSON schema can answer.
     provider: { data_collection: "deny", zdr: true, require_parameters: true },
   })
-  const maxAttempts = options.maxAttempts ?? 3
-  const backoffMs = options.backoffMs ?? 2_000
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await send(`${base.replace(/\/+$/, "")}/chat/completions`, {
-        apiKey,
-        body,
-        timeoutMs: options.timeoutMs ?? 180_000,
-      })
-    } catch (error) {
-      // A 429, a 5xx and a network error of fetch retry.
-      if (isRetryableFetchFailure(error) && attempt < maxAttempts) {
-        await sleep(backoffMs * 2 ** (attempt - 1))
-        continue
-      }
-      if (error instanceof VisionError) throw error
-      if (error instanceof TransientHttpError)
-        throw new VisionError(
-          "http",
-          `The vision model answered ${error.status}.`,
-          error.status,
-        )
-      if (error instanceof Error && error.name === "TimeoutError")
-        throw new VisionError(
-          "timeout",
-          "The vision model did not answer in time.",
-        )
-      throw new VisionError("network", "The vision model could not be reached.")
-    }
+  try {
+    return await withTransientHttpRetry(
+      () =>
+        send(
+          `${settings.base.replace(/\/+$/, "")}/chat/completions`,
+          settings.apiKey,
+          body,
+        ),
+      { retries: 2, baseDelayMs: options.backoffMs ?? 2_000 },
+    )
+  } catch (error) {
+    if (error instanceof VisionError) throw error
+    if (error instanceof TransientHttpError)
+      throw new VisionError(
+        "http",
+        `The vision model answered ${error.status}.`,
+        error.status,
+      )
+    if (error instanceof Error && error.name === "TimeoutError")
+      throw new VisionError(
+        "timeout",
+        "The vision model did not answer in time.",
+      )
+    throw new VisionError("network", "The vision model could not be reached.")
   }
 }
 
+const answerSchema = z.object({
+  provider: z.string().optional(),
+  choices: z
+    .array(z.object({ message: z.object({ content: z.unknown() }) }))
+    .min(1),
+})
+
 async function send(
   url: string,
-  input: { apiKey: string; body: string; timeoutMs: number },
+  apiKey: string,
+  body: string,
 ): Promise<ImageReadResult> {
   const response = await fetch(url, {
     method: "POST",
-    signal: AbortSignal.timeout(input.timeoutMs),
+    signal: AbortSignal.timeout(180_000),
     headers: {
-      authorization: `Bearer ${input.apiKey}`,
+      authorization: `Bearer ${apiKey}`,
       "content-type": "application/json",
     },
-    body: input.body,
+    body,
   })
   if (response.status === 429 || response.status >= 500)
     throw new TransientHttpError(
@@ -400,23 +325,23 @@ async function send(
       `The vision model answered ${response.status}.`,
       response.status,
     )
-  const answer = answerSchema.safeParse(await response.json().catch(() => null))
-  const content = answer.data?.choices[0]?.message.content
-  let parsed: unknown = null
-  try {
-    parsed = typeof content === "string" ? JSON.parse(content) : null
-  } catch {
-    // The check below names the failure.
+  // A network error while the body arrives throws here, and it retries.
+  const text = await response.text()
+  const json = (value: unknown): unknown => {
+    try {
+      return typeof value === "string" ? JSON.parse(value) : null
+    } catch {
+      return null
+    }
   }
-  const reading = readingSchema.safeParse(parsed)
+  const answer = answerSchema.safeParse(json(text))
+  const reading = readingSchema.safeParse(
+    json(answer.data?.choices[0]?.message.content),
+  )
   if (!answer.success || !reading.success)
     throw new VisionError(
       "invalid-answer",
       "The vision model gave an answer out of the reading schema.",
     )
-  return {
-    reading: reading.data,
-    costUsd: gatewayCost(answer.data.usage) ?? null,
-    provider: answer.data.provider ?? null,
-  }
+  return { reading: reading.data, provider: answer.data.provider ?? null }
 }

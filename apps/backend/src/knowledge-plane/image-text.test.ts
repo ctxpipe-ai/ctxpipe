@@ -151,17 +151,16 @@ describe("imageText", () => {
   })
 })
 
-const completion = (reading: ImageReading, cost = 0.004) =>
+const completion = (reading: ImageReading) =>
   HttpResponse.json({
     provider: "Azure",
     choices: [{ message: { content: JSON.stringify(reading) } }],
-    usage: { cost },
   })
 
 describe("readImage", () => {
   const image = { bytes: Buffer.from("png-bytes"), mimeType: "image/png" }
 
-  it("sends a ZDR request with no provider pin, and returns the reading and its cost", async () => {
+  it("sends a ZDR request with no provider pin, and returns the reading", async () => {
     let body: Record<string, unknown> = {}
     server.use(
       http.post(`${BASE}/chat/completions`, async ({ request }) => {
@@ -171,11 +170,7 @@ describe("readImage", () => {
       }),
     )
     const result = await readImage(image, { model: "vendor/model-a" })
-    expect(result).toMatchObject({
-      reading: graphReading,
-      costUsd: 0.004,
-      provider: "Azure",
-    })
+    expect(result).toEqual({ reading: graphReading, provider: "Azure" })
     expect(body.model).toBe("vendor/model-a")
     expect(body.provider).toEqual({
       data_collection: "deny",

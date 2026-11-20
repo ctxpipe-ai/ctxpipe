@@ -34,8 +34,6 @@ export const VISION_MODELS = [
   "anthropic/claude-sonnet-5.5",
 ]
 
-const FIXTURES = fileURLToPath(new URL("./fixtures/vision", import.meta.url))
-
 const goldSchema = z.discriminatedUnion("kind", [
   z.object({
     category: z.enum(["architecture", "flow", "sequence"]),
@@ -68,14 +66,13 @@ export type Gold = z.infer<typeof goldSchema>
 
 /** The score of one reading against the gold graph of its fixture. */
 export type Score = {
-  /** The reading has the diagram kind of the gold graph. */
-  kind: boolean
   /** Nodes, or the participants of a sequence. */
   nodeF1: number
   /** Edges, or the messages of a sequence (with their labels). */
   edgeF1: number
   /** The share of the matched edges of a graph with the gold label. */
   edgeLabel: number | null
+  /** The groups of a graph, matched by label and by parent group. */
   groupF1: number | null
   /** The share of the matched nodes of a graph in the gold group. */
   membership: number | null
@@ -198,46 +195,50 @@ function scoreGraph(
   const used = new Set<number>()
   let matchedEdges = 0
   let sameEdgeLabel = 0
+  // Each gold edge has one arrowhead, at `to`. A predicted edge matches it
+  // only in the same direction and with one arrowhead.
   for (const edge of gold.edges) {
     const from = goldIndex.get(edge.from)
     const to = goldIndex.get(edge.to)
-    const at = diagram.edges.findIndex((candidate, i) => {
-      if (used.has(i)) return false
-      const f = goldNodeOf.get(candidate.from)
-      const t = goldNodeOf.get(candidate.to)
-      return (
-        (f === from && t === to) ||
-        (candidate.arrow !== "forward" && f === to && t === from)
-      )
-    })
+    const at = diagram.edges.findIndex(
+      (candidate, i) =>
+        !used.has(i) &&
+        candidate.arrow === "forward" &&
+        goldNodeOf.get(candidate.from) === from &&
+        goldNodeOf.get(candidate.to) === to,
+    )
     if (at < 0) continue
     used.add(at)
     matchedEdges += 1
     if (sameLabel(edge.label ?? "", diagram.edges[at]?.label ?? ""))
       sameEdgeLabel += 1
   }
-  // The gold group of each predicted group, by label: "" is no group, and a
-  // group with no gold match is a wrong group.
-  const goldGroupOf = new Map(
+  // The gold label of a predicted group id: null for "" (no group), and a
+  // label that no gold group has for a group with no gold match.
+  const unmatched = "\0unmatched"
+  const goldLabelOf = new Map(
     groups.map((group, i) => {
       const g = groupMatch.get(i)
-      return [group.id, g === undefined ? "\0unmatched" : gold.groups[g]?.label]
+      return [group.id, g === undefined ? unmatched : gold.groups[g]?.label]
     }),
   )
-  let inGoldGroup = 0
-  for (const [p, g] of nodeMatch) {
-    const predicted = nodes[p]?.group ?? ""
-    const mapped = predicted
-      ? (goldGroupOf.get(predicted) ?? "\0unmatched")
-      : null
-    if (mapped === (gold.nodes[g]?.group ?? null)) inGoldGroup += 1
-  }
+  const goldGroupOf = (id: string) =>
+    id ? (goldLabelOf.get(id) ?? unmatched) : null
+  // A group counts only in the gold place: a reading that flattens nested
+  // groups loses the inner ones.
+  const groupsInPlace = [...groupMatch].filter(
+    ([p, g]) =>
+      goldGroupOf(groups[p]?.parent ?? "") === (gold.groups[g]?.parent ?? null),
+  ).length
+  const inGoldGroup = [...nodeMatch].filter(
+    ([p, g]) =>
+      goldGroupOf(nodes[p]?.group ?? "") === (gold.nodes[g]?.group ?? null),
+  ).length
   return {
-    kind: diagram.kind === "graph",
     nodeF1: f1(nodeMatch.size, nodes.length, gold.nodes.length),
     edgeF1: f1(matchedEdges, diagram.edges.length, gold.edges.length),
     edgeLabel: matchedEdges ? sameEdgeLabel / matchedEdges : null,
-    groupF1: f1(groupMatch.size, groups.length, gold.groups.length),
+    groupF1: f1(groupsInPlace, groups.length, gold.groups.length),
     membership: nodeMatch.size ? inGoldGroup / nodeMatch.size : null,
     direction: diagram.direction === gold.direction,
     order: null,
@@ -275,7 +276,6 @@ function scoreSequence(
   })
   matched.sort((a, b) => a.predicted - b.predicted)
   return {
-    kind: diagram.kind === "sequence",
     nodeF1: f1(match.size, participants.length, gold.participants.length),
     edgeF1: f1(matched.length, diagram.messages.length, gold.messages.length),
     edgeLabel: null,
@@ -301,20 +301,23 @@ type Fixture = {
   image: { bytes: Buffer; mimeType: string }
 }
 
-const MIME_TYPES: Record<string, string> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-}
-
-/** Each `<name>.gold.json` of `dir` with its image `<name>.png` or `.jpg`. */
-async function readFixtures(dir: string): Promise<Fixture[]> {
+/**
+ * Each `<name>.gold.json` of `fixtures/vision/` with its image `<name>.png`
+ * or `<name>.jpg`.
+ */
+export async function readFixtures(): Promise<Fixture[]> {
+  const dir = fileURLToPath(new URL("./fixtures/vision", import.meta.url))
+  const mimeTypes: Record<string, string> = {
+    png: "image/png",
+    jpg: "image/jpeg",
+  }
   const files = (await readdir(dir)).sort()
   const fixtures: Fixture[] = []
   for (const file of files) {
     if (!file.endsWith(".gold.json")) continue
     const name = file.slice(0, -".gold.json".length)
     const image = files.find((other) =>
-      Object.keys(MIME_TYPES).some((ext) => other === `${name}.${ext}`),
+      Object.keys(mimeTypes).some((ext) => other === `${name}.${ext}`),
     )
     if (!image) throw new Error(`The fixture ${name} has no image.`)
     fixtures.push({
@@ -324,7 +327,7 @@ async function readFixtures(dir: string): Promise<Fixture[]> {
       ),
       image: {
         bytes: await readFile(join(dir, image)),
-        mimeType: MIME_TYPES[image.split(".").pop() ?? ""] ?? "image/png",
+        mimeType: mimeTypes[image.split(".").pop() ?? ""] ?? "image/png",
       },
     })
   }
@@ -345,14 +348,21 @@ const zdrSchema = z.object({
 /**
  * The ZDR endpoints of each model that take a JSON schema
  * (`GET /endpoints/zdr`). With no provider pin, OpenRouter can fall back
- * from one of them to another.
+ * from one of them to another. Null when the list is not available: the
+ * report then says "unknown", and the scores still count.
  */
 async function zdrEndpoints(
   base: string,
   models: readonly string[],
-): Promise<Map<string, { endpoints: string[]; providers: string[] }>> {
-  const response = await fetch(`${base.replace(/\/+$/, "")}/endpoints/zdr`)
-  const list = zdrSchema.parse(await response.json()).data
+): Promise<Map<string, { endpoints: string[]; providers: string[] }> | null> {
+  const response = await fetch(
+    `${base.replace(/\/+$/, "")}/endpoints/zdr`,
+  ).catch(() => null)
+  const parsed = zdrSchema.safeParse(
+    response?.ok ? await response.json().catch(() => null) : null,
+  )
+  if (!parsed.success) return null
+  const list = parsed.data.data
   return new Map(
     models.map((model) => {
       const endpoints = list.filter(
@@ -378,7 +388,8 @@ type Result = {
   fixture: string
   category: Gold["category"]
   score: Score | null
-  costUsd: number | null
+  /** The cost of all the attempts of the call, failed ones too. */
+  costUsd: number
   latencyMs: number
   provider: string | null
   error: string | null
@@ -415,14 +426,15 @@ export type ModelSummary = {
   costPerImageUsd: number | null
   medianLatencyMs: number | null
   answeredBy: string[]
-  zdrEndpoints: string[]
-  zdrProviders: string[]
+  /** Null when the ZDR list was not available. */
+  zdrEndpoints: string[] | null
+  zdrProviders: string[] | null
 }
 
 function summarize(
   model: string,
   results: readonly Result[],
-  zdr: { endpoints: string[]; providers: string[] } | undefined,
+  zdr: { endpoints: string[]; providers: string[] } | null,
 ): ModelSummary {
   const scored = results.filter((result) => result.score)
   const of = (pick: (score: Score) => number | boolean | null) =>
@@ -433,9 +445,6 @@ function summarize(
         .filter((result) => result.category === category)
         .map((result) => result.score?.edgeF1 ?? null),
     )
-  const costs = results.flatMap((result) =>
-    result.costUsd === null ? [] : [result.costUsd],
-  )
   return {
     model,
     nodeF1: of((score) => score.nodeF1),
@@ -451,13 +460,13 @@ function summarize(
       sequence: byCategory("sequence"),
     },
     failed: results.length - scored.length,
-    costPerImageUsd: mean(costs),
+    costPerImageUsd: mean(results.map((result) => result.costUsd)),
     medianLatencyMs: median(scored.map((result) => result.latencyMs)),
     answeredBy: [
       ...new Set(results.flatMap((result) => result.provider ?? [])),
     ].sort(),
-    zdrEndpoints: zdr?.endpoints ?? [],
-    zdrProviders: zdr?.providers ?? [],
+    zdrEndpoints: zdr?.endpoints ?? null,
+    zdrProviders: zdr?.providers ?? null,
   }
 }
 
@@ -479,13 +488,13 @@ function renderReport(input: {
     "",
     `Run at ${input.now.toISOString()}. Prompt version ${IMAGE_TEXT_PROMPT_VERSION}. ${input.fixtures.length} fixtures. Spend $${input.spentUsd.toFixed(4)} of the cap $${input.capUsd}.${input.stopped ? " **The spend cap stopped the run.**" : ""}`,
     "",
-    "The scores are means over the fixtures (1.00 is the gold graph). Node F1 counts the participants of a sequence, and edge F1 its messages with their labels. Fallback: the ZDR endpoints of the model that take the JSON schema, and their providers.",
+    "The scores are means over the fixtures (1.00 is the gold graph). Node F1 counts the participants of a sequence, and edge F1 its messages with their labels. The cost per image includes the retries and the failed calls. Fallback: the ZDR endpoints of the model that take the JSON schema, and their providers.",
     "",
     "| Model | Node F1 | Edge F1 | Edge label | Group F1 | Group membership | Direction | Sequence order | Failed | Cost per image | Median latency | Answered by | Fallback endpoints (providers) |",
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ...input.summaries.map(
       (s) =>
-        `| ${s.model} | ${pct(s.nodeF1)} | ${pct(s.edgeF1)} | ${pct(s.edgeLabel)} | ${pct(s.groupF1)} | ${pct(s.membership)} | ${pct(s.direction)} | ${pct(s.order)} | ${s.failed} | ${usd(s.costPerImageUsd)} | ${s.medianLatencyMs === null ? "–" : `${(s.medianLatencyMs / 1000).toFixed(1)} s`} | ${s.answeredBy.join(", ") || "–"} | ${s.zdrEndpoints.length} (${s.zdrProviders.join(", ") || "none"}) |`,
+        `| ${s.model} | ${pct(s.nodeF1)} | ${pct(s.edgeF1)} | ${pct(s.edgeLabel)} | ${pct(s.groupF1)} | ${pct(s.membership)} | ${pct(s.direction)} | ${pct(s.order)} | ${s.failed} | ${usd(s.costPerImageUsd)} | ${s.medianLatencyMs === null ? "–" : `${(s.medianLatencyMs / 1000).toFixed(1)} s`} | ${s.answeredBy.join(", ") || "–"} | ${s.zdrEndpoints === null ? "unknown" : `${s.zdrEndpoints.length} (${s.zdrProviders?.join(", ") || "none"})`} |`,
     ),
     "",
     "## Edge F1 by category",
@@ -520,8 +529,8 @@ function renderReport(input: {
 /**
  * Read each fixture with each model, score the readings and write the
  * report (`vision.md`, `vision.json`, and the text of each reading) to
- * `out`. The models run in parallel, and the fixtures of a model one at a
- * time. `calls` applies the spend cap.
+ * `out`. `calls` is the recorder in front of `fetch`: it applies the spend
+ * cap and counts the cost of each call.
  */
 export async function runVision(input: {
   models: readonly string[]
@@ -529,69 +538,58 @@ export async function runVision(input: {
   calls: ModelCalls
   capUsd: number
   base: string
-  fixturesDir?: string
   now?: Date
 }): Promise<{ summaries: ModelSummary[]; stopped: boolean }> {
-  const fixtures = await readFixtures(input.fixturesDir ?? FIXTURES)
+  const fixtures = await readFixtures()
   const zdr = await zdrEndpoints(input.base, input.models)
-  const results = (
-    await Promise.all(
-      input.models.map(async (model) => {
-        const own: Result[] = []
-        for (const fixture of fixtures) {
-          const base = {
-            model,
-            fixture: fixture.name,
-            category: fixture.gold.category,
-          }
-          if (input.calls.stopped) {
-            own.push({
+  const results: Result[] = []
+  // One call at a time, so that the recorder gives the cost of each call
+  // with its retries. After the spend cap, no call goes out.
+  for (const model of input.models)
+    for (const fixture of fixtures) {
+      if (input.calls.stopped) break
+      const base = {
+        model,
+        fixture: fixture.name,
+        category: fixture.gold.category,
+      }
+      input.calls.begin(model, fixture.name)
+      const started = performance.now()
+      const read = await readImage(fixture.image, { model }).catch(
+        (error: unknown) =>
+          error instanceof Error ? error : new Error(String(error)),
+      )
+      const latencyMs = Math.round(performance.now() - started)
+      const { costUsd } = input.calls.end()
+      results.push(
+        read instanceof Error
+          ? {
               ...base,
               score: null,
-              costUsd: null,
-              latencyMs: 0,
+              costUsd,
+              latencyMs,
               provider: null,
-              error: "not run: the spend cap",
+              error: read.message,
               text: null,
               reading: null,
-            })
-            continue
-          }
-          const started = performance.now()
-          try {
-            const result = await readImage(fixture.image, { model })
-            own.push({
+            }
+          : {
               ...base,
-              score: scoreReading(fixture.gold, result.reading),
-              costUsd: result.costUsd,
-              latencyMs: Math.round(performance.now() - started),
-              provider: result.provider,
+              score: scoreReading(fixture.gold, read.reading),
+              costUsd,
+              latencyMs,
+              provider: read.provider,
               error: null,
-              text: imageText(result.reading),
-              reading: result.reading,
-            })
-          } catch (error) {
-            own.push({
-              ...base,
-              score: null,
-              costUsd: null,
-              latencyMs: Math.round(performance.now() - started),
-              provider: null,
-              error: error instanceof Error ? error.message : String(error),
-              text: null,
-              reading: null,
-            })
-          }
-        }
-        return own
-      }),
-    )
-  ).flat()
+              text: imageText(read.reading),
+              reading: read.reading,
+            },
+      )
+    }
   const summaries = input.models.map((model) =>
     summarize(
       model,
       results.filter((result) => result.model === model),
-      zdr.get(model),
+      zdr?.get(model) ?? null,
     ),
   )
   const now = input.now ?? new Date()

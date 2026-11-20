@@ -1,7 +1,6 @@
-import { mkdtemp, readdir, readFile } from "node:fs/promises"
+import { mkdtemp, readFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
 
 import { HttpResponse, http } from "msw"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -9,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ModelCalls } from "../../evals/knowledge/model-calls.js"
 import {
   type Gold,
+  readFixtures,
   runVision,
   scoreReading,
 } from "../../evals/knowledge/vision.js"
@@ -16,9 +16,6 @@ import { useMswServer } from "../../test/msw.js"
 import type { ImageReading } from "../knowledge-plane/image-text.js"
 
 const BASE = "https://openrouter.test/api/v1"
-const FIXTURES = fileURLToPath(
-  new URL("../../evals/knowledge/fixtures/vision", import.meta.url),
-)
 const server = useMswServer()
 
 beforeEach(() => {
@@ -114,7 +111,6 @@ const graphGold: Gold = {
 describe("scoreReading", () => {
   it("gives 1 for each measure of a perfect reading", () => {
     expect(scoreReading(graphGold, perfectReading(graphGold))).toEqual({
-      kind: true,
       nodeF1: 1,
       edgeF1: 1,
       edgeLabel: 1,
@@ -150,14 +146,35 @@ describe("scoreReading", () => {
     expect(score.membership).toBe(0.75)
   })
 
-  it("accepts an edge in either order when the line has no direction", () => {
+  it("does not match an edge with no arrowhead or with arrowheads at both ends", () => {
     const reading = perfectReading(graphGold)
-    reading.diagram.edges = reading.diagram.edges.map((edge) =>
-      edge.label === ""
-        ? { ...edge, from: edge.to, to: edge.from, arrow: "none" }
-        : edge,
+    reading.diagram.edges = reading.diagram.edges.map((edge, i) =>
+      i === 0
+        ? { ...edge, arrow: "none" }
+        : i === 1
+          ? { ...edge, arrow: "both" }
+          : edge,
     )
-    expect(scoreReading(graphGold, reading).edgeF1).toBe(1)
+    expect(scoreReading(graphGold, reading).edgeF1).toBe(0.5)
+  })
+
+  it("counts a nested group only under its gold parent", () => {
+    const gold: Gold = {
+      ...graphGold,
+      groups: [
+        { label: "VPC", parent: null },
+        { label: "Private subnet", parent: "VPC" },
+      ],
+    }
+    expect(scoreReading(gold, perfectReading(gold)).groupF1).toBe(1)
+    const flattened = perfectReading(gold)
+    flattened.diagram.groups = flattened.diagram.groups.map((group) => ({
+      ...group,
+      parent: "",
+    }))
+    // VPC is in place; Private subnet lost its parent.
+    expect(scoreReading(gold, flattened).groupF1).toBe(0.5)
+    expect(scoreReading(gold, flattened).membership).toBe(1)
   })
 
   it("scores the order of the messages of a sequence", () => {
@@ -178,7 +195,6 @@ describe("scoreReading", () => {
     const score = scoreReading(gold, reading)
     expect(score.edgeF1).toBe(1)
     expect(score.order).toBeCloseTo(2 / 3)
-    expect(score.kind).toBe(true)
   })
 
   it("gives 0 to a reading that finds no diagram", () => {
@@ -191,7 +207,6 @@ describe("scoreReading", () => {
       edges: [],
     }
     expect(scoreReading(graphGold, reading)).toMatchObject({
-      kind: false,
       nodeF1: 0,
       edgeF1: 0,
     })
@@ -201,22 +216,12 @@ describe("scoreReading", () => {
 describe("runVision", () => {
   it("reads each fixture with each model through the client, and reports the scores, the cost and the fallback endpoints", async () => {
     // The reading of each fixture image, by its base64 bytes.
-    const readings = new Map<string, ImageReading>()
-    for (const file of (await readdir(FIXTURES)).filter((name) =>
-      name.endsWith(".gold.json"),
-    )) {
-      const name = file.slice(0, -".gold.json".length)
-      const image = (await readdir(FIXTURES)).find(
-        (other) => other === `${name}.png` || other === `${name}.jpg`,
-      )
-      const gold = JSON.parse(
-        await readFile(join(FIXTURES, file), "utf8"),
-      ) as Gold
-      readings.set(
-        (await readFile(join(FIXTURES, image ?? ""))).toString("base64"),
-        perfectReading(gold),
-      )
-    }
+    const readings = new Map(
+      (await readFixtures()).map((fixture) => [
+        fixture.image.bytes.toString("base64"),
+        perfectReading(fixture.gold),
+      ]),
+    )
     const bodies: Record<string, unknown>[] = []
     server.use(
       http.get(`${BASE}/endpoints/zdr`, () =>
@@ -295,9 +300,11 @@ describe("runVision", () => {
         zdrProviders: ["Alpha", "Beta"],
       })
       expect(good?.costPerImageUsd).toBeCloseTo(0.01)
+      // A failed call with no reported cost keeps the reserved cost.
       expect(broken).toMatchObject({
         failed: 12,
         edgeF1: null,
+        costPerImageUsd: 0.25,
         zdrEndpoints: [],
       })
       expect(calls.spentUsd).toBeGreaterThan(0)

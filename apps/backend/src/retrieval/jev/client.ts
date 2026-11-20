@@ -12,8 +12,7 @@ import { z } from "zod"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { gatewayCost } from "../../observability/gatewayCost.js"
 import { gatewayRoutingError } from "../../observability/gatewayError.js"
-import { DEFAULT_OPENROUTER_BASE } from "../services/modelProvider.js"
-import { dropEmptyEnvValues } from "../services/modelTierSpecs.js"
+import { openRouterSettings } from "../services/modelProvider.js"
 
 /** The Jev model of the OpenRouter Decisions API. */
 const JEV_MODEL = "typesafe/jev-1.14"
@@ -55,15 +54,6 @@ export class JevError extends Error {
   }
 }
 
-const settingsSchema = z.preprocess(
-  dropEmptyEnvValues,
-  z.object({
-    MODEL_PROVIDER: z.string().default("openai-like"),
-    MODEL_PROVIDER_API_KEY: z.string().optional(),
-    MODEL_PROVIDER_URL: z.string().url().default(DEFAULT_OPENROUTER_BASE),
-  }),
-)
-
 const responseSchema = z.object({
   answers: z.record(z.string(), z.unknown()),
   usage: z.unknown().optional(),
@@ -73,29 +63,6 @@ const noulAnswer = z.object({
   type: z.literal("noul"),
   noul: z.number().min(0).max(1),
 })
-
-/**
- * The OpenRouter base URL and key of the backend model settings. Jev is only
- * on OpenRouter, so a deployment with `MODEL_PROVIDER` `bedrock` or `azure`
- * gets a `config` error: its content must not go to a provider that the
- * operator did not choose.
- */
-function openRouterSettings(): { base: string; apiKey: string } {
-  const settings = settingsSchema.safeParse(process.env)
-  if (
-    !settings.success ||
-    !["openrouter", "openai-like"].includes(settings.data.MODEL_PROVIDER) ||
-    !settings.data.MODEL_PROVIDER_API_KEY
-  )
-    throw new JevError(
-      "config",
-      "Jev needs MODEL_PROVIDER openrouter or openai-like, an OpenRouter MODEL_PROVIDER_URL, and MODEL_PROVIDER_API_KEY.",
-    )
-  return {
-    base: settings.data.MODEL_PROVIDER_URL,
-    apiKey: settings.data.MODEL_PROVIDER_API_KEY,
-  }
-}
 
 type DecideOptions = { timeoutMs: number; attributes: Record<string, number> }
 
@@ -130,7 +97,14 @@ export async function decideNoul(
     async (span) => {
       const started = performance.now()
       try {
-        const { base, apiKey } = openRouterSettings()
+        // Jev is only on OpenRouter (see `openRouterSettings`).
+        const settings = openRouterSettings()
+        if (!settings)
+          throw new JevError(
+            "config",
+            "Jev needs MODEL_PROVIDER openrouter or openai-like, an OpenRouter MODEL_PROVIDER_URL, and MODEL_PROVIDER_API_KEY.",
+          )
+        const { base, apiKey } = settings
         const signal = AbortSignal.timeout(options.timeoutMs)
         let status: number
         let body: string
