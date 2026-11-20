@@ -1,0 +1,11 @@
+# The Rust of the converter: the same as the worker image (Dockerfile.worker).
+# The tests build the converter with it too: the `converter` prerequisite
+# (scripts/checks/prerequisites.mjs) runs cargo in this folder, so a test runs
+# the code that the worker runs.
+# scripts/tests/ci-service-pins.test.mjs keeps the two versions the same.
+# The Rust version is in the converter hash (build.rs). A new Rust version
+# gives a new converter version. The knowledge plane then converts each file
+# again, but it reuses the vectors by their embedding key.
+[toolchain]
+channel = "1.99.1"
+profile = "minimal"
