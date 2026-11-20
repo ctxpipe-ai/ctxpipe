@@ -131,6 +131,43 @@ test("the edge hooks record names, never statement text or data", () => {
   )
 })
 
+test("the program hook records the repo programs that a case starts, and no other program", () => {
+  // A program in the repo (outside node_modules), started by each function of
+  // child_process. A shell, Node and a bare name on PATH are not repo files.
+  const directory = mkdtempSync(join(root, ".trace-programs-"))
+  try {
+    const program = join(directory, "program")
+    writeFileSync(program, "#!/bin/sh\nexit 0\n", { mode: 0o755 })
+    const probe = `
+      import { execFile, execFileSync, spawn, spawnSync } from "node:child_process"
+      import { installEdges, takeEdges } from ${JSON.stringify(script("trace-edges.mjs"))}
+      const recorded = await installEdges(${JSON.stringify(root)}, "/nowhere/")
+      const program = ${JSON.stringify(program)}
+      const name = program.slice(${JSON.stringify(directory)}.length + 1)
+      const ended = (child) => new Promise((done) => child.on("close", done))
+      execFileSync(program)
+      spawnSync(program, [], {})
+      await ended(spawn("./" + name, { cwd: ${JSON.stringify(directory)} }))
+      await ended(execFile(program, ["--version"]))
+      spawnSync("git", ["--version"])
+      execFileSync(process.execPath, ["-e", "0"])
+      process.stdout.write(JSON.stringify({ recorded, execs: [...takeEdges().execs] }))
+      process.exit(0)
+    `
+    const result = spawnSync(
+      process.execPath,
+      ["--input-type=module", "-e", probe],
+      { cwd: join(root, "apps/backend"), encoding: "utf8" },
+    )
+    assert.equal(result.status, 0, result.stderr)
+    const { recorded, execs } = JSON.parse(result.stdout)
+    assert.ok(recorded.includes("execs"))
+    assert.deepEqual(execs, [program.slice(root.length)])
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
 test("the table hook reads the tables of a query and skips schema statements", () => {
   const tables = (text) => {
     const edges = { read: new Set(), write: new Set() }

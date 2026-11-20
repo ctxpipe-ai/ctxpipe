@@ -1,14 +1,11 @@
 import { readFileSync } from "node:fs"
 
+import { builds } from "./builds.mjs"
 import { listEvals, runEvals } from "./evals.mjs"
 import { listVitest, runVitest } from "./lanes.mjs"
 import { withNeeds } from "./prerequisites.mjs"
 import { listProjects, runProjects } from "./projects.mjs"
-import {
-  listStorybook,
-  runStorybook,
-  storybookArtifact,
-} from "./storybook.mjs"
+import { listStorybook, runStorybook, storybookArtifact } from "./storybook.mjs"
 
 // Each check family: how it lists its checks and how it runs them. A runner
 // takes the checks of its family (and the trace directory, if any) and
@@ -52,5 +49,5 @@ export async function listChecks() {
       : check,
   )
   checks.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-  return { schemaVersion: 1, checks, artifacts: [storybookArtifact] }
+  return { schemaVersion: 1, checks, artifacts: [storybookArtifact], builds }
 }

@@ -56,7 +56,7 @@
           "type": "string"
         },
         "recorded": {
-          "description": "The kinds of data that the trace recorded for this check, in addition to the lines of the test process. `children`: the lines of Node and Bun child processes; it is present only when at least one child of the check wrote data and no child that the trace watched lost its data. A Bun child gives whole files: each line with code of each repo file that it loaded. Without `children`, a reader must treat the child lines of the check as unknown, also when the cases hold some. `tables`, `routes`, `steps`, `tools`, `reads`, `dirs`: the case properties of the same name. A reader may treat a case without `reads` and `dirs` as one that read and listed no repo path only when the check has both kinds. When a kind is not in the list, the check's cases do not show it: a case without that property is then not proof that it used nothing of that kind. Without `recorded`, only the lines of the test process were recorded. For a Storybook check, the lines are the lines that ran in the browser page. `browser`: every chunk of the Storybook build that ran had a source map, so the lines are complete; without it, a reader must treat the lines of the check as incomplete. `mocks`: the case property of the same name.",
+          "description": "The kinds of data that the trace recorded for this check, in addition to the lines of the test process. `children`: the lines of Node and Bun child processes; it is present only when at least one child of the check wrote data and no child that the trace watched lost its data. A Bun child gives whole files: each line with code of each repo file that it loaded. Without `children`, a reader must treat the child lines of the check as unknown, also when the cases hold some. `tables`, `routes`, `steps`, `tools`, `reads`, `dirs`, `execs`: the case properties of the same name. A reader may treat a case without `reads` and `dirs` as one that read and listed no repo path only when the check has both kinds. When a kind is not in the list, the check's cases do not show it: a case without that property is then not proof that it used nothing of that kind. Without `recorded`, only the lines of the test process were recorded. For a Storybook check, the lines are the lines that ran in the browser page. `browser`: every chunk of the Storybook build that ran had a source map, so the lines are complete; without it, a reader must treat the lines of the check as incomplete. `mocks`: the case property of the same name.",
           "type": "array",
           "items": {
             "enum": [
@@ -67,6 +67,7 @@
               "tools",
               "reads",
               "dirs",
+              "execs",
               "browser",
               "mocks"
             ]
@@ -171,6 +172,14 @@
           },
           "uniqueItems": true,
           "description": "Repo-relative paths of the directories inside the repo that the case listed through `fs` in the test process (`readdir`, `readdirSync`, `opendir`, `opendirSync`, and the glob libraries that use them). A new file in such a directory can change the result of the case."
+        },
+        "execs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "description": "Repo-relative paths of the repo files that the case started as a program in the test process (`spawn`, `execFile`, `exec`, `fork`, `spawnSync`, `execFileSync`), for example a CLI that the repo builds (the manifest `builds`). A program that is not a repo file (a bare name on PATH, a shell, Node) and a file below `node_modules` are not recorded. A program that a child process starts is not recorded."
         },
         "mocks": {
           "type": "array",
