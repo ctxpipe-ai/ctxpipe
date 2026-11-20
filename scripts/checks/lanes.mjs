@@ -51,6 +51,13 @@ const nativeInputs = [
   "scripts/ci/graph-ready.mjs",
   "apps/backend/src/domain/workspaces/workspace-chat-opencode-contract.ts",
   "scripts/chat-sandbox/**",
+  // The file converter that the knowledge-plane tests run (the
+  // `converter` prerequisite builds it): the files that decide the binary.
+  "apps/backend/converter/Cargo.lock",
+  "apps/backend/converter/Cargo.toml",
+  "apps/backend/converter/build.rs",
+  "apps/backend/converter/src/**",
+  "apps/backend/converter/fonts/**",
 ]
 // Environment variables that change backend results. A result cache adds a
 // hash of the value of each `value` variable to its key, and only set or unset

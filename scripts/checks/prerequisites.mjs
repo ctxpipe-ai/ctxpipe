@@ -384,7 +384,7 @@ export const prerequisites = {
       quiet(
         join(root, "apps/backend/converter/target/release/ctxpipe-convert"),
         ["--version"],
-        "Build the converter: cargo build --release --locked --manifest-path apps/backend/converter/Cargo.toml.",
+        "Build the converter: pnpm checks:prepare converter, with SKIP_CONVERTER_BUILD unset.",
       )
     },
   },

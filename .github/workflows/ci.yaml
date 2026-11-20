@@ -325,7 +325,7 @@ jobs:
       - name: Required file converter
         run: |
           if [ ! -x apps/backend/converter/target/release/ctxpipe-convert ]; then
-            cargo build --release --locked --manifest-path apps/backend/converter/Cargo.toml
+            node scripts/checks/prerequisites.mjs converter
           fi
           echo "SKIP_CONVERTER_BUILD=1" >> "$GITHUB_ENV"
       - name: Migrate backend schema

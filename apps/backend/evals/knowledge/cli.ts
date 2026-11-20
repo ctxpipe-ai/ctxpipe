@@ -19,9 +19,10 @@
  * the command (the output holds the work before the stop). 4: a check of
  * `probe` failed.
  */
-import { execFile } from "node:child_process"
+import { execFile, execFileSync } from "node:child_process"
 import { writeFile } from "node:fs/promises"
 import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { parseArgs, promisify } from "node:util"
 
 import { Octokit } from "octokit"
@@ -31,7 +32,6 @@ import { ORCHESTRATOR_DEFAULTS } from "../../src/knowledge-reader/orchestrator.j
 import { initEvlog } from "../../src/observability/logger.js"
 import { closeGraphDb } from "../../src/platform/graph/client.js"
 import { DEFAULT_OPENROUTER_BASE } from "../../src/retrieval/services/modelProvider.js"
-import { buildConverter } from "../../test/converter.js"
 import {
   freezeCorpora,
   importCorpusIssues,
@@ -253,8 +253,31 @@ async function main(argv: string[]): Promise<number> {
     if (!process.env.MODEL_PROVIDER_API_KEY)
       throw new SetupError("vision needs MODEL_PROVIDER_API_KEY.")
     // The SVG fixtures go through the converter, and the export of
-    // `factory eval` has no build of it.
-    buildConverter()
+    // `factory eval` has no build of it. Cargo gets only what it needs.
+    execFileSync(
+      "cargo",
+      [
+        "build",
+        "--release",
+        "--locked",
+        "--manifest-path",
+        fileURLToPath(new URL("../../converter/Cargo.toml", import.meta.url)),
+      ],
+      {
+        stdio: ["ignore", "ignore", "inherit"],
+        env: Object.fromEntries(
+          [
+            "PATH",
+            "HOME",
+            "CARGO_HOME",
+            "RUSTUP_HOME",
+            "RUSTUP_TOOLCHAIN",
+          ].flatMap((name) =>
+            process.env[name] ? [[name, process.env[name]]] : [],
+          ),
+        ),
+      },
+    )
     const calls = modelCalls(capUsd)
     const restore = calls.install()
     try {
