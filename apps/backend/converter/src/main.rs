@@ -131,7 +131,8 @@ fn set_limits(memory_mb: u64, cpu_seconds: u64) {
 /// open stdin and stdout. Each other call fails with EPERM: a file, a
 /// change of a path, a socket, a program, a process, shared memory or a
 /// message queue (they outlive the process), and another process. The set
-/// comes from a trace of the conversion of each test file (`strace`).
+/// comes from a trace of the conversion of each test file (`strace`), with
+/// musl (the worker image) and with glibc (a Linux host of the tests).
 ///
 /// - `clone` works only with `CLONE_THREAD`: a parser can use threads, but
 ///   no process.
@@ -193,6 +194,9 @@ fn sandbox() -> Result<(), String> {
         libc::SYS_gettid,
         libc::SYS_getpid,
         libc::SYS_set_robust_list,
+        // glibc registers each new thread for restartable sequences, and
+        // stops the process when the call fails. It acts on that thread only.
+        libc::SYS_rseq,
         libc::SYS_exit,
         libc::SYS_exit_group,
         // The signals of this process (a panic or an abort).
