@@ -2068,10 +2068,10 @@ jobs:
           if-no-files-found: ignore
       # After the upload, a critic that is not carried or not applicable, a
       # record with no critics, or a lookup that did not run, fails this job
-      # (the same rule as gate.mjs critics). Then `gh run rerun --failed` runs this lookup again with the
-      # Merge gate job. A rerun of only the Merge gate job reads the old record.
-      # The Merge gate job still decides: a failure of this job does not change
-      # the full verdict.
+      # (the same rule as gate.mjs critics). Then `gh run rerun --failed` runs
+      # this lookup again with the Merge gate job. A rerun of only the Merge
+      # gate job reads the old record. The Merge gate job still decides: a
+      # failure of this job does not change the full verdict.
       - name: Fail when a critic has no verdict
         run: |
           out="$RUNNER_TEMP/out"
