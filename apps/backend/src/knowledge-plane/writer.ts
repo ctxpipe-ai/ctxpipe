@@ -143,8 +143,6 @@ export async function projectKnowledgePlane(input: {
       })
       let summary: KnowledgeRunSummary | undefined
       const counter: MutationCounter = { mutations: 0 }
-      /** Seconds from the commit of `last_sha` to that of the tip, at the start. */
-      let lagSeconds: number | null = null
       try {
         await beginKnowledgeRun({ ...key, tip: input.tip })
         summary = await withGitDirectory(
@@ -155,9 +153,6 @@ export async function projectKnowledgePlane(input: {
               ...(state?.attemptShas ?? []),
             ]
             await fetchCommits(directory, input.remote, input.tip, earlier)
-            lagSeconds = state?.lastSha
-              ? await commitLag(directory, state.lastSha, input.tip)
-              : null
             const plan = await planKnowledgeChangeSet({
               directory,
               root: input.root,
@@ -225,7 +220,6 @@ export async function projectKnowledgePlane(input: {
           span,
           seconds: (performance.now() - started) / 1000,
           summary,
-          lagSeconds,
           mutations: counter.mutations,
         })
         span.end()
@@ -723,26 +717,6 @@ async function fetchCommits(
   }
 }
 
-/** Seconds from the commit time of `from` to that of `to`, or null. */
-async function commitLag(
-  directory: string,
-  from: string,
-  to: string,
-): Promise<number | null> {
-  const time = async (sha: string) =>
-    Number(
-      (await nativeGit(directory, ["show", "-s", "--format=%ct", sha]))
-        .toString()
-        .trim(),
-    )
-  try {
-    return Math.max(0, (await time(to)) - (await time(from)))
-  } catch {
-    // The commit of `from` is missing.
-    return null
-  }
-}
-
 /** Each regular file of the root folder at `sha` → its blob id. */
 export async function regularFiles(
   directory: string,
@@ -777,7 +751,6 @@ function recordRun(input: {
   span: Span
   seconds: number
   summary: KnowledgeRunSummary | undefined
-  lagSeconds: number | null
   /** The mutations of the run, also of a failed run. */
   mutations: number
 }): void {
@@ -802,15 +775,6 @@ function recordRun(input: {
     "ctxpipe.knowledge.mode": mode,
     "ctxpipe.knowledge.duration_s": input.seconds,
     "ctxpipe.knowledge.mutations": input.mutations,
-  }
-  if (input.lagSeconds !== null) {
-    meter
-      .createHistogram("knowledge.projection.lag", {
-        description: "From the commit of last_sha to the tip, at run start",
-        unit: "s",
-      })
-      .record(input.lagSeconds, { outcome })
-    fields["ctxpipe.knowledge.lag_s"] = input.lagSeconds
   }
   if (summary?.mode === "delta" || summary?.mode === "full") {
     meter
@@ -837,7 +801,6 @@ function recordRun(input: {
       outcome,
       mode,
       seconds: input.seconds,
-      lagSeconds: input.lagSeconds,
       mutations: input.mutations,
       ...summary,
     },

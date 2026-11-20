@@ -28,7 +28,8 @@ import { knowledgeMaintenance } from "./knowledge-maintenance.js"
  * An infrastructure error throws in the step. The step retries from the same
  * `last_sha`, and the next run starts from it too (ADR-067 decision 8). When
  * the outage is longer than the retries, the run fails, and the next hydrate
- * of the Workspace queues a new run. Until then, the lag metric shows it.
+ * of the Workspace queues a new run. Until then, the lag alert shows it
+ * (ADR-067 decision 11).
  */
 export const knowledgeProjection = defineWorkflow(
   {
