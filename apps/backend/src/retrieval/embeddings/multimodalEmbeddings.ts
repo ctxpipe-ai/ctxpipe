@@ -4,6 +4,7 @@ import { z } from "zod"
 
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { mapWithConcurrency } from "../../lib/mapWithConcurrency.js"
+import { isRetryableFetchFailure } from "../../lib/withTransientHttpRetry.js"
 import { gatewayCost } from "../../observability/gatewayCost.js"
 import { gatewayRoutingError } from "../../observability/gatewayError.js"
 import { withLlmGeneration } from "../../observability/llm-spans.js"
@@ -52,7 +53,10 @@ export const multimodalEmbeddingConfig = {
    * can be in flight at once.
    */
   concurrency: 8,
-  /** The maximum number of attempts of one request (429 and 5xx retry). */
+  /**
+   * The maximum number of attempts of one request (429, 5xx and network
+   * errors retry).
+   */
   maxAttempts: 5,
   /** The first backoff. Each retry doubles it, up to `maxBackoffMs`. */
   backoffMs: 500,
@@ -162,11 +166,11 @@ export async function embedMultimodal(
           config,
         })
       } catch (err) {
-        if (
-          !(err instanceof RetryableStatusError) ||
-          attempt >= config.maxAttempts
-        )
-          throw err
+        // A network error of fetch (no answer) gets the same retry as a
+        // 5xx. Its message holds no input text.
+        const retryable =
+          err instanceof RetryableStatusError || isRetryableFetchFailure(err)
+        if (!retryable || attempt >= config.maxAttempts) throw err
         await sleep(
           Math.min(config.backoffMs * 2 ** (attempt - 1), config.maxBackoffMs),
         )

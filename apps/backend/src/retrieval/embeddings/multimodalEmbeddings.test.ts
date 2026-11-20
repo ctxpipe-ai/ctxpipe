@@ -282,6 +282,42 @@ describe("embedMultimodal", () => {
     expect(telemetry).not.toContain("chunk 0")
   })
 
+  it("retries a network error like a 5xx", async () => {
+    let failures = 1
+    const bodies: Body[] = []
+    const echo = echoHandler(bodies)
+    server.use(
+      http.post(EMBEDDINGS_URL, () => {
+        if (failures-- > 0) return HttpResponse.error()
+        return undefined
+      }),
+      echo,
+    )
+
+    const result = await embedMultimodal([text(0)], config)
+
+    expect(result).toHaveLength(1)
+    expect(bodies).toHaveLength(1)
+  })
+
+  it("stops network error retries at the attempt cap", async () => {
+    let calls = 0
+    server.use(
+      http.post(EMBEDDINGS_URL, () => {
+        calls += 1
+        return HttpResponse.error()
+      }),
+    )
+
+    const error = await embedMultimodal([text(0)], config).catch(
+      (err: unknown) => err,
+    )
+
+    expect(error).toBeInstanceOf(TypeError)
+    expect(String(error)).not.toContain("chunk 0")
+    expect(calls).toBe(3)
+  })
+
   it("does not retry a 4xx other than 429", async () => {
     let calls = 0
     server.use(
