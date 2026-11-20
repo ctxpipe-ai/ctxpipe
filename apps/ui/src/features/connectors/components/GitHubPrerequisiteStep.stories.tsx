@@ -55,20 +55,20 @@ export const Slack: Story = {
 }
 
 /**
- * Presses "Connect GitHub" with `popup` in place of `window.open`, and stops
- * the page load that follows. Chromium's Navigation API can cancel it, so the
- * button state stays on screen. Returns the URL the page tried to load.
+ * Presses "Connect GitHub" with `popup` in place of `window.open`. It stops
+ * each page load that follows: Chromium's Navigation API can cancel it, so the
+ * button state stays on screen. Returns the URLs the page tried to load.
  */
-async function connectUntilNavigation(
+async function pressConnect(
   canvasElement: HTMLElement,
   popup: () => Window | null,
 ) {
   const canvas = within(canvasElement)
   const button = await canvas.findByRole("button", { name: "Connect GitHub" })
   await waitFor(() => expect(button).not.toHaveAttribute("data-pending"))
-  let destination: string | undefined
+  const destinations: string[] = []
   const stop = (event: NavigateEvent) => {
-    destination = event.destination.url
+    destinations.push(event.destination.url)
     event.preventDefault()
   }
   const open = window.open
@@ -76,12 +76,18 @@ async function connectUntilNavigation(
   window.open = popup
   try {
     await userEvent.click(button)
-    await waitFor(() => expect(destination).toBeDefined())
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: "Connect GitHub" }),
+      ).toHaveAttribute("data-pending", "true"),
+    )
   } finally {
     window.open = open
-    window.navigation.removeEventListener("navigate", stop)
   }
-  return { button, destination: destination ?? "" }
+  return {
+    destinations,
+    release: () => window.navigation.removeEventListener("navigate", stop),
+  }
 }
 
 /** A popup that returns the installation at once and closes. */
@@ -96,8 +102,49 @@ function popupReturnsInstallation() {
   return { closed: true, focus() {} } as Window
 }
 
-/** Reads of the installation in a story; each play resets it. */
-let installationReads = 0
+/**
+ * Handlers of an org with no installation that count the installation reads,
+ * and a register request that answers with `register`.
+ */
+function installFlow(register: () => Response) {
+  const reads = { count: 0 }
+  const handlers = {
+    github: [
+      hostedGithubAppBootstrapHandler,
+      http.get(`*/${orgSlug}/api/v1/github/installation`, () => {
+        reads.count += 1
+        return HttpResponse.json(null)
+      }),
+    ],
+    register: http.post(`*/${orgSlug}/api/v1/github/installation`, register),
+  }
+  return { reads, handlers }
+}
+
+/**
+ * The flow refreshes the installation after it reads the popup result. Waits
+ * for that read and one more task, then checks that the button is still in
+ * progress.
+ */
+async function expectStillPending(
+  canvasElement: HTMLElement,
+  reads: { count: number },
+) {
+  await waitFor(() => expect(reads.count).toBeGreaterThan(1))
+  await new Promise((resolve) => setTimeout(resolve))
+  await waitFor(() =>
+    expect(
+      within(canvasElement).getByRole("button", { name: "Connect GitHub" }),
+    ).toHaveAttribute("data-pending", "true"),
+  )
+}
+
+const redirectFlow = installFlow(() =>
+  HttpResponse.json(
+    { error: "Refused", why: "github_authorization_unavailable" },
+    { status: 403 },
+  ),
+)
 
 /**
  * The admin installed the App in the popup, and ctxpipe sends the page to
@@ -106,38 +153,21 @@ let installationReads = 0
  */
 export const RedirectKeepsPending: Story = {
   ...Slack,
-  parameters: {
-    msw: {
-      handlers: {
-        github: [
-          hostedGithubAppBootstrapHandler,
-          http.get(`*/${orgSlug}/api/v1/github/installation`, () => {
-            installationReads += 1
-            return HttpResponse.json(null)
-          }),
-        ],
-        register: http.post(`*/${orgSlug}/api/v1/github/installation`, () =>
-          HttpResponse.json(
-            { error: "Refused", why: "github_authorization_unavailable" },
-            { status: 403 },
-          ),
-        ),
-      },
-    },
-  },
+  parameters: { msw: { handlers: redirectFlow.handlers } },
   play: async ({ canvasElement }) => {
-    installationReads = 0
-    const { button, destination } = await connectUntilNavigation(
+    redirectFlow.reads.count = 0
+    const { destinations, release } = await pressConnect(
       canvasElement,
       popupReturnsInstallation,
     )
-    await expect(destination).toContain("/.github/setup")
-    // The flow refreshes the installation after the navigation starts. Wait
-    // for that read and one more task, then check that the button did not go
-    // back to idle.
-    await waitFor(() => expect(installationReads).toBeGreaterThan(1))
-    await new Promise((resolve) => setTimeout(resolve))
-    await expect(button).toHaveAttribute("data-pending", "true")
+    try {
+      await waitFor(() =>
+        expect(destinations.join(" ")).toContain("/.github/setup"),
+      )
+      await expectStillPending(canvasElement, redirectFlow.reads)
+    } finally {
+      release()
+    }
   },
 }
 
@@ -146,18 +176,28 @@ export const BlockedPopupKeepsPending: Story = {
   ...Slack,
   parameters: { visual: { skip: "Same screen as RedirectKeepsPending." } },
   play: async ({ canvasElement }) => {
-    const { button, destination } = await connectUntilNavigation(
+    const { destinations, release } = await pressConnect(
       canvasElement,
       () => null,
     )
-    await expect(destination).toContain("https://github.com/apps/ctxpipe")
-    await expect(button).toHaveAttribute("data-pending", "true")
+    release()
+    await expect(destinations.join(" ")).toContain(
+      "https://github.com/apps/ctxpipe",
+    )
     // Back from GitHub restores the page from the back/forward cache: the
     // user can start again.
-    window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }))
-    await waitFor(() => expect(button).not.toHaveAttribute("data-pending"))
+    window.dispatchEvent(
+      new PageTransitionEvent("pageshow", { persisted: true }),
+    )
+    await waitFor(() =>
+      expect(
+        within(canvasElement).getByRole("button", { name: "Connect GitHub" }),
+      ).not.toHaveAttribute("data-pending"),
+    )
   },
 }
+
+const registerFlow = installFlow(() => HttpResponse.json({ ok: true }))
 
 /**
  * GitHub connected in the popup, and the caller opens the next step. The
@@ -168,37 +208,15 @@ export const RegisteredKeepsPending: Story = {
   args: { ...Slack.args, onConnected: () => new Promise<void>(() => {}) },
   parameters: {
     visual: { skip: "Same screen as RedirectKeepsPending." },
-    msw: {
-      handlers: {
-        github: [
-          hostedGithubAppBootstrapHandler,
-          http.get(`*/${orgSlug}/api/v1/github/installation`, () => {
-            installationReads += 1
-            return HttpResponse.json(null)
-          }),
-        ],
-        register: http.post(`*/${orgSlug}/api/v1/github/installation`, () =>
-          HttpResponse.json({ ok: true }),
-        ),
-      },
-    },
+    msw: { handlers: registerFlow.handlers },
   },
   play: async ({ canvasElement }) => {
-    installationReads = 0
-    const canvas = within(canvasElement)
-    const button = await canvas.findByRole("button", { name: "Connect GitHub" })
-    await waitFor(() => expect(button).not.toHaveAttribute("data-pending"))
-    const open = window.open
-    window.open = popupReturnsInstallation
-    try {
-      await userEvent.click(button)
-    } finally {
-      window.open = open
-    }
-    // Wait for the refresh after the registration and one more task, then
-    // check that the button did not go back to idle.
-    await waitFor(() => expect(installationReads).toBeGreaterThan(1))
-    await new Promise((resolve) => setTimeout(resolve))
-    await expect(button).toHaveAttribute("data-pending", "true")
+    registerFlow.reads.count = 0
+    const { release } = await pressConnect(
+      canvasElement,
+      popupReturnsInstallation,
+    )
+    release()
+    await expectStillPending(canvasElement, registerFlow.reads)
   },
 }

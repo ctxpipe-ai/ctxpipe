@@ -151,9 +151,7 @@ export function useGithubConnectFlow({
               if (result.status === "redirected") return
               await handleInstallSettled(result)
             } catch {
-              onRegistrationFailed?.(
-                "Could not complete GitHub connection. Please try again.",
-              )
+              await handleInstallSettled({ status: "registration_failed" })
             }
             setIsSyncing(false)
           })()
@@ -169,7 +167,6 @@ export function useGithubConnectFlow({
       watchPopupClose,
       queryClient,
       handleInstallSettled,
-      onRegistrationFailed,
     ],
   )
 
