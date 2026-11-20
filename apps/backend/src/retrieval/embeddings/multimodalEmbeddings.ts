@@ -4,6 +4,7 @@ import { z } from "zod"
 
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { gatewayCost } from "../../observability/gatewayCost.js"
+import { gatewayRoutingError } from "../../observability/gatewayError.js"
 import { withLlmGeneration } from "../../observability/llm-spans.js"
 import { dropEmptyEnvValues } from "../services/modelTierSpecs.js"
 
@@ -209,9 +210,10 @@ function embedRequest(
       })
       if (!res.ok) {
         // The provider can echo the input in the body. Keep it out of the
-        // error, because the span status copies the error message.
-        await res.arrayBuffer()
-        const message = `Embedding request failed: HTTP ${res.status}`
+        // error, because the span status copies the error message. Only a
+        // fixed routing message of the gateway stays.
+        const routing = gatewayRoutingError(await res.text(), config.model)
+        const message = `Embedding request failed: HTTP ${res.status}${routing ? `: ${routing}` : ""}`
         if (res.status === 429 || res.status >= 500)
           throw new RetryableStatusError(message)
         throw new EmbeddingStatusError(message, res.status)

@@ -11,6 +11,7 @@ import { z } from "zod"
 
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { gatewayCost } from "../../observability/gatewayCost.js"
+import { gatewayRoutingError } from "../../observability/gatewayError.js"
 import { DEFAULT_OPENROUTER_BASE } from "../services/modelProvider.js"
 import { dropEmptyEnvValues } from "../services/modelTierSpecs.js"
 
@@ -34,7 +35,8 @@ export type JevQuestion = { type: "noul"; instructions: string }
 
 /**
  * The failure of one Jev call. The message holds no request or response
- * text, because that can be customer content.
+ * text, because that can be customer content. The one exception is a fixed
+ * routing message of the gateway (`gatewayRoutingError`).
  * - `config`: the backend model settings cannot reach OpenRouter.
  * - `network`: the request did not get an answer (DNS, connection, TLS).
  * - `timeout`: no full answer within the time limit.
@@ -176,8 +178,18 @@ export async function decideNoul(
               )
             : new JevError("network", "The Jev request got no answer.")
         }
-        if (status < 200 || status > 299)
-          throw new JevError("http", `Jev answered HTTP ${status}.`, status)
+        if (status < 200 || status > 299) {
+          // Only a fixed routing message of the gateway: other error text
+          // can echo the state.
+          const routing = gatewayRoutingError(body, JEV_MODEL)
+          throw new JevError(
+            "http",
+            routing
+              ? `Jev answered HTTP ${status}: ${routing}`
+              : `Jev answered HTTP ${status}.`,
+            status,
+          )
+        }
         let json: unknown
         try {
           json = JSON.parse(body)

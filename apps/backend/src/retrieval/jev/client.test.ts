@@ -73,4 +73,44 @@ describe("decideNoul", () => {
       "invalid-answer",
     )
   })
+
+  it("keeps a fixed routing message of the gateway in the error, and no other error text", async () => {
+    server.use(
+      http.post(DECISIONS, () =>
+        HttpResponse.json(
+          {
+            error: {
+              message: "No endpoints found matching your data policy.",
+            },
+          },
+          { status: 404 },
+        ),
+      ),
+    )
+    const decide = () =>
+      decideNoul(
+        ["The state."],
+        { sky: question },
+        { timeoutMs: 5_000, attributes: {} },
+      )
+
+    await expect(decide()).rejects.toMatchObject({
+      kind: "http",
+      status: 404,
+      message:
+        "Jev answered HTTP 404: No endpoints found matching your data policy.",
+    })
+
+    server.use(
+      http.post(DECISIONS, () =>
+        HttpResponse.json(
+          { error: { message: "Bad state: The state." } },
+          { status: 400 },
+        ),
+      ),
+    )
+    await expect(decide()).rejects.toMatchObject({
+      message: "Jev answered HTTP 400.",
+    })
+  })
 })

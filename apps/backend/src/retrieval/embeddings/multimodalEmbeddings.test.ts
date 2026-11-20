@@ -267,4 +267,75 @@ describe("embedMultimodal", () => {
     await expect(embedMultimodal([text(0)], config)).rejects.toThrow("400")
     expect(calls).toBe(1)
   })
+
+  it("keeps the no-endpoint message for the model of the request", async () => {
+    server.use(
+      http.post(EMBEDDINGS_URL, () =>
+        HttpResponse.json(
+          {
+            error: {
+              message: "No endpoints found for vendor/multimodal-embed.",
+            },
+          },
+          { status: 404 },
+        ),
+      ),
+    )
+
+    await expect(embedMultimodal([text(0)], config)).rejects.toThrow(
+      "Embedding request failed: HTTP 404: No endpoints found for vendor/multimodal-embed.",
+    )
+  })
+
+  it("keeps a fixed routing message of the gateway in a 4xx error and its span", async () => {
+    server.use(
+      http.post(EMBEDDINGS_URL, () =>
+        HttpResponse.json(
+          {
+            error: {
+              code: 404,
+              message:
+                "No endpoints found that can handle the requested parameters.",
+            },
+          },
+          { status: 404 },
+        ),
+      ),
+    )
+
+    await expect(embedMultimodal([text(0)], config)).rejects.toThrow(
+      "Embedding request failed: HTTP 404: No endpoints found that can handle the requested parameters.",
+    )
+    expect(
+      JSON.stringify(spans.finishedSpans().map((s) => s.status)),
+    ).toContain("No endpoints found that can handle the requested parameters.")
+  })
+
+  it.each([
+    (input: string) => `Invalid input: ${input}`,
+    (input: string) => `No endpoints found for input: ${input}`,
+    (input: string) =>
+      `No endpoints found that can handle the requested parameters. ${input}`,
+    (input: string) => `No allowed providers are available for ${input}.`,
+    // A model-shaped id other than the model of the request.
+    () => "No endpoints found for private-org/private-repository.",
+  ])(
+    "keeps another 4xx message out of the error, because it can echo the input (%#)",
+    async (echo) => {
+      server.use(
+        http.post(EMBEDDINGS_URL, async ({ request }) =>
+          HttpResponse.json(
+            { error: { message: echo(await request.text()) } },
+            { status: 400 },
+          ),
+        ),
+      )
+
+      const error = await embedMultimodal([text(0)], config).catch(
+        (err: unknown) => err,
+      )
+
+      expect(String(error)).toBe("Error: Embedding request failed: HTTP 400")
+    },
+  )
 })

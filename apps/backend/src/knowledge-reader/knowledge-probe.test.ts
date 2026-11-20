@@ -68,7 +68,8 @@ const ENDPOINTS: Record<string, { slug: string; name: string; zdr: boolean }> =
  * A gateway that routes Decisions requests like OpenRouter: by the pinned
  * provider, and with `zdr: true` only to a ZDR endpoint. With
  * `enforcesZdr: false`, it ignores `zdr`. `refusal` replaces the answer to a
- * request with `zdr: true` to the non-ZDR model.
+ * request with `zdr: true` to the non-ZDR model. A request with more than
+ * `maxInputs` embedding inputs finds no endpoint.
  */
 function gateway(options: {
   enforcesZdr: boolean
@@ -76,6 +77,8 @@ function gateway(options: {
   embeddingName?: string
   dimensions?: number
   refusal?: { status: number; message: string }
+  /** The most embedding inputs that one request may hold. */
+  maxInputs?: number
 }) {
   const bodies = {
     decisions: [] as z.infer<typeof decisionSchema>[],
@@ -114,17 +117,27 @@ function gateway(options: {
       })
     }),
     http.post(EMBEDDINGS, async ({ request }) => {
-      bodies.embeddings.push(embeddingSchema.parse(await request.json()))
-      return HttpResponse.json({
-        data: [
+      const body = embeddingSchema.parse(await request.json())
+      bodies.embeddings.push(body)
+      if (body.input.length > (options.maxInputs ?? Infinity))
+        return HttpResponse.json(
           {
-            embedding: Array.from(
-              { length: options.dimensions ?? 1024 },
-              () => 0.1,
-            ),
-            index: 0,
+            error: {
+              code: 404,
+              message:
+                "No endpoints found that can handle the requested parameters.",
+            },
           },
-        ],
+          { status: 404 },
+        )
+      return HttpResponse.json({
+        data: body.input.map((_, index) => ({
+          embedding: Array.from(
+            { length: options.dimensions ?? 1024 },
+            () => 0.1,
+          ),
+          index,
+        })),
         provider: options.embeddingName ?? "Google",
         usage: { prompt_tokens: 4, cost: 0.00001 },
       })
@@ -143,6 +156,7 @@ const resultSchema = z.object({
       status: z.number().nullable(),
       provider: z.string().nullable(),
       error: z.string().nullable(),
+      expects: z.string(),
     }),
   ),
 })
@@ -183,7 +197,7 @@ describe("the provider probe", () => {
         pass: true,
         status: 404,
         error:
-          "Jev answered HTTP 404. Provider: No endpoints found matching your data policy.",
+          "Jev answered HTTP 404: No endpoints found matching your data policy.",
       }),
       expect.objectContaining({
         name: "embedding-image",
@@ -192,6 +206,7 @@ describe("the provider probe", () => {
         provider: "Google",
       }),
       expect.objectContaining({ name: "embedding-text", pass: true }),
+      expect.objectContaining({ name: "embedding-text-batch", pass: true }),
     ])
     expect(result.stopped).toBe(false)
     expect(await readFile(join(out, "probe.md"), "utf8")).toContain(
@@ -255,6 +270,37 @@ describe("the provider probe", () => {
     expect(bodies.embeddings[1]?.input).toEqual([
       { content: [{ type: "text", text: "A red and blue checkerboard." }] },
     ])
+    // The batch is one request with 16 document chunks, each with the
+    // context line of the projection.
+    expect(bodies.embeddings).toHaveLength(3)
+    expect(bodies.embeddings[2]?.input).toHaveLength(16)
+    expect(bodies.embeddings[2]?.input[15]).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "Checkerboard (part 16 of 16)\n\nSquare 16 of the checkerboard is blue.",
+        },
+      ],
+    })
+  })
+
+  it("fails the batch check with the routing message when the endpoint takes one input only", async () => {
+    gateway({ enforcesZdr: true, maxInputs: 1 })
+
+    expect(await run(0.05)).toBe(4)
+
+    const result = await readResult()
+    expect(result.checks.at(-1)).toEqual({
+      name: "embedding-text-batch",
+      pass: false,
+      status: 404,
+      provider: null,
+      error:
+        "Embedding request failed: HTTP 404: No endpoints found that can handle the requested parameters.",
+      expects:
+        "HTTP 200, the provider Google, and 16 vector(s) of 1024 dimensions",
+    })
+    expect(result.checks.filter((check) => !check.pass)).toHaveLength(1)
   })
 
   it("fails each check that the answers do not prove", async () => {
@@ -273,6 +319,7 @@ describe("the provider probe", () => {
       "decisions-refused-without-zdr-endpoint": false,
       "embedding-image": false,
       "embedding-text": false,
+      "embedding-text-batch": false,
     })
     const result = await readResult()
     expect(result.checks[0]?.provider).toBe("Other Host")
@@ -332,6 +379,7 @@ describe("the provider probe", () => {
     expect(result.spentUsd).toBeCloseTo(0.0001)
     expect(result.checks.map((check) => [check.pass, check.status])).toEqual([
       [true, 200],
+      [false, null],
       [false, null],
       [false, null],
       [false, null],
