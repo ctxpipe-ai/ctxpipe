@@ -168,9 +168,11 @@ function buildConverter() {
 
 /**
  * Hydrate each corpus into both stacks in `org` (`hydrate.ts`), and write the
- * targets of `run` (`targets.json`) to `out`. It writes the spend
- * (`hydrate.json`) also when the hydrate fails. Returns the exit code: 3
- * when the spend cap stopped a call. Throws the other errors.
+ * targets of `run` (`targets.json`) to `out`. It writes the spend and the
+ * failed documents of the plane (`hydrate.json`) also when the hydrate
+ * fails. Returns the exit code: 3 when the spend cap stopped a call. Then it
+ * writes no targets, also when the workflows completed. Throws the other
+ * errors.
  */
 export async function hydrateCommand(input: {
   dataset: Dataset
@@ -190,15 +192,23 @@ export async function hydrateCommand(input: {
   const { hydrateCorpora } = await import("./hydrate.js")
   const restore = calls.install()
   await mkdir(input.out, { recursive: true })
+  let failedDocuments: Record<string, number> | null = null
   try {
-    const targets = await hydrateCorpora({
+    const hydrated = await hydrateCorpora({
       dataset: input.dataset,
       org: input.org,
       databaseUrl: input.databaseUrl,
       calls,
       log: (line) => process.stderr.write(`${line}\n`),
     })
-    await writeJson(join(input.out, "targets.json"), targets)
+    failedDocuments = hydrated.failedDocuments
+    if (calls.stopped) {
+      process.stderr.write(
+        "The spend cap stopped a call of the hydrate. Give a higher cap and run hydrate again.\n",
+      )
+      return 3
+    }
+    await writeJson(join(input.out, "targets.json"), hydrated.targets)
     process.stdout.write(
       `The targets are in ${join(input.out, "targets.json")}. Spend: $${calls.spentUsd.toFixed(4)}.\n`,
     )
@@ -214,7 +224,10 @@ export async function hydrateCommand(input: {
     throw error
   } finally {
     restore()
-    await writeJson(join(input.out, "hydrate.json"), calls.summary())
+    await writeJson(join(input.out, "hydrate.json"), {
+      ...calls.summary(),
+      failedDocuments,
+    })
   }
 }
 

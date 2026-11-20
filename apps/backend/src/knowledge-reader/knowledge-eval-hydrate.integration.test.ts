@@ -115,6 +115,7 @@ let clickHouse: Awaited<ReturnType<typeof startClickHouse>>
 let readerUrl: string
 let writerUrl: string
 let dataset: Dataset
+let imagesSha: string
 
 const hydrate = async (calls: ModelCalls, of: Dataset = dataset) => {
   const restore = calls.install()
@@ -168,6 +169,32 @@ describe("the hydrate of the knowledge eval harness", () => {
     )
     const sha = run("rev-parse", "HEAD")
     execFileSync("git", ["clone", "--quiet", repo, join(directory, "copy")])
+    // A copy with an image: the plane reads it with the vision model.
+    const images = join(directory, "images")
+    execFileSync("git", ["clone", "--quiet", repo, images])
+    writeFileSync(
+      join(images, "docs", "diagram.png"),
+      Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        "base64",
+      ),
+    )
+    execFileSync("git", ["-C", images, "add", "."])
+    execFileSync("git", [
+      "-C",
+      images,
+      "-c",
+      "user.name=Eval",
+      "-c",
+      "user.email=eval@example.test",
+      "commit",
+      "--quiet",
+      "-m",
+      "An image",
+    ])
+    imagesSha = execFileSync("git", ["-C", images, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+    }).trim()
     git = await startGitHttpServer(directory)
 
     clickHouse = await startClickHouse()
@@ -257,9 +284,52 @@ describe("the hydrate of the knowledge eval harness", () => {
       }),
     ).toBe(3)
     expect(JSON.parse(readFileSync(join(out, "hydrate.json"), "utf8"))).toEqual(
-      { capUsd: 0, spentUsd: 0, stopped: true, zdrAdded: {} },
+      {
+        capUsd: 0,
+        spentUsd: 0,
+        stopped: true,
+        zdrAdded: {},
+        failedDocuments: null,
+      },
     )
     expect(embeddingBodies).toEqual([])
+  })
+
+  it("stops with exit code 3 when the spend cap stops a vision call", async () => {
+    vi.stubEnv("CLICKHOUSE_URL", writerUrl)
+    const [corpus] = dataset.corpora
+    if (!corpus) throw new Error("The dataset has no corpus.")
+    const out = join(directory, "images-capped")
+    // The embedding calls fit in the cap, and the vision call of the image
+    // (reserved at $0.05) does not.
+    expect(
+      await hydrateCommand({
+        dataset: {
+          ...dataset,
+          corpora: [
+            {
+              ...corpus,
+              id: "images",
+              workspace: "images-v0",
+              contextRepo: {
+                ...corpus.contextRepo,
+                url: corpus.contextRepo.url.replace(/context$/, "images"),
+                sha: imagesSha,
+              },
+            },
+          ],
+        },
+        org,
+        databaseUrl: process.env.DATABASE_URL ?? "",
+        out,
+        capUsd: 0.01,
+      }),
+    ).toBe(3)
+    // The refused call fails the step of the projection, as an outage does.
+    expect(
+      JSON.parse(readFileSync(join(out, "hydrate.json"), "utf8")),
+    ).toMatchObject({ stopped: true, failedDocuments: null })
+    expect(() => readFileSync(join(out, "targets.json"))).toThrow()
   })
 
   it("stops at the first failed step, with its error", async () => {
@@ -322,7 +392,9 @@ describe("the hydrate of the knowledge eval harness", () => {
       addZdr: true,
       keepRecords: false,
     })
-    targets = await hydrate(calls)
+    const hydrated = await hydrate(calls)
+    targets = hydrated.targets
+    expect(hydrated.failedDocuments).toEqual({ tiny: 0 })
     expect(targets).toEqual({
       "tiny-v0": { orgId: org.id, orgSlug: org.slug, workspace: "tiny-v0" },
     })

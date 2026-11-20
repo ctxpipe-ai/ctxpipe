@@ -12,7 +12,10 @@ import { organizations } from "../../src/db/schema/auth.js"
 import { orgFeatures } from "../../src/db/schema/org_features.js"
 import { workspaces } from "../../src/db/schema/workspaces.js"
 import { resolveWorkspaceReadRevision } from "../../src/domain/workspaces/resolve-revision.js"
-import { readyKnowledgeShas } from "../../src/models/knowledge-state.js"
+import {
+  getKnowledgeState,
+  readyKnowledgeShas,
+} from "../../src/models/knowledge-state.js"
 import { getWorkspaceProjection } from "../../src/models/workspaces.js"
 import { openWorkflowNamespaceId } from "../../src/openworkflow/namespace.js"
 import { connectOpenWorkflowBackend } from "../../src/openworkflow/storable-backend.js"
@@ -44,11 +47,13 @@ export type EvalOrg = { id: string; slug: string; name: string }
 const HYDRATE_TIMEOUT_MS = 60 * 60_000
 
 /**
- * Hydrate each corpus of `dataset` into both stacks in the org `org`, and
- * return the targets of `run`. The model calls go through `calls`, which
- * `install` put in front of `fetch`: the spend cap applies to them. Throws
- * when a step of a workflow fails, or when a stack does not serve the
- * frozen SHA after the hydrate.
+ * Hydrate each corpus of `dataset` into both stacks in the org `org`. It
+ * returns the targets of `run`, and the count of `failed` documents of the
+ * plane for each corpus: a file that does not parse, a file type with no
+ * converter, or a failed vision call (ADR-067 decision 8). The model calls
+ * go through `calls`, which `install` put in front of `fetch`: the spend cap
+ * applies to them. Throws when a step of a workflow fails, or when a stack
+ * does not serve the frozen SHA after the hydrate.
  */
 export async function hydrateCorpora(input: {
   dataset: Dataset
@@ -56,7 +61,7 @@ export async function hydrateCorpora(input: {
   databaseUrl: string
   calls: ModelCalls
   log: (line: string) => void
-}): Promise<Targets> {
+}): Promise<{ targets: Targets; failedDocuments: Record<string, number> }> {
   const { calls, log, org } = input
   // The worker takes each run of its namespace, and the hydrate queues the
   // projection through the OpenWorkflow client, which read the namespace
@@ -96,6 +101,7 @@ export async function hydrateCorpora(input: {
   const restoreGit = isolateGit()
   await worker.start()
   const targets: Targets = {}
+  const failedDocuments: Record<string, number> = {}
   try {
     for (const corpus of input.dataset.corpora) {
       calls.begin("hydrate", corpus.id)
@@ -128,8 +134,12 @@ export async function hydrateCorpora(input: {
       })
       await calls.settle()
       const counts = calls.end()
+      const failed =
+        (await getKnowledgeState({ orgId: org.id, workspaceId }))
+          ?.failedCount ?? 0
+      failedDocuments[corpus.id] = failed
       log(
-        `${corpus.id}: both stacks serve ${corpus.contextRepo.sha} after ${Math.round((performance.now() - started) / 1000)} s; ${counts.embedding} embedding calls, $${counts.costUsd.toFixed(4)}.`,
+        `${corpus.id}: both stacks serve ${corpus.contextRepo.sha} after ${Math.round((performance.now() - started) / 1000)} s; ${counts.embedding} embedding calls, $${counts.costUsd.toFixed(4)}; ${failed} failed documents on the plane.`,
       )
       targets[corpus.workspace] = {
         orgId: org.id,
@@ -152,7 +162,7 @@ export async function hydrateCorpora(input: {
     await backend.stop()
     restoreGit()
   }
-  return targets
+  return { targets, failedDocuments }
 }
 
 /**

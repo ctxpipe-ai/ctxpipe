@@ -54,7 +54,7 @@ An eval run repeats only the hydrate and the retrieval (ADR-069 decision 3). `hy
 - The model calls are the embedding calls of the two writers, and a vision call for each image of the plane. They go through the recorder of the run, so the spend cap and the ZDR rule apply (see `run`). The recorder keeps no copy of them.
 - A failed step of a workflow, or a store of the old stack that the hydrate records as failed, stops the hydrate at once with its error. The workflows retry an outage for minutes, but in an eval a failure is almost always a setup error. Fix it, and run `hydrate` again: it continues from the stored state.
 
-It writes `targets.json` (the input of `run`) to `--out`, and `hydrate.json` (the spend, and the calls that got the ZDR block) also when it fails. Exit codes: 0 done, 1 a step or a store failed (or another error, for example a context repo URL that is not http or https), 2 bad setup, 3 the spend cap stopped a call.
+It writes `targets.json` (the input of `run`) to `--out`, and `hydrate.json` (the spend, the calls that got the ZDR block, and the count of `failed` documents of the plane for each corpus) also when it fails. A `failed` document is a file that does not parse, a file type with no converter, or an image that the vision model could not read (ADR-067 decision 8): the plane serves the SHA without it. When the spend cap stopped a call, `hydrate` exits with 3 and writes no targets. Exit codes: 0 done, 1 a step or a store failed (or another error, for example a context repo URL that is not http or https), 2 bad setup, 3 the spend cap stopped a call.
 
 ### Run
 
