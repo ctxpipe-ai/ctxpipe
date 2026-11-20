@@ -30,7 +30,7 @@ type UseGithubConnectFlowOptions = {
   orgSlug: string
   onAlreadyInstalled?: () => void
   /** A returned promise keeps the button in progress until it settles (e.g. a navigation). */
-  onRegistered?: () => unknown
+  onRegistered?: () => void | Promise<void>
   onRegistrationFailed?: (message: string) => void
   /** Fired when the self-hosted wizard modal is dismissed (completed install or cancelled). */
   onWizardClosed?: () => void
@@ -142,7 +142,13 @@ export function useGithubConnectFlow({
             )
             // A redirect unloads the page: keep the button in progress.
             if (result.status === "redirected") return
-            await handleInstallSettled(result)
+            try {
+              await handleInstallSettled(result)
+            } catch {
+              onRegistrationFailed?.(
+                "GitHub is connected, but the next step did not open. Please reload the page.",
+              )
+            }
             setIsSyncing(false)
           })()
         },
@@ -152,7 +158,13 @@ export function useGithubConnectFlow({
         },
       )
     },
-    [orgSlug, watchPopupClose, queryClient, handleInstallSettled],
+    [
+      orgSlug,
+      watchPopupClose,
+      queryClient,
+      handleInstallSettled,
+      onRegistrationFailed,
+    ],
   )
 
   const start = useCallback(

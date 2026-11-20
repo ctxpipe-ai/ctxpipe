@@ -6,7 +6,11 @@ import {
   GITHUB_SETUP_RESULT_KEY,
   getActiveGithubPopupFlowState,
 } from "@/lib/popup"
-import { githubAppMissingHandlers, signedInHandlers } from "@/mocks/handlers"
+import {
+  githubAppMissingHandlers,
+  hostedGithubAppBootstrapHandler,
+  signedInHandlers,
+} from "@/mocks/handlers"
 
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { GitHubPrerequisiteStep } from "./GitHubPrerequisiteStep"
@@ -80,12 +84,14 @@ async function connectUntilNavigation(
   return { button, destination: destination ?? "" }
 }
 
+/** Reads of the installation in RedirectKeepsPending; its play resets it. */
+let installationReads = 0
+
 /**
  * The admin installed the App in the popup, and ctxpipe sends the page to
  * GitHub setup to prove access. The button stays in progress until the page
  * unloads.
  */
-let installationReads = 0
 
 export const RedirectKeepsPending: Story = {
   ...Slack,
@@ -93,7 +99,7 @@ export const RedirectKeepsPending: Story = {
     msw: {
       handlers: {
         github: [
-          githubAppMissingHandlers[0],
+          hostedGithubAppBootstrapHandler,
           http.get(`*/${orgSlug}/api/v1/github/installation`, () => {
             installationReads += 1
             return HttpResponse.json(null)
