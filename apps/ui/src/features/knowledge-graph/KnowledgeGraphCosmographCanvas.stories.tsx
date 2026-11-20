@@ -1,15 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 
+import { waitForGraphReady } from "./graphReadyStory"
 import {
   KnowledgeGraphCosmographCanvas,
   type KnowledgeGraphSelectionEvent,
 } from "./KnowledgeGraphCosmographCanvas"
-
-// The canvas shows its controls only after the layout settles. That wait is
-// bound by CPU, so it is a ceiling, not a delay: a play continues as soon as the
-// control mounts. It stays under the 120 s limit of the story runner.
-const layoutSettleTimeout = 60_000
 
 const meta = {
   title: "Components/Knowledge Graph/Cosmograph Canvas",
@@ -139,11 +135,7 @@ export const NativeLegends: Story = {
     visual: { masks: ["canvas", ".css-label--labels-container"] },
   },
   play: async ({ canvasElement }) => {
-    await within(canvasElement).findByLabelText(
-      "Search nodes",
-      {},
-      { timeout: layoutSettleTimeout },
-    )
+    await waitForGraphReady(canvasElement)
   },
 }
 
@@ -188,11 +180,8 @@ export const DrawerOpenDimsOverlays: Story = {
     visual: { masks: ["canvas", ".css-label--labels-container"] },
   },
   play: async ({ canvasElement }) => {
-    const search = await within(canvasElement).findByLabelText(
-      "Search nodes",
-      {},
-      { timeout: layoutSettleTimeout },
-    )
+    await waitForGraphReady(canvasElement)
+    const search = within(canvasElement).getByLabelText("Search nodes")
     const overlay = search.closest("[inert]")
     await expect(overlay).not.toBeNull()
     await expect(getComputedStyle(overlay as Element).opacity).toBe("0.4")
@@ -218,14 +207,8 @@ export const TimelinePlaysWithoutRange: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const playButton = await canvas.findByRole(
-      "button",
-      { name: "Play history" },
-      { timeout: layoutSettleTimeout },
-    )
-    await waitFor(() => expect(playButton).toBeEnabled(), {
-      timeout: layoutSettleTimeout,
-    })
+    await waitForGraphReady(canvasElement)
+    const playButton = canvas.getByRole("button", { name: "Play history" })
     // The timeline moves the window one step on each tick of a 50 ms
     // interval. A pause after a wait can come one or two steps late, and then
     // the screenshot changes. Thus the play pauses in the third selection
