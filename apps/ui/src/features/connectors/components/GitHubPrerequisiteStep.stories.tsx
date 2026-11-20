@@ -8,6 +8,7 @@ import {
 } from "@/lib/popup"
 import {
   githubAppMissingHandlers,
+  githubInstallationRegisterHandler,
   hostedGithubAppBootstrapHandler,
   signedInHandlers,
 } from "@/mocks/handlers"
@@ -115,7 +116,7 @@ function installFlow(register: () => Response) {
         reads.count += 1
         return HttpResponse.json(null)
       }),
-      http.post(`*/${orgSlug}/api/v1/github/installation`, register),
+      githubInstallationRegisterHandler(register),
     ],
   }
   return { reads, handlers }
