@@ -1,7 +1,7 @@
 import childProcess, { ChildProcess } from "node:child_process"
 import fs from "node:fs"
 import { createRequire, syncBuiltinESMExports } from "node:module"
-import { dirname, join, relative, resolve, sep } from "node:path"
+import { basename, dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { noteTables } from "./trace-tables.mjs"
@@ -24,6 +24,9 @@ export const emptyEdges = () => ({
   reads: new Set(),
   dirs: new Set(),
   execs: new Set(),
+  // The kinds that this phase made unknown for the test file (`execs` after a
+  // shell or a Node or Bun child): the worker leaves them out of `recorded`.
+  unknown: new Set(),
 })
 let edges = emptyEdges()
 
@@ -171,38 +174,61 @@ async function hookMcp(lane) {
   }
 }
 
+// The repo-relative path of the absolute path `full`, or null for a path
+// outside the repo or below `node_modules`, `.git` or `.ci-results`.
+function repoPath(root, full) {
+  const prefix = root.endsWith(sep) ? root : `${root}${sep}`
+  if (!full.startsWith(prefix)) return null
+  const repo = relative(root, full).replaceAll("\\", "/")
+  return /(^|\/)(node_modules|\.git|\.ci-results)(\/|$)/.test(repo)
+    ? null
+    : repo
+}
+
 // Repo files that a case starts as a program (`execs`), for example a CLI that
 // the repo builds (the manifest `builds`). The import graph does not see such a
-// program, so a reader selects and keys its checks by this list. A program that
-// is not a repo file (a bare name on PATH such as `git`, a shell, Node) and a
-// file below `node_modules` are not recorded. Only the test process is
-// hooked: a program that a child process starts is not recorded.
+// program, so a reader selects and keys its checks by this list. A program
+// that is not a repo file (a bare name on PATH such as `git`) is not recorded.
+// Only the test process is hooked. When a case starts a shell (`exec`, or
+// `shell: true`) or a Node or Bun child (`fork`), the program that runs in it
+// is not known: `execs` becomes unknown for the test file, and a reader uses
+// the lines of the trace (the child lines included) in its place.
 function hookPrograms(root) {
-  const prefix = root.endsWith(sep) ? root : `${root}${sep}`
-  const note = (file, cwd) => {
-    if (typeof file !== "string" || !file.includes("/")) return
-    const full = resolve(typeof cwd === "string" ? cwd : process.cwd(), file)
-    if (!full.startsWith(prefix)) return
-    const repo = relative(root, full).replaceAll("\\", "/")
-    if (/(^|\/)(node_modules|\.git|\.ci-results)(\/|$)/.test(repo)) return
-    edges.execs.add(repo)
+  const note = (file, cwd, shell) => {
+    if (typeof file !== "string") return
+    const name = basename(file)
+    if (
+      shell ||
+      file === process.execPath ||
+      ["node", "bun", "sh", "bash", "zsh", "dash"].includes(name)
+    ) {
+      edges.unknown.add("execs")
+      return
+    }
+    if (!file.includes("/")) return
+    const repo = repoPath(
+      root,
+      resolve(typeof cwd === "string" ? cwd : process.cwd(), file),
+    )
+    if (repo) edges.execs.add(repo)
   }
   // `spawn`, `execFile`, `exec` and `fork` start each child through this
   // method; the sync functions do not.
   const spawn = ChildProcess.prototype.spawn
   ChildProcess.prototype.spawn = function (options, ...rest) {
     try {
-      note(options?.file, options?.cwd)
+      note(options?.file, options?.cwd, false)
     } catch {
       // A program that does not resolve is not recorded.
     }
     return spawn.call(this, options, ...rest)
   }
-  for (const method of ["spawnSync", "execFileSync"]) {
+  for (const method of ["spawnSync", "execFileSync", "execSync"]) {
     const original = childProcess[method]
     childProcess[method] = function (file, args, options, ...rest) {
       try {
-        note(file, (Array.isArray(args) ? options : args)?.cwd)
+        const settings = Array.isArray(args) ? options : args
+        note(file, settings?.cwd, method === "execSync" || !!settings?.shell)
       } catch {
         // A program that does not resolve is not recorded.
       }
@@ -219,7 +245,6 @@ function hookPrograms(root) {
 // Node loads with `require` is read through `fs.readFileSync` too, so the
 // list can hold code files; their lines are in the trace already.
 function hookFiles(root, skip) {
-  const prefix = root.endsWith(sep) ? root : `${root}${sep}`
   const note = (path, directory) => {
     let name
     if (typeof path === "string") name = path
@@ -227,10 +252,9 @@ function hookFiles(root, skip) {
     else if (Buffer.isBuffer(path)) name = path.toString("utf8")
     else return
     const full = resolve(name)
-    if (!full.startsWith(prefix) || full.startsWith(skip)) return
-    const repo = relative(root, full).replaceAll("\\", "/")
-    if (/(^|\/)(node_modules|\.git|\.ci-results)(\/|$)/.test(repo)) return
-    ;(directory ? edges.dirs : edges.reads).add(repo)
+    if (full.startsWith(skip)) return
+    const repo = repoPath(root, full)
+    if (repo) (directory ? edges.dirs : edges.reads).add(repo)
   }
   // A recursive listing lists the directories below it too: record each
   // directory that holds an entry of the result.

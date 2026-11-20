@@ -179,7 +179,7 @@
             "type": "string"
           },
           "uniqueItems": true,
-          "description": "Repo-relative paths of the repo files that the case started as a program in the test process (`spawn`, `execFile`, `exec`, `fork`, `spawnSync`, `execFileSync`), for example a CLI that the repo builds (the manifest `builds`). A program that is not a repo file (a bare name on PATH, a shell, Node) and a file below `node_modules` are not recorded. A program that a child process starts is not recorded."
+          "description": "Repo-relative paths of the repo files that the case started as a program in the test process (`spawn`, `execFile`, `spawnSync`, `execFileSync`), for example a CLI that the repo builds (the manifest `builds`). A bare name on PATH and a file below `node_modules`, `.git` or `.ci-results` are not recorded. A program that a child process starts is not recorded. When a case starts a shell or a Node or Bun child, the program that runs in it is not known, and the check's `recorded` does not hold `execs`."
         },
         "mocks": {
           "type": "array",

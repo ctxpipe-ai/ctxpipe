@@ -704,7 +704,7 @@ test("the trace records the lines that a case runs in a Node child process", () 
   }
 })
 
-test("the trace records the files that a case runs in a Bun child process", async () => {
+test("the trace records the files that a case runs in a Bun child process, and the programs that it starts", async () => {
   const directory = mkdtempSync(join(tmpdir(), "ctxpipe-trace-"))
   try {
     // Each fixture case starts child.mjs, which runs known() from known.mjs.
@@ -766,6 +766,16 @@ test("the trace records the files that a case runs in a Bun child process", asyn
     // The Bun file must not change the exact ranges of the in-process case.
     assert.deepEqual(lines("mixed.fixture.mjs", "a Bun child"), [[1, 7]])
     assert.deepEqual(lines("mixed.fixture.mjs", "in process"), [[1, 3]])
+    // A case that starts a repo program records it in `execs`. A file whose
+    // cases start a Node or Bun child does not claim `execs`: the program
+    // that runs in the child is not known.
+    const program = checks.get("program.fixture.mjs")
+    assert.ok(program.recorded.includes("execs"))
+    assert.deepEqual(
+      program.cases.find((c) => c.name === "a repo program").execs,
+      ["scripts/tests/fixtures/trace-children/program"],
+    )
+    assert.ok(!checks.get("children.fixture.mjs").recorded.includes("execs"))
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }

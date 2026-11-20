@@ -213,7 +213,7 @@ Semantic edges ([`trace-edges.mjs`](trace-edges.mjs)): the worker installs hooks
 | `steps` | OpenWorkflow: the name of each step that a run resolves, up to the first `:` (a name can hold run data after it). |
 | `tools` | The MCP SDK: the name of each tool call. |
 | `reads`, `dirs` | `fs`: each repo file that the case reads (`reads`), and each repo directory that it lists (`dirs`). The hook adds both kinds to `recorded`. |
-| `execs` | `child_process`: each repo file that the case starts as a program (`spawn`, `execFile`, `exec`, `fork`, `spawnSync`, `execFileSync`). A program that is not a repo file (a bare name on PATH, a shell, Node) and a file below `node_modules` are not recorded. The manifest `builds` names the programs that a reader selects by it. |
+| `execs` | `child_process`: each repo file that the case starts as a program (`spawn`, `execFile`, `spawnSync`, `execFileSync`). A bare name on PATH (`git`) and a file below `node_modules`, `.git` or `.ci-results` are not recorded. When a case starts a shell (`exec`, `execSync`, `shell: true`) or a Node or Bun child (`fork`), the program that runs in it is not known: the check's `recorded` does not hold `execs`. The manifest `builds` names the programs that a reader selects by it. |
 
 - A reader decides for each check whether it may trust an empty `reads` and `dirs`: only when the check's `recorded` holds both kinds.
 - A hook that cannot install (the lane does not use the package, or the package changed) records nothing. The check's `recorded` then does not hold that kind, and a reader treats the kind as unknown.
@@ -254,7 +254,7 @@ Gaps (no trace):
 - Bun lanes (`codesearch-bun`): Bun has no V8 inspector. A Bun child process gives whole files, not lines (see Child processes).
 - A Node child that a signal stops gives no data.
 - Docker containers, sandboxes and separate servers. A test that reaches code through one of these does not record that code or its edges.
-- A program that a child process starts (not the test process) is not in `execs`.
+- A program that a child process starts is not in `execs`. A check that starts a shell or a Node or Bun child does not claim `execs`, so a reader uses its lines (the child lines included) in its place.
 - The evals and the latency check (no CI run traces them; the eval times come from the eval workflow).
 - Concurrent cases in one file (`test.concurrent`) mix their coverage and edges.
 

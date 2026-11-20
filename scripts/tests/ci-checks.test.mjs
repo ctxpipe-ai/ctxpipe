@@ -131,38 +131,60 @@ test("the edge hooks record names, never statement text or data", () => {
   )
 })
 
-test("the program hook records the repo programs that a case starts, and no other program", () => {
+test("the program hook records the repo programs that a case starts, and marks a shell or a Node child as unknown", () => {
   // A program in the repo (outside node_modules), started by each function of
-  // child_process. A shell, Node and a bare name on PATH are not repo files.
+  // child_process. A bare name on PATH is not a repo file. A shell or a Node
+  // child runs a program that the hook cannot see: `execs` becomes unknown.
   const directory = mkdtempSync(join(root, ".trace-programs-"))
   try {
     const program = join(directory, "program")
     writeFileSync(program, "#!/bin/sh\nexit 0\n", { mode: 0o755 })
-    const probe = `
-      import { execFile, execFileSync, spawn, spawnSync } from "node:child_process"
-      import { installEdges, takeEdges } from ${JSON.stringify(script("trace-edges.mjs"))}
-      const recorded = await installEdges(${JSON.stringify(root)}, "/nowhere/")
-      const program = ${JSON.stringify(program)}
-      const name = program.slice(${JSON.stringify(directory)}.length + 1)
-      const ended = (child) => new Promise((done) => child.on("close", done))
+    const probe = (body) => {
+      const result = spawnSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          `
+          import { exec, execFile, execFileSync, execSync, fork, spawn, spawnSync } from "node:child_process"
+          import { installEdges, takeEdges } from ${JSON.stringify(script("trace-edges.mjs"))}
+          const recorded = await installEdges(${JSON.stringify(root)}, "/nowhere/")
+          const program = ${JSON.stringify(program)}
+          const directory = ${JSON.stringify(directory)}
+          const ended = (child) => new Promise((done) => child.on("close", done))
+          takeEdges()
+          ${body}
+          const edges = takeEdges()
+          process.stdout.write(JSON.stringify({ recorded, execs: [...edges.execs], unknown: [...edges.unknown] }))
+          process.exit(0)
+        `,
+        ],
+        { cwd: join(root, "apps/backend"), encoding: "utf8" },
+      )
+      assert.equal(result.status, 0, result.stderr)
+      return JSON.parse(result.stdout)
+    }
+    const repo = program.slice(root.length)
+    const files = probe(`
       execFileSync(program)
       spawnSync(program, [], {})
-      await ended(spawn("./" + name, { cwd: ${JSON.stringify(directory)} }))
+      await ended(spawn("./program", { cwd: directory }))
       await ended(execFile(program, ["--version"]))
       spawnSync("git", ["--version"])
-      execFileSync(process.execPath, ["-e", "0"])
-      process.stdout.write(JSON.stringify({ recorded, execs: [...takeEdges().execs] }))
-      process.exit(0)
-    `
-    const result = spawnSync(
-      process.execPath,
-      ["--input-type=module", "-e", probe],
-      { cwd: join(root, "apps/backend"), encoding: "utf8" },
-    )
-    assert.equal(result.status, 0, result.stderr)
-    const { recorded, execs } = JSON.parse(result.stdout)
-    assert.ok(recorded.includes("execs"))
-    assert.deepEqual(execs, [program.slice(root.length)])
+    `)
+    assert.ok(files.recorded.includes("execs"))
+    assert.deepEqual([files.execs, files.unknown], [[repo], []])
+    for (const body of [
+      "await ended(exec(program))",
+      "execSync(program)",
+      "await ended(spawn(program, [], { shell: true }))",
+      "spawnSync(program, [], { shell: true })",
+      'await ended(fork(directory + "/child.mjs"))',
+      'execFileSync(process.execPath, ["-e", "0"])',
+    ]) {
+      writeFileSync(join(directory, "child.mjs"), "")
+      assert.deepEqual(probe(body).unknown, ["execs"], body)
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }

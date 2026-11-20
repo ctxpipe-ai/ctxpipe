@@ -386,10 +386,13 @@ afterAll((suite) => {
       join(parts, `${process.pid}-${state.files}.json`),
       JSON.stringify({
         file: suite.filepath,
-        recorded:
-          reports && !owner.lost && !owner.live
-            ? ["children", ...state.recorded]
-            : state.recorded,
+        recorded: (reports && !owner.lost && !owner.live
+          ? ["children", ...state.recorded]
+          : state.recorded
+        ).filter(
+          (kind) =>
+            ![...cases.values()].some(({ edges }) => edges.unknown.has(kind)),
+        ),
         cases: [...cases].map(([name, { lines, durationMs, edges }]) => {
           const tables = {
             ...(edges.read.size ? { read: sorted(edges.read) } : {}),
