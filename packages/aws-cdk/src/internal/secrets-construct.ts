@@ -8,7 +8,11 @@ import * as ses from "aws-cdk-lib/aws-ses"
 import * as cr from "aws-cdk-lib/custom-resources"
 import { Construct } from "constructs"
 
-import type { SecretsConstructProps, SecretsResources } from "./contracts"
+import type {
+  ClickHouseUser,
+  SecretsConstructProps,
+  SecretsResources,
+} from "./contracts"
 
 export class SecretsConstruct extends Construct {
   public readonly resources: SecretsResources
@@ -62,6 +66,8 @@ export class SecretsConstruct extends Construct {
       },
     )
 
+    // Writes a connection URL from a generated password: the Postgres
+    // DATABASE_URL secrets and the ClickHouse CLICKHOUSE_URL secrets.
     const databaseUrlWriterFunction = new lambda.Function(
       this,
       "DatabaseUrlWriterFunction",
@@ -199,11 +205,8 @@ export class SecretsConstruct extends Construct {
     // CLICKHOUSE_URL of each ClickHouse user (ADR-066 decision 9). ECS gives
     // a task a key of a secret, not a URL built from one.
     const knowledgeStore = props.knowledgeStore
-    const clickhouseUrl = (
-      id: string,
-      username: string,
-      credentials: secretsmanager.ISecret,
-    ) => {
+    const clickhouseUrl = (id: string, user: ClickHouseUser) => {
+      const { username, credentialsSecret: credentials } = user
       const secret = new secretsmanager.Secret(this, `${id}Secret`, {
         description: `ClickHouse URL of ${username} (populated at deploy time)`,
       })
@@ -220,7 +223,7 @@ export class SecretsConstruct extends Construct {
           DatabaseUrlSecretArn: secret.secretArn,
           DbHost: knowledgeStore.host,
           DbPort: String(knowledgeStore.port),
-          DatabaseName: "ctxpipe",
+          DatabaseName: knowledgeStore.database,
         },
       })
       writer.node.addDependency(credentials)
@@ -229,18 +232,15 @@ export class SecretsConstruct extends Construct {
     }
     const clickhouseAdminUrl = clickhouseUrl(
       "ClickhouseAdminUrl",
-      "ctxpipe",
-      knowledgeStore.adminCredentialsSecret,
+      knowledgeStore.admin,
     )
     const clickhouseReaderUrl = clickhouseUrl(
       "ClickhouseReaderUrl",
-      "ctxpipe_reader",
-      knowledgeStore.readerCredentialsSecret,
+      knowledgeStore.reader,
     )
     const clickhouseWriterUrl = clickhouseUrl(
       "ClickhouseWriterUrl",
-      "ctxpipe_writer",
-      knowledgeStore.writerCredentialsSecret,
+      knowledgeStore.writer,
     )
 
     const modelProviderSecret = props.modelProviderApiKey

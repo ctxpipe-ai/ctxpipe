@@ -49,9 +49,11 @@ export function hostDiscovery(
       resources: [service.serviceArn],
     }),
   )
-  role.addToPrincipalPolicy(
-    cloudMapRoute53Statement(namespace, ["route53:CreateHealthCheck"]),
-  )
+  const hostname = `${name}.${namespace.namespaceName}`
+  for (const statement of cloudMapRoute53Statements(namespace, hostname, [
+    "route53:CreateHealthCheck",
+  ]))
+    role.addToPrincipalPolicy(statement)
   role.addToPrincipalPolicy(
     new iam.PolicyStatement({
       // Cloud Map checks the registered instance; describe has no resource scope.
@@ -77,34 +79,46 @@ export function hostDiscovery(
           actions: ["servicediscovery:DeregisterInstance"],
           resources: [service.serviceArn],
         }),
-        cloudMapRoute53Statement(namespace, ["route53:DeleteHealthCheck"]),
+        ...cloudMapRoute53Statements(namespace, hostname, [
+          "route53:DeleteHealthCheck",
+        ]),
       ]),
       installLatestAwsSdk: false,
     },
   )
 
-  return {
-    service,
-    hostname: `${service.serviceName}.${namespace.namespaceName}`,
-    deregistration,
-  }
+  return { service, hostname, deregistration }
 }
 
-/** Cloud Map writes the instance's DNS record with the caller's permissions. */
-function cloudMapRoute53Statement(
+/**
+ * Cloud Map writes the instance's DNS record with the caller's permissions.
+ * The caller may change only the record of `hostname` in the shared zone, so
+ * one host cannot move another name (for example `ui.ctxpipe.local`).
+ */
+function cloudMapRoute53Statements(
   namespace: servicediscovery.PrivateDnsNamespace,
+  hostname: string,
   healthCheckActions: string[],
-): iam.PolicyStatement {
-  return new iam.PolicyStatement({
-    actions: [
-      "route53:ChangeResourceRecordSets",
-      "route53:GetHealthCheck",
-      "route53:UpdateHealthCheck",
-      ...healthCheckActions,
-    ],
-    resources: [
-      `arn:${cdk.Aws.PARTITION}:route53:::hostedzone/${namespace.namespaceHostedZoneId}`,
-      `arn:${cdk.Aws.PARTITION}:route53:::healthcheck/*`,
-    ],
-  })
+): iam.PolicyStatement[] {
+  return [
+    new iam.PolicyStatement({
+      actions: ["route53:ChangeResourceRecordSets"],
+      resources: [
+        `arn:${cdk.Aws.PARTITION}:route53:::hostedzone/${namespace.namespaceHostedZoneId}`,
+      ],
+      conditions: {
+        "ForAllValues:StringEquals": {
+          "route53:ChangeResourceRecordSetsNormalizedRecordNames": [hostname],
+        },
+      },
+    }),
+    new iam.PolicyStatement({
+      actions: [
+        "route53:GetHealthCheck",
+        "route53:UpdateHealthCheck",
+        ...healthCheckActions,
+      ],
+      resources: [`arn:${cdk.Aws.PARTITION}:route53:::healthcheck/*`],
+    }),
+  ]
 }

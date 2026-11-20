@@ -240,7 +240,7 @@ describe("knowledge store", () => {
 
   it("generates a URL-safe password for each ClickHouse user", () => {
     const t = template()
-    const [discoveryId, discovery] = node(t, "AWS::ServiceDiscovery::Service")
+    const [, discovery] = node(t, "AWS::ServiceDiscovery::Service")
     expect(discovery.Properties.Name).toBe("clickhouse")
     for (const [user, username] of [
       ["Admin", "ctxpipe"],
@@ -267,17 +267,50 @@ describe("knowledge store", () => {
         Scheme: "http",
         UrlKey: "CLICKHOUSE_URL",
         Username: username,
-        DbHost: {
-          "Fn::Join": [
-            "",
-            [{ "Fn::GetAtt": [discoveryId, "Name"] }, ".ctxpipe.local"],
-          ],
-        },
+        DbHost: "clickhouse.ctxpipe.local",
         DbPort: "8123",
         DatabaseName: "ctxpipe",
       })
     }
   })
+
+  it.each([
+    ["CtxPipeKnowledgeStoreInstanceRole", "clickhouse.ctxpipe.local"],
+    ["CtxPipeSandboxHostInstanceRole", "sandbox-host.ctxpipe.local"],
+  ])(
+    "lets %s change only its own record %s in the shared zone",
+    (role, hostname) => {
+      const dnsWrites = Object.entries(
+        template().findResources("AWS::IAM::Policy"),
+      )
+        .filter(([id]) => id.startsWith(role))
+        .flatMap(
+          ([, policy]) =>
+            (
+              policy.Properties as {
+                PolicyDocument: { Statement: Array<Record<string, unknown>> }
+              }
+            ).PolicyDocument.Statement,
+        )
+        .filter((statement) =>
+          JSON.stringify(statement.Action).includes(
+            "route53:ChangeResourceRecordSets",
+          ),
+        )
+      expect(dnsWrites).toEqual([
+        expect.objectContaining({
+          Action: "route53:ChangeResourceRecordSets",
+          Condition: {
+            "ForAllValues:StringEquals": {
+              "route53:ChangeResourceRecordSetsNormalizedRecordNames": [
+                hostname,
+              ],
+            },
+          },
+        }),
+      ])
+    },
+  )
 
   it("runs migrate after ClickHouse answers and its URLs exist", () => {
     const t = template()

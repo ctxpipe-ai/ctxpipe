@@ -8,6 +8,7 @@ import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager"
 import { Construct } from "constructs"
 
 import type {
+  ClickHouseUser,
   KnowledgeStoreConstructProps,
   KnowledgeStoreResources,
 } from "./contracts"
@@ -15,15 +16,9 @@ import { hostDiscovery } from "./host-discovery"
 
 /** The ClickHouse HTTP port: the only port that the clients reach. */
 const CLICKHOUSE_PORT = 8123
-/** The same server as Docker Compose (ADR-066 decision 8). */
-const CLICKHOUSE_IMAGE =
-  "clickhouse/clickhouse-server:26.10.6.18@sha256:9c55d8d8a77e03e1fd399d59e4d0a1c7a5e42df70098ff1c5d8bd18eb1a5d106"
 /** The prefix of the cold parts in the bucket: the host reaches only it. */
 const COLD_PREFIX = "clickhouse"
 const DISCOVERY_INSTANCE_ID = "clickhouse-node"
-/** The admin user. Only the migrate task and the image's entrypoint use it. */
-const ADMIN_USER = "ctxpipe"
-const DATABASE = "ctxpipe"
 
 /**
  * The knowledge store (ADR-066 decision 10): one ClickHouse node on one
@@ -47,8 +42,9 @@ export class KnowledgeStoreConstruct extends Construct {
     super(scope, id)
     const { vpc, cluster } = props.networking
 
-    const credentials = (logicalId: string, username: string) =>
-      new secretsmanager.Secret(this, logicalId, {
+    const user = (logicalId: string, username: string): ClickHouseUser => ({
+      username,
+      credentialsSecret: new secretsmanager.Secret(this, logicalId, {
         description: `ctxpipe knowledge store: ClickHouse user ${username}`,
         generateSecretString: {
           secretStringTemplate: JSON.stringify({ username }),
@@ -57,19 +53,13 @@ export class KnowledgeStoreConstruct extends Construct {
           excludePunctuation: true,
           passwordLength: 40,
         },
-      })
-    const adminCredentialsSecret = credentials(
-      "AdminCredentialsSecret",
-      ADMIN_USER,
-    )
-    const readerCredentialsSecret = credentials(
-      "ReaderCredentialsSecret",
-      "ctxpipe_reader",
-    )
-    const writerCredentialsSecret = credentials(
-      "WriterCredentialsSecret",
-      "ctxpipe_writer",
-    )
+      }),
+    })
+    // Only the migrate task and the image's entrypoint use the admin user.
+    const admin = user("AdminCredentialsSecret", "ctxpipe")
+    const reader = user("ReaderCredentialsSecret", "ctxpipe_reader")
+    const writer = user("WriterCredentialsSecret", "ctxpipe_writer")
+    const database = "ctxpipe"
 
     const hostSecurityGroup = new ec2.SecurityGroup(this, "HostSecurityGroup", {
       vpc,
@@ -137,7 +127,7 @@ export class KnowledgeStoreConstruct extends Construct {
         ),
       ],
     })
-    adminCredentialsSecret.grantRead(role)
+    admin.credentialsSecret.grantRead(role)
     logGroup.grantWrite(role)
     role.addToPrincipalPolicy(
       new iam.PolicyStatement({
@@ -263,7 +253,9 @@ export class KnowledgeStoreConstruct extends Construct {
           autoScalingGroup.node.defaultChild as cdk.CfnElement,
         ),
         dataVolumeId: dataVolume.volumeId,
-        adminCredentialsSecretArn: adminCredentialsSecret.secretArn,
+        admin: admin.username,
+        adminCredentialsSecretArn: admin.credentialsSecret.secretArn,
+        database,
         logGroupName: logGroup.logGroupName,
         discoveryServiceId: discovery.service.serviceId,
         storageXml: storageXml({
@@ -280,9 +272,10 @@ export class KnowledgeStoreConstruct extends Construct {
       clientSecurityGroup,
       host: discovery.hostname,
       port: CLICKHOUSE_PORT,
-      adminCredentialsSecret,
-      readerCredentialsSecret,
-      writerCredentialsSecret,
+      database,
+      admin,
+      reader,
+      writer,
     }
   }
 }
@@ -329,7 +322,8 @@ function storageXml(input: {
             <perform_ttl_move_on_insert>0</perform_ttl_move_on_insert>
           </cold>
         </volumes>
-        <!-- Under 20% free space on the volume, the largest parts move to the bucket. -->
+        <!-- As on the hosted node: under 20% free space on the volume, the largest parts move to the bucket, so the
+             volume never fills. The Compose file has 0 only because its hot and cold share one disk. -->
         <move_factor>0.2</move_factor>
       </default>
     </policies>
@@ -342,7 +336,8 @@ function storageXml(input: {
  * server's system logs, only `query_log` and `error_log` stay, for 7 days:
  * the others grow on the volume with no TTL.
  */
-const LOGS_XML = `<clickhouse>
+function logsXml(): string {
+  return `<clickhouse>
   <logger>
     <level>information</level>
     <console>1</console>
@@ -380,13 +375,16 @@ ${[
     <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
   </error_log>
 </clickhouse>`
+}
 
 interface NodeBootstrapInput {
   readonly region: string
   readonly stackName: string
   readonly autoScalingGroupLogicalId: string
   readonly dataVolumeId: string
+  readonly admin: string
   readonly adminCredentialsSecretArn: string
+  readonly database: string
   readonly logGroupName: string
   readonly discoveryServiceId: string
   readonly storageXml: string
@@ -439,7 +437,7 @@ function nodeBootstrapScript(input: NodeBootstrapInput): string[] {
     input.storageXml,
     "XML",
     `cat > ${configDir}/logs.xml <<'XML'`,
-    LOGS_XML,
+    logsXml(),
     "XML",
 
     "# The image's entrypoint makes the admin user (with SQL access management)",
@@ -455,8 +453,9 @@ function nodeBootstrapScript(input: NodeBootstrapInput): string[] {
       "-v /var/lib/clickhouse:/var/lib/clickhouse",
       `-v ${configDir}/storage.xml:/etc/clickhouse-server/config.d/storage.xml:ro`,
       `-v ${configDir}/logs.xml:/etc/clickhouse-server/config.d/logs.xml:ro`,
-      `-e CLICKHOUSE_USER=${ADMIN_USER} -e CLICKHOUSE_PASSWORD -e CLICKHOUSE_DB=${DATABASE} -e CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1`,
-      CLICKHOUSE_IMAGE,
+      `-e CLICKHOUSE_USER=${input.admin} -e CLICKHOUSE_PASSWORD -e CLICKHOUSE_DB=${input.database} -e CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1`,
+      // The same server as Docker Compose (ADR-066 decision 8).
+      "clickhouse/clickhouse-server:26.10.6.18@sha256:9c55d8d8a77e03e1fd399d59e4d0a1c7a5e42df70098ff1c5d8bd18eb1a5d106",
     ].join(" "),
     "unset CLICKHOUSE_PASSWORD",
     "# ClickHouse checks the bucket when it starts, so this also proves the instance role.",

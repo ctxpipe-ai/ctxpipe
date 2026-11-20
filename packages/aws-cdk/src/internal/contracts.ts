@@ -175,10 +175,19 @@ export interface KnowledgeStoreResources {
   /** The host name of ClickHouse in the cluster's private DNS namespace. */
   readonly host: string
   readonly port: number
-  /** The generated `{ username, password }` of each ClickHouse user. */
-  readonly adminCredentialsSecret: secretsmanager.Secret
-  readonly readerCredentialsSecret: secretsmanager.Secret
-  readonly writerCredentialsSecret: secretsmanager.Secret
+  readonly database: string
+  /** Migrate only: it makes the two other users. */
+  readonly admin: ClickHouseUser
+  /** The backend (ADR-066 decision 9). */
+  readonly reader: ClickHouseUser
+  /** The worker. */
+  readonly writer: ClickHouseUser
+}
+
+export interface ClickHouseUser {
+  readonly username: string
+  /** Generated `{ username, password }`. */
+  readonly credentialsSecret: secretsmanager.Secret
 }
 
 export interface IngressResources {

@@ -359,11 +359,11 @@ export class TaskDefinitionsConstruct extends Construct {
           "CLICKHOUSE_URL",
         ),
         CLICKHOUSE_READER_PASSWORD: ecs.Secret.fromSecretsManager(
-          props.knowledgeStore.readerCredentialsSecret,
+          props.knowledgeStore.reader.credentialsSecret,
           "password",
         ),
         CLICKHOUSE_WRITER_PASSWORD: ecs.Secret.fromSecretsManager(
-          props.knowledgeStore.writerCredentialsSecret,
+          props.knowledgeStore.writer.credentialsSecret,
           "password",
         ),
       },
@@ -399,8 +399,8 @@ export class TaskDefinitionsConstruct extends Construct {
       props.secrets.databaseUrlSecret,
       props.secrets.appDatabaseCredentialsSecret,
       props.secrets.clickhouseAdminUrlSecret,
-      props.knowledgeStore.readerCredentialsSecret,
-      props.knowledgeStore.writerCredentialsSecret,
+      props.knowledgeStore.reader.credentialsSecret,
+      props.knowledgeStore.writer.credentialsSecret,
     ])
 
     this.resources = {
