@@ -1,6 +1,7 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 
+import { waitForGraphReady } from "@/features/knowledge-graph/graphReadyStory"
 import { knowledgeGraphIntroStorageKey } from "@/features/knowledge-graph/knowledgeGraphIntroStorage"
 import { signedInHandlers } from "@/mocks/handlers"
 
@@ -162,11 +163,10 @@ export const ClosingTipsIsRemembered: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // The graph controls and the tips show when the layout has settled.
-    const tips = await canvas.findByRole(
-      "dialog",
-      { name: "Knowledge graph tips" },
-      { timeout: 15_000 },
-    )
+    await waitForGraphReady(canvasElement)
+    const tips = await canvas.findByRole("dialog", {
+      name: "Knowledge graph tips",
+    })
     await userEvent.click(
       within(tips).getByRole("button", { name: "Close tips" }),
     )
@@ -209,12 +209,8 @@ export const TipsClosedEarlier: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    // The graph controls show when the layout has settled.
-    await canvas.findByRole(
-      "button",
-      { name: "Show tips" },
-      { timeout: 15_000 },
-    )
+    await waitForGraphReady(canvasElement)
+    canvas.getByRole("button", { name: "Show tips" })
     await expect(
       canvas.queryByRole("dialog", { name: "Knowledge graph tips" }),
     ).toBeNull()

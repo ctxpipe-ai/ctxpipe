@@ -21,146 +21,166 @@ export const sandboxProxyHostSchema = z.preprocess(
     .optional(),
 )
 
-const envSchema = z.object({
-  NODE_ENV: z
-    .enum(["development", "production", "test"])
-    .default("development"),
-  PORT: z.coerce.number().default(3000),
-  DATABASE_URL: z.string().url(),
-  CODESEARCH_URL: z.string().url().optional(),
-  UI_PROXY_URL: z.string().url().default("http://localhost:3002"),
-  AUTH_SECRET: z.string().min(32, "AUTH_SECRET must be at least 32 characters"),
-  AUTH_BASE_URL: z.string().url().default("https://localhost:3000"),
-  AUTH_ISSUER: z.string().min(1).optional(),
-  AUTH_ALLOWED_ORIGINS: z.string().optional(),
-  /** Better Auth dashboard (`dash()`). Unset: the plugin is off and nothing is sent to dash.better-auth.com. */
-  BETTER_AUTH_API_KEY: z.string().min(1).optional(),
-  AUTH_TOKEN_AUDIENCE_CODESEARCH: z.string().min(1).optional(),
-  /** Optional 32-byte AES key as 64 hex chars. When unset, derived from AUTH_SECRET. */
-  CONNECTION_SECRETS_ENCRYPTION_KEY: z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    z
+const envSchema = z
+  .object({
+    NODE_ENV: z
+      .enum(["development", "production", "test"])
+      .default("development"),
+    PORT: z.coerce.number().default(3000),
+    DATABASE_URL: z.string().url(),
+    CODESEARCH_URL: z.string().url().optional(),
+    UI_PROXY_URL: z.string().url().default("http://localhost:3002"),
+    AUTH_SECRET: z
       .string()
-      .regex(/^[0-9a-fA-F]{64}$/)
+      .min(32, "AUTH_SECRET must be at least 32 characters"),
+    AUTH_BASE_URL: z.string().url().default("https://localhost:3000"),
+    AUTH_ISSUER: z.string().min(1).optional(),
+    AUTH_ALLOWED_ORIGINS: z.string().optional(),
+    /** Better Auth dashboard (`dash()`). Unset: the plugin is off and nothing is sent to dash.better-auth.com. */
+    BETTER_AUTH_API_KEY: z.string().min(1).optional(),
+    AUTH_TOKEN_AUDIENCE_CODESEARCH: z.string().min(1).optional(),
+    /** Optional 32-byte AES key as 64 hex chars. When unset, derived from AUTH_SECRET. */
+    CONNECTION_SECRETS_ENCRYPTION_KEY: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      z
+        .string()
+        .regex(/^[0-9a-fA-F]{64}$/)
+        .optional(),
+    ),
+    GITHUB_CLIENT_ID: z.string().min(1).optional(),
+    GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
+    /**
+     * The authorize URL and the redirect URI of the GitHub OAuth flows, when an
+     * OAuth forwarder serves them (both or neither). Unset: GitHub's authorize URL and
+     * `${AUTH_BASE_URL}/.auth/api/v1/auth/callback/github`.
+     */
+    GITHUB_AUTHORIZE_URL: z.string().url().optional(),
+    GITHUB_REDIRECT_URI: z.string().url().optional(),
+    GOOGLE_CLIENT_ID: z.string().min(1).optional(),
+    GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
+    MICROSOFT_CLIENT_ID: z.string().min(1).optional(),
+    MICROSOFT_CLIENT_SECRET: z.string().min(1).optional(),
+    ATLASSIAN_CLIENT_ID: z.string().min(1).optional(),
+    ATLASSIAN_CLIENT_SECRET: z.string().min(1).optional(),
+    LINEAR_CLIENT_ID: z.string().min(1).optional(),
+    LINEAR_CLIENT_SECRET: z.string().min(1).optional(),
+    LINEAR_REDIRECT_URI: z.string().url().optional(),
+    LINEAR_WEBHOOK_SECRET: z.string().min(1).optional(),
+    NOTION_CLIENT_ID: z.string().min(1).optional(),
+    NOTION_CLIENT_SECRET: z.string().min(1).optional(),
+    NOTION_REDIRECT_URI: z.string().url().optional(),
+    PAGERDUTY_CLIENT_ID: z.string().min(1).optional(),
+    PAGERDUTY_CLIENT_SECRET: z.string().min(1).optional(),
+    PAGERDUTY_REDIRECT_URI: z.string().url().optional(),
+    /** HMAC signing secret for the deployment's single Notion webhook subscription (Notion "verification token"). Set from the Notion developer UI after the first delivery. */
+    NOTION_WEBHOOK_SECRET: z.string().min(1).optional(),
+    /** Optional fallback when a forge `connections.config` row has no `confluenceForgeInstallUrl` (capabilities / Install step). */
+    CONFLUENCE_FORGE_INSTALL_URL: z.string().url().optional(),
+
+    /** Slack app OAuth (deployment-owned; multi-workspace installs). */
+    SLACK_CLIENT_ID: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      z.string().min(1).optional(),
+    ),
+    SLACK_CLIENT_SECRET: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      z.string().min(1).optional(),
+    ),
+    /** Signing secret for Events API request verification. */
+    SLACK_SIGNING_SECRET: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      z.string().min(1).optional(),
+    ),
+    /** Optional override; defaults to `{AUTH_BASE_URL}/api/v1/connectors/slack/oauth/callback`. */
+    SLACK_REDIRECT_URI: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      z.string().url().optional(),
+    ),
+
+    // Email: SMTP (the default), or the SES v2 API with the AWS credentials
+    // of the process (for example an ECS task role) and its AWS_REGION.
+    EMAIL_TRANSPORT: z.enum(["smtp", "ses"]).default("smtp"),
+    SMTP_CONNECTION_URL: z.string().url().optional(),
+    EMAIL_FROM_ADDRESS: z.string().email().optional(),
+
+    /**
+     * The ClickHouse server of the knowledge content (ADR-066), as
+     * `http[s]://user:password@host:8123/database`. URL-encode special
+     * characters in the password. Required for self-host. Optional here until
+     * the hosted node exists: `KnowledgeStore` and the ClickHouse migrations
+     * need it.
+     */
+    CLICKHOUSE_URL: z.string().url().optional(),
+
+    // Graph DB (OpenCypher: FalkorDB, Neo4j, Memgraph, Neptune)
+    GRAPH_DB_URI: z.string().url().default("redis://falkordb:6379"),
+    GRAPH_DB_USER: z.string().min(1).optional(),
+    GRAPH_DB_PASSWORD: z.string().optional(),
+    GRAPH_DB_PROVIDER: z
+      .enum([
+        "falkordb",
+        "neo4j-enterprise",
+        "neo4j-community",
+        "memgraph",
+        "neptune",
+      ])
+      .default("falkordb"),
+
+    /** Reachable local-interface hostname/IP used for sandbox callbacks. */
+    SANDBOX_CALLBACK_HOST: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      z.string().min(1).optional(),
+    ),
+
+    /** See {@link sandboxProxyHostSchema}. */
+    AGENT_VAULT_SANDBOX_PROXY_HOST: sandboxProxyHostSchema,
+
+    /** Prebuilt image in the selected Docker daemon; resolved to an immutable ID. */
+    SANDBOX_CHAT_IMAGE: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      z.string().min(1).optional(),
+    ),
+
+    // LLM and embeddings (OpenRouter, OpenAI, Vertex, Bedrock, Ollama, etc.)
+    MODEL_PROVIDER: z
+      .enum(["openai-like", "openrouter", "azure", "bedrock"])
       .optional(),
-  ),
-  GITHUB_CLIENT_ID: z.string().min(1).optional(),
-  GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
-  GOOGLE_CLIENT_ID: z.string().min(1).optional(),
-  GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
-  MICROSOFT_CLIENT_ID: z.string().min(1).optional(),
-  MICROSOFT_CLIENT_SECRET: z.string().min(1).optional(),
-  ATLASSIAN_CLIENT_ID: z.string().min(1).optional(),
-  ATLASSIAN_CLIENT_SECRET: z.string().min(1).optional(),
-  LINEAR_CLIENT_ID: z.string().min(1).optional(),
-  LINEAR_CLIENT_SECRET: z.string().min(1).optional(),
-  LINEAR_REDIRECT_URI: z.string().url().optional(),
-  LINEAR_WEBHOOK_SECRET: z.string().min(1).optional(),
-  NOTION_CLIENT_ID: z.string().min(1).optional(),
-  NOTION_CLIENT_SECRET: z.string().min(1).optional(),
-  NOTION_REDIRECT_URI: z.string().url().optional(),
-  PAGERDUTY_CLIENT_ID: z.string().min(1).optional(),
-  PAGERDUTY_CLIENT_SECRET: z.string().min(1).optional(),
-  PAGERDUTY_REDIRECT_URI: z.string().url().optional(),
-  /** HMAC signing secret for the deployment's single Notion webhook subscription (Notion "verification token"). Set from the Notion developer UI after the first delivery. */
-  NOTION_WEBHOOK_SECRET: z.string().min(1).optional(),
-  /** Optional fallback when a forge `connections.config` row has no `confluenceForgeInstallUrl` (capabilities / Install step). */
-  CONFLUENCE_FORGE_INSTALL_URL: z.string().url().optional(),
+    MODEL_PROVIDER_API_KEY: z.string().min(1).optional(),
+    MODEL_PROVIDER_URL: z.string().url().optional(),
+    MODEL_FAST_NAME: z.string().optional(),
+    MODEL_MEDIUM_NAME: z.string().optional(),
+    MODEL_HIGH_NAME: z.string().optional(),
+    MODEL_EMBEDDING_NAME: z.string().optional(),
+    // Validated here, so that a value of only spaces stops the backend at
+    // start. The default is in `modelNameShape`.
+    MODEL_VISION_NAME: modelNameShape.MODEL_VISION_NAME,
+    /** When unset, Bedrock IAM SigV4 resolves region from MODEL_PROVIDER_URL, AWS_REGION, or AWS_DEFAULT_REGION */
+    MODEL_BEDROCK_AWS_REGION: z.string().optional(),
 
-  /** Slack app OAuth (deployment-owned; multi-workspace installs). */
-  SLACK_CLIENT_ID: z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    z.string().min(1).optional(),
-  ),
-  SLACK_CLIENT_SECRET: z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    z.string().min(1).optional(),
-  ),
-  /** Signing secret for Events API request verification. */
-  SLACK_SIGNING_SECRET: z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    z.string().min(1).optional(),
-  ),
-  /** Optional override; defaults to `{AUTH_BASE_URL}/api/v1/connectors/slack/oauth/callback`. */
-  SLACK_REDIRECT_URI: z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    z.string().url().optional(),
-  ),
-
-  // Email: SMTP (the default), or the SES v2 API with the AWS credentials
-  // of the process (for example an ECS task role) and its AWS_REGION.
-  EMAIL_TRANSPORT: z.enum(["smtp", "ses"]).default("smtp"),
-  SMTP_CONNECTION_URL: z.string().url().optional(),
-  EMAIL_FROM_ADDRESS: z.string().email().optional(),
-
-  /**
-   * The ClickHouse server of the knowledge content (ADR-066), as
-   * `http[s]://user:password@host:8123/database`. URL-encode special
-   * characters in the password. Required for self-host. Optional here until
-   * the hosted node exists: `KnowledgeStore` and the ClickHouse migrations
-   * need it.
-   */
-  CLICKHOUSE_URL: z.string().url().optional(),
-
-  // Graph DB (OpenCypher: FalkorDB, Neo4j, Memgraph, Neptune)
-  GRAPH_DB_URI: z.string().url().default("redis://falkordb:6379"),
-  GRAPH_DB_USER: z.string().min(1).optional(),
-  GRAPH_DB_PASSWORD: z.string().optional(),
-  GRAPH_DB_PROVIDER: z
-    .enum([
-      "falkordb",
-      "neo4j-enterprise",
-      "neo4j-community",
-      "memgraph",
-      "neptune",
-    ])
-    .default("falkordb"),
-
-  /** Reachable local-interface hostname/IP used for sandbox callbacks. */
-  SANDBOX_CALLBACK_HOST: z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    z.string().min(1).optional(),
-  ),
-
-  /** See {@link sandboxProxyHostSchema}. */
-  AGENT_VAULT_SANDBOX_PROXY_HOST: sandboxProxyHostSchema,
-
-  /** Prebuilt image in the selected Docker daemon; resolved to an immutable ID. */
-  SANDBOX_CHAT_IMAGE: z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    z.string().min(1).optional(),
-  ),
-
-  // LLM and embeddings (OpenRouter, OpenAI, Vertex, Bedrock, Ollama, etc.)
-  MODEL_PROVIDER: z
-    .enum(["openai-like", "openrouter", "azure", "bedrock"])
-    .optional(),
-  MODEL_PROVIDER_API_KEY: z.string().min(1).optional(),
-  MODEL_PROVIDER_URL: z.string().url().optional(),
-  MODEL_FAST_NAME: z.string().optional(),
-  MODEL_MEDIUM_NAME: z.string().optional(),
-  MODEL_HIGH_NAME: z.string().optional(),
-  MODEL_EMBEDDING_NAME: z.string().optional(),
-  // Validated here, so that a value of only spaces stops the backend at
-  // start. The default is in `modelNameShape`.
-  MODEL_VISION_NAME: modelNameShape.MODEL_VISION_NAME,
-  /** When unset, Bedrock IAM SigV4 resolves region from MODEL_PROVIDER_URL, AWS_REGION, or AWS_DEFAULT_REGION */
-  MODEL_BEDROCK_AWS_REGION: z.string().optional(),
-
-  // OpenTelemetry (traces, logs, metrics)
-  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: z.string().url().optional(),
-  OTEL_EXPORTER_OTLP_HEADERS: z.string().min(1).optional(),
-  OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: z.string().url().optional(),
-  OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: z.string().url().optional(),
-  OTEL_SERVICE_NAME: z.string().min(1).optional(),
-  // ctxpipe github app
-  GITHUB_APP_ID: z.string().min(1).optional(),
-  /** Full PEM content (multiline). Prefer over GITHUB_PRIVATE_KEY_PATH for Railway etc. */
-  GITHUB_PRIVATE_KEY: z.string().min(1).optional(),
-  GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
-  /** Public GitHub App slug for install links (e.g. `ctxpipe-agent`). When unset but app id/key are set, defaults to `ctxpipe-agent` in bootstrap URLs only. */
-  GITHUB_APP_SLUG: z.string().min(1).optional(),
-})
+    // OpenTelemetry (traces, logs, metrics)
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: z.string().url().optional(),
+    OTEL_EXPORTER_OTLP_HEADERS: z.string().min(1).optional(),
+    OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: z.string().url().optional(),
+    OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: z.string().url().optional(),
+    OTEL_SERVICE_NAME: z.string().min(1).optional(),
+    // ctxpipe github app
+    GITHUB_APP_ID: z.string().min(1).optional(),
+    /** Full PEM content (multiline). Prefer over GITHUB_PRIVATE_KEY_PATH for Railway etc. */
+    GITHUB_PRIVATE_KEY: z.string().min(1).optional(),
+    GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
+    /** Public GitHub App slug for install links (e.g. `ctxpipe-agent`). When unset but app id/key are set, defaults to `ctxpipe-agent` in bootstrap URLs only. */
+    GITHUB_APP_SLUG: z.string().min(1).optional(),
+  })
+  .refine(
+    (env) =>
+      (env.GITHUB_AUTHORIZE_URL === undefined) ===
+      (env.GITHUB_REDIRECT_URI === undefined),
+    {
+      message:
+        "Set both GITHUB_AUTHORIZE_URL and GITHUB_REDIRECT_URI, or neither",
+      path: ["GITHUB_REDIRECT_URI"],
+    },
+  )
 
 export type Env = z.infer<typeof envSchema>
 

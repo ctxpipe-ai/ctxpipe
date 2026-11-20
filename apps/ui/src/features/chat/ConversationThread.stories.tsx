@@ -402,19 +402,28 @@ export const OpeningLogKeepsScroll: Story = {
         scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight,
       ).toBeLessThan(4)
     })
+    // StickToBottom does not scroll at once after a change of height. The
+    // browser measures the new height in the next frame, and StickToBottom
+    // scrolls in the frame after that. Three frames hold that scroll.
+    const threeFrames = async () => {
+      for (let frame = 0; frame < 3; frame++)
+        await new Promise((next) => requestAnimationFrame(next))
+    }
+    // The web fonts change the height of the text.
     await document.fonts.ready
+    await threeFrames()
     const top = log.getBoundingClientRect().top
     await userEvent.click(log)
-    await waitFor(() => expect(log).toHaveAttribute("aria-expanded", "true"))
-    await waitFor(() =>
-      expect(
-        Math.round(
-          canvas
-            .getByRole("button", { name: progressCounters })
-            .getBoundingClientRect().top,
-        ),
-      ).toBe(Math.round(top)),
-    )
+    await canvas.findByRole("region", { name: "Activity log" })
+    // A wait for the old place passed before the scroll, also with no
+    // stopScroll() (CTX-1437). Thus the play lets the frames of the scroll
+    // pass, and then the counters must be in their old place.
+    await threeFrames()
+    await expect(
+      canvas
+        .getByRole("button", { name: progressCounters })
+        .getBoundingClientRect().top,
+    ).toBe(top)
   },
 }
 

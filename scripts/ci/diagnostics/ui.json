@@ -170,12 +170,6 @@
       "count": 1
     },
     {
-      "file": "src/providers/AuthProvider.tsx",
-      "code": 2339,
-      "message": "Property 'providers' does not exist on type '{}'.",
-      "count": 1
-    },
-    {
       "file": "src/routes/[.]auth.device.tsx",
       "code": 2339,
       "message": "Property 'message' does not exist on type '{ status: number; statusText: string; error: \"invalid_request\"; error_description: string; }'.",

@@ -18,18 +18,20 @@ import {
 } from "../models/github-installation.js"
 import { getLogger } from "../observability/logger.js"
 import { getAuth } from "./config.js"
+import { githubOAuthUrls } from "./github-oauth-urls.js"
 import { hasOrgAdminOrOwnerRole } from "./withAuth.js"
 
 /**
  * Proof of installation access without a login link (CTX-1429). The acting
  * org admin authorizes the deployment's GitHub App once. The callback
  * exchanges the code for a short-lived user token, checks that the token can
- * see the installation, attaches it, and drops the token. Nothing stores the
- * token, and no account link is made or changed.
+ * see the installation, revokes the token at GitHub, and attaches the
+ * installation. Nothing stores the token, and no account link is made or
+ * changed.
  *
  * The callback uses the redirect URI of GitHub sign-in, because that is the
- * callback URL that the App lists. The `state` prefix tells the two flows
- * apart.
+ * callback URL that the App lists ({@link githubOAuthUrls}). The `state`
+ * prefix tells the two flows apart.
  */
 const STATE_PREFIX = "gh-installation."
 
@@ -44,11 +46,6 @@ const ProofSchema = z.object({
 })
 
 type Proof = z.infer<typeof ProofSchema>
-
-/** The redirect URI of GitHub sign-in in `config.ts`. */
-function githubOAuthRedirectUri(env: Env) {
-  return `${env.AUTH_BASE_URL}/.auth/api/v1/auth/callback/github`
-}
 
 function verificationIdentifier(nonce: string) {
   return `github-installation-proof:${nonce}`
@@ -76,9 +73,10 @@ export async function createGithubInstallationProofUrl(
       value: JSON.stringify({ ...proof, codeVerifier } satisfies Proof),
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     })
-  const url = new URL("https://github.com/login/oauth/authorize")
+  const { authorizeUrl, redirectUri } = githubOAuthUrls(env)
+  const url = new URL(authorizeUrl)
   url.searchParams.set("client_id", env.GITHUB_CLIENT_ID)
-  url.searchParams.set("redirect_uri", githubOAuthRedirectUri(env))
+  url.searchParams.set("redirect_uri", redirectUri)
   url.searchParams.set("state", `${STATE_PREFIX}${nonce}`)
   url.searchParams.set(
     "code_challenge",
@@ -131,7 +129,7 @@ async function exchangeCode(input: {
         client_id: input.env.GITHUB_CLIENT_ID,
         client_secret: input.env.GITHUB_CLIENT_SECRET,
         code: input.code,
-        redirect_uri: githubOAuthRedirectUri(input.env),
+        redirect_uri: githubOAuthUrls(input.env).redirectUri,
         code_verifier: input.codeVerifier,
       }),
       signal: AbortSignal.timeout(15_000),
@@ -144,6 +142,37 @@ async function exchangeCode(input: {
   } catch {
     // A timeout or a network failure: the proof fails.
     return undefined
+  }
+}
+
+/**
+ * Revokes the proof token at GitHub (CTX-1434), so that it cannot be used
+ * after the proof. A failed revoke does not stop the attach. The log entry
+ * does not hold the token.
+ */
+async function revokeToken(env: Env, token: string) {
+  try {
+    const res = await fetch(
+      `https://api.github.com/applications/${encodeURIComponent(env.GITHUB_CLIENT_ID ?? "")}/token`,
+      {
+        method: "DELETE",
+        headers: {
+          accept: "application/vnd.github+json",
+          authorization: `Basic ${Buffer.from(`${env.GITHUB_CLIENT_ID}:${env.GITHUB_CLIENT_SECRET}`).toString("base64")}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ access_token: token }),
+        signal: AbortSignal.timeout(15_000),
+      },
+    )
+    if (res.ok) return
+    getLogger().warn("github_installation.proof_token_revoke_failed", {
+      status: res.status,
+    })
+  } catch (e) {
+    getLogger().warn("github_installation.proof_token_revoke_failed", {
+      error: e instanceof Error ? e.name : "unknown",
+    })
   }
 }
 
@@ -212,6 +241,8 @@ export async function githubInstallationProofCallback(c: Context<AppEnv>) {
     ).data.login
   } catch {
     return toConnectors(proof.orgSlug, notAccessible)
+  } finally {
+    await revokeToken(env, token)
   }
 
   let installation: Awaited<ReturnType<typeof attachGithubInstallation>>

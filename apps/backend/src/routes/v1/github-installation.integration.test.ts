@@ -2,6 +2,7 @@ import { createHash, generateKeyPairSync } from "node:crypto"
 
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { and, eq, like } from "drizzle-orm"
+import { initLogger } from "evlog"
 import { evlog } from "evlog/hono"
 import { HttpResponse, http } from "msw"
 import {
@@ -58,6 +59,9 @@ const { privateKey: ownAppPrivateKey } = generateKeyPairSync("rsa", {
 
 let installationLookups = 0
 let codeExchanges: Record<string, string>[] = []
+let revokes: { authorization: string | null; body: unknown }[] = []
+let revokeStatus = 204
+const logEvents: unknown[] = []
 
 useMswServer(
   http.get("https://api.github.com/user/installations", ({ request }) => {
@@ -110,6 +114,16 @@ useMswServer(
       })
     },
   ),
+  http.delete(
+    "https://api.github.com/applications/test-github-client/token",
+    async ({ request }) => {
+      revokes.push({
+        authorization: request.headers.get("authorization"),
+        body: await request.json(),
+      })
+      return new HttpResponse(null, { status: revokeStatus })
+    },
+  ),
   http.get("https://api.github.com/user", () =>
     HttpResponse.json(authorizedGithubUser),
   ),
@@ -135,7 +149,14 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
   function createApp(appEnv = env) {
     const app = new OpenAPIHono<AppEnv>()
     app.use(contextStorage())
-    app.use(evlog())
+    app.use(
+      evlog({
+        drain: async (ctx) => {
+          for (const item of Array.isArray(ctx) ? ctx : [ctx])
+            logEvents.push(item.event)
+        },
+      }),
+    )
     app.use(withTestRequestLogger)
     app.use("*", async (c, next) => {
       c.set("env", appEnv)
@@ -239,6 +260,14 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
   let other: SeededOrg
 
   beforeAll(async () => {
+    if (!process.env.DATABASE_URL) {
+      throw new Error("DATABASE_URL is required for this integration test")
+    }
+    // setup-evlog turns evlog off; the proof tests read the drained events.
+    initLogger({
+      env: { service: "ctxpipe-backend", environment: "test" },
+      pretty: false,
+    })
     // GitHub sign-in configured, so Better Auth can refresh GitHub tokens.
     vi.stubEnv("GITHUB_CLIENT_ID", "test-github-client")
     vi.stubEnv("GITHUB_CLIENT_SECRET", "test-github-secret")
@@ -250,6 +279,9 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
     vi.useRealTimers()
     installationLookups = 0
     codeExchanges = []
+    revokes = []
+    revokeStatus = 204
+    logEvents.length = 0
     for (const userId of [seed.userId, other.userId]) {
       await getSystemDb()
         .delete(accounts)
@@ -410,6 +442,12 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
   })
 
   describe("one-time GitHub App authorization", () => {
+    /** The revoke call with the App client credentials. */
+    const expectedRevoke = (token: string) => ({
+      authorization: `Basic ${Buffer.from("test-github-client:test-github-secret").toString("base64")}`,
+      body: { access_token: token },
+    })
+
     it("attaches the installation, makes no account link and stores no token", async () => {
       const url = await authorizeUrlFor({ installationId })
       const state = url.searchParams.get("state") ?? ""
@@ -449,6 +487,50 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
         links,
       ])
       expect(stored).not.toContain(visibleToken)
+    })
+
+    it("goes through the OAuth forwarder of the deployment, when it has one", async () => {
+      // The AWS PR previews (CTX-1426): the forwarder gives the state back
+      // as this deployment sent it.
+      const forwarded = createApp({
+        ...env,
+        GITHUB_AUTHORIZE_URL:
+          "https://forwarder.example.test/github/authorize/pr-12",
+        GITHUB_REDIRECT_URI: "https://forwarder.example.test/github/callback",
+      })
+      const res = await attach({ installationId }, forwarded)
+      expect(res.status).toBe(403)
+      const url = new URL(
+        ((await res.json()) as { authorizeUrl?: string }).authorizeUrl ?? "",
+      )
+      expect(url.origin + url.pathname).toBe(
+        "https://forwarder.example.test/github/authorize/pr-12",
+      )
+      expect(url.searchParams.get("redirect_uri")).toBe(
+        "https://forwarder.example.test/github/callback",
+      )
+      // The UI sends the user only to the authorize page that the deployment
+      // names.
+      const config = await forwarded.request(
+        "http://backend.test/.auth/api/config",
+      )
+      expect(
+        ((await config.json()) as { githubAuthorizeUrl?: string })
+          .githubAuthorizeUrl,
+      ).toBe("https://forwarder.example.test/github/authorize/pr-12")
+
+      const done = await forwarded.request(
+        `http://backend.test/.auth/api/v1/auth/callback/github?${new URLSearchParams({ code: "code-visible", state: url.searchParams.get("state") ?? "" })}`,
+        { headers: { cookie: seed.cookie } },
+      )
+
+      expect(new URL(done.headers.get("location") ?? "").pathname).toBe(
+        `/${seed.orgSlug}/github/setup`,
+      )
+      expect(codeExchanges).toHaveLength(1)
+      expect(codeExchanges[0]?.redirect_uri).toBe(
+        "https://forwarder.example.test/github/callback",
+      )
     })
 
     it("attaches for a user whose GitHub account is linked to another ctxpipe user", async () => {
@@ -491,6 +573,39 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
 
       expectProofRefused(res)
       expect(await attachedInstallationIds()).toEqual([])
+      expect(revokes).toEqual([expectedRevoke(otherToken)])
+      expect(JSON.stringify(logEvents)).not.toContain(otherToken)
+    })
+
+    it("revokes the token after the proof", async () => {
+      const url = await authorizeUrlFor({ installationId })
+
+      const res = await githubCallback(
+        url.searchParams.get("state") ?? "",
+        "code-visible",
+      )
+
+      expect(res.status).toBe(302)
+      expect(revokes).toEqual([expectedRevoke(visibleToken)])
+      expect(logEvents.length).toBeGreaterThan(0)
+      expect(JSON.stringify(logEvents)).not.toContain(visibleToken)
+    })
+
+    it("attaches and logs a warning without the token when the revoke fails", async () => {
+      revokeStatus = 500
+      const url = await authorizeUrlFor({ installationId })
+
+      const res = await githubCallback(
+        url.searchParams.get("state") ?? "",
+        "code-visible",
+      )
+
+      expect(res.status).toBe(302)
+      expect(await attachedInstallationIds()).toEqual([installationId])
+      expect(revokes).toHaveLength(1)
+      const logged = JSON.stringify(logEvents)
+      expect(logged).toContain("github_installation.proof_token_revoke_failed")
+      expect(logged).not.toContain(visibleToken)
     })
 
     it("refuses a state that was used before", async () => {

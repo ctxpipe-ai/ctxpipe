@@ -2,8 +2,9 @@
 -- 6). The projection converts an image to text at projection time and
 -- stores no text in Git. A vision call costs money and its answer can
 -- change, so the reading is kept here by the blob SHA of the image, the
--- vision model of the request (MODEL_VISION_NAME) and the prompt version. A rebuild reads it again and
--- makes no vision call: the same bytes give the same text.
+-- vision model of the request (MODEL_VISION_NAME) and the prompt
+-- version. A rebuild reads it again and makes no vision call: the same
+-- bytes give the same text.
 --
 -- reading is the JSON of the structured reading; the projection renders
 -- the text (and the Mermaid) from it.
