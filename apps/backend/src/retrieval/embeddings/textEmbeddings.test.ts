@@ -4,20 +4,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { useMswServer } from "../../../test/msw.js"
 import { recordSpans } from "../../../test/spans.js"
 import {
-  embedMultimodal,
   type EmbeddingInput,
-  multimodalEmbeddingConfig,
-} from "./multimodalEmbeddings.js"
+  embedTexts,
+  textEmbeddingConfig,
+} from "./textEmbeddings.js"
 
 const EMBEDDINGS_URL = "https://gateway.test/api/v1/embeddings"
 const server = useMswServer()
 const spans = recordSpans()
 
 const config = {
-  ...multimodalEmbeddingConfig,
-  model: "vendor/multimodal-embed",
-  upstreamProvider: "vendor-cloud",
+  ...textEmbeddingConfig,
+  model: "vendor/text-embed",
+  quantizations: ["bf16"],
   dimensions: 16,
+  queryInstruction: "Find the answer",
+  batchSize: 2,
   concurrency: 2,
   maxAttempts: 3,
   backoffMs: 1,
@@ -40,8 +42,9 @@ function text(n: number): EmbeddingInput {
 
 type Body = {
   model: string
-  input: { content: Record<string, unknown>[] }[]
+  input: string[]
   dimensions: number
+  encoding_format: string
   provider: unknown
 }
 
@@ -65,16 +68,17 @@ function echoHandler(bodies: Body[]) {
   })
 }
 
-describe("embedMultimodal", () => {
+describe("embedTexts", () => {
   beforeEach(() => {
     vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
+    vi.stubEnv("MODEL_PROVIDER", "openai-like")
     vi.stubEnv("MODEL_PROVIDER_URL", "https://gateway.test/api/v1/")
   })
   afterEach(() => {
     vi.unstubAllEnvs()
   })
 
-  it("sends one no-retention, pinned-provider request for each input, at most `concurrency` at a time, and keeps the input order", async () => {
+  it("sends the inputs in no-retention batches of `batchSize` with the allowed quantizations, at most `concurrency` at a time, and keeps the input order", async () => {
     const bodies: Body[] = []
     const auth: (string | null)[] = []
     // Each answer waits until the test releases it.
@@ -85,41 +89,84 @@ describe("embedMultimodal", () => {
         const body = (await request.json()) as Body
         bodies.push(body)
         await new Promise<void>((resolve) => held.push(resolve))
-        const n = Number(/chunk (\d)/.exec(JSON.stringify(body.input))?.[1])
+        // The vectors come back in reverse order; `index` names the input.
         return HttpResponse.json({
-          data: [{ index: 0, embedding: vector(n) }],
+          data: body.input
+            .map((input, index) => ({
+              index,
+              embedding: vector(Number(/chunk (\d)/.exec(input)?.[1])),
+            }))
+            .reverse(),
         })
       }),
     )
 
-    const result = embedMultimodal([0, 1, 2, 3, 4].map(text), config)
+    const result = embedTexts([0, 1, 2, 3, 4].map(text), config)
 
     // Two requests are in flight; a new one starts only when the test
     // releases an answer. The newest answer goes first, so the answers come
     // back in another order than the requests.
-    for (const inFlight of [2, 2, 2, 2, 1]) {
+    for (const inFlight of [2, 2, 1]) {
       await vi.waitFor(() => expect(held).toHaveLength(inFlight))
       held.pop()?.()
     }
     expect((await result).map((e) => e[0])).toEqual([0, 1, 2, 3, 4])
-    expect(bodies).toHaveLength(5)
+    expect(bodies.map((body) => body.input.length)).toEqual([2, 2, 1])
     for (const body of bodies) {
-      expect(body.input).toHaveLength(1)
-      expect(body.model).toBe("vendor/multimodal-embed")
+      expect(body.model).toBe("vendor/text-embed")
       expect(body.dimensions).toBe(16)
+      expect(body.encoding_format).toBe("float")
       expect(body.provider).toEqual({
         data_collection: "deny",
-        order: ["vendor-cloud"],
-        allow_fallbacks: false,
         zdr: true,
+        quantizations: ["bf16"],
       })
     }
-    expect(auth).toEqual(Array.from({ length: 5 }, () => "Bearer test-key"))
-    expect(bodies.map((body) => body.input[0])).toContainEqual({
-      content: [
-        { type: "text", text: "Design notes (part 2 of 5)\n\nchunk 1" },
-      ],
-    })
+    expect(auth).toEqual(Array.from({ length: 3 }, () => "Bearer test-key"))
+    // Each chunk is a plain string with the context line of its document.
+    expect(bodies.flatMap((body) => body.input)).toContain(
+      "Design notes (part 2 of 5)\n\nchunk 1",
+    )
+  })
+
+  it("sends nothing when the model settings do not point at OpenRouter", async () => {
+    vi.stubEnv("MODEL_PROVIDER", "bedrock")
+    const bodies: Body[] = []
+    server.use(echoHandler(bodies))
+
+    await expect(embedTexts([text(0)], config)).rejects.toThrow(
+      /MODEL_PROVIDER openrouter or openai-like/,
+    )
+    expect(bodies).toEqual([])
+  })
+
+  it("rejects an answer with fewer vectors than inputs", async () => {
+    server.use(
+      http.post(EMBEDDINGS_URL, () =>
+        HttpResponse.json({ data: [{ index: 0, embedding: vector(0) }] }),
+      ),
+    )
+
+    await expect(embedTexts([text(0), text(1)], config)).rejects.toThrow(
+      "Expected 2 embeddings, got 1",
+    )
+  })
+
+  it("rejects an answer that gives one index twice", async () => {
+    server.use(
+      http.post(EMBEDDINGS_URL, () =>
+        HttpResponse.json({
+          data: [
+            { index: 1, embedding: vector(0) },
+            { index: 1, embedding: vector(1) },
+          ],
+        }),
+      ),
+    )
+
+    await expect(embedTexts([text(0), text(1)], config)).rejects.toThrow(
+      "Unexpected embedding index 1",
+    )
   })
 
   it("starts no new request after a failure", async () => {
@@ -132,9 +179,9 @@ describe("embedMultimodal", () => {
     )
 
     await expect(
-      embedMultimodal([0, 1, 2, 3, 4].map(text), config),
+      embedTexts([0, 1, 2, 3, 4, 5].map(text), config),
     ).rejects.toThrow("400")
-    // The two first requests were in flight together; no third one started.
+    // The two first batches were in flight together; no third one started.
     expect(calls).toBe(2)
   })
 
@@ -142,62 +189,38 @@ describe("embedMultimodal", () => {
     const sent: string[] = []
     server.use(
       http.post(EMBEDDINGS_URL, async ({ request }) => {
-        const body = JSON.stringify(await request.json())
-        const chunk = /chunk (\d)/.exec(body)?.[1] ?? "?"
-        sent.push(chunk)
-        if (chunk === "0") return new HttpResponse("bad model", { status: 400 })
-        // The first answer to chunk 1 comes after the 400, and is a 429.
-        if (sent.filter((item) => item === "1").length === 1) {
+        const body = (await request.json()) as Body
+        // The first chunk of the batch names the batch.
+        const batch = /chunk (\d)/.exec(body.input[0] ?? "")?.[1] ?? "?"
+        sent.push(batch)
+        if (batch === "0") return new HttpResponse("bad model", { status: 400 })
+        // The first answer to batch 2 comes after the 400, and is a 429.
+        if (sent.filter((item) => item === "2").length === 1) {
           await new Promise((resolve) => setTimeout(resolve, 20))
           return new HttpResponse("busy", { status: 429 })
         }
-        return HttpResponse.json({ data: [{ index: 0, embedding: vector(1) }] })
+        return HttpResponse.json({
+          data: body.input.map((_, index) => ({ index, embedding: vector(1) })),
+        })
       }),
     )
     let requests = 0
     await expect(
-      embedMultimodal([0, 1, 2].map(text), config, () => requests++),
+      embedTexts([0, 1, 2, 3, 4, 5].map(text), config, () => requests++),
     ).rejects.toThrow("400")
-    // The retry of chunk 1 went out before the rejection, and chunk 2 never.
-    expect(sent.sort()).toEqual(["0", "1", "1"])
+    // The retry of batch 2 went out before the rejection, and batch 4 never.
+    expect(sent.sort()).toEqual(["0", "2", "2"])
     expect(requests).toBe(3)
   })
 
-  it("sends a search query as its text only, with no context line", async () => {
+  it("sends a search question with the instruction line of the model and no context line", async () => {
     const bodies: Body[] = []
     server.use(echoHandler(bodies))
 
-    await embedMultimodal([{ kind: "query", text: "why did it fail" }], config)
+    await embedTexts([{ kind: "query", text: "why did it fail" }], config)
 
     expect(bodies[0]?.input).toEqual([
-      { content: [{ type: "text", text: "why did it fail" }] },
-    ])
-  })
-
-  it("sends an image as a data URI part and no text part", async () => {
-    const bodies: Body[] = []
-    server.use(echoHandler(bodies))
-
-    await embedMultimodal(
-      [
-        {
-          kind: "image",
-          bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
-          mimeType: "image/png",
-        },
-      ],
-      config,
-    )
-
-    expect(bodies[0]?.input).toEqual([
-      {
-        content: [
-          {
-            type: "image_url",
-            image_url: { url: "data:image/png;base64,iVBORw==" },
-          },
-        ],
-      },
+      "Instruct: Find the answer\nQuery:why did it fail",
     ])
   })
 
@@ -211,7 +234,7 @@ describe("embedMultimodal", () => {
       ),
     )
 
-    expect(await embedMultimodal([text(0)], config)).toEqual([values])
+    expect(await embedTexts([text(0)], config)).toEqual([values])
   })
 
   it("rejects a vector with the wrong dimension", async () => {
@@ -221,7 +244,7 @@ describe("embedMultimodal", () => {
       ),
     )
 
-    await expect(embedMultimodal([text(0)], config)).rejects.toThrow(
+    await expect(embedTexts([text(0)], config)).rejects.toThrow(
       "Expected 16 dimensions at index 0, got 3",
     )
   })
@@ -239,13 +262,13 @@ describe("embedMultimodal", () => {
     )
 
     let sent = 0
-    const result = await embedMultimodal([text(0)], config, () => sent++)
+    const result = await embedTexts([text(0)], config, () => sent++)
 
     expect(result).toHaveLength(1)
     expect(sent).toBe(3)
     const requests = spans
       .finishedSpans()
-      .filter((s) => s.name === "embeddings.embedMultimodal")
+      .filter((s) => s.name === "embeddings.embedTexts")
     expect(requests.map((s) => s.status.message)).toEqual([
       "Embedding request failed: HTTP 429",
       "Embedding request failed: HTTP 503",
@@ -269,7 +292,7 @@ describe("embedMultimodal", () => {
       }),
     )
 
-    const error = await embedMultimodal([text(0)], config).catch(
+    const error = await embedTexts([text(0)], config).catch(
       (err: unknown) => err,
     )
 
@@ -295,7 +318,7 @@ describe("embedMultimodal", () => {
       ),
     )
 
-    const error = await embedMultimodal([text(0)], config).catch(
+    const error = await embedTexts([text(0)], config).catch(
       (err: unknown) => err,
     )
 
@@ -321,7 +344,7 @@ describe("embedMultimodal", () => {
       echo,
     )
 
-    const result = await embedMultimodal([text(0)], config)
+    const result = await embedTexts([text(0)], config)
 
     expect(result).toHaveLength(1)
     expect(bodies).toHaveLength(1)
@@ -336,7 +359,7 @@ describe("embedMultimodal", () => {
       }),
     )
 
-    const error = await embedMultimodal([text(0)], config).catch(
+    const error = await embedTexts([text(0)], config).catch(
       (err: unknown) => err,
     )
 
@@ -354,7 +377,7 @@ describe("embedMultimodal", () => {
       }),
     )
 
-    await expect(embedMultimodal([text(0)], config)).rejects.toThrow("400")
+    await expect(embedTexts([text(0)], config)).rejects.toThrow("400")
     expect(calls).toBe(1)
   })
 
@@ -364,7 +387,7 @@ describe("embedMultimodal", () => {
         HttpResponse.json(
           {
             error: {
-              message: "No endpoints found for vendor/multimodal-embed.",
+              message: "No endpoints found for vendor/text-embed.",
             },
           },
           { status: 404 },
@@ -372,8 +395,8 @@ describe("embedMultimodal", () => {
       ),
     )
 
-    await expect(embedMultimodal([text(0)], config)).rejects.toThrow(
-      "Embedding request failed: HTTP 404: No endpoints found for vendor/multimodal-embed.",
+    await expect(embedTexts([text(0)], config)).rejects.toThrow(
+      "Embedding request failed: HTTP 404: No endpoints found for vendor/text-embed.",
     )
   })
 
@@ -393,7 +416,7 @@ describe("embedMultimodal", () => {
       ),
     )
 
-    await expect(embedMultimodal([text(0)], config)).rejects.toThrow(
+    await expect(embedTexts([text(0)], config)).rejects.toThrow(
       "Embedding request failed: HTTP 404: No endpoints found that can handle the requested parameters.",
     )
     expect(
@@ -421,7 +444,7 @@ describe("embedMultimodal", () => {
         ),
       )
 
-      const error = await embedMultimodal([text(0)], config).catch(
+      const error = await embedTexts([text(0)], config).catch(
         (err: unknown) => err,
       )
 

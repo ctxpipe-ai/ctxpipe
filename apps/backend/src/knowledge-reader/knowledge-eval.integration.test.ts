@@ -24,6 +24,7 @@ import {
   beginKnowledgeRun,
   completeKnowledgeRun,
 } from "../models/knowledge-state.js"
+import { textEmbeddingConfig } from "../retrieval/embeddings/textEmbeddings.js"
 import { startClickHouse, userUrl } from "../test/clickhouse.js"
 import { embedText } from "../test/knowledge-search-fixture.js"
 import { dropOrgGraph, seedRelatedWorkspace } from "../test/related-fixture.js"
@@ -137,16 +138,16 @@ let goldTitlesByQuestion = new Map<string, string[]>()
 const models = setupServer(
   http.post(`${MODEL_URL}/embeddings`, async ({ request }) => {
     requests.embedding += 1
-    const body = (await request.json()) as {
-      input: (string | { content: { text?: string }[] })[]
-    }
+    const body = (await request.json()) as { model: string; input: string[] }
+    const plane = body.model === textEmbeddingConfig.model
     return HttpResponse.json({
       data: body.input.map((input, index) => ({
         index,
-        embedding:
-          typeof input === "string"
-            ? embedText(input)
-            : planeVector(input.content[0]?.text ?? ""),
+        // The vector of a plane question comes from the question alone,
+        // without the instruction line of the model.
+        embedding: plane
+          ? planeVector(input.replace(/^Instruct: [^\n]*\nQuery:/, ""))
+          : embedText(input),
       })),
     })
   }),

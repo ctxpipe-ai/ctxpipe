@@ -1,7 +1,7 @@
 import { openRouterModelId } from "@ctxpipe/visual-review"
 import { z } from "zod"
 
-import { JEV_PROVIDER } from "../../src/retrieval/jev/client.js"
+import { JEV_MODEL } from "../../src/retrieval/jev/client.js"
 import { POSITION_STATUSES } from "../../src/retrieval/jev/disagreement.js"
 import { DEFAULT_OPENROUTER_BASE } from "../../src/retrieval/services/modelProvider.js"
 import {
@@ -57,7 +57,7 @@ export function checkPanel(models: readonly string[]): void {
   const families = models.map((model) => model.split("/")[0])
   if (new Set(families).size !== models.length)
     throw new Error("Each panel model must be of a different family.")
-  if (families.includes(JEV_PROVIDER))
+  if (families.includes(JEV_MODEL.split("/")[0]))
     throw new Error("Jev is part of the system under test, never a judge.")
 }
 

@@ -292,10 +292,11 @@ export function imageRows(input: {
       sourceType: sourceAuthority({ path }),
       mime: imageContentType(path) ?? "",
     },
-    // The image embedding is the vector of this chunk. Its text stays empty:
-    // the alt text belongs to the file that shows the image, and two files
-    // can give one image different alt texts (ADR-066 decision 5).
-    chunks: [{ ordinal: 0, text: "", startLine: 0, endLine: 0 }],
+    // No chunk and no vector: the search finds the image through the text
+    // file that ingest writes beside it (ADR-066 decision 6). The alt text
+    // belongs to the file that shows the image, and two files can give one
+    // image different alt texts (ADR-066 decision 5).
+    chunks: [],
     relations: [],
   }
 }

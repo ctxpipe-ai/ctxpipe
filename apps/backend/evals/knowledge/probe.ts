@@ -1,27 +1,27 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { z } from "zod"
 
 import {
   type EmbeddingInput,
-  embedMultimodal,
-  multimodalEmbeddingConfig,
-} from "../../src/retrieval/embeddings/multimodalEmbeddings.js"
-import { decideNoul, JEV_PROVIDER } from "../../src/retrieval/jev/client.js"
+  embedTexts,
+  textEmbeddingConfig,
+} from "../../src/retrieval/embeddings/textEmbeddings.js"
+import { decideNoul, JEV_MODEL } from "../../src/retrieval/jev/client.js"
 import type { ModelCalls } from "./model-calls.js"
 
 /*
  * The live provider probe (ADR-068 decision 7, ADR-063 decision 6). Before
  * the first org leaves `off`, real calls confirm that the model provider
  * applies the request settings of the knowledge plane. Each check sends its
- * request through the real client (`decideNoul`, `embedMultimodal`), so the
+ * request through the real client (`decideNoul`, `embedTexts`), so the
  * probe tests the request that production sends, not a copy. The recorder of
  * the eval run (`ModelCalls`) keeps the status and the raw answer of each
  * call as evidence, and it applies the spend cap.
  *
- * The probe sends only fixed text and a checkerboard image that this
- * repository holds. It never sends customer data.
+ * The probe sends only fixed text that this repository holds. It never
+ * sends customer data.
  */
 
 /** The result of one check. The evidence comes from the real answer. */
@@ -44,21 +44,52 @@ type ProbeCheck = {
  * on 2026-11-20). If the catalog changes, the control check fails and says
  * so; then pick another such model.
  */
-const NON_ZDR_DECISIONS = {
-  model: "openai/gpt-6-luna-decisions",
-  provider: "openai",
-}
+const NON_ZDR_DECISIONS_MODEL = "openai/gpt-6-luna-decisions"
 
 /**
- * The name that the `provider` field of an answer gives to each pinned
- * provider slug (the `provider_name` of its endpoints in
- * `GET /api/v1/models/{model}/endpoints`). The `google-ai-studio` endpoint of
- * the embedding model, which is not on the ZDR list, has another name
- * ("Google AI Studio").
+ * The ZDR control of the embeddings endpoint: an embedding model that is not
+ * on the OpenRouter ZDR list (2026-11-20). If the catalog changes, the
+ * control check fails and says so; then pick another such model.
  */
-const PROVIDER_NAMES: Record<string, string> = {
-  [JEV_PROVIDER]: "TypeSafe",
-  [multimodalEmbeddingConfig.upstreamProvider]: "Google",
+const NON_ZDR_EMBEDDING_MODEL = "openai/text-embedding-ada-002"
+
+/**
+ * The provider names of the ZDR endpoints of each model, from the OpenRouter
+ * ZDR list (`GET /api/v1/endpoints/zdr`), at an allowed quantization when
+ * `quantizations` is given. The model calls pin no provider, so a check
+ * passes when the answer names one of these providers (ADR-068 decision 7).
+ * The answer names only the provider, not its endpoint: when a provider has
+ * more than one endpoint of a model, the name does not show which one served
+ * the call. The `zdr` and `quantizations` fields of the request decide the
+ * endpoint, and the refusal pairs show that OpenRouter applies `zdr`. The
+ * list holds no input of ours, so the call goes around the recorder.
+ */
+async function zdrProviders(base: string) {
+  const response = await fetch(`${base.replace(/\/+$/, "")}/endpoints/zdr`)
+  if (!response.ok)
+    throw new Error(`The ZDR list answered HTTP ${response.status}`)
+  const { data } = z
+    .object({
+      data: z.array(
+        z.object({
+          model_id: z.string(),
+          provider_name: z.string(),
+          quantization: z.string().nullable().optional(),
+        }),
+      ),
+    })
+    .parse(await response.json())
+  return (model: string, quantizations?: readonly string[]) =>
+    new Set(
+      data
+        .filter(
+          (endpoint) =>
+            endpoint.model_id === model &&
+            (!quantizations ||
+              quantizations.includes(endpoint.quantization ?? "")),
+        )
+        .map((endpoint) => endpoint.provider_name),
+    )
 }
 
 const answerSchema = z.object({
@@ -181,26 +212,43 @@ async function withChangedBody<T>(
 
 /**
  * The Jev request of the client, sent to the non-ZDR Decisions model. Only
- * the model, the pinned provider and `zdr` change.
+ * the model and `zdr` change.
  */
 const nonZdrDecision = (zdr: boolean) =>
   withChangedBody(
     (body) => ({
       ...body,
-      model: NON_ZDR_DECISIONS.model,
-      provider: {
-        ...jsonObject.parse(body.provider),
-        order: [NON_ZDR_DECISIONS.provider],
-        zdr,
-      },
+      model: NON_ZDR_DECISIONS_MODEL,
+      provider: { ...jsonObject.parse(body.provider), zdr },
     }),
     () => decideNoul(["The sky is green."], jevQuestion, jevOptions),
+  )
+
+/**
+ * The embedding request of the client, sent to the non-ZDR embedding model.
+ * The model and `zdr` change. The dimension and the quantizations go out
+ * too, so that the control model can serve the request; both requests of
+ * the pair are the same apart from `zdr`.
+ */
+const nonZdrEmbedding = (zdr: boolean) =>
+  withChangedBody(
+    ({ dimensions: _dimensions, ...body }) => {
+      const { quantizations: _quantizations, ...provider } = jsonObject.parse(
+        body.provider,
+      )
+      return {
+        ...body,
+        model: NON_ZDR_EMBEDDING_MODEL,
+        provider: { ...provider, zdr },
+      }
+    },
+    () => embedTexts([{ kind: "query", text: "Is the sky blue?" }]),
   )
 
 /** The checks of the probe, one after the other. */
 async function probeChecks(
   calls: ModelCalls,
-  image: Uint8Array,
+  zdr: Awaited<ReturnType<typeof zdrProviders>>,
 ): Promise<ProbeCheck[]> {
   const checks: ProbeCheck[] = []
   const check = <T>(
@@ -221,74 +269,80 @@ async function probeChecks(
   const served = await observe(calls, () =>
     decideNoul(["The sky is blue on a clear day."], jevQuestion, jevOptions),
   )
+  const jevProviders = zdr(JEV_MODEL)
   check(
-    "decisions-pinned",
+    "decisions-zdr-provider",
     served,
     served.result !== undefined &&
       served.status === 200 &&
-      served.provider === PROVIDER_NAMES[JEV_PROVIDER],
-    `HTTP 200, a yes/no answer, and the provider ${PROVIDER_NAMES[JEV_PROVIDER]}`,
+      jevProviders.has(served.provider ?? ""),
+    `HTTP 200, a yes/no answer, and a ZDR provider of ${JEV_MODEL} (${[...jevProviders].join(", ") || "none listed"})`,
   )
 
-  // The ZDR proof is a pair of requests to a Decisions model that has no ZDR
-  // endpoint. Both are the request of the client, pinned to that model's one
-  // provider with no fallback, and with `data_collection: "deny"`. They differ
-  // only in `zdr`. The control (`zdr: false`) must be served: this shows that
-  // the endpoint can serve the request. The same request with `zdr: true`
-  // must then be refused with "no endpoint". Thus the refusal comes from
-  // `zdr` alone: the Decisions endpoint enforces it. The Jev request has the
-  // same provider block, so it can only go to a ZDR endpoint.
-  const control = await observe(calls, () => nonZdrDecision(false))
-  check(
-    "decisions-control-without-zdr",
-    control,
-    control.status === 200,
-    `HTTP 200 from ${NON_ZDR_DECISIONS.model} (no ZDR endpoint) when zdr is false`,
-  )
-  const refused = await observe(calls, () => nonZdrDecision(true))
-  check(
-    "decisions-refused-without-zdr-endpoint",
-    refused,
-    control.status === 200 &&
-      refused.status === 404 &&
-      /no (endpoints|allowed providers)/i.test(refused.error ?? ""),
-    "the control passes, then HTTP 404 with a no-endpoint error when zdr is true",
-  )
+  // The ZDR proof of an endpoint is a pair of requests to a model of that
+  // endpoint that has no ZDR endpoint. Both are the request of the client,
+  // with fallback and with `data_collection: "deny"`, and they differ only in
+  // `zdr`. The control (`zdr: false`) must be served: this shows that the
+  // endpoint can serve the request. The same request with `zdr: true` must
+  // then be refused with "no endpoint". Thus the refusal comes from `zdr`
+  // alone: the endpoint enforces it. The requests of the clients have the
+  // same provider block, so they can only go to a ZDR endpoint.
+  const refusalPair = async (
+    prefix: string,
+    model: string,
+    send: (zdr: boolean) => Promise<unknown>,
+  ) => {
+    const control = await observe(calls, () => send(false))
+    check(
+      `${prefix}-control-without-zdr`,
+      control,
+      control.status === 200,
+      `HTTP 200 from ${model} (no ZDR endpoint) when zdr is false`,
+    )
+    const refused = await observe(calls, () => send(true))
+    check(
+      `${prefix}-refused-without-zdr-endpoint`,
+      refused,
+      control.status === 200 &&
+        refused.status === 404 &&
+        /no (endpoints|allowed providers)/i.test(refused.error ?? ""),
+      "the control passes, then HTTP 404 with a no-endpoint error when zdr is true",
+    )
+  }
+  await refusalPair("decisions", NON_ZDR_DECISIONS_MODEL, nonZdrDecision)
 
-  const dimensions = multimodalEmbeddingConfig.dimensions
-  const pinned = PROVIDER_NAMES[multimodalEmbeddingConfig.upstreamProvider]
+  const { model, dimensions, batchSize, quantizations } = textEmbeddingConfig
+  const embeddingProviders = zdr(model, quantizations)
   const embedded = async (name: string, inputs: EmbeddingInput[]) => {
-    const evidence = await observe(calls, () => embedMultimodal(inputs))
+    const evidence = await observe(calls, () => embedTexts(inputs))
     check(
       name,
       evidence,
       evidence.status === 200 &&
-        evidence.provider === pinned &&
+        embeddingProviders.has(evidence.provider ?? "") &&
+        evidence.vectors === inputs.length &&
         evidence.result?.length === inputs.length &&
         evidence.result.every((vector) => vector.length === dimensions),
-      `HTTP 200, the provider ${pinned}, and ${inputs.length} vector(s) of ${dimensions} dimensions`,
+      `HTTP 200, a ZDR provider of ${model} at ${quantizations.join(", ")} (${[...embeddingProviders].join(", ") || "none listed"}), and ${inputs.length} vector(s) of ${dimensions} dimensions in one answer`,
     )
   }
-  await embedded("embedding-image", [
-    { kind: "image", bytes: image, mimeType: "image/png" },
+  await embedded("embedding-query", [
+    { kind: "query", text: "Which squares of the checkerboard are red?" },
   ])
-  await embedded("embedding-text", [
-    { kind: "query", text: "A red and blue checkerboard." },
-  ])
-  // 16 document chunks in one call, as the projection sends them. With more
-  // than one input in a request, OpenRouter found no ZDR endpoint
-  // (2026-11-20), so this check guards the shape of the requests.
-  const chunkCount = 16
+  // One full batch of document chunks in one request, as the projection
+  // sends them: this proves that a ZDR endpoint at an allowed quantization
+  // takes a batch and the configured dimension.
   await embedded(
     "embedding-text-batch",
-    Array.from({ length: chunkCount }, (_, index) => ({
+    Array.from({ length: batchSize }, (_, index) => ({
       kind: "text" as const,
       text: checkerboardSentence(index),
       documentTitle: "Checkerboard",
       chunkIndex: index,
-      chunkCount,
+      chunkCount: batchSize,
     })),
   )
+  await refusalPair("embedding", NON_ZDR_EMBEDDING_MODEL, nonZdrEmbedding)
   return checks
 }
 
@@ -346,15 +400,30 @@ export async function probe(input: {
   out: string
   calls: ModelCalls
   capUsd: number
+  /** `MODEL_PROVIDER_URL`, the base of the recorder. */
+  base: string
 }): Promise<number> {
   const { calls } = input
-  const image = await readFile(
-    new URL("fixtures/probe-checkerboard.png", import.meta.url),
-  )
+  // A failed read of the ZDR list is a failed check: then no provider is a
+  // ZDR provider, and the other checks fail too.
+  let zdr: Awaited<ReturnType<typeof zdrProviders>> = () => new Set()
+  const listChecks: ProbeCheck[] = []
+  try {
+    zdr = await zdrProviders(input.base)
+  } catch (error) {
+    listChecks.push({
+      name: "zdr-list",
+      pass: false,
+      status: null,
+      provider: null,
+      error: error instanceof Error ? error.message : String(error),
+      expects: "the OpenRouter ZDR list (GET /endpoints/zdr) answers",
+    })
+  }
   const restore = calls.install()
   let checks: ProbeCheck[]
   try {
-    checks = await probeChecks(calls, image)
+    checks = [...listChecks, ...(await probeChecks(calls, zdr))]
   } finally {
     restore()
   }
@@ -378,17 +447,16 @@ export async function probe(input: {
 }
 
 /**
- * The `probe --controls` command: the control requests of the batch finding
- * (2026-11-20). A request with 16 inputs, `zdr: true` and the
- * `google-vertex` pin got "No endpoints found matching your data policy
- * (Zero data retention)", and one input passed. Each control changes one
- * thing of that request: `zdr`, the input shape, the input count, the pin
- * (also to each endpoint tag of the model), and the model (the `:batch`
- * variant and the other candidates). These are experiments, so they send
- * hand-written bodies to `{base}/embeddings`, not the request of the client.
- * The inputs are fixed public texts only. The controls have no pass or fail.
- * It writes `controls.json` and `controls.md` to `out`. Returns the exit
- * code: 0 done, 3 the spend cap stopped a call.
+ * The `probe --controls` command: does each text embedding candidate take a
+ * batch on its ZDR endpoint ([CTX-1431](https://linear.app/ctxpipe/issue/CTX-1431))?
+ * Each control sends 16 or 64 plain strings with `zdr: true` to one model,
+ * pinned to one endpoint with no fallback. These are experiments, so they
+ * send hand-written bodies to `{base}/embeddings`, not the request of the
+ * client. The inputs are fixed public texts only. The controls have no pass
+ * or fail. On 2026-11-20 every control got HTTP 200 and one vector for each
+ * input. Run it again when the eval of ADR-069 considers another text model
+ * or endpoint. It writes `controls.json` and `controls.md` to `out`. Returns the
+ * exit code: 0 done, 3 the spend cap stopped a call.
  */
 export async function probeControls(input: {
   out: string
@@ -398,134 +466,33 @@ export async function probeControls(input: {
   base: string
 }): Promise<number> {
   const { calls } = input
-  const { model, upstreamProvider, dimensions } = multimodalEmbeddingConfig
   const texts = (count: number) =>
     Array.from({ length: count }, (_, index) => checkerboardSentence(index))
-  const multimodal = (count: number) =>
-    texts(count).map((text) => ({ content: [{ type: "text", text }] }))
-  /** Pinned to `provider` with no fallback. */
-  const pinned = (zdr: boolean, provider = upstreamProvider) => ({
-    data_collection: "deny",
-    order: [provider],
-    allow_fallbacks: false,
-    zdr,
-  })
-  const unpinned = (zdr: boolean) => ({
-    data_collection: "deny",
-    allow_fallbacks: true,
-    zdr,
-  })
-  const gemini = { model, dimensions, encoding_format: "float" }
-  const geminiBatch = { ...gemini, model: `${model}:batch` }
-  const requests: [name: string, question: string, body: object][] = [
+  const requests: [name: string, question: string, body: object][] = (
     [
-      "gemini-16-multimodal-zdr",
-      "The finding again: 16 multimodal items, pin google-vertex, zdr true.",
-      { ...gemini, input: multimodal(16), provider: pinned(true) },
-    ],
-    [
-      "gemini-1-multimodal-zdr",
-      "1 multimodal item, pin google-vertex, zdr true.",
-      { ...gemini, input: multimodal(1), provider: pinned(true) },
-    ],
-    [
-      "gemini-16-multimodal-no-zdr",
-      "Is ZDR the cause? 16 multimodal items, pin google-vertex, zdr false.",
-      { ...gemini, input: multimodal(16), provider: pinned(false) },
-    ],
-    [
-      "gemini-16-multimodal-no-zdr-no-pin",
-      "Which endpoint takes a batch? 16 multimodal items, no pin, zdr false.",
-      { ...gemini, input: multimodal(16), provider: unpinned(false) },
-    ],
-    [
-      "gemini-16-strings-zdr",
-      "Is it our shape? 16 plain strings, pin google-vertex, zdr true.",
-      { ...gemini, input: texts(16), provider: pinned(true) },
-    ],
-    [
-      "gemini-2-multimodal-zdr",
-      "Is it the size? 2 multimodal items, pin google-vertex, zdr true.",
-      { ...gemini, input: multimodal(2), provider: pinned(true) },
-    ],
-    [
-      "gemini-4-multimodal-zdr",
-      "Is it the size? 4 multimodal items, pin google-vertex, zdr true.",
-      { ...gemini, input: multimodal(4), provider: pinned(true) },
-    ],
-    [
-      "gemini-16-multimodal-zdr-no-pin",
-      "Is it the pin? 16 multimodal items, no pin, zdr true.",
-      { ...gemini, input: multimodal(16), provider: unpinned(true) },
-    ],
-    ...(["google-vertex/us", "google-vertex/global"] as const).flatMap(
-      (tag): [string, string, object][] =>
-        [true, false].map((zdr) => [
-          `gemini-16-multimodal-${zdr ? "zdr" : "no-zdr"}-${tag.replace("/", "-")}`,
-          `Does the endpoint ${tag} take a batch? 16 multimodal items, pin ${tag}, zdr ${zdr}.`,
-          { ...gemini, input: multimodal(16), provider: pinned(zdr, tag) },
-        ]),
-    ),
-    [
-      "gemini-16-multimodal-no-zdr-google-ai-studio",
-      "Does the endpoint google-ai-studio (not ZDR) take a batch? 16 multimodal items, pin google-ai-studio, zdr false.",
+      ["qwen/qwen3-embedding-8b", "deepinfra/us"],
+      ["qwen/qwen3-embedding-8b", "nebius/bf16"],
+      ["qwen/qwen3-embedding-8b", "siliconflow/fp8"],
+      ["perplexity/pplx-embed-v1-4b", "perplexity/int8"],
+      ["openai/text-embedding-3-small", "azure"],
+    ] as const
+  ).flatMap(([textModel, tag]) =>
+    [16, 64].map((count): [string, string, object] => [
+      `${textModel.split("/")[1]}-${count}-strings-zdr-${tag.replace("/", "-")}`,
+      `Does ${textModel} on ${tag} take a batch? ${count} plain strings, pin ${tag}, zdr true.`,
       {
-        ...gemini,
-        input: multimodal(16),
-        provider: pinned(false, "google-ai-studio"),
-      },
-    ],
-    [
-      "gemini-batch-16-multimodal-zdr",
-      `The batch model: ${geminiBatch.model}, 16 multimodal items, zdr true.`,
-      { ...geminiBatch, input: multimodal(16), provider: unpinned(true) },
-    ],
-    [
-      "gemini-batch-16-multimodal-no-zdr",
-      `The batch model: ${geminiBatch.model}, 16 multimodal items, zdr false.`,
-      { ...geminiBatch, input: multimodal(16), provider: unpinned(false) },
-    ],
-    [
-      "titan-16-strings-zdr",
-      "Another ZDR candidate: Titan Multimodal G1, 16 plain strings, pin amazon-bedrock, zdr true.",
-      {
-        model: "amazon/titan-embed-image-v1",
-        input: texts(16),
-        provider: pinned(true, "amazon-bedrock"),
-      },
-    ],
-    [
-      "openai-3-large-16-strings-zdr",
-      "A text model: openai/text-embedding-3-large, 16 plain strings, no pin, zdr true.",
-      {
-        model: "openai/text-embedding-3-large",
-        input: texts(16),
-        provider: unpinned(true),
-      },
-    ],
-    // The text space (CTX-1431): does a text-only model take a batch on a
-    // ZDR endpoint? Each control pins one endpoint tag with no fallback.
-    ...(
-      [
-        ["qwen/qwen3-embedding-8b", "deepinfra/us"],
-        ["qwen/qwen3-embedding-8b", "nebius/bf16"],
-        ["qwen/qwen3-embedding-8b", "siliconflow/fp8"],
-        ["perplexity/pplx-embed-v1-4b", "perplexity/int8"],
-        ["openai/text-embedding-3-small", "azure"],
-      ] as const
-    ).flatMap(([textModel, tag]): [string, string, object][] =>
-      [16, 64].map((count) => [
-        `${textModel.split("/")[1]}-${count}-strings-zdr-${tag.replace("/", "-")}`,
-        `Does ${textModel} on ${tag} take a batch? ${count} plain strings, pin ${tag}, zdr true.`,
-        {
-          model: textModel,
-          input: texts(count),
-          encoding_format: "float",
-          provider: pinned(true, tag),
+        model: textModel,
+        input: texts(count),
+        encoding_format: "float",
+        provider: {
+          data_collection: "deny",
+          order: [tag],
+          allow_fallbacks: false,
+          zdr: true,
         },
-      ]),
-    ),
-  ]
+      },
+    ]),
+  )
   const url = `${input.base.replace(/\/+$/, "")}/embeddings`
   const restore = calls.install()
   const controls: (Evidence<Response> & { name: string; question: string })[] =

@@ -7,10 +7,7 @@ import {
 } from "../domain/workspace-sources/source-tree.js"
 import { SOURCES_FILE_PATH } from "../domain/workspace-sources/sources-file.js"
 import { servingIdForKnowledgePath } from "../domain/workspaces/hydrate.js"
-import {
-  imageContentType,
-  imageOfBytes,
-} from "../domain/workspaces/raw-file.js"
+import { imageContentType } from "../domain/workspaces/raw-file.js"
 import {
   type DocumentRows,
   type DocumentStatus,
@@ -19,7 +16,6 @@ import {
   type MutationCounter,
   REFERENCE_TARGET_PREFIX,
 } from "../knowledge-store/knowledge-store.js"
-import { mapWithConcurrency } from "../lib/mapWithConcurrency.js"
 import {
   beginKnowledgeRun,
   completeKnowledgeRun,
@@ -28,12 +24,11 @@ import {
 } from "../models/knowledge-state.js"
 import { getLogger } from "../observability/logger.js"
 import {
-  EmbeddingStatusError,
   type EmbeddingInput,
   embeddingKey,
-  embedMultimodal,
-  multimodalEmbeddingConfig,
-} from "../retrieval/embeddings/multimodalEmbeddings.js"
+  embedTexts,
+  textEmbeddingConfig,
+} from "../retrieval/embeddings/textEmbeddings.js"
 import {
   fetchGitHistory,
   readMarkdownHistory,
@@ -109,10 +104,10 @@ type KnowledgeRunSummary =
  * (`embeddingKey`) has a stored vector gets that vector, and only the other
  * inputs go to the model. Thus a full rebuild embeds only new content.
  *
- * The vector of an image comes from its bytes at the tip. An image that the
- * embedding model does not take (its type or its size) gets a `failed`
- * document, and the run goes on (ADR-066 decision 6). The bytes stay in
- * the Workspace Git: the writer stores no copy.
+ * The text chunks go to the embedding model in batches. An image file gets
+ * a document with no chunk and no vector: ingest writes a text file beside
+ * it, and that file is the searchable text (ADR-066 decision 6, ADR-068
+ * decision 6). The writer reads no image bytes, and it stores no copy.
  */
 export async function projectKnowledgePlane(input: {
   orgId: string
@@ -127,8 +122,8 @@ export async function projectKnowledgePlane(input: {
 }): Promise<KnowledgeRunSummary> {
   const key = { orgId: input.orgId, workspaceId: input.workspaceId }
   const projectionVersion = knowledgeProjectionVersion({
-    embeddingModel: multimodalEmbeddingConfig.model,
-    dimensions: multimodalEmbeddingConfig.dimensions,
+    embeddingModel: textEmbeddingConfig.model,
+    dimensions: textEmbeddingConfig.dimensions,
     root: input.root,
   })
   const state = await getKnowledgeState(key)
@@ -312,11 +307,13 @@ async function applyChangeSet(input: {
   // groups. A run with no file makes one write for its tombstones.
   for (let at = 0; at === 0 || at < files.length; at += FILES_PER_WRITE) {
     const group = files.slice(at, at + FILES_PER_WRITE)
-    const documents: DocumentRows[] = []
+    const unembedded: UnembeddedDocumentRows[] = []
     const failed: { docKey: string; error: string }[] = []
+    // The blobs are read 50 files at a time. The chunks of the whole group
+    // then go to the embedding client in one call, so that its requests
+    // fill to `batchSize`.
     await inBatches(group, 50, async (batch) => {
       const rows = await projectFiles({
-        reuse: { store, scope, counter: input.embedding },
         directory,
         keyOf,
         workspaceId,
@@ -327,8 +324,13 @@ async function applyChangeSet(input: {
         paths: batch,
         blobs: batch.map((path) => tree.get(path) ?? ""),
       })
-      documents.push(...rows.documents)
+      unembedded.push(...rows.documents)
       failed.push(...rows.failed)
+    })
+    const documents = await embedDocuments(unembedded, {
+      store,
+      scope,
+      counter: input.embedding,
     })
     for (const { document, relations } of documents) {
       written.add(document.docKey)
@@ -387,11 +389,11 @@ async function applyChangeSet(input: {
 }
 
 /**
- * The rows of each file of `paths`: a document, or a `failed` placeholder
- * with the content error. A knowledge file that gives no unit gives no row.
+ * The rows of each file of `paths`, with no vectors: a document, or a
+ * `failed` placeholder with the content error. A knowledge file that gives
+ * no unit gives no row.
  */
 async function projectFiles(input: {
-  reuse: VectorReuse
   directory: string
   /** The document key of a path. */
   keyOf: (path: string) => string
@@ -405,32 +407,25 @@ async function projectFiles(input: {
   /** The blob id of each path. */
   blobs: string[]
 }): Promise<{
-  documents: DocumentRows[]
+  documents: UnembeddedDocumentRows[]
   failed: { docKey: string; error: string }[]
 }> {
   const { workspaceId, keyOf, blobPath, observedAt } = input
-  const contents = await readGitBlobs(input.directory, input.blobs)
-  const documents: UnembeddedDocumentRows[] = []
-  const images: {
-    rows: UnembeddedDocumentRows
-    bytes: Buffer
-    mimeType: string
-  }[] = []
+  // An image file gives its rows from its path alone, so the writer reads
+  // only the blobs of the knowledge files.
+  const documents: UnembeddedDocumentRows[] = input.paths
+    .filter((path) => !isKnowledgePath(path))
+    .map((path) => imageRows({ workspaceId, path, observedAt }))
+  const knowledge = input.paths.flatMap((path, index) =>
+    isKnowledgePath(path) ? [{ path, blob: input.blobs[index] ?? "" }] : [],
+  )
+  const contents = await readGitBlobs(
+    input.directory,
+    knowledge.map(({ blob }) => blob),
+  )
   const failed: { docKey: string; error: string }[] = []
-  for (const [index, path] of input.paths.entries()) {
+  for (const [index, { path }] of knowledge.entries()) {
     const bytes = contents[index] ?? Buffer.alloc(0)
-    if (!isKnowledgePath(path)) {
-      const image = embeddableImage(path, bytes)
-      if ("error" in image)
-        failed.push({ docKey: keyOf(path), error: image.error })
-      else
-        images.push({
-          rows: imageRows({ workspaceId, path, observedAt }),
-          bytes,
-          mimeType: image.mimeType,
-        })
-      continue
-    }
     // The parse and the mapper read no Git and no network: an error here
     // is a content error of the file.
     try {
@@ -461,14 +456,7 @@ async function projectFiles(input: {
       })
     }
   }
-  const embeddedImages = await embedImages(images, input.reuse)
-  return {
-    documents: [
-      ...(await embedDocuments(documents, input.reuse)),
-      ...embeddedImages.documents,
-    ],
-    failed: [...failed, ...embeddedImages.failed],
-  }
+  return { documents, failed }
 }
 
 /**
@@ -516,12 +504,9 @@ export async function inBatches<T>(
 
 /** The embedding work of one run, for its metrics. */
 type EmbeddingCounter = {
-  /** The inputs (chunks and images) that got a stored vector. */
+  /** The chunks that got a stored vector. */
   hits: number
-  /**
-   * The inputs with no stored vector. They go to the model, and an image
-   * that the model refuses gets no vector.
-   */
+  /** The chunks with no stored vector. They go to the model. */
   misses: number
   /**
    * The HTTP requests to the embedding API, each retry too. Inputs of one
@@ -541,9 +526,9 @@ type VectorReuse = {
 
 /**
  * The vector of each input of `inputs`, in order, and its key: the stored
- * vector of the key in a document of `docKeys`, else the result of `embed`.
- * `embed` gets the inputs with no stored vector, one for each key, and gives
- * a result for each, in order. Inputs with the same key share that result.
+ * vector of the key in a document of `docKeys`, else a new vector from
+ * `embedTexts`. The model gets the inputs with no stored vector, one for each
+ * key. Inputs with the same key share that vector.
  *
  * The lookup reads only the chunks of `docKeys` in the Workspace of the run
  * (ADR-067 decision 5). They are the rows that this write replaces, before
@@ -551,16 +536,13 @@ type VectorReuse = {
  * stored vector is the BFloat16 value, so its write stores the same value
  * as a write of the new vector.
  */
-async function embedWithReuse<R>(
+async function embedWithReuse(
   reuse: VectorReuse,
   docKeys: string[],
   inputs: EmbeddingInput[],
-  embed: (inputs: EmbeddingInput[]) => Promise<R[]>,
-): Promise<{ key: string; vector: number[] | R }[]> {
+): Promise<{ key: string; vector: number[] }[]> {
   const { counter } = reuse
-  const keys = inputs.map((input) =>
-    embeddingKey(input, multimodalEmbeddingConfig),
-  )
+  const keys = inputs.map((input) => embeddingKey(input, textEmbeddingConfig))
   const stored = await reuse.store.readEmbeddings(reuse.scope, docKeys, keys)
   const missing = new Map<string, EmbeddingInput>()
   for (const [index, input] of inputs.entries()) {
@@ -571,13 +553,15 @@ async function embedWithReuse<R>(
       if (!missing.has(key)) missing.set(key, input)
     }
   }
-  const fresh = new Map<string, R>()
+  const fresh = new Map<string, number[]>()
   if (missing.size > 0) {
     const started = performance.now()
     try {
       const missingKeys = [...missing.keys()]
       for (const [index, result] of (
-        await embed([...missing.values()])
+        await embedTexts([...missing.values()], textEmbeddingConfig, () => {
+          counter.requests++
+        })
       ).entries()) {
         const key = missingKeys[index]
         if (key !== undefined) fresh.set(key, result)
@@ -593,12 +577,10 @@ async function embedWithReuse<R>(
   })
 }
 
-/** The `onRequest` of `embedMultimodal`: it counts each HTTP request. */
-const countRequest = (reuse: VectorReuse) => () => {
-  reuse.counter.requests++
-}
-
-/** Embed the text chunks of each document. A chunk with no text gets no vector. */
+/**
+ * Embed the text chunks of each document, in batches (`embedTexts`). A chunk
+ * with no text gets no vector.
+ */
 async function embedDocuments(
   documents: UnembeddedDocumentRows[],
   reuse: VectorReuse,
@@ -622,8 +604,6 @@ async function embedDocuments(
     reuse,
     documents.map(({ document }) => document.docKey),
     inputs,
-    (missing) =>
-      embedMultimodal(missing, multimodalEmbeddingConfig, countRequest(reuse)),
   )
   let next = 0
   return documents.map((rows) => ({
@@ -635,109 +615,6 @@ async function embedDocuments(
       return { ...chunk, embedding: result.vector, embeddingKey: result.key }
     }),
   }))
-}
-
-/**
- * The type of the image file at `path`, from its bytes, when the embedding
- * model takes it; else the error for the `failed` document of the file. The
- * type comes from the bytes, so a file with a wrong name (or bytes that are
- * not an image) does not go to the model and fail the run.
- */
-function embeddableImage(
-  path: string,
-  bytes: Buffer,
-): { mimeType: string } | { error: string } {
-  const { imageTypes, maxImageBytes } = multimodalEmbeddingConfig
-  const image = imageOfBytes(bytes)
-  // The type of the bytes, else the type of the file name.
-  const type = image?.contentType ?? imageContentType(path) ?? "unknown"
-  if (!imageTypes.includes(type))
-    return {
-      error: `The embedding model does not take images of type ${type}.`,
-    }
-  if (!image) return { error: `The bytes are not an image of type ${type}.` }
-  if (bytes.length > maxImageBytes)
-    return {
-      error: `The image has ${bytes.length} bytes. The embedding model takes at most ${maxImageBytes}.`,
-    }
-  return { mimeType: image.contentType }
-}
-
-/**
- * Embed the bytes of each image, one image for each request. The vector goes
- * on the one chunk of the image, whose text is empty, so the request has the
- * image part only (ADR-066 decision 6). An image whose bytes have a stored
- * vector gets that vector (`embedWithReuse`). At most
- * `multimodalEmbeddingConfig.concurrency` requests are in flight.
- *
- * The model can refuse the bytes of an image with a good header (for
- * example a cut file). An image that it refuses (HTTP 400, 413 or 422) gets
- * a `failed` document. Another error fails the run.
- */
-async function embedImages(
-  images: { rows: UnembeddedDocumentRows; bytes: Buffer; mimeType: string }[],
-  reuse: VectorReuse,
-): Promise<{
-  documents: DocumentRows[]
-  failed: { docKey: string; error: string }[]
-}> {
-  /** The vector of one image, or the status of a refusal of its content. */
-  const embedAlone = async (
-    input: EmbeddingInput,
-  ): Promise<number[] | { refused: number }> => {
-    try {
-      const [vector] = await embedMultimodal(
-        [input],
-        multimodalEmbeddingConfig,
-        countRequest(reuse),
-      )
-      return vector ?? []
-    } catch (error) {
-      if (
-        !(error instanceof EmbeddingStatusError) ||
-        ![400, 413, 422].includes(error.status)
-      )
-        throw error
-      return { refused: error.status }
-    }
-  }
-  const vectors = await embedWithReuse(
-    reuse,
-    images.map((image) => image.rows.document.docKey),
-    images.map(({ bytes, mimeType }) => ({
-      kind: "image" as const,
-      bytes,
-      mimeType,
-    })),
-    (missing) =>
-      mapWithConcurrency(
-        missing,
-        multimodalEmbeddingConfig.concurrency,
-        embedAlone,
-      ),
-  )
-  const documents: DocumentRows[] = []
-  const failed: { docKey: string; error: string }[] = []
-  for (const [index, image] of images.entries()) {
-    const result = vectors[index]
-    if (!result) throw new Error("An image got no vector")
-    const { key, vector } = result
-    if ("refused" in vector)
-      failed.push({
-        docKey: image.rows.document.docKey,
-        error: `The embedding model refused the image (HTTP ${vector.refused}).`,
-      })
-    else
-      documents.push({
-        ...image.rows,
-        chunks: image.rows.chunks.map((chunk) => ({
-          ...chunk,
-          embedding: vector,
-          embeddingKey: key,
-        })),
-      })
-  }
-  return { documents, failed }
 }
 
 /** The introducing commit of each knowledge file (`fileIntroductions`). */

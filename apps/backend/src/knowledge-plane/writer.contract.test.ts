@@ -37,7 +37,7 @@ import {
 import { migrateKnowledgeStore } from "../knowledge-store/migrate.js"
 import { getKnowledgeState } from "../models/knowledge-state.js"
 import { createLogger, withLogger } from "../observability/logger.js"
-import { multimodalEmbeddingConfig } from "../retrieval/embeddings/multimodalEmbeddings.js"
+import { textEmbeddingConfig } from "../retrieval/embeddings/textEmbeddings.js"
 import { renderGithubPullRequest } from "../services/github/pull-request-mirror/converter.js"
 import { renderLinearIssue } from "../services/linear/converter.js"
 import { startClickHouse, userUrl } from "../test/clickhouse.js"
@@ -68,41 +68,34 @@ const EMBEDDINGS_URL = "https://embeddings.test/api/v1/embeddings"
  * A vector that only the text of the input decides. Most of its values are
  * not BFloat16 values, so the stored vector is not the vector of the answer.
  */
-function vectorOf(content: unknown): number[] {
-  const digest = createHash("sha256").update(JSON.stringify(content)).digest()
+function vectorOf(text: string): number[] {
+  const digest = createHash("sha256").update(text).digest()
   return Array.from(
-    { length: multimodalEmbeddingConfig.dimensions },
+    { length: textEmbeddingConfig.dimensions },
     (_, i) => ((digest[i % digest.length] ?? 0) - 128) / 100,
   )
 }
 
 /**
  * The embedding requests; `failAt` answers that request (1-based) with a 401,
- * an error that fails the run. A 400 is a refusal of the content.
- * `inputs` holds the content parts of each request.
+ * an error that fails the run. `inputs` holds the texts of each request.
  */
 const embeddings = {
   requests: 0,
   failAt: 0,
-  inputs: [] as { content: unknown }[][],
-  /** A request that holds this text (an image in base64) gets a 400. */
-  refuse: null as string | null,
+  inputs: [] as string[][],
 }
 const msw = setupServer(
   http.post(EMBEDDINGS_URL, async ({ request }) => {
     embeddings.requests++
     if (embeddings.requests === embeddings.failAt)
       return HttpResponse.json({ error: "down" }, { status: 401 })
-    const body = (await request.json()) as {
-      input: { content: unknown }[]
-    }
-    if (embeddings.refuse && JSON.stringify(body).includes(embeddings.refuse))
-      return HttpResponse.json({ error: "bad image" }, { status: 400 })
+    const body = (await request.json()) as { input: string[] }
     embeddings.inputs.push(body.input)
     return HttpResponse.json({
       data: body.input.map((input, index) => ({
         index,
-        embedding: vectorOf(input.content),
+        embedding: vectorOf(input),
       })),
     })
   }),
@@ -210,11 +203,11 @@ afterAll(async () => {
 
 beforeEach(() => {
   vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
+  vi.stubEnv("MODEL_PROVIDER", "openai-like")
   vi.stubEnv("MODEL_PROVIDER_URL", "https://embeddings.test/api/v1")
   embeddings.requests = 0
   embeddings.failAt = 0
   embeddings.inputs = []
-  embeddings.refuse = null
   Object.assign(fault, {
     match: /./,
     failAt: 0,
@@ -1157,17 +1150,54 @@ describe("projectKnowledgePlane", () => {
     }
   })
 
-  it("embeds the bytes of an image file, keeps no copy of them, skips submodules, and reads only the root folder", async () => {
+  it("sends the text chunks to the embedding model in batches", async () => {
+    const remote = await Remote.create()
+    try {
+      const workspaceId = await newWorkspace()
+      const { batchSize } = textEmbeddingConfig
+      // One chunk for each file: more chunks than one batch holds.
+      const files = Object.fromEntries(
+        Array.from({ length: batchSize + 6 }, (_, index) => [
+          `notes/n${String(index).padStart(3, "0")}.md`,
+          `# Note ${index}\n\nText of note ${index}.\n`,
+        ]),
+      )
+      await run(remote, workspaceId, await remote.commit(files))
+      // The chunks of the whole write group go to the client in one call,
+      // so the requests fill to `batchSize`. Two requests are in flight
+      // together, so their order is not fixed.
+      expect(
+        embeddings.inputs.map((inputs) => inputs.length).sort((a, b) => b - a),
+      ).toEqual([batchSize, 6])
+      // Each input is the chunk text after its context line.
+      expect(embeddings.inputs.flat()).toContainEqual(
+        expect.stringMatching(
+          /^Note 7 \(part 1 of 1\)\n\n[^]*Text of note 7\./,
+        ),
+      )
+    } finally {
+      await remote.remove()
+    }
+  })
+
+  it("gives each image file a document with no chunk and no vector, sends no image to the embedding model, skips submodules, and reads only the root folder", async () => {
     const remote = await Remote.create()
     try {
       const workspaceId = await newWorkspace()
       const scope = { orgId, workspaceId }
       const tip = await remote.commit({
-        "docs/a.md": "# Alpha\n\n![d](img/d.png)\n",
+        "docs/a.md":
+          "# Alpha\n\n![d](img/d.png) ![Logo](logo.svg) ![Photo](p.jpg) ![Fake](fake.png)\n",
         "docs/img/d.png": png("one"),
+        "docs/logo.svg": '<svg xmlns="http://www.w3.org/2000/svg"/>',
+        "docs/p.jpg": jpeg,
+        // The writer reads no image bytes, so it does not check them.
+        "docs/fake.png": "This is text, not a PNG.",
         "outside.md": "# Outside\n",
       })
-      await run(remote, workspaceId, tip, { root: "docs" })
+      expect(
+        await run(remote, workspaceId, tip, { root: "docs" }),
+      ).toMatchObject({ mode: "full", failedCount: 0 })
       const image = await store.readDocument(
         scope,
         key(workspaceId, "img/d.png"),
@@ -1178,18 +1208,15 @@ describe("projectKnowledgePlane", () => {
         path: "img/d.png",
         mime: "image/png",
       })
-      // The image chunk has no text. Its vector comes from a request that
-      // holds the bytes of the image only.
-      const dataUri = `data:image/png;base64,${png("one").toString("base64")}`
-      expect(embeddings.inputs).toContainEqual([
-        { content: [{ type: "image_url", image_url: { url: dataUri } }] },
+      expect(image?.chunks).toEqual([])
+      for (const path of ["logo.svg", "p.jpg", "fake.png"])
+        expect(
+          (await store.readDocument(scope, key(workspaceId, path)))?.document,
+        ).toMatchObject({ kind: "image", status: "active" })
+      // Only the one chunk of a.md goes to the embedding model.
+      expect(embeddings.inputs).toEqual([
+        [expect.stringContaining("![d](img/d.png)")],
       ])
-      expect(image?.chunks).toMatchObject([
-        { ordinal: 0, text: "", startLine: 0, endLine: 0 },
-      ])
-      expect(image?.chunks[0]?.embedding).toHaveLength(
-        multimodalEmbeddingConfig.dimensions,
-      )
       // The alt text of the reference is on its relation.
       expect(
         image?.incoming.map(({ predicate, altText }) => ({
@@ -1204,82 +1231,9 @@ describe("projectKnowledgePlane", () => {
         ),
       ).toEqual([{ startLine: 1, endLine: 3 }])
       expect(Object.keys(await statusOf(workspaceId)).sort()).toEqual(
-        [key(workspaceId, "a.md"), key(workspaceId, "img/d.png")].sort(),
-      )
-    } finally {
-      await remote.remove()
-    }
-  })
-
-  it("gives a failed document to an image that the model does not take, and completes the run", async () => {
-    const remote = await Remote.create()
-    try {
-      const workspaceId = await newWorkspace()
-      const scope = { orgId, workspaceId }
-      const large = Buffer.alloc(multimodalEmbeddingConfig.maxImageBytes + 1)
-      png("large").copy(large)
-      const tip = await remote.commit({
-        "a.md":
-          "# Alpha\n\n![Logo](logo.svg) ![Big](big.png) ![Fake](fake.png) ![Photo](p.jpg) ![Chart](chart.png)\n",
-        "logo.svg": '<svg xmlns="http://www.w3.org/2000/svg"/>',
-        "big.png": large,
-        "fake.png": "This is text, not a PNG.",
-        "p.jpg": jpeg,
-        "chart.png": png("chart"),
-      })
-      const summary = await run(remote, workspaceId, tip)
-      expect(summary).toMatchObject({ mode: "full", failedCount: 3 })
-      expect((await getKnowledgeState({ orgId, workspaceId }))?.lastSha).toBe(
-        tip,
-      )
-      const documentOf = async (path: string) =>
-        (await store.readDocument(scope, key(workspaceId, path)))?.document
-      expect(await documentOf("logo.svg")).toMatchObject({
-        status: "failed",
-        error:
-          "The embedding model does not take images of type image/svg+xml.",
-      })
-      expect(await documentOf("big.png")).toMatchObject({
-        status: "failed",
-        error: expect.stringContaining("The embedding model takes at most"),
-      })
-      // The type comes from the bytes, not from the file name.
-      expect(await documentOf("fake.png")).toMatchObject({
-        status: "failed",
-        error: "The bytes are not an image of type image/png.",
-      })
-      expect(await documentOf("p.jpg")).toMatchObject({
-        status: "active",
-        mime: "image/jpeg",
-      })
-      // Only the JPEG and the small PNG go to the embedding model, one in
-      // each request. Each relation stays, with its alt text.
-      const imageInputs = embeddings.inputs.filter((input) =>
-        JSON.stringify(input).includes("image_url"),
-      )
-      expect(imageInputs).toEqual(
-        expect.arrayContaining(
-          [
-            `data:image/png;base64,${png("chart").toString("base64")}`,
-            `data:image/jpeg;base64,${jpeg.toString("base64")}`,
-          ].map((url) => [
-            { content: [{ type: "image_url", image_url: { url } }] },
-          ]),
-        ),
-      )
-      expect(imageInputs).toHaveLength(2)
-      expect(
-        (await store.readDocument(scope, key(workspaceId, "a.md")))?.outgoing
-          .map(({ dstDoc, altText }) => [dstDoc, altText])
+        ["a.md", "img/d.png", "logo.svg", "p.jpg", "fake.png"]
+          .map((path) => key(workspaceId, path))
           .sort(),
-      ).toEqual(
-        [
-          [key(workspaceId, "logo.svg"), "Logo"],
-          [key(workspaceId, "big.png"), "Big"],
-          [key(workspaceId, "fake.png"), "Fake"],
-          [key(workspaceId, "p.jpg"), "Photo"],
-          [key(workspaceId, "chart.png"), "Chart"],
-        ].sort(),
       )
     } finally {
       await remote.remove()
@@ -1513,37 +1467,6 @@ describe("reference keys (CTX-1400)", () => {
       await remote.remove()
     }
   })
-
-  it("gives a failed document to an image that the model refuses, and embeds the other images", async () => {
-    const remote = await Remote.create()
-    try {
-      const workspaceId = await newWorkspace()
-      const scope = { orgId, workspaceId }
-      // A cut file: its header is good, and the model refuses its bytes.
-      embeddings.refuse = png("cut").toString("base64")
-      const tip = await remote.commit({
-        "a.md": "# Alpha\n\n![A](a.png) ![Cut](cut.png) ![Z](z.png)\n",
-        "a.png": png("a"),
-        "cut.png": png("cut"),
-        "z.png": png("z"),
-      })
-      const summary = await run(remote, workspaceId, tip)
-      expect(summary).toMatchObject({ mode: "full", failedCount: 1 })
-      const documentOf = async (path: string) =>
-        (await store.readDocument(scope, key(workspaceId, path)))?.document
-      expect(await documentOf("cut.png")).toMatchObject({
-        status: "failed",
-        error: "The embedding model refused the image (HTTP 400).",
-      })
-      for (const path of ["a.png", "z.png"])
-        expect(
-          (await store.readDocument(scope, key(workspaceId, path)))?.chunks[0]
-            ?.embedding,
-        ).toHaveLength(multimodalEmbeddingConfig.dimensions)
-    } finally {
-      await remote.remove()
-    }
-  })
 })
 
 describe("vector reuse (CTX-1428)", () => {
@@ -1563,14 +1486,13 @@ describe("vector reuse (CTX-1428)", () => {
   const embeddingOf = () =>
     spans.spanNamed("knowledge.projection.apply")?.attributes
   /** The text of each request since the last reset. */
-  const sentTexts = () =>
-    embeddings.inputs.flat().map((input) => JSON.stringify(input.content))
+  const sentTexts = () => embeddings.inputs.flat()
   const files = {
     "a.md": "# Alpha\n\nThe first part.\n\n## Two\n\nThe second part.\n",
     "b.md": "# Beta\n\nSee [a](a.md).\n",
     "c.md": "# Gamma\n\n![d](img/d.png)\n",
     "img/d.png": png("one"),
-    // The same content in two files: one request.
+    // The same content in two files: one input.
     "same-1.md": "# Same\n\nThe same text.\n",
     "same-2.md": "# Same\n\nThe same text.\n",
   }
@@ -1585,9 +1507,10 @@ describe("vector reuse (CTX-1428)", () => {
       expect(new Set(first).size).toBe(first.length)
       const inputs =
         Number(embeddingOf()?.["ctxpipe.knowledge.embedding_misses"]) || 0
+      // The unique inputs go in one batch.
       expect(embeddingOf()).toMatchObject({
         "ctxpipe.knowledge.embedding_hits": 0,
-        "ctxpipe.knowledge.embedding_requests": inputs - 1,
+        "ctxpipe.knowledge.embedding_requests": 1,
       })
       expect(first).toHaveLength(inputs - 1)
 
@@ -1605,8 +1528,8 @@ describe("vector reuse (CTX-1428)", () => {
         mode: "full",
         fullReason: "projection_version",
       })
-      // Only the text of b.md and n.md goes to the model.
-      expect(embeddings.requests).toBe(2)
+      // Only the text of b.md and n.md goes to the model, in one request.
+      expect(embeddings.requests).toBe(1)
       expect(sentTexts()).toHaveLength(2)
       expect(sentTexts()).toEqual(
         expect.arrayContaining([
@@ -1617,7 +1540,7 @@ describe("vector reuse (CTX-1428)", () => {
       expect(embeddingOf()).toMatchObject({
         "ctxpipe.knowledge.embedding_hits": inputs - 1,
         "ctxpipe.knowledge.embedding_misses": 2,
-        "ctxpipe.knowledge.embedding_requests": 2,
+        "ctxpipe.knowledge.embedding_requests": 1,
       })
 
       // A Workspace with no stored vectors embeds each input.
@@ -1638,7 +1561,7 @@ describe("vector reuse (CTX-1428)", () => {
       const answered = new Set(
         embeddings.inputs
           .flat()
-          .map((input) => JSON.stringify(vectorOf(input.content))),
+          .map((input) => JSON.stringify(vectorOf(input))),
       )
       expect(answered.size).toBe(inputs)
       expect(
@@ -1666,12 +1589,13 @@ describe("vector reuse (CTX-1428)", () => {
         ),
       )
       const workspaceId = await newWorkspace()
-      // The first request of the second write fails the run, after the
-      // first write is in ClickHouse. The 5 requests of the second write
-      // start together.
-      embeddings.failAt = 1001
+      // The first write sends 1000 chunks in 16 requests (15 of 64 and one
+      // of 40). The request of the second write fails the run, after the
+      // first write is in ClickHouse.
+      const firstWrite = Math.ceil(1000 / textEmbeddingConfig.batchSize)
+      embeddings.failAt = firstWrite + 1
       await expect(run(remote, workspaceId, tip)).rejects.toThrow("HTTP 401")
-      expect(embeddings.requests).toBe(1005)
+      expect(embeddings.requests).toBe(firstWrite + 1)
       expect(await getKnowledgeState({ orgId, workspaceId })).toMatchObject({
         lastSha: null,
         attemptShas: [tip],
@@ -1684,7 +1608,7 @@ describe("vector reuse (CTX-1428)", () => {
       expect(await run(remote, workspaceId, tip)).toMatchObject({
         mode: "full",
       })
-      expect(embeddings.requests).toBe(5)
+      expect(embeddings.requests).toBe(1)
       expect(sentTexts().sort()).toEqual(
         Array.from({ length: 5 }, (_, index) =>
           expect.stringContaining(`The text of file ${1000 + index}.`),
@@ -1694,7 +1618,7 @@ describe("vector reuse (CTX-1428)", () => {
         "ctxpipe.knowledge.outcome": "completed",
         "ctxpipe.knowledge.embedding_hits": 1000,
         "ctxpipe.knowledge.embedding_misses": 5,
-        "ctxpipe.knowledge.embedding_requests": 5,
+        "ctxpipe.knowledge.embedding_requests": 1,
       })
       const statuses = Object.values(await statusOf(workspaceId))
       expect(statuses).toHaveLength(count)
@@ -1706,13 +1630,13 @@ describe("vector reuse (CTX-1428)", () => {
 
   it("a change of the embedding model embeds each input again", async () => {
     const remote = await Remote.create()
-    const model = multimodalEmbeddingConfig.model
+    const model = textEmbeddingConfig.model
     try {
       const workspaceId = await newWorkspace()
       const tip = await remote.commit(files)
       await run(remote, workspaceId, tip)
       const requests = embeddings.requests
-      multimodalEmbeddingConfig.model = "test/other-embedding"
+      textEmbeddingConfig.model = "test/other-embedding"
       embeddings.requests = 0
       spans.reset()
       expect(await run(remote, workspaceId, tip)).toMatchObject({
@@ -1725,7 +1649,7 @@ describe("vector reuse (CTX-1428)", () => {
         "ctxpipe.knowledge.embedding_requests": requests,
       })
     } finally {
-      multimodalEmbeddingConfig.model = model
+      textEmbeddingConfig.model = model
       await remote.remove()
     }
   })
