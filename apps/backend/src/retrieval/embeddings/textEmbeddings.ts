@@ -17,8 +17,10 @@ import { openRouterSettings, ZDR_PROVIDER } from "../services/modelProvider.js"
 /*
  * The embedding client of the knowledge plane (ADR-068 decisions 1, 5 and 7).
  * One text model embeds every chunk and every search question in one vector
- * space. The client sends the chunks in batches to the OpenRouter embeddings
- * endpoint, and it returns the full vectors. ClickHouse stores each vector as
+ * space. The ingest path (`embedTexts`) sends the chunks in batches to the
+ * OpenRouter embeddings endpoint, with retries. The query path
+ * (`embedQuery`) sends one question, routed by latency, in one attempt. Both
+ * return the full vectors. ClickHouse stores each vector as
  * `Array(BFloat16)` and calculates its binary form (`chunks.embedding_bits`)
  * on the server. An image gets no vector: ingest writes a text file beside
  * it (ADR-068 decision 6).
@@ -56,8 +58,8 @@ export const textEmbeddingConfig = {
   /** The most requests in flight of one `embedTexts` call. */
   concurrency: 4,
   /**
-   * The maximum number of attempts of one request (429, 5xx and network
-   * errors retry).
+   * The maximum number of attempts of one ingest request (429, 5xx and
+   * network errors retry). A query has one attempt (`embedQuery`).
    */
   maxAttempts: 5,
   /** The first backoff. Each retry doubles it, up to `maxBackoffMs`. */
@@ -67,19 +69,15 @@ export const textEmbeddingConfig = {
 
 type TextEmbeddingConfig = typeof textEmbeddingConfig
 
-/** One input to embed. */
-export type EmbeddingInput =
-  /** A search question. It gets the instruction line of the model. */
-  | { kind: "query"; text: string }
-  | {
-      kind: "text"
-      text: string
-      /** The title of the document of the chunk. */
-      documentTitle: string
-      /** The 0-based position of the chunk in its document. */
-      chunkIndex: number
-      chunkCount: number
-    }
+/** One chunk of a document to embed. */
+export type EmbeddingInput = {
+  text: string
+  /** The title of the document of the chunk. */
+  documentTitle: string
+  /** The 0-based position of the chunk in its document. */
+  chunkIndex: number
+  chunkCount: number
+}
 
 const responseSchema = z.object({
   data: z.array(
@@ -106,24 +104,19 @@ export function embeddingKey(
   config: TextEmbeddingConfig = textEmbeddingConfig,
 ): string {
   return createHash("sha256")
-    .update(
-      JSON.stringify([
-        config.model,
-        config.dimensions,
-        inputText(input, config),
-      ]),
-    )
+    .update(JSON.stringify([config.model, config.dimensions, chunkText(input)]))
     .digest("hex")
 }
 
 /**
- * Embed texts in the one vector space of the knowledge plane. The result
- * has the order of `inputs`. The client sends at most `batchSize` inputs in
- * one request, and at most `concurrency` requests in flight. Every request
- * sets `provider.data_collection: "deny"`, `provider.zdr: true` and the
- * allowed quantizations, so OpenRouter routes it only to a ZDR endpoint
- * that is not of a known low precision. `onRequest` is called before each
- * HTTP request, also before each retry.
+ * Embed the chunks of documents in the one vector space of the knowledge
+ * plane (the ingest path). The result has the order of `inputs`. The client
+ * sends at most `batchSize` inputs in one request, and at most `concurrency`
+ * requests in flight. Every request sets `provider.data_collection: "deny"`,
+ * `provider.zdr: true` and the allowed quantizations, so OpenRouter routes
+ * it only to a ZDR endpoint that is not of a known low precision. A 429, a
+ * 5xx and a network error retry with backoff, up to `maxAttempts`.
+ * `onRequest` is called before each HTTP request, also before each retry.
  */
 export async function embedTexts(
   inputs: EmbeddingInput[],
@@ -131,32 +124,13 @@ export async function embedTexts(
   onRequest?: () => void,
 ): Promise<number[][]> {
   if (inputs.length === 0) return []
-  assertNotInOrgDbContext()
-  // The model and the provider block are of OpenRouter. A deployment whose
-  // model settings do not point at OpenRouter sends no content to it.
-  const settings = openRouterSettings()
-  if (!settings)
-    throw new Error(
-      "The knowledge embeddings need MODEL_PROVIDER openrouter or openai-like, an OpenRouter MODEL_PROVIDER_URL, and MODEL_PROVIDER_API_KEY.",
-    )
-  const url = `${settings.base.replace(/\/$/, "")}/embeddings`
 
   const embedBatch = async (batch: EmbeddingInput[]): Promise<number[][]> => {
-    const body = JSON.stringify({
-      model: config.model,
-      input: batch.map((input) => inputText(input, config)),
-      dimensions: config.dimensions,
-      encoding_format: "float",
-      provider: { ...ZDR_PROVIDER, quantizations: config.quantizations },
-    })
+    const texts = batch.map(chunkText)
     for (let attempt = 1; ; attempt++) {
       try {
         onRequest?.()
-        return await embedRequest(batch.length, body, {
-          url,
-          apiKey: settings.apiKey,
-          config,
-        })
+        return await embedRequest(texts, config)
       } catch (err) {
         // A 429, a 5xx and a network error of fetch (no answer) retry. The
         // message of a network error holds no input text.
@@ -178,13 +152,45 @@ export async function embedTexts(
   ).flat()
 }
 
-/** One HTTP request in one span. The span holds counts, never content. */
+/**
+ * Embed one search question (the query path). The text gets the instruction
+ * line of the model (ADR-068 decision 5). The request has the provider block
+ * of `embedTexts`, and it asks OpenRouter to sort the ZDR endpoints by
+ * latency, with its default fallback (ADR-068 decision 7). The query has a
+ * time budget, so a failure does not retry: the search returns partial.
+ */
+export async function embedQuery(
+  text: string,
+  config: TextEmbeddingConfig = textEmbeddingConfig,
+): Promise<number[]> {
+  const [vector] = await embedRequest(
+    [`Instruct: ${config.queryInstruction}\nQuery:${text}`],
+    config,
+    "latency",
+  )
+  if (!vector) throw new Error("The embedding endpoint returned no vector")
+  return vector
+}
+
+/**
+ * One HTTP request with `texts`, in one span. The provider block has the ZDR
+ * fields, the allowed quantizations and `sort` when it is set. The span
+ * holds counts, never content.
+ */
 function embedRequest(
-  count: number,
-  body: string,
-  request: { url: string; apiKey: string; config: TextEmbeddingConfig },
+  texts: string[],
+  config: TextEmbeddingConfig,
+  sort?: "latency",
 ): Promise<number[][]> {
-  const { config } = request
+  assertNotInOrgDbContext()
+  // The model and the provider block are of OpenRouter. A deployment whose
+  // model settings do not point at OpenRouter sends no content to it.
+  const settings = openRouterSettings()
+  if (!settings)
+    throw new Error(
+      "The knowledge embeddings need MODEL_PROVIDER openrouter or openai-like, an OpenRouter MODEL_PROVIDER_URL, and MODEL_PROVIDER_API_KEY.",
+    )
+  const count = texts.length
   let usage: { input?: number; cost?: number } | undefined
   return withLlmGeneration(
     {
@@ -200,14 +206,27 @@ function embedRequest(
       usageSoFar: () => usage,
     },
     async () => {
-      const res = await fetch(request.url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${request.apiKey}`,
+      const res = await fetch(
+        `${settings.base.replace(/\/$/, "")}/embeddings`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${settings.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: config.model,
+            input: texts,
+            dimensions: config.dimensions,
+            encoding_format: "float",
+            provider: {
+              ...ZDR_PROVIDER,
+              quantizations: config.quantizations,
+              ...(sort ? { sort } : {}),
+            },
+          }),
         },
-        body,
-      })
+      )
       if (!res.ok) {
         // The provider can echo the input in the body. Keep it out of the
         // error, because the span status copies the error message. Only a
@@ -240,11 +259,11 @@ function embedRequest(
   )
 }
 
-/** The text of one input (ADR-068 decision 5). */
-function inputText(input: EmbeddingInput, config: TextEmbeddingConfig): string {
-  if (input.kind === "query")
-    return `Instruct: ${config.queryInstruction}\nQuery:${input.text}`
-  // The one line of context: the document title and the chunk position.
+/**
+ * The text of one chunk: one line of context, the document title and the
+ * chunk position, and no instruction line (ADR-068 decision 5).
+ */
+function chunkText(input: EmbeddingInput): string {
   const title = input.documentTitle.replace(/\s+/g, " ").trim()
   const context = `${title} (part ${input.chunkIndex + 1} of ${input.chunkCount})`
   return `${context}\n\n${input.text}`

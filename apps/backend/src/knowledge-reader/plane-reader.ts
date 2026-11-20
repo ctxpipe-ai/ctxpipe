@@ -28,10 +28,11 @@ import {
   type KnowledgeRelation,
   type KnowledgeStore,
 } from "../knowledge-store/knowledge-store.js"
+import { isRetryableFetchFailure } from "../lib/withTransientHttpRetry.js"
 import { truncateText } from "../mcp/framework/budget.js"
 import { checkPath } from "../mcp/framework/refs.js"
 import { McpToolError } from "../mcp/framework/tool-errors.js"
-import { embedTexts } from "../retrieval/embeddings/textEmbeddings.js"
+import { embedQuery } from "../retrieval/embeddings/textEmbeddings.js"
 import { JevError } from "../retrieval/jev/client.js"
 import {
   disagreementCalls,
@@ -45,6 +46,7 @@ import type {
   SearchResult,
 } from "./knowledge-reader.js"
 import {
+  BudgetSpentError,
   beforeDeadline,
   evidenceText,
   isBudgetSpent,
@@ -85,9 +87,16 @@ export function planeKnowledgeReader(input: {
   }
   const embed = async (text: string) => {
     meter.embeddingCalls += 1
-    const [vector] = await embedTexts([{ kind: "query", text }])
-    if (!vector) throw new Error("The embedding endpoint returned no vector")
-    return vector
+    try {
+      return await embedQuery(text)
+    } catch (error) {
+      // A retry does not fit in the time budget (ADR-068 decision 7). Thus
+      // a 429, a 5xx or a network error ends the budget, and the call
+      // returns partial, as when the budget ends.
+      if (isRetryableFetchFailure(error))
+        throw new BudgetSpentError("The query embedding failed")
+      throw error
+    }
   }
   return {
     stack: "plane",

@@ -5,6 +5,7 @@ import { useMswServer } from "../../../test/msw.js"
 import { recordSpans } from "../../../test/spans.js"
 import {
   type EmbeddingInput,
+  embedQuery,
   embedTexts,
   textEmbeddingConfig,
 } from "./textEmbeddings.js"
@@ -32,7 +33,6 @@ function vector(seed: number): number[] {
 
 function text(n: number): EmbeddingInput {
   return {
-    kind: "text",
     text: `chunk ${n}`,
     documentTitle: "Design\n  notes",
     chunkIndex: n,
@@ -211,17 +211,6 @@ describe("embedTexts", () => {
     // The retry of batch 2 went out before the rejection, and batch 4 never.
     expect(sent.sort()).toEqual(["0", "2", "2"])
     expect(requests).toBe(3)
-  })
-
-  it("sends a search question with the instruction line of the model and no context line", async () => {
-    const bodies: Body[] = []
-    server.use(echoHandler(bodies))
-
-    await embedTexts([{ kind: "query", text: "why did it fail" }], config)
-
-    expect(bodies[0]?.input).toEqual([
-      "Instruct: Find the answer\nQuery:why did it fail",
-    ])
   })
 
   it("returns the full vector of each input as numbers", async () => {
@@ -449,6 +438,60 @@ describe("embedTexts", () => {
       )
 
       expect(String(error)).toBe("Error: Embedding request failed: HTTP 400")
+    },
+  )
+})
+
+describe("embedQuery", () => {
+  beforeEach(() => {
+    vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
+    vi.stubEnv("MODEL_PROVIDER", "openai-like")
+    vi.stubEnv("MODEL_PROVIDER_URL", "https://gateway.test/api/v1/")
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it("sends a search question with the instruction line of the model, no context line, and the ZDR provider block sorted by latency", async () => {
+    const bodies: Body[] = []
+    server.use(echoHandler(bodies))
+
+    expect(await embedQuery("why did it fail", config)).toEqual(vector(10))
+
+    expect(bodies).toHaveLength(1)
+    expect(bodies[0]?.input).toEqual([
+      "Instruct: Find the answer\nQuery:why did it fail",
+    ])
+    // No pin, no order and no `allow_fallbacks: false`: OpenRouter falls
+    // back among the ZDR endpoints in the order of their latency.
+    expect(bodies[0]?.provider).toEqual({
+      data_collection: "deny",
+      zdr: true,
+      quantizations: ["bf16"],
+      sort: "latency",
+    })
+  })
+
+  it.each([
+    ["a 429", () => new HttpResponse("busy", { status: 429 })],
+    ["a 503", () => new HttpResponse("busy", { status: 503 })],
+    ["a network error", () => HttpResponse.error()],
+  ])(
+    "does not retry a search question after %s, so it makes no backoff wait",
+    async (_, failure) => {
+      let calls = 0
+      server.use(
+        http.post(EMBEDDINGS_URL, () => {
+          calls += 1
+          return failure()
+        }),
+      )
+      // A backoff of one minute: a wait would time out the test.
+      const slow = { ...config, backoffMs: 60_000, maxBackoffMs: 60_000 }
+
+      await expect(embedQuery("why did it fail", slow)).rejects.toThrow()
+
+      expect(calls).toBe(1)
     },
   )
 })

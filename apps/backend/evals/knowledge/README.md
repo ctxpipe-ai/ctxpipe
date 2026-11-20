@@ -128,7 +128,7 @@ factory eval knowledge:probe --repo CTXPIPE-CHECKOUT --out "$TMPDIR/knowledge-pr
 bun --env-file=.env.local evals/knowledge/cli.ts probe --out "$TMPDIR/knowledge-probe" [--cap-usd 0.25]
 ```
 
-Before the first org leaves `off`, this command confirms with real calls that OpenRouter applies the request settings of the knowledge plane (ADR-068 decision 7). Each check sends its request through the real client (`decideNoul`, `embedTexts`), and it records the status, the `provider` field of the answer, and the error text:
+Before the first org leaves `off`, this command confirms with real calls that OpenRouter applies the request settings of the knowledge plane (ADR-068 decision 7). Each check sends its request through the real client (`decideNoul`, `embedQuery`, `embedTexts`), and it records the status, the `provider` field of the answer, and the error text:
 
 | Check | Passes when |
 | --- | --- |
@@ -158,7 +158,7 @@ The time budget of a plane search (`timeBudgetMs`) must fit the latency of its m
 | Measure | What it sends |
 | --- | --- |
 | OpenRouter round trip | A request that reaches no model (10 calls): the network time of this host. |
-| Plane query embedding, production request | The query embedding of the real client (`embedTexts`), with no pin, as production sends it. |
+| Plane query embedding, production request | The query embedding of the real client (`embedQuery`), with no pin, as production sends it: sorted by latency, in one attempt. |
 | Plane query embedding, pinned | The same request, pinned to one ZDR endpoint tag of the model (no fallback, one attempt), for each ZDR endpoint. The tag also fixes the quantization, so an fp8 endpoint is measured too. The pin is for the measurement only: production pins no provider. |
 | Plane query embedding, hedged | The same request to two ZDR endpoints at once, at the quantizations that production allows. The latency is that of the first answer. The next sample starts after both answers. |
 | Query embedding, other model | Each other text embedding model with a ZDR endpoint, with no pin, and pinned to each of its ZDR endpoints. |
