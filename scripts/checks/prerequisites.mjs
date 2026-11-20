@@ -362,6 +362,32 @@ export const prerequisites = {
         )
     },
   },
+  // The file converter of the knowledge plane (apps/backend/converter): the
+  // backend tests run the real CLI, so it is built before Vitest starts and
+  // no test waits for a build. Cargo reuses an earlier build. CI restores or
+  // builds it in a job step and sets SKIP_CONVERTER_BUILD=1, as for the
+  // Storybook build.
+  converter: {
+    prepare: () => {
+      if (process.env.SKIP_CONVERTER_BUILD !== "1")
+        step(
+          "cargo",
+          [
+            "build",
+            "--release",
+            "--locked",
+            "--manifest-path",
+            "apps/backend/converter/Cargo.toml",
+          ],
+          "Install a Rust toolchain (rustup.rs) and fix the converter build.",
+        )
+      quiet(
+        join(root, "apps/backend/converter/target/release/ctxpipe-convert"),
+        ["--version"],
+        "Build the converter: cargo build --release --locked --manifest-path apps/backend/converter/Cargo.toml.",
+      )
+    },
+  },
   "previous-release": {
     prepare: () => {
       const tree = required(

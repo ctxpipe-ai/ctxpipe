@@ -31,6 +31,7 @@ import { ORCHESTRATOR_DEFAULTS } from "../../src/knowledge-reader/orchestrator.j
 import { initEvlog } from "../../src/observability/logger.js"
 import { closeGraphDb } from "../../src/platform/graph/client.js"
 import { DEFAULT_OPENROUTER_BASE } from "../../src/retrieval/services/modelProvider.js"
+import { buildConverter } from "../../test/converter.js"
 import {
   freezeCorpora,
   importCorpusIssues,
@@ -251,6 +252,9 @@ async function main(argv: string[]): Promise<number> {
   if (command === "vision") {
     if (!process.env.MODEL_PROVIDER_API_KEY)
       throw new SetupError("vision needs MODEL_PROVIDER_API_KEY.")
+    // The SVG fixtures go through the converter, and the export of
+    // `factory eval` has no build of it.
+    buildConverter()
     const calls = modelCalls(capUsd)
     const restore = calls.install()
     try {

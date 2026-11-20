@@ -3,15 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { HttpResponse, http } from "msw"
-import {
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
 import { ModelCalls } from "../../evals/knowledge/model-calls.js"
@@ -21,14 +13,11 @@ import {
   runVision,
   scoreReading,
 } from "../../evals/knowledge/vision.js"
-import { buildConverter } from "../../test/converter.js"
 import { useMswServer } from "../../test/msw.js"
 import type { ImageReading } from "../knowledge-plane/image-text.js"
 
 const BASE = "https://openrouter.test/api/v1"
 const server = useMswServer()
-// The SVG fixtures go through the real converter, as in the projection.
-beforeAll(buildConverter, 900_000)
 
 beforeEach(() => {
   vi.stubEnv("MODEL_PROVIDER", "openrouter")

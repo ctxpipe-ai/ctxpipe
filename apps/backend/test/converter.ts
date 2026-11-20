@@ -4,8 +4,10 @@ import { fileURLToPath } from "node:url"
 /**
  * Builds the file converter of this checkout (`converter/`), so that
  * `convertFile` runs the real CLI. Cargo builds it once; a later call reuses
- * the build. It needs a Rust toolchain (rustup.rs). The tests and the vision
- * eval call it; the worker image builds the CLI in `Dockerfile.worker`.
+ * the build. It needs a Rust toolchain (rustup.rs). The vision eval calls
+ * it, because the export of `factory eval` has no build. The tests get the
+ * build from the `converter` prerequisite (scripts/checks/prerequisites.mjs)
+ * and the CI job, and the worker image builds the CLI in `Dockerfile.worker`.
  */
 export function buildConverter(): void {
   execFileSync(
@@ -19,8 +21,9 @@ export function buildConverter(): void {
     ],
     {
       stdio: ["ignore", "ignore", "inherit"],
-      // Only what cargo needs: the build scripts of the dependencies get no
-      // model key of an eval.
+      // Only what cargo needs. This is hygiene, not a boundary: on Linux a
+      // build script of the same user can read the environment of this
+      // process (`/proc`). The checksums of Cargo.lock pin each crate.
       env: Object.fromEntries(
         [
           "PATH",

@@ -60,6 +60,14 @@ try {
       )
     }
   }
+  // The job step of ci.yaml restores or builds the file converter before
+  // the tests, so that no test waits for a build.
+  version(
+    new URL(
+      "../../apps/backend/converter/target/release/ctxpipe-convert",
+      import.meta.url,
+    ).pathname,
+  )
   if (!process.env.DATABASE_URL)
     throw new Error(
       "DATABASE_URL for a migrated application-role test database is required",

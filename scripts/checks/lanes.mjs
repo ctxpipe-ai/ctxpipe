@@ -94,6 +94,7 @@ const backendTraceInputs = { "apps/backend/migrations/**": "tables" }
 const databases = ["postgres", "migrations", "falkordb"]
 const nativePrerequisites = [
   ...databases,
+  "converter",
   "bun",
   "opencode",
   "zoekt",
