@@ -420,8 +420,10 @@ const MAX_IMAGE_BYTES = 20 * 1024 * 1024
  * 64 MiB (`nativeGit`), with the header of each blob.
  */
 const MAX_FILE_BYTES = 48 * 1024 * 1024
-/** The bytes of the blobs of one git read. */
+/** The bytes of the blobs of one git read, with their framing. */
 const READ_BYTES = 32 * 1024 * 1024
+/** More than the header line (`<sha> blob <size>`) and the newline of a blob. */
+const GIT_BLOB_FRAMING_BYTES = 128
 
 /**
  * The rows of each file of `paths`, with no vectors: a document, or a
@@ -503,12 +505,14 @@ async function projectFiles(input: {
         )
       continue
     }
-    if (groupBytes + size > READ_BYTES && (groups.at(-1)?.length ?? 0) > 0) {
+    // `cat-file --batch` adds a header line and a newline to each blob.
+    const bytes = size + GIT_BLOB_FRAMING_BYTES
+    if (groupBytes + bytes > READ_BYTES && (groups.at(-1)?.length ?? 0) > 0) {
       groups.push([])
       groupBytes = 0
     }
     groups.at(-1)?.push(entry)
-    groupBytes += size
+    groupBytes += bytes
   }
   /** The images for the vision model, with the path and the type of each. */
   const images: {

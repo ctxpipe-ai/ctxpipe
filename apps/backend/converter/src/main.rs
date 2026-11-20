@@ -117,20 +117,31 @@ fn set_limits(memory_mb: u64, cpu_seconds: u64) {
     }
 }
 
-/// The seccomp filter of the conversion (Linux): each system call that opens
-/// a file, makes a socket, starts a program or reads another process fails
-/// with EPERM. The parsers need none of them: the input is in memory and
-/// the output goes to stdout, which is open. The threads that a parser
-/// starts later get the same filter.
+/// The seccomp filters of the conversion (Linux). After the input is read,
+/// each system call that opens a file, makes a socket, starts a program or
+/// a process, reads another process, or gives an indirect way to do one of
+/// these (io_uring, bpf) fails with EPERM. A new thread (`clone` with
+/// `CLONE_THREAD`) still works: a parser can use threads, but no process.
+/// `clone3` fails with ENOSYS, so that the C library uses `clone`, whose
+/// flags the filter can read. The parsers need none of the refused calls:
+/// the input is in memory and the output goes to stdout, which is open. The
+/// threads that a parser starts later get the same filters.
 #[cfg(target_os = "linux")]
 fn sandbox() -> Result<(), String> {
-    use seccompiler::{BpfProgram, SeccompAction, SeccompFilter};
+    use seccompiler::{
+        BpfProgram, SeccompAction, SeccompCmpArgLen, SeccompCmpOp, SeccompCondition, SeccompFilter,
+        SeccompRule,
+    };
+    let arch = std::env::consts::ARCH
+        .try_into()
+        .map_err(|_| "no seccomp target for this arch".to_string())?;
     // x86_64 adds the old calls that arm64 does not have.
     #[cfg_attr(not(target_arch = "x86_64"), allow(unused_mut))]
-    let mut calls = vec![
+    let mut refused = vec![
         libc::SYS_openat,
         libc::SYS_openat2,
         libc::SYS_open_by_handle_at,
+        libc::SYS_name_to_handle_at,
         libc::SYS_socket,
         libc::SYS_socketpair,
         libc::SYS_connect,
@@ -145,6 +156,13 @@ fn sandbox() -> Result<(), String> {
         libc::SYS_ptrace,
         libc::SYS_process_vm_readv,
         libc::SYS_process_vm_writev,
+        libc::SYS_io_uring_setup,
+        libc::SYS_io_uring_enter,
+        libc::SYS_io_uring_register,
+        libc::SYS_bpf,
+        libc::SYS_perf_event_open,
+        libc::SYS_userfaultfd,
+        libc::SYS_memfd_create,
         libc::SYS_mount,
         libc::SYS_umount2,
         libc::SYS_unshare,
@@ -153,16 +171,32 @@ fn sandbox() -> Result<(), String> {
         libc::SYS_pivot_root,
     ];
     #[cfg(target_arch = "x86_64")]
-    calls.extend([libc::SYS_open, libc::SYS_creat, libc::SYS_accept]);
-    let filter = SeccompFilter::new(
-        calls.into_iter().map(|call| (call, vec![])).collect(),
-        SeccompAction::Allow,
-        SeccompAction::Errno(libc::EPERM as u32),
-        std::env::consts::ARCH.try_into().map_err(|_| "no seccomp target for this arch".to_string())?,
+    refused.extend([libc::SYS_open, libc::SYS_creat, libc::SYS_accept, libc::SYS_fork, libc::SYS_vfork]);
+    let mut rules: std::collections::BTreeMap<i64, Vec<SeccompRule>> =
+        refused.into_iter().map(|call| (call, vec![])).collect();
+    // A clone that is not a thread is a new process.
+    let not_a_thread = SeccompCondition::new(
+        0,
+        SeccompCmpArgLen::Qword,
+        SeccompCmpOp::MaskedEq(libc::CLONE_THREAD as u64),
+        0,
     )
     .map_err(|error| error.to_string())?;
-    let program: BpfProgram = filter.try_into().map_err(|error: seccompiler::BackendError| error.to_string())?;
-    seccompiler::apply_filter(&program).map_err(|error| error.to_string())
+    rules.insert(
+        libc::SYS_clone,
+        vec![SeccompRule::new(vec![not_a_thread]).map_err(|error| error.to_string())?],
+    );
+    let program = |rules, action| -> Result<BpfProgram, String> {
+        SeccompFilter::new(rules, SeccompAction::Allow, action, arch)
+            .map_err(|error| error.to_string())?
+            .try_into()
+            .map_err(|error: seccompiler::BackendError| error.to_string())
+    };
+    seccompiler::apply_filter(&program(rules, SeccompAction::Errno(libc::EPERM as u32))?)
+        .map_err(|error| error.to_string())?;
+    let clone3 = [(libc::SYS_clone3, vec![])].into_iter().collect();
+    seccompiler::apply_filter(&program(clone3, SeccompAction::Errno(libc::ENOSYS as u32))?)
+        .map_err(|error| error.to_string())
 }
 
 /// No seccomp outside Linux: the worker runs on Linux, and a developer host
@@ -438,4 +472,23 @@ fn prepare_svg(source: &str, document: &roxmltree::Document) -> String {
     }
     out.push_str(&source[at..]);
     out
+}
+
+/// The filters on Linux: run with `cargo test` on a Linux host (the worker
+/// image is Alpine). The filters go on one thread of the test only.
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    #[test]
+    fn the_sandbox_refuses_files_sockets_and_processes_but_not_threads() {
+        std::thread::spawn(|| {
+            super::sandbox().expect("the filters go on");
+            assert!(std::fs::File::open("/etc/hostname").is_err(), "a file opens");
+            assert!(std::net::TcpStream::connect("127.0.0.1:9").is_err(), "a socket opens");
+            // SAFETY: a fork that the filter refuses returns -1 and makes no child.
+            assert_eq!(unsafe { libc::fork() }, -1, "a process starts");
+            assert_eq!(std::thread::spawn(|| 7).join().unwrap(), 7, "a thread fails");
+        })
+        .join()
+        .expect("the sandbox test thread");
+    }
 }
