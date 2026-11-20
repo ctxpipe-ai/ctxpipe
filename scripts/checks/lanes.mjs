@@ -38,6 +38,7 @@ const backendInputs = [
   "apps/backend/vitest.config.ts",
   "apps/backend/src/test/setup-evlog.ts",
   "apps/backend/src/test/setup-openworkflow-runs.ts",
+  "apps/backend/src/test/global-setup-converter.ts",
   "apps/backend/migrations/**",
   "scripts/ci/contracts.json",
   "scripts/ci/service-pins.json",
@@ -51,6 +52,9 @@ const nativeInputs = [
   "scripts/ci/graph-ready.mjs",
   "apps/backend/src/domain/workspaces/workspace-chat-opencode-contract.ts",
   "scripts/chat-sandbox/**",
+  // The file converter that the knowledge-plane tests run (the
+  // `converter` prerequisite builds it). Git lists no ignored `target/`.
+  "apps/backend/converter/**",
 ]
 // Environment variables that change backend results. A result cache adds a
 // hash of the value of each `value` variable to its key, and only set or unset

@@ -19,9 +19,10 @@ const root = fileURLToPath(new URL("../../", import.meta.url))
 const backend = createRequire(join(root, "apps/backend/package.json"))
 
 // Runs a command with its output on stderr. Throws `fix` when it fails.
-const step = (command, args, fix, cwd = root) => {
+const step = (command, args, fix, cwd = root, env = process.env) => {
   const result = spawnSync(command, args, {
     cwd,
+    env,
     stdio: ["ignore", 2, 2],
     timeout: 1_800_000,
   })
@@ -30,9 +31,10 @@ const step = (command, args, fix, cwd = root) => {
       `${command} ${args.join(" ")} failed (${result.error?.message ?? `exit ${result.status}`}). ${fix}`,
     )
 }
-const quiet = (command, args, fix) => {
+const quiet = (command, args, fix, env = process.env) => {
   try {
     return execFileSync(command, args, {
+      env,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 60_000,
@@ -360,6 +362,43 @@ export const prerequisites = {
         throw new Error(
           "apps/ui/storybook-static/index.json is missing. Unset SKIP_STORYBOOK_BUILD to build Storybook.",
         )
+    },
+  },
+  // The file converter of the knowledge plane (apps/backend/converter): the
+  // backend tests run the real CLI. The global setup of the backend Vitest
+  // config runs this before any test file, so no test waits for a build.
+  // Cargo reuses an earlier build. CI restores or builds it in a job step
+  // and sets SKIP_CONVERTER_BUILD=1, as for the Storybook build.
+  converter: {
+    prepare: () => {
+      if (process.env.SKIP_CONVERTER_BUILD !== "1")
+        step(
+          "cargo",
+          [
+            "build",
+            "--release",
+            "--locked",
+            "--manifest-path",
+            "apps/backend/converter/Cargo.toml",
+          ],
+          "Install a Rust toolchain (rustup.rs) and fix the converter build.",
+          root,
+          // Only what Cargo needs: the build scripts of the crates get no
+          // key of the environment.
+          Object.fromEntries(
+            ["PATH", "HOME", "CARGO_HOME", "RUSTUP_HOME", "RUSTUP_TOOLCHAIN"]
+              .filter((name) => process.env[name])
+              .map((name) => [name, process.env[name]]),
+          ),
+        )
+      quiet(
+        join(root, "apps/backend/converter/target/release/ctxpipe-convert"),
+        ["--version"],
+        "Build the converter: pnpm checks:prepare converter, with SKIP_CONVERTER_BUILD unset.",
+        // No environment, as for each conversion: the binary links the
+        // crates, so it gets no key.
+        {},
+      )
     },
   },
   "previous-release": {

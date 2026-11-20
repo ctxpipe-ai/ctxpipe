@@ -12,7 +12,6 @@ import {
   imageText,
   readImage,
 } from "../../src/knowledge-plane/image-text.js"
-import { buildConverter } from "../../test/converter.js"
 import type { ModelCalls } from "./model-calls.js"
 
 /*
@@ -316,8 +315,6 @@ type Fixture = {
  * in the projection (`convertFile`).
  */
 export async function readFixtures(): Promise<Fixture[]> {
-  // The export of `factory eval` has no build of the converter.
-  buildConverter()
   const dir = fileURLToPath(new URL("./fixtures/vision", import.meta.url))
   const mimeTypes: Record<string, string> = {
     png: "image/png",

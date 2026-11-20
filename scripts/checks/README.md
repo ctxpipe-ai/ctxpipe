@@ -109,6 +109,7 @@ A check lists its `prerequisites` by name. Before the checks run, the runner mak
 | `chromium` | installs the Playwright Chromium |
 | `visual-container` | needs `docker`; verifies that the Docker server is linux/arm64 and has the Playwright image of `scripts/ci/visual-container.json` (pulls it when it is missing). `scripts/ci/visual-capture.mjs` takes screenshots in that image; a visual check lists the pin file as an input |
 | `storybook-build` | builds Storybook; with `SKIP_STORYBOOK_BUILD=1` (CI downloads the build), verifies only that it exists |
+| `converter` | builds the file converter of the knowledge plane (`apps/backend/converter`) with Cargo; the global setup of the backend Vitest config runs it before any test file; with `SKIP_CONVERTER_BUILD=1` (the CI job restores or builds it), verifies only that it runs |
 | `previous-release` | verifies `RELEASE_TREE`, a checkout of the previous release with its dependencies |
 | `workbench` | verifies `MODEL_PROVIDER`, `MODEL_PROVIDER_API_KEY` and `MCP_EVAL_MODELS` (at least the gate minimum of models): the evals spend money, so they run only with the `workbench` environment |
 | `codesearch-server` | verifies that `CODESEARCH_URL` answers |
