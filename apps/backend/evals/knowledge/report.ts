@@ -415,7 +415,11 @@ export function renderMarkdown(report: Report): string {
         "cost / question",
         (number) => (number === null ? "n/a" : usd(number)),
       ],
-      ["errors", "errors", count],
+      [
+        "errors",
+        "errors",
+        (number) => (number === null ? "n/a" : String(number)),
+      ],
     ]
     lines.push(
       "",
