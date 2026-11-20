@@ -60,10 +60,10 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
    - The model must also be usable outside AWS, for example by a self-hoster on Azure.
    - The model and its dimension are config. The model name is part of the projection version ([ADR-067](ADR-067-knowledge-projection-applies-git-diff.md)).
    - Before a chunk is embedded, it gets one line of context: the title and position of its document.
-   - The model is Gemini Embedding 2, pinned to the provider `google-vertex` (the CTO, 2026-11-20). On the OpenRouter lists of 2026-11-20, it was the only model that meets all the rules: it takes text and images, it accepts 8,192 tokens of input, and it has ZDR endpoints (decision 7). The evals tune how we use it, for example the dimension and the context line.
+   - The model is Gemini Embedding 2, pinned to the provider `google-vertex` (the CTO, 2026-11-20). On the OpenRouter lists of 2026-11-20, it is the only model that meets all the rules: it takes text and images, it accepts 8,192 tokens of input, and it has zero-data-retention (ZDR) endpoints (decision 7). The evals tune how we use it, for example the dimension and the context line.
    - The other models do not meet the rules:
-     - Titan Multimodal G1 accepts only 128 tokens of input, so it cuts most chunks.
-     - Cohere Embed 5 Fast and Voyage Multimodal 3.5 have no endpoint on the OpenRouter zero-data-retention (ZDR) list.
+     - Titan Multimodal G1 accepts only 128 tokens of input, which is shorter than most chunks.
+     - Cohere Embed 5 Fast and Voyage Multimodal 3.5 have no endpoint on the OpenRouter ZDR list.
      - The ZDR text models (for example OpenAI text-embedding-3-large and Qwen3 Embedding 8B) take no images.
 6. **Images.** Jev sees the image bytes, which the backend reads from the Workspace Git at the served SHA ([ADR-066](ADR-066-knowledge-content-in-clickhouse.md) decision 6). OCR or a vision-model description at ingest is optional, and the evals decide it.
 7. **Data receivers.** Jev receives the question, the text of the candidates and images. The embedding provider receives the content. Both are upstreams of OpenRouter, which our public docs list as the model sub-processor, and we reach them only through ZDR endpoints. ADR-063 accepted the Jev endpoint only for public mock screenshots. For customer content:
