@@ -118,8 +118,6 @@ export async function projectKnowledgePlane(input: {
   /** A store with the writer user. */
   store: KnowledgeStore
   observedAt: Date
-  /** The time of the hydrate that queued the run: the start of its lag. */
-  hydratedAt: Date
 }): Promise<KnowledgeRunSummary> {
   const key = { orgId: input.orgId, workspaceId: input.workspaceId }
   const projectionVersion = knowledgeProjectionVersion({
@@ -132,10 +130,8 @@ export async function projectKnowledgePlane(input: {
     state?.lastSha === input.tip &&
     state.attemptShas.length === 0 &&
     state.projectionVersion === projectionVersion
-  ) {
-    recordLag(0, "current")
+  )
     return { mode: "current" }
-  }
 
   const started = performance.now()
   return trace
@@ -147,15 +143,8 @@ export async function projectKnowledgePlane(input: {
       })
       let summary: KnowledgeRunSummary | undefined
       const counter: MutationCounter = { mutations: 0 }
-      /** Seconds from `pending_since` to the start of the run. */
-      let lagSeconds: number | null = null
       try {
-        const pendingSince = await beginKnowledgeRun({
-          ...key,
-          tip: input.tip,
-          hydratedAt: input.hydratedAt,
-        })
-        lagSeconds = Math.max(0, (Date.now() - pendingSince.getTime()) / 1000)
+        await beginKnowledgeRun({ ...key, tip: input.tip })
         summary = await withGitDirectory(
           input.tip,
           async (directory) => {
@@ -231,7 +220,6 @@ export async function projectKnowledgePlane(input: {
           span,
           seconds: (performance.now() - started) / 1000,
           summary,
-          lagSeconds,
           mutations: counter.mutations,
         })
         span.end()
@@ -755,25 +743,6 @@ export async function regularFiles(
 }
 
 /**
- * The lag of a Workspace at the start of a run (ADR-067 decision 11): the
- * wall-clock time since the hydrate of the oldest tip that no completed run
- * applied. A Workspace that is current has 0.
- */
-function recordLag(
-  seconds: number,
-  outcome: "completed" | "failed" | "current",
-): void {
-  metrics
-    .getMeter("ctxpipe-backend")
-    .createHistogram("knowledge.projection.lag", {
-      description:
-        "Time since the hydrate of the oldest tip that no run applied, at run start",
-      unit: "s",
-    })
-    .record(seconds, { outcome })
-}
-
-/**
  * The span attributes, the metrics and the log fields of one run (ADR-067
  * decision 11). The metrics have no Workspace attribute; the wide event of
  * the hydrate run has the Workspace, for the lag alert of each Workspace.
@@ -782,7 +751,6 @@ function recordRun(input: {
   span: Span
   seconds: number
   summary: KnowledgeRunSummary | undefined
-  lagSeconds: number | null
   /** The mutations of the run, also of a failed run. */
   mutations: number
 }): void {
@@ -807,10 +775,6 @@ function recordRun(input: {
     "ctxpipe.knowledge.mode": mode,
     "ctxpipe.knowledge.duration_s": input.seconds,
     "ctxpipe.knowledge.mutations": input.mutations,
-  }
-  if (input.lagSeconds !== null) {
-    recordLag(input.lagSeconds, outcome)
-    fields["ctxpipe.knowledge.lag_s"] = input.lagSeconds
   }
   if (summary?.mode === "delta" || summary?.mode === "full") {
     meter
@@ -837,7 +801,6 @@ function recordRun(input: {
       outcome,
       mode,
       seconds: input.seconds,
-      lagSeconds: input.lagSeconds,
       mutations: input.mutations,
       ...summary,
     },

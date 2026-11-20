@@ -1,1 +1,0 @@
-ALTER TABLE "knowledge_state" ADD COLUMN "pending_since" timestamp with time zone;

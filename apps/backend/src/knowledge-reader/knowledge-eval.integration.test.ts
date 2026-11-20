@@ -290,7 +290,7 @@ describe("the knowledge eval harness", () => {
     } finally {
       await writer.close()
     }
-    await beginKnowledgeRun({ orgId: seed.orgId, workspaceId, tip: frozenSha, hydratedAt: new Date() })
+    await beginKnowledgeRun({ orgId: seed.orgId, workspaceId, tip: frozenSha })
     await completeKnowledgeRun({
       orgId: seed.orgId,
       workspaceId,

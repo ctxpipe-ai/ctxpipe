@@ -290,7 +290,7 @@ async function setFlag(value: "off" | "shadow" | "on") {
 
 /** Make a Workspace ready on the plane: a run applied `planeSha` in full. */
 async function markReady(workspaceId: string) {
-  await beginKnowledgeRun({ orgId: seed.orgId, workspaceId, tip: planeSha, hydratedAt: new Date() })
+  await beginKnowledgeRun({ orgId: seed.orgId, workspaceId, tip: planeSha })
   await completeKnowledgeRun({
     orgId: seed.orgId,
     workspaceId,
@@ -430,7 +430,6 @@ describe("the knowledge reader seam", () => {
       orgId: seed.orgId,
       workspaceId: ids.fresh as string,
       tip: planeSha,
-      hydratedAt: new Date(),
     })
     search = await connectToolClient(seed, searchKnowledgeTool)
     related = await connectToolClient(seed, getRelatedTool)

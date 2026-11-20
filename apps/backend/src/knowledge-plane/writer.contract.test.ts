@@ -321,7 +321,7 @@ function run(
   remote: Remote,
   workspaceId: string,
   tip: string,
-  options: { store?: KnowledgeStore; root?: string; hydratedAt?: Date } = {},
+  options: { store?: KnowledgeStore; root?: string } = {},
 ) {
   // The hydrate workflow gives the writer its logger.
   return withLogger(createLogger({}), () =>
@@ -333,7 +333,6 @@ function run(
       tip,
       store: options.store ?? store,
       observedAt,
-      hydratedAt: options.hydratedAt ?? new Date(),
     }),
   )
 }
@@ -1151,56 +1150,6 @@ describe("projectKnowledgePlane", () => {
         runStatus: "completed",
       })
     } finally {
-      await remote.remove()
-    }
-  })
-
-  it("measures the lag from the hydrate of the oldest tip that no completed run applied", async () => {
-    const remote = await Remote.create()
-    // Only the clock of `Date`: the timers of the clients stay real.
-    vi.useFakeTimers({ toFake: ["Date"] })
-    try {
-      const workspaceId = await newWorkspace()
-      const start = Date.now()
-      const at = (minutes: number) => new Date(start + minutes * 60_000)
-      /** The lag of the last run, in minutes. */
-      const lagMinutes = () =>
-        Number(
-          spans.spanNamed("knowledge.projection.apply")?.attributes[
-            "ctxpipe.knowledge.lag_s"
-          ],
-        ) / 60
-
-      // The first run counts from its hydrate.
-      const one = await remote.commit({ "a.md": "# Alpha\n" })
-      await run(remote, workspaceId, one, { hydratedAt: at(-30) })
-      expect(lagMinutes()).toBe(30)
-
-      // A failed run keeps the start of the lag: the run of a later hydrate
-      // counts from the hydrate of the failed run.
-      vi.setSystemTime(at(10))
-      const two = await remote.commit({ "a.md": "# Alpha two\n" })
-      embeddings.failAt = embeddings.requests + 1
-      await expect(
-        run(remote, workspaceId, two, { hydratedAt: at(5) }),
-      ).rejects.toThrow(/HTTP 401/)
-      expect(lagMinutes()).toBe(5)
-      vi.setSystemTime(at(20))
-      const three = await remote.commit({ "a.md": "# Alpha three\n" })
-      await run(remote, workspaceId, three, { hydratedAt: at(19) })
-      expect(lagMinutes()).toBe(15)
-      expect(
-        (await getKnowledgeState({ orgId, workspaceId }))?.pendingSince,
-      ).toBeNull()
-
-      // A queued run of an old hydrate that applies a newer tip counts from
-      // the last completed run, not from its hydrate.
-      vi.setSystemTime(at(30))
-      const four = await remote.commit({ "a.md": "# Alpha four\n" })
-      await run(remote, workspaceId, four, { hydratedAt: at(-60) })
-      expect(lagMinutes()).toBe(10)
-    } finally {
-      vi.useRealTimers()
       await remote.remove()
     }
   })

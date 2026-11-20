@@ -62,7 +62,7 @@ describe("knowledge_state (Postgres)", () => {
   it("refuses a run of a Workspace of another org, and an update without a run", async () => {
     // Before the owning org has a row: no other org can take it.
     await expect(
-      beginKnowledgeRun({ orgId: otherOrgId, workspaceId, tip: "sha-x", hydratedAt: new Date() }),
+      beginKnowledgeRun({ orgId: otherOrgId, workspaceId, tip: "sha-x" }),
     ).rejects.toThrow(`has no Workspace ${workspaceId}`)
     expect(await getKnowledgeState(workspace)).toBeNull()
     expect(
@@ -84,7 +84,7 @@ describe("knowledge_state (Postgres)", () => {
   it("adds each tip before a run, and moves last_sha and clears the list in one update", async () => {
     expect(await getKnowledgeState(workspace)).toBeNull()
 
-    await beginKnowledgeRun({ ...workspace, tip: "sha-1", hydratedAt: new Date() })
+    await beginKnowledgeRun({ ...workspace, tip: "sha-1" })
     expect(await getKnowledgeState(workspace)).toMatchObject({
       lastSha: null,
       attemptShas: ["sha-1"],
@@ -95,14 +95,14 @@ describe("knowledge_state (Postgres)", () => {
 
     await failKnowledgeRun(workspace)
     // A retry of the same tip adds nothing; the next tip adds to the list.
-    await beginKnowledgeRun({ ...workspace, tip: "sha-1", hydratedAt: new Date() })
+    await beginKnowledgeRun({ ...workspace, tip: "sha-1" })
     await failKnowledgeRun(workspace)
     expect(await getKnowledgeState(workspace)).toMatchObject({
       lastSha: null,
       attemptShas: ["sha-1"],
       runStatus: "failed",
     })
-    await beginKnowledgeRun({ ...workspace, tip: "sha-2", hydratedAt: new Date() })
+    await beginKnowledgeRun({ ...workspace, tip: "sha-2" })
     expect(await getKnowledgeState(workspace)).toMatchObject({
       attemptShas: ["sha-1", "sha-2"],
       runStatus: "running",
@@ -123,7 +123,7 @@ describe("knowledge_state (Postgres)", () => {
     })
 
     // A failed run after it keeps last_sha and its own tip.
-    await beginKnowledgeRun({ ...workspace, tip: "sha-3", hydratedAt: new Date() })
+    await beginKnowledgeRun({ ...workspace, tip: "sha-3" })
     await failKnowledgeRun(workspace)
     expect(await getKnowledgeState(workspace)).toMatchObject({
       lastSha: "sha-2",

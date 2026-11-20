@@ -57,7 +57,7 @@ Since [CTX-1369](https://linear.app/ctxpipe/issue/CTX-1369), a hydrate writes on
    - It does not remove rows. The removal of old tombstones is a later decision.
 10. **Reads during a run** can see a commit that is only partly applied, for a few seconds. We accept this.
 11. **Alerts and metrics:**
-    - the lag of each Workspace (the main alert): the wall-clock time since the hydrate of the oldest tip that no completed run applied, 0 when the projection is current. `knowledge_state.pending_since` holds that hydrate time, and the writer records the lag at the start of each run (`knowledge.projection.lag`). The alert does not read the metric, because a Workspace with no run has no data point: it measures the same time from the hydrate logs and the run spans. The time between two commits is not the lag: after a quiet week it reads days while the projection is current;
+    - the lag of each Workspace (the main alert): the wall-clock time since the hydrate of the oldest tip that no completed run applied. A current Workspace has no lag. The alert measures it from the hydrate result logs and the run spans (`knowledge.projection.apply`). The writer records no lag metric. A metric that a run records has no point when no run starts. The time between two commits is not the lag either: after a quiet week it reads days while the projection is current;
     - the failed count;
     - the time of each apply;
     - the count of pending ClickHouse mutations (`system.mutations`) and the age of the oldest, because each `DELETE` is a mutation (ADR-066 decision 8). The knowledge node gives them to the host metrics agent, and an alert fires when the oldest is an hour old;

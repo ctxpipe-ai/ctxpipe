@@ -1,4 +1,4 @@
 ---
 ---
 
-The knowledge projection lag metric is now the wall-clock time since the hydrate of the oldest tip that no completed run applied.
+The knowledge projection writer no longer records the commit-time lag metric. The lag alert measures the wall-clock lag from the hydrate logs and the run spans.

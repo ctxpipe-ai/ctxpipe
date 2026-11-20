@@ -28,8 +28,8 @@ import { knowledgeMaintenance } from "./knowledge-maintenance.js"
  * An infrastructure error throws in the step. The step retries from the same
  * `last_sha`, and the next run starts from it too (ADR-067 decision 8). When
  * the outage is longer than the retries, the run fails, and the next hydrate
- * of the Workspace queues a new run. The lag of that run counts from the
- * hydrate of the failed run (`pending_since`).
+ * of the Workspace queues a new run. Until then, the lag alert shows it
+ * (ADR-067 decision 11).
  */
 export const knowledgeProjection = defineWorkflow(
   {
@@ -38,12 +38,6 @@ export const knowledgeProjection = defineWorkflow(
       .object({
         orgId: z.string().min(1),
         workspaceId: z.string().min(1),
-        /**
-         * The time of the hydrate that queued the run: the start of the lag
-         * (ADR-067 decision 11). A run that a release before this field
-         * queued has none, and its lag starts at the run.
-         */
-        hydratedAt: z.iso.datetime().optional(),
       })
       .strict(),
     logFields: (input) => ({
@@ -95,7 +89,6 @@ export const knowledgeProjection = defineWorkflow(
               tip,
               store,
               observedAt: new Date(),
-              hydratedAt: new Date(input.hydratedAt ?? Date.now()),
             })
             return { tip, summary }
           } finally {
