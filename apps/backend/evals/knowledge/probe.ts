@@ -254,17 +254,18 @@ async function probeChecks(
   await embedded("embedding-text", [
     { kind: "query", text: "A red and blue checkerboard." },
   ])
-  // One full batch of document chunks, in the shape that the projection
-  // sends: one request with `batchSize` text inputs.
-  const { batchSize } = multimodalEmbeddingConfig
+  // 16 document chunks in one call, as the projection sends them. With more
+  // than one input in a request, OpenRouter found no ZDR endpoint
+  // (2026-11-20), so this check guards the shape of the requests.
+  const chunkCount = 16
   await embedded(
     "embedding-text-batch",
-    Array.from({ length: batchSize }, (_, index) => ({
+    Array.from({ length: chunkCount }, (_, index) => ({
       kind: "text" as const,
       text: `Square ${index + 1} of the checkerboard is ${index % 2 === 0 ? "red" : "blue"}.`,
       documentTitle: "Checkerboard",
       chunkIndex: index,
-      chunkCount: batchSize,
+      chunkCount,
     })),
   )
   return checks

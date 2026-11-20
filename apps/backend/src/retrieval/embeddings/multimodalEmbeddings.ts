@@ -3,6 +3,7 @@ import { setTimeout as sleep } from "node:timers/promises"
 import { z } from "zod"
 
 import { assertNotInOrgDbContext } from "../../db/client.js"
+import { mapWithConcurrency } from "../../lib/mapWithConcurrency.js"
 import { gatewayCost } from "../../observability/gatewayCost.js"
 import { gatewayRoutingError } from "../../observability/gatewayError.js"
 import { withLlmGeneration } from "../../observability/llm-spans.js"
@@ -36,14 +37,21 @@ export const multimodalEmbeddingConfig = {
    */
   imageTypes: ["image/png", "image/jpeg"],
   /**
-   * The largest image file that the writer embeds, and the most image bytes
-   * of one request. A larger image gets a `failed` document. The base64 form
-   * of the bytes is a third larger. The first real call confirms the
-   * provider limit.
+   * The largest image file that the writer embeds. A larger image gets a
+   * `failed` document. The base64 form of the bytes is a third larger. The
+   * first real call confirms the provider limit.
    */
   maxImageBytes: 10 * 1024 * 1024,
-  /** The maximum number of inputs in one request. */
-  batchSize: 16,
+  /**
+   * The most requests in flight of one `embedMultimodal` call. Each request
+   * holds one input: with `zdr: true`, OpenRouter finds no endpoint for a
+   * request with more inputs ("No endpoints found matching your data policy
+   * (Zero data retention)", measured with 16 inputs on 2026-11-20 by the
+   * probe `embedding-text-batch`). The writer embeds images at the same
+   * limit, so up to this many images (each up to `maxImageBytes`, as base64)
+   * can be in flight at once.
+   */
+  concurrency: 8,
   /** The maximum number of attempts of one request (429 and 5xx retry). */
   maxAttempts: 5,
   /** The first backoff. Each retry doubles it, up to `maxBackoffMs`. */
@@ -133,12 +141,10 @@ export async function embedMultimodal(
   const base = env.MODEL_PROVIDER_URL ?? "https://openrouter.ai/api/v1"
   const url = `${base.replace(/\/$/, "")}/embeddings`
 
-  const out: number[][] = []
-  for (let start = 0; start < inputs.length; start += config.batchSize) {
-    const batch = inputs.slice(start, start + config.batchSize)
+  const embedOne = async (input: EmbeddingInput): Promise<number[]> => {
     const body = JSON.stringify({
       model: config.model,
-      input: batch.map((input) => ({ content: contentParts(input) })),
+      input: [{ content: contentParts(input) }],
       dimensions: config.dimensions,
       encoding_format: "float",
       provider: {
@@ -150,13 +156,11 @@ export async function embedMultimodal(
     })
     for (let attempt = 1; ; attempt++) {
       try {
-        const vectors = await embedRequest(batch, body, {
+        return await embedRequest(input, body, {
           url,
           apiKey: env.MODEL_PROVIDER_API_KEY,
           config,
         })
-        out.push(...vectors)
-        break
       } catch (err) {
         if (
           !(err instanceof RetryableStatusError) ||
@@ -169,15 +173,18 @@ export async function embedMultimodal(
       }
     }
   }
-  return out
+
+  // One request for each input, at most `concurrency` in flight. After a
+  // failure, no new request starts.
+  return mapWithConcurrency(inputs, config.concurrency, embedOne)
 }
 
 /** One HTTP request in one span. The span holds counts, never content. */
 function embedRequest(
-  batch: EmbeddingInput[],
+  input: EmbeddingInput,
   body: string,
   request: { url: string; apiKey: string; config: MultimodalEmbeddingConfig },
-): Promise<number[][]> {
+): Promise<number[]> {
   const { config } = request
   let usage: { input?: number; cost?: number } | undefined
   return withLlmGeneration(
@@ -187,14 +194,11 @@ function embedRequest(
       model: config.model,
       provider: config.upstreamProvider,
       attributes: {
-        "ctxpipe.embeddings.text_count": batch.filter((i) => i.kind !== "image")
-          .length,
-        "ctxpipe.embeddings.image_count": batch.filter(
-          (i) => i.kind === "image",
-        ).length,
+        "ctxpipe.embeddings.text_count": input.kind === "image" ? 0 : 1,
+        "ctxpipe.embeddings.image_count": input.kind === "image" ? 1 : 0,
       },
-      resultAttributes: (vectors) => ({
-        "ctxpipe.embeddings.count": vectors.length,
+      resultAttributes: () => ({
+        "ctxpipe.embeddings.count": 1,
         "ctxpipe.embeddings.dimensions": config.dimensions,
       }),
       usageSoFar: () => usage,
@@ -234,7 +238,7 @@ function embedRequest(
         ...(input !== undefined ? { input } : {}),
         ...(cost !== undefined ? { cost } : {}),
       }
-      return orderedVectors(data.data, batch.length, config.dimensions)
+      return oneVector(data.data, config.dimensions)
     },
   )
 }
@@ -252,26 +256,19 @@ function contentParts(input: EmbeddingInput): ContentPart[] {
   return [{ type: "image_url", image_url: { url: dataUri } }]
 }
 
-function orderedVectors(
+/** The one vector of an answer to a request with one input. */
+function oneVector(
   rows: { embedding: number[]; index: number }[],
-  count: number,
   dimensions: number,
-): number[][] {
-  if (rows.length !== count) {
-    throw new Error(`Expected ${count} embeddings, got ${rows.length}`)
-  }
-  const out = new Array<number[] | undefined>(count)
-  for (const row of rows) {
-    if (row.index >= count || out[row.index]) {
-      throw new Error(`Unexpected embedding index ${row.index}`)
-    }
-    if (row.embedding.length !== dimensions) {
-      throw new Error(
-        `Expected ${dimensions} dimensions at index ${row.index}, got ${row.embedding.length}`,
-      )
-    }
-    out[row.index] = row.embedding
-  }
-  // The count and the unique indexes are checked, so each slot is set.
-  return out.map((vector) => vector ?? [])
+): number[] {
+  const [row] = rows
+  if (rows.length !== 1 || !row)
+    throw new Error(`Expected 1 embedding, got ${rows.length}`)
+  if (row.index !== 0)
+    throw new Error(`Unexpected embedding index ${row.index}`)
+  if (row.embedding.length !== dimensions)
+    throw new Error(
+      `Expected ${dimensions} dimensions at index 0, got ${row.embedding.length}`,
+    )
+  return row.embedding
 }

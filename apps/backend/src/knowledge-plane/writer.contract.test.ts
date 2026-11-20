@@ -1249,20 +1249,22 @@ describe("projectKnowledgePlane", () => {
         status: "active",
         mime: "image/jpeg",
       })
-      // Only the JPEG and the small PNG go to the embedding model, in one
-      // request. Each relation stays, with its alt text.
-      expect(
-        embeddings.inputs.filter((input) =>
-          JSON.stringify(input).includes("image_url"),
+      // Only the JPEG and the small PNG go to the embedding model, one in
+      // each request. Each relation stays, with its alt text.
+      const imageInputs = embeddings.inputs.filter((input) =>
+        JSON.stringify(input).includes("image_url"),
+      )
+      expect(imageInputs).toEqual(
+        expect.arrayContaining(
+          [
+            `data:image/png;base64,${png("chart").toString("base64")}`,
+            `data:image/jpeg;base64,${jpeg.toString("base64")}`,
+          ].map((url) => [
+            { content: [{ type: "image_url", image_url: { url } }] },
+          ]),
         ),
-      ).toEqual([
-        [
-          `data:image/png;base64,${png("chart").toString("base64")}`,
-          `data:image/jpeg;base64,${jpeg.toString("base64")}`,
-        ].map((url) => ({
-          content: [{ type: "image_url", image_url: { url } }],
-        })),
-      ])
+      )
+      expect(imageInputs).toHaveLength(2)
       expect(
         (await store.readDocument(scope, key(workspaceId, "a.md")))?.outgoing
           .map(({ dstDoc, altText }) => [dstDoc, altText])
@@ -1509,7 +1511,7 @@ describe("reference keys (CTX-1400)", () => {
     }
   })
 
-  it("gives a failed document to an image that the model refuses, and embeds the other images of its request", async () => {
+  it("gives a failed document to an image that the model refuses, and embeds the other images", async () => {
     const remote = await Remote.create()
     try {
       const workspaceId = await newWorkspace()

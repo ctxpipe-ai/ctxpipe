@@ -18,7 +18,7 @@ const config = {
   model: "vendor/multimodal-embed",
   upstreamProvider: "vendor-cloud",
   dimensions: 16,
-  batchSize: 2,
+  concurrency: 2,
   maxAttempts: 3,
   backoffMs: 1,
   maxBackoffMs: 2,
@@ -74,20 +74,37 @@ describe("embedMultimodal", () => {
     vi.unstubAllEnvs()
   })
 
-  it("sends no-retention, pinned-provider requests in batches and keeps the input order", async () => {
+  it("sends one no-retention, pinned-provider request for each input, at most `concurrency` at a time, and keeps the input order", async () => {
     const bodies: Body[] = []
     const auth: (string | null)[] = []
+    // Each answer waits until the test releases it.
+    const held: (() => void)[] = []
     server.use(
-      http.post(EMBEDDINGS_URL, ({ request }) => {
+      http.post(EMBEDDINGS_URL, async ({ request }) => {
         auth.push(request.headers.get("authorization"))
+        const body = (await request.json()) as Body
+        bodies.push(body)
+        await new Promise<void>((resolve) => held.push(resolve))
+        const n = Number(/chunk (\d)/.exec(JSON.stringify(body.input))?.[1])
+        return HttpResponse.json({
+          data: [{ index: 0, embedding: vector(n) }],
+        })
       }),
-      echoHandler(bodies),
     )
 
-    const result = await embedMultimodal([0, 1, 2, 3, 4].map(text), config)
+    const result = embedMultimodal([0, 1, 2, 3, 4].map(text), config)
 
-    expect(bodies.map((b) => b.input.length)).toEqual([2, 2, 1])
+    // Two requests are in flight; a new one starts only when the test
+    // releases an answer. The newest answer goes first, so the answers come
+    // back in another order than the requests.
+    for (const inFlight of [2, 2, 2, 2, 1]) {
+      await vi.waitFor(() => expect(held).toHaveLength(inFlight))
+      held.pop()?.()
+    }
+    expect((await result).map((e) => e[0])).toEqual([0, 1, 2, 3, 4])
+    expect(bodies).toHaveLength(5)
     for (const body of bodies) {
+      expect(body.input).toHaveLength(1)
       expect(body.model).toBe("vendor/multimodal-embed")
       expect(body.dimensions).toBe(16)
       expect(body.provider).toEqual({
@@ -97,18 +114,28 @@ describe("embedMultimodal", () => {
         zdr: true,
       })
     }
-    expect(auth).toEqual([
-      "Bearer test-key",
-      "Bearer test-key",
-      "Bearer test-key",
-    ])
-    expect(bodies[0]?.input[1]).toEqual({
+    expect(auth).toEqual(Array.from({ length: 5 }, () => "Bearer test-key"))
+    expect(bodies.map((body) => body.input[0])).toContainEqual({
       content: [
         { type: "text", text: "Design notes (part 2 of 5)\n\nchunk 1" },
       ],
     })
-    // The handler returns the rows in reverse order; `index` restores it.
-    expect(result.map((e) => e[0])).toEqual([10, 11, 20, 21, 30])
+  })
+
+  it("starts no new request after a failure", async () => {
+    let calls = 0
+    server.use(
+      http.post(EMBEDDINGS_URL, () => {
+        calls += 1
+        return new HttpResponse("bad model", { status: 400 })
+      }),
+    )
+
+    await expect(
+      embedMultimodal([0, 1, 2, 3, 4].map(text), config),
+    ).rejects.toThrow("400")
+    // The two first requests were in flight together; no third one started.
+    expect(calls).toBe(2)
   })
 
   it("sends a search query as its text only, with no context line", async () => {

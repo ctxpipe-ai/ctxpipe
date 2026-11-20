@@ -125,7 +125,7 @@ function gateway(options: {
             error: {
               code: 404,
               message:
-                "No endpoints found that can handle the requested parameters.",
+                "No endpoints found matching your data policy (Zero data retention). Configure: https://openrouter.ai/settings/privacy",
             },
           },
           { status: 404 },
@@ -270,11 +270,13 @@ describe("the provider probe", () => {
     expect(bodies.embeddings[1]?.input).toEqual([
       { content: [{ type: "text", text: "A red and blue checkerboard." }] },
     ])
-    // The batch is one request with 16 document chunks, each with the
+    // The batch is 16 requests, each with one document chunk and the
     // context line of the projection.
-    expect(bodies.embeddings).toHaveLength(3)
-    expect(bodies.embeddings[2]?.input).toHaveLength(16)
-    expect(bodies.embeddings[2]?.input[15]).toEqual({
+    expect(bodies.embeddings).toHaveLength(18)
+    expect(bodies.embeddings.every((body) => body.input.length === 1)).toBe(
+      true,
+    )
+    expect(bodies.embeddings.map((body) => body.input[0])).toContainEqual({
       content: [
         {
           type: "text",
@@ -284,23 +286,10 @@ describe("the provider probe", () => {
     })
   })
 
-  it("fails the batch check with the routing message when the endpoint takes one input only", async () => {
+  it("passes the batch check on a gateway that takes one input per request, as the ZDR endpoints do", async () => {
     gateway({ enforcesZdr: true, maxInputs: 1 })
 
-    expect(await run(0.05)).toBe(4)
-
-    const result = await readResult()
-    expect(result.checks.at(-1)).toEqual({
-      name: "embedding-text-batch",
-      pass: false,
-      status: 404,
-      provider: null,
-      error:
-        "Embedding request failed: HTTP 404: No endpoints found that can handle the requested parameters.",
-      expects:
-        "HTTP 200, the provider Google, and 16 vector(s) of 1024 dimensions",
-    })
-    expect(result.checks.filter((check) => !check.pass)).toHaveLength(1)
+    expect(await run(0.05)).toBe(0)
   })
 
   it("fails each check that the answers do not prove", async () => {
