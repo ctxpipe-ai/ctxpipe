@@ -441,6 +441,7 @@ describe("the provider probe controls", () => {
             provider: z.string().nullable(),
             error: z.string().nullable(),
             vectors: z.number().nullable(),
+            latencyMs: z.number().nullable(),
           }),
         ),
       })
@@ -476,10 +477,20 @@ describe("the provider probe controls", () => {
       ["qwen3-embedding-8b-64-strings-zdr-deepinfra-us", 200, null, 64],
       ["qwen3-embedding-8b-16-strings-zdr-nebius-bf16", 200, null, 16],
       ["qwen3-embedding-8b-64-strings-zdr-nebius-bf16", 200, null, 64],
+      ["qwen3-embedding-8b-16-strings-zdr-siliconflow-fp8", 200, null, 16],
+      ["qwen3-embedding-8b-64-strings-zdr-siliconflow-fp8", 200, null, 64],
+      ["pplx-embed-v1-4b-16-strings-zdr-perplexity-int8", 200, null, 16],
+      ["pplx-embed-v1-4b-64-strings-zdr-perplexity-int8", 200, null, 64],
       ["text-embedding-3-small-16-strings-zdr-azure", 200, null, 16],
       ["text-embedding-3-small-64-strings-zdr-azure", 200, null, 64],
     ])
-    expect(bodies).toHaveLength(23)
+    expect(bodies).toHaveLength(27)
+    // Each answered control records the time of its call.
+    expect(
+      result.controls.every(
+        (control) => control.latencyMs !== null && control.latencyMs >= 0,
+      ),
+    ).toBe(true)
     expect(bodies[8]?.provider).toEqual({
       data_collection: "deny",
       order: ["google-vertex/us"],
