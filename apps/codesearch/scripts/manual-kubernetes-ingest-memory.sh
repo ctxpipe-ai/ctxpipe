@@ -44,14 +44,17 @@ SCIP_DIR="$(dirname "${CHECKOUT_DIR}")"
 ZOEKT_DIR="${WORK_DIR}/data/zoekt-index"
 ZOEKT_HOT_DIR="${WORK_DIR}/data/zoekt-hot"
 
+# The label of a test container (scripts/ci/test-containers.mjs).
+TEST_LABEL="ai.ctxpipe.test=${CTXPIPE_TEST_OWNER:-$(hostname)/$$}"
+
 cleanup() {
-  docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+  docker rm -f -v "${CONTAINER_NAME}" >/dev/null 2>&1 || true
   # Docker Desktop preserves host ownership; repair those files on the host.
   if chmod -R u+rwX "${WORK_DIR}" 2>/dev/null && rm -rf "${WORK_DIR}" 2>/dev/null; then
     return
   fi
   # On Linux the root container can own read-only cache directories instead.
-  docker run --rm --network none --user root --entrypoint sh \
+  docker run --rm --label "${TEST_LABEL}" --network none --user root --entrypoint sh \
     -v "${WORK_DIR}:/cleanup" "${IMAGE}" \
     -c 'chmod -R u+rwX /cleanup && find /cleanup -mindepth 1 -delete'
   rmdir "${WORK_DIR}"
@@ -257,6 +260,7 @@ echo "manual-kubernetes-memory: indexing ${KUBERNETES_SHA} with ${MEMORY_MAX} li
 set +e
 docker run \
   --name "${CONTAINER_NAME}" \
+  --label "${TEST_LABEL}" \
   --memory "${MEMORY_MAX}" \
   --memory-swap "${MEMORY_MAX}" \
   --mount "type=bind,src=${WORK_DIR},dst=/gate" \
