@@ -24,7 +24,6 @@ export async function startS3Server(): Promise<{
 }> {
   const base = await mkdtemp(join(tmpdir(), "s3-server-"))
   const root = join(base, "data")
-  // S3 refuses a bucket name with less than 3 characters.
   const bucket = "codesearch-test"
   await mkdir(join(root, bucket), { recursive: true })
   const accessKey = "codesearchtestaccess"
@@ -109,7 +108,6 @@ export async function startS3Server(): Promise<{
     stop: async () => {
       for (const socket of sockets) socket.destroy()
       await new Promise((resolve) => proxy.close(resolve))
-      child.removeAllListeners("exit")
       child.kill()
       await rm(base, { recursive: true, force: true })
     },
