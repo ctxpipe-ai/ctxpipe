@@ -402,27 +402,28 @@ export const OpeningLogKeepsScroll: Story = {
         scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight,
       ).toBeLessThan(4)
     })
+    // StickToBottom does not scroll at once after a change of height. The
+    // browser measures the new height in the next frame, and StickToBottom
+    // scrolls in the frame after that. Three frames hold that scroll.
+    const threeFrames = async () => {
+      for (let frame = 0; frame < 3; frame++)
+        await new Promise((next) => requestAnimationFrame(next))
+    }
+    // The web fonts change the height of the text.
     await document.fonts.ready
+    await threeFrames()
     const top = log.getBoundingClientRect().top
     await userEvent.click(log)
-    await waitFor(() => expect(log).toHaveAttribute("aria-expanded", "true"))
-    // The thread stops 1 px above the bottom (scrollTop 163 of 164), and its
-    // content has a fractional height (676.25 px). A trace of this play showed
-    // the browser move the thread to 162 in the frame after the fonts loaded,
-    // with no script that set scrollTop. Sometimes the stick to the bottom
-    // then set it back to 163. `document.fonts.ready` resolves when the fonts
-    // load, not when these frames end, so the move can come after `top` is
-    // read (CTX-1437). Thus the play accepts a move of 1 px. A scroll to the
-    // bottom moves the counters by the height of the open log (273 px).
-    await waitFor(() =>
-      expect(
-        Math.abs(
-          canvas
-            .getByRole("button", { name: progressCounters })
-            .getBoundingClientRect().top - top,
-        ),
-      ).toBeLessThanOrEqual(1),
-    )
+    await canvas.findByRole("region", { name: "Activity log" })
+    // A wait for the old place passed before the scroll, also with no
+    // stopScroll() (CTX-1437). Thus the play lets the frames of the scroll
+    // pass, and then the counters must be in their old place.
+    await threeFrames()
+    await expect(
+      canvas
+        .getByRole("button", { name: progressCounters })
+        .getBoundingClientRect().top,
+    ).toBe(top)
   },
 }
 

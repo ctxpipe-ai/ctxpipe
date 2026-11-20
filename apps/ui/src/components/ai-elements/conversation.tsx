@@ -36,6 +36,12 @@ export const ConversationContent = ({
 }: ConversationContentProps) => (
   <StickToBottom.Content
     className={cn("flex flex-col gap-8 p-4", className)}
+    // StickToBottom moves the scroll itself, and it reads a scroll up as the
+    // user who leaves the bottom. Scroll anchoring of the browser also moves
+    // the scroll: when text above the view changes height (a font that
+    // loads), it can move the thread up by a fractional pixel. Then the
+    // thread stopped to follow the answer (CTX-1437).
+    scrollClassName="[overflow-anchor:none]"
     {...props}
   />
 )

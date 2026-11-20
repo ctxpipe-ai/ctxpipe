@@ -47,15 +47,20 @@ import pin from "./visual-container.json" with { type: "json" }
 // point of the play.
 // Each one is written as <out>/<story id>.png (<out>/<story id>@<name>.png
 // for a named snapshot), with <out>/capture.json (the status of each shot:
-// captured, unstable, play-failed or capture-failed). The shot of the end
+// captured, unstable, play-failed or capture-failed, and the time of the
+// play). The shot of the end
 // state also has `layout`: the problems of the layout checks
 // (apps/ui/src/lib/layout-checks.ts) in the same page.
 //
-// Usage: node scripts/ci/visual-capture.mjs --out <dir> <story id>...
+// Usage: node scripts/ci/visual-capture.mjs [--cpus <n>] --out <dir> <story id>...
 // (desktop; pnpm visual:check also captures the mobile screenshots)
 // The command needs Docker. It reads the repo read-only, and copies the
 // screenshots out of the container, so it works on a laptop VM that mounts
-// the home directory read-only.
+// the home directory read-only. The container has no network, as in each
+// capture. `--cpus <n>` gives each container only n CPUs (Docker `--cpus`).
+// Use `--cpus 1` to find a play that is too slow on a slow CI runner, and to
+// prove a fix of a flaky story: run the command 30 times, and each run must
+// capture the story (CTX-1437).
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
 
@@ -211,7 +216,7 @@ async function captureHere(plan, out, viewport) {
     await playStories(
       url,
       [...options.keys()].map((id) => byId.get(id)),
-      (story, { error }) => {
+      (story, { error, durationMs }) => {
         const { snapshots = [] } = options.get(story.id)
         for (const snapshot of [undefined, ...snapshots]) {
           const shot = taken.get(shotKey(story.id, snapshot)) ?? {
@@ -221,6 +226,8 @@ async function captureHere(plan, out, viewport) {
           shots.push({
             id: story.id,
             ...(snapshot && { snapshot }),
+            // The time from the start of the page to the end of the play.
+            playMs: durationMs,
             // A play that failed fails each shot of the story.
             ...(error ? { status: "play-failed", error } : shot),
           })
@@ -295,8 +302,8 @@ let prepared
 // script that exits non-zero keeps its partial results in `out`. `files`
 // maps a path in the container to a host file that is copied there before
 // the start (an input that can be larger than the size limit of one
-// argument).
-async function runInContainer(script, args, out, files) {
+// argument). `cpus` limits the CPUs of the container (Docker `--cpus`).
+async function runInContainer(script, args, out, files, cpus) {
   prepared ??= prepare(["visual-container"])
   const failed = (await prepared).get("visual-container")
   if (failed) throw new Error(failed)
@@ -304,7 +311,10 @@ async function runInContainer(script, args, out, files) {
   mkdirSync(out, { recursive: true })
   try {
     // --init reaps the browser processes and --ipc=host gives Chromium shared
-    // memory, as the Playwright documentation advises for the image.
+    // memory, as the Playwright documentation advises for the image. The
+    // container has no network: a screenshot never depends on the internet.
+    // The play runner also fails each request out of the Storybook server
+    // (storybook-play.mjs), with a message that names it.
     docker([
       "create",
       "--name",
@@ -313,6 +323,9 @@ async function runInContainer(script, args, out, files) {
       pin.platform,
       "--init",
       "--ipc=host",
+      "--network",
+      "none",
+      ...(cpus ? ["--cpus", String(cpus)] : []),
       "--volume",
       `${root}:/work:ro`,
       "--workdir",
@@ -420,7 +433,8 @@ export const splitPlan = (plan, workers) =>
 // Returns one entry for each shot (the end state of each story, and each
 // named snapshot): `{ id, snapshot, status, error }`, with the status
 // captured, unstable, play-failed, capture-failed or not-run. The PNG of a
-// shot is <out>/<shotKey>.png. `viewport` is desktop or mobile.
+// shot is <out>/<shotKey>.png. `viewport` is desktop or mobile. `cpus`
+// limits the CPUs of each container (the `--cpus` option of the command).
 //
 // More than one container captures at the same time: `workers`, by default
 // from the free CPUs of Docker (captureWorkers). Each container captures a
@@ -434,6 +448,7 @@ export async function captureInContainer(
   out,
   viewport = "desktop",
   workers,
+  cpus,
 ) {
   if (workers === undefined) {
     const dockerOutput = (args) =>
@@ -483,6 +498,7 @@ export async function captureInContainer(
           ["--inside", viewport, "/plan.json"],
           dir,
           { "/plan.json": planFile },
+          cpus,
         )
       }),
     )
@@ -530,18 +546,23 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       return flag === -1 ? undefined : args[flag + 1]
     }
     const out = value("--out")
+    const cpus = value("--cpus")
+    const options = ["--out", "--cpus"]
     const ids = args.filter(
-      (arg, i) => arg !== "--out" && args[i - 1] !== "--out",
+      (arg, i) => !options.includes(arg) && !options.includes(args[i - 1]),
     )
-    if (!out || !ids.length) {
+    if (!out || !ids.length || (cpus !== undefined && !(Number(cpus) > 0))) {
       process.stderr.write(
-        "Usage: node scripts/ci/visual-capture.mjs --out <dir> <story id>...\n",
+        "Usage: node scripts/ci/visual-capture.mjs [--cpus <n>] --out <dir> <story id>...\n",
       )
       process.exitCode = 1
     } else {
       const shots = await captureInContainer(
         await capturePlan(ids),
         resolve(out),
+        "desktop",
+        undefined,
+        cpus,
       )
       for (const shot of shots)
         process.stdout.write(
