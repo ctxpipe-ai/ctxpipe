@@ -142,17 +142,15 @@ export function useGithubConnectFlow({
           setInstallStarting(false)
           setIsSyncing(true)
           void (async () => {
+            let result: GithubSetupPopupResult
             try {
-              const result = await handleGithubSetupPopupResult(
-                orgSlug,
-                queryClient,
-              )
-              // A redirect unloads the page: keep the button in progress.
-              if (result.status === "redirected") return
-              await handleInstallSettled(result)
+              result = await handleGithubSetupPopupResult(orgSlug, queryClient)
             } catch {
-              await handleInstallSettled({ status: "registration_failed" })
+              result = { status: "registration_failed" }
             }
+            // A redirect unloads the page: keep the button in progress.
+            if (result.status === "redirected") return
+            await handleInstallSettled(result)
             setIsSyncing(false)
           })()
         },
@@ -162,12 +160,7 @@ export function useGithubConnectFlow({
         },
       )
     },
-    [
-      orgSlug,
-      watchPopupClose,
-      queryClient,
-      handleInstallSettled,
-    ],
+    [orgSlug, watchPopupClose, queryClient, handleInstallSettled],
   )
 
   const start = useCallback(

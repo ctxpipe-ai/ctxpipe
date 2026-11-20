@@ -103,8 +103,8 @@ function popupReturnsInstallation() {
 }
 
 /**
- * Handlers of an org with no installation that count the installation reads,
- * and a register request that answers with `register`.
+ * GitHub handlers of an org with no installation: they count the
+ * installation reads, and `register` answers the register request.
  */
 function installFlow(register: () => Response) {
   const reads = { count: 0 }
@@ -115,8 +115,8 @@ function installFlow(register: () => Response) {
         reads.count += 1
         return HttpResponse.json(null)
       }),
+      http.post(`*/${orgSlug}/api/v1/github/installation`, register),
     ],
-    register: http.post(`*/${orgSlug}/api/v1/github/installation`, register),
   }
   return { reads, handlers }
 }
@@ -174,7 +174,9 @@ export const RedirectKeepsPending: Story = {
 /** The browser blocked the popup, so the page itself goes to GitHub. */
 export const BlockedPopupKeepsPending: Story = {
   ...Slack,
-  parameters: { visual: { skip: "Same screen as RedirectKeepsPending." } },
+  parameters: {
+    visual: { skip: "Behavior test: it ends in the same state as Slack." },
+  },
   play: async ({ canvasElement }) => {
     const { destinations, release } = await pressConnect(
       canvasElement,
@@ -207,7 +209,9 @@ export const RegisteredKeepsPending: Story = {
   ...Slack,
   args: { ...Slack.args, onConnected: () => new Promise<void>(() => {}) },
   parameters: {
-    visual: { skip: "Same screen as RedirectKeepsPending." },
+    visual: {
+      skip: "Behavior test: it ends in the same state as RedirectKeepsPending.",
+    },
     msw: { handlers: registerFlow.handlers },
   },
   play: async ({ canvasElement }) => {
