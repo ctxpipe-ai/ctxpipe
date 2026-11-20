@@ -2393,3 +2393,48 @@ test("the critics cause and the log of factory review gate hold no URL or creden
   for (const leak of ["xyz", "hunter2", "sk-abc123", "eyJhbGciOi"])
     assert.ok(!tokens.includes(leak), `${leak}: ${tokens}`)
 })
+
+// The critics job fails after its upload when a critic has no verdict, so that
+// `gh run rerun --failed` runs the lookup again with the Merge gate job (a
+// rerun of only the Merge gate job reads the old record).
+test("the critics job fails on a critic that gate.mjs counts as missing, and on a lookup that did not run", () => {
+  const workflow = parseYaml(
+    readFileSync(join(root, ".github/workflows/ci.yaml"), "utf8"),
+  )
+  const last = workflow.jobs["merge-gate-critics"].steps.at(-1)
+  assert.equal(last.name, "Fail when a critic has no verdict")
+  assert.equal(last.if, undefined, "it runs only after a successful upload")
+  const exit = (files) => {
+    const dir = mkdtempSync(join(tmpdir(), "critics-job-"))
+    mkdirSync(join(dir, "out"))
+    for (const [name, text] of Object.entries(files))
+      writeFileSync(join(dir, "out", name), text)
+    return spawnSync("bash", ["-e", "-c", last.run], {
+      env: { ...process.env, RUNNER_TEMP: dir },
+      encoding: "utf8",
+    }).status
+  }
+  for (const statuses of [
+    [],
+    ["carried", "not-applicable"],
+    ["carried", "missing"],
+    ["carried", "held"],
+  ]) {
+    const record = {
+      critics: statuses.map((status, index) => ({
+        critic: `critic:${index}`,
+        status,
+      })),
+    }
+    assert.equal(
+      exit({ "critics.json": JSON.stringify(record) }) === 0,
+      !criticsFail(critics(inputs({ "critics.json": record }))),
+      statuses.join(" "),
+    )
+  }
+  assert.notEqual(
+    exit({ "critics-cause.txt": "the critics lookup did not finish" }),
+    0,
+  )
+  assert.notEqual(exit({}), 0)
+})
