@@ -18,6 +18,7 @@ import {
 } from "../models/github-installation.js"
 import { getLogger } from "../observability/logger.js"
 import { getAuth } from "./config.js"
+import { githubOAuthUrls } from "./github-oauth-urls.js"
 import { hasOrgAdminOrOwnerRole } from "./withAuth.js"
 
 /**
@@ -29,8 +30,8 @@ import { hasOrgAdminOrOwnerRole } from "./withAuth.js"
  * changed.
  *
  * The callback uses the redirect URI of GitHub sign-in, because that is the
- * callback URL that the App lists. The `state` prefix tells the two flows
- * apart.
+ * callback URL that the App lists ({@link githubOAuthUrls}). The `state`
+ * prefix tells the two flows apart.
  */
 const STATE_PREFIX = "gh-installation."
 
@@ -45,11 +46,6 @@ const ProofSchema = z.object({
 })
 
 type Proof = z.infer<typeof ProofSchema>
-
-/** The redirect URI of GitHub sign-in in `config.ts`. */
-function githubOAuthRedirectUri(env: Env) {
-  return `${env.AUTH_BASE_URL}/.auth/api/v1/auth/callback/github`
-}
 
 function verificationIdentifier(nonce: string) {
   return `github-installation-proof:${nonce}`
@@ -77,9 +73,10 @@ export async function createGithubInstallationProofUrl(
       value: JSON.stringify({ ...proof, codeVerifier } satisfies Proof),
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     })
-  const url = new URL("https://github.com/login/oauth/authorize")
+  const { authorizeUrl, redirectUri } = githubOAuthUrls(env)
+  const url = new URL(authorizeUrl)
   url.searchParams.set("client_id", env.GITHUB_CLIENT_ID)
-  url.searchParams.set("redirect_uri", githubOAuthRedirectUri(env))
+  url.searchParams.set("redirect_uri", redirectUri)
   url.searchParams.set("state", `${STATE_PREFIX}${nonce}`)
   url.searchParams.set(
     "code_challenge",
@@ -132,7 +129,7 @@ async function exchangeCode(input: {
         client_id: input.env.GITHUB_CLIENT_ID,
         client_secret: input.env.GITHUB_CLIENT_SECRET,
         code: input.code,
-        redirect_uri: githubOAuthRedirectUri(input.env),
+        redirect_uri: githubOAuthUrls(input.env).redirectUri,
         code_verifier: input.codeVerifier,
       }),
       signal: AbortSignal.timeout(15_000),

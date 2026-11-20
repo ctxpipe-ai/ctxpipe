@@ -489,6 +489,50 @@ describe("POST /github/installation requires GitHub access (Postgres)", () => {
       expect(stored).not.toContain(visibleToken)
     })
 
+    it("goes through the OAuth forwarder of the deployment, when it has one", async () => {
+      // The AWS PR previews (CTX-1426): the forwarder gives the state back
+      // as this deployment sent it.
+      const forwarded = createApp({
+        ...env,
+        GITHUB_AUTHORIZE_URL:
+          "https://forwarder.example.test/github/authorize/pr-12",
+        GITHUB_REDIRECT_URI: "https://forwarder.example.test/github/callback",
+      })
+      const res = await attach({ installationId }, forwarded)
+      expect(res.status).toBe(403)
+      const url = new URL(
+        ((await res.json()) as { authorizeUrl?: string }).authorizeUrl ?? "",
+      )
+      expect(url.origin + url.pathname).toBe(
+        "https://forwarder.example.test/github/authorize/pr-12",
+      )
+      expect(url.searchParams.get("redirect_uri")).toBe(
+        "https://forwarder.example.test/github/callback",
+      )
+      // The UI sends the user only to the authorize page that the deployment
+      // names.
+      const config = await forwarded.request(
+        "http://backend.test/.auth/api/config",
+      )
+      expect(
+        ((await config.json()) as { githubAuthorizeUrl?: string })
+          .githubAuthorizeUrl,
+      ).toBe("https://forwarder.example.test/github/authorize/pr-12")
+
+      const done = await forwarded.request(
+        `http://backend.test/.auth/api/v1/auth/callback/github?${new URLSearchParams({ code: "code-visible", state: url.searchParams.get("state") ?? "" })}`,
+        { headers: { cookie: seed.cookie } },
+      )
+
+      expect(new URL(done.headers.get("location") ?? "").pathname).toBe(
+        `/${seed.orgSlug}/github/setup`,
+      )
+      expect(codeExchanges).toHaveLength(1)
+      expect(codeExchanges[0]?.redirect_uri).toBe(
+        "https://forwarder.example.test/github/callback",
+      )
+    })
+
     it("attaches for a user whose GitHub account is linked to another ctxpipe user", async () => {
       await linkGithub(
         "gho_link_of_other_user",
