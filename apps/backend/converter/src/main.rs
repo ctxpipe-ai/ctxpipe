@@ -21,8 +21,9 @@ use std::process::ExitCode;
 use base64::Engine;
 use serde_json::{Value, json};
 
-/// The version line of `--version`: the package version and the hash of
-/// build.rs. It is part of the projection version (ADR-067).
+/// The version line of `--version`: the package version and the hash that
+/// build.rs makes of Cargo.lock, the source and the font. It is part of the
+/// projection version (ADR-067).
 const VERSION: &str = concat!(
     "ctxpipe-convert ",
     env!("CARGO_PKG_VERSION"),
@@ -119,8 +120,8 @@ fn set_limits(memory_mb: u64, cpu_seconds: u64) {
 
 /// The seccomp filters of the conversion (Linux). After the input is read,
 /// each system call that opens a file, makes a socket, starts a program or
-/// a process, reads another process, or gives an indirect way to do one of
-/// these (io_uring, bpf) fails with EPERM. A new thread (`clone` with
+/// a process, reads or signals another process, or gives an indirect way to
+/// do one of these (io_uring, bpf) fails with EPERM. A new thread (`clone` with
 /// `CLONE_THREAD`) still works: a parser can use threads, but no process.
 /// `clone3` fails with ENOSYS, so that the C library uses `clone`, whose
 /// flags the filter can read. The parsers need none of the refused calls:
@@ -156,6 +157,17 @@ fn sandbox() -> Result<(), String> {
         libc::SYS_ptrace,
         libc::SYS_process_vm_readv,
         libc::SYS_process_vm_writev,
+        // Another process: its file descriptors, or a signal to it. An abort
+        // of this process still ends it (the C library then crashes it).
+        libc::SYS_pidfd_open,
+        libc::SYS_pidfd_getfd,
+        libc::SYS_pidfd_send_signal,
+        libc::SYS_kcmp,
+        libc::SYS_kill,
+        libc::SYS_tkill,
+        libc::SYS_tgkill,
+        libc::SYS_rt_sigqueueinfo,
+        libc::SYS_rt_tgsigqueueinfo,
         libc::SYS_io_uring_setup,
         libc::SYS_io_uring_enter,
         libc::SYS_io_uring_register,
@@ -486,7 +498,9 @@ mod tests {
             assert!(std::net::TcpStream::connect("127.0.0.1:9").is_err(), "a socket opens");
             // SAFETY: a fork that the filter refuses returns -1 and makes no child.
             assert_eq!(unsafe { libc::fork() }, -1, "a process starts");
-            assert_eq!(std::thread::spawn(|| 7).join().unwrap(), 7, "a thread fails");
+            // SAFETY: a signal that the filter refuses goes nowhere.
+            assert_eq!(unsafe { libc::kill(1, 0) }, -1, "a signal goes to another process");
+            assert_eq!(std::thread::spawn(|| 7).join().unwrap(), 7, "a thread does not start");
         })
         .join()
         .expect("the sandbox test thread");

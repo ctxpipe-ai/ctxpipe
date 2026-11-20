@@ -422,8 +422,6 @@ const MAX_IMAGE_BYTES = 20 * 1024 * 1024
 const MAX_FILE_BYTES = 48 * 1024 * 1024
 /** The bytes of the blobs of one git read, with their framing. */
 const READ_BYTES = 32 * 1024 * 1024
-/** More than the header line (`<sha> blob <size>`) and the newline of a blob. */
-const GIT_BLOB_FRAMING_BYTES = 128
 
 /**
  * The rows of each file of `paths`, with no vectors: a document, or a
@@ -484,34 +482,41 @@ async function projectFiles(input: {
     }
     return type ? [{ path, blob, type }] : []
   })
-  // The size of each file before a read: a file above its limit gets a
+  // Each blob is read once, also when more paths have it.
+  const entriesOf = new Map<string, Entry[]>()
+  for (const entry of entries)
+    entriesOf.set(entry.blob, [...(entriesOf.get(entry.blob) ?? []), entry])
+  const blobs = [...entriesOf.keys()]
+  // The size of each blob before a read: a file above its limit gets a
   // `failed` document, and each git read stays within the output limit.
-  const sizes = await readGitBlobSizes(
-    input.directory,
-    entries.map(({ blob }) => blob),
-  )
-  const groups: Entry[][] = [[]]
+  const sizes = await readGitBlobSizes(input.directory, blobs)
+  const groups: string[][] = [[]]
   let groupBytes = 0
-  for (const [index, entry] of entries.entries()) {
+  for (const [index, blob] of blobs.entries()) {
     const size = sizes[index] ?? 0
-    const limit =
-      entry.type?.kind === "image" ? MAX_IMAGE_BYTES : MAX_FILE_BYTES
+    const shared = entriesOf.get(blob) ?? []
+    const limit = shared.some((entry) => entry.type?.kind === "image")
+      ? MAX_IMAGE_BYTES
+      : MAX_FILE_BYTES
     if (size > limit) {
-      fail(entry.path, `The file is larger than ${limit / 1024 / 1024} MiB.`)
-      if (entry.type)
-        count(
-          entry.type.kind === "image" ? "image" : entry.type.format,
-          "too-large",
-        )
+      for (const entry of shared) {
+        fail(entry.path, `The file is larger than ${limit / 1024 / 1024} MiB.`)
+        if (entry.type)
+          count(
+            entry.type.kind === "image" ? "image" : entry.type.format,
+            "too-large",
+          )
+      }
       continue
     }
-    // `cat-file --batch` adds a header line and a newline to each blob.
-    const bytes = size + GIT_BLOB_FRAMING_BYTES
+    // `cat-file --batch` adds a header line (`<sha> blob <size>`) and a
+    // newline to each blob: 128 bytes is more than both.
+    const bytes = size + 128
     if (groupBytes + bytes > READ_BYTES && (groups.at(-1)?.length ?? 0) > 0) {
       groups.push([])
       groupBytes = 0
     }
-    groups.at(-1)?.push(entry)
+    groups.at(-1)?.push(blob)
     groupBytes += bytes
   }
   /** The images for the vision model, with the path and the type of each. */
@@ -522,14 +527,16 @@ async function projectFiles(input: {
     image: { bytes: Buffer; mimeType: string }
     labels?: string
   }[] = []
+  // The images of a group go to the vision step before the next read, so
+  // the run holds the bytes of one group at a time.
   for (const group of groups) {
-    const contents = await readGitBlobs(
-      input.directory,
-      group.map(({ blob }) => blob),
-    )
-    for (const [index, { path, blob, type }] of group.entries())
-      await projectEntry(path, blob, type, contents[index] ?? Buffer.alloc(0))
+    const contents = await readGitBlobs(input.directory, group)
+    for (const [index, blob] of group.entries())
+      for (const { path, type } of entriesOf.get(blob) ?? [])
+        await projectEntry(path, blob, type, contents[index] ?? Buffer.alloc(0))
+    await projectImages()
   }
+  return { documents, failed }
 
   async function projectEntry(
     path: string,
@@ -617,14 +624,16 @@ async function projectFiles(input: {
       )
   }
 
-  if (images.length > 0) {
+  /** The texts of the images of `images`, which it then empties. */
+  async function projectImages(): Promise<void> {
+    if (images.length === 0) return
     const texts = await imageTexts({
       store: input.store,
       scope: input.scope,
       images,
       counter: input.files.images,
     })
-    for (const { path, mime, blobSha } of images) {
+    for (const { path, mime, blobSha } of images.splice(0)) {
       const text = texts.get(blobSha)
       if (!text || "error" in text)
         fail(path, text?.error ?? "The image has no text.")
@@ -641,7 +650,6 @@ async function projectFiles(input: {
         )
     }
   }
-  return { documents, failed }
 }
 
 /**
