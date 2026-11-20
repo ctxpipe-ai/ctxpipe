@@ -247,7 +247,7 @@ describe("embedMultimodal", () => {
     )
 
     expect(calls).toBe(3)
-    expect(String(error)).toBe("Error: Embedding request failed: HTTP 502")
+    expect((error as Error).message).toBe("Embedding request failed: HTTP 502")
     const telemetry = JSON.stringify(
       spans
         .finishedSpans()
