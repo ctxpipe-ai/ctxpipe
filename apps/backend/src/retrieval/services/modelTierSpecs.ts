@@ -19,7 +19,7 @@ export const modelNameShape = {
   MODEL_MEDIUM_NAME: z
     .string()
     .default("openai/gpt-6-luna?reasoning.effort=xhigh"),
-  MODEL_HIGH_NAME: z.string().default("xiaomi/mimo-v2.6-pro"),
+  MODEL_HIGH_NAME: z.string().default("openai/gpt-6-luna?reasoning.effort=xhigh"),
   MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
   /**
    * The one OpenRouter model that reads the images of the knowledge plane

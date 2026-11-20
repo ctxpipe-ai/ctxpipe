@@ -46,7 +46,7 @@ LLM and embeddings both use OpenRouter by default. You do not need extra configu
 | `MODEL_BEDROCK_AWS_REGION`         | No        | `AWS_REGION` / stack region     | AWS region for Bedrock Runtime when `MODEL_PROVIDER=bedrock`. |
 | `MODEL_FAST_NAME`                  | No        | `openai/gpt-6-luna?reasoning.effort=high`    | LLM model for the fast tier (OpenRouter slash ids).                                |
 | `MODEL_MEDIUM_NAME`                | No        | `openai/gpt-6-luna?reasoning.effort=xhigh`   | LLM model for the medium tier.                                                     |
-| `MODEL_HIGH_NAME`                  | No        | `xiaomi/mimo-v2.6-pro`                       | LLM model for the high tier.                                                       |
+| `MODEL_HIGH_NAME`                  | No        | `openai/gpt-6-luna?reasoning.effort=xhigh`   | LLM model for the high tier.                                                       |
 | `MODEL_EMBEDDING_NAME`             | No        | `openai/text-embedding-3-large`            | Embedding model ID.                                                                |
 | `MODEL_VISION_NAME`                | No        | `openai/gpt-6.1-terra`                     | The one OpenRouter model that reads the images of the knowledge plane. It must take image input and have a ZDR endpoint on OpenRouter. A value of only spaces stops the backend at start. |
 
@@ -64,7 +64,7 @@ The service uses three tiers for different workloads:
 | ---------- | --------------------------------- | ------------------ |
 | **fast**   | Quick tasks, naming, planning     | `openai/gpt-6-luna?reasoning.effort=high` |
 | **medium** | Main agent, balanced cost/quality | `openai/gpt-6-luna?reasoning.effort=xhigh` |
-| **high**   | Complex reasoning, best quality   | `xiaomi/mimo-v2.6-pro` |
+| **high**   | Complex reasoning, best quality   | `openai/gpt-6-luna?reasoning.effort=xhigh` |
 
 Override any tier with `MODEL_FAST_NAME`, `MODEL_MEDIUM_NAME`, or `MODEL_HIGH_NAME`. Use model IDs from your provider (OpenRouter: `org/model-name`; Bedrock on AWS CDK: `vendor.model` with dot, e.g. `openai.gpt-6-luna?reasoning.effort=high`).
 
