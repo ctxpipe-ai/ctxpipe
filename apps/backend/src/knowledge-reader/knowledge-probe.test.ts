@@ -38,7 +38,6 @@ afterEach(async () => {
 const providerSchema = z.object({
   data_collection: z.string(),
   zdr: z.boolean(),
-  quantizations: z.array(z.string()).optional(),
 })
 const decisionSchema = z.object({
   model: z.string(),
@@ -87,16 +86,13 @@ const reading = {
 
 /** The fake OpenRouter ZDR list (`GET /api/v1/endpoints/zdr`). */
 const ZDR_LIST = [
-  ["typesafe/jev-1.14", "TypeSafe", "unknown"],
-  ["openai/gpt-6.1-terra", "Azure", "unknown"],
-  ["qwen/qwen3-embedding-8b", "Nebius", "bf16"],
-  ["qwen/qwen3-embedding-8b", "DeepInfra", "unknown"],
-  ["qwen/qwen3-embedding-8b", "SiliconFlow", "fp8"],
-].map(([model_id = "", provider_name = "", quantization]) => ({
+  ["typesafe/jev-1.14", "TypeSafe"],
+  ["openai/gpt-6.1-terra", "Azure"],
+  ["openai/text-embedding-3-large", "Azure"],
+].map(([model_id = "", provider_name = ""]) => ({
   model_id,
   provider_name,
-  tag: `${provider_name.toLowerCase()}/${quantization}`,
-  quantization,
+  tag: provider_name.toLowerCase(),
 }))
 
 /**
@@ -206,7 +202,7 @@ function gateway(options: {
           ),
           index,
         })),
-        provider: options.embeddingName ?? "Nebius",
+        provider: options.embeddingName ?? "Azure",
         usage: { prompt_tokens: 4, cost: 0.00001 },
       })
     }),
@@ -271,7 +267,7 @@ describe("the provider probe", () => {
         name: "embedding-query",
         pass: true,
         status: 200,
-        provider: "Nebius",
+        provider: "Azure",
       }),
       expect.objectContaining({ name: "embedding-text-batch", pass: true }),
       expect.objectContaining({
@@ -321,37 +317,28 @@ describe("the provider probe", () => {
     })
     expect(refused).toEqual(nonZdr)
 
-    // The question goes with the instruction line of the model, only to a
-    // ZDR endpoint at an allowed quantization.
+    // The question goes as it is, only to a ZDR endpoint.
     expect(bodies.embeddings[0]).toEqual({
-      model: "qwen/qwen3-embedding-8b",
+      model: "openai/text-embedding-3-large",
       dimensions: 1024,
       encoding_format: "float",
-      input: [
-        expect.stringMatching(
-          /^Instruct: .+\nQuery:Which squares of the checkerboard are red\?$/,
-        ),
-      ],
-      provider: {
-        data_collection: "deny",
-        zdr: true,
-        quantizations: ["bf16", "fp16", "fp32", "unknown"],
-      },
+      input: ["Which squares of the checkerboard are red?"],
+      provider: { data_collection: "deny", zdr: true },
     })
-    // The batch is one request with 64 document chunks, each with the
-    // context line of the projection.
+    // The batch is one request with 2048 document chunks (the input limit
+    // of the API), each with the context line of the projection.
     expect(bodies.embeddings).toHaveLength(4)
-    expect(bodies.embeddings[1]?.input).toHaveLength(64)
+    expect(bodies.embeddings[1]?.input).toHaveLength(2048)
     expect(bodies.embeddings[1]?.input.at(-1)).toBe(
-      "Checkerboard (part 64 of 64)\n\nSquare 64 of the checkerboard is blue.",
+      "Checkerboard (part 2048 of 2048)\n\nSquare 2048 of the checkerboard is blue.",
     )
     // The embedding refusal pair is the request of the client to the non-ZDR
-    // model, with no dimension and no quantizations. Only `zdr` differs.
+    // model, with no dimension. Only `zdr` differs.
     const [, , embeddingControl, embeddingRefused] = bodies.embeddings
     expect(embeddingControl).toEqual({
       model: "openai/text-embedding-ada-002",
       encoding_format: "float",
-      input: [expect.stringMatching(/\nQuery:Is the sky blue\?$/)],
+      input: ["Is the sky blue?"],
       provider: { data_collection: "deny", zdr: false },
     })
     expect(embeddingRefused).toEqual({
@@ -405,8 +392,8 @@ describe("the provider probe", () => {
     gateway({
       enforcesZdr: false,
       jevName: "Other Host",
-      // A ZDR endpoint of the model, but at a low precision (fp8).
-      embeddingName: "SiliconFlow",
+      // An endpoint of the model that is not on the ZDR list.
+      embeddingName: "OpenAI",
       dimensions: 768,
     })
 
@@ -428,7 +415,7 @@ describe("the provider probe", () => {
     expect(result.checks[0]?.provider).toBe("Other Host")
     expect(result.checks[2]?.status).toBe(200)
     expect(result.checks[3]).toMatchObject({
-      provider: "SiliconFlow",
+      provider: "OpenAI",
       error: "Expected 1024 dimensions at index 0, got 768",
     })
   })

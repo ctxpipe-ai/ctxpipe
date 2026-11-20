@@ -5,6 +5,7 @@ import { useMswServer } from "../../../test/msw.js"
 import { recordSpans } from "../../../test/spans.js"
 import {
   type EmbeddingInput,
+  embeddingKey,
   embedQuery,
   embedTexts,
   textEmbeddingConfig,
@@ -17,10 +18,8 @@ const spans = recordSpans()
 const config = {
   ...textEmbeddingConfig,
   model: "vendor/text-embed",
-  quantizations: ["bf16"],
   dimensions: 16,
-  queryInstruction: "Find the answer",
-  batchSize: 2,
+  maxBatchInputs: 2,
   concurrency: 2,
   maxAttempts: 3,
   backoffMs: 1,
@@ -78,7 +77,7 @@ describe("embedTexts", () => {
     vi.unstubAllEnvs()
   })
 
-  it("sends the inputs in no-retention batches of `batchSize` with the allowed quantizations, at most `concurrency` at a time, and keeps the input order", async () => {
+  it("sends the inputs in no-retention batches of `maxBatchInputs`, at most `concurrency` at a time, and keeps the input order", async () => {
     const bodies: Body[] = []
     const auth: (string | null)[] = []
     // Each answer waits until the test releases it.
@@ -116,17 +115,61 @@ describe("embedTexts", () => {
       expect(body.model).toBe("vendor/text-embed")
       expect(body.dimensions).toBe(16)
       expect(body.encoding_format).toBe("float")
-      expect(body.provider).toEqual({
-        data_collection: "deny",
-        zdr: true,
-        quantizations: ["bf16"],
-      })
+      expect(body.provider).toEqual({ data_collection: "deny", zdr: true })
     }
     expect(auth).toEqual(Array.from({ length: 3 }, () => "Bearer test-key"))
     // Each chunk is a plain string with the context line of its document.
     expect(bodies.flatMap((body) => body.input)).toContain(
       "Design notes (part 2 of 5)\n\nchunk 1",
     )
+  })
+
+  it("closes a batch before an input that puts its UTF-8 bytes over `maxBatchBytes`", async () => {
+    const bodies: Body[] = []
+    server.use(echoHandler(bodies))
+    // "Design notes (part N of 5)\n\n" is 28 bytes. Each "é" is 2 bytes.
+    const chunk = (n: number, accents: number): EmbeddingInput => ({
+      ...text(n),
+      text: "é".repeat(accents),
+    })
+    const limits = { ...config, maxBatchInputs: 10, maxBatchBytes: 100 }
+
+    const result = await embedTexts(
+      [chunk(0, 11), chunk(1, 25), chunk(2, 25), chunk(3, 40), chunk(4, 1)],
+      limits,
+    )
+
+    // 50 + 78 > 100; 78 alone; 78 + 108 > 100; 108 alone (over the limit,
+    // so the provider decides); 108 + 30 > 100.
+    expect(bodies.map((body) => body.input.length)).toEqual([1, 1, 1, 1, 1])
+    expect(result).toHaveLength(5)
+
+    bodies.length = 0
+    await embedTexts(
+      [0, 1, 2].map((n) => chunk(n, 7)),
+      limits,
+    )
+    // 3 × 42 bytes: two fit in 100, the third does not.
+    expect(bodies.map((body) => body.input.length)).toEqual([2, 1])
+  })
+
+  it("cuts an input over `maxInputBytes` at a code point, and the key holds the cut text", async () => {
+    const bodies: Body[] = []
+    server.use(echoHandler(bodies))
+    const limits = { ...config, maxInputBytes: 33 }
+    // The context line and the blank line are 28 bytes. 2 + 2 bytes of "é"
+    // fit; the third "é" would end at byte 34, so the cut drops it.
+    const long = { ...text(0), text: "éééé" }
+    const exact = { ...text(0), text: "éé" }
+
+    await embedTexts([long], limits)
+
+    expect(bodies[0]?.input).toEqual(["Design notes (part 1 of 5)\n\néé"])
+    expect(embeddingKey(long, limits)).toBe(embeddingKey(exact, limits))
+    expect(embeddingKey(long, limits)).not.toBe(embeddingKey(long, config))
+
+    await embedQuery("ü".repeat(20), limits)
+    expect(bodies[1]?.input).toEqual(["ü".repeat(16)])
   })
 
   it("sends nothing when the model settings do not point at OpenRouter", async () => {
@@ -452,22 +495,19 @@ describe("embedQuery", () => {
     vi.unstubAllEnvs()
   })
 
-  it("sends a search question with the instruction line of the model, no context line, and the ZDR provider block sorted by latency", async () => {
+  it("sends a search question as it is, with no context line, and the ZDR provider block sorted by latency", async () => {
     const bodies: Body[] = []
     server.use(echoHandler(bodies))
 
     expect(await embedQuery("why did it fail", config)).toEqual(vector(10))
 
     expect(bodies).toHaveLength(1)
-    expect(bodies[0]?.input).toEqual([
-      "Instruct: Find the answer\nQuery:why did it fail",
-    ])
+    expect(bodies[0]?.input).toEqual(["why did it fail"])
     // No pin, no order and no `allow_fallbacks: false`: OpenRouter falls
     // back among the ZDR endpoints in the order of their latency.
     expect(bodies[0]?.provider).toEqual({
       data_collection: "deny",
       zdr: true,
-      quantizations: ["bf16"],
       sort: "latency",
     })
   })

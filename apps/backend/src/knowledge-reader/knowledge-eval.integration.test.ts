@@ -27,11 +27,7 @@ import {
 } from "../models/knowledge-state.js"
 import { textEmbeddingConfig } from "../retrieval/embeddings/textEmbeddings.js"
 import { startClickHouse, userUrl } from "../test/clickhouse.js"
-import {
-  embedText,
-  planeInputVector,
-  planeVector,
-} from "../test/knowledge-search-fixture.js"
+import { embedText, planeVector } from "../test/knowledge-search-fixture.js"
 import { dropOrgGraph, seedRelatedWorkspace } from "../test/related-fixture.js"
 
 /*
@@ -140,12 +136,16 @@ let goldTitlesByQuestion = new Map<string, string[]>()
 const models = setupServer(
   http.post(`${MODEL_URL}/embeddings`, async ({ request }) => {
     requests.embedding += 1
-    const body = (await request.json()) as { model: string; input: string[] }
-    const plane = body.model === textEmbeddingConfig.model
+    const body = (await request.json()) as {
+      input: string[]
+      dimensions?: number
+    }
+    // Both stacks use one model; the plane asks for its own dimension.
+    const plane = body.dimensions === textEmbeddingConfig.dimensions
     return HttpResponse.json({
       data: body.input.map((input, index) => ({
         index,
-        embedding: plane ? planeInputVector(input) : embedText(input),
+        embedding: plane ? planeVector(input) : embedText(input),
       })),
     })
   }),

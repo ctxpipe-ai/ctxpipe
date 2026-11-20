@@ -67,40 +67,30 @@ const NON_ZDR_EMBEDDING_MODEL = "openai/text-embedding-ada-002"
 const NON_ZDR_VISION_MODEL = "google/gemini-2.5-flash-lite"
 
 /** The provider names of the ZDR endpoints of a model (`zdrProviders`). */
-type ZdrProvidersOf = (
-  model: string,
-  quantizations?: readonly string[],
-) => Set<string>
+type ZdrProvidersOf = (model: string) => Set<string>
 
 /**
  * The provider names of the ZDR endpoints of each model, from the OpenRouter
- * ZDR list (`GET /api/v1/endpoints/zdr`), at an allowed quantization when
- * `quantizations` is given. The model calls pin no provider, so a check
+ * ZDR list (`GET /api/v1/endpoints/zdr`). The model calls pin no provider, so a check
  * passes when the answer names one of these providers (ADR-068 decision 7).
  * The answer names only the provider, not its endpoint: when a provider has
  * more than one endpoint of a model, the name does not show which one served
- * the call. The `zdr` and `quantizations` fields of the request decide the
- * endpoint, and the refusal pairs show that OpenRouter applies `zdr`. The
+ * the call. The `zdr` field of the request decides the endpoint, and the refusal pairs show that OpenRouter applies `zdr`. The
  * list holds no input of ours, so the call goes around the recorder.
  */
 async function zdrProviders(base: string): Promise<ZdrProvidersOf> {
   const data = await readZdrList(base)
-  return (model: string, quantizations?: readonly string[]) =>
+  return (model: string) =>
     new Set(
       data
-        .filter(
-          (endpoint) =>
-            endpoint.model_id === model &&
-            (!quantizations || quantizations.includes(endpoint.quantization)),
-        )
+        .filter((endpoint) => endpoint.model_id === model)
         .map((endpoint) => endpoint.provider_name),
     )
 }
 
 /**
  * The OpenRouter ZDR list (`GET /api/v1/endpoints/zdr`): each ZDR endpoint
- * with its model, provider, tag and quantization (`unknown` when the list
- * gives none).
+ * with its model, provider and tag.
  */
 export async function readZdrList(base: string) {
   const response = await fetch(`${base.replace(/\/+$/, "")}/endpoints/zdr`)
@@ -113,10 +103,6 @@ export async function readZdrList(base: string) {
           model_id: z.string(),
           provider_name: z.string(),
           tag: z.string(),
-          quantization: z
-            .string()
-            .nullish()
-            .transform((value) => value ?? "unknown"),
         }),
       ),
     })
@@ -249,22 +235,17 @@ const nonZdrDecision = (zdr: boolean) =>
 
 /**
  * The embedding request of the client, sent to the non-ZDR embedding model.
- * The model and `zdr` change. The dimension and the quantizations go out
- * too, so that the control model can serve the request; both requests of
- * the pair are the same apart from `zdr`.
+ * The model and `zdr` change. The dimension goes out too, so that the
+ * control model can serve the request; both requests of the pair are the
+ * same apart from `zdr`.
  */
 const nonZdrEmbedding = (zdr: boolean) =>
   withChangedBody(
-    ({ dimensions: _dimensions, ...body }) => {
-      const { quantizations: _quantizations, ...provider } = jsonObject.parse(
-        body.provider,
-      )
-      return {
-        ...body,
-        model: NON_ZDR_EMBEDDING_MODEL,
-        provider: { ...provider, zdr },
-      }
-    },
+    ({ dimensions: _dimensions, ...body }) => ({
+      ...body,
+      model: NON_ZDR_EMBEDDING_MODEL,
+      provider: { ...jsonObject.parse(body.provider), zdr },
+    }),
     () => embedQuery("Is the sky blue?"),
   )
 
@@ -334,8 +315,8 @@ async function probeChecks(
   }
   await refusalPair("decisions", NON_ZDR_DECISIONS_MODEL, nonZdrDecision)
 
-  const { model, dimensions, batchSize, quantizations } = textEmbeddingConfig
-  const embeddingProviders = zdrProvidersOf(model, quantizations)
+  const { model, dimensions, maxBatchInputs } = textEmbeddingConfig
+  const embeddingProviders = zdrProvidersOf(model)
   const embedded = async (
     name: string,
     count: number,
@@ -350,22 +331,22 @@ async function probeChecks(
         evidence.vectors === count &&
         evidence.result?.length === count &&
         evidence.result.every((vector) => vector.length === dimensions),
-      `HTTP 200, a ZDR provider of ${model} at ${quantizations.join(", ")} (${[...embeddingProviders].join(", ") || "none listed"}), and ${count} vector(s) of ${dimensions} dimensions in one answer`,
+      `HTTP 200, a ZDR provider of ${model} (${[...embeddingProviders].join(", ") || "none listed"}), and ${count} vector(s) of ${dimensions} dimensions in one answer`,
     )
   }
   await embedded("embedding-query", 1, async () => [
     await embedQuery("Which squares of the checkerboard are red?"),
   ])
-  // One full batch of document chunks in one request, as the projection
-  // sends them: this proves that a ZDR endpoint at an allowed quantization
-  // takes a batch and the configured dimension.
-  await embedded("embedding-text-batch", batchSize, () =>
+  // One full batch of short document chunks in one request, as the
+  // projection sends them: this proves that a ZDR endpoint takes a batch of
+  // `maxBatchInputs` and the configured dimension.
+  await embedded("embedding-text-batch", maxBatchInputs, () =>
     embedTexts(
-      Array.from({ length: batchSize }, (_, index) => ({
+      Array.from({ length: maxBatchInputs }, (_, index) => ({
         text: checkerboardSentence(index),
         documentTitle: "Checkerboard",
         chunkIndex: index,
-        chunkCount: batchSize,
+        chunkCount: maxBatchInputs,
       })),
     ),
   )

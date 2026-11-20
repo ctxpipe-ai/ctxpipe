@@ -327,7 +327,7 @@ async function applyChangeSet(input: {
     const failed: { docKey: string; error: string }[] = []
     // The blobs are read 50 files at a time. The chunks of the whole group
     // then go to the embedding client in one call, so that its requests
-    // fill to `batchSize`.
+    // fill to the batch limits.
     await inBatches(group, 50, async (batch) => {
       const rows = await projectFiles({
         directory,
