@@ -19,6 +19,7 @@ import {
   type MutationCounter,
   REFERENCE_TARGET_PREFIX,
 } from "../knowledge-store/knowledge-store.js"
+import { mapWithConcurrency } from "../lib/mapWithConcurrency.js"
 import {
   beginKnowledgeRun,
   completeKnowledgeRun,
@@ -600,15 +601,11 @@ async function embedImages(
       }
     }
   }
-  // In the order of `images`, at most `concurrency` requests at a time.
-  const results: Awaited<ReturnType<typeof embed>>[] = []
-  const { concurrency } = multimodalEmbeddingConfig
-  for (let start = 0; start < images.length; start += concurrency)
-    results.push(
-      ...(await Promise.all(
-        images.slice(start, start + concurrency).map(embed),
-      )),
-    )
+  const results = await mapWithConcurrency(
+    images,
+    multimodalEmbeddingConfig.concurrency,
+    embed,
+  )
   const documents: DocumentRows[] = []
   const failed: { docKey: string; error: string }[] = []
   for (const result of results)

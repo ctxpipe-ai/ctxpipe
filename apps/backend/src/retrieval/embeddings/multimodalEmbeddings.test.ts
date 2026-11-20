@@ -77,32 +77,32 @@ describe("embedMultimodal", () => {
   it("sends one no-retention, pinned-provider request for each input, at most `concurrency` at a time, and keeps the input order", async () => {
     const bodies: Body[] = []
     const auth: (string | null)[] = []
-    let inFlight = 0
-    let most = 0
+    // Each answer waits until the test releases it.
+    const held: (() => void)[] = []
     server.use(
       http.post(EMBEDDINGS_URL, async ({ request }) => {
         auth.push(request.headers.get("authorization"))
-        inFlight++
-        most = Math.max(most, inFlight)
-        // The answers come back in the reverse order of the requests.
         const body = (await request.json()) as Body
-        await new Promise((resolve) =>
-          setTimeout(resolve, 20 - bodies.length * 4),
-        )
         bodies.push(body)
-        inFlight--
-        const text = JSON.stringify(body.input[0]?.content)
-        const n = Number(/chunk (\d)/.exec(text)?.[1])
+        await new Promise<void>((resolve) => held.push(resolve))
+        const n = Number(/chunk (\d)/.exec(JSON.stringify(body.input))?.[1])
         return HttpResponse.json({
           data: [{ index: 0, embedding: vector(n) }],
         })
       }),
     )
 
-    const result = await embedMultimodal([0, 1, 2, 3, 4].map(text), config)
+    const result = embedMultimodal([0, 1, 2, 3, 4].map(text), config)
 
+    // Two requests are in flight; a new one starts only when the test
+    // releases an answer. The newest answer goes first, so the answers come
+    // back in another order than the requests.
+    for (const inFlight of [2, 2, 2, 2, 1]) {
+      await vi.waitFor(() => expect(held).toHaveLength(inFlight))
+      held.pop()?.()
+    }
+    expect((await result).map((e) => e[0])).toEqual([0, 1, 2, 3, 4])
     expect(bodies).toHaveLength(5)
-    expect(most).toBe(2)
     for (const body of bodies) {
       expect(body.input).toHaveLength(1)
       expect(body.model).toBe("vendor/multimodal-embed")
@@ -120,7 +120,6 @@ describe("embedMultimodal", () => {
         { type: "text", text: "Design notes (part 2 of 5)\n\nchunk 1" },
       ],
     })
-    expect(result.map((e) => e[0])).toEqual([0, 1, 2, 3, 4])
   })
 
   it("starts no new request after a failure", async () => {

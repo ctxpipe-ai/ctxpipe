@@ -1251,11 +1251,10 @@ describe("projectKnowledgePlane", () => {
       })
       // Only the JPEG and the small PNG go to the embedding model, one in
       // each request. Each relation stays, with its alt text.
-      expect(
-        embeddings.inputs.filter((input) =>
-          JSON.stringify(input).includes("image_url"),
-        ),
-      ).toEqual(
+      const imageInputs = embeddings.inputs.filter((input) =>
+        JSON.stringify(input).includes("image_url"),
+      )
+      expect(imageInputs).toEqual(
         expect.arrayContaining(
           [
             `data:image/png;base64,${png("chart").toString("base64")}`,
@@ -1265,11 +1264,7 @@ describe("projectKnowledgePlane", () => {
           ]),
         ),
       )
-      expect(
-        embeddings.inputs.filter((input) =>
-          JSON.stringify(input).includes("image_url"),
-        ),
-      ).toHaveLength(2)
+      expect(imageInputs).toHaveLength(2)
       expect(
         (await store.readDocument(scope, key(workspaceId, "a.md")))?.outgoing
           .map(({ dstDoc, altText }) => [dstDoc, altText])
