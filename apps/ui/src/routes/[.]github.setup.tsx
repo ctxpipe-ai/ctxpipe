@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { Spinner } from "@/components/ui/spinner"
-import { GithubNotLinkedNotice } from "@/features/connectors/components/GithubNotLinkedNotice"
+import { GithubOwnAppNotice } from "@/features/connectors/components/GithubOwnAppNotice"
 import { resolveGithubSetupOrganization } from "@/features/connectors/githubConnectFlow"
 import { client, userClient } from "@/lib/api"
 import { ApiError, readApiJson } from "@/lib/api-result"
@@ -20,8 +20,8 @@ import {
   GITHUB_SETUP_RESULT_KEY,
   GITHUB_SETUP_RESULT_MESSAGE,
   getActiveGithubPopupFlowState,
+  githubAuthorizeUrlOf,
 } from "@/lib/popup"
-import { useGithubSignInEnabled } from "@/lib/useGetAuthConfig"
 
 export const Route = createFileRoute("/.github/setup")({
   ssr: false,
@@ -39,7 +39,6 @@ export const Route = createFileRoute("/.github/setup")({
     connectionId:
       typeof search.connectionId === "string" ? search.connectionId : undefined,
     state: typeof search.state === "string" ? search.state : undefined,
-    error: typeof search.error === "string" ? search.error : undefined,
   }),
 })
 
@@ -47,8 +46,6 @@ type ConnectGithubViewProps = {
   installationId: number
   selectedOrganizationSlug: string
   connectionId?: string
-  /** The error code of a failed GitHub account link. */
-  linkError?: string
 }
 
 function MissingInstallationIdView() {
@@ -154,7 +151,6 @@ export function ConnectGithubView({
   installationId,
   selectedOrganizationSlug,
   connectionId,
-  linkError,
 }: ConnectGithubViewProps) {
   const navigate = useNavigate()
 
@@ -194,17 +190,47 @@ export function ConnectGithubView({
 
   const parsedErrorWhy =
     error instanceof ApiError ? error.body.why : parseError(error)?.why
-  const githubSignIn = useGithubSignInEnabled()
 
-  if (parsedErrorWhy === "github_not_linked") {
+  // Someone can send this address to the user, so the user confirms the org
+  // before GitHub, which can skip its own consent screen.
+  const authorizeUrl = githubAuthorizeUrlOf(error)
+  if (authorizeUrl) {
     return (
       <AppShell>
         <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
-          <GithubNotLinkedNotice
-            githubSignInEnabled={githubSignIn ?? true}
-            orgSlug={selectedOrganizationSlug}
-            linkError={linkError}
-          />
+          <section>
+            <h1 className="text-3xl font-medium tracking-tight text-foreground">
+              Confirm your GitHub access
+            </h1>
+            <p className="mt-3 text-sm text-zinc-400">
+              To connect this GitHub App installation to the organization{" "}
+              <span className="font-medium text-foreground">
+                {selectedOrganizationSlug}
+              </span>
+              , authorize the ctxpipe GitHub App on GitHub. ctxpipe uses this
+              one time to check that your GitHub account can access the
+              installation.
+            </p>
+            <div className="mt-6">
+              <Button
+                variant="primary"
+                className="rounded-md"
+                href={authorizeUrl}
+              >
+                Authorize on GitHub
+              </Button>
+            </div>
+          </section>
+        </main>
+      </AppShell>
+    )
+  }
+
+  if (parsedErrorWhy === "github_authorization_unavailable") {
+    return (
+      <AppShell>
+        <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
+          <GithubOwnAppNotice orgSlug={selectedOrganizationSlug} />
         </main>
       </AppShell>
     )
@@ -357,7 +383,6 @@ function DirectSetupPage() {
       installationId={search.installation_id}
       selectedOrganizationSlug={organization.orgSlug}
       connectionId={search.connectionId}
-      linkError={search.error}
     />
   )
 }

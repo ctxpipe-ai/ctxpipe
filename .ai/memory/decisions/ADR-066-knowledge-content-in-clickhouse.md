@@ -39,7 +39,7 @@ We deferred direct S3 adjacency objects. They can take graph load off ClickHouse
      - `kind`, title, path, source type, source and summary;
      - `mime` for an image;
      - `valid_from`, `valid_to` and `observed_at`.
-   - `chunks`: the sections of a document. It holds `ordinal`, `text`, the full vector and its binary form (the search is in [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md)), and a text index on `text`.
+   - `chunks`: the sections of a document. It holds `ordinal`, `text`, the full vector and its binary form (the search is in [ADR-068](ADR-068-knowledge-retrieval-jev-layers.md)), the key of the vector for its reuse (`embedding_key`, [ADR-067](ADR-067-knowledge-projection-applies-git-diff.md) decision 5), and a text index on `text`.
    - `relations`: `(src_doc, src_chunk, predicate, dst_doc)`, with confidence, validity, source and `observed_at`. It sorts by `src_doc`, for the outgoing relations.
    - `relations_in`: the same rows, sorted by `(org_id, workspace_id, dst_doc, predicate, src_doc)`, for the incoming relations. `KnowledgeStore` writes and deletes both tables.
    - `doc_refs`: `(org_id, workspace_id, ref_key, doc_key)`, sorted by `ref_key`. Each row is a reference key that a file states for itself (decision 5). `KnowledgeStore` writes and deletes it together with the other rows of the file. It has the same `CHECK` constraint and row policy as the other tables (decision 9). It comes with [CTX-1400](https://linear.app/ctxpipe/issue/CTX-1400).

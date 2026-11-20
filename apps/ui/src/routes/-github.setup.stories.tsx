@@ -5,8 +5,6 @@ import { expect, waitFor, within } from "storybook/test"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import {
   organizationFullWithOrgHandler,
-  organizationListWithOrgHandler,
-  sessionSignedInHandler,
   signedInHandlers,
 } from "../mocks/handlers"
 import { workspaceListHandler } from "../mocks/workspace-handlers"
@@ -82,40 +80,26 @@ export const RegistrationRefused: Story = {
 }
 
 /**
- * GitHub setup screen after the App install, which asks the user to link
- * GitHub: the last link failed because the account belongs to another ctxpipe
- * user. The page says why in GitHub terms and still offers the link.
+ * GitHub setup screen after the App install, on a deployment without a GitHub
+ * App client: ctxpipe cannot ask GitHub whether the user can access the
+ * installation, so the page points to the organization's own App.
  */
-export const NotLinkedShowsLinkError: Story = {
+export const AuthorizationUnavailableShowsOwnApp: Story = {
   render: () => (
-    <ConnectGithubView
-      installationId={42}
-      selectedOrganizationSlug="acme"
-      linkError="account_already_linked_to_different_user"
-    />
+    <ConnectGithubView installationId={42} selectedOrganizationSlug="acme" />
   ),
   parameters: {
     msw: {
       handlers: {
-        // Replaces the auth config of signedInHandlers, which has no social providers.
-        session: [
-          http.get("*/.auth/api/config", () =>
-            HttpResponse.json({ providers: ["github"] }),
-          ),
-          sessionSignedInHandler({
-            id: "user_storybook",
-            onboardingCompletedAt: "2025-01-01T00:00:00.000Z",
-          }),
-          organizationListWithOrgHandler,
-        ],
         page: [
           organizationFullWithOrgHandler,
           workspaceListHandler([]),
           http.post("*/acme/api/v1/github/installation", () =>
             HttpResponse.json(
               {
-                error: "Connect your GitHub account to link this installation",
-                why: "github_not_linked",
+                error:
+                  "This deployment cannot confirm GitHub access. Use your organization's own GitHub App",
+                why: "github_authorization_unavailable",
               },
               { status: 403 },
             ),
@@ -127,14 +111,11 @@ export const NotLinkedShowsLinkError: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("heading", {
-      name: "Connect your GitHub account to finish setup",
+      name: "Use your organization's own GitHub App",
     })
-    const alert = await canvas.findByRole("alert")
-    await waitFor(() =>
-      expect(alert).toHaveTextContent(
-        /This GitHub account is linked to another ctxpipe user/,
-      ),
-    )
+    await expect(
+      canvas.getByRole("link", { name: "Open Connectors" }),
+    ).toHaveAttribute("href", "/acme/connectors")
     // The page title stands alone: no "GitHub" eyebrow label above it (DESIGN.md).
     await waitFor(() => {
       expect(canvas.queryByText("Repositories")).not.toBeInTheDocument()
@@ -142,5 +123,49 @@ export const NotLinkedShowsLinkError: Story = {
         canvas.queryByText("GitHub", { exact: true }),
       ).not.toBeInTheDocument()
     })
+  },
+}
+
+/**
+ * GitHub setup screen after the App install, when the user's linked GitHub
+ * account does not show access to the installation: the page names the
+ * organization and waits for the user to choose **Authorize on GitHub**. It
+ * does not go to GitHub without that click, because another person can send
+ * this address.
+ */
+export const AuthorizationRequiredAsksToConfirm: Story = {
+  render: () => (
+    <ConnectGithubView installationId={42} selectedOrganizationSlug="acme" />
+  ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          organizationFullWithOrgHandler,
+          workspaceListHandler([]),
+          http.post("*/acme/api/v1/github/installation", () =>
+            HttpResponse.json(
+              {
+                error: "Authorize the GitHub App to confirm your access",
+                why: "github_authorization_required",
+                authorizeUrl:
+                  "https://github.com/login/oauth/authorize?client_id=Iv1.story&state=gh-installation.story",
+              },
+              { status: 403 },
+            ),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("heading", { name: "Confirm your GitHub access" })
+    await expect(canvas.getByText("acme")).toBeVisible()
+    const authorize = canvas.getByRole("link", { name: "Authorize on GitHub" })
+    await expect(authorize).toHaveAttribute(
+      "href",
+      "https://github.com/login/oauth/authorize?client_id=Iv1.story&state=gh-installation.story",
+    )
   },
 }

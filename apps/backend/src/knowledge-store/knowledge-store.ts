@@ -51,6 +51,12 @@ export type KnowledgeChunk = {
   endLine: number
   /** The full vector. The server stores it as BFloat16. */
   embedding: number[]
+  /**
+   * The key of the vector (`embeddingKey`), for its reuse by a later write
+   * ({@link KnowledgeStore.readEmbeddings}). Absent: the vector is never
+   * reused.
+   */
+  embeddingKey?: string
 }
 
 export type KnowledgeRelation = {
@@ -250,6 +256,16 @@ export type KnowledgeStore = {
   /** The key and the status of each document of the Workspace. */
   listDocumentKeys(scope: KnowledgeScope): Promise<DocumentKey[]>
   /**
+   * The stored vector of each key of `embeddingKeys` that a chunk of a
+   * document of `docKeys` has, in the Workspace of `scope` only. The vector
+   * is the stored BFloat16 value, so a write of it stores the same value.
+   */
+  readEmbeddings(
+    scope: KnowledgeScope,
+    docKeys: string[],
+    embeddingKeys: string[],
+  ): Promise<Map<string, number[]>>
+  /**
    * Each relation target that is a reference key with no document in
    * `doc_refs` (`ref:<key>`), with each document that states it. Such a key
    * has no `missing` row: it is a missing link of its own kind.
@@ -317,6 +333,8 @@ export function createKnowledgeStore(url: string | undefined): KnowledgeStore {
     applyDocuments: (scope, changes, counter) =>
       applyDocuments(client, scope, changes, counter ?? { mutations: 0 }),
     listDocumentKeys: (scope) => listDocumentKeys(client, scope),
+    readEmbeddings: (scope, docKeys, embeddingKeys) =>
+      readEmbeddings(client, scope, docKeys, embeddingKeys),
     listUnresolvedReferences: (scope) =>
       listUnresolvedReferences(client, scope),
     readDocument: (scope, docKey) => readDocument(client, scope, docKey),
@@ -626,6 +644,34 @@ const listDocumentKeys = (client: ClickHouseClient, scope: KnowledgeScope) =>
      ORDER BY doc_key`,
   )
 
+/**
+ * The chunk sort key starts with `doc_key`, so the filter by `docKeys` reads
+ * only the granules of those documents. Each IN list has at most
+ * {@link IN_LIST_CAP} values.
+ */
+async function readEmbeddings(
+  client: ClickHouseClient,
+  scope: KnowledgeScope,
+  docKeys: string[],
+  embeddingKeys: string[],
+): Promise<Map<string, number[]>> {
+  const vectors = new Map<string, number[]>()
+  const wanted = [...new Set(embeddingKeys)].filter(Boolean)
+  for (const docSlice of slices([...new Set(docKeys)]))
+    for (const keySlice of slices(wanted.filter((key) => !vectors.has(key))))
+      for (const row of await select<{ key: string; embedding: number[] }>(
+        client,
+        scope,
+        `SELECT embedding_key AS key, any(embedding) AS embedding FROM chunks
+         WHERE ${scoped} AND doc_key IN {docKeys:Array(String)}
+           AND embedding_key IN {embeddingKeys:Array(String)}
+         GROUP BY embedding_key`,
+        { docKeys: docSlice, embeddingKeys: keySlice },
+      ))
+        vectors.set(row.key, row.embedding)
+  return vectors
+}
+
 const listUnresolvedReferences = (
   client: ClickHouseClient,
   scope: KnowledgeScope,
@@ -679,6 +725,7 @@ type TableRows = {
     start_line: number
     end_line: number
     embedding: number[]
+    embedding_key: string
   }
   relations: RelationColumns
   relations_in: RelationColumns
@@ -745,6 +792,7 @@ async function insertRows(
         start_line: chunk.startLine,
         end_line: chunk.endLine,
         embedding: chunk.embedding,
+        embedding_key: chunk.embeddingKey ?? "",
       })),
     ),
   )

@@ -59,8 +59,8 @@ All social providers are optional. Omit the variables to disable that provider.
 
 | Variable | Description |
 |---|---|
-| `GITHUB_CLIENT_ID` | GitHub OAuth app client ID |
-| `GITHUB_CLIENT_SECRET` | GitHub OAuth app client secret |
+| `GITHUB_CLIENT_ID` | Client ID of the GitHub App (sign-in, and the check that a user can access an installation) |
+| `GITHUB_CLIENT_SECRET` | Client secret of the GitHub App |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
 | `MICROSOFT_CLIENT_ID` | Microsoft Entra application client ID |
@@ -319,8 +319,10 @@ The wizard reserves the connection-specific webhook URL and gives the exact
 value to paste into GitHub.
 
 <Callout title="OAuth sign-in is separate">
-  `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are for signing in with GitHub.
-  GitHub App credentials are for repository installation and webhook access.
+  `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` are for signing in with GitHub
+  and for the one-time authorization that proves access to an installation.
+  Use the client ID and secret of the App in `GITHUB_APP_ID`. GitHub App
+  credentials are for repository installation and webhook access.
 </Callout>
 
 See [GitHub](/docs/self-hosting/github) for App registration, permissions,

@@ -12,14 +12,13 @@ import {
   vi,
 } from "vitest"
 
+import { ApiError } from "./api-result"
 import {
   beginGithubPopupFlow,
   GITHUB_SETUP_RESULT_KEY,
   getActiveGithubPopupFlowState,
-  githubLinkErrorMessage,
-  githubLinkPopupUrl,
+  githubAuthorizeUrlOf,
   handleGithubSetupPopupResult,
-  isGithubAppInstallUrl,
 } from "./popup"
 
 const server = setupServer()
@@ -58,21 +57,43 @@ afterAll(() => {
   server.close()
 })
 
-function refuseRegistration(why: string) {
+function refuseRegistration(why: string, authorizeUrl?: string) {
   server.use(
     http.post("*/acme/api/v1/github/installation", () =>
-      HttpResponse.json({ error: "Refused", why }, { status: 403 }),
+      HttpResponse.json(
+        { error: "Refused", why, ...(authorizeUrl ? { authorizeUrl } : {}) },
+        { status: 403 },
+      ),
     ),
   )
 }
 
+const authorizeUrl =
+  "https://github.com/login/oauth/authorize?client_id=Iv1.test&state=s1"
+
 describe("handleGithubSetupPopupResult", () => {
-  it("sends a user without a linked GitHub account to /.github/setup to link it", async () => {
+  it("sends the user to GitHub to authorize the App once", async () => {
+    localStorage.setItem(
+      GITHUB_SETUP_RESULT_KEY,
+      JSON.stringify({ installationId: 42 }),
+    )
+    refuseRegistration("github_authorization_required", authorizeUrl)
+
+    const { status } = await handleGithubSetupPopupResult(
+      "acme",
+      new QueryClient(),
+    )
+
+    expect(status).toBe("redirected")
+    expect(assign).toHaveBeenCalledWith(authorizeUrl)
+  })
+
+  it("sends the user to /.github/setup when the deployment cannot ask GitHub", async () => {
     localStorage.setItem(
       GITHUB_SETUP_RESULT_KEY,
       JSON.stringify({ installationId: 42, connectionId: "con_draft" }),
     )
-    refuseRegistration("github_not_linked")
+    refuseRegistration("github_authorization_unavailable")
 
     const { status } = await handleGithubSetupPopupResult(
       "acme",
@@ -85,13 +106,13 @@ describe("handleGithubSetupPopupResult", () => {
     )
   })
 
-  it("ends the popup flow before it sends the window to /.github/setup", async () => {
+  it("ends the popup flow before it leaves the page", async () => {
     const nonce = beginGithubPopupFlow()
     localStorage.setItem(
       GITHUB_SETUP_RESULT_KEY,
       JSON.stringify({ installationId: 42, popupFlowNonce: nonce }),
     )
-    refuseRegistration("github_not_linked")
+    refuseRegistration("github_authorization_required", authorizeUrl)
     // The browser unloads the opener on navigation, so no later code runs.
     let flowAtNavigation: unknown = "not navigated"
     assign.mockImplementation(() => {
@@ -120,83 +141,36 @@ describe("handleGithubSetupPopupResult", () => {
     expect(status).toBe("registration_failed")
     expect(assign).not.toHaveBeenCalled()
   })
-
-  it("reports the link error that the popup of this flow relays, and registers nothing", async () => {
-    const nonce = beginGithubPopupFlow()
-    localStorage.setItem(
-      GITHUB_SETUP_RESULT_KEY,
-      JSON.stringify({
-        linkError: "account_already_linked_to_different_user",
-        popupFlowNonce: nonce,
-      }),
-    )
-    // No registration handler: an unexpected request fails the test.
-
-    const result = await handleGithubSetupPopupResult("acme", new QueryClient())
-
-    expect(result).toEqual({
-      status: "link_failed",
-      linkError: "account_already_linked_to_different_user",
-    })
-  })
-
-  it("ignores a link error from another flow", async () => {
-    beginGithubPopupFlow()
-    localStorage.setItem(
-      GITHUB_SETUP_RESULT_KEY,
-      JSON.stringify({
-        linkError: "account_already_linked_to_different_user",
-        popupFlowNonce: "another-flow",
-      }),
-    )
-    server.use(
-      http.get("*/acme/api/v1/github/installation", () =>
-        HttpResponse.json(null),
-      ),
-    )
-
-    const result = await handleGithubSetupPopupResult("acme", new QueryClient())
-
-    expect(result).toEqual({ status: "no_result" })
-  })
 })
 
-describe("the GitHub link popup", () => {
-  it("goes on only to a GitHub App install page on github.com", () => {
+describe("githubAuthorizeUrlOf", () => {
+  const refusal = (authorizeUrl: string | undefined) =>
+    new ApiError("Refused", 403, {
+      body: { why: "github_authorization_required", authorizeUrl },
+    })
+
+  it("accepts only GitHub's authorize page", () => {
+    expect(githubAuthorizeUrlOf(refusal(authorizeUrl))).toBe(authorizeUrl)
     for (const url of [
-      "https://github.com/apps/ctxpipe/installations/new?state=abc",
-      "https://github.com/apps/ctxpipe/installations/select_target?state=abc",
-    ]) {
-      expect(isGithubAppInstallUrl(url)).toBe(true)
-    }
-    for (const url of [
-      "https://github.com/login/oauth/authorize?client_id=other",
-      "https://github.com/apps/ctxpipe",
-      "https://github.com.evil.test/apps/x/installations/new",
-      "https://github.com@evil.test/apps/x/installations/new",
-      "https://evil.test/https://github.com/apps/x/installations/new",
-      "http://github.com/apps/x/installations/new",
-      "//github.com/apps/x/installations/new",
+      "https://github.com/apps/ctxpipe/installations/new",
+      "https://github.com.evil.test/login/oauth/authorize",
+      "https://github.com@evil.test/login/oauth/authorize",
+      "http://github.com/login/oauth/authorize",
+      "//github.com/login/oauth/authorize",
       "javascript:alert(1)",
       "/acme/connectors",
       "",
+      undefined,
     ]) {
-      expect(isGithubAppInstallUrl(url)).toBe(false)
+      expect(githubAuthorizeUrlOf(refusal(url))).toBeNull()
     }
   })
 
-  it("carries the install address to the link page", () => {
-    const install = "https://github.com/apps/ctxpipe/installations/new?state=n1"
-    const url = new URL(githubLinkPopupUrl(install), "http://app.test")
-    expect(url.pathname).toBe("/.github/link")
-    expect(url.searchParams.get("next")).toBe(install)
-  })
-
-  it("names GitHub, not another provider, when the account belongs to another user", () => {
-    const message = githubLinkErrorMessage(
-      "account_already_linked_to_different_user",
-    )
-    expect(message).toMatch(/GitHub account/)
-    expect(message).not.toMatch(/Atlassian/)
+  it("ignores any other refusal", () => {
+    const other = new ApiError("Refused", 403, {
+      body: { why: "github_installation_not_accessible", authorizeUrl },
+    })
+    expect(githubAuthorizeUrlOf(other)).toBeNull()
+    expect(githubAuthorizeUrlOf(new Error("network"))).toBeNull()
   })
 })

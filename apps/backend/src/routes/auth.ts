@@ -10,6 +10,10 @@ import type { Context, Hono } from "hono"
 import type { AppEnv } from "../app/env.js"
 import { atlassianLinkCallbackFirst } from "../auth/atlassian-link-callback.js"
 import { getAuth } from "../auth/config.js"
+import {
+  githubInstallationProofCallback,
+  isGithubInstallationProofState,
+} from "../auth/github-installation-proof.js"
 import { MCP_SCOPES } from "../auth/mcp-scopes.js"
 import {
   logOAuthError,
@@ -129,6 +133,14 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
 
   app.on(["GET", "POST"], "/.auth/api/v1/auth/callback/atlassian", (c) =>
     atlassianLinkCallbackFirst(c),
+  )
+
+  // GitHub sends both the sign-in and the installation proof to the one
+  // callback URL that the App lists. Only the proof state has this prefix.
+  app.get("/.auth/api/v1/auth/callback/github", (c, next) =>
+    isGithubInstallationProofState(c.req.query("state"))
+      ? githubInstallationProofCallback(c)
+      : next(),
   )
 
   app.on(["GET", "POST"], "/.auth/api/v1/auth/*", async (c) => {
