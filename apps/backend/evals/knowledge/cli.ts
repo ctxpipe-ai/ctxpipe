@@ -14,6 +14,7 @@
  *   bun evals/knowledge/cli.ts corpus snapshot|issues|freeze --plan FILE \
  *     --out FILE
  *   bun evals/knowledge/cli.ts probe --out DIR [--cap-usd 0.25]
+ *   bun evals/knowledge/cli.ts latency --out DIR [--runs 50] [--cap-usd 2]
  *   bun evals/knowledge/cli.ts vision --out DIR [--models A,B,C] [--cap-usd 5]
  *
  * See README.md. Exit code 0: done. 2: bad setup. 3: the spend cap stopped
@@ -43,6 +44,7 @@ import {
 } from "./corpus.js"
 import { type Dataset, readDataset } from "./dataset.js"
 import type { EvalOrg } from "./hydrate.js"
+import { measureLatency } from "./latency.js"
 import { ModelCalls, type RecordedCall } from "./model-calls.js"
 import { labelWithPanel } from "./panel.js"
 import { probe } from "./probe.js"
@@ -334,9 +336,13 @@ async function main(argv: string[]): Promise<number> {
       draft: { type: "string" },
       repo: { type: "string" },
       models: { type: "string" },
+      runs: { type: "string" },
     },
   })
-  const capUsd = Number(values["cap-usd"] ?? (command === "probe" ? 0.25 : 5))
+  const capUsd = Number(
+    values["cap-usd"] ??
+      (command === "probe" ? 0.25 : command === "latency" ? 2 : 5),
+  )
   if (!Number.isFinite(capUsd) || capUsd < 0)
     throw new SetupError("--cap-usd needs a number of 0 or more.")
   if (!values.out) throw new SetupError("Give --out.")
@@ -348,6 +354,24 @@ async function main(argv: string[]): Promise<number> {
       throw new SetupError("probe needs MODEL_PROVIDER_API_KEY.")
     const calls = modelCalls(capUsd)
     return probe({ out, calls, capUsd, base: modelBase() })
+  }
+
+  if (command === "latency") {
+    if (!process.env.MODEL_PROVIDER_API_KEY)
+      throw new SetupError("latency needs MODEL_PROVIDER_API_KEY.")
+    const runs = Number(values.runs ?? 50)
+    if (!Number.isInteger(runs) || runs < 1)
+      throw new SetupError("--runs needs a whole number of 1 or more.")
+    // Each call goes only to a ZDR endpoint (ADR-068 decision 7).
+    const calls = modelCalls(capUsd, undefined, { addZdr: true })
+    const restore = calls.install()
+    try {
+      await measureLatency({ out, calls, base: modelBase(), runs })
+      process.stdout.write(`The report is in ${join(out, "latency.md")}.\n`)
+      return calls.stopped ? 3 : 0
+    } finally {
+      restore()
+    }
   }
 
   if (command === "vision") {
@@ -374,7 +398,7 @@ async function main(argv: string[]): Promise<number> {
 
   if (command !== "run" && command !== "rescore" && command !== "hydrate")
     throw new SetupError(
-      "Use the command hydrate, run, rescore, label, corpus, probe or vision.",
+      "Use the command hydrate, run, rescore, label, corpus, probe, latency or vision.",
     )
   const databaseUrl = process.env.DATABASE_URL
   if (!databaseUrl) throw new SetupError("Set DATABASE_URL.")

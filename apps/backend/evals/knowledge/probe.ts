@@ -195,7 +195,7 @@ const jsonObject = z.record(z.string(), z.unknown())
  * Run `call` with one change to the JSON body of each request that it sends.
  * The real client still makes the request and reads the answer.
  */
-async function withChangedBody<T>(
+export async function withChangedBody<T>(
   change: (body: Record<string, unknown>) => Record<string, unknown>,
   call: () => Promise<T>,
 ): Promise<T> {
