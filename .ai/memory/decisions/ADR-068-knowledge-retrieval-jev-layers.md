@@ -23,7 +23,8 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
 ## Decision
 
 1. **One hybrid search for every Workspace size,** so that one test and one eval cover all sizes:
-   - **Vectors:** each chunk stores a full vector (about 1024 dimensions, `BFloat16`) and a binary form (1 bit for each dimension).
+   - **Vectors:** each chunk stores a full vector (about 1024 dimensions, `BFloat16`) and a binary form (1 bit for each dimension). There are two vector spaces (decision 5): a text chunk has a vector of the text model, and an image has a vector of the image model.
+   - **Two vector legs.** The question is embedded with both models in parallel. Each space runs stages 1 and 2 below on its own rows. The two legs and the lexical leg go into the same RRF.
    - **Stage 1:** scan the binary vectors of the Workspace's chunks (Hamming distance) and keep the top 500.
    - **Stage 2:** score those 500 again with the full vectors (cosine distance).
    - **One query for both stages.** The chunks table uses `index_granularity = 64`, and the query lets ClickHouse read the full vectors of the 500 rows only (lazy materialization). The file cache uses `boundary_alignment` of 128 KiB. Without these settings, stage 2 read almost all full vectors of the Workspace. Measured on 1 million chunks in one Workspace ([CTX-1391](https://linear.app/ctxpipe/issue/CTX-1391), S3 on the same host): p50 34 ms and p95 45 ms warm, p50 126 ms and p95 209 ms cold. The PoC measures the cold path again on real S3.
@@ -55,16 +56,22 @@ The content and its tables are in [ADR-066](ADR-066-knowledge-content-in-clickho
    6. The output is structured positions, with their evidence and the rule that gave the status. The calling agent writes the answer.
 
    Why: Jev gives one fast judgment for each question, and the questions of one call do not see each other. A typed decision model follows the name of an option, not its definition, and the options of a Choice question compete. Thus a 5-way Choice with long definitions, or a question that weighs four factors, is not reliable. Small facts and rules in code are reliable and can be tested.
-5. **One multimodal vector space.**
-   - Text and images are embedded through the OpenRouter embeddings endpoint, with one OpenAI-compatible client that can send `image_url` parts.
-   - The model must also be usable outside AWS, for example by a self-hoster on Azure.
-   - The model and its dimension are config. The model name is part of the projection version ([ADR-067](ADR-067-knowledge-projection-applies-git-diff.md)).
+5. **Two vector spaces: one for text, one for images** (the CTO, 2026-11-20).
+   - Our content is almost all text. A text-only model embeds text chunks in large batches. A multimodal model embeds only the images, which are few. The query pays one more embedding call, in parallel, which is a smaller cost than slow full rebuilds.
+   - The reason: Gemini Embedding 2 is the only multimodal model with ZDR endpoints, and its ZDR endpoints take one input for each request. The live controls of 2026-11-20 ([#892](https://github.com/ctxpipe-ai/ctxpipe/pull/892)) showed that its Vertex endpoints refuse a request with more than one input, also with `zdr: false`; only Google AI Studio takes a batch, and it has no ZDR endpoint. With one space, a full rebuild needs one request for each chunk.
+   - All embeddings go through the OpenRouter embeddings endpoint, with one OpenAI-compatible client. The models must also be usable outside AWS, for example by a self-hoster on Azure.
+   - The model and the dimension of each space are config. Both model names are part of the projection version ([ADR-067](ADR-067-knowledge-projection-applies-git-diff.md)).
    - Before a chunk is embedded, it gets one line of context: the title and position of its document.
-   - The model is Gemini Embedding 2, pinned to the provider `google-vertex` (the CTO, 2026-11-20). On the OpenRouter lists of 2026-11-20, it is the only model that meets all the rules: it takes text and images, it accepts 8,192 tokens of input, and it has zero-data-retention (ZDR) endpoints (decision 7). The evals tune how we use it, for example the dimension and the context line.
-   - The other models do not meet the rules:
-     - Titan Multimodal G1 accepts only 128 tokens of input, which is shorter than most chunks.
-     - Cohere Embed 5 Fast and Voyage Multimodal 3.5 have no endpoint on the OpenRouter ZDR list.
-     - The ZDR text models (for example OpenAI text-embedding-3-large and Qwen3 Embedding 8B) take no images.
+   - **Text model: Qwen3 Embedding 8B** (`qwen/qwen3-embedding-8b`; the CTO, 2026-11-20). The reasons, from the OpenRouter lists and the public benchmarks of 2026-11-20:
+     - It has the best published retrieval quality of the ZDR text models: about 70.6 on the MTEB multilingual board at its release in 2025 (the first place then), and the Qwen3 family scores about 69.6 nDCG@10 on MTEB multilingual v2 retrieval. Gemini Embedding 001 scores 67.71 on that measure. OpenAI text-embedding-3-small is a model of 2024 and scores 62.3 on the older MTEB English average.
+     - It is the least expensive model of good quality: $0.01 for each million tokens.
+     - It accepts 32,768 to 40,960 tokens of input, so chunks are not cut.
+     - It has three ZDR endpoints (DeepInfra, Nebius, SiliconFlow), so one provider can replace another.
+     - Its weights are open, so a self-hoster can run it locally.
+     - The costs: the providers are smaller than Azure, and the model expects an instruction line before a query. The writer and the search must send it.
+   - **The other text candidates:** Perplexity pplx-embed-v1-4b reports similar retrieval quality (69.66 nDCG@10, self-reported) and is the challenger in the first eval. OpenAI text-embedding-3-small on Azure is the fallback if the Qwen providers fail in operation. Models with an input limit of 512 tokens are too short for our chunks. Voyage 4, Cohere Embed 5 and NVIDIA Nemotron have no ZDR endpoint.
+   - **Image model: Gemini Embedding 2,** pinned to the provider `google-vertex`, one image for each request. It is the only ZDR model that takes images and accepts enough input. Titan Multimodal G1 accepts only 128 tokens of input.
+   - Public benchmarks do not match our content (engineering knowledge). The evals of [ADR-069](ADR-069-knowledge-plane-evals-and-rollout.md) decide between the text candidates on our data.
 6. **Images.** Jev sees the image bytes, which the backend reads from the Workspace Git at the served SHA ([ADR-066](ADR-066-knowledge-content-in-clickhouse.md) decision 6). OCR or a vision-model description at ingest is optional, and the evals decide it.
 7. **Data receivers.** Jev receives the question, the text of the candidates and images. The embedding provider receives the content. Both are upstreams of OpenRouter, which our public docs list as the model sub-processor, and we reach them only through ZDR endpoints. ADR-063 accepted the Jev endpoint only for public mock screenshots. For customer content:
    - Every Jev call and every embedding call sets `provider.data_collection: "deny"` and `provider.zdr: true`. Our public docs promise ZDR endpoints for hosted model calls. On 2026-11-19, the OpenRouter ZDR list (`GET /api/v1/endpoints/zdr`) had TypeSafe Jev 1.14 (provider `typesafe`), Gemini Embedding 2 (provider `google-vertex`) and Titan Multimodal G1 (provider `amazon-bedrock`).
