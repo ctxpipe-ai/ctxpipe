@@ -23,8 +23,9 @@ import type { ModelCalls } from "./model-calls.js"
  * take the JSON schema: with no provider pin, they are the fallbacks.
  *
  * The fixtures are made-up diagrams, drawn with Graphviz, D2 (also in its
- * hand-drawn sketch style), PlantUML and Mermaid, and one copy that looks
- * like a photo of a screen (`fixtures/vision/README.md`).
+ * hand-drawn sketch style), PlantUML and Mermaid. A hard set adds a dense
+ * mesh, two photos, a small screenshot, swimlanes and a C4 diagram
+ * (`fixtures/vision/README.md`).
  */
 
 /** The candidates of the eval: ZDR vision models of three families. */
@@ -97,18 +98,18 @@ const bigrams = (text: string) => {
 }
 
 /**
- * The similarity of two labels: 1 when they are equal after normalization,
- * 0.9 when one is the other with more words after it, else the Dice
- * coefficient of their character pairs. It accepts small reading errors, as
- * in the photo fixtures.
+ * The similarity of a predicted label to a gold label: 1 when they are
+ * equal after normalization, 0.9 when the predicted label holds all the
+ * words of the gold label in a row, else the Dice coefficient of their
+ * character pairs. It accepts small reading errors, as in the photo
+ * fixtures, and the full text of a C4 box (a stereotype, the name, a type
+ * and a description). A predicted label that drops words gets no 0.9.
  */
-function similarity(a: string, b: string): number {
-  const left = normalize(a)
-  const right = normalize(b)
+function similarity(gold: string, predicted: string): number {
+  const left = normalize(gold)
+  const right = normalize(predicted)
   if (left === right) return 1
-  // A C4 box holds a name, a type and a description, and a C4 line holds a
-  // label and a technology: a reading of the full text still matches.
-  if (left.startsWith(`${right} `) || right.startsWith(`${left} `)) return 0.9
+  if (left && ` ${right} `.includes(` ${left} `)) return 0.9
   const pairs = bigrams(left)
   const others = bigrams(right)
   if (pairs.length === 0 || others.length === 0) return 0
@@ -125,8 +126,9 @@ function similarity(a: string, b: string): number {
 }
 
 const SAME_LABEL = 0.75
-const sameLabel = (a: string, b: string) =>
-  (!normalize(a) && !normalize(b)) || similarity(a, b) >= SAME_LABEL
+const sameLabel = (gold: string, predicted: string) =>
+  (!normalize(gold) && !normalize(predicted)) ||
+  similarity(gold, predicted) >= SAME_LABEL
 
 /**
  * A one-to-one match of predicted labels to gold labels, best pairs first.

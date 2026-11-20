@@ -202,7 +202,7 @@ describe("scoreReading", () => {
     const reading = perfectReading(gold)
     reading.diagram.nodes = reading.diagram.nodes.map((node) =>
       node.label === "API service"
-        ? { ...node, label: "API service [Container: Go] The JSON API" }
+        ? { ...node, label: "«container» API service [Go] The JSON API" }
         : node,
     )
     reading.diagram.edges = reading.diagram.edges.map((edge) =>
@@ -211,6 +211,14 @@ describe("scoreReading", () => {
     const score = scoreReading(gold, reading)
     expect(score).toMatchObject({ nodeF1: 1, edgeF1: 1, edgeLabel: 1 })
     expect(score.direction).toBeNull()
+  })
+
+  it("does not match a label that drops words of the gold name", () => {
+    const reading = perfectReading(graphGold)
+    reading.diagram.nodes = reading.diagram.nodes.map((node) =>
+      node.label === "Redis cache" ? { ...node, label: "Redis" } : node,
+    )
+    expect(scoreReading(graphGold, reading).nodeF1).toBeLessThan(1)
   })
 
   it("gives 0 to a reading that finds no diagram", () => {

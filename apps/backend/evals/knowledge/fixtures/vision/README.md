@@ -25,7 +25,7 @@ All the diagrams are made up. They contain no customer data. Four tools drew the
 | `checkout` | sequence | Mermaid, with a self-message |
 | `cdn-cache` | sequence | D2 |
 | `dense-mesh` | architecture | Graphviz `neato`: 32 nodes and 48 edges with many crossings, no main direction (`"direction": null`) |
-| `whiteboard-photo` | architecture | D2 sketch, made to look like a photo of a whiteboard (gray, perspective, uneven light, noise, blur, JPEG) |
+| `whiteboard-photo` | architecture | D2 sketch with the Kalam handwriting font (SIL Open Font License), made to look like a photo of a whiteboard (gray, perspective, uneven light, noise, blur, JPEG). It is synthetic: the letters are a font, not real handwriting. |
 | `lowres-screenshot` | flow | Mermaid flowchart, made small (245 × 716 pixels) with strong JPEG loss |
 | `swimlanes` | flow | D2 grid with three lanes; lines cross lanes and labels |
 | `c4-container` | architecture | C4-PlantUML container diagram: each box holds a name, a type and a description |
@@ -42,7 +42,8 @@ docker run --rm -v "$PWD:/f" -w /f alpine:3.22 sh -c '
   for f in arch-web data-platform deploy-flow order-states; do dot -Gdpi=150 -Tpng $f.dot -o $f.png; done &&
   dot -Gdpi=130 -Tpng dense-mesh.dot -o dense-mesh.png &&
   $D2 --pad 40 swimlanes.d2 /tmp/s.svg && rsvg-convert -z 1.4 -b white /tmp/s.svg -o swimlanes.png &&
-  $D2 --sketch --pad 60 whiteboard.d2 /tmp/w.svg && rsvg-convert -z 1.3 -b white /tmp/w.svg -o /tmp/w.png &&
+  K=https://github.com/google/fonts/raw/main/ofl/kalam && curl -sSfL -o /tmp/kr.ttf $K/Kalam-Regular.ttf && curl -sSfL -o /tmp/kb.ttf $K/Kalam-Bold.ttf &&
+  $D2 --sketch --pad 60 --font-regular /tmp/kr.ttf --font-bold /tmp/kb.ttf --font-italic /tmp/kr.ttf --font-semibold /tmp/kb.ttf whiteboard.d2 /tmp/w.svg && rsvg-convert -z 1.3 -b white /tmp/w.svg -o /tmp/w.png &&
   W=$(magick identify -format %w /tmp/w.png) && H=$(magick identify -format %h /tmp/w.png) &&
   magick /tmp/w.png -colorspace Gray -level 0%,100%,0.8 -background "#c9c6bd" -virtual-pixel background -distort Perspective "0,0 $((W/30)),$((H/12))  $W,0 $((W-W/20)),0  0,$H 0,$((H-H/25))  $W,$H $W,$((H-H/10))" \( -size ${W}x${H} radial-gradient:"#ffffff"-"#8f8a80" \) -compose multiply -composite -attenuate 0.5 +noise Gaussian -blur 0x0.8 -resize 75% -quality 50 whiteboard-photo.jpg &&
   $D2 --sketch --pad 40 arch-microservices.d2 /tmp/a.svg && rsvg-convert -z 1.5 -b white /tmp/a.svg -o arch-microservices.png &&
